@@ -15,7 +15,7 @@ goes, what was measured, what was changed, and what is left.
 | Tool | What it tells you | Where |
 |---|---|---|
 | `stat unit` | Frame, Game, Draw (render thread), RHIT, GPU Time, Draws, Prims. Works in this Shipping build. | console |
-| `/bench` (match chat) | The foliage bench below, its result in your chat, and sent to the hub's [benchmarks](https://mjolnircore.com/benchmarks) page by GPU and settings. For players. | MJOLNIRHud `Scripts/bench.lua`, hub `POST /benches` |
+| `/bench` (match chat) | The foliage bench below, its result in your chat, and sent to the hub with its settings; admins read them on the moderation page's Benchmarks tab. For players. | MJOLNIRHud `Scripts/bench.lua`, hub `POST /benches` |
 | `mjolnir_bench` | The cost of the loader's foliage, its shadows and its wind, as an A/B at a held camera. `mjolnir_bench send` also sends it, as `/bench` does. | MJOLNIRHud `Scripts/bench.lua`, `bench.log` |
 | `mjolnir_bench <cvar> <value>` | The same A/B for any console variable against its current value. | same |
 | `mjolnir_hitches` | Per-map median, p95, p99 and worst frame, every hitch with where the camera was and which of our Lua loops ran. Each map's heading in `hitches.log` now carries the settings line. | MJOLNIRHud `Scripts/hitches.lua`, `hitches.log` |
@@ -78,16 +78,18 @@ named in the `match_outbox.txt` MJOLNIRLobby sends match records from:
 ```
 Bench on DTI at 3840x2160: 64 fps (15.5 ms a frame).
 Foliage costs 2.5 ms (16%): its shadows 0.5, its wind 1.3.
-Sending to the hub: see mjolnircore.com/benchmarks in a minute.
+Sending it to the MJOLNIR team. Thanks!
 ```
 
 MJOLNIRLobby posts it to `POST /api/v1/benches` with the launcher's key
-(scope `lobbies:write`, as match reports), and a hub that does not have
-the route yet answers 404, which keeps the file for a later try. The hub
-stores the settings line's fields (migrations/0021), and shows reports by GPU,
-never by account: `/benchmarks` averages foliage runs by GPU, map, height drawn
-and foliage quality, and lists recent runs. `GET /benches` and
-`GET /benches/summary` serve the same data. A run taken in the first two
+(scope `lobbies:write`, as match reports), so any player signed in to the hub
+through the launcher can send one. A hub that does not have the route yet
+answers 404, which keeps the file for a later try. The hub stores the settings
+line's fields with the sender's account (migrations/0021). Only admins read
+them: the moderation page's **Benchmarks** tab (`/moderation#benchmarks`)
+averages foliage runs by GPU, map, height drawn and foliage quality, and lists
+recent runs with who sent each; `GET /admin/benches` and
+`GET /admin/benches/summary` serve the same data. A run taken in the first two
 minutes on a map is kept but left out of the averages.
 
 ## What was measured (Death Island)
@@ -101,7 +103,7 @@ minutes on a map is kept but left out of the averages.
 
 A 5090 holds under 70 fps at 4K on Death Island. By the ratio of GPU
 throughput, a mid-range card at 1440p should be well below 60 with the foliage
-on; `/benchmarks` is where that gets measured rather than estimated.
+on; players' `/bench` runs are where that gets measured rather than estimated.
 
 The tables below are from the 1710x1073 runs.
 
@@ -195,11 +197,11 @@ timed loops". The frame budget is in the GPU.
 ## What is left
 
 - **Measure weaker PCs.** Every number above is from a 5090. `/bench` on
-  PC 2, and from players, fills `/benchmarks` with real hardware.
+  PC 2, and from players, fills the Benchmarks tab with real hardware.
 - **Pick the foliage tier from the GPU.** `sg.FoliageQuality` only helps
   players who open Video settings. `Saved/GpuBenchmark.json` has a `gpuScore`
   (2060 on the 5090), and every bench report carries it with the foliage
-  cost. Once `/benchmarks` holds a few cards, the loader can choose
+  cost. Once the Benchmarks tab holds a few cards, the loader can choose
   `keep` / `cull` / `still` from the score; picking thresholds before that
   would be a guess.
 - **Fewer, cheaper clumps on Epic.** Death Island has 535,000. The `bands`

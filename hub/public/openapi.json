@@ -4689,6 +4689,21 @@
           "id": {
             "type": "string"
           },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
           "map_code": {
             "type": "string"
           },
@@ -4806,6 +4821,7 @@
         },
         "required": [
           "id",
+          "user",
           "map_code",
           "kind",
           "label",
@@ -10411,7 +10427,7 @@
           "benches"
         ],
         "summary": "Send a bench the caller's game ran",
-        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Reports are shown by GPU and map, never by account. Needs the `lobbies:write` scope.",
+        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -10507,12 +10523,14 @@
             }
           }
         }
-      },
+      }
+    },
+    "/api/v1/admin/benches": {
       "get": {
         "tags": [
-          "benches"
+          "admin"
         ],
-        "summary": "Recent bench reports, by map and GPU",
+        "summary": "Recent bench reports, by map and GPU (admin)",
         "parameters": [
           {
             "schema": {
@@ -10584,16 +10602,36 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/v1/benches/summary": {
+    "/api/v1/admin/benches/summary": {
       "get": {
         "tags": [
-          "benches"
+          "admin"
         ],
-        "summary": "Foliage benches averaged by GPU, map, resolution and foliage quality",
+        "summary": "Foliage benches averaged by GPU, map, resolution and foliage quality (admin)",
         "parameters": [
           {
             "schema": {
@@ -10623,6 +10661,26 @@
                   "required": [
                     "rows"
                   ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admins only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

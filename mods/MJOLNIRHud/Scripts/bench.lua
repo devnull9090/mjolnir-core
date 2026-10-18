@@ -369,7 +369,7 @@ local function chatLines(r, sent)
             by["no foliage"], by["no foliage"] * 100 / s.base, by["no foliage shadows"] or 0, by["no foliage wind"] or 0)
     end
     if r.send then
-        lines[#lines + 1] = sent and "Sending to the hub: see mjolnircore.com/benchmarks in a minute."
+        lines[#lines + 1] = sent and "Sending it to the MJOLNIR team. Thanks!"
             or "Not sent: the hub outbox could not be written."
     end
     return lines

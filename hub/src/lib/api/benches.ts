@@ -9,13 +9,16 @@
  * `lobbies:write` scope every launcher key already has (as match reports
  * do, migrations/0013).
  *
- * Reports are shown by GPU and map, never by account. What a report says is
- * the player's game's word: the page averages many and shows how many.
+ * Any signed-in player may send one; only admins read them (the moderation
+ * page's Benchmarks section): they carry the sender's account, GPU and CPU.
+ * What a report says is the player's game's word: the summary averages many
+ * and shows how many.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { createRoute, z } from "@hono/zod-openapi";
 
 import type { ApiEnv } from "./bindings";
+import { requireAdmin } from "./admin";
 import { requireScoped } from "./auth";
 import { ErrorSchema } from "./schemas";
 
@@ -73,6 +76,8 @@ const BenchReportSchema = z
 const BenchSchema = z
   .object({
     id: z.string(),
+    /** Who sent it. */
+    user: z.object({ id: z.string(), name: z.string() }),
     map_code: z.string(),
     kind: z.string(),
     label: z.string(),
@@ -135,6 +140,7 @@ function toBench(r: Row): Bench {
   const s = (v: unknown) => (v === null || v === undefined ? null : String(v));
   return {
     id: String(r.id),
+    user: { id: String(r.user_id), name: String(r.user_name ?? r.user_id) },
     map_code: String(r.map_code),
     kind: String(r.kind),
     label: String(r.label),
@@ -160,7 +166,7 @@ function toBench(r: Row): Bench {
   };
 }
 
-/** Recent reports, newest first, by map and GPU name (a substring). */
+/** Recent reports, newest first, by map and GPU name (a substring). Admins only. */
 export async function listBenches(
   db: Db,
   q: { map?: string; gpu?: string; before?: string; limit?: number },
@@ -169,22 +175,24 @@ export async function listBenches(
   const args: unknown[] = [];
   if (q.map) {
     args.push(q.map);
-    where.push(`map_code = ?${args.length}`);
+    where.push(`b.map_code = ?${args.length}`);
   }
   if (q.gpu) {
     args.push(`%${q.gpu.replace(/[%_]/g, "")}%`);
-    where.push(`gpu_name LIKE ?${args.length}`);
+    where.push(`b.gpu_name LIKE ?${args.length}`);
   }
   if (q.before) {
     args.push(q.before);
-    where.push(`created_at < ?${args.length}`);
+    where.push(`b.created_at < ?${args.length}`);
   }
   const limit = q.limit ?? PAGE;
   args.push(limit + 1);
   const rows = await db
     .prepare(
-      `SELECT * FROM bench_reports ${where.length ? "WHERE " + where.join(" AND ") : ""}
-       ORDER BY created_at DESC LIMIT ?${args.length}`,
+      `SELECT b.*, u.display_name AS user_name
+       FROM bench_reports b JOIN users u ON u.id = b.user_id
+       ${where.length ? "WHERE " + where.join(" AND ") : ""}
+       ORDER BY b.created_at DESC LIMIT ?${args.length}`,
     )
     .bind(...args)
     .all<Row>();
@@ -235,7 +243,7 @@ export function registerBenchRoutes(app: OpenAPIHono<ApiEnv>) {
         "The game's /bench chat command times the map as it is against the map without its foliage, " +
         "the foliage's shadows and its wind, at a held camera, and sends the result with the settings it " +
         "ran at. `bench_id` is the game's own id for the run: sending it again returns the report made " +
-        "the first time. Reports are shown by GPU and map, never by account. Needs the `lobbies:write` scope.",
+        "the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
       request: { body: { content: { "application/json": { schema: BenchReportSchema } } } },
       responses: {
         201: {
@@ -288,9 +296,9 @@ export function registerBenchRoutes(app: OpenAPIHono<ApiEnv>) {
   app.openapi(
     createRoute({
       method: "get",
-      path: "/benches",
-      tags: ["benches"],
-      summary: "Recent bench reports, by map and GPU",
+      path: "/admin/benches",
+      tags: ["admin"],
+      summary: "Recent bench reports, by map and GPU (admin)",
       request: {
         query: z.object({
           map: MAP_CODE.optional(),
@@ -308,25 +316,35 @@ export function registerBenchRoutes(app: OpenAPIHono<ApiEnv>) {
             },
           },
         },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Admins only.", content: { "application/json": { schema: ErrorSchema } } },
       },
     }),
-    async (c) => c.json(await listBenches(c.env.DB, c.req.valid("query")), 200),
+    async (c) => {
+      await requireAdmin(c);
+      return c.json(await listBenches(c.env.DB, c.req.valid("query")), 200);
+    },
   );
 
   app.openapi(
     createRoute({
       method: "get",
-      path: "/benches/summary",
-      tags: ["benches"],
-      summary: "Foliage benches averaged by GPU, map, resolution and foliage quality",
+      path: "/admin/benches/summary",
+      tags: ["admin"],
+      summary: "Foliage benches averaged by GPU, map, resolution and foliage quality (admin)",
       request: { query: z.object({ map: MAP_CODE.optional() }) },
       responses: {
         200: {
           description: "One row per GPU, map, height drawn and foliage quality.",
           content: { "application/json": { schema: z.object({ rows: z.array(BenchSummaryRowSchema) }) } },
         },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Admins only.", content: { "application/json": { schema: ErrorSchema } } },
       },
     }),
-    async (c) => c.json({ rows: await benchSummary(c.env.DB, c.req.valid("query")) }, 200),
+    async (c) => {
+      await requireAdmin(c);
+      return c.json({ rows: await benchSummary(c.env.DB, c.req.valid("query")) }, 200);
+    },
   );
 }

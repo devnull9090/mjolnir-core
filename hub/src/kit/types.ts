@@ -283,6 +283,48 @@ export interface CrashSignature {
   last_seen: string;
 }
 
+/** One player's /bench run (docs/performance.md). Admin-only. */
+export interface BenchReport {
+  id: string;
+  user: { id: string; name: string };
+  map_code: string;
+  /** "foliage" or "cvar". */
+  kind: string;
+  label: string;
+  gpu_name: string | null;
+  gpu_score: number | null;
+  cpu: string | null;
+  cpu_threads: number | null;
+  viewport_w: number | null;
+  viewport_h: number | null;
+  window_mode: string | null;
+  vsync: boolean;
+  fps_limit: number | null;
+  screen_percentage: number | null;
+  /** sg.<name>Quality levels, 0 (Low) to 3 (Epic). */
+  sg: Record<string, number>;
+  seconds_in_world: number | null;
+  base_ms: number;
+  base_min_ms: number | null;
+  base_max_ms: number | null;
+  results: { name: string; ms: number }[];
+  /** "no foliage" less the base: negative, the frame time the foliage costs. */
+  foliage_delta_ms: number | null;
+  client_version: string | null;
+  created_at: string;
+}
+
+/** Foliage benches averaged over one GPU, map, height drawn and foliage quality. Admin-only. */
+export interface BenchSummaryRow {
+  gpu_name: string | null;
+  map_code: string;
+  viewport_h: number | null;
+  foliage_quality: number | null;
+  reports: number;
+  base_ms: number;
+  foliage_delta_ms: number | null;
+}
+
 /** One player's report of one crash. Admin-only. */
 export interface CrashReport {
   id: string;

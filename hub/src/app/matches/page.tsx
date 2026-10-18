@@ -76,7 +76,6 @@ export default async function MatchesPage({
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-4">
             <Link href="/games" className="text-sm font-semibold text-gold hover:underline">Live games →</Link>
-            <Link href="/benchmarks" className="text-sm font-semibold text-gold hover:underline">Benchmarks →</Link>
             <form action="/players" className="flex items-center gap-2">
               <input
                 name="name"

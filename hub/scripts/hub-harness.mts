@@ -83,7 +83,7 @@ export function hub() {
   const ctx = { waitUntil() {}, passThroughOnException() {}, props: {} };
 
   /** An account with a launcher key; returns the key. */
-  async function account(id: string, role: "user" | "moderator" = "user"): Promise<string> {
+  async function account(id: string, role: "user" | "moderator" | "admin" = "user"): Promise<string> {
     const key = `mjc_test_${id}`;
     sqlite
       .prepare(`INSERT INTO users (id, discord_id, discord_username, display_name, role) VALUES (?1, ?2, ?3, ?4, ?5)`)

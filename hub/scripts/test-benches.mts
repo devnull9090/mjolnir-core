@@ -1,7 +1,8 @@
 /**
- * Bench reports (migrations/0021): a player's POST /benches, and the public
- * GET /benches and GET /benches/summary, driven through the real Hono app
- * against every migration in an in-memory SQLite (hub-harness.mts).
+ * Bench reports (migrations/0021): a signed-in player's POST /benches, and
+ * the admins' GET /admin/benches and GET /admin/benches/summary, driven
+ * through the real Hono app against every migration in an in-memory SQLite
+ * (hub-harness.mts).
  *
  * fixtures/bench-dti-4k.json is a report exactly as MJOLNIRHud wrote it for
  * a /bench on Death Island (RTX 5090, 3840x2160, 2026-10-17).
@@ -21,6 +22,8 @@ const fixture = JSON.parse(
 
 const player = await account("player");
 const other = await account("other");
+const mod = await account("mod", "moderator");
+const admin = await account("admin", "admin");
 
 const report = (over: Record<string, unknown> = {}) => ({ ...fixture, ...over });
 
@@ -73,22 +76,34 @@ test("a cvar bench has no foliage figure", async () => {
   assert.equal(row.foliage_delta_ms, null);
 });
 
-test("the list shows reports without accounts", async () => {
-  const r = await call("GET", "/benches?map=DTI", null);
+test("only admins read reports", async () => {
+  for (const path of ["/admin/benches", "/admin/benches/summary"]) {
+    assert.equal((await call("GET", path, null)).status, 401, path);
+    assert.equal((await call("GET", path, player)).status, 403, path);
+    assert.equal((await call("GET", path, mod)).status, 403, path);
+  }
+});
+
+test("an admin's list names who sent each run", async () => {
+  const r = await call("GET", "/admin/benches?map=DTI", admin);
   assert.equal(r.status, 200);
   const benches = r.body.benches as Record<string, unknown>[];
   assert.equal(benches.length, 3);
   assert.ok(benches.every((b) => !("user_id" in b)));
+  assert.deepEqual(
+    benches.map((b) => (b.user as { name: string }).name).sort(),
+    ["other display", "player display", "player display"],
+  );
   const foliage = benches.find((b) => b.kind === "foliage")!;
   assert.equal((foliage.results as unknown[]).length, 3);
   assert.equal((foliage.sg as Record<string, number>).Foliage, 3);
-  assert.equal(((await call("GET", "/benches?gpu=3060", null)).body.benches as unknown[]).length, 0);
+  assert.equal(((await call("GET", "/admin/benches?gpu=3060", admin)).body.benches as unknown[]).length, 0);
 });
 
 test("the summary averages foliage runs by GPU, map, height and quality", async () => {
   // A run in the first two minutes on the map is left out.
   await call("POST", "/benches", player, report({ bench_id: "fedcba9876543210fedcba9876543210", seconds_in_world: 30 }));
-  const r = await call("GET", "/benches/summary?map=DTI", null);
+  const r = await call("GET", "/admin/benches/summary?map=DTI", admin);
   assert.equal(r.status, 200);
   const rows = r.body.rows as Record<string, unknown>[];
   assert.equal(rows.length, 1);

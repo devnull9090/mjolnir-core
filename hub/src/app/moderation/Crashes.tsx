@@ -92,7 +92,7 @@ export function Crashes({ client, onError }: { client: HubClient; onError: (mess
   const total = signatures?.reduce((n, s) => n + s.reports, 0) ?? 0;
 
   return (
-    <section className="mt-12">
+    <section>
       <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
         Crash reports{signatures ? ` · ${total} in ${signatures.length} signatures` : ""}
       </h2>

@@ -6,8 +6,8 @@
 -- console). MJOLNIRHud holds the camera, times the map as it is against
 -- the map without its foliage, the foliage's shadows and its wind, and
 -- queues the result; MJOLNIRLobby sends it signed with the launcher's key.
--- The hub shows them by GPU and map, never by account: `user_id` is kept
--- for rate limits, duplicates and deleting an account's data.
+-- Any account signed in through the launcher may send one; only admins read
+-- them (the moderation page's Benchmarks tab, GET /admin/benches).
 --
 -- `bench_id` is the game's own id for the run, so a resend lands on the
 -- same row.
