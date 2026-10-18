@@ -294,6 +294,12 @@ local function lockView(r)
     -- -10.3, 2026-10-17).
     r.camera = pc:GetWorld():SpawnActor(object("/Script/Engine.CameraActor"), at, { Pitch = 0, Yaw = 0, Roll = 0 })
     r.camera:K2_SetActorLocationAndRotation(at, rot, false, {}, true)
+    -- The component letterboxes to 16:9 by default: on 1710x1073 every
+    -- bench drew 1710x962, so a 16:10 player's numbers read light. Same FOV
+    -- as the player camera, so the held frame is the one they see.
+    local comp = r.camera.CameraComponent
+    comp.bConstrainAspectRatio = false
+    comp.FieldOfView = cam:GetFOVAngle()
     pcall(hideOwnBody, r, pc)
     pc:SetViewTargetWithBlend(r.camera, 0, 0, 0, false)
     r.view = { x = at.X, y = at.Y, z = at.Z, pitch = rot.Pitch, yaw = rot.Yaw }
