@@ -733,6 +733,11 @@ def build_cliffs(maps, ps):
             bed = flux_bed(code, m, ps[code])
             if bed:
                 specs.append(f"SM_{code}_FluxBed={bed}")
+    # The sea's ground (coast `ground_mesh`): CE's scene by its lowest
+    # surface, for the coastline's capture alone (flux_coast_ground).
+    for code, m in maps.items():
+        if ((m.get("flux") or {}).get("coast") or {}).get("ground_mesh"):
+            specs.append(f"SM_{code}_FluxGround={flux_coast_ground(code, m, ps[code])}")
     specs += shadow_shells(maps, ps)
     if not specs:
         return
@@ -1024,6 +1029,87 @@ def flux_bed(code, m, p, cell=50.0):
     return out
 
 
+def flux_coast_ground(code, m, p, cell=100.0, cap=400.0, under=50.0):
+    """The sea's ground for Fluid Flux's coastline capture alone (coast
+    `ground_mesh`): CE's scene as a heightfield of its lowest surface, in
+    place of CE's terrain in the capture. Flux captures from above, so at a
+    cliff's foot it took the overhang over the beach for the ground, and the
+    coastline's water stood up in glassy sheets hanging from it along Death
+    Island's sea cliffs (2026-10-18). The lowest surface is the sand under
+    the overhang; walls are stepped back into the rock (below). Surfaces more than `under` cm below the water are left out
+    (the landscape's seabed is the floor there, and CE's flat sea floor lies a
+    metre down everywhere), and nothing stands more than `cap` cm over the
+    water (cliff tops), as for the river beds (flux_bed). The mesh lies 5 cm
+    under what it copies, so the few seconds it is drawn (the loader hides
+    it after the capture) it stays under the sand and inside the rock.
+    Writes <work>/flux_ground.json (cliff_mesh.py's form) and returns it."""
+    import numpy as np
+    from refine_water_gltf import read_accessor
+    from build_landscape import raster
+    water = float(m["flux"]["coast"]["water"])
+    doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+    data = open(os.path.join(p["scene"], doc["buffers"][0]["uri"]), "rb").read()
+    tris = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            name = doc["materials"][prim["material"]]["name"].lower()
+            if any(w in name for w in ("sky", "water", "fog")):
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            P = np.stack([pos[:, 0] * 100, pos[:, 2] * 100, pos[:, 1] * 100], 1)
+            T = P[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)]
+            tris.append(T[T[..., 2].max(1) >= water - under])
+    tris = np.concatenate(tris)
+    lo = np.floor(tris[..., :2].reshape(-1, 2).min(0) / cell) * cell
+    hi = np.ceil(tris[..., :2].reshape(-1, 2).max(0) / cell) * cell
+    nx, ny = int((hi[0] - lo[0]) / cell) + 1, int((hi[1] - lo[1]) / cell) + 1
+    size = max(nx, ny)
+    z, _ = raster(tris, lo, cell, size, [])
+    z = z[:ny, :nx]
+    z = np.where(np.isfinite(z), np.minimum(z, water + cap), np.nan)
+    # Walls stepped back into the rock. The coastline's water is a heightfield
+    # that also draws a thin film over the ground near the shore: where the
+    # sand at a cliff's foot (Death Island's lies under the water) meets the
+    # wall it bridged the step in one cell, a sheet standing up in front of
+    # the rock. Ground a wall's height within `back` cells of low ground
+    # reads as just over the water, so the step lies that far inside the rock
+    # and the water meets the wall flat. Lowering the captured ground never
+    # shows water: its film then lies under the real surface. At 1.5 m the
+    # ledges at the walls' feet still stood sheets a metre high (2026-10-18).
+    back = 4
+    low = ~np.isfinite(z) | (z <= water + 30.0)
+    near = np.pad(low, back, constant_values=True)
+    grown = np.zeros_like(low)
+    for dy in range(-back, back + 1):
+        for dx in range(-back, back + 1):
+            grown |= near[back + dy:back + dy + ny, back + dx:back + dx + nx]
+    stepped = np.isfinite(z) & (z > water + 40.0) & grown
+    z = np.where(stepped, water + 30.0, z) - 5.0
+    have = np.isfinite(z)
+    index = np.full((ny, nx), -1, np.int64)
+    index[have] = np.arange(int(have.sum()))
+    jj, ii = np.nonzero(have)
+    positions = [[round(float(lo[0] + i * cell), 1), round(float(lo[1] + j * cell), 1), round(float(z[j, i]), 1)]
+                 for j, i in zip(jj, ii)]
+    idx = []
+    quad = have[:-1, :-1] & have[:-1, 1:] & have[1:, :-1] & have[1:, 1:]
+    for j, i in zip(*np.nonzero(quad)):
+        a, b, c, d = index[j, i], index[j, i + 1], index[j + 1, i], index[j + 1, i + 1]
+        # Both windings, as flux_bed: one-sided, the capture culled it.
+        idx += [int(a), int(c), int(b), int(b), int(c), int(d), int(a), int(b), int(c), int(b), int(d), int(c)]
+    n = len(positions)
+    out = os.path.join(p["work"], "flux_ground.json")
+    json.dump({"item": "", "slots": [0], "names": ["flux_ground"], "positions": positions,
+               "normals": [[0.0, 0.0, 1.0]] * n, "indices": idx,
+               "uv0": [[0.0, 0.0]] * len(idx), "uv1": [[0.0, 0.0]] * len(idx),
+               "sections": [0] * (len(idx) // 3), "weight": [1.0] * n, "nanite": False, "material": PHANTOM},
+              open(out, "w", encoding="utf-8"))
+    print(f"  {code}: flux coast ground {nx} x {ny} at {cell:g} cm, {n} point(s), {len(idx) // 12} quad(s) "
+          f"(both sides), {int(stepped.sum())} wall cell(s) stepped back, "
+          f"z {np.nanmin(z) / 100:.1f}..{np.nanmax(z) / 100:.1f} m")
+    return out
+
+
 def flux_spec(code, fx, river, level):
     """Fluid Flux over CE's river (MJOLNIRLevelLoader Effects.flux): one
     domain round the river mesh, `fx.feeds` adding water where CE's water
@@ -1234,6 +1320,16 @@ def stage_assemble(code, m, p):
                     ids[key]["materials"][i] = HIDDEN
             level["decor"] += deep
         flux.setdefault("ground", flux_ground(code, level))
+        # `ground_mesh`: the capture sees CE's scene by its lowest surface
+        # (flux_coast_ground) instead of CE's terrain, whose overhangs stood
+        # the water up in sheets at the cliffs' feet.
+        if m["flux"]["coast"].get("ground_mesh") and os.path.exists(os.path.join(p["work"], "flux_ground.json")):
+            origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
+            level["decor"].append({"id": f"{code.lower()}_flux_ground",
+                                   "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_FluxGround.SM_{code}_FluxGround",
+                                   "pos": [-origin[0], -origin[1], -origin[2]],
+                                   "materials": [BED_MATERIAL], "capture_only": True, "cast_shadow": False})
+            flux["ground"] = [f"{code.lower()}_flux_ground"]
         # The sea is Flux's alone. Our own water mesh (SM_<code>_Water) is
         # hidden (it stays in the level, the loader's sea height), and CE's
         # background water slot with it. Sunk under Flux's as a fallback for
