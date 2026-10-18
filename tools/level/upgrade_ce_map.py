@@ -1751,6 +1751,13 @@ def stage_install(code, m, p):
             shutil.copyfile(f"{m['mesh_container']}.{e}", f"{mesh}.{e}")
     for f in glob.glob(os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows.*")):
         shutil.copyfile(f, os.path.join(PAKS, os.path.basename(f)))
+    # The hub copy of the landscape chunk (a _P container) outranks ours on
+    # mount priority, shader library and all: write over it too, or the game
+    # keeps the old landscape shaders (Death Island, 2026-10-18).
+    for hub in glob.glob(os.path.join(PAKS, f"pakchunk{m['chunk']}-MJOLNIRHUB-{m['hub']}-*_P.utoc")):
+        for e in ("utoc", "ucas"):
+            shutil.copyfile(os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows.{e}"), hub[:-4] + e)
+        print(f"  {code}: landscape chunk also over {os.path.basename(hub)[:-5]}")
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
@@ -1766,6 +1773,12 @@ def install_shared():
     for e in ("utoc", "ucas"):
         shutil.copyfile(os.path.join(STAGED, f"pakchunk983-Windows.{e}"),
                         os.path.join(PAKS, f"pakchunk983-MJOLNIRCETRIAL-Windows.{e}"))
+        # The CE runtime from the hub carries chunk 983 too, as a _P container
+        # that outranks ours: a master new in this build (the trial
+        # M_CE_Flare) found no shaders and drew as a black dome
+        # (2026-10-18). Write over the hub's as well.
+        for hub in glob.glob(os.path.join(PAKS, "pakchunk983-MJOLNIRHUB-*_P.utoc")):
+            shutil.copyfile(os.path.join(STAGED, f"pakchunk983-Windows.{e}"), hub[:-4] + e)
         # The water masters (M_CE_Ocean, chunk 982), when this cook made them.
         staged = os.path.join(STAGED, f"pakchunk982-Windows.{e}")
         if os.path.exists(staged):
