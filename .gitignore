@@ -87,3 +87,6 @@ mods/MJOLNIRLobby/listing.txt
 
 # The classic Halo Editing Kit (Gearbox 2004) and its tags, installed beside the repo for lightmap work
 /hek*/
+
+# Local visual target and iteration evidence
+/.dream-loop/

@@ -1,0 +1,4 @@
+*.blend1
+*.blend2
+*.wrl
+__pycache__/

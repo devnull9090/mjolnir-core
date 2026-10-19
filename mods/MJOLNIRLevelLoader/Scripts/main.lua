@@ -3285,6 +3285,25 @@ Effects.FLUX_DOMAIN = "/Game/FluidFlux/Simulation/Blueprints/BP_FluxSimulationDo
 Effects.FLUX_SOURCE = "/Game/FluidFlux/Simulation/Modifiers/BP_FluxModifierSourceActor.BP_FluxModifierSourceActor_C"
 Effects.FLUX_SURFACE = "/Game/FluidFlux/Surface/Templates/River/BP_FluxSurface_River.BP_FluxSurface_River_C"
 
+--- Optional river colour, on the new Flux surface's own material instances.
+--- CE's rivers.spec belongs to the hidden CE water and cannot colour Flux.
+function Effects.fluxColor(surf, spec)
+    if type(spec.color_preset) == "string" then
+        local preset = resolveMesh(spec.color_preset)
+        if not preset then error("Flux colour preset not found: " .. spec.color_preset) end
+        surf.BaseColorPreset = preset
+        surf:ApplyColor()
+    end
+    if type(spec.surface_vectors) == "table" then
+        local materials = surf.MaterialInstances
+        for i = 1, #materials do
+            for key, v in pairs(spec.surface_vectors) do
+                materials[i]:SetVectorParameterValue(FName(key), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+            end
+        end
+    end
+end
+
 --- The sea as B30's beach has it (level.flux.coast): Fluid Flux's ocean wave
 --- (BP_FluxOceanWave) and a coastline domain, which captures the ground
 --- under `centre` (`res` cells of `cell` cm, `height` cm deep), builds the
@@ -3589,6 +3608,18 @@ function Effects.flux(world)
                 -- source's material, which only UpdateMaterial writes.
                 for _, m in ipairs(comps) do m:UpdateMaterial() end
                 pcall(function() dom:CaptureGroundHeightmap(true) end)
+                if type(spec.color_preset) == "string" or type(spec.surface_vectors) == "table" then
+                    -- InitializeStates applies the preset again when the domain
+                    -- binds its state. Apply our vectors after that startup; the
+                    -- surface's later 2 s callback only initializes overlaps.
+                    ExecuteInGameThreadWithDelay(math.max(1500, ((tonumber(dom.RuntimeCaptureDelay) or 0) + 0.5) * 1000), function()
+                        if Current.worldName ~= name or Current.level ~= level then return end
+                        local applied, why = pcall(function()
+                            if surf:IsValid() then Effects.fluxColor(surf, spec) end
+                        end)
+                        if not applied then Log("flux: colour: " .. tostring(why)) end
+                    end)
+                end
                 made[#made + 1] = string.format("river %dx%d at %g cm, %d source(s)", d.res[1], d.res[2], d.cell, #comps)
             end
             if type(spec.coast) == "table" then

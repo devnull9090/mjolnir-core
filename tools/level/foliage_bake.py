@@ -43,6 +43,46 @@ sys.path.insert(0, HERE)
 CULL = [5000, 9000]
 GRASSY = {"grass", "short grass", "lip grass", "weeds", "tufts"}
 PAKS = "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"
+ROCK_MATERIALS = {
+    f"/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_{v}/SM_Rock_Uluwatu_Med_{v}.SM_Rock_Uluwatu_Med_{v}":
+    f"/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_{v}/{folder}MI_Rock_Uluwatu_Med_{v}.MI_Rock_Uluwatu_Med_{v}"
+    for v, folder in (("A", ""), ("B", "Materials/"), ("C", ""))
+}
+
+
+def rock_material(mesh, roughness):
+    """Optional dry-rock MIC, cooked on the component, never made through UE4SS.
+
+    Uluwatu's native base layer remaps roughness from -2 to 1. Outside B30
+    that glossy surface catches blue sky reflections across the boulders.
+    Keep its native textures/layers, with a map-specific roughness floor.
+    """
+    if roughness is None:
+        return None
+    if isinstance(roughness, bool) or not isinstance(roughness, (int, float)) or not 0 <= roughness <= 1:
+        raise SystemExit("rock_roughness must be a number between 0 and 1")
+    parent = ROCK_MATERIALS.get(mesh)
+    if parent is None:
+        return None
+    return {"parent": parent, "scalars": {f"Roughness Remap {end}#{layer}": float(value)
+            for layer in (0, 1) for end, value in (("Low", roughness), ("High", 1.0))}}
+
+
+def decor_spec(d, origin, roughness=None):
+    rot = list(d.get("rot") or [0, 0, 0]) + [0, 0, 0]
+    scale = d.get("scale") if isinstance(d.get("scale"), list) and len(d["scale"]) >= 3 else [1, 1, 1]
+    entry = {"id": d["id"], "mesh": d["mesh"], "loc": [origin[i] + d["pos"][i] for i in range(3)],
+             "rot": rot[:3], "scale": scale[:3], "flags": 2 if still(d) else 0}
+    material = rock_material(d["mesh"], roughness)
+    if material:
+        entry["material"] = material
+    return entry
+
+
+def runtime_decor(decor, roughness=None):
+    """Leave completed baked MICs alone: no runtime baked-component reads."""
+    rock_material(None, roughness)
+    return [d for d in decor if not (bakeable(d) and rock_material(d["mesh"], roughness))]
 
 
 def bakeable(d):
@@ -150,7 +190,9 @@ def main():
     ap.add_argument("--paks", default=os.environ.get("HCE_PAKS", PAKS))
     ap.add_argument("--mjolnir", default=os.environ.get("MJOLNIR", "mjolnir"))
     ap.add_argument("--origin", default="0,0,0", help="the level's canvas origin (cm), which decor sits on")
+    ap.add_argument("--rock-roughness", type=float, help="bake native Uluwatu MICs with this roughness floor (0..1)")
     a = ap.parse_args()
+    rock_material(None, a.rock_roughness)  # Validate before writing output.
     origin = [float(v) for v in a.origin.split(",")]
 
     fol = json.load(open(os.path.join(a.work, "foliage", "foliage.json"), encoding="utf-8"))
@@ -196,10 +238,7 @@ def main():
     spec_decor = []
     for d in decor:
         meshes[d["mesh"]] = None
-        rot = list(d.get("rot") or [0, 0, 0]) + [0, 0, 0]
-        scale = d.get("scale") if isinstance(d.get("scale"), list) and len(d["scale"]) >= 3 else [1, 1, 1]
-        spec_decor.append({"id": d["id"], "mesh": d["mesh"], "loc": [origin[i] + d["pos"][i] for i in range(3)],
-                           "rot": rot[:3], "scale": scale[:3], "flags": 2 if still(d) else 0})
+        spec_decor.append(decor_spec(d, origin, a.rock_roughness))
     # The game meshes' bounds, kept between runs: one `ue get` a mesh.
     cache_path = os.path.join(out_dir, "mesh_info.json")
     cache = json.load(open(cache_path, encoding="utf-8")) if os.path.exists(cache_path) else {}

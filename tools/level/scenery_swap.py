@@ -7,7 +7,7 @@ place (decor entries, sized to the CE model's reach so the Blam collision,
 which stays CE's, still matches what is seen) and the CE slots to hide.
 
     python tools/level/scenery_swap.py recipes <placements.csv> <bounds.json> <out.json> [--prefix P --leaves MESH]
-    python tools/level/scenery_swap.py swap <scene dir> <spec.json> <recipes.json> <bounds.json> <out.json> [--rocks beach|desert|snow] [--biome b30|snow]
+    python tools/level/scenery_swap.py swap <scene dir> <spec.json> <recipes.json> <bounds.json> <out.json> [--rocks beach|desert|snow] [--biome b30|snow] [--tree-variant Lrg_A]
 
 `recipes`: B30's Maned Kuenovo trees from its World Partition cells
 (ue-asset's placements_csv example with the matrix columns, filtered to
@@ -28,6 +28,9 @@ decor, points the hidden slots at M_CE_Hidden and sets the level's effects
 placed from the map's own scatter (butterflies over the grass, gulls and
 surf along the shore, wind along the cliff lips) and leaves falling from
 the swapped trees.
+
+With --tree-variant, every matched tree uses that exact recipe name from
+the recipes file; otherwise variants keep their normal per-placement selection.
 """
 import argparse
 import collections
@@ -448,6 +451,9 @@ def swap(a):
     placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
     unit = placement.get("world_unit_meters", 3.048) * 100.0
     recipes = json.load(open(a.recipes, encoding="utf-8"))
+    tree_variant = getattr(a, "tree_variant", None)
+    if tree_variant is not None and tree_variant not in recipes:
+        raise SystemExit(f"Unknown tree variant {tree_variant!r}; available recipes: {', '.join(sorted(recipes))}")
     bounds = {m["path"].split(".")[0]: m for m in json.load(open(a.bounds, encoding="utf-8"))}
     spec = json.load(open(a.spec, encoding="utf-8"))
     rocks = ROCKS[a.rocks]
@@ -475,7 +481,8 @@ def swap(a):
         key = f"{asset}|{n}"
         width = max(ext[0], ext[1])
         if kind == "tree":
-            variant = pick([v for v in options or [] if v in recipes] or list(recipes), key)
+            variant = tree_variant if tree_variant is not None else pick(
+                [v for v in options or [] if v in recipes] or list(recipes), key)
             r = recipes[variant]
             leaf_meshes.add(r.get("leaf_mesh", LEAVES))
             s = ext[2] / max(r["height"], 1.0)
@@ -609,6 +616,7 @@ def main():
     s.add_argument("--rocks", default="beach", choices=sorted(ROCKS))
     s.add_argument("--biome", default="b30", choices=["b30", "snow"],
                    help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
+    s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree")
     s.add_argument("--foliage", help="the map's foliage.json (its foliage.bin beside it): place the effects")
     s.add_argument("--sea", type=float, help="the sea's height (cm)")
     s.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "

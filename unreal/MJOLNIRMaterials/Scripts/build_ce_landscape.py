@@ -158,6 +158,50 @@ def standin(entry):
     return mesh
 
 
+def decor_material(entry):
+    """A cooked MIC referring to the native game's material, by a never-cooked stand-in.
+
+    Only the scalar override array ships. No static switches/permutation are
+    authored: in game its parent supplies the real layers, textures and shader.
+    """
+    material = entry["material"]
+    parent_path = material["parent"].split(".", 1)[0]
+    if not parent_path.startswith(("/Game/Env/", "/Game/Megascans/")):
+        raise RuntimeError(f"decor material parent is not a never-cooked game asset: {parent_path}")
+    parent = unreal.load_asset(parent_path)
+    if not parent:
+        folder, name = parent_path.rsplit("/", 1)
+        unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([folder], True)
+        parent = unreal.load_asset(parent_path)
+        if not parent:
+            parent = tools.create_asset(name, folder, unreal.MaterialInstanceConstant,
+                                        unreal.MaterialInstanceConstantFactoryNew())
+            if not parent:
+                raise RuntimeError(f"could not create native material stand-in: {parent_path}")
+            unreal.MaterialEditingLibrary.set_material_instance_parent(
+                parent, unreal.load_asset("/Engine/EngineMaterials/DefaultMaterial"))
+            eal.save_loaded_asset(parent)
+    if not isinstance(parent, unreal.MaterialInstanceConstant):
+        raise RuntimeError(f"native material stand-in has the wrong class: {parent_path}")
+    mi = tools.create_asset(f"MI_{NAME}_{entry['id']}", TEXTURES, unreal.MaterialInstanceConstant,
+                            unreal.MaterialInstanceConstantFactoryNew())
+    if not mi:
+        raise RuntimeError(f"could not create baked decor material: {entry['id']}")
+    unreal.MaterialEditingLibrary.set_material_instance_parent(mi, parent)
+    values = []
+    for key, value in sorted(material["scalars"].items()):
+        name, layer = key.rsplit("#", 1)
+        info = unreal.MaterialParameterInfo(name=unreal.Name(name),
+                    association=unreal.MaterialParameterAssociation.LAYER_PARAMETER, index=int(layer))
+        values.append(unreal.ScalarParameterValue(parameter_info=info, parameter_value=float(value)))
+    # ByInfo includes the layer index; SetMaterialInstanceScalarParameterValue
+    # only takes an association, so cannot address both native rock layers.
+    mi.set_editor_property("scalar_parameter_values", values)
+    if not eal.save_loaded_asset(mi):
+        raise RuntimeError(f"could not save baked decor material: {entry['id']}")
+    return mi
+
+
 # The map's foliage baked into the world (MJ_FOLIAGE: tools/level/foliage_bake.py's
 # spec), as MJOLNIRLevelLoader's Foliage.spawn would place it at runtime.
 FOLIAGE = os.environ.get("MJ_FOLIAGE")
@@ -186,6 +230,20 @@ if FOLIAGE:
             [d["flags"] for d in decor])
         if pieces < 0:
             raise RuntimeError(f"bake_decor failed for {FOLIAGE}")
+        # Material work happens in the editor. These entries are omitted from
+        # runtime decor, so UE4SS neither reads their components nor replaces
+        # the saved MIC with the mesh's native material.
+        materials = {f"MJDecor_{d['id']}": d for d in decor if d.get("material")}
+        if materials:
+            material_count = len(materials)
+            actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+            for actor in actors:
+                entry = materials.pop(actor.get_name(), None)
+                if entry:
+                    actor.static_mesh_component.set_material(0, decor_material(entry))
+            if materials:
+                raise RuntimeError(f"baked decor missing for material assignment: {sorted(materials)}")
+            unreal.log(f"MJOLNIR baked decor materials: {material_count} cooked MIC(s)")
     unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
                f"{len(fspec['standins'])} stand-in(s)")
 if not les.save_current_level():
