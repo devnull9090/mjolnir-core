@@ -90,13 +90,15 @@ def mesh_info(mjolnir, paks, path):
         if s:
             slots[int(s.group(1))] = value
 
-    def vec(key):
-        v = rows.get(key)
+    def vec(key, default=None):
+        v = rows.get(key, default)
         if v is None:
             sys.exit(f"{path}: no {key} in the game's package")
         return [float(x) for x in v.split(",")] if "," in v else [0.0, 0.0, 0.0]
 
-    return {"origin": vec("ExtendedBounds.Origin"), "extent": vec("ExtendedBounds.BoxExtent"),
+    # A cooked property at its default is left out: bounds centred on the
+    # pivot carry no Origin at all (SM_SmallStonesPack__Snow, Ice Fields).
+    return {"origin": vec("ExtendedBounds.Origin", "0"), "extent": vec("ExtendedBounds.BoxExtent"),
             "slots": [slots[i] for i in sorted(slots)] or ["Slot0"]}
 
 
