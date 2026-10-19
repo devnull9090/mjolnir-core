@@ -1373,19 +1373,13 @@ def stage_assemble(code, m, p):
             before = (level.get("effects") or {}).get("placed") or []
             level["effects"] = swap["effects"]
             level["effects"]["placed"] = list(swap["effects"].get("placed") or []) + before
-        leaves = (swap.get("leaves") or {}).get("records") or []
-        if leaves:
-            append_foliage(os.path.join(p["work"], "foliage.bin"), leaves)
-            group = {"mesh": swap["leaves"]["mesh"], "rule": "tree leaves",
-                     "cull": [20000, 45000], "shadow": True, "scalars": swap["leaves"].get("scalars")}
-            # A biome's own leaf material (B40's snow-packed branches) and
-            # stillness (scenery_swap.py): dropped here, the firs' branches
-            # drew bare and swayed.
-            for key in ("material", "static"):
-                if swap["leaves"].get(key) is not None:
-                    group[key] = swap["leaves"][key]
+        leaf = leaf_groups(swap)
+        for records, group in leaf:
+            append_foliage(os.path.join(p["work"], "foliage.bin"), records)
             level["foliage"]["groups"].append(group)
-            print(f"  {code}: {len(leaves)} leaf cluster(s) on the swapped trees")
+        if leaf:
+            print(f"  {code}: {sum(len(r) for r, _ in leaf)} leaf cluster(s) on the swapped trees, "
+                  f"{sum(len(r) for r, g in leaf if g.get('static'))} small ones still")
         print(f"  {code}: {swap['count']} scenery object(s) swapped, {hidden} CE slot(s) hidden")
     # After the swap: the swap hides CE scenery by its slot's material as the
     # spec has it, and the haze turns the terrain materials' own fog off, so
@@ -1772,6 +1766,38 @@ def grime_decals(p, seed=7):
                 c = np.array([centre[0], centre[2], centre[1]]) * 100.0
                 out.append({"material": material, "pos": [round(float(v), 1) for v in c],
                             "rot": [0.0, round(yaw, 2), 0.0], "size": size, "scalars": GRIME_SCALARS})
+    return out
+
+
+# Leaf clusters smaller than this hold still. The material's flutter and
+# branch motion are distances, not angles a cluster's size scales: on
+# Infinity a small tree's clusters at 0.03 thrashed (2026-10-19), while
+# Timberland's at 0.2 to 0.36 moved as a breath.
+LEAF_STILL_SCALE = 0.15
+
+
+def leaf_groups(swap):
+    """The swapped trees' leaf clusters as foliage groups, each with its
+    records: the ones that move, then the small ones held still. The
+    editor's bake (foliage_bake.py) and assemble both append these in this
+    order, so the baked components and the level file's groups agree."""
+    lv = swap.get("leaves") or {}
+    records = lv.get("records") or []
+    if not records:
+        return []
+    group = {"mesh": lv["mesh"], "rule": "tree leaves", "cull": [20000, 45000], "shadow": True,
+             "scalars": lv.get("scalars")}
+    # A biome's own leaf material (B40's snow-packed branches) and
+    # stillness (scenery_swap.py): dropped, the firs' branches drew bare
+    # and swayed.
+    for key in ("material", "static"):
+        if lv.get(key) is not None:
+            group[key] = lv[key]
+    moving = [r for r in records if r[4] >= LEAF_STILL_SCALE]
+    small = [r for r in records if r[4] < LEAF_STILL_SCALE]
+    out = [(moving, group)] if moving else []
+    if small:
+        out.append((small, dict(group, static=True)))
     return out
 
 

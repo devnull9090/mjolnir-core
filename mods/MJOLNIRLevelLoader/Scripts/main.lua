@@ -5104,6 +5104,13 @@ local function spawnDecor(world)
         local own = baked[id]
         if own then
             nBaked = nBaked + 1
+            -- Still, as spawnDecorItem keeps them (a swapped tree's piece),
+            -- first and on its own: a material error below skipped it, and
+            -- Infinity's small trees swayed apart (2026-10-19). Worlds baked
+            -- since carry it themselves (foliage_bake.py `still`).
+            if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
+                pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
+            end
             pcall(function()
                 local comp = own.StaticMeshComponent
                 local mesh = comp.StaticMesh
@@ -5111,10 +5118,6 @@ local function spawnDecor(world)
                     local src = mesh:GetMaterial(i)
                     local mid = type(item.scalars) == "table" and scalarMid(world, src, item.scalars) or src
                     if mid then comp:SetMaterial(i, mid) end
-                end
-                -- Still, as spawnDecorItem keeps them (a swapped tree's piece).
-                if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
-                    comp:SetEvaluateWorldPositionOffset(false)
                 end
             end)
         elseif not (Current.actors[id] and Current.actors[id]:IsValid()) then

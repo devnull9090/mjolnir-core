@@ -42,16 +42,6 @@ GRASSY = {"grass", "short grass", "lip grass", "weeds", "tufts"}
 PAKS = "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"
 
 
-def leaf_group(swap):
-    """The leaf-cluster group assemble appends (upgrade_ce_map.stage_assemble)."""
-    group = {"mesh": swap["leaves"]["mesh"], "rule": "tree leaves", "cull": [20000, 45000], "shadow": True,
-             "scalars": swap["leaves"].get("scalars")}
-    for key in ("material", "static"):
-        if swap["leaves"].get(key) is not None:
-            group[key] = swap["leaves"][key]
-    return group
-
-
 def bakeable(d):
     """A swapped scenery piece the world can carry as it is: a game mesh with
     at most `scalars` (the loader's runtime material values) and `static`.
@@ -61,6 +51,16 @@ def bakeable(d):
             and isinstance(d.get("pos"), list) and d["mesh"].startswith(("/Game/Env/", "/Game/Megascans/"))
             and not any(k in d for k in ("materials", "tint", "pulse", "capture_only", "cast_shadow",
                                          "sort_priority")))
+
+
+def still(d):
+    """A decor item the loader keeps without wind: `static`, or a swapped
+    tree's piece with the calm values (no sway). Each piece would bend about
+    its own pivot and the tree come apart; baked still, the world needs no
+    runtime switch (Infinity's small trees swayed when the loader's one
+    missed, 2026-10-19)."""
+    s = d.get("scalars")
+    return bool(d.get("static")) or (isinstance(s, dict) and s.get("Wind Sway Max Angle") == 0)
 
 
 def mesh_info(mjolnir, paks, path):
@@ -123,11 +123,10 @@ def main():
     if os.path.exists(swap_path):
         swap = json.load(open(swap_path, encoding="utf-8"))
         decor = [d for d in swap.get("decor") or [] if bakeable(d)]
-        leaves = (swap.get("leaves") or {}).get("records") or []
-        if leaves:
-            from upgrade_ce_map import append_foliage
-            append_foliage(bin_path, leaves)
-            groups.append(leaf_group(swap))
+        from upgrade_ce_map import append_foliage, leaf_groups
+        for records, group in leaf_groups(swap):
+            append_foliage(bin_path, records)
+            groups.append(group)
 
     spec_groups, meshes = [], {}
     for g in groups:
@@ -146,7 +145,7 @@ def main():
         rot = list(d.get("rot") or [0, 0, 0]) + [0, 0, 0]
         scale = d.get("scale") if isinstance(d.get("scale"), list) and len(d["scale"]) >= 3 else [1, 1, 1]
         spec_decor.append({"id": d["id"], "mesh": d["mesh"], "loc": [origin[i] + d["pos"][i] for i in range(3)],
-                           "rot": rot[:3], "scale": scale[:3], "flags": 2 if d.get("static") else 0})
+                           "rot": rot[:3], "scale": scale[:3], "flags": 2 if still(d) else 0})
     # The game meshes' bounds, kept between runs: one `ue get` a mesh.
     cache_path = os.path.join(out_dir, "mesh_info.json")
     cache = json.load(open(cache_path, encoding="utf-8")) if os.path.exists(cache_path) else {}
