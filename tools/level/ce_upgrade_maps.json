@@ -3,7 +3,7 @@
  "BGL": {
   "conversion": "C:/haloce/ce_conversions/release11/BGL",
   "level": "bloodgulch.level.json", "sbsp": "bloodgulch.sbsp",
-  "shaders": ["blood_ground"], "landscape": "LBG", "chunk": 978, "rocks": "desert",
+  "shaders": ["blood_ground"], "landscape": "LBG", "bake_foliage": true, "chunk": 978, "rocks": "desert",
   "tints": {"pebbles": "0.62,0.42,0.32:Albedo Tint", "stones": "0.62,0.42,0.32:Albedo Tint"},
   "environment": {"skylight": {"lower": [0.32, 0.22, 0.16]}, "post": {"exposure_bias": -0.5},
                   "clouds": {"bottom": 3.0, "height": 3.0, "material": "/Game/ArtTools/LightingTemplate/MI_VolumetricCloud_01.MI_VolumetricCloud_01"}},
@@ -30,7 +30,7 @@
   "level": "yoyorast_island_v2.level.json", "sbsp": "yoyorast_island_v2.sbsp",
   "base_level": "C:/haloce/ce_conversions/upgrade/YOY/base_level.json",
   "mesh_container": "C:/haloce/ce_conversions/upgrade/YOY/mesh/pakchunk986-MJOLNIRMESH-YOY_P",
-  "shaders": ["protected_senv_2979", "protected_senv_2961", "protected_senv_3031"], "landscape": "LYY", "chunk": 977,
+  "shaders": ["protected_senv_2979", "protected_senv_2961", "protected_senv_3031"], "landscape": "LYY", "bake_foliage": true, "chunk": 977,
   "details": {"protected_bitm_n2963": "sand", "protected_bitm_n2964": "grass"},
   "water": {"FoamAmount": 0.0},
   "haze": "ce",
@@ -43,7 +43,7 @@
  "ICE": {
   "conversion": "C:/haloce/ce_conversions/release11/ICE",
   "level": "icefields.level.json", "sbsp": "icefields.sbsp",
-  "shaders": ["icefields_ground__"], "ground_also": ["icefields_ground_ice", "icefields_ice_caves"], "landscape": "LIF", "chunk": 976,
+  "shaders": ["icefields_ground__"], "ground_also": ["icefields_ground_ice", "icefields_ice_caves"], "landscape": "LIF", "bake_foliage": true, "chunk": 976,
   "real_base": true,
   "ground_looks": [{"shaders": ["icefields_ice_caves"],
                     "vectors": {"LandIce": [-1.0, 0.0, 0.9, 1.0], "GroundSteep": [0.35, 0.6, 250.0, 0.0],
@@ -61,7 +61,7 @@
                     "vectors": {"LandIce": [-1.0, 0.0, 0.9, 1.0], "GroundSteep": [0.35, 0.6, 250.0, 0.0]}}],
   "cliff_shaders": ["sidewinder_cliff"],
   "cliff_uv": 7000,
-  "landscape": "LSW", "chunk": 975,
+  "landscape": "LSW", "bake_foliage": true, "chunk": 975,
   "biome": "snow", "rocks": "snow", "tess": false, "weather": "snow",
   "haze": "ce",
   "hub": "ce-sidewinder"
@@ -71,7 +71,7 @@
   "level": "timberland.level.json", "sbsp": "timberland.sbsp",
   "shaders": ["timberland_ground"], "ground_also": ["timberland_stream_bed"],
   "cliff_shaders": ["timberland_rock_walls"],
-  "landscape": "LTM", "chunk": 974,
+  "landscape": "LTM", "bake_foliage": true, "chunk": 974,
   "rivers": {"textures": ["bitmaps_timberland_stream."], "spec": {
    "textures": {"DetailWave": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01",
                 "RippleMap0": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01",
@@ -106,7 +106,7 @@
   "conversion": "C:/haloce/ce_conversions/release11/INF",
   "level": "infinity.level.json", "sbsp": "infinity.sbsp",
   "shaders": ["infinity_ground"],
-  "landscape": "LIN", "chunk": 973,
+  "landscape": "LIN", "bake_foliage": true, "chunk": 973,
   "horizon": {"z": 8000, "reach": 5000000},
   "haze": {"color": [0.288, 0.371, 0.474], "density": 0.03, "start": 15000.0, "cutoff": 0},
   "hub": "ce-infinity"
@@ -116,13 +116,13 @@
   "level": "gephyrophobia.level.json", "sbsp": "gephyrophobia.sbsp",
   "shaders": ["geph_ground_snow"],
   "cliff_shaders": ["geph_cliff_wall__"],
-  "landscape": "LGP", "chunk": 972, "min_z": -50000,
+  "landscape": "LGP", "bake_foliage": true, "chunk": 972, "min_z": -50000,
   "biome": "snow", "rocks": "snow", "tess": false,
   "haze": {"color": [0.262, 0.527, 0.807], "density": 0.015, "falloff": 1.5, "height": -6233, "start": 0.0,
            "cutoff": 200000},
   "hub": "ce-gephyrophobia"
  },
- "BCK": {"conversion": "C:/haloce/ce_conversions/release11/BCK", "level": "beavercreek.level.json", "sbsp": "beavercreek.sbsp", "shaders": ["beavercreek_ground"], "cliff_shaders": ["beavercreek_cliffs"], "landscape": "LBC", "chunk": 971, "rivers": {"textures": ["beavercreek_flow"], "parent": "M_CE_Water", "flux_only": true, "spec": {"textures": {"DetailWave": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "RippleMap0": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "RippleMap1": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "ReflectionCube": "/Game/MJOLNIR/Maps/BCK/Textures/TC_levels_b30_bitmaps_cubemap_beach.TC_levels_b30_bitmaps_cubemap_beach"}, "scalars": {"WaveAmplitude": 0.0, "DetailStrength": 0.18, "ChopStrength": 0.03, "Clarity": 0.9, "FoamAmount": 0.0, "PerpBrightness": 0.15, "ParaBrightness": 0.6, "ReflectionSaturation": 0.45, "ReflectionStrength": 0.55, "RippleWorld": 0.0, "Roughness": 0.2, "Specular": 0.2, "MinCover": 0.25, "EdgeFilm": 0.05}, "vectors": {"RippleGlobal": [0, 0, 1, 0], "Ripple0": [1, 1.5708, 1.2, 8.0], "Ripple1": [1, 1.45, 0.8, 13.0], "WaterColor": [0.03, 0.045, 0.04, 1], "Absorption": [1.2, 0.75, 0.6, 1]}}}, "haze": "ce", "flux": {"feeds": [{"pos": [4500, -1700, -185], "scale": 1.0, "volume": 2, "mode": 2}, {"pos": [4400, -6500, -185], "scale": 1.0, "volume": 2, "mode": 2}], "outlet": false, "bed": true}, "hub": "ce-battle-creek"},
+ "BCK": {"conversion": "C:/haloce/ce_conversions/release11/BCK", "level": "beavercreek.level.json", "sbsp": "beavercreek.sbsp", "shaders": ["beavercreek_ground"], "cliff_shaders": ["beavercreek_cliffs"], "landscape": "LBC", "bake_foliage": true, "chunk": 971, "rivers": {"textures": ["beavercreek_flow"], "parent": "M_CE_Water", "flux_only": true, "spec": {"textures": {"DetailWave": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "RippleMap0": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "RippleMap1": "/Game/FluidFlux/Surface/Materials/Textures/T_DetailWaveTexture_01.T_DetailWaveTexture_01", "ReflectionCube": "/Game/MJOLNIR/Maps/BCK/Textures/TC_levels_b30_bitmaps_cubemap_beach.TC_levels_b30_bitmaps_cubemap_beach"}, "scalars": {"WaveAmplitude": 0.0, "DetailStrength": 0.18, "ChopStrength": 0.03, "Clarity": 0.9, "FoamAmount": 0.0, "PerpBrightness": 0.15, "ParaBrightness": 0.6, "ReflectionSaturation": 0.45, "ReflectionStrength": 0.55, "RippleWorld": 0.0, "Roughness": 0.2, "Specular": 0.2, "MinCover": 0.25, "EdgeFilm": 0.05}, "vectors": {"RippleGlobal": [0, 0, 1, 0], "Ripple0": [1, 1.5708, 1.2, 8.0], "Ripple1": [1, 1.45, 0.8, 13.0], "WaterColor": [0.03, 0.045, 0.04, 1], "Absorption": [1.2, 0.75, 0.6, 1]}}}, "haze": "ce", "flux": {"feeds": [{"pos": [4500, -1700, -185], "scale": 1.0, "volume": 2, "mode": 2}, {"pos": [4400, -6500, -185], "scale": 1.0, "volume": 2, "mode": 2}], "outlet": false, "bed": true}, "hub": "ce-battle-creek"},
  "RAT": {"conversion": "C:/haloce/ce_conversions/release11/RAT", "level": "ratrace.level.json", "sbsp": "ratrace.sbsp", "indoor": true, "tess": {"disp": 0.3}, "cliff": {"indoor": 0.35, "tint": [0.9, 0.62, 0.45, 1.0]}, "hub": "ce-rat-race"},
- "DCN": {"conversion": "C:/haloce/ce_conversions/release11/DCN", "level": "dangercanyon.level.json", "sbsp": "dangercanyon.sbsp", "shaders": ["dangercanyon_ground"], "cliff_shaders": ["dangercanyon_cliff_walls"], "landscape": "LDC", "chunk": 970, "haze": "ce", "hub": "ce-danger-canyon"}
+ "DCN": {"conversion": "C:/haloce/ce_conversions/release11/DCN", "level": "dangercanyon.level.json", "sbsp": "dangercanyon.sbsp", "shaders": ["dangercanyon_ground"], "cliff_shaders": ["dangercanyon_cliff_walls"], "landscape": "LDC", "bake_foliage": true, "chunk": 970, "haze": "ce", "hub": "ce-danger-canyon"}
 }
