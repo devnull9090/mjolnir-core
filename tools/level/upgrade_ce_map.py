@@ -1809,7 +1809,7 @@ def append_foliage(path, records):
     version, n = struct.unpack_from("<II", raw, 4)
     struct.pack_into("<II", raw, 4, version, n + 1)
     raw += struct.pack("<I", len(records))
-    for x, y, z, yaw, sc, nx, ny in records:
+    for x, y, z, yaw, sc, nx, ny in (r[:7] for r in records):
         raw += struct.pack("<fffBBbbBBB", x, y, z, int(yaw / 360.0 * 256) % 256, max(1, min(255, round(sc * 100))),
                            max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127))), 255, 255, 255)
     open(path, "wb").write(bytes(raw))

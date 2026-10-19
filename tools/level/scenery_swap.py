@@ -183,8 +183,13 @@ def foliage_pose(m):
 # A leaf cluster belongs to a tree only where it touches one of the tree's
 # own parts. The recipes took every cluster within 16 m of the trunk, and
 # B30's neighbouring trees left clusters hanging in the air, up to 72 m
-# from any branch of the tree they were given to (2026-10-12).
-LEAF_REACH = 150.0  # cm, in the tree's own frame
+# from any branch of the tree they were given to (2026-10-12). At 150 cm
+# the tree's own clusters past its limb ends fell out too (152 to 300 cm
+# from the limb meshes' boxes) and those limbs ended bare (Infinity,
+# 2026-10-19); a neighbour's lie 7 m and more off.
+LEAF_REACH = 400.0  # cm, in the tree's own frame
+# How far from the trunk a cluster is looked for at all (cm, across).
+LEAF_SEARCH = 1600.0
 
 
 def attached_leaves(recipe, bounds):
@@ -194,9 +199,13 @@ def attached_leaves(recipe, bounds):
         if b:
             boxes.append(([part["off"][i] + b["min"][i] for i in range(3)],
                           [part["off"][i] + b["max"][i] for i in range(3)]))
-    kept = []
+    kept, seen = [], set()
     for lf in recipe.get("leaves", []):
         o = lf["off"]
+        # B30's export lists a cluster once a cell it overlaps: one is enough.
+        if tuple(o) in seen:
+            continue
+        seen.add(tuple(o))
         gap = min((math.sqrt(sum(max(lo[i] - o[i], 0.0, o[i] - hi[i]) ** 2 for i in range(3))) for lo, hi in boxes),
                   default=0.0)
         if gap <= LEAF_REACH:
@@ -253,7 +262,7 @@ def recipes(a):
         leaves = []
         for r in leaf_rows:
             lx, ly, lz = float(r["x"]), float(r["y"]), float(r["z"])
-            if math.hypot(lx - tx, ly - ty) > 1600 or lz < tz:
+            if math.hypot(lx - tx, ly - ty) > LEAF_SEARCH or lz < tz:
                 continue
             leaves.append({"off": [round(v, 1) for v in vmul([lx - tx, ly - ty, lz - tz], inv)],
                            "m": [[round(v, 5) for v in row] for row in mmul(mat3(r), inv)]})
@@ -429,9 +438,16 @@ def swap(a):
             frame = [[s * v for v in row] for row in rotation_rows(r["pitch"], yaw, r["roll"])]
             for lf in attached_leaves(r, bounds):
                 o = vmul(lf["off"], frame)
-                fy, fs, fnx, fny = foliage_pose(mmul(lf["m"], frame))
+                world = mmul(lf["m"], frame)
+                fy, fs, fnx, fny = foliage_pose(world)
+                # The foliage record (yaw, scale, normal) for the loader's
+                # runtime spawn, then the exact 3 x 3 for the editor's bake:
+                # B30 places every leaf cluster mirrored, which the record
+                # cannot hold, and its 1.4 degree yaw moved a 10 m twig's tip
+                # by up to 36 cm (foliage_bake.py `exact`).
                 leaves.append([round(x + o[0], 1), round(y + o[1], 1), round(z + o[2], 1),
-                               round(fy, 1), round(fs, 3), round(fnx, 3), round(fny, 3)])
+                               round(fy, 1), round(fs, 3), round(fnx, 3), round(fny, 3)]
+                              + [round(v, 5) for row in world for v in row])
             # A part a decor id by its place in the recipe: by its mesh's
             # number suffix, Big_2, Mid_2 and Trunk_2 shared one, the loader
             # kept one of them, and Infinity's double trees stood on one

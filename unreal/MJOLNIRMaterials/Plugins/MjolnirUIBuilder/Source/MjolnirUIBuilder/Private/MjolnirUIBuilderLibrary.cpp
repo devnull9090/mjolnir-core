@@ -836,8 +836,33 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 		const int32 NTiers = bGrassy ? 4 : 1;
 		TArray<TArray<FTransform>> Dealt;
 		Dealt.SetNum(NBands * NTiers);
+		// Flag 32: the group's exact transforms beside the file, ten floats a
+		// record (location, rotation x y z w, scale), in the records' order
+		// (foliage_bake.py write_exact). B30 places its leaf clusters
+		// mirrored, which a record's yaw and normal cannot hold.
+		TArray<uint8> Exact;
+		if (Flags[G] & 32)
+		{
+			const FString XfPath = FString::Printf(TEXT("%s.xf%d"), *BinPath, G + 1);
+			if (!FFileHelper::LoadFileToArray(Exact, *XfPath) || Exact.Num() != int64(Size) * 40)
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no exact transforms for %u record(s) in %s"),
+					G + 1, Size, *XfPath);
+				return -1;
+			}
+		}
 		for (uint32 K = 0; K < Size; ++K)
 		{
+			if (Exact.Num())
+			{
+				float F[10];
+				FMemory::Memcpy(F, Exact.GetData() + int64(K) * 40, 40);
+				const int32 Band = K % NBands;
+				const int32 Tier = bGrassy ? FoliageTier[(K / NBands) % 12] : 0;
+				Dealt[Band * NTiers + Tier].Add(FTransform(FQuat(F[3], F[4], F[5], F[6]).GetNormalized(),
+					FVector(F[0], F[1], F[2]), FVector(F[7], F[8], F[9])));
+				continue;
+			}
 			const uint8* R = Raw.GetData() + Start + int64(K) * Stride;
 			float X, Y, Z;
 			FMemory::Memcpy(&X, R, 4);

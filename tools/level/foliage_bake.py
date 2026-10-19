@@ -23,10 +23,12 @@ appended as assemble appends them (so group numbers match the level file's);
 `groups`, per group its mesh, bands, cull and flags (1 shadow, 2 static,
 4 grassy: thinned by quality, 8 the cliffs' cladding: a mesh actor a rock,
 whose material the loader still builds at runtime, 16 with the CE light
-under each rock); `standins`.
+under each rock, 32 exact transforms in <bin>.xf<group>: the leaf
+clusters, mirrored as B30 places them); `standins`.
 """
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -61,6 +63,44 @@ def still(d):
     missed, 2026-10-19)."""
     s = d.get("scalars")
     return bool(d.get("static")) or (isinstance(s, dict) and s.get("Wind Sway Max Angle") == 0)
+
+
+def exact_transform(m):
+    """A row-vector 3 x 3 (rows: where X, Y and Z go, with scale) as an
+    FTransform's rotation (x, y, z, w) and scale. A mirrored one (B30's leaf
+    clusters, every one) keeps its mirror as a negative Y scale."""
+    s = [math.sqrt(sum(v * v for v in row)) for row in m]
+    det = (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+           + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+    if det < 0:
+        s[1] = -s[1]
+    r = [[m[i][j] / s[i] for j in range(3)] for i in range(3)]
+    c = [[r[j][i] for j in range(3)] for i in range(3)]  # column-vector rotation
+    t = c[0][0] + c[1][1] + c[2][2]
+    if t > 0:
+        k = math.sqrt(t + 1) * 2
+        q = ((c[2][1] - c[1][2]) / k, (c[0][2] - c[2][0]) / k, (c[1][0] - c[0][1]) / k, 0.25 * k)
+    elif c[0][0] > c[1][1] and c[0][0] > c[2][2]:
+        k = math.sqrt(1 + c[0][0] - c[1][1] - c[2][2]) * 2
+        q = (0.25 * k, (c[0][1] + c[1][0]) / k, (c[0][2] + c[2][0]) / k, (c[2][1] - c[1][2]) / k)
+    elif c[1][1] > c[2][2]:
+        k = math.sqrt(1 + c[1][1] - c[0][0] - c[2][2]) * 2
+        q = ((c[0][1] + c[1][0]) / k, 0.25 * k, (c[1][2] + c[2][1]) / k, (c[0][2] - c[2][0]) / k)
+    else:
+        k = math.sqrt(1 + c[2][2] - c[0][0] - c[1][1]) * 2
+        q = ((c[0][2] + c[2][0]) / k, (c[1][2] + c[2][1]) / k, 0.25 * k, (c[1][0] - c[0][1]) / k)
+    return q, s
+
+
+def write_exact(path, records):
+    """Ten floats a record: location, rotation (x, y, z, w), scale."""
+    import struct
+    out = bytearray()
+    for r in records:
+        m = [r[7:10], r[10:13], r[13:16]]
+        q, s = exact_transform(m)
+        out += struct.pack("<10f", r[0], r[1], r[2], *q, *s)
+    open(path, "wb").write(bytes(out))
 
 
 def mesh_info(mjolnir, paks, path):
@@ -127,6 +167,11 @@ def main():
         for records, group in leaf_groups(swap):
             append_foliage(bin_path, records)
             groups.append(group)
+            if all(len(r) >= 16 for r in records):
+                # Exact transforms beside the file (flag 32): group N's in
+                # <bin>.xfN, read by BakeFoliage instead of the records.
+                write_exact(f"{bin_path}.xf{len(groups)}", records)
+                group["exact"] = True
 
     spec_groups, meshes = [], {}
     for g in groups:
@@ -134,7 +179,7 @@ def main():
         cull = g.get("cull") if isinstance(g.get("cull"), list) else CULL
         flags = (1 if g.get("shadow") is not False else 0) | (2 if g.get("static") else 0) \
             | (4 if g.get("rule") in GRASSY else 0) | (8 if g.get("cliff") else 0) \
-            | (16 if g.get("cliff") and g.get("lm") else 0)
+            | (16 if g.get("cliff") and g.get("lm") else 0) | (32 if g.get("exact") else 0)
         spec_groups.append({"mesh": mesh, "bands": max(1, int(g.get("bands") or 1)),
                             "cull": [float(cull[0]), float(cull[1])], "flags": flags})
         if mesh:
