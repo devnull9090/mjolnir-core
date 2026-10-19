@@ -141,6 +141,16 @@ def vmul(v, m):
     return [sum(v[k] * m[k][j] for k in range(3)) for j in range(3)]
 
 
+def rotation_rows(pitch, yaw, roll):
+    """Unreal's FRotationMatrix (row vectors: X, Y, Z axes), degrees: the
+    inverse of `rotator`."""
+    p, y, r = (math.radians(v) for v in (pitch, yaw, roll))
+    sp, cp, sy, cy, sr, cr = math.sin(p), math.cos(p), math.sin(y), math.cos(y), math.sin(r), math.cos(r)
+    return [[cp * cy, cp * sy, sp],
+            [sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp],
+            [-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp]]
+
+
 def minv(m):
     (a, b, c), (d, e, f), (g, h, i) = m
     det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
@@ -411,9 +421,12 @@ def swap(a):
             s = ext[2] / max(r["height"], 1.0)
             trees.append((x, y, z, ext[2]))
             c, sn = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
-            # The tree's frame here (yaw and size; row vectors), its leaf
-            # clusters into it.
-            frame = [[s * c, s * sn, 0.0], [-s * sn, s * c, 0.0], [0.0, 0.0, s]]
+            # The tree's frame here (its lean, yaw and size; row vectors),
+            # its leaf clusters into it. The recipe keeps each cluster in
+            # the trunk's whole frame, lean included; in yaw and size alone
+            # a leaning tree's twigs stood off its branches (Infinity,
+            # 2026-10-19), as far as the lean times their reach.
+            frame = [[s * v for v in row] for row in rotation_rows(r["pitch"], yaw, r["roll"])]
             for lf in attached_leaves(r, bounds):
                 o = vmul(lf["off"], frame)
                 fy, fs, fnx, fny = foliage_pose(mmul(lf["m"], frame))
