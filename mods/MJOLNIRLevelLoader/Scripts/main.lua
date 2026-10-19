@@ -5108,9 +5108,10 @@ local function spawnDecor(world)
             -- first and on its own: a material error below skipped it, and
             -- Infinity's small trees swayed apart (2026-10-19). Worlds baked
             -- since carry it themselves (foliage_bake.py `still`).
-            if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
-                pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
-            end
+            -- Either way: a world baked still follows a level file that
+            -- lets the piece move, and the other way round.
+            local still = item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0)
+            pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(not still) end)
             pcall(function()
                 local comp = own.StaticMeshComponent
                 local mesh = comp.StaticMesh

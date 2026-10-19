@@ -187,7 +187,7 @@ def foliage_pose(m):
 # the tree's own clusters past its limb ends fell out too (152 to 300 cm
 # from the limb meshes' boxes) and those limbs ended bare (Infinity,
 # 2026-10-19); a neighbour's lie 7 m and more off.
-LEAF_REACH = 400.0  # cm, in the tree's own frame
+LEAF_REACH = float(os.environ.get("MJ_LEAF_REACH", 400.0))  # cm, in the tree's own frame
 # How far from the trunk a cluster is looked for at all (cm, across).
 LEAF_SEARCH = 1600.0
 
@@ -200,6 +200,7 @@ def attached_leaves(recipe, bounds):
             boxes.append(([part["off"][i] + b["min"][i] for i in range(3)],
                           [part["off"][i] + b["max"][i] for i in range(3)]))
     kept, seen = [], set()
+    own = recipe.get("own_leaves")
     for lf in recipe.get("leaves", []):
         o = lf["off"]
         # B30's export lists a cluster once a cell it overlaps: one is enough.
@@ -208,7 +209,7 @@ def attached_leaves(recipe, bounds):
         seen.add(tuple(o))
         gap = min((math.sqrt(sum(max(lo[i] - o[i], 0.0, o[i] - hi[i]) ** 2 for i in range(3))) for lo, hi in boxes),
                   default=0.0)
-        if gap <= LEAF_REACH:
+        if own or gap <= LEAF_REACH:
             kept.append(lf)
     return kept
 
@@ -216,13 +217,43 @@ def attached_leaves(recipe, bounds):
 def recipes(a):
     bounds = {m["path"].split(".")[0]: m for m in json.load(open(a.bounds, encoding="utf-8"))}
     every = list(csv.DictReader(open(a.csv, encoding="utf-8")))
+    # Hierarchical-LOD actors repeat the trees' instances for distance.
+    every = [r for r in every if not (r.get("actor") or "").startswith("HLOD")]
     rows = [r for r in every if a.prefix in r["mesh"] and "/Meshes/" in r["mesh"]]
     leaf_rows = [r for r in every if r["mesh"] == a.leaves]
     by_variant = collections.defaultdict(lambda: collections.defaultdict(set))
     for r in rows:
         variant = r["mesh"].split(a.prefix)[1].split("/")[0]
         key = tuple(round(float(r[k]), 3) for k in ("m00", "m01", "m02", "m10", "m11", "m12", "m20", "m21", "m22"))
-        by_variant[variant][r["mesh"]].add((float(r["x"]), float(r["y"]), float(r["z"]), key))
+        by_variant[variant][r["mesh"]].add((float(r["x"]), float(r["y"]), float(r["z"]), key, r.get("actor") or ""))
+    # A tree's own leaf clusters, by the actor its twig components belong
+    # to (placements_csv's `actor` column): B30 assembles every tree with
+    # its own pieces and twigs, and some trees carry no visible twigs at
+    # all. The recipes took clusters by distance from the most isolated
+    # trunk, which for Lrg_D, Lrg_C and SaplingTwist had none of its own:
+    # their canopies were other trees' twigs, standing off limbs they were
+    # never made for (2026-10-19).
+    # A tree actor keeps its twigs (exact); World Partition merges the
+    # rest into shared actors, where a twig is the nearest trunk's.
+    leaves_of = collections.defaultdict(list)
+    all_trunks = {(float(r["x"]), float(r["y"]), float(r["z"])) for r in rows if r["mesh"].endswith("_Trunk")}
+    grid = collections.defaultdict(list)
+    for t in all_trunks:
+        grid[(int(t[0] // 2000), int(t[1] // 2000))].append(t)
+
+    def nearest_trunk(x, y):
+        gx, gy = int(x // 2000), int(y // 2000)
+        near = [t for i in (-1, 0, 1) for j in (-1, 0, 1) for t in grid[(gx + i, gy + j)]]
+        return min(near, key=lambda t: math.hypot(t[0] - x, t[1] - y), default=None)
+
+    for r in leaf_rows:
+        owner = r.get("actor") or ""
+        if owner.startswith("BP_Tree_"):
+            leaves_of[owner].append(r)
+        elif "actor" in r:
+            t = nearest_trunk(float(r["x"]), float(r["y"]))
+            if t:
+                leaves_of[t].append(r)
     out = {}
     for variant, parts in sorted(by_variant.items()):
         trunks = [m for m in parts if m.endswith("_Trunk")] or [m for m in parts if "_Trunk" in m]
@@ -232,9 +263,25 @@ def recipes(a):
         trunk_list = sorted(parts[trunk_mesh])
         # The most isolated trunk: no other tree's parts mixed into its own.
         def isolation(t):
-            return min((math.hypot(t[0] - o[0], t[1] - o[1]) for o in trunk_list if o != t), default=1e9)
-        t = max(trunk_list, key=isolation)
-        tx, ty, tz, key = t
+            return min((math.hypot(t[0] - o[0], t[1] - o[1]) for o in trunk_list if o[:2] != t[:2]), default=1e9)
+        # With actors: the tree with the most twigs of its own (then the
+        # most isolated); its parts and clusters are exactly its own.
+        def own_leaves(t):
+            if t[4].startswith("BP_Tree_") and leaves_of.get(t[4]):
+                return leaves_of[t[4]]
+            return leaves_of.get(t[:3]) or []
+
+        def count(t):
+            return len({(r["x"], r["y"], r["z"]) for r in own_leaves(t)})
+
+        exact = [t for t in trunk_list if t[4].startswith("BP_Tree_") and leaves_of.get(t[4])]
+        if exact:
+            t = max(exact, key=lambda t: (count(t), isolation(t)))
+        elif any(count(t) for t in trunk_list):
+            t = max(trunk_list, key=lambda t: (count(t), isolation(t)))
+        else:
+            t = max(trunk_list, key=isolation)
+        tx, ty, tz, key, actor = t
         m = [list(key[0:3]), list(key[3:6]), list(key[6:9])]
         scale = math.sqrt(sum(v * v for v in m[0]))
         pitch, yaw, roll = rotator(m)
@@ -260,14 +307,18 @@ def recipes(a):
         # 3 x 3s relative to the trunk's frame.
         inv = minv(m)
         leaves = []
-        for r in leaf_rows:
+        mine = own_leaves(t) if "actor" in leaf_rows[0] else None
+        for r in mine if mine else leaf_rows:
             lx, ly, lz = float(r["x"]), float(r["y"]), float(r["z"])
-            if math.hypot(lx - tx, ly - ty) > LEAF_SEARCH or lz < tz:
+            if not mine and (math.hypot(lx - tx, ly - ty) > LEAF_SEARCH or lz < tz):
                 continue
             leaves.append({"off": [round(v, 1) for v in vmul([lx - tx, ly - ty, lz - tz], inv)],
                            "m": [[round(v, 5) for v in row] for row in mmul(mat3(r), inv)]})
         out[variant] = {"parts": recipe, "pitch": round(pitch, 2), "roll": round(roll, 2),
                         "height": round(top, 1), "isolation": round(isolation(t)), "leaves": leaves}
+        if mine:
+            # Its own clusters: no reach test (attached_leaves) needed.
+            out[variant]["own_leaves"] = True
         print(f"{variant}: {len(recipe)} parts, {len(leaves)} leaf clusters, {top / 100:.1f} m tall "
               f"(scale 1), {isolation(t) / 100:.0f} m from the next")
     json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1)
@@ -445,9 +496,13 @@ def swap(a):
                 # B30 places every leaf cluster mirrored, which the record
                 # cannot hold, and its 1.4 degree yaw moved a 10 m twig's tip
                 # by up to 36 cm (foliage_bake.py `exact`).
+                # Then the tree's pivot and size, B30's per-instance custom
+                # data on every part of a tree (the Kuenovo materials bend
+                # each part about it).
                 leaves.append([round(x + o[0], 1), round(y + o[1], 1), round(z + o[2], 1),
                                round(fy, 1), round(fs, 3), round(fnx, 3), round(fny, 3)]
-                              + [round(v, 5) for row in world for v in row])
+                              + [round(v, 5) for row in world for v in row]
+                              + [round(x, 1), round(y, 1), round(z, 1), round(ext[2], 1)])
             # A part a decor id by its place in the recipe: by its mesh's
             # number suffix, Big_2, Mid_2 and Trunk_2 shared one, the loader
             # kept one of them, and Infinity's double trees stood on one

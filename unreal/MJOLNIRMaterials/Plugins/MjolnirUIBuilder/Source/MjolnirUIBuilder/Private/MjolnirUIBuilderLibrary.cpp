@@ -851,6 +851,22 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 				return -1;
 			}
 		}
+		// Flag 64: four custom floats an instance beside the file (<bin>.xcN):
+		// B30 gives every part of a Kuenovo tree its tree's pivot and size,
+		// which the trees' materials bend each part about.
+		TArray<uint8> Custom;
+		if (Flags[G] & 64)
+		{
+			const FString XcPath = FString::Printf(TEXT("%s.xc%d"), *BinPath, G + 1);
+			if (!FFileHelper::LoadFileToArray(Custom, *XcPath) || Custom.Num() != int64(Size) * 16)
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no custom data for %u record(s) in %s"),
+					G + 1, Size, *XcPath);
+				return -1;
+			}
+		}
+		TArray<TArray<int32>> DealtRecords;
+		DealtRecords.SetNum(NBands * NTiers);
 		for (uint32 K = 0; K < Size; ++K)
 		{
 			if (Exact.Num())
@@ -861,6 +877,7 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 				const int32 Tier = bGrassy ? FoliageTier[(K / NBands) % 12] : 0;
 				Dealt[Band * NTiers + Tier].Add(FTransform(FQuat(F[3], F[4], F[5], F[6]).GetNormalized(),
 					FVector(F[0], F[1], F[2]), FVector(F[7], F[8], F[9])));
+				DealtRecords[Band * NTiers + Tier].Add(int32(K));
 				continue;
 			}
 			const uint8* R = Raw.GetData() + Start + int64(K) * Stride;
@@ -875,6 +892,7 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 			const int32 Band = K % NBands;
 			const int32 Tier = bGrassy ? FoliageTier[(K / NBands) % 12] : 0;
 			Dealt[Band * NTiers + Tier].Add(FTransform(FoliageRotation(Yaw, Nx, Ny), FVector(X, Y, Z), FVector(S)));
+			DealtRecords[Band * NTiers + Tier].Add(int32(K));
 		}
 		for (int32 B = 0; B < NBands; ++B)
 		{
@@ -905,7 +923,21 @@ int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPat
 				C->InstanceEndCullDistance = FMath::FloorToInt(Far);
 				Actor->AddInstanceComponent(C);
 				C->RegisterComponent();
+				if (Custom.Num())
+				{
+					C->SetNumCustomDataFloats(4);
+				}
 				C->AddInstances(Instances, false, false);
+				if (Custom.Num())
+				{
+					const TArray<int32>& Records = DealtRecords[B * NTiers + T];
+					for (int32 I = 0; I < Records.Num(); ++I)
+					{
+						float F[4];
+						FMemory::Memcpy(F, Custom.GetData() + int64(Records[I]) * 16, 16);
+						C->SetCustomData(I, TArrayView<const float>(F, 4), false);
+					}
+				}
 				C->BuildTreeIfOutdated(false, true);
 				Placed += Instances.Num();
 				++Components;

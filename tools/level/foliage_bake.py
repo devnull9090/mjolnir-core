@@ -24,7 +24,8 @@ appended as assemble appends them (so group numbers match the level file's);
 4 grassy: thinned by quality, 8 the cliffs' cladding: a mesh actor a rock,
 whose material the loader still builds at runtime, 16 with the CE light
 under each rock, 32 exact transforms in <bin>.xf<group>: the leaf
-clusters, mirrored as B30 places them); `standins`.
+clusters, mirrored as B30 places them, 64 four custom floats an instance in
+<bin>.xc<group>: each cluster's tree pivot and size); `standins`.
 """
 import argparse
 import json
@@ -172,6 +173,13 @@ def main():
                 # <bin>.xfN, read by BakeFoliage instead of the records.
                 write_exact(f"{bin_path}.xf{len(groups)}", records)
                 group["exact"] = True
+            if all(len(r) >= 20 for r in records):
+                # Four custom floats an instance (the tree's pivot and size)
+                # beside them: <bin>.xcN.
+                import struct
+                open(f"{bin_path}.xc{len(groups)}", "wb").write(
+                    b"".join(struct.pack("<4f", *r[16:20]) for r in records))
+                group["custom"] = True
 
     spec_groups, meshes = [], {}
     for g in groups:
@@ -179,7 +187,8 @@ def main():
         cull = g.get("cull") if isinstance(g.get("cull"), list) else CULL
         flags = (1 if g.get("shadow") is not False else 0) | (2 if g.get("static") else 0) \
             | (4 if g.get("rule") in GRASSY else 0) | (8 if g.get("cliff") else 0) \
-            | (16 if g.get("cliff") and g.get("lm") else 0) | (32 if g.get("exact") else 0)
+            | (16 if g.get("cliff") and g.get("lm") else 0) | (32 if g.get("exact") else 0) \
+            | (64 if g.get("custom") else 0)
         spec_groups.append({"mesh": mesh, "bands": max(1, int(g.get("bands") or 1)),
                             "cull": [float(cull[0]), float(cull[1])], "flags": flags})
         if mesh:
