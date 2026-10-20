@@ -161,9 +161,10 @@ if [ "$cook" = "1" ]; then
     # The bake's pages match the lightmaps' size.
     size_page="$staging/textures/$page0"
     [ -f "$out/lightmaps/$page0" ] && size_page="$out/lightmaps/$page0"
-    # BAKE_ARGS adds bake flags. "--max-size 1024" keeps a map with many
-    # pages under the hub's 50 MiB archive limit: Coldsnap's 76 pages at
-    # 2,048 made a 58.6 MB pack.
+    # BAKE_ARGS adds bake flags. "--max-size 1024" shrinks a map with many
+    # lightmap pages: Coldsnap's 76 pages at 2,048 made a 58.6 MB pack, over
+    # the tag editor's 50 MiB upload (the hub takes 90 MiB in one request,
+    # 400 MiB in parts).
     read -r -a bake_extra <<< "${BAKE_ARGS:-}"
     "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" "${bake_extra[@]}" | sed 's/ -> .*//'
   fi
