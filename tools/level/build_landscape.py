@@ -76,6 +76,27 @@ FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 # (fill 0.6 on flat ground); cliffs at 0.9x CE colour (1.4x drew its red
 # cliff map orange), half of it, under a grey-brown tint.
 MAP_LOOKS = {
+    # Pipeline test arena (LTT): daylight grass and pale earth, with neutral
+    # grey rock. Its pond is only 18 cm below the surrounding floor, so the
+    # beach's 12 m ripple band and 80 cm wet band would cover the whole arena.
+    # Keep the authored beach mask, with less CE colour in the PBR surfaces;
+    # the source's map-sized UVs provide the broad grass/path distribution.
+    "LTT": {
+        "pbr": {"grass_tint": [0.42, 0.52, 0.30, 1.0], "sand_tint": [0.78, 0.78, 0.70, 1.0],
+                "dirt_tint": [0.78, 0.73, 0.62, 1.0], "mix": [0.25, 0.55, 0.15, 0.25],
+                "look": [2.6, 1.3, 0.5, 0.35], "tiles": [400, 250, 300, 700],
+                "sea": [15, 8], "wet": [0.75, 0.7, 0, 0],
+                "inland": [30, 130, 100, 1.0], "dirt": [0.5, 0.2, 2200, 0.15],
+                "slope": [0.92, 0.8, 1.0, 0.15], "macro": [0.3, 1500, 6000, 9],
+                "light": {"sun": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]},
+                          "sky": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}}},
+        # Look.y is the CE cliff colour share; the rest comes from the
+        # Megascans rock and tint. A cool neutral fill avoids the beach's
+        # orange bounce turning the grey wall brown.
+        "cliff": {"mix": [0.6, 1.2, 1.0, 1.0], "look": [1.6, 0.25, 0.25, 1.15],
+                  "tint": [0.8, 0.82, 0.82, 1.0], "ce_tint": [0.1, 0, 0, 0],
+                  "fill": [0.88, 0.94, 1.0, 0.45]},
+    },
     # Ice Fields (LIF, 2026-10-13; SNOW, shared with Sidewinder): B40's snow (its landscape's Megascans
     # surfaces) in place of the beach: fresh windswept snow, windswept
     # snow for the ripple band, melting snow in patches, snowy stones,

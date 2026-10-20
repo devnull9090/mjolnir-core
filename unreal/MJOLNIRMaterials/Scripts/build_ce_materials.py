@@ -2677,7 +2677,11 @@ def deform_globals():
     """The stand-in MPC_DeformationGlobals (Plugins/HaloLandscapeDeformations)."""
     # Kept, not made afresh: the masters built before point at it.
     path = f"{DEFORM_GLOBALS}/MPC_DeformationGlobals"
-    mpc = unreal.load_asset(path) if eal.does_asset_exist(path) else assets.create_asset(
+    # Scanned first: on a fresh copy of the project the registry had not
+    # reached the plugin yet, create_asset met the file on disk and its
+    # overwrite prompt crashed the unattended editor (2026-10-18).
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([DEFORM_GLOBALS], True)
+    mpc =unreal.load_asset(path) if eal.does_asset_exist(path) else assets.create_asset(
         "MPC_DeformationGlobals", DEFORM_GLOBALS, unreal.MaterialParameterCollection,
         unreal.MaterialParameterCollectionFactoryNew())
     scalars = []

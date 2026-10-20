@@ -1,6 +1,7 @@
 """Take converted CE maps through the B30 pipeline in one run.
 
     python tools/level/upgrade_ce_map.py BGL YOY [--install] [--stages ...]
+    python tools/level/upgrade_ce_map.py TST --stages install --local-install
 
 For each map named in tools/level/ce_upgrade_maps.json this does what was
 done by hand per map until 2026-10-12:
@@ -8,7 +9,8 @@ done by hand per map until 2026-10-12:
   land      build_landscape.py: the ground's heights, holes and bakes
   foliage   scatter_foliage.py: grass, debris and the cliffs' cladding
   swap      scenery_swap.py: the natural CE scenery (boulders, trees,
-            shrubs, plants) in B30's own meshes, the CE slots hidden
+            shrubs, plants) in B30's own meshes, the CE slots hidden;
+            then rock_foliage.py clears the grass inside each B30 rock
   editor    the map's Landscape world in unreal/MJOLNIRMaterials
             (Scripts/build_ce_landscape.py), and once for the run the
             trial masters (Scripts/build_ce_materials.py, chunk 983) and
@@ -25,6 +27,12 @@ done by hand per map until 2026-10-12:
 Everything lands in <work>/<CODE>/ (default C:/haloce/ce_conversions/
 upgrade), so a run can stop at any stage and pick up with --stages. The
 editor and the cook take the project's mutex, so one run at a time.
+
+--local-install installs a new, locally converted map without a hub listing.
+It requires the CE runtime, loader/native DLL and game variants already
+installed. It copies the conversion's mesh/textures and the upgraded world,
+then rebuilds the shared registration and menu with `mjolnir level register`.
+Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
 import glob
@@ -531,7 +539,7 @@ def stage_foliage(code, m, p):
     cmd = [sys.executable, os.path.join(HERE, "scatter_foliage.py"), os.path.join(p["scene"], "scene.gltf"),
            os.path.join(p["scene"], "materials.spec.json"), os.path.join(p["foliage"], "foliage.json"),
            "--bin", os.path.join(p["foliage"], "foliage.bin"), "--offset", "0,0,0", "--lift", str(FOLIAGE_LIFT),
-           "--edge", os.path.join(p["land"], "landscape.json")]
+           "--edge", os.path.join(p["land"], "landscape.json"), "--swapped-rocks"]
     sea = sea_height(level)
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
@@ -547,6 +555,9 @@ def stage_foliage(code, m, p):
         cmd += ["--ground-shaders", ",".join(m["shaders"] + m.get("ground_also", []))]
     if m.get("cliff_shaders"):
         cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
+    # `foliage_extra`: optional scatter rules (Death Island's sea rocks).
+    for rule in m.get("foliage_extra", []):
+        cmd += ["--extra", rule]
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])
@@ -554,7 +565,8 @@ def stage_foliage(code, m, p):
 
 def stage_swap(code, m, p):
     data = os.path.join(HERE, "data")
-    sea = sea_height(json.load(open(p["level"], encoding="utf-8")))
+    with open(p["level"], encoding="utf-8") as f:
+        sea = sea_height(json.load(f))
     # A snow map (`biome: snow`) takes B40's trees and rocks: its own
     # recipes and bounds (scenery_swap.py recipes, `mjolnir mesh list`).
     source = "b40" if m.get("biome") == "snow" else "b30"
@@ -564,8 +576,16 @@ def stage_swap(code, m, p):
                "--rocks", m.get("rocks", "beach"), "--foliage", os.path.join(p["foliage"], "foliage.json"),
                "--staging", staging(p)]
               + (["--biome", m["biome"]] if m.get("biome") else [])
+              + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
+    # The grass up to each swapped rock's own hull (the foliage stage left
+    # them no clearing: it cannot know the rocks).
+    fol = os.path.join(p["foliage"], "foliage.bin")
+    if os.path.exists(fol):
+        out = run([sys.executable, os.path.join(HERE, "rock_foliage.py"), fol, os.path.join(p["work"], "swap.json"),
+                   staging(p)] + (["--biome", m["biome"]] if m.get("biome") else []))
+        print(f"  {code}: " + out.strip().splitlines()[-1][:200])
 
 
 def stage_collision(code, m, p):
@@ -610,12 +630,25 @@ def bake_sbsp(m, p):
 
 
 def stage_editor(code, m, p):
+    if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
+        sys.exit(f"{code}: rock_roughness requires bake_foliage")
     if m.get("indoor"):
         print(f"  {code}: indoor, no landscape world")
         return
+    env = {"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"], "MJ_LANDSCAPE_CHUNK": str(m["chunk"])}
+    # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
+    # in the world here (tools/level/foliage_bake.py) instead of by the
+    # loader at runtime; assemble then marks the level file's foliage `baked`.
+    if m.get("bake_foliage"):
+        spec = os.path.join(p["work"], "foliage_bake", "spec.json")
+        origin = (json.load(open(p["level"], encoding="utf-8")).get("canvas") or {}).get("origin") or [0, 0, 0]
+        print("  " + run([sys.executable, os.path.join(HERE, "foliage_bake.py"), p["work"], spec, "--paks", PAKS,
+                          "--origin", ",".join(str(v) for v in origin),
+                          "--mjolnir", os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))]
+                         + (["--rock-roughness", str(m["rock_roughness"])] if m.get("rock_roughness") is not None else [])).strip().splitlines()[-1][:160])
+        env["MJ_FOLIAGE"] = spec
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
-                     env={"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"],
-                          "MJ_LANDSCAPE_CHUNK": str(m["chunk"])})
+                     env=env)
     # The editor's own log too: its console capture has stopped short of the
     # end (Death Island, 2026-10-13) with the world built.
     log = "".join(open(f, encoding="utf-8", errors="replace").read() for f in (
@@ -623,6 +656,8 @@ def stage_editor(code, m, p):
         if os.path.exists(f))
     if "landscape built" not in log or os.path.normcase(p["land"]) not in os.path.normcase(log.replace("/", "\\")):
         sys.exit(f"{code}: the landscape world was not built:\n{out[-2000:]}")
+    if m.get("bake_foliage") and "landscape foliage:" not in log:
+        sys.exit(f"{code}: the world was built without its foliage:\n{out[-2000:]}")
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
 
 
@@ -655,9 +690,20 @@ def shadow_shells(maps, ps):
     specs = []
     for code in maps:
         p = ps[code]
+        # A previous assembled level has hidden materials and may use an old
+        # slot order after the CE source changes. Start from the current
+        # conversion (or configured base_level) and apply only today's cut;
+        # shadow_shell.py excludes the current scenery through --swap.
+        with open(p["level"], encoding="utf-8") as f:
+            level = json.load(f)
+        with open(os.path.join(p["land"], "landscape.json"), encoding="utf-8") as f:
+            land = json.load(f)
+        level["landscape"] = dict(level.get("landscape") or {}, cut=land.get("cut") or {})
+        source = os.path.join(p["work"], "shadow_source.json")
+        with open(source, "w", encoding="utf-8") as f:
+            json.dump(level, f, indent=1)
         out = os.path.join(p["work"], "shadow_shell.json")
-        print(f"  {code}: " + run([sys.executable, os.path.join(HERE, "shadow_shell.py"), p["out_level"]
-                                  if os.path.exists(p["out_level"]) else p["level"],
+        print(f"  {code}: " + run([sys.executable, os.path.join(HERE, "shadow_shell.py"), source,
                                   os.path.join(p["scene"], "scene.gltf"), out, "--swap",
                                   os.path.join(p["work"], "swap.json")]).strip().splitlines()[-1][:160])
         specs.append(f"SM_{code}_ShadowShell={out}")
@@ -705,11 +751,11 @@ def build_cliffs(maps, ps):
         p = ps[code]
         out = os.path.join(p["work"], "river_mesh.json")
         made = run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
-                    os.path.join(p["scene"], "scene_translucent.gltf"), out, "--parent",
+                    os.path.join(p["scene"], m["rivers"].get("scene", "scene_translucent.gltf")), out, "--parent",
                     # The stream's CE shader: Timberland's a transparent
                     # chicago, Battle Creek's CE water.
                     m["rivers"].get("parent", "M_CE_TransparentAlpha"),
-                    "--item", "_terrain_1", "--slot-offset", "0", "--texture", m["rivers"]["textures"][0],
+                    "--item", m["rivers"].get("item", "_terrain_1"), "--slot-offset", "0", "--texture", m["rivers"]["textures"][0],
                     "--material", "/Game/MJOLNIR/Water/M_CE_Ocean.M_CE_Ocean"], check=False)
         print("  " + made.strip().splitlines()[-1][:160])
         if "triangle(s) on" in made:
@@ -721,6 +767,11 @@ def build_cliffs(maps, ps):
             bed = flux_bed(code, m, ps[code])
             if bed:
                 specs.append(f"SM_{code}_FluxBed={bed}")
+    # The sea's ground (coast `ground_mesh`): CE's scene by its lowest
+    # surface, for the coastline's capture alone (flux_coast_ground).
+    for code, m in maps.items():
+        if ((m.get("flux") or {}).get("coast") or {}).get("ground_mesh"):
+            specs.append(f"SM_{code}_FluxGround={flux_coast_ground(code, m, ps[code])}")
     specs += shadow_shells(maps, ps)
     if not specs:
         return
@@ -832,10 +883,15 @@ def horizon_skirt(code, m, p, level):
     map), `z` just under its rim, out `reach` (50 km), in its ground's own
     material (its landscape's slot; CE's lightmap off: the strips have
     none), for the haze to fade into the sky. Past Infinity's rim there was
-    nothing under the sky but a black band (2026-10-16)."""
+    nothing under the sky but a black band (2026-10-16). An optional
+    `material` object replaces the ground spec, with no corner overlap
+    so translucent water does not blend twice (TST, 2026-10-19)."""
     hz = m.get("horizon")
     if not hz:
         return []
+    custom = "material" in hz
+    if custom and not isinstance(hz["material"], dict):
+        raise SystemExit(f"{code}: horizon.material must be a material-spec object")
     import numpy as np
     from refine_water_gltf import read_accessor
     doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
@@ -848,37 +904,41 @@ def horizon_skirt(code, m, p, level):
             pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
             xy = np.stack([pos[:, 0] * 100, pos[:, 2] * 100], 1)
             lo, hi = np.minimum(lo, xy.min(0)), np.maximum(hi, xy.max(0))
-    # The ground's material: the landscape's own slot on the terrain item
-    # (terrain slot i is the glTF's material i - 1).
-    land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
-    names = [mt["name"] for mt in doc["materials"]]
-    terrain = next(i for i in level["decor"] if f"/SM_{code}_Terrain." in str(i.get("mesh", "")))
-    entry = terrain["materials"][names.index(land["slot"]) + 1]
-    mat = json.loads(json.dumps(entry))
-    for k in ("HasLightmap", "HasBake"):
-        mat.setdefault("scalars", {})[k] = 0.0
-    # The ground's mean colour, not its base map: tiled, the map's own paths
-    # and track repeated out to the horizon (Infinity, 2026-10-17).
-    from PIL import Image
-    px = np.asarray(Image.open(os.path.join(p["land"], "base.png")).convert("RGB"), np.float64) / 255.0
-    ground = np.asarray(Image.open(os.path.join(p["land"], "landmask.png")).convert("L").resize(
-        px.shape[1::-1]), np.float64) < 128
-    mean = px[ground].mean(0) if ground.any() else px.reshape(-1, 3).mean(0)
-    mat["textures"]["Base"] = WHITE
-    mat.setdefault("vectors", {})["MaterialColor"] = [round(float(c), 3) for c in mean] + [1.0]
+    if custom:
+        mat = json.loads(json.dumps(hz["material"]))
+    else:
+        # The ground's material: the landscape's own slot on the terrain item
+        # (terrain slot i is the glTF's material i - 1).
+        land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
+        names = [mt["name"] for mt in doc["materials"]]
+        terrain = next(i for i in level["decor"] if f"/SM_{code}_Terrain." in str(i.get("mesh", "")))
+        entry = terrain["materials"][names.index(land["slot"]) + 1]
+        mat = json.loads(json.dumps(entry))
+        for k in ("HasLightmap", "HasBake"):
+            mat.setdefault("scalars", {})[k] = 0.0
+        # The ground's mean colour, not its base map: tiled, the map's own paths
+        # and track repeated out to the horizon (Infinity, 2026-10-17).
+        from PIL import Image
+        px = np.asarray(Image.open(os.path.join(p["land"], "base.png")).convert("RGB"), np.float64) / 255.0
+        ground = np.asarray(Image.open(os.path.join(p["land"], "landmask.png")).convert("L").resize(
+            px.shape[1::-1]), np.float64) < 128
+        mean = px[ground].mean(0) if ground.any() else px.reshape(-1, 3).mean(0)
+        mat["textures"]["Base"] = WHITE
+        mat.setdefault("vectors", {})["MaterialColor"] = [round(float(c), 3) for c in mean] + [1.0]
     origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
     R, z = float(hz.get("reach", 5000000.0)), float(hz["z"])
     # The middle strips overlap the side ones by 20 m: edge to edge, a
     # hairline of sky showed down each seam from above.
-    o = 2000.0
+    o = 0.0 if custom else 2000.0
     rects = [(-R, -R, lo[0], R), (hi[0], -R, R, R), (lo[0] - o, -R, hi[0] + o, lo[1]), (lo[0] - o, hi[1], hi[0] + o, R)]
     out = []
     for i, (x0, y0, x1, y1) in enumerate(rects):
         # The ground's maps tiled at the map's own size: one copy over a
         # 50 km strip drew it as streaks to the horizon (Infinity, 2026-10-17).
         strip = json.loads(json.dumps(mat))
-        strip.setdefault("vectors", {})["BaseXform"] = [round((x1 - x0) / (hi[0] - lo[0]), 2),
-                                                        round((y1 - y0) / (hi[1] - lo[1]), 2), 0.0, 0.0]
+        if not custom:
+            strip.setdefault("vectors", {})["BaseXform"] = [round((x1 - x0) / (hi[0] - lo[0]), 2),
+                                                            round((y1 - y0) / (hi[1] - lo[1]), 2), 0.0, 0.0]
         out.append({"id": f"horizon_{i}", "mesh": "/Engine/BasicShapes/Plane.Plane",
                     "pos": [round((x0 + x1) / 2 - origin[0]), round((y0 + y1) / 2 - origin[1]), round(z - origin[2])],
                     "scale": [round((x1 - x0) / 100.0, 1), round((y1 - y0) / 100.0, 1), 1.0],
@@ -1012,14 +1072,95 @@ def flux_bed(code, m, p, cell=50.0):
     return out
 
 
+def flux_coast_ground(code, m, p, cell=100.0, cap=400.0, under=50.0):
+    """The sea's ground for Fluid Flux's coastline capture alone (coast
+    `ground_mesh`): CE's scene as a heightfield of its lowest surface, in
+    place of CE's terrain in the capture. Flux captures from above, so at a
+    cliff's foot it took the overhang over the beach for the ground, and the
+    coastline's water stood up in glassy sheets hanging from it along Death
+    Island's sea cliffs (2026-10-18). The lowest surface is the sand under
+    the overhang; walls are stepped back into the rock (below). Surfaces more than `under` cm below the water are left out
+    (the landscape's seabed is the floor there, and CE's flat sea floor lies a
+    metre down everywhere), and nothing stands more than `cap` cm over the
+    water (cliff tops), as for the river beds (flux_bed). The mesh lies 5 cm
+    under what it copies, so the few seconds it is drawn (the loader hides
+    it after the capture) it stays under the sand and inside the rock.
+    Writes <work>/flux_ground.json (cliff_mesh.py's form) and returns it."""
+    import numpy as np
+    from refine_water_gltf import read_accessor
+    from build_landscape import raster
+    water = float(m["flux"]["coast"]["water"])
+    doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+    data = open(os.path.join(p["scene"], doc["buffers"][0]["uri"]), "rb").read()
+    tris = []
+    for mesh in doc["meshes"]:
+        for prim in mesh["primitives"]:
+            name = doc["materials"][prim["material"]]["name"].lower()
+            if any(w in name for w in ("sky", "water", "fog")):
+                continue
+            pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
+            P = np.stack([pos[:, 0] * 100, pos[:, 2] * 100, pos[:, 1] * 100], 1)
+            T = P[read_accessor(doc, data, prim["indices"]).reshape(-1, 3)]
+            tris.append(T[T[..., 2].max(1) >= water - under])
+    tris = np.concatenate(tris)
+    lo = np.floor(tris[..., :2].reshape(-1, 2).min(0) / cell) * cell
+    hi = np.ceil(tris[..., :2].reshape(-1, 2).max(0) / cell) * cell
+    nx, ny = int((hi[0] - lo[0]) / cell) + 1, int((hi[1] - lo[1]) / cell) + 1
+    size = max(nx, ny)
+    z, _ = raster(tris, lo, cell, size, [])
+    z = z[:ny, :nx]
+    z = np.where(np.isfinite(z), np.minimum(z, water + cap), np.nan)
+    # Walls stepped back into the rock. The coastline's water is a heightfield
+    # that also draws a thin film over the ground near the shore: where the
+    # sand at a cliff's foot (Death Island's lies under the water) meets the
+    # wall it bridged the step in one cell, a sheet standing up in front of
+    # the rock. Ground a wall's height within `back` cells of low ground
+    # reads as just over the water, so the step lies that far inside the rock
+    # and the water meets the wall flat. Lowering the captured ground never
+    # shows water: its film then lies under the real surface. At 1.5 m the
+    # ledges at the walls' feet still stood sheets a metre high (2026-10-18).
+    back = 4
+    low = ~np.isfinite(z) | (z <= water + 30.0)
+    near = np.pad(low, back, constant_values=True)
+    grown = np.zeros_like(low)
+    for dy in range(-back, back + 1):
+        for dx in range(-back, back + 1):
+            grown |= near[back + dy:back + dy + ny, back + dx:back + dx + nx]
+    stepped = np.isfinite(z) & (z > water + 40.0) & grown
+    z = np.where(stepped, water + 30.0, z) - 5.0
+    have = np.isfinite(z)
+    index = np.full((ny, nx), -1, np.int64)
+    index[have] = np.arange(int(have.sum()))
+    jj, ii = np.nonzero(have)
+    positions = [[round(float(lo[0] + i * cell), 1), round(float(lo[1] + j * cell), 1), round(float(z[j, i]), 1)]
+                 for j, i in zip(jj, ii)]
+    idx = []
+    quad = have[:-1, :-1] & have[:-1, 1:] & have[1:, :-1] & have[1:, 1:]
+    for j, i in zip(*np.nonzero(quad)):
+        a, b, c, d = index[j, i], index[j, i + 1], index[j + 1, i], index[j + 1, i + 1]
+        # Both windings, as flux_bed: one-sided, the capture culled it.
+        idx += [int(a), int(c), int(b), int(b), int(c), int(d), int(a), int(b), int(c), int(b), int(d), int(c)]
+    n = len(positions)
+    out = os.path.join(p["work"], "flux_ground.json")
+    json.dump({"item": "", "slots": [0], "names": ["flux_ground"], "positions": positions,
+               "normals": [[0.0, 0.0, 1.0]] * n, "indices": idx,
+               "uv0": [[0.0, 0.0]] * len(idx), "uv1": [[0.0, 0.0]] * len(idx),
+               "sections": [0] * (len(idx) // 3), "weight": [1.0] * n, "nanite": False, "material": PHANTOM},
+              open(out, "w", encoding="utf-8"))
+    print(f"  {code}: flux coast ground {nx} x {ny} at {cell:g} cm, {n} point(s), {len(idx) // 12} quad(s) "
+          f"(both sides), {int(stepped.sum())} wall cell(s) stepped back, "
+          f"z {np.nanmin(z) / 100:.1f}..{np.nanmax(z) / 100:.1f} m")
+    return out
+
+
 def flux_spec(code, fx, river, level):
     """Fluid Flux over CE's river (MJOLNIRLevelLoader Effects.flux): one
     domain round the river mesh, `fx.feeds` adding water where CE's water
     falls in (BE_FluxMode 0 Add, at a fixed rate, or 2 Adjust, the default:
-    up to the source's Z), and Set sources (mode 1) holding the water
-    at CE's own level along every flat stretch. CE's stream stood 15-45 cm over Timberland's
-    bed; the feed alone, with a drain, left the flat 200 m of it a wet film
-    or a flood (2026-10-14)."""
+    up to the source's Z), and grid sources along every flat stretch.
+    level_mode 2 fills to CE's water Z; the default 1 preserves existing
+    maps' Set sources, which set depth from level_strength. The grid source
+    lifetime is controlled separately by hold (otherwise they prime only)."""
     pos, idx = river["positions"], river["indices"]
     # Set sources every `grid` cm over the river's surface, each at CE's water
     # level there, fill the river at the start (`prime`) and are taken away
@@ -1063,7 +1204,11 @@ def flux_spec(code, fx, river, level):
     # the outlet to drain it, the feed overfilled it over its banks and out
     # to the domain's edge, where the water stopped in a straight line
     # (2026-10-16).
-    sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0), "mode": 1,
+    # Adjust (level_mode 2) holds the source's world Z. Set (the existing
+    # default 1) holds Volume as depth: at strength 1 it drained TST's pond
+    # to a 1 cm film despite its sources standing a metre above the bed.
+    sources += [{"pos": q, "scale": fx.get("level_scale", 1.0), "volume": fx.get("level_strength", 1.0),
+                 "mode": fx.get("level_mode", 1),
                  "prime": not fx.get("hold")} for q in levels]
     # One Set source stays, at the river's end (`outlet`, or the level point
     # furthest from the first feed): the feed never stops, and with no way
@@ -1097,10 +1242,41 @@ def flux_spec(code, fx, river, level):
     ground = flux_ground(code, level)
     hide = [f"__slot_mesh_{i + 1}" for i, s in enumerate(level.get("slot_meshes") or [])
             if f"SM_{code}_River" in s.get("mesh", "")]
-    return {"domain": domain, "sources": sources, "ground": ground, "hide": hide}
+    spec = {"domain": domain, "sources": sources, "ground": ground, "hide": hide}
+    for key in ("color_preset", "surface_vectors"):
+        if key in fx:
+            spec[key] = fx[key]
+    return spec
+
+
+def flux_state(code, p, flux):
+    """The river's baked water (MJOLNIRLevelLoader's `mjolnir_flux_bake`,
+    run in game once the river has settled): <work>/flux_state, or picked up
+    from the game's map folder where the bake wrote it. Kept only when it was
+    baked for this domain; the loader checks again and fills the river the old
+    way otherwise."""
+    work = os.path.join(p["work"], "flux_state")
+    baked = os.path.join(UE4SS, "MJOLNIRMaps", code, "flux_state")
+    if os.path.exists(os.path.join(baked, "state.json")) and (
+            not os.path.exists(os.path.join(work, "state.json"))
+            or os.path.getmtime(os.path.join(baked, "state.json")) > os.path.getmtime(os.path.join(work, "state.json"))):
+        shutil.copytree(baked, work, dirs_exist_ok=True)
+    path = os.path.join(work, "state.json")
+    if not os.path.exists(path):
+        return None
+    state = json.load(open(path, encoding="utf-8"))
+    d = flux.get("domain") or {}
+    fits = (state.get("res") == d.get("res") and state.get("cell") == d.get("cell")
+            and state.get("height_cm") == d.get("height")
+            and all(abs(a - b) < 1 for a, b in zip(state.get("centre", []), d.get("centre", []))))
+    if not fits:
+        print(f"  {code}: the baked flux state is for another domain; rebake it (mjolnir_flux_bake)")
+        return None
+    return state
 
 
 def stage_assemble(code, m, p):
+    baked = bool(m.get("bake_foliage"))
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
     fol = None if m.get("indoor") else json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
@@ -1195,6 +1371,10 @@ def stage_assemble(code, m, p):
                     mats[i] = HIDDEN
     if m.get("flux") and os.path.exists(river):
         level["flux"] = flux_spec(code, m["flux"], json.load(open(river, encoding="utf-8")), level)
+        state = flux_state(code, p, level["flux"])
+        if state:
+            level["flux"]["state"] = state
+            print(f"  {code}: flux river starts from its baked state")
         # The bed Flux alone sees (flux_bed), its only ground.
         if m["flux"].get("bed") and os.path.exists(os.path.join(p["work"], "flux_bed.json")):
             origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
@@ -1220,6 +1400,16 @@ def stage_assemble(code, m, p):
                     ids[key]["materials"][i] = HIDDEN
             level["decor"] += deep
         flux.setdefault("ground", flux_ground(code, level))
+        # `ground_mesh`: the capture sees CE's scene by its lowest surface
+        # (flux_coast_ground) instead of CE's terrain, whose overhangs stood
+        # the water up in sheets at the cliffs' feet.
+        if m["flux"]["coast"].get("ground_mesh") and os.path.exists(os.path.join(p["work"], "flux_ground.json")):
+            origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
+            level["decor"].append({"id": f"{code.lower()}_flux_ground",
+                                   "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_FluxGround.SM_{code}_FluxGround",
+                                   "pos": [-origin[0], -origin[1], -origin[2]],
+                                   "materials": [BED_MATERIAL], "capture_only": True, "cast_shadow": False})
+            flux["ground"] = [f"{code.lower()}_flux_ground"]
         # The sea is Flux's alone. Our own water mesh (SM_<code>_Water) is
         # hidden (it stays in the level, the loader's sea height), and CE's
         # background water slot with it. Sunk under Flux's as a fallback for
@@ -1257,25 +1447,26 @@ def stage_assemble(code, m, p):
                 if entry in swap["hide"]:
                     mats[i] = HIDDEN
                     hidden += 1
-        level["decor"] = (level.get("decor") or []) + swap["decor"]
+        swapped_decor = swap["decor"]
+        if m.get("rock_roughness") is not None:
+            if not m.get("bake_foliage"):
+                sys.exit(f"{code}: rock_roughness requires bake_foliage")
+            from foliage_bake import runtime_decor
+            swapped_decor = runtime_decor(swapped_decor, m["rock_roughness"])
+            print(f"  {code}: {len(swap['decor']) - len(swapped_decor)} rock MIC(s) kept entirely in the baked world")
+        level["decor"] = (level.get("decor") or []) + swapped_decor
         if swap.get("effects"):
             # Over any the level has already (a river's spray).
             before = (level.get("effects") or {}).get("placed") or []
             level["effects"] = swap["effects"]
             level["effects"]["placed"] = list(swap["effects"].get("placed") or []) + before
-        leaves = (swap.get("leaves") or {}).get("records") or []
-        if leaves:
-            append_foliage(os.path.join(p["work"], "foliage.bin"), leaves)
-            group = {"mesh": swap["leaves"]["mesh"], "rule": "tree leaves",
-                     "cull": [20000, 45000], "shadow": True, "scalars": swap["leaves"].get("scalars")}
-            # A biome's own leaf material (B40's snow-packed branches) and
-            # stillness (scenery_swap.py): dropped here, the firs' branches
-            # drew bare and swayed.
-            for key in ("material", "static"):
-                if swap["leaves"].get(key) is not None:
-                    group[key] = swap["leaves"][key]
+        leaf = leaf_groups(swap)
+        for records, group in leaf:
+            append_foliage(os.path.join(p["work"], "foliage.bin"), records)
             level["foliage"]["groups"].append(group)
-            print(f"  {code}: {len(leaves)} leaf cluster(s) on the swapped trees")
+        if leaf:
+            print(f"  {code}: {sum(len(r) for r, _ in leaf)} leaf cluster(s) on the swapped trees, "
+                  f"{sum(len(r) for r, g in leaf if g.get('static'))} small ones still")
         print(f"  {code}: {swap['count']} scenery object(s) swapped, {hidden} CE slot(s) hidden")
     # After the swap: the swap hides CE scenery by its slot's material as the
     # spec has it, and the haze turns the terrain materials' own fog off, so
@@ -1339,9 +1530,10 @@ def stage_assemble(code, m, p):
     for item in level.get("decor") or []:
         if isinstance(item, dict) and "_Water." in str(item.get("mesh", "")):
             mats = item.get("materials") or []
-            first = next((i for i, m in enumerate(mats) if isinstance(m, dict) and "M_CE_Water" in m.get("parent", "")), None)
-            for i, m in enumerate(mats):
-                if first is not None and i != first and isinstance(m, dict) and "M_CE_Water" in m.get("parent", ""):
+            first = next((i for i, material in enumerate(mats)
+                          if isinstance(material, dict) and "M_CE_Water" in material.get("parent", "")), None)
+            for i, material in enumerate(mats):
+                if first is not None and i != first and isinstance(material, dict) and "M_CE_Water" in material.get("parent", ""):
                     mats[i] = json.loads(json.dumps(mats[first]))
     structures = mark_structures(level)
     pulses = bake_pulses(level)
@@ -1362,6 +1554,9 @@ def stage_assemble(code, m, p):
     os.makedirs(out, exist_ok=True)
     for f in files:
         shutil.copyfile(f, os.path.join(out, os.path.basename(f)))
+    if baked and level.get("foliage"):
+        mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
+        print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
           f"{structures} structure slot(s), "
@@ -1662,6 +1857,38 @@ def grime_decals(p, seed=7):
     return out
 
 
+# Leaf clusters smaller than this hold still. The material's flutter and
+# branch motion are distances, not angles a cluster's size scales: on
+# Infinity a small tree's clusters at 0.03 thrashed (2026-10-19), while
+# Timberland's at 0.2 to 0.36 moved as a breath.
+LEAF_STILL_SCALE = 0.15
+
+
+def leaf_groups(swap):
+    """The swapped trees' leaf clusters as foliage groups, each with its
+    records: the ones that move, then the small ones held still. The
+    editor's bake (foliage_bake.py) and assemble both append these in this
+    order, so the baked components and the level file's groups agree."""
+    lv = swap.get("leaves") or {}
+    records = lv.get("records") or []
+    if not records:
+        return []
+    group = {"mesh": lv["mesh"], "rule": "tree leaves", "cull": [20000, 45000], "shadow": True,
+             "scalars": lv.get("scalars")}
+    # A biome's own leaf material (B40's snow-packed branches) and
+    # stillness (scenery_swap.py): dropped, the firs' branches drew bare
+    # and swayed.
+    for key in ("material", "static"):
+        if lv.get(key) is not None:
+            group[key] = lv[key]
+    moving = [r for r in records if r[4] >= LEAF_STILL_SCALE]
+    small = [r for r in records if r[4] < LEAF_STILL_SCALE]
+    out = [(moving, group)] if moving else []
+    if small:
+        out.append((small, dict(group, static=True)))
+    return out
+
+
 def append_foliage(path, records):
     """One more group at the end of a foliage file (MJF3): records of
     [x, y, z, yaw degrees, scale, normal x, normal y]."""
@@ -1670,10 +1897,34 @@ def append_foliage(path, records):
     version, n = struct.unpack_from("<II", raw, 4)
     struct.pack_into("<II", raw, 4, version, n + 1)
     raw += struct.pack("<I", len(records))
-    for x, y, z, yaw, sc, nx, ny in records:
+    for x, y, z, yaw, sc, nx, ny in (r[:7] for r in records):
         raw += struct.pack("<fffBBbbBBB", x, y, z, int(yaw / 360.0 * 256) % 256, max(1, min(255, round(sc * 100))),
                            max(-127, min(127, round(nx * 127))), max(-127, min(127, round(ny * 127))), 255, 255, 255)
     open(path, "wb").write(bytes(raw))
+
+
+def mark_baked_foliage(foliage, path):
+    """The level file's foliage, baked into the world by the editor stage
+    (foliage_bake.py): `baked` tells the loader to leave every group but the
+    cliffs' cladding to the world, and `centre` is where the clumps lie on
+    average, which the loader's wind flowmap centres on (it took that from
+    the clumps it placed)."""
+    import struct
+    raw = open(path, "rb").read()
+    tilted, coloured = raw[:4] in (b"MJF2", b"MJF3"), raw[:4] == b"MJF3"
+    stride = 19 if coloured else 16 if tilted else 14
+    _, count = struct.unpack_from("<II", raw, 4)
+    pos, sx, sy, n = 12, 0.0, 0.0, 0
+    for g in range(count):
+        (size,) = struct.unpack_from("<I", raw, pos)
+        pos += 4
+        if not (foliage["groups"][g] or {}).get("cliff"):
+            for k in range(size):
+                x, y = struct.unpack_from("<ff", raw, pos + k * stride)
+                sx, sy, n = sx + x, sy + y, n + 1
+        pos += size * stride
+    foliage["baked"] = True
+    foliage["centre"] = [round(sx / max(n, 1), 1), round(sy / max(n, 1), 1)]
 
 
 def bake_pulses(level):
@@ -1727,9 +1978,97 @@ def hub_map_container(m, prefix="pakchunk997-"):
     return hits[0][:-5]
 
 
-def stage_install(code, m, p):
-    if "HaloCampaignEvolved" in run(["tasklist"], check=False):
+def require_game_closed():
+    if "halocampaignevolved" in run(["tasklist"]).lower():
         sys.exit("close the game before installing")
+
+
+def local_install_plan(code, m, p):
+    """Validate a fresh local install before any files in the game change.
+
+    Use the map-pack data layout so `level register` merges this map with
+    both hub maps and older --install-test maps. Never copy the bake's
+    registration container: its snapshot may omit hub-installed maps.
+    """
+    if len(code) != 3 or not code.isascii() or not code.isalnum() or code != code.upper():
+        sys.exit("local install needs a three-character uppercase map code")
+    state = {}
+    if os.path.isfile(LAUNCHER_STATE):
+        with open(LAUNCHER_STATE, encoding="utf-8") as f:
+            state = json.load(f)
+    installed = state.get("installed", [])
+    if m.get("hub") or any(i.get("map_code") == code for i in installed):
+        sys.exit(f"{code}: use --install for an existing hub map")
+    with open(p["out_level"], encoding="utf-8") as f:
+        level = json.load(f)
+    source = p["conv"] if m.get("indoor") else p["bake"]
+    record = os.path.join(source, f"{code}.registration.json")
+    with open(record, encoding="utf-8") as f:
+        if json.load(f).get("code") != code:
+            sys.exit(f"{code}: registration record names a different map")
+
+    loader = os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader")
+    cli = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
+    required = [cli, os.path.join(loader, "Scripts", "main.lua"),
+                os.path.join(loader, "native", "mjolnir_map_registry.dll")]
+    for mode in level.get("modes", [level.get("variant", "slayer")]):
+        required += [os.path.join(loader, "variants", f"{mode}.{ext}") for ext in ("mglo", "layout.json")]
+    runtime = next((i for i in installed if i.get("slug") == "mjolnir-ce-runtime"), {})
+    stems = ["pakchunk983-MJOLNIRCETRIAL-Windows", "pakchunk988-MJOLNIRMAT-Windows", "pakchunk994-MJOLNIRSPAWN_P",
+             "pakchunk993-MJOLNIRTELES_P", "pakchunk992-MJOLNIRTELER_P", "pakchunk991-MJOLNIRTELE2_P"]
+    if "ctf" in level.get("modes", []):
+        stems += [f"pakchunk990-MJOLNIR{s}_P" for s in ("CTFMESH", "FLAG", "STAND", "MOTL")]
+    if level.get("health_pack"):
+        stems += [f"pakchunk990-MJOLNIR{s}_P" for s in ("HPACK", "HPSPOT", "HPMESH", "MOTL")]
+    if level.get("flux"):
+        stems.append("pakchunk990-MJOLNIRFLUX_P")
+    for stem in stems:
+        candidates = [os.path.join(PAKS, stem)]
+        if stem in runtime.get("containers", []):
+            index = runtime["containers"].index(stem)
+            candidates += [f[:-5] for f in glob.glob(os.path.join(PAKS,
+                           f"pakchunk*-MJOLNIRHUB-mjolnir-ce-runtime-{index}_P.utoc"))]
+        if not any(all(os.path.isfile(f"{base}.{e}") for e in ("pak", "utoc", "ucas")) for base in candidates):
+            sys.exit(f"{code}: install the CE runtime first (missing {stem})")
+
+    data = os.path.join(UE4SS, "MJOLNIRMaps", code)
+    files = [(p["out_level"], os.path.join(data, "level.json")),
+             (record, os.path.join(data, "registration.json"))]
+    stub = os.path.join(PAKS, "pakchunk115-Windows.pak")
+    containers = [(os.path.join(source, f"pakchunk997-MJOLNIRMAP-{code}_P"), None),
+                  (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
+                   f"pakchunk986-MJOLNIRMESH-{code}_P"),
+                  (os.path.join(p["conv"], f"pakchunk985-MJOLNIRCOOK-{code}_P"), None)]
+    if not m.get("indoor"):
+        containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), None))
+    for base, name in containers:
+        dest = os.path.join(PAKS, name or os.path.basename(base))
+        files += [(f"{base}.{e}", f"{dest}.{e}") for e in ("utoc", "ucas")]
+        files.append((f"{base}.pak" if os.path.isfile(f"{base}.pak") else stub, f"{dest}.pak"))
+    if level.get("foliage"):
+        files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
+    for f in glob.glob(os.path.join(p["work"], "decals", "*")):
+        if os.path.isfile(f):
+            files.append((f, os.path.join(data, "decals", os.path.basename(f))))
+    # install_shared runs first, after every map's plan has passed.
+    required += [os.path.join(STAGED, f"pakchunk983-Windows.{e}") for e in ("utoc", "ucas")]
+    required.append(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
+    missing = [f for f in required + [src for src, _ in files] if not os.path.isfile(f)]
+    if missing:
+        sys.exit(f"{code}: local install is incomplete:\n  " + "\n  ".join(missing))
+    return files, cli
+
+
+def install_local(code, plan):
+    files, _ = plan
+    for src, dest in files:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(src, dest)
+    print(f"  {code}: local containers and map data installed")
+
+
+def stage_install(code, m, p):
+    require_game_closed()
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     if m.get("indoor"):
         # The hub copy's own containers; only the level file changes.
@@ -1761,6 +2100,8 @@ def stage_install(code, m, p):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
+    if os.path.exists(os.path.join(p["work"], "flux_state", "state.json")):
+        shutil.copytree(os.path.join(p["work"], "flux_state"), os.path.join(data, "flux_state"), dirs_exist_ok=True)
     decals = os.path.join(p["work"], "decals")
     if os.path.isdir(decals) and os.listdir(decals):
         os.makedirs(os.path.join(data, "decals"), exist_ok=True)
@@ -1793,13 +2134,16 @@ def main():
     ap.add_argument("maps", nargs="+", help="map codes in ce_upgrade_maps.json")
     ap.add_argument("--stages", default=",".join(s for s in STAGES if s != "install"),
                     help="comma-separated, of " + ", ".join(STAGES))
-    ap.add_argument("--install", action="store_true", help="add the install stage")
+    install = ap.add_mutually_exclusive_group()
+    install.add_argument("--install", action="store_true", help="add the install stage (existing hub maps)")
+    install.add_argument("--local-install", action="store_true", help="add the install stage for a fresh local map (no hub)")
     ap.add_argument("--work", default="C:/haloce/ce_conversions/upgrade")
     ap.add_argument("--no-masters", action="store_true", help="skip rebuilding the trial masters in the editor stage")
     a = ap.parse_args()
-    config = json.load(open(CONFIG, encoding="utf-8"))
+    with open(CONFIG, encoding="utf-8") as f:
+        config = json.load(f)
     stages = [s for s in a.stages.split(",") if s]
-    if a.install and "install" not in stages:
+    if (a.install or a.local_install) and "install" not in stages:
         stages.append("install")
     bad = [s for s in stages if s not in STAGES] + [c for c in a.maps if c not in config]
     if bad:
@@ -1823,7 +2167,15 @@ def main():
             stage_cook(list(maps.values()))
             continue
         if stage == "install":
+            require_game_closed()
+            plans = {c: local_install_plan(c, m, ps[c]) for c, m in maps.items()} if a.local_install else {}
             install_shared()
+            if a.local_install:
+                for c, plan in plans.items():
+                    install_local(c, plan)
+                cli = next(iter(plans.values()))[1]
+                print("  " + run([cli, "level", "register", "--paks", PAKS]).strip())
+                continue
         for c, m in maps.items():
             if m.get("indoor") and stage in INDOOR_SKIP:
                 continue

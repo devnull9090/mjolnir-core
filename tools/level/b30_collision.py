@@ -35,7 +35,7 @@ HULL_POINTS = int(os.environ.get("B30_HULL_POINTS", 48))
 SOLID = [("/Rock/", "hard_terrain_stone"), ("Rock_", "hard_terrain_stone"), ("_Trunk", "tough_organic_wood"),
          ("Driftwood", "tough_organic_wood"), ("Log_", "tough_organic_wood")]
 # Foliage rules that collide, and the smallest that does (cm of height).
-FOLIAGE_RULES = {"stones": 45.0, "driftwood": 25.0}
+FOLIAGE_RULES = {"stones": 45.0, "driftwood": 25.0, "sea rocks": 45.0}
 # The cliffs' cladding rocks (thousands a map) collide only where a player
 # can reach them: some hull point within CLAD_REACH above walkable ground,
 # each a coarser hull.
@@ -306,7 +306,16 @@ def main():
         pts, faces = hull_of(mesh, a.hulls, points)
         world = (np.asarray(pts) * scale) @ matrix + origin
         ce = to_ce(world)
+        # The hull is wound outward in Unreal's frame; to_ce mirrors Y, which
+        # turns it inward (merge_ce_collision.py takes the plane from the
+        # winding). The sim's projectile test accepts a two-sided surface only
+        # from the side its plane faces (FUN_1802f0170, CU4), so an inward
+        # hull stopped bullets on its far wall, from inside: shots went
+        # "through" swapped rocks and trunks. Wind every face back outward,
+        # a mirroring scale included.
+        mirrored = np.linalg.det(np.diag(np.broadcast_to(np.asarray(scale, dtype=np.float64), (3,))) @ np.asarray(matrix)) * -1 < 0
         for f in faces:
+            f = (f[0], f[2], f[1]) if mirrored else tuple(f)
             tris.append(ce[list(f)].round(4).tolist())
             mats.append(material)
         counts[material] = counts.get(material, 0) + 1

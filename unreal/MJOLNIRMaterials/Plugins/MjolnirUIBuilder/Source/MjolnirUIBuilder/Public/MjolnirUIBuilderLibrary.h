@@ -135,4 +135,48 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Materials")
 	static bool SetCollectionIds(class UMaterialParameterCollection* Collection, const FString& StateId,
 		const TArray<FString>& ScalarIds, const TArray<FString>& VectorIds);
+
+	/**
+	 * Bake a converted map's foliage file (tools/level/scatter_foliage.py:
+	 * MJFG/MJF2/MJF3, as MJOLNIRLevelLoader's Foliage.spawn reads it) into
+	 * World as one actor, ActorName, of hierarchical instanced meshes. Per
+	 * group, in the file's order: Meshes the mesh ("" leaves the group out,
+	 * e.g. the cladding rocks), Bands how many meshes its clumps are dealt
+	 * to in turn, culled over Cull (start, end cm) as the loader culls them,
+	 * and Flags 1 cast shadows, 2 static (no wind), 4 grassy: dealt again
+	 * over four quality tiers (3, 1, 2 and 6 clumps in 12) so the loader can
+	 * thin it below Epic by hiding tiers, 8 cladding: a mesh actor a rock,
+	 * MJClad_<group>_<rock>, instead (16: with the record's colour bytes as
+	 * custom primitive data 0-2). Each component is named
+	 * MJFol_<group>_<band>_<tier> (1-based group and band, tier 0..3), which
+	 * the loader reads back. Everything is tagged FluxHide. Returns the
+	 * clumps and rocks placed, or -1.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Foliage")
+	static int32 BakeFoliage(UWorld* World, const FString& BinPath, const FString& ActorName,
+		const TArray<FString>& Meshes, const TArray<int32>& Bands, const TArray<FVector2D>& Cull,
+		const TArray<int32>& Flags);
+
+	/**
+	 * Bake a level file's decor (MJOLNIRLevelLoader spawnDecorItem: a mesh
+	 * actor each, no collision) into World: per piece its id (the actor is
+	 * named MJDecor_<id>), mesh, location (cm), rotation (pitch, yaw, roll as
+	 * the level file has them), scale and flags (2 static: no wind).
+	 * Tagged FluxHide. Returns the pieces placed, or -1.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Foliage")
+	static int32 BakeDecor(UWorld* World, const TArray<FString>& Ids, const TArray<FString>& Meshes,
+		const TArray<FVector>& Locations, const TArray<FVector>& Rotations, const TArray<FVector>& Scales,
+		const TArray<int32>& Flags);
+
+	/**
+	 * The StaticMesh at ObjectPath ("/Game/.../SM_X_6.SM_X_6"), made (empty,
+	 * in a new package) when there is none: for a stand-in of a game mesh
+	 * (Scripts/build_ce_landscape.py). Made here rather than with AssetTools'
+	 * create_asset, whose name came through Python as an FName and lost a
+	 * trailing number: 147 of Death Island's tree pieces (SM_..._Big_6) all
+	 * became one SM_..._Big, and the baked pieces drew nothing (2026-10-18).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
+	static UStaticMesh* CreateStandInMesh(const FString& ObjectPath);
 };
