@@ -9,7 +9,8 @@ done by hand per map until 2026-10-12:
   land      build_landscape.py: the ground's heights, holes and bakes
   foliage   scatter_foliage.py: grass, debris and the cliffs' cladding
   swap      scenery_swap.py: the natural CE scenery (boulders, trees,
-            shrubs, plants) in B30's own meshes, the CE slots hidden
+            shrubs, plants) in B30's own meshes, the CE slots hidden;
+            then rock_foliage.py clears the grass inside each B30 rock
   editor    the map's Landscape world in unreal/MJOLNIRMaterials
             (Scripts/build_ce_landscape.py), and once for the run the
             trial masters (Scripts/build_ce_materials.py, chunk 983) and
@@ -538,7 +539,7 @@ def stage_foliage(code, m, p):
     cmd = [sys.executable, os.path.join(HERE, "scatter_foliage.py"), os.path.join(p["scene"], "scene.gltf"),
            os.path.join(p["scene"], "materials.spec.json"), os.path.join(p["foliage"], "foliage.json"),
            "--bin", os.path.join(p["foliage"], "foliage.bin"), "--offset", "0,0,0", "--lift", str(FOLIAGE_LIFT),
-           "--edge", os.path.join(p["land"], "landscape.json")]
+           "--edge", os.path.join(p["land"], "landscape.json"), "--swapped-rocks"]
     sea = sea_height(level)
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
@@ -575,6 +576,13 @@ def stage_swap(code, m, p):
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
+    # The grass up to each swapped rock's own hull (the foliage stage left
+    # them no clearing: it cannot know the rocks).
+    fol = os.path.join(p["foliage"], "foliage.bin")
+    if os.path.exists(fol):
+        out = run([sys.executable, os.path.join(HERE, "rock_foliage.py"), fol, os.path.join(p["work"], "swap.json"),
+                   staging(p)] + (["--biome", m["biome"]] if m.get("biome") else []))
+        print(f"  {code}: " + out.strip().splitlines()[-1][:200])
 
 
 def stage_collision(code, m, p):

@@ -297,7 +297,7 @@ def value_noise(x, y, cell, seed):
     return (h(ix, iy) * (1 - tx) + h(ix + 1, iy) * tx) * (1 - ty) + (h(ix, iy + 1) * (1 - tx) + h(ix + 1, iy + 1) * tx) * ty
 
 
-def scenery_footprints(gltf, off, staging=None):
+def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
     """The map's placed scenery (halo2ue's staging/placement.json beside the
     scene) as (x, y, radius, z, reach) cm: the simulation spawns it (B30's
     boulders, trees), so the scene knows nothing of it, and grass grew up
@@ -305,7 +305,13 @@ def scenery_footprints(gltf, off, staging=None):
     model's furthest reach across, so the grass still meets its foot; `reach`
     is its furthest reach any way (it may stand turned), which keeps the
     clearing to ground at its own height: a gigantic boulder in Death
-    Island's cave left the hilltop 38 m over it bare (2026-10-15)."""
+    Island's cave left the hilltop 38 m over it bare (2026-10-15).
+
+    `skip_rocks`: none for the boulders scenery_swap.py replaces; the swap
+    stage clears the grass inside each B30 rock's own hull instead
+    (rock_foliage.py). A circle round a long boulder left bands of bare
+    ground up to 2 m wide along its sides (Danger Canyon, 2026-10-19)."""
+    from scenery_swap import swap_rule
     staging = staging or os.path.join(os.path.dirname(os.path.abspath(gltf)), "staging")
     path = os.path.join(staging, "placement.json")
     if not os.path.exists(path):
@@ -316,6 +322,8 @@ def scenery_footprints(gltf, off, staging=None):
     out = []
     for e in placement.get("entries", []):
         if e.get("kind") != "scenery" or not e.get("model"):
+            continue
+        if skip_rocks and (swap_rule(e, staging, snow) or ("",))[0] in ("rock", "bigrock"):
             continue
         model = os.path.join(staging, e["model"])
         if model not in reach:
@@ -893,6 +901,9 @@ def main():
     ap.add_argument("--ground-shaders", default="",
                     help="substrings of the ground shaders' names, comma-separated: only these grow anything "
                          "(a facility's floor whose detail map is 'dirt splotch' read as natural ground)")
+    ap.add_argument("--swapped-rocks", action="store_true",
+                    help="clear no circle for the boulders scenery_swap.py replaces (rock_foliage.py clears "
+                         "their own hulls after the swap)")
     ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
@@ -977,7 +988,7 @@ def main():
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     off = [float(v) for v in a.offset.split(",")]
-    footprints = scenery_footprints(a.gltf, off, a.staging)
+    footprints = scenery_footprints(a.gltf, off, a.staging, a.swapped_rocks, a.biome == "snow")
     scenery = scenery_grid(footprints)
     print(f"{len(footprints)} scenery object(s) kept clear of foliage")
     rng = random.Random(a.seed)

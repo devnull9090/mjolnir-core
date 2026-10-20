@@ -389,6 +389,21 @@ def model_shaders(path):
         return []
 
 
+def swap_rule(entry, staging, snow=False):
+    """The (kind, options) rule a placement entry is swapped by, or None:
+    by its tag path, else by its shaders' names (a protected map's scenery
+    is "protected\\scen\\175", its shader still the stock boulder's)."""
+    if entry.get("kind") != "scenery" or not entry.get("model"):
+        return None
+    rules = SNOW["rules"] if snow else RULES
+    asset = entry["asset"].lower()
+    rule = next((r for k, r in rules if k in asset), None)
+    if rule:
+        return rule
+    shaders = model_shaders(os.path.join(staging, entry["model"]))
+    return next((r for k, r in rules if any(k.replace(" ", "_") in sh for sh in shaders)), None)
+
+
 def model_box(path, cache={}):
     """A CE model's bounds (glTF metres, y up) as UE cm: (x, y, z extents),
     (x, y, z centre)."""
@@ -514,7 +529,6 @@ def swap(a):
     spec = json.load(open(a.spec, encoding="utf-8"))
     rocks = ROCKS[a.rocks]
     snow = a.biome == "snow"
-    rules = SNOW["rules"] if snow else RULES
     decor, replaced, trees, leaves, rock_spots = [], collections.Counter(), [], [], []
     leaf_meshes = set()
     hide_shaders = set()
@@ -524,10 +538,7 @@ def swap(a):
             continue
         asset = e["asset"].lower()
         shaders = model_shaders(os.path.join(staging, e["model"]))
-        # By its tag path, else by its shaders' names (a protected map's
-        # scenery is "protected\scen\175", its shader still the stock
-        # boulder's).
-        rule = next((r for k, r in rules if k in asset), None)             or next((r for k, r in rules if any(k.replace(" ", "_") in sh for sh in shaders)), None)
+        rule = swap_rule(e, staging, snow)
         if not rule:
             continue
         kind, options = rule
