@@ -6,8 +6,8 @@ crossed cards. This writes, for the natural ones, B30's meshes in their
 place (decor entries, sized to the CE model's reach so the Blam collision,
 which stays CE's, still matches what is seen) and the CE slots to hide.
 
-    python tools/level/scenery_swap.py recipes <placements.csv> <bounds.json> <out.json> [--prefix P --leaves MESH]
-    python tools/level/scenery_swap.py swap <scene dir> <spec.json> <recipes.json> <bounds.json> <out.json> [--rocks beach|desert|snow] [--biome b30|snow] [--tree-variant Lrg_A]
+    python tools/level/scenery_swap.py recipes <placements.csv> <bounds.json> <out.json> [--prefix P --leaves MESH --meshes DIR]
+    python tools/level/scenery_swap.py swap <scene dir> <spec.json> <recipes.json> <bounds.json> <out.json> [--rocks beach|desert|snow] [--biome b30|snow] [--tree-variant Lrg_A[,Lrg_D,...]]
 
 `recipes`: B30's Maned Kuenovo trees from its World Partition cells
 (ue-asset's placements_csv example with the matrix columns, filtered to
@@ -30,7 +30,9 @@ surf along the shore, wind along the cliff lips) and leaves falling from
 the swapped trees.
 
 With --tree-variant, every matched tree uses that exact recipe name from
-the recipes file; otherwise variants keep their normal per-placement selection.
+the recipes file, or with a comma-separated list, the trees take the names
+in turn in placement order (a test map comparing several); otherwise
+variants keep their normal per-placement selection.
 """
 import argparse
 import collections
@@ -189,8 +191,13 @@ def foliage_pose(m):
 # from any branch of the tree they were given to (2026-10-12). At 150 cm
 # the tree's own clusters past its limb ends fell out too (152 to 300 cm
 # from the limb meshes' boxes) and those limbs ended bare (Infinity,
-# 2026-10-19); a neighbour's lie 7 m and more off.
-LEAF_REACH = float(os.environ.get("MJ_LEAF_REACH", 400.0))  # cm, in the tree's own frame
+# 2026-10-19); a neighbour's lie 7 m and more off. Those bare limbs were a
+# template with no twigs of its own, which the recipes no longer pick, and
+# a recipe whose twigs its tree's actor owns skips this test: every one of
+# them lies within 150 cm. Where twigs went to the nearest trunk (World
+# Partition merged them), 150 cm drops a neighbour's twig standing 1.6 m
+# off the top of Lrg_D (the TST test map, 2026-10-19).
+LEAF_REACH = float(os.environ.get("MJ_LEAF_REACH", 150.0))  # cm, in the tree's own frame
 # How far from the trunk a cluster is looked for at all (cm, across).
 LEAF_SEARCH = 1600.0
 
@@ -281,7 +288,15 @@ def recipes(a):
         if exact:
             t = max(exact, key=lambda t: (count(t), isolation(t)))
         elif any(count(t) for t in trunk_list):
-            t = max(trunk_list, key=lambda t: (count(t), isolation(t)))
+            # Twigs by nearest trunk are only a tree's own where no other
+            # tree stands close: the tree furthest from any other trunk (of
+            # any variant) that has twigs. Picking the most twigs chose a
+            # crowded Lrg_D holding its neighbours' (one stood off its top,
+            # the TST test map, 2026-10-19).
+            def apart(t):
+                return min((math.hypot(t[0] - o[0], t[1] - o[1]) for o in all_trunks
+                            if (o[0], o[1]) != (t[0], t[1])), default=1e9)
+            t = max((t for t in trunk_list if count(t)), key=apart)
         else:
             t = max(trunk_list, key=isolation)
         tx, ty, tz, key, actor = t
@@ -319,12 +334,45 @@ def recipes(a):
                            "m": [[round(v, 5) for v in row] for row in mmul(mat3(r), inv)]})
         out[variant] = {"parts": recipe, "pitch": round(pitch, 2), "roll": round(roll, 2),
                         "height": round(top, 1), "isolation": round(isolation(t)), "leaves": leaves}
-        if mine:
-            # Its own clusters: no reach test (attached_leaves) needed.
+        if mine and actor.startswith("BP_Tree_") and leaves_of.get(actor):
+            # The tree actor's own clusters: no reach test (attached_leaves).
             out[variant]["own_leaves"] = True
         print(f"{variant}: {len(recipe)} parts, {len(leaves)} leaf clusters, {top / 100:.1f} m tall "
               f"(scale 1), {isolation(t) / 100:.0f} m from the next")
+    if a.meshes:
+        prune_leaves(out, a)
     json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1)
+
+
+def prune_leaves(out, a):
+    """Drop the clusters whose base lies more than --prune-cm from every
+    vertex of the tree's own trunk and parts (their meshes exported once
+    into --meshes). A box test cannot: the trunk's box holds the whole
+    canopy. B30's own placements lie within 1.43 m of a vertex (the coarse
+    LOD's); Lrg_D's nearest-trunk twigs included seven 2.4 to 5.9 m off,
+    which hung in the air above the canopy (the TST map, 2026-10-19)."""
+    import subprocess
+    import numpy as np
+    from b30_collision import glb_positions
+    os.makedirs(a.meshes, exist_ok=True)
+    for variant, r in out.items():
+        pts = []
+        for part in r["parts"]:
+            mesh = part["mesh"].split(".")[0]
+            glb = os.path.join(a.meshes, mesh.rsplit("/", 1)[1] + ".glb")
+            if not os.path.exists(glb):
+                subprocess.run([a.mjolnir, "mesh", "export", "--paks", a.paks, "--asset",
+                                mesh.lstrip("/").replace("Game/", "", 1), "--out", glb], check=True,
+                               capture_output=True, env=dict(os.environ, MSYS_NO_PATHCONV="1"))
+            pts.append(np.asarray(glb_positions(glb)) + np.asarray(part["off"]))
+        if not pts:
+            continue
+        verts = np.concatenate(pts)
+        kept = [lf for lf in r["leaves"]
+                if np.sqrt(((verts - np.asarray(lf["off"])) ** 2).sum(1)).min() <= a.prune_cm]
+        if len(kept) < len(r["leaves"]):
+            print(f"{variant}: {len(r['leaves']) - len(kept)} leaf cluster(s) off the tree dropped")
+        r["leaves"] = kept
 
 
 def model_shaders(path):
@@ -452,8 +500,10 @@ def swap(a):
     unit = placement.get("world_unit_meters", 3.048) * 100.0
     recipes = json.load(open(a.recipes, encoding="utf-8"))
     tree_variant = getattr(a, "tree_variant", None)
-    if tree_variant is not None and tree_variant not in recipes:
-        raise SystemExit(f"Unknown tree variant {tree_variant!r}; available recipes: {', '.join(sorted(recipes))}")
+    pinned = [v.strip() for v in tree_variant.split(",") if v.strip()] if tree_variant else []
+    for v in pinned:
+        if v not in recipes:
+            raise SystemExit(f"Unknown tree variant {v!r}; available recipes: {', '.join(sorted(recipes))}")
     bounds = {m["path"].split(".")[0]: m for m in json.load(open(a.bounds, encoding="utf-8"))}
     spec = json.load(open(a.spec, encoding="utf-8"))
     rocks = ROCKS[a.rocks]
@@ -481,12 +531,14 @@ def swap(a):
         key = f"{asset}|{n}"
         width = max(ext[0], ext[1])
         if kind == "tree":
-            variant = tree_variant if tree_variant is not None else pick(
+            variant = pinned[len(trees) % len(pinned)] if pinned else pick(
                 [v for v in options or [] if v in recipes] or list(recipes), key)
             r = recipes[variant]
             leaf_meshes.add(r.get("leaf_mesh", LEAVES))
             s = ext[2] / max(r["height"], 1.0)
             trees.append((x, y, z, ext[2]))
+            if pinned:
+                print(f"  tree {len(trees)} at ({x / 100:.1f}, {y / 100:.1f}) m: {variant}")
             c, sn = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
             # The tree's frame here (its lean, yaw and size; row vectors),
             # its leaf clusters into it. The recipe keeps each cluster in
@@ -610,13 +662,18 @@ def main():
     r.add_argument("csv"); r.add_argument("bounds"); r.add_argument("out")
     r.add_argument("--prefix", default="Tree_Maned_Kuenovo_", help="the trees' asset folder prefix")
     r.add_argument("--leaves", default=LEAVES, help="the leaf (branch) cluster mesh placed beside the trees")
+    r.add_argument("--meshes", help="cache folder for the parts' exported meshes: drop clusters off the tree")
+    r.add_argument("--prune-cm", type=float, default=200.0, help="how far a cluster's base may lie from the tree's meshes")
+    r.add_argument("--mjolnir", default=os.environ.get("MJOLNIR", "mjolnir"))
+    r.add_argument("--paks", default=os.environ.get("HCE_PAKS",
+                   "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"))
     s = sub.add_parser("swap")
     s.add_argument("scene"); s.add_argument("spec"); s.add_argument("recipes"); s.add_argument("bounds")
     s.add_argument("out")
     s.add_argument("--rocks", default="beach", choices=sorted(ROCKS))
     s.add_argument("--biome", default="b30", choices=["b30", "snow"],
                    help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
-    s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree")
+    s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree, or comma-separated names in turn")
     s.add_argument("--foliage", help="the map's foliage.json (its foliage.bin beside it): place the effects")
     s.add_argument("--sea", type=float, help="the sea's height (cm)")
     s.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "

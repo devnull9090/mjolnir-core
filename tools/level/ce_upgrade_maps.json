@@ -5,7 +5,7 @@
   "level": "tst.level.json", "sbsp": "tst.sbsp",
   "shaders": ["levels_b30_shaders_beach"], "cliff_shaders": ["levels_test_tst_shaders_tst_cliffs"],
   "landscape": "LTT", "chunk": 969, "components": 4,
-  "bake_foliage": true, "tree_variant": "Lrg_A", "rocks": "beach", "rock_roughness": 0.65,
+  "bake_foliage": true, "tree_variant": "Lrg_D,Lrg_B,Lrg_C", "rocks": "beach", "rock_roughness": 0.65,
   "horizon": {"z": -150, "reach": 5000000,
               "material": {"parent": "/Game/MJOLNIR/CE/M_CE_WaterSky.M_CE_WaterSky",
                            "textures": {"ReflectionCube": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water.TC_levels_b30_bitmaps_reflection_water"},
