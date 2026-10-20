@@ -41,6 +41,37 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.31.0",
+      "tag": "mods-v0.31.0",
+      "title": "Faster map loads and rivers that start full",
+      "date": "2026-10-20",
+      "summary": "The remastered maps load much faster with their grass and scenery built in, and their rivers are full the moment you spawn.",
+      "body": "### Changed\n\n- **Faster loads on the remastered maps** (MJOLNIRLevelLoader 0.7.6).\n  The grass, ground cover, cliff rocks and swapped trees and boulders are\n  now part of each map's world. The level script only sets them up for\n  your graphics settings, where before it placed every piece while the map\n  loaded. On Death Island the longest frame while loading fell from 15.5\n  to under a second. Grass still thins out at lower foliage quality, and a\n  map without its built-in foliage gets it placed the old way.\n- **Haze comes on sooner.** The haze on Blood Gulch, Death Island and\n  Yoyorast now appears about half a second after the load instead of\n  three.\n- **`mjolnir_bench` covers the built-in foliage** (MJOLNIRHud 0.11.2), so\n  its grass and wind timings still mean the same thing on the new maps.\n\n### Fixed\n\n- **Rivers start full.** Battle Creek's and Timberland's rivers used to\n  load dry, or show a wall of water, and take up to a minute to fill.\n  They now start from a saved, settled state, full and calm the moment\n  you spawn. On a map without a saved state, the old CE water stays until\n  the river has filled, so the riverbed is never bare.\n- **Trees hold together.** The swapped trees' branches and small leaf\n  clusters no longer drift apart from their trunks in the wind.\n- **Scenery faces the right way.** Some rocks and props the level script\n  places stood at the wrong angle.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Faster loads on the remastered maps (MJOLNIRLevelLoader 0.7.6). The grass, ground cover, cliff rocks and swapped trees and boulders are now part of each map's world. The level script only sets them up for your graphics settings, where before it placed every piece while the map loaded. On Death Island the longest frame while loading fell from 15.5 to under a second. Grass still thins out at lower foliage quality, and a map without its built-in foliage gets it placed the old way.",
+            "Haze comes on sooner. The haze on Blood Gulch, Death Island and Yoyorast now appears about half a second after the load instead of three.",
+            "mjolnirbench covers the built-in foliage (MJOLNIRHud 0.11.2), so its grass and wind timings still mean the same thing on the new maps."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Rivers start full. Battle Creek's and Timberland's rivers used to load dry, or show a wall of water, and take up to a minute to fill. They now start from a saved, settled state, full and calm the moment you spawn. On a map without a saved state, the old CE water stays until the river has filled, so the riverbed is never bare.",
+            "Trees hold together. The swapped trees' branches and small leaf clusters no longer drift apart from their trunks in the wind.",
+            "Scenery faces the right way. Some rocks and props the level script places stood at the wrong angle."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.31.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.31.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.31.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.30.0",
       "tag": "mods-v0.30.0",
       "title": "Smoother frames on the classic maps",
