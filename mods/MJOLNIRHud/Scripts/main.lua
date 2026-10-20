@@ -38,6 +38,13 @@ local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local MatchLog = dofile(MOD_DIR .. "\\Scripts\\matchlog.lua")
 local HubNames = dofile(MOD_DIR .. "\\Scripts\\hubnames.lua")
+local Rows = dofile(MOD_DIR .. "\\Scripts\\feed.lua")
+local Anim = dofile(MOD_DIR .. "\\Scripts\\anim.lua")
+local Icons = dofile(MOD_DIR .. "\\Scripts\\hudicons.lua")
+local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
+local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
+local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
+local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
@@ -66,10 +73,8 @@ local FINAL_SECONDS = 7
 --- each client to its own menu, out of the fireteam.
 local LOBBY_TRAVEL = "servertravel /Game/Levels/UI/Frontend/Frontend"
 local RESULTS_FILE = MOD_DIR .. "\\last_match.txt"
-local FEED_LINES = 6     -- WBP_MJOLNIRKillFeed's Line0..Line5
 local SCORE_ROWS = 19    -- 16 players plus Red, Blue and unassigned headings
-local FEED_SECONDS = 6
-local FADE_SECONDS = 1
+local SCORE_TRACK = 320  -- a score bar's full width (build_mjolnir_ui.py SCORE_TRACK)
 --- A death is printed on its own ("X died.") only when no kill or suicide
 --- line names its victim within this long: the incidents of one death arrive
 --- together, in no promised order.
@@ -86,15 +91,6 @@ local COLLAPSED = 1
 
 local MODES = Scoreboard.modes
 
--- EBlamDamageReportingModifier
-local MODIFIER_VERBS = {
-    [1] = "headshot",     -- Headshot
-    [2] = "assassinated", -- SilentMelee
-    [3] = "splattered",   -- CollisionDamage
-    [4] = "stuck",        -- AttachedDamage
-    [5] = "assassinated", -- FancyAssassination
-}
-
 local TEAM_NAMES = { [0] = "Red", [1] = "Blue" }
 
 local WHITE = { R = 1, G = 1, B = 1, A = 1 }
@@ -106,6 +102,18 @@ local TEAM_COLORS = {
     Red = { R = 1, G = 0.32, B = 0.28, A = 1 },
     Blue = { R = 0.3, G = 0.65, B = 1, A = 1 },
     Unassigned = { R = 0.5, G = 0.66, B = 0.74, A = 1 },
+}
+-- The feed's colours (Scripts/feed.lua): names, the words of an event line,
+-- and the glyphs.
+local FEED = {
+    name = { R = 0.92, G = 0.95, B = 1, A = 1 },
+    words = { R = 0.64, G = 0.75, B = 0.84, A = 1 },
+    headshot = { R = 1.0, G = 0.44, B = 0.32, A = 1 },
+    joined = { R = 0.48, G = 0.90, B = 0.58, A = 1 },
+    kicked = { R = 1.0, G = 0.40, B = 0.34, A = 1 },
+    medal = { R = 1.0, G = 0.80, B = 0.35, A = 1 },
+    spree = { R = 1.0, G = 0.56, B = 0.24, A = 1 },
+    blood = { R = 0.95, G = 0.26, B = 0.24, A = 1 },
 }
 
 --------------------------------------------------------------------------------
@@ -200,7 +208,13 @@ local function setVisible(w, visible)
     pcall(function() w:SetVisibility(visible and VISIBLE or COLLAPSED) end)
 end
 
+--- A stored biped may be gone: a dead or departed player's body is destroyed
+--- and freed, and reading through its handle is an access violation pcall
+--- cannot catch (crash 2026-10-17, BGL, after a player dropped).
 local function bipedTeam(actor)
+    if not actor then return nil end
+    local okV, valid = pcall(function() return actor:IsValid() end)
+    if not (okV and valid) then return nil end
     local ok, team = pcall(function()
         return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
     end)
@@ -212,8 +226,9 @@ end
 --------------------------------------------------------------------------------
 
 --- The match in progress: { code, variant, title, mode, players = { [index] =
---- stats }, feed = { {text, at, you} }, deaths = { {victim, at} }, teams =
---- { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
+--- stats }, feed (Scripts/feed.lua), anim (Scripts/anim.lua), deaths =
+--- { {victim, at, damage} }, medals (lines waiting for the end of a drain),
+--- teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
 local Match = nil
 local Feed = nil
 local Board = nil
@@ -271,9 +286,44 @@ local function nameOf(index)
     return p.display or p.name or ("Player " .. tostring(index + 1))
 end
 
-local function feedLine(text, you)
-    Match.feed[#Match.feed + 1] = { text = text, at = now(), you = you }
-    while #Match.feed > FEED_LINES do table.remove(Match.feed, 1) end
+--- A name as the feed shows it: at most 22 characters.
+local function short(name)
+    if type(name) ~= "string" or #name <= 22 then return name end
+    local chars = {}
+    for ch in name:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        chars[#chars + 1] = ch
+        if #chars > 22 then return table.concat(chars, "", 1, 20) .. "…" end
+    end
+    return name
+end
+
+--- A player's colour in the feed: the team's in team games, gold for the
+--- local player in free for all, the rest near white.
+local function nameColor(index)
+    local p = Match.players[index]
+    if Match.mode.teams and p and p.team and TEAM_COLORS[p.team] then return TEAM_COLORS[p.team] end
+    if index == LOCAL_PLAYER then return YOU end
+    return FEED.name
+end
+
+--- A player's hub avatar, as the scoreboard shows it: nil without a hub
+--- account or before MJOLNIRLobby has cached the picture.
+local function avatarOf(index)
+    local p = type(index) == "number" and Match.players[index]
+    if not (p and p.userId) then return nil end
+    local ok, tex = pcall(HubNames.avatar, p.userId, playerController())
+    return ok and tex or nil
+end
+
+--- A line in the feed (Scripts/feed.lua).
+local function feedPush(entry)
+    Rows.push(Match.feed, entry, now())
+end
+
+--- A line about one player: a glyph, the name, and what happened.
+local function eventLine(index, glyph, glyphColor, words, wordsColor)
+    feedPush({ glyph = glyph, glyphColor = glyphColor, lead = short(nameOf(index)), leadColor = nameColor(index),
+        leadAvatar = avatarOf(index), tail = words, tailColor = wordsColor or FEED.words, accent = glyphColor, you = index == LOCAL_PLAYER })
 end
 
 local function score(p)
@@ -286,14 +336,8 @@ end
 
 local HANDLERS = {}
 
---- "Blam.DamageReporting.Type.AssaultRifle" -> "Assault Rifle"; nothing
---- for the Invalid type an incident without damage carries.
-local function weaponOf(damage)
-    local tail = type(damage) == "string" and damage:match("%.([%w_]+)$")
-    if not tail or tail == "Invalid" or tail == "None" then return nil end
-    return (tail:gsub("(%l)(%u)", "%1 %2"):gsub("_", " "))
-end
-
+--- A kill: the killer, the weapon (the game's own silhouette, or one of our
+--- glyphs), what made it special (a headshot ...), the victim.
 HANDLERS.kill = function(inc)
     local killer, victim = inc.cause, inc.effect
     if type(victim) ~= "number" or victim < 0 then return end
@@ -303,10 +347,18 @@ HANDLERS.kill = function(inc)
         Match.teamKills[#Match.teamKills + 1] = { player = killer, team = stats(killer).team }
     end
     stats(victim).lastLine = inc.at
-    local verb = MODIFIER_VERBS[inc.modifier] or "killed"
-    local weapon = weaponOf(inc.damage)
-    feedLine(nameOf(killer) .. " " .. verb .. " " .. nameOf(victim) .. (weapon and ("  (" .. weapon .. ")") or ""),
-        killer == LOCAL_PLAYER or victim == LOCAL_PLAYER)
+    local shown = Icons.forKill(inc.damage, inc.modifier)
+    local teamOf = stats(killer).team
+    local betrayal = Match.mode.teams and teamOf ~= nil and teamOf == stats(victim).team
+    feedPush({
+        lead = short(nameOf(killer)), leadColor = nameColor(killer), leadAvatar = avatarOf(killer),
+        weapon = shown.weapon, weaponGlyph = shown.glyph,
+        mod = shown.mod, modColor = shown.mod == "Headshot" and FEED.headshot or nil,
+        tail = short(nameOf(victim)), tailColor = nameColor(victim), tailAvatar = avatarOf(victim),
+        note = betrayal and "BETRAYAL" or shown.note, noteColor = betrayal and FEED.kicked or FEED.words,
+        accent = nameColor(killer), you = killer == LOCAL_PLAYER or victim == LOCAL_PLAYER,
+        label = Icons.label(Icons.damageType(inc.damage)),
+    })
     boardDirty = true
 end
 
@@ -315,15 +367,47 @@ HANDLERS.suicide = function(inc)
     if type(victim) ~= "number" or victim < 0 then return end
     stats(victim).suicides = stats(victim).suicides + 1
     stats(victim).lastLine = inc.at
-    feedLine(nameOf(victim) .. " committed suicide", victim == LOCAL_PLAYER)
+    eventLine(victim, "Skull", FEED.words, "committed suicide")
     boardDirty = true
+end
+
+--- Medals: everyone's go to the feed after the kill line that earned them
+--- (they arrive before it in the same tick); the local player's also come
+--- up in the middle of the screen. Multi-kills and sprees are relayed by the
+--- host to fireteam clients (MJOLNIRLevelLoader plays their sounds).
+local MEDALS = { first_blood = { "First Blood", "FirstBlood", FEED.blood } }
+for i, title in ipairs({ "Double Kill", "Triple Kill", "Overkill", "Killtacular", "Killtrocity",
+    "Killimanjaro", "Killtastrophe", "Killpocalypse", "Killionaire" }) do
+    MEDALS["multikill_x" .. (i + 1)] = { title, "Medal", FEED.medal }
+end
+for n, title in pairs({ [5] = "Killing Spree", [10] = "Killing Frenzy", [15] = "Running Riot", [20] = "Rampage",
+    [25] = "Untouchable", [30] = "Invincible" }) do
+    MEDALS[n .. "_in_a_row"] = { title, "Spree", FEED.spree }
+end
+
+local function medal(inc)
+    local m = MEDALS[inc.name]
+    if not m or type(inc.cause) ~= "number" or inc.cause < 0 then return end
+    Match.medals[#Match.medals + 1] = { index = inc.cause, medal = m }
+end
+for name in pairs(MEDALS) do HANDLERS[name] = medal end
+
+local function announceMedals()
+    for _, waiting in ipairs(Match.medals) do
+        local m = waiting.medal
+        eventLine(waiting.index, m[2], m[3], m[1], m[3])
+        if waiting.index == LOCAL_PLAYER then
+            Anim.callout(Match.anim, { title = string.upper(m[1]), glyph = m[2], color = m[3] }, now())
+        end
+    end
+    Match.medals = {}
 end
 
 HANDLERS.death = function(inc)
     local victim = inc.effect
     if type(victim) ~= "number" or victim < 0 then return end
     stats(victim).deaths = stats(victim).deaths + 1
-    Match.deaths[#Match.deaths + 1] = { victim = victim, at = inc.at }
+    Match.deaths[#Match.deaths + 1] = { victim = victim, at = inc.at, damage = inc.damage }
     if victim == LOCAL_PLAYER then
         Match.dead = true
         Match.respawnTicks = 0
@@ -383,8 +467,14 @@ HANDLERS.flag_scored = function(inc)
     end
     local scorer = (inc.value == 0) and 1 or 0
     Match.teams[scorer] = (Match.teams[scorer] or 0) + 1
-    feedLine((nameOf(inc.cause) or TEAM_NAMES[scorer] .. " team") .. " captured the " .. TEAM_NAMES[inc.value] .. " flag",
-        inc.cause == LOCAL_PLAYER)
+    local words = "captured the " .. TEAM_NAMES[inc.value] .. " flag"
+    if type(inc.cause) == "number" and inc.cause >= 0 then
+        eventLine(inc.cause, "Flag", TEAM_COLORS[TEAM_NAMES[scorer]], words)
+    else
+        feedPush({ glyph = "Flag", glyphColor = TEAM_COLORS[TEAM_NAMES[scorer]], lead = TEAM_NAMES[scorer] .. " team",
+            leadColor = TEAM_COLORS[TEAM_NAMES[scorer]], tail = words, tailColor = FEED.words,
+            accent = TEAM_COLORS[TEAM_NAMES[scorer]] })
+    end
     boardDirty = true
 end
 
@@ -409,7 +499,7 @@ local function announceJoins()
     local waiting = {}
     for _, j in ipairs(Match.joins or {}) do
         if stats(j.index).display or now() - j.at >= JOIN_WAIT then
-            feedLine(nameOf(j.index) .. " joined the game", false)
+            eventLine(j.index, "Joined", FEED.joined, "joined the game")
         else
             waiting[#waiting + 1] = j
         end
@@ -464,15 +554,17 @@ HANDLERS.game_over = function() finishMatch("game over") end
 
 HANDLERS.player_quit = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
-    feedLine(nameOf(inc.cause) .. " quit", false)
+    eventLine(inc.cause, "Left", FEED.words, "left the game")
     stats(inc.cause).left = true
+    stats(inc.cause).biped = nil
     boardDirty = true
 end
 
 HANDLERS.player_booted_player = function(inc)
     if type(inc.effect) ~= "number" or inc.effect < 0 then return end
-    feedLine(nameOf(inc.effect) .. " was booted", false)
+    eventLine(inc.effect, "Kicked", FEED.kicked, "was kicked")
     stats(inc.effect).left = true
+    stats(inc.effect).biped = nil
     boardDirty = true
 end
 
@@ -519,11 +611,20 @@ end
 local function drain()
     local queued = Queue
     Queue = {}
+    local outgoing = {}
     for _, inc in ipairs(queued) do
+        -- A host ignores the relay it sends (its own ClientMessage hook sees
+        -- it); anyone takes an incident once, from its handler or a relay
+        -- (Scripts/relay.lua).
+        local skip = not Match or (inc.relayed and Match.host)
+        if not skip and Relay.carried(inc.name) then
+            skip = Relay.seen(Match.recent, inc)
+            if not skip and not inc.relayed and Match.host and not Match.over then outgoing[#outgoing + 1] = inc end
+        end
         -- After the end the tallies are final: the round the game resets in
         -- place behind the standings must not score.
-        if Match and not Match.over then logSafely("incident", MatchLog.incident, inc) end
-        local handler = Match and not Match.over and HANDLERS[inc.name]
+        if not skip and not Match.over and not inc.relayed then logSafely("incident", MatchLog.incident, inc) end
+        local handler = not skip and not Match.over and HANDLERS[inc.name]
         if handler then
             for _, actor in ipairs({ { inc.cause, inc.biped }, { inc.effect, inc.victimBiped } }) do
                 local index, biped = actor[1], actor[2]
@@ -536,52 +637,69 @@ local function drain()
             if not ok then Log("incident " .. inc.name .. ": " .. tostring(err)) end
         end
     end
+    if not Match then return end
+    if #outgoing > 0 then
+        local ok, sent = pcall(Relay.send, outgoing)
+        if not ok then
+            Log("relay: " .. tostring(sent))
+        elseif sent > 0 and not Match.relayed then
+            Match.relayed = true
+            Log("relay: the feed to " .. tostring(sent) .. " player(s)")
+        end
+    end
+    if #Match.medals > 0 then announceMedals() end
     -- Deaths no kill or suicide line explained: a fall, the guardians.
     local t = now()
     local keep = {}
-    for _, d in ipairs(Match and Match.deaths or {}) do
+    for _, d in ipairs(Match.deaths) do
         local p = stats(d.victim)
         local explained = p.lastLine and p.lastLine >= d.at - DEATH_GRACE
         if not explained then
             if t - d.at >= DEATH_GRACE then
-                feedLine(nameOf(d.victim) .. " died", d.victim == LOCAL_PLAYER)
+                local kind = Icons.damageType(d.damage)
+                local glyph, words = "Skull", "died"
+                if kind == "FallingDamage" then
+                    glyph, words = "Fall", "fell to their death"
+                elseif kind == "KnownGuardians" then
+                    glyph, words = "Guardians", "was taken by the Guardians"
+                elseif kind == "Teleporter" then
+                    glyph, words = "Telefrag", "was telefragged"
+                end
+                eventLine(d.victim, glyph, FEED.words, words)
             else
                 keep[#keep + 1] = d
             end
         end
     end
-    if Match then Match.deaths = keep end
+    Match.deaths = keep
+end
+
+--- What a fireteam client hears from its host: the feed's incidents
+--- (Scripts/relay.lua), and the medals MJOLNIRLevelLoader relays for their
+--- sounds (from a host whose HUD is older). drain takes each incident once.
+local function relayed(text)
+    local batch = Relay.decode(text, now())
+    if batch then
+        for _, inc in ipairs(batch) do
+            if #Queue < 64 then Queue[#Queue + 1] = inc end
+        end
+        return
+    end
+    local name, cause, value, effect = text:match("^MJOLNIR|event|([%w_]+)|(-?%d+)|(-?%d+)|(-?%d+)$")
+    if not name or not MEDALS[name] or #Queue >= 64 then return end
+    Queue[#Queue + 1] = { name = name, cause = tonumber(cause), value = tonumber(value), effect = tonumber(effect),
+        at = now(), relayed = true, source = "sound" }
 end
 
 --------------------------------------------------------------------------------
 -- Drawing
 --------------------------------------------------------------------------------
 
-local function drawFeed()
+--- The respawn countdown: RESPAWN IN over the seconds left, each new number
+--- popping in; RESPAWNING before the first tick.
+local function drawRespawn()
     if not (Feed and Feed:IsValid()) then return end
     local t = now()
-    local live = {}
-    for _, line in ipairs(Match.feed) do
-        if t - line.at < FEED_SECONDS then live[#live + 1] = line end
-    end
-    Match.feed = live
-    -- The newest line at the bottom: Line(FEED_LINES-1).
-    local first = FEED_LINES - #live
-    for i = 0, FEED_LINES - 1 do
-        local block = Feed["Line" .. i]
-        local line = live[i - first + 1]
-        if line then
-            setText(block, line.text)
-            local age = t - line.at
-            local alpha = math.min(1, math.max(0, (FEED_SECONDS - age) / FADE_SECONDS))
-            pcall(function()
-                block:SetColorAndOpacity({ SpecifiedColor = line.you and YOU or WHITE, ColorUseRule = 0 })
-                block:SetRenderOpacity(alpha)
-            end)
-        else
-            setText(block, "")
-        end
-    end
     -- A fireteam client does not always get the respawn's final tick or its
     -- spawn: the countdown stuck at "Respawn in 1" after the player was
     -- back (two PCs, 2026-10-02). The ticks are a second apart and the
@@ -590,12 +708,92 @@ local function drawFeed()
             (Match.diedAt and t - Match.diedAt > 10)) then
         Match.dead = false
     end
-    local respawn = ""
+    local count, label = "", ""
     if Match.dead then
         local ticks = Match.respawnTicks or 0
-        respawn = ticks > 0 and ("Respawn in " .. tostring(math.max(1, 4 - ticks))) or "Respawning"
+        if ticks > 0 then
+            count, label = tostring(math.max(1, 4 - ticks)), "RESPAWN IN"
+        else
+            label = "RESPAWNING"
+        end
     end
-    setText(Feed.Respawn, respawn)
+    if count == Match.respawnShown and label == Match.respawnLabel then return end
+    Match.respawnShown, Match.respawnLabel = count, label
+    if Match.legacyFeed then
+        -- An older UI container: one line of text, as before.
+        setText(Feed.Respawn, label == "" and "" or (count == "" and "Respawning" or "Respawn in " .. count))
+        return
+    end
+    setVisible(Feed.RespawnBox, label ~= "")
+    setText(Feed.RespawnLabel, label)
+    setText(Feed.Respawn, count)
+    if count ~= "" then Anim.value(Match.anim, "Respawn", count, t) end
+end
+
+--- One frame of everything that moves: the feed's rows, the medal callout,
+--- the score bars and the numbers that pop. Run by the per-frame hook and by
+--- the poll; every pose depends only on the time.
+--- A UI container from before the feed's rows (an older CE runtime) has
+--- six text lines, Line0..5: the lines go there as text, newest at the
+--- bottom, and nothing moves.
+local function drawLegacy(t)
+    Rows.step(Match.feed, t)
+    local entries = Match.feed.entries
+    for i = 0, 5 do
+        local e = entries[#entries - 5 + i]
+        local text = ""
+        if e then
+            text = (e.lead or "") .. (e.label and ("  [" .. e.label .. "]  ") or " ") .. (e.tail or "")
+        end
+        setText(Feed["Line" .. i], text)
+        pcall(function() Feed["Line" .. i]:SetColorAndOpacity({ SpecifiedColor = e and e.you and YOU or WHITE, ColorUseRule = 0 }) end)
+    end
+end
+
+local function animate(t)
+    if not (Match and Feed and Feed:IsValid()) then return end
+    if Match.legacyFeed then return drawLegacy(t) end
+    Rows.draw(Match.feed, Feed, t, Icons)
+    local a = Match.anim
+    local wasShowing = a.call ~= nil
+    Anim.nextCall(a, t)
+    local c, scale, alpha = Anim.callPose(a, t)
+    if c then
+        if c.fresh then
+            c.fresh = false
+            setText(Feed.CalloutTitle, c.title)
+            setText(Feed.CalloutSub, c.sub or "")
+            setVisible(Feed.CalloutSub, (c.sub or "") ~= "")
+            pcall(function()
+                Feed.CalloutTitle:SetColorAndOpacity({ SpecifiedColor = c.color or WHITE, ColorUseRule = 0 })
+                local tex = Icons.glyph(c.glyph)
+                if tex then
+                    Feed.CalloutIcon:SetBrushFromTexture(tex, false)
+                    Feed.CalloutIcon:SetColorAndOpacity(c.color or WHITE)
+                end
+                Feed.CalloutIconBox:SetVisibility(tex and VISIBLE or COLLAPSED)
+            end)
+            setVisible(Feed.Callout, true)
+        end
+        pcall(function()
+            Feed.Callout:SetRenderScale({ X = scale, Y = scale })
+            Feed.Callout:SetRenderOpacity(alpha)
+        end)
+    elseif wasShowing then
+        setVisible(Feed.Callout, false)
+    end
+    local busy = Anim.busy(a, t)
+    if not (busy or a.wasBusy) then return end
+    a.wasBusy = busy
+    for _, side in ipairs({ "Left", "Right" }) do
+        local s = Anim.scale(a, side, t)
+        pcall(function()
+            Feed["Score" .. side .. "Fill"]:SetWidthOverride(SCORE_TRACK * Anim.barAt(a, side, t))
+            Feed["Score" .. side .. "Value"]:SetRenderScale({ X = s, Y = s })
+        end)
+    end
+    local s = Anim.scale(a, "Respawn", t)
+    pcall(function() Feed.Respawn:SetRenderScale({ X = s, Y = s }) end)
 end
 
 local function boardHeld(pc)
@@ -612,9 +810,19 @@ local function drawScoreStrip()
     local summary = Scoreboard.summary(Match, LOCAL_PLAYER)
     setText(Feed.ScoreLeftLabel, summary.leftLabel)
     setText(Feed.ScoreRightLabel, summary.rightLabel)
-    setText(Feed.ScoreLeftValue, tostring(summary.left))
-    setText(Feed.ScoreRightValue, tostring(summary.right))
     setText(Feed.ScoreTarget, tostring(Match.mode.toWin))
+    -- Each bar fills toward the score to win; a new score eases in and its
+    -- number pops (animate). The feed demo holds its own for a while.
+    local t, toWin = now(), math.max(1, Match.mode.toWin or 1)
+    if not (Match.demoUntil and t < Match.demoUntil) then
+        setText(Feed.ScoreLeftValue, tostring(summary.left))
+        setText(Feed.ScoreRightValue, tostring(summary.right))
+        Anim.bar(Match.anim, "Left", (tonumber(summary.left) or 0) / toWin, t)
+        Anim.bar(Match.anim, "Right", (tonumber(summary.right) or 0) / toWin, t)
+        Anim.value(Match.anim, "Left", summary.left, t)
+        Anim.value(Match.anim, "Right", summary.right, t)
+        Match.anim.wasBusy = true
+    end
     for _, side in ipairs({ "Left", "Right" }) do
         local team = summary[string.lower(side) .. "Team"]
         local color = TEAM_COLORS[team] or (side == "Left" and YOU or TEAM_COLORS.Unassigned)
@@ -714,10 +922,9 @@ local ASK = "MJOLNIR|matchid"
 local logHooked = false
 local Told = {}       -- host answers waiting for the game thread
 local ClockTold = {}  -- { seconds remaining, when heard } from the host
--- How often the host tells its fireteam the round clock: one controller
--- scan each time (a scan costs ~20 ms on a converted map; FindAllOf in a
--- fast loop made maps unplayable), for players who joined mid-match and
--- have no first spawn to count from.
+-- How often the host tells its fireteam the round clock, for players who
+-- joined mid-match and have no first spawn to count from. The controllers
+-- are the relay's (Scripts/relay.lua), found without a scan each time.
 local CLOCK_SHARE_SECONDS = 30
 
 local function isHostWorld(pc)
@@ -730,6 +937,7 @@ local function hookMatchLog()
     logHooked = pcall(function()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
+            if okM and Chat.heardSay(self:get(), text) then return end
             if not okM or text ~= ASK or not MatchLog.recording() then return end
             local pc = self:get()
             -- Off the RPC, as MJOLNIRLobby answers its messages.
@@ -751,6 +959,7 @@ local function hookMatchLog()
             local okK, name = pcall(function() return kind:get():ToString() end)
             if not okK or name ~= "MJOLNIR" then return end
             local okS, text = pcall(function() return s:get():ToString() end)
+            if okS and Chat.heardLine(text) then return end
             if okS and type(text) == "string" and text:sub(1, 14) == "MJOLNIR|match|" and #Told < 8 then
                 Told[#Told + 1] = text
             end
@@ -761,6 +970,7 @@ local function hookMatchLog()
                 or (text:match("^MJOLNIR|event|30_seconds_remaining|") and 30)
                 or (text:match("^MJOLNIR|event|10_seconds_remaining|") and 10))
             if remaining and #ClockTold < 8 then ClockTold[#ClockTold + 1] = { remaining, now() } end
+            if okS and type(text) == "string" then relayed(text) end
         end)
     end)
     if not logHooked then Log("match log: could not hook the controller RPCs") end
@@ -804,12 +1014,8 @@ local function matchLogTick(pc)
         Match.nextClockShare = now() + CLOCK_SHARE_SECONDS
         local msg = string.format("MJOLNIR|clock|%.1f", math.max(0, Match.clockEnd - now()))
         local kind = FName("MJOLNIR")
-        for _, other in ipairs(FindAllOf("PlayerController") or {}) do
-            pcall(function()
-                if not other:IsValid() or other:IsLocalController() then return end
-                if not (other.Player:IsValid() and other.PlayerState:IsValid()) then return end
-                other:ClientMessage(msg, kind, 0)
-            end)
+        for _, other in ipairs(Relay.controllers()) do
+            pcall(function() other:ClientMessage(msg, kind, 0) end)
         end
     end
     if not MatchLog.recording() and not Match.claimed and not Match.over and now() >= Match.nextAsk
@@ -930,7 +1136,10 @@ local function startMatch(running, world)
         title = running.title,
         mode = modeFor(running.variant),
         players = {},
-        feed = {},
+        feed = Rows.new(),
+        anim = Anim.new(),
+        medals = {},
+        recent = {},
         deaths = {},
         teams = { [0] = 0, [1] = 0 },
         teamKills = {},
@@ -954,6 +1163,46 @@ end
 local nextWidgetTry = 0
 local widgetTries = 0
 
+--- The game's own faces on the feed's text, at the sizes the widget was
+--- built with (build_mjolnir_ui.py): Oxanium, the menus' squared face, for
+--- numbers and captions; Normative Pro for names. Without them (another
+--- game build) the cooked Roboto stays.
+local FONT_ROLES = {
+    { "FeedLead", "NormativePro", "Bold", 0, true }, { "FeedTail", "NormativePro", "Bold", 0, true },
+    { "FeedNote", "NormativePro", "Medium", 0, true },
+    { "CalloutTitle", "Oxanium", "ExtraBold", 60 }, { "CalloutSub", "NormativePro", "Medium", 0 },
+    { "RespawnLabel", "Oxanium", "Bold", 220 }, { "Respawn", "Oxanium", "Bold", 0 },
+    { "ScoreLeftLabel", "Oxanium", "Bold", 90 }, { "ScoreRightLabel", "Oxanium", "Bold", 90 },
+    { "ScoreLeftValue", "Oxanium", "ExtraBold", 0 }, { "ScoreRightValue", "Oxanium", "ExtraBold", 0 },
+    { "MatchClock", "Oxanium", "SemiBold", 40 }, { "ScoreTargetLabel", "Oxanium", "Bold", 160 },
+    { "ScoreTarget", "Oxanium", "Bold", 40 },
+}
+
+local function applyFonts(w)
+    local fonts = {}
+    for _, role in ipairs(FONT_ROLES) do
+        local name, family, face, spacing, perRow = role[1], role[2], role[3], role[4], role[5]
+        if fonts[family] == nil then fonts[family] = Icons.font(family) or false end
+        local font = fonts[family]
+        local blocks = {}
+        if perRow then
+            for i = 0, Rows.ROWS - 1 do blocks[#blocks + 1] = w[name .. i] end
+        else
+            blocks[1] = w[name]
+        end
+        for _, block in ipairs(blocks) do
+            if font then
+                pcall(function()
+                    local size = block.Font.Size
+                    if type(size) ~= "number" then return end
+                    block:SetFont({ FontObject = font, TypefaceFontName = FName(face), Size = size,
+                        LetterSpacing = spacing, SkewAmount = 0, OutlineSettings = { OutlineSize = 0 } })
+                end)
+            end
+        end
+    end
+end
+
 local function ensureWidgets()
     if Feed and Feed:IsValid() and Board and Board:IsValid() then return end
     if now() < nextWidgetTry then return end
@@ -963,7 +1212,20 @@ local function ensureWidgets()
         Feed = createWidget(FEED_CLASS, 40)
         if Feed then
             setText(Feed.Watermark, BuildLine.text(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR))
+            applyFonts(Feed)
             if HudHidden then setVisible(Feed, false) end
+            local okE, edge = pcall(function() return Feed.FeedEdge0 end)
+            local okV, isRow = pcall(function() return edge:IsValid() end)
+            if Match then Match.legacyFeed = not (okE and okV and isRow) end
+            if Match and Match.legacyFeed then
+                Log("the UI container has no feed rows (an older CE runtime): text feed")
+            end
+            -- A new widget starts bare: the rows come back from the model.
+            if Match then
+                Match.feed = Rows.new()
+                Match.respawnShown, Match.respawnLabel = nil, nil
+                boardDirty = true
+            end
         end
     end
     if not (Board and Board:IsValid()) then
@@ -978,7 +1240,53 @@ local function ensureWidgets()
     end
 end
 
+--- Every frame, the feed and the bars move (animate). The poll runs ten
+--- times a second; animation needs the frame, so this hooks the game's
+--- player controller tick, as MJOLNIRFlyCam does. The hook is never
+--- removed (tearing a trampoline out of a hot per-frame function crashed the
+--- game); a level change collects the hooked function, so each new one is
+--- hooked again. A host's tick runs once per player controller each frame:
+--- the second call in a frame does nothing. The same hook times every frame
+--- for the hitch log (Scripts/hitches.lua), on every map, match or not.
+local TICK_FUNCTION = "/Game/Blueprints/BP_MeteoritePlayerController.BP_MeteoritePlayerController_C:ReceiveTick"
+local FrameHook = { fn = nil, last = -1, errors = 0, hitchErrors = 0, nextTry = 0 }
+
+local function ensureFrameHook()
+    if FrameHook.fn and FrameHook.fn:IsValid() then return end
+    -- Finding the function by path costs ~2 ms: not every poll.
+    if now() < FrameHook.nextTry then return end
+    FrameHook.nextTry = now() + 5
+    local ok, fn = pcall(StaticFindObject, TICK_FUNCTION)
+    if not (ok and fn) then return end
+    local okValid, isValid = pcall(function() return fn:IsValid() end)
+    if not (okValid and isValid) then return end
+    local hooked = pcall(RegisterHook, TICK_FUNCTION, function(ctx)
+        local t = now()
+        if FrameHook.hitchErrors < 10 then
+            local okH, errH = pcall(Hitches.frame, ctx, t)
+            if not okH then
+                FrameHook.hitchErrors = FrameHook.hitchErrors + 1
+                if FrameHook.hitchErrors == 10 then Log("hitch log off after repeated errors: " .. tostring(errH)) end
+            end
+        end
+        if t - FrameHook.last < 0.004 or FrameHook.errors >= 10 then return end
+        FrameHook.last = t
+        local okA, err = pcall(animate, t)
+        if okA and Match then okA, err = pcall(Chat.frame, t) end
+        if not okA then
+            FrameHook.errors = FrameHook.errors + 1
+            if FrameHook.errors == 10 then Log("frame animation off after repeated errors: " .. tostring(err)) end
+        end
+    end)
+    if hooked then
+        FrameHook.fn = fn
+        Log("frame hook armed")
+    end
+end
+
 local function endMatch()
+    local okChat, errChat = pcall(Chat.finish)
+    if not okChat then Log("chat: " .. tostring(errChat)) end
     if Match and MatchLog.recording() then
         logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
     end
@@ -989,10 +1297,83 @@ local function endMatch()
     Queue = {}
 end
 
+--- `mjolnir_feed_demo` (Scripts/demo.lua): the feed's lines, a medal and the
+--- bars, played through the HUD's own drawing with made-up names. Nothing it
+--- shows is counted.
+local DemoRun = { steps = nil, at = 0 }
+
+local function demoTick()
+    if not (DemoRun.steps and Match) then return end
+    local t = now()
+    local left = {}
+    for _, s in ipairs(DemoRun.steps) do
+        if t - DemoRun.at < s[1] then
+            left[#left + 1] = s
+        else
+            local you = s[3] == "YOU"
+            local lead = you and short(nameOf(LOCAL_PLAYER)) or s[3]
+            local leadColor = you and YOU or FEED.name
+            local leadAvatar = you and avatarOf(LOCAL_PLAYER) or nil
+            if s[2] == "kill" then
+                local shown = Icons.forKill(s[5], s[6])
+                local victimYou = s[4] == "YOU"
+                feedPush({ lead = lead, leadColor = leadColor, leadAvatar = leadAvatar,
+                    weapon = shown.weapon, weaponGlyph = shown.glyph,
+                    mod = shown.mod, modColor = shown.mod == "Headshot" and FEED.headshot or nil,
+                    tail = victimYou and short(nameOf(LOCAL_PLAYER)) or s[4], tailColor = victimYou and YOU or FEED.name,
+                    tailAvatar = victimYou and avatarOf(LOCAL_PLAYER) or nil,
+                    note = shown.note, noteColor = FEED.words, accent = leadColor, you = you or victimYou })
+            elseif s[2] == "medal" or s[2] == "event" then
+                local c = FEED[s[5]]
+                if s[2] == "medal" then
+                    feedPush({ glyph = s[5], glyphColor = FEED[s[6]], lead = lead, leadColor = leadColor,
+                        leadAvatar = leadAvatar, tail = s[4], tailColor = FEED[s[6]], accent = FEED[s[6]], you = you })
+                    if you then
+                        Anim.callout(Match.anim, { title = string.upper(s[4]), glyph = s[5], color = FEED[s[6]] }, t)
+                    end
+                else
+                    feedPush({ glyph = s[4], glyphColor = c, lead = lead, leadColor = leadColor, tail = s[6],
+                        tailColor = FEED.words, accent = c, you = you })
+                end
+            elseif s[2] == "respawn" then
+                if s[3] == "dead" then
+                    Match.dead, Match.respawnTicks, Match.diedAt, Match.lastRespawnTick = true, 0, t, nil
+                elseif s[3] == "tick" then
+                    Match.respawnTicks, Match.lastRespawnTick = (Match.respawnTicks or 0) + 1, t
+                else
+                    Match.dead = false
+                end
+            elseif s[2] == "bars" then
+                Anim.bar(Match.anim, "Left", s[3], t); Anim.value(Match.anim, "Left", s[4], t)
+                Anim.bar(Match.anim, "Right", s[5], t); Anim.value(Match.anim, "Right", s[6], t)
+                setText(Feed.ScoreLeftValue, tostring(s[4])); setText(Feed.ScoreRightValue, tostring(s[6]))
+            end
+        end
+    end
+    DemoRun.steps = #left > 0 and left or nil
+end
+
+pcall(RegisterConsoleCommandHandler, "mjolnir_feed_demo", function(_, _, ar)
+    local Demo = dofile(MOD_DIR .. "\\Scripts\\demo.lua")
+    ExecuteInGameThread(function()
+        if not Match then return end
+        DemoRun.steps, DemoRun.at, Match.demoUntil = {}, now(), now() + Demo.SECONDS
+        for _, s in ipairs(Demo.STEPS) do DemoRun.steps[#DemoRun.steps + 1] = s end
+    end)
+    pcall(function() ar:Log("MJOLNIR HUD: feed demo started") end)
+    return true
+end)
+
 local function tick()
     local pc = playerController()
     local world = pc and pc:GetWorld()
     local code = world and scenarioOf(world)
+    local okHitches, timed = pcall(Hitches.poll, pc, code)
+    if not okHitches then
+        Log("hitch log: " .. tostring(timed))
+    elseif timed then
+        ensureFrameHook()
+    end
     if code ~= lastWorld then
         lastWorld = code
         local running = runningMatch()
@@ -1011,7 +1392,15 @@ local function tick()
     end
     hookIncidents()
     ensureWidgets()
+    ensureFrameHook()
     refreshLocalPlayer()
+    Match.host = isHostWorld(pc)
+    -- The host finds its fireteam's controllers once, then as they come; a
+    -- few seconds in, off the tick that makes the widgets.
+    if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then
+        Match.relayArmed = true
+        pcall(Relay.arm)
+    end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1
         refreshNames()
@@ -1020,9 +1409,16 @@ local function tick()
     if Match.joins and #Match.joins > 0 then announceJoins() end
     -- Before the drain: the host's log is recording by the first incident.
     logSafely("tick", matchLogTick, pc)
+    local okChat, errChat = pcall(Chat.tick, Match)
+    if not okChat then Log("chat: " .. tostring(errChat)) end
     drain()
+    demoTick()
+    if Match.demoUntil and now() >= Match.demoUntil then
+        Match.demoUntil = nil
+        boardDirty = true
+    end
     sweepTags()
-    drawFeed()
+    drawRespawn()
     drawClock()
     local held = boardHeld(pc) or Match.over ~= nil
     if Match.travelAt and now() >= Match.travelAt then
@@ -1054,7 +1450,19 @@ local function tick()
         drawScoreStrip()
         if boardShown then drawBoard() end
     end
+    -- The per-frame hook animates between polls; the poll draws too, so the
+    -- HUD still moves (at its rate) if the hook never armed.
+    animate(now())
+    pcall(Chat.frame, now())
 end
+
+-- The Lua collector in generational mode. The HUD keeps ~0.5 MB but makes
+-- ~350 KB of garbage a second (object handles, at every frame and poll), and
+-- the incremental collector finished a cycle every ~15 s by sweeping ~5 MB of
+-- it in one step: a 4-6 ms tick every 15 s, standing still (MJOLNIRHud hitch
+-- log, 2026-10-18). Young collections take what was made since the last:
+-- the worst tick was 2-3 ms. UE4SS ships Lua 5.4.7.
+pcall(collectgarbage, "generational")
 
 --- A tick that holds the game thread past 50 ms is logged (at most every
 --- 30 s): a CTF host froze ~250 ms every 3.24 s in Lua, and nothing said
@@ -1065,6 +1473,7 @@ local function poll()
     local ok, err = pcall(tick)
     if not ok then Log("tick: " .. tostring(err)) end
     local took = os.clock() - started
+    Hitches.work("Hud", "tick", started, took)
     if took > 0.05 and started - slowReportedAt > 30 then
         slowReportedAt = started
         Log(string.format("slow: the HUD tick held the game thread %.0f ms", took * 1000))
@@ -1072,6 +1481,102 @@ local function poll()
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
 
+pcall(RegisterConsoleCommandHandler, "mjolnir_hitches", function(_, args, ar)
+    ExecuteInGameThread(function()
+        local okC, said = pcall(Hitches.command, args)
+        Log(okC and said or ("mjolnir_hitches: " .. tostring(said)))
+    end)
+    pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)
+    return true
+end)
+
+pcall(RegisterConsoleCommandHandler, "mjolnir_bench", function(_, args, ar)
+    ExecuteInGameThread(function()
+        local okC, said = pcall(Bench.command, args)
+        Log(okC and said or ("mjolnir_bench: " .. tostring(said)))
+    end)
+    pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)
+    return true
+end)
+
+Hitches.init({ log = Log, file = MOD_DIR .. "\\hitches.log", settings = Bench.settings })
+-- Benches (Scripts/bench.lua) take their turns on the hitch log's frames.
+Bench.init({
+    log = Log,
+    file = MOD_DIR .. "\\bench.log",
+    -- /bench's report goes out as bench_<id>.json through the outbox
+    -- MJOLNIRLobby sends match records from.
+    dir = MOD_DIR,
+    queue = MatchLog.queue,
+    version = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"'),
+    pc = playerController,
+    liveFor = Hitches.liveSeconds,
+    map = function()
+        local pc = playerController()
+        return pc and scenarioOf(pc:GetWorld()) or "?"
+    end,
+})
+Hitches.listen(Bench.frame)
+-- Match chat (Scripts/chat.lua): what it needs of the match, read as used.
+Chat.init({
+    dir = MOD_DIR,
+    log = Log,
+    now = now,
+    pc = playerController,
+    createWidget = createWidget,
+    font = Icons.font,
+    match = function() return Match ~= nil end,
+    isHost = function() return Match ~= nil and Match.host == true end,
+    teams = function() return Match ~= nil and Match.mode.teams == true end,
+    localTeam = function()
+        return Match and Match.mode.teams and Scoreboard.team(stats(LOCAL_PLAYER).team) or nil
+    end,
+    teamColor = function()
+        return TEAM_COLORS[Match and Scoreboard.team(stats(LOCAL_PLAYER).team) or ""] or FEED.name
+    end,
+    localName = function()
+        local okN, name = pcall(function() return playerController().PlayerState:GetPlayerName():ToString() end)
+        return okN and name or nil
+    end,
+    seatOf = function(name)
+        if not (Match and name) then return nil end
+        for index, p in pairs(Match.players) do
+            if p.name == name then
+                local team = Match.mode.teams and Scoreboard.team(p.team) or nil
+                return { index = index, team = team, teamName = team and string.lower(team) or nil,
+                    display = p.display, userId = p.userId }
+            end
+        end
+        return nil
+    end,
+    colorOf = function(index, team)
+        if team and TEAM_COLORS[team] then return TEAM_COLORS[team] end
+        if index == LOCAL_PLAYER then return YOU end
+        return FEED.name
+    end,
+    avatar = function(index) return Match and avatarOf(index) end,
+    -- Slash commands (Scripts/commands.lua): the players still in the match,
+    -- this machine's seat, and the console the Lobby's kick and ban answer on.
+    players = function()
+        local out = {}
+        for index, p in pairs(Match and Match.players or {}) do
+            if p.name and not p.left then out[#out + 1] = { index = index, name = p.name, display = p.display } end
+        end
+        return out
+    end,
+    localIndex = function() return LOCAL_PLAYER end,
+    console = function(command)
+        local pc = playerController()
+        pcall(function()
+            StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):ExecuteConsoleCommand(pc:GetWorld(), command, pc)
+        end)
+    end,
+    controllers = Relay.controllers,
+    matchId = function() return MatchLog.currentId() or (Match and Match.logId) end,
+    queue = MatchLog.queue,
+    hidden = function() return HudHidden end,
+    bench = Bench.chat,
+})
 logSafely("init", MatchLog.init, {
     modDir = MOD_DIR,
     log = Log,

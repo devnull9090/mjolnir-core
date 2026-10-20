@@ -20,12 +20,23 @@ block's own address space); sbsp fog planes at 376 (32 bytes: front region
 i16, pad 2, plane i, j, k, d, vertices block), fog regions at 388 (40: pad
 36, fog palette i16, weather palette i16), fog palette at 400 (136: name 32,
 fog reference 16, ...), clusters at 308 (104: sky, fog, background sound,
-sound environment, weather palette, all i16), weather palette at 436 (240:
+sound environment, weather palette, all i16; the fog at +2 is 0xFFFF for
+none, a plane index with bit 15 set, else a fog region whose whole cluster
+is fogged), weather palette at 436 (240:
 name 32, particle system reference 16, ...), weather polyhedra at 448 (32:
 bounding sphere centre and radius, pad 4, planes block of i, j, k, d). fog:
 flags u32 at 0 (bit 0 is water), maximum
 density at 88, opaque distance at 96, opaque depth at 104, colour at 120.
-Distances are world units.
+The scenario's skies at 0x30 (16-byte references); sky: outdoor fog colour
+at 88, maximum density, start and opaque distances at 108; indoor fog
+colour at 120, the same at 140. Distances are world units.
+
+CE's atmospheric fog is the camera's cluster's: its sky's outdoor fog, or,
+in a cluster with no sky, sky 0's indoor fog (Chill Out's every cluster:
+pale blue, 0.2 by 18 wu, where the converted map had drawn the lavender
+outdoor fog). One fog plane is drawn at a time, the camera cluster's:
+Coldsnap's 121 open clusters use plane 1 (its night fog), plane 0 (B40's
+purple pit fog) only one.
 """
 import json
 import os
@@ -50,13 +61,30 @@ def bsp_root(m):
     return conv(struct.unpack_from("<I", d, start)[0]), conv
 
 
+def cluster_planes(m):
+    """How many of BSP 0's clusters draw each fog plane: {plane index: n}."""
+    root, conv = bsp_root(m)
+    if root is None:
+        return {}
+    clusters_n, clusters_p = struct.unpack_from("<II", m.d, root + 308)
+    used = {}
+    for k in range(clusters_n):
+        fog, = struct.unpack_from("<H", m.d, conv(clusters_p) + 104 * k + 2)
+        if fog != 0xFFFF and fog & 0x8000:
+            used[fog & 0x7FFF] = used.get(fog & 0x7FFF, 0) + 1
+    return used
+
+
 def planar_fog(m):
     """Every fog plane with its fog: [{plane: [i, j, k, d], color, max_density,
-    opaque_distance, opaque_depth, water, fog}], CE world units."""
+    opaque_distance, opaque_depth, water, fog, clusters}], CE world units,
+    the plane the most clusters draw first (the material spec takes the
+    first)."""
     d = m.d
     root, conv = bsp_root(m)
     if root is None:
         return []
+    used = cluster_planes(m)
     planes_n, planes_p = struct.unpack_from("<II", d, root + 376)
     regions_n, regions_p = struct.unpack_from("<II", d, root + 388)
     palette_n, palette_p = struct.unpack_from("<II", d, root + 400)
@@ -84,19 +112,38 @@ def planar_fog(m):
             "opaque_distance": struct.unpack_from("<f", d, f + 96)[0],
             "opaque_depth": struct.unpack_from("<f", d, f + 104)[0],
             "color": list(struct.unpack_from("<3f", d, f + 120)),
+            "clusters": used.get(k, 0),
         })
-    return out
+    return sorted(out, key=lambda p: -p["clusters"])
 
 
 def sky_clusters(m):
-    """How many of BSP 0's clusters draw a sky. CE fogs only those with the
-    sky's outdoor fog: Chill Out's sky has a fog, opaque at 90 wu, but none
-    of its ten clusters has a sky."""
+    """How many of BSP 0's clusters draw a sky. The others take sky 0's
+    indoor fog (indoor_fog), not its outdoor one: none of Chill Out's ten
+    clusters has a sky."""
     root, conv = bsp_root(m)
     if root is None:
         return 0
     clusters_n, clusters_p = struct.unpack_from("<II", m.d, root + 308)
     return sum(struct.unpack_from("<h", m.d, conv(clusters_p) + 104 * k)[0] >= 0 for k in range(clusters_n))
+
+
+def indoor_fog(m):
+    """Sky 0's indoor fog, CE's atmospheric fog in a cluster with no sky:
+    {color, max_density, start_distance, opaque_distance}, or None."""
+    d = m.d
+    scen = next((t for t in m.tags if t["cls"] == "scnr"), None)
+    if not scen:
+        return None
+    n, ptr = struct.unpack_from("<II", d, m.off(scen["doff"]) + 0x30)
+    sky = m.dep(m.off(ptr)) if n else None
+    t = next((t for t in m.tags if t["cls"] == "sky " and t["path"] == sky), None) if sky else None
+    if not t:
+        return None
+    f = m.off(t["doff"])
+    max_density, start, opaque = struct.unpack_from("<3f", d, f + 140)
+    return {"color": list(struct.unpack_from("<3f", d, f + 120)), "max_density": max_density,
+            "start_distance": start, "opaque_distance": opaque}
 
 
 def weather(m):
@@ -138,11 +185,12 @@ def main():
     fogs = planar_fog(m)
     wx = weather(m)
     with open(os.path.join(staging, "fog.json"), "w", encoding="utf-8") as f:
-        json.dump({"planes": fogs, "weather": wx, "sky_clusters": sky_clusters(m)}, f, indent=1)
+        json.dump({"planes": fogs, "weather": wx, "sky_clusters": sky_clusters(m), "indoor_fog": indoor_fog(m)},
+                  f, indent=1)
     for p in fogs:
         print(f"  fog plane z = {p['plane'][3]:.2f} wu ({p['fog']}): density {p['max_density']:.2f},"
               f" opaque at {p['opaque_distance']:.2f} wu distance / {p['opaque_depth']:.2f} wu depth"
-              f"{', water' if p['water'] else ''}")
+              f"{', water' if p['water'] else ''}, {p['clusters']} cluster(s)")
     if not fogs:
         print("  no planar fog")
     for s in wx["systems"]:

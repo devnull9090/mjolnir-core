@@ -173,19 +173,33 @@ if [ "$cook" = "1" ]; then
   # One material per glTF material, i.e. per (shader, lightmap page).
   python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
-  # The three meshes, packages of the map's own beside its materials
-  # (<root>/SM_<map>_Terrain, _Translucent and _Sky), built from the shipped
-  # cylinder, cone and sphere, in one container per map.
+  # The meshes, packages of the map's own beside its materials
+  # (<root>/SM_<map>_Terrain, _Translucent and _Sky, and _Water when the
+  # translucent sections hold CE water), built from the shipped cylinder,
+  # cone, sphere and cube, in one container per map.
   root="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['root'])" "$out/materials.spec.json")"
   root="${root%%[[:space:]]}"   # Windows Python ends its lines with CRLF
   leaf="${root##*/}"
   MSYS2_ARG_CONV_EXCL="/Game" python "$here/build_terrain_meshes.py" --paks "$HCE_PAKS" \
     --spec "$out/materials.spec.json" --out "$out" --name "$name" --offset "$delta" \
     --fallback "$terrain_material" --examples "$examples" \
-    --container "pakchunk986-MJOLNIRMESH-${code}_P" \
+    --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" \
     "$out/scene.gltf=basicshapes/cylinder=$root/SM_${leaf}_Terrain" \
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky"
+  # The game's grass, tufts and shore stones on the map's ground
+  # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
+  # sea's height is the water mesh's, when the map has one. FOLIAGE=0 leaves
+  # it out: it reads ground by CE's sand and grass detail, and covered
+  # Coldsnap's snow in 14 million blades of grass (2026-10-13).
+  if [ "${FOLIAGE:-1}" != "0" ]; then
+  sea="$(python -c "import json,sys; w=[e for e in json.load(open(sys.argv[1])) if e['mesh'].split('.')[0].endswith('_Water')]; print(w[0]['pos'][2] if w else '')" "$out/terrain.json")"
+  sea="${sea%%[[:space:]]}"
+  sea_args=()
+  [ -n "$sea" ] && sea_args=(--sea "$sea")
+  python "$here/scatter_foliage.py" "$out/scene.gltf" "$out/materials.spec.json" "$out/foliage.json" \
+    --bin "$out/$name.foliage.bin" --offset "$delta" "${sea_args[@]}"
+  fi
 else
   python "$here/ce_textures.py" "$staging" "$out/textures/$name" --prefix "textures/$name" | tail -1
   # One slot per composited shader, keyed on the glTF material names
@@ -273,7 +287,13 @@ title_args=()
 # shadows; the sun mask would soften every one (gen_ce_level.py).
 mask_args=()
 [ -n "${lightmaps_args+x}" ] && [ "${#lightmaps_args[@]}" -gt 0 ] && mask_args=(--no-sun-mask)
-python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}"
+foliage_args=()
+[ -f "$out/foliage.json" ] && foliage_args=(--foliage "$out/foliage.json")
+# CE_START_LIFT overrides the generator's 1.0-wu lift (3.048 m). Low-ceiling
+# maps need lower starts; this applies to starts and their spawn scenery.
+start_args=()
+[ -n "${CE_START_LIFT:-}" ] && start_args=(--start-lift "$CE_START_LIFT")
+python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}" "${foliage_args[@]}" "${start_args[@]}"
 
 echo "== 5/6 bake"
 bake=("$mjolnir" level bake "$out/$name.level.json" --standalone "$code" --bsp "8=$out/$name.sbsp" --out-dir "$out")
@@ -304,6 +324,8 @@ if [ "$install" = "--install" ]; then
     rm -f "$HCE_PAKS"/pakchunk989-MJOLNIRMESH-Windows_P.* "$HCE_PAKS"/pakchunk987-MJOLNIRMESHT-Windows_P.*
   fi
   loader="$HCE_PAKS/../../Binaries/Win64/ue4ss/Mods/MJOLNIRLevelLoader"
+  # The level's foliage file sits beside the installed level file.
+  [ -f "$out/$name.foliage.bin" ] && cp -f "$out/$name.foliage.bin" "$loader/levels/"
   if [ "$cook" = "1" ]; then
     # The cooked materials and textures (pakchunk988-MJOLNIRMAT).
     "$repo/tools/ue/install_cook.sh"

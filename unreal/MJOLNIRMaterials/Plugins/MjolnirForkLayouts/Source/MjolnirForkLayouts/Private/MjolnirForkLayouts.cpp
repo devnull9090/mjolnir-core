@@ -27,6 +27,7 @@
 #include "ShaderParameterMetadata.h"
 #include "RHI.h"
 #include "ShaderCompilerCore.h"
+#include "Shader.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMjolnirForkLayouts, Log, All);
 
@@ -270,6 +271,25 @@ namespace
 			return Result;
 		}
 
+		/** A shader type's root parameter struct (a pass struct the fork
+		 *  changed) brought to Def in place: shader types hold a const pointer
+		 *  to it, so it cannot be swapped for a clone the way nested structs
+		 *  are. Returns whether it changed. */
+		bool PatchRoot(const TSharedPtr<FJsonObject>& Def, FShaderParametersMetadata* Stock, const FString& Path)
+		{
+			FShaderParametersMetadata* Fork = Resolve(Def, Stock, Path);
+			if (Fork == Stock)
+			{
+				return false;
+			}
+			TArray<FMember> Members = Fork->GetMembers();
+			Patch(Stock, MoveTemp(Members), Fork->GetSize());
+			Resolved.Add(Def.Get(), Stock);
+			++Patched;
+			UE_LOG(LogMjolnirForkLayouts, Display, TEXT("patched %s in place (%s)"), Stock->GetStructTypeName(), *Path);
+			return true;
+		}
+
 	private:
 		TMap<const FJsonObject*, FShaderParametersMetadata*> Resolved;
 
@@ -382,6 +402,8 @@ namespace
 		}
 	};
 
+	void ApplyForkRootStructs(FForkLayouts& Fork);
+
 	void ApplyForkLayouts()
 	{
 		const FString Path = FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("ForkUniformBuffers.json"));
@@ -444,6 +466,63 @@ namespace
 		}
 		UE_LOG(LogMjolnirForkLayouts, Display, TEXT("fork layouts: %d patched, %d created; %d global struct(s) match the game, %d do not"),
 			Fork.Patched, Fork.Created, Matching, Mismatching);
+
+		ApplyForkRootStructs(Fork);
+	}
+
+	/** Pass parameter structs the fork changed (Config/ForkShaderStructs.json,
+	 *  tools/ue/struct_dump.py): { StructTypeName: { "shader_types": [...],
+	 *  definition } }, reached through the shader types that bind them. The
+	 *  fork put ViewSizeAndOffset after PassData in FRasterizePassParameters,
+	 *  so every material's Nanite raster shaders (world position offset,
+	 *  masking, pixel depth offset, tessellation) read their buffers 16 bytes
+	 *  early and crashed the game (2026-10-12). */
+	void ApplyForkRootStructs(FForkLayouts& Fork)
+	{
+		const FString Path = FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("ForkShaderStructs.json"));
+		FString Text;
+		if (!FFileHelper::LoadFileToString(Text, *Path))
+		{
+			return;
+		}
+		TSharedPtr<FJsonObject> Root;
+		if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root.IsValid())
+		{
+			UE_LOG(LogMjolnirForkLayouts, Error, TEXT("%s does not parse"), *Path);
+			return;
+		}
+		for (const auto& Pair : Root->Values)
+		{
+			const TSharedPtr<FJsonObject> Def = Pair.Value->AsObject();
+			const TArray<TSharedPtr<FJsonValue>>* Types = nullptr;
+			Def->TryGetArrayField(TEXT("shader_types"), Types);
+			FShaderParametersMetadata* Stock = nullptr;
+			for (const TSharedPtr<FJsonValue>& T : Types ? *Types : TArray<TSharedPtr<FJsonValue>>())
+			{
+				const FShaderType* Type = FShaderType::GetShaderTypeByName(*T->AsString());
+				const FShaderParametersMetadata* Meta = Type ? Type->GetRootParametersMetadata() : nullptr;
+				if (!Meta)
+				{
+					UE_LOG(LogMjolnirForkLayouts, Error, TEXT("%s: no shader type %s with a parameter struct"), *Pair.Key, *T->AsString());
+					continue;
+				}
+				if (Stock && Meta != Stock)
+				{
+					UE_LOG(LogMjolnirForkLayouts, Error, TEXT("%s: %s binds a different struct (%s)"), *Pair.Key, *T->AsString(), Meta->GetStructTypeName());
+					continue;
+				}
+				Stock = const_cast<FShaderParametersMetadata*>(Meta);
+			}
+			if (!Stock || Pair.Key != Stock->GetStructTypeName())
+			{
+				UE_LOG(LogMjolnirForkLayouts, Error, TEXT("%s: not found through its shader types; left stock"), *Pair.Key);
+				continue;
+			}
+			if (!Fork.PatchRoot(Def, Stock, Pair.Key))
+			{
+				UE_LOG(LogMjolnirForkLayouts, Display, TEXT("%s already matches the game"), *Pair.Key);
+			}
+		}
 	}
 }
 

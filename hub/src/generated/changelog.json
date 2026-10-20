@@ -39,6 +39,361 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.31.1",
+      "tag": "mods-v0.31.1",
+      "title": "Benches that fill the screen",
+      "date": "2026-10-20",
+      "summary": "/bench and mjolnirbench now measure the whole screen at your own field of view, so their timings are right on monitors that aren't 16:9.",
+      "body": "### Fixed\n\n- **Benches see the whole screen** (MJOLNIRHud 0.11.3). On a screen that\n  isn't 16:9, `/bench` and `mjolnir_bench` drew the held view with black\n  bars, so their timings read about 10% light on a 16:10 monitor. The held\n  view now fills the screen at your own field of view.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Benches see the whole screen (MJOLNIRHud 0.11.3). On a screen that isn't 16:9, /bench and mjolnirbench drew the held view with black bars, so their timings read about 10% light on a 16:10 monitor. The held view now fills the screen at your own field of view."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.31.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.31.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.31.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.31.0",
+      "tag": "mods-v0.31.0",
+      "title": "Faster map loads and rivers that start full",
+      "date": "2026-10-20",
+      "summary": "The remastered maps load much faster with their grass and scenery built in, and their rivers are full the moment you spawn.",
+      "body": "### Changed\n\n- **Faster loads on the remastered maps** (MJOLNIRLevelLoader 0.7.6).\n  The grass, ground cover, cliff rocks and swapped trees and boulders are\n  now part of each map's world. The level script only sets them up for\n  your graphics settings, where before it placed every piece while the map\n  loaded. On Death Island the longest frame while loading fell from 15.5\n  to under a second. Grass still thins out at lower foliage quality, and a\n  map without its built-in foliage gets it placed the old way.\n- **Haze comes on sooner.** The haze on Blood Gulch, Death Island and\n  Yoyorast now appears about half a second after the load instead of\n  three.\n- **`mjolnir_bench` covers the built-in foliage** (MJOLNIRHud 0.11.2), so\n  its grass and wind timings still mean the same thing on the new maps.\n\n### Fixed\n\n- **Rivers start full.** Battle Creek's and Timberland's rivers used to\n  load dry, or show a wall of water, and take up to a minute to fill.\n  They now start from a saved, settled state, full and calm the moment\n  you spawn. On a map without a saved state, the old CE water stays until\n  the river has filled, so the riverbed is never bare.\n- **Trees hold together.** The swapped trees' branches and small leaf\n  clusters no longer drift apart from their trunks in the wind.\n- **Scenery faces the right way.** Some rocks and props the level script\n  places stood at the wrong angle.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Faster loads on the remastered maps (MJOLNIRLevelLoader 0.7.6). The grass, ground cover, cliff rocks and swapped trees and boulders are now part of each map's world. The level script only sets them up for your graphics settings, where before it placed every piece while the map loaded. On Death Island the longest frame while loading fell from 15.5 to under a second. Grass still thins out at lower foliage quality, and a map without its built-in foliage gets it placed the old way.",
+            "Haze comes on sooner. The haze on Blood Gulch, Death Island and Yoyorast now appears about half a second after the load instead of three.",
+            "mjolnirbench covers the built-in foliage (MJOLNIRHud 0.11.2), so its grass and wind timings still mean the same thing on the new maps."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Rivers start full. Battle Creek's and Timberland's rivers used to load dry, or show a wall of water, and take up to a minute to fill. They now start from a saved, settled state, full and calm the moment you spawn. On a map without a saved state, the old CE water stays until the river has filled, so the riverbed is never bare.",
+            "Trees hold together. The swapped trees' branches and small leaf clusters no longer drift apart from their trunks in the wind.",
+            "Scenery faces the right way. Some rocks and props the level script places stood at the wrong angle."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.31.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.31.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.31.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.30.0",
+      "tag": "mods-v0.30.0",
+      "title": "Smoother frames on the classic maps",
+      "date": "2026-10-18",
+      "summary": "The occasional stutter on the classic maps, a frame of 50 to 200 ms every minute or two even standing still, is gone. It came from MJOLNIR's own scripts cleaning up their memory, not from the maps.",
+      "body": "### Fixed\n\n- **Stutters while standing still** (MJOLNIRLevelLoader 0.7.3). Every\n  minute or two the level script's memory cleanup ran in one go and held a\n  frame for 30 to 200 ms. The cleanup now runs a little at a time, and the\n  script makes far less to clean up. The flashing beacon lights on Death\n  Island alone made about 200 KB of it a second, and every rock placed on\n  the cliffs left a little behind that was never freed. On Death Island no\n  script now holds a frame for more than 3 ms, and the worst frame in a\n  five-minute test was 17 ms.\n- **A short HUD hitch every 15 seconds** (MJOLNIRHud 0.11.1). The kill feed\n  and scoreboard script's own cleanup held a frame for 4 to 9 ms. It now\n  holds one for at most 2 ms.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Stutters while standing still (MJOLNIRLevelLoader 0.7.3). Every minute or two the level script's memory cleanup ran in one go and held a frame for 30 to 200 ms. The cleanup now runs a little at a time, and the script makes far less to clean up. The flashing beacon lights on Death Island alone made about 200 KB of it a second, and every rock placed on the cliffs left a little behind that was never freed. On Death Island no script now holds a frame for more than 3 ms, and the worst frame in a five-minute test was 17 ms.",
+            "A short HUD hitch every 15 seconds (MJOLNIRHud 0.11.1). The kill feed and scoreboard script's own cleanup held a frame for 4 to 9 ms. It now holds one for at most 2 ms."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.30.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.30.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.30.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.29.0",
+      "tag": "mods-v0.29.0",
+      "title": "/bench shows where the frame goes",
+      "date": "2026-10-18",
+      "summary": "/bench now says whether your game thread, render thread or GPU is holding the frame back, and where you were standing, so the MJOLNIR team can tell what to optimize for your hardware.",
+      "body": "### Changed\n\n- **`/bench` measures where each frame's time goes** (MJOLNIRHud 0.11.0).\n  Each part of the bench (with foliage, without it, without its shadows, without its\n  wind) now records the game thread, render thread and GPU times that `stat\n  unit` shows. A saving on the GPU does nothing while your CPU is the slow\n  part, so this tells us which part a fix has to target. Your chat\n  shows the split for your normal frame.\n- **`/bench` sends the camera's position.** Two benches on one map can read\n  very differently depending on where you stand. The report now says where\n  that was.\n- **`mjolnir_bench`** prints the same split on every row of `bench.log`.\n\n### Notes\n\n- The split comes from a small native file in the MJOLNIRHud folder,\n  `native\\mjolnir_frame_times.dll`. If a game update moves what it reads, the\n  bench still runs and just leaves the split out.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "/bench measures where each frame's time goes (MJOLNIRHud 0.11.0). Each part of the bench (with foliage, without it, without its shadows, without its wind) now records the game thread, render thread and GPU times that stat unit shows. A saving on the GPU does nothing while your CPU is the slow part, so this tells us which part a fix has to target. Your chat shows the split for your normal frame.",
+            "/bench sends the camera's position. Two benches on one map can read very differently depending on where you stand. The report now says where that was.",
+            "mjolnirbench prints the same split on every row of bench.log."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "The split comes from a small native file in the MJOLNIRHud folder, native\\mjolnirframetimes.dll. If a game update moves what it reads, the bench still runs and just leaves the split out."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.29.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.29.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.29.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.28.0",
+      "tag": "mods-v0.28.0",
+      "title": "Faster foliage and /bench",
+      "date": "2026-10-18",
+      "summary": "Grass that was drawn across the whole map now culls, Low and Medium foliage drop the grass's wind, and /bench measures what a map's foliage costs on your PC and sends it to the MJOLNIR team.",
+      "body": "### Added\n\n- **`/bench`** (MJOLNIRHud 0.10.0). Type `/bench` in match chat, stay put\n  somewhere safe for about a minute, and the game times the map with and\n  without its foliage, its shadows and its wind at your camera. The result\n  shows in your chat and goes to the MJOLNIR team with your resolution,\n  quality settings and GPU, so we can see how the remastered maps run on\n  real hardware. It needs the launcher signed in to the hub, and it waits\n  until you have been on the map for two minutes, while it is still loading\n  in.\n- **`mjolnir_bench`** in the console does the same without sending, or A/Bs\n  any console variable: `mjolnir_bench r.Shadow.Virtual.Enable 0`. Results\n  go to `bench.log` in the MJOLNIRHud folder.\n- **Settings in the hitch log.** Each map's heading in `hitches.log` now says\n  the resolution drawn, window mode, every quality level, the GPU and the CPU.\n\n### Fixed\n\n- **Grass drawn across the whole map** (MJOLNIRLevelLoader 0.7.2). Some\n  bands of grass never culled at any distance: on Death Island, 51,000 clumps\n  of the heaviest grass. Lower foliage quality made it worse. Every band now\n  stops at its distance.\n- **A loop that cost 12 ms a second** on maps with water dry zones\n  (MJOLNIRLevelLoader 0.7.2). It looked up an engine object ten times a\n  second.\n\n### Changed\n\n- **No grass wind at Low and Medium foliage quality** (MJOLNIRLevelLoader\n  0.7.2). Swaying grass was half of the grass's cost on the GPU. High and\n  Epic still sway.\n- **MJOLNIRLobby 0.13.4** sends `/bench` results to the hub.\n\n### Notes\n\n- Foliage is about a fifth of the frame on Death Island, even on an RTX 5090\n  (68 fps at 4K, Epic). If the remastered maps run slow for you, set\n  **Foliage** to Medium or Low in Video settings.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "/bench (MJOLNIRHud 0.10.0). Type /bench in match chat, stay put somewhere safe for about a minute, and the game times the map with and without its foliage, its shadows and its wind at your camera. The result shows in your chat and goes to the MJOLNIR team with your resolution, quality settings and GPU, so we can see how the remastered maps run on real hardware. It needs the launcher signed in to the hub, and it waits until you have been on the map for two minutes, while it is still loading in.",
+            "mjolnirbench in the console does the same without sending, or A/Bs any console variable: mjolnirbench r.Shadow.Virtual.Enable 0. Results go to bench.log in the MJOLNIRHud folder.",
+            "Settings in the hitch log. Each map's heading in hitches.log now says the resolution drawn, window mode, every quality level, the GPU and the CPU."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Grass drawn across the whole map (MJOLNIRLevelLoader 0.7.2). Some bands of grass never culled at any distance: on Death Island, 51,000 clumps of the heaviest grass. Lower foliage quality made it worse. Every band now stops at its distance.",
+            "A loop that cost 12 ms a second on maps with water dry zones (MJOLNIRLevelLoader 0.7.2). It looked up an engine object ten times a second."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "No grass wind at Low and Medium foliage quality (MJOLNIRLevelLoader 0.7.2). Swaying grass was half of the grass's cost on the GPU. High and Epic still sway.",
+            "MJOLNIRLobby 0.13.4 sends /bench results to the hub."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Foliage is about a fifth of the frame on Death Island, even on an RTX 5090 (68 fps at 4K, Epic). If the remastered maps run slow for you, set Foliage to Medium or Low in Video settings."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.28.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.28.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.28.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.27.0",
+      "tag": "mods-v0.27.0",
+      "title": "Match chat",
+      "date": "2026-10-18",
+      "summary": "Multiplayer matches have text chat, with team chat, slash commands and hub avatars. Every line is kept for moderators, and public matches show their chat on the hub.",
+      "body": "### Added\n\n- **Match chat** (MJOLNIRHud 0.9.0). Press **T** for all chat, **Y** for\n  team chat, or **Home**. **Enter** sends and **Esc** cancels. Lines appear\n  above the kill feed with the sender's hub avatar and team colour, then fade\n  after a few seconds. While you type, your player stands still.\n- **Chat rules.** The first time you open chat, it shows the rules and asks\n  you to agree. Chat is recorded and logged to your player account, and\n  public matches post their chat to the hub. Keep it civil.\n- **Slash commands.** Type `/` in chat to see the commands you can use, and\n  **Tab** to complete one or a player's name.\n  - Everyone: `/help`, `/players`, and `/suicide` to respawn when you're\n    stuck.\n  - The host: `/kick`, `/ban`, `/unban` and `/slay`, plus `/tp` and `/bring`\n    to teleport (experimental).\n- **Chat for moderators.** The host keeps every line of a match, private\n  matches included, and sends it to the hub (MJOLNIRLobby 0.13.3). A player\n  report shows its match's chat to moderators. A public match's page on the\n  hub shows its chat too.\n\n### Fixed\n\n- **A host crash after a player left** (MJOLNIRHud 0.8.1, in this release).\n  The HUD read the team of a player's body after the game had freed it, which\n  crashed the host on Blood Gulch about 45 seconds after a client left.\n- **Kicking by name** (MJOLNIRLobby 0.13.3). Kicking \"Bob\" no longer kicks\n  \"Bobby\" when Bobby is listed first.\n\n### Notes\n\n- Chat needs **CE runtime 1.11.0**, which the launcher installs with the\n  maps. Without it the HUD runs as before, with no chat.\n- The game's own chat key (Home) used Xbox party chat, which never connects\n  in MJOLNIR games. That is why it never showed anything.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Match chat (MJOLNIRHud 0.9.0). Press T for all chat, Y for team chat, or Home. Enter sends and Esc cancels. Lines appear above the kill feed with the sender's hub avatar and team colour, then fade after a few seconds. While you type, your player stands still.",
+            "Chat rules. The first time you open chat, it shows the rules and asks you to agree. Chat is recorded and logged to your player account, and public matches post their chat to the hub. Keep it civil.",
+            "Slash commands. Type / in chat to see the commands you can use, and Tab to complete one or a player's name.",
+            "Chat for moderators. The host keeps every line of a match, private matches included, and sends it to the hub (MJOLNIRLobby 0.13.3). A player report shows its match's chat to moderators. A public match's page on the hub shows its chat too."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A host crash after a player left (MJOLNIRHud 0.8.1, in this release). The HUD read the team of a player's body after the game had freed it, which crashed the host on Blood Gulch about 45 seconds after a client left.",
+            "Kicking by name (MJOLNIRLobby 0.13.3). Kicking \"Bob\" no longer kicks \"Bobby\" when Bobby is listed first."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Chat needs CE runtime 1.11.0, which the launcher installs with the maps. Without it the HUD runs as before, with no chat.",
+            "The game's own chat key (Home) used Xbox party chat, which never connects in MJOLNIR games. That is why it never showed anything."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.27.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.27.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.27.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.15.0",
+      "tag": "launcher-v0.15.0",
+      "title": "Offers to send crash reports, and restarts mods UE4SS stopped loading",
+      "date": "2026-10-17",
+      "summary": "When the game crashes, the launcher offers to send a crash report so we can find the cause. It also repairs mods that stopped starting.",
+      "body": "### Added\n\n- **Crash reports.** When the game crashes, a bar at the top of the launcher\n  asks whether to send a report to the MJOLNIR team. Nothing is sent unless\n  you click Send report. \"What's sent?\" lists what goes: where the game\n  crashed, a trimmed crash dump without the game's memory, the UE4SS log from\n  that session, and your installed mods. Your PC's and Epic account's IDs and\n  your Windows user name are removed first. Sending needs the hub sign-in.\n- For a crash that is new to us, the launcher then asks whether you will also\n  send the full crash dump, about 50 MB. It is a copy of the game's memory\n  when it crashed, so it is only ever sent on that second yes.\n- **Settings → Crash Reports** lists your recent crashes, each with a Send\n  button. Crashes from before this update are listed there but never asked\n  about.\n\n### Fixed\n\n- **\"MJOLNIR MODS DID NOT START\" in the multiplayer lobby.** When a mod's line\n  went missing from mods.txt, UE4SS stopped starting that mod and the launcher\n  could not put it back. Switching a mod on now adds its line, so installing a\n  map or \"Install multiplayer\" repairs the file. Script mods now also lists mod\n  folders that mods.txt leaves out, so you can switch them on.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Crash reports. When the game crashes, a bar at the top of the launcher asks whether to send a report to the MJOLNIR team. Nothing is sent unless you click Send report. \"What's sent?\" lists what goes: where the game crashed, a trimmed crash dump without the game's memory, the UE4SS log from that session, and your installed mods. Your PC's and Epic account's IDs and your Windows user name are removed first. Sending needs the hub sign-in.",
+            "For a crash that is new to us, the launcher then asks whether you will also send the full crash dump, about 50 MB. It is a copy of the game's memory when it crashed, so it is only ever sent on that second yes.",
+            "Settings → Crash Reports lists your recent crashes, each with a Send button. Crashes from before this update are listed there but never asked about."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "\"MJOLNIR MODS DID NOT START\" in the multiplayer lobby. When a mod's line went missing from mods.txt, UE4SS stopped starting that mod and the launcher could not put it back. Switching a mod on now adds its line, so installing a map or \"Install multiplayer\" repairs the file. Script mods now also lists mod folders that mods.txt leaves out, so you can switch them on."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.15.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.15.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.15.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.14.1",
+      "tag": "launcher-v0.14.1",
+      "title": "Puts back the remastered maps' grass",
+      "date": "2026-10-17",
+      "summary": "Remastered maps installed by launcher 0.13 had no grass or decals. The launcher now finds those maps and downloads them again from Updates.",
+      "body": "### Fixed\n\n- **Remastered maps with no grass.** \"Update all\" in launcher 0.13 updated\n  the maps before it updated the launcher, and that launcher left out each\n  map's grass and decal files. Launcher 0.14.0 did not fix those installs,\n  because the maps were already at their newest version. The launcher now\n  checks that every file a map's level needs is there. A map that is missing\n  one shows in Updates as a repair, which downloads the same version again,\n  and the Multiplayer page offers to install it. From launcher 0.13, \"Update\n  all\" still updates the maps first, so the repair shows up after the\n  launcher restarts.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Remastered maps with no grass. \"Update all\" in launcher 0.13 updated the maps before it updated the launcher, and that launcher left out each map's grass and decal files. Launcher 0.14.0 did not fix those installs, because the maps were already at their newest version. The launcher now checks that every file a map's level needs is there. A map that is missing one shows in Updates as a repair, which downloads the same version again, and the Multiplayer page offers to install it. From launcher 0.13, \"Update all\" still updates the maps first, so the repair shows up after the launcher restarts."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.14.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.14.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.14.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.14.0",
+      "tag": "launcher-v0.14.0",
+      "title": "Installs the remastered classic maps",
+      "date": "2026-10-17",
+      "summary": "The launcher installs the remastered classic maps, with their grass and decal files, and updates the CE runtime pack they need. Update the launcher first.",
+      "body": "### Added\n\n- **Maps that carry more than a level.** A remastered map comes with its\n  grass and decal files beside its level. The launcher installs them with\n  the map, keeps them up to date, and removes files a newer version of the\n  map no longer has. This works for maps installed in game too.\n\n### Changed\n\n- **Dependencies are kept up to date.** When a map needs a newer CE\n  runtime pack than the one installed (the remastered maps need 1.8.0), the\n  launcher now updates the runtime pack when it installs the map. Before,\n  the map ran against the older runtime pack and drew without its new\n  materials.\n- **A clearer message in game.** Downloading a map in game when your\n  runtime pack is too old now says which version the map needs and which\n  one you have, instead of saying the runtime pack is not installed.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Maps that carry more than a level. A remastered map comes with its grass and decal files beside its level. The launcher installs them with the map, keeps them up to date, and removes files a newer version of the map no longer has. This works for maps installed in game too."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependencies are kept up to date. When a map needs a newer CE runtime pack than the one installed (the remastered maps need 1.8.0), the launcher now updates the runtime pack when it installs the map. Before, the map ran against the older runtime pack and drew without its new materials.",
+            "A clearer message in game. Downloading a map in game when your runtime pack is too old now says which version the map needs and which one you have, instead of saying the runtime pack is not installed."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.14.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.14.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.14.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.26.0",
+      "tag": "mods-v0.26.0",
+      "title": "Smoother remastered maps",
+      "date": "2026-10-17",
+      "summary": "The remastered maps no longer stutter ten times a second, and the HUD now keeps a log of stutters that you can send us.",
+      "body": "### Fixed\n\n- **Stutter on the remastered maps** (MJOLNIRLevelLoader 0.7.1). On every\n  remastered map except Rat Race, the level loader looked up the ground's\n  footprint settings ten times a second. Each lookup held the game up for\n  about 15 ms, which made a steady stutter. On Death Island, frames that\n  ran long fell from 269 in 44 seconds to 28 in 52 seconds.\n\n### Added\n\n- **A stutter log** (MJOLNIRHud 0.8.0). The HUD times every frame on every\n  map. A frame that takes much longer than the ones around it is written to\n  `hitches.log` in the MJOLNIRHud folder, with where you were looking and\n  which of MJOLNIR's scripts ran in it. Each map ends with a summary. If a\n  map stutters for you, send us that file. `mjolnir_hitches` (console)\n  writes the numbers so far.\n- The level loader and the lobby (MJOLNIRLobby 0.13.2) report how long\n  their scripts take to the stutter log.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Stutter on the remastered maps (MJOLNIRLevelLoader 0.7.1). On every remastered map except Rat Race, the level loader looked up the ground's footprint settings ten times a second. Each lookup held the game up for about 15 ms, which made a steady stutter. On Death Island, frames that ran long fell from 269 in 44 seconds to 28 in 52 seconds."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "A stutter log (MJOLNIRHud 0.8.0). The HUD times every frame on every map. A frame that takes much longer than the ones around it is written to hitches.log in the MJOLNIRHud folder, with where you were looking and which of MJOLNIR's scripts ran in it. Each map ends with a summary. If a map stutters for you, send us that file. mjolnirhitches (console) writes the numbers so far.",
+            "The level loader and the lobby (MJOLNIRLobby 0.13.2) report how long their scripts take to the stutter log."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.26.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.26.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.26.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.25.0",
+      "tag": "mods-v0.25.0",
+      "title": "A new kill feed",
+      "date": "2026-10-17",
+      "summary": "The multiplayer kill feed shows each weapon's icon, headshots and players' avatars, with medals, score bars and a new respawn countdown.",
+      "body": "### Added\n\n- **An animated kill feed** (MJOLNIRHud 0.7.0). Each kill is a row: the\n  killer and the victim with their avatars, and between them the weapon,\n  drawn as the game's own HUD icon. Headshots, splatters, stuck grenades and\n  assassinations get their own icon. Joins, quits, kicks, falls, flag\n  captures and medals get rows too. Rows slide in, rise as new ones arrive\n  and fade out. A row that names you has a gold edge, and team kills say\n  BETRAYAL.\n- **Medals.** Double Kill through Killionaire, the killing sprees and First\n  Blood appear in the feed. Your own also come up in the middle of the\n  screen.\n- **Score bars.** The score at the top of the screen is two bars that fill\n  toward the score to win, with the round clock between them.\n- **A bigger respawn countdown.**\n- The feed, the score bars and the countdown use the game's own fonts.\n- `mjolnir_feed_demo` (console, in a match) previews the feed, medals and\n  score bars.\n\n### Fixed\n\n- **Players who joined someone else's match** saw few kills in the feed\n  and on the scoreboard. The host now sends them every kill, death, medal\n  and capture.\n- **The scoreboard's avatars** no longer cost the game time each time the\n  scoreboard redraws.\n\nNeeds CE runtime 1.9.0 for the new look. With an older runtime, the feed\nis plain text lines.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "An animated kill feed (MJOLNIRHud 0.7.0). Each kill is a row: the killer and the victim with their avatars, and between them the weapon, drawn as the game's own HUD icon. Headshots, splatters, stuck grenades and assassinations get their own icon. Joins, quits, kicks, falls, flag captures and medals get rows too. Rows slide in, rise as new ones arrive and fade out. A row that names you has a gold edge, and team kills say BETRAYAL.",
+            "Medals. Double Kill through Killionaire, the killing sprees and First Blood appear in the feed. Your own also come up in the middle of the screen.",
+            "Score bars. The score at the top of the screen is two bars that fill toward the score to win, with the round clock between them.",
+            "A bigger respawn countdown.",
+            "The feed, the score bars and the countdown use the game's own fonts.",
+            "mjolnirfeeddemo (console, in a match) previews the feed, medals and score bars."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Players who joined someone else's match saw few kills in the feed and on the scoreboard. The host now sends them every kill, death, medal and capture.",
+            "The scoreboard's avatars no longer cost the game time each time the scoreboard redraws."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.25.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.25.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.25.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.24.0",
+      "tag": "mods-v0.24.0",
+      "title": "Ten remastered maps",
+      "date": "2026-10-17",
+      "summary": "The level loader draws the ten remastered maps: real terrain and grass, the game's own rock and trees, a living ocean and rivers, and Halo CE's lamps lit by Unreal.",
+      "body": "### Added\n\n- **Remastered maps** (MJOLNIRLevelLoader 0.7.0). Ten maps now\n  draw the way Campaign Evolved draws its own levels. The ground is an\n  Unreal Engine landscape with the campaign's sand, earth and grass, and\n  grass and pebbles grow across it in the wind. Cliffs are drawn in the\n  game's own rock, with its stones set into the walls, and Halo CE's\n  boulders and trees are swapped for the campaign's own.\n- **Water that moves.** Death Island and Yoyorast Island sit in a real\n  ocean whose swell breaks on the beach. Timberland and Battle Creek get\n  rivers that flow along their beds and over their falls.\n- **Tyre tracks and footprints** in the sand and snow of the remastered\n  maps, as on the campaign's beaches.\n- **Snow.** Falling snow on Ice Fields and Sidewinder, kept out of tunnels\n  and rooms.\n- **Halo CE's lamps, lit by Unreal.** The light fixtures CE placed on the\n  remastered maps cast real light and shadow.\n\n### Fixed\n\n- **Sunlight through inside corners.** A thin sliver of sun no longer\n  crawls along the corners where walls meet on converted maps.\n- **Shadows on the ground** no longer change shape as you walk across the\n  new terrain.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Remastered maps (MJOLNIRLevelLoader 0.7.0). Ten maps now draw the way Campaign Evolved draws its own levels. The ground is an Unreal Engine landscape with the campaign's sand, earth and grass, and grass and pebbles grow across it in the wind. Cliffs are drawn in the game's own rock, with its stones set into the walls, and Halo CE's boulders and trees are swapped for the campaign's own.",
+            "Water that moves. Death Island and Yoyorast Island sit in a real ocean whose swell breaks on the beach. Timberland and Battle Creek get rivers that flow along their beds and over their falls.",
+            "Tyre tracks and footprints in the sand and snow of the remastered maps, as on the campaign's beaches.",
+            "Snow. Falling snow on Ice Fields and Sidewinder, kept out of tunnels and rooms.",
+            "Halo CE's lamps, lit by Unreal. The light fixtures CE placed on the remastered maps cast real light and shadow."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Sunlight through inside corners. A thin sliver of sun no longer crawls along the corners where walls meet on converted maps.",
+            "Shadows on the ground no longer change shape as you walk across the new terrain."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.24.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.24.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.24.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.4.0",
@@ -134,6 +489,54 @@
       "path": "/changelog/launcher/0.12.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.12.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.12.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.23.2",
+      "tag": "mods-v0.23.2",
+      "title": "Map sounds follow the volume settings",
+      "date": "2026-10-10",
+      "summary": "Sounds on converted and community maps (ambience, water, teleporters, the announcer) now follow the game's volume sliders.",
+      "body": "### Fixed\n\n- **Map sounds ignored the volume settings** (MJOLNIRLevelLoader 0.6.1).\n  The ambience, sound scenery (water, teleporters, machinery) and announcer\n  on converted maps played at full volume whatever the Audio settings said,\n  even with All Sounds at 0. These sounds play through a different audio\n  system from the game's own, which the sliders do not reach. The loader\n  now reads the sliders and applies them itself. All Sounds scales\n  everything, Ambient Effects scales the ambience and sound scenery, and\n  Dialogue scales the announcer. A change made from the pause menu is\n  heard within half a second.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Map sounds ignored the volume settings (MJOLNIRLevelLoader 0.6.1). The ambience, sound scenery (water, teleporters, machinery) and announcer on converted maps played at full volume whatever the Audio settings said, even with All Sounds at 0. These sounds play through a different audio system from the game's own, which the sliders do not reach. The loader now reads the sliders and applies them itself. All Sounds scales everything, Ambient Effects scales the ambience and sound scenery, and Dialogue scales the announcer. A change made from the pause menu is heard within half a second."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.23.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.23.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.23.2"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.23.1",
+      "tag": "mods-v0.23.1",
+      "title": "Joining games from the Xbox app",
+      "date": "2026-10-10",
+      "summary": "On the Xbox app (Game Pass), choosing a game in FIND GAMES now joins it. Before, nothing happened and the join timed out.",
+      "body": "### Fixed\n\n- **Joining from the Xbox app** (MJOLNIRLobby 0.13.1). On Game Pass, a join\n  from FIND GAMES or a link reached the game's invite handler and then went\n  nowhere, so the player stayed in their own fireteam until the join gave\n  up. The Xbox app raised the join where nothing in the game listens, and\n  under a name the join does not read. The join now goes where the game\n  listens, under the name it reads, and runs as it does on Steam: the game\n  leaves its fireteam and joins the host's.\n\n### Known issues\n\n- A Steam player joining a game hosted on the Xbox app can be dropped a\n  few seconds after connecting. The game refuses players from another\n  platform when crossplay is off for either player, and on Xbox that\n  follows the account's \"You can join cross-network play\" privacy setting.\n  Check that setting if it happens.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Joining from the Xbox app (MJOLNIRLobby 0.13.1). On Game Pass, a join from FIND GAMES or a link reached the game's invite handler and then went nowhere, so the player stayed in their own fireteam until the join gave up. The Xbox app raised the join where nothing in the game listens, and under a name the join does not read. The join now goes where the game listens, under the name it reads, and runs as it does on Steam: the game leaves its fireteam and joins the host's."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "A Steam player joining a game hosted on the Xbox app can be dropped a few seconds after connecting. The game refuses players from another platform when crossplay is off for either player, and on Xbox that follows the account's \"You can join cross-network play\" privacy setting. Check that setting if it happens."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.23.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.23.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.23.1"
     },
     {
       "product": "mods",

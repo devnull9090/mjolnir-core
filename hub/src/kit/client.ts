@@ -12,6 +12,10 @@
  */
 import type {
   AdminUserList,
+  CrashReport,
+  BenchReport,
+  BenchSummaryRow,
+  CrashSignature,
   BannedPlayer,
   Comment,
   ConflictPair,
@@ -25,6 +29,7 @@ import type {
   MapMetadata,
   MapMetadataPatch,
   MapQuery,
+  MatchChatLog,
   Media,
   MediaOwner,
   MediaStatus,
@@ -511,6 +516,11 @@ export class HubClient {
     });
   }
 
+  /** The chat log the host's game sent for a match, by the host's match id. Moderators only. */
+  getMatchChatLog(hostMatchId: string): Promise<MatchChatLog> {
+    return this.call({ method: "GET", path: `/moderation/match-chat/${encodeURIComponent(hostMatchId)}` });
+  }
+
   /** Matchmaking bans in force. Moderators only. */
   async listMatchmakingBans(): Promise<BannedPlayer[]> {
     const r = await this.call<{ bans: BannedPlayer[] }>({ method: "GET", path: "/moderation/matchmaking-bans" });
@@ -542,6 +552,45 @@ export class HubClient {
    */
   listUsers(q?: string, limit?: number): Promise<AdminUserList> {
     return this.call({ method: "GET", path: "/admin/users", query: { q, limit } });
+  }
+
+  /** Launcher crash reports grouped by signature and build, most recent first. Admins only. */
+  async listCrashSignatures(build?: string): Promise<CrashSignature[]> {
+    const r = await this.call<{ signatures: CrashSignature[] }>({
+      method: "GET",
+      path: "/admin/crashes",
+      query: { build },
+    });
+    return r.signatures;
+  }
+
+  /** The reports under one signature, newest first. Admins only. */
+  async listCrashReports(signature: string, build?: string): Promise<CrashReport[]> {
+    const r = await this.call<{ reports: CrashReport[] }>({
+      method: "GET",
+      path: `/admin/crashes/${encodeURIComponent(signature)}`,
+      query: { build },
+    });
+    return r.reports;
+  }
+
+  /** Players' /bench runs, newest first, by map and part of a GPU name. Admins only. */
+  async listBenches(query: { map?: string; gpu?: string; before?: string; limit?: number } = {}): Promise<{
+    benches: BenchReport[];
+    next: string | null;
+  }> {
+    return this.call({ method: "GET", path: "/admin/benches", query });
+  }
+
+  /** Foliage benches averaged by GPU, map, height drawn and foliage quality. Admins only. */
+  async benchSummary(map?: string): Promise<BenchSummaryRow[]> {
+    const r = await this.call<{ rows: BenchSummaryRow[] }>({ method: "GET", path: "/admin/benches/summary", query: { map } });
+    return r.rows;
+  }
+
+  /** Where a browser signed in as an admin downloads a report's bundle or full dump. */
+  crashFileUrl(id: string, file: "bundle" | "dump"): string {
+    return this.absolute(`${PREFIX}/admin/crash-reports/${encodeURIComponent(id)}/${file}`);
   }
 
   // ── Identity ────────────────────────────────────────────────────────

@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// The hub API. Override with MJOLNIR_HUB_URL for local development.
-fn hub_api() -> String {
+pub(crate) fn hub_api() -> String {
     std::env::var("MJOLNIR_HUB_URL").unwrap_or_else(|_| "https://mjolnircore.com/api/v1".into())
 }
 
@@ -98,6 +98,13 @@ pub struct InstalledHubMod {
     /// in the release cache beside the containers.
     #[serde(default)]
     pub map_code: Option<String>,
+    /// Whether the install kept every file of the pack's `map/` folder. Set
+    /// from launcher 0.14.1. Launchers up to 0.13 kept only `level.json` and
+    /// `registration.json`, so a remastered map they installed has no
+    /// `foliage.bin` or decals, and nothing in the record shows it
+    /// (`map_gaps`).
+    #[serde(default)]
+    pub map_files_kept: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -133,7 +140,7 @@ impl Default for HubState {
     }
 }
 
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     let mut dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     dir.push("com.devnull9090.mjolnir-launcher");
     dir
@@ -161,6 +168,42 @@ fn save_state(state: &HubState) -> Result<(), String> {
         serde_json::to_string_pretty(state).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())
+}
+
+/// The installed map pack's name for a scenario code, for naming the map a
+/// crash happened on.
+pub(crate) fn map_name(code: &str) -> Option<String> {
+    load_state()
+        .installed
+        .into_iter()
+        .find(|m| m.map_code.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(code)))
+        .map(|m| m.name)
+}
+
+/// What is installed, for a crash report: each hub mod at its version and
+/// whether the active profile enables it, and each code mod's version.
+pub(crate) fn installed_summary() -> serde_json::Value {
+    let state = load_state();
+    let profile = state.profiles.iter().find(|p| p.name == state.active);
+    let enabled = |slug: &str| profile.is_some_and(|p| p.entries.iter().any(|e| e.slug == slug && e.enabled));
+    let hub_mods: Vec<serde_json::Value> = state
+        .installed
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "slug": m.slug,
+                "version": m.version,
+                "release_id": m.release_id,
+                "enabled": enabled(&m.slug),
+                "map_code": m.map_code,
+            })
+        })
+        .collect();
+    let code_mods: std::collections::BTreeMap<String, String> = load_installed_versions()
+        .into_iter()
+        .map(|(id, record)| (id, record.version))
+        .collect();
+    serde_json::json!({ "hub_mods": hub_mods, "code_mods": code_mods })
 }
 
 fn paks_dir() -> Result<PathBuf, String> {
@@ -300,14 +343,86 @@ fn materialize(state: &HubState) -> Result<(), String> {
     sync_maps(state, &paks)
 }
 
-/// Whether a release's cache still holds everything the install recorded.
-/// The state file says what was installed; this says whether it still is.
+/// Whether a release's cache still holds everything the install recorded,
+/// and every file a map's level needs. The state file says what was
+/// installed; this says whether it still is.
 fn cache_complete(inst: &InstalledHubMod) -> bool {
+    containers_cached(inst) && map_gaps(inst).is_empty()
+}
+
+/// Whether a release's cache holds its containers (and a map its `map/`
+/// folder): what a launch can copy into Paks.
+fn containers_cached(inst: &InstalledHubMod) -> bool {
     let dir = cache_dir().join(&inst.release_id);
     let containers = inst.containers.iter().all(|c| {
         dir.join(format!("{c}.utoc")).is_file() && dir.join(format!("{c}.ucas")).is_file()
     });
     containers && (inst.map_code.is_none() || dir.join("map").is_dir())
+}
+
+/// The files a map's level file names beside itself: its foliage
+/// (`foliage.file`) and its decals' textures (`decals/…`, which the decor's
+/// materials draw). The level loader reads them from the map's folder, so a
+/// map without them plays with no grass and no decals.
+fn level_named_files(level: &serde_json::Value) -> BTreeSet<String> {
+    let mut files = BTreeSet::new();
+    if let Some(file) = level.pointer("/foliage/file").and_then(|v| v.as_str()) {
+        files.insert(file.to_string());
+    }
+    let mut stack = vec![level];
+    while let Some(value) = stack.pop() {
+        match value {
+            serde_json::Value::String(s) if s.starts_with("decals/") => {
+                files.insert(s.clone());
+            }
+            serde_json::Value::Array(items) => stack.extend(items),
+            serde_json::Value::Object(fields) => stack.extend(fields.values()),
+            _ => {}
+        }
+    }
+    files.retain(|f| safe_map_path(f));
+    files
+}
+
+/// The files a map's level names (`level_named_files`) that its release
+/// cache lacks and downloading the release again would bring back. That is
+/// a file the install recorded, or any file when the install may predate
+/// `map_files_kept`: remastered maps installed by launcher 0.13 lost their
+/// grass that way (2026-10-17). A file a current launcher's install never
+/// had is missing from the pack itself, and fetching it again would loop.
+fn map_gaps(inst: &InstalledHubMod) -> Vec<String> {
+    if inst.map_code.is_none() {
+        return Vec::new();
+    }
+    map_gaps_in(&cache_dir().join(&inst.release_id).join("map"), inst)
+}
+
+fn map_gaps_in(dir: &Path, inst: &InstalledHubMod) -> Vec<String> {
+    let Some(level) = fs::read(dir.join("level.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    else {
+        return Vec::new();
+    };
+    level_named_files(&level)
+        .into_iter()
+        .filter(|f| !dir.join(f).is_file())
+        .filter(|f| !inst.map_files_kept || inst.container_hashes.contains_key(&format!("map/{f}")))
+        .collect()
+}
+
+/// What the Updates list says about a map whose files are missing.
+fn gaps_note(gaps: &[String], version: &str) -> String {
+    let shown: Vec<&str> = gaps.iter().take(3).map(String::as_str).collect();
+    let more = match gaps.len().saturating_sub(shown.len()) {
+        0 => String::new(),
+        n => format!(" and {n} more"),
+    };
+    format!(
+        "This install is missing {}{more}, so the map plays without its grass or decals. \
+         Downloading v{version} again puts them back.",
+        shown.join(", ")
+    )
 }
 
 /// The mods with a container missing from Paks. Presence, not content: a
@@ -518,6 +633,15 @@ fn version_key(v: &str) -> (Vec<u64>, bool, String) {
     (parts, tag.is_empty(), tag)
 }
 
+/// The lowest version a dependency range accepts (`^1.8.0`, `~1.8`,
+/// `>=1.8.0`, `1.8.0`); None for `*` or anything unreadable, which any
+/// installed version satisfies.
+fn range_floor(range: &str) -> Option<String> {
+    let v = range.trim().trim_start_matches(['^', '~', '=', '>', ' ']);
+    let core = v.split_whitespace().next()?;
+    (!core.is_empty() && core.chars().next()?.is_ascii_digit()).then(|| core.to_string())
+}
+
 /// True when `candidate` is strictly newer than `installed`.
 fn is_newer(candidate: &str, installed: &str) -> bool {
     version_key(candidate) > version_key(installed)
@@ -602,6 +726,24 @@ struct MapData {
     code: String,
     level: Vec<u8>,
     registration: Vec<u8>,
+    /// Every other file under `map/` (a remastered map's `foliage.bin`, its
+    /// `decals/*.png`), by its path under `map/`: the level file names them
+    /// relative to itself, so they go beside it.
+    extra: Vec<(String, Vec<u8>)>,
+}
+
+/// A path under `map/` that stays there: relative, no `..`, no drive or
+/// root, plain file-name characters.
+fn safe_map_path(rel: &str) -> bool {
+    !rel.is_empty()
+        && rel.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        })
 }
 
 fn read_map(
@@ -635,10 +777,24 @@ fn read_map(
     }
     serde_json::from_slice::<serde_json::Value>(&level)
         .map_err(|e| format!("map/level.json: {e}"))?;
+    let mut extra = Vec::new();
+    for (path, data) in members {
+        let Some(rel) = path.strip_prefix("map/") else {
+            continue;
+        };
+        if rel == "level.json" || rel == "registration.json" || rel.is_empty() || rel.ends_with('/') {
+            continue;
+        }
+        if !safe_map_path(rel) {
+            return Err(format!("The map pack's {path} is not a plain file path"));
+        }
+        extra.push((rel.to_string(), data.clone()));
+    }
     Ok(MapData {
         code,
         level,
         registration,
+        extra,
     })
 }
 
@@ -800,17 +956,34 @@ fn install_one_as(
         let Some(dep_slug) = dep["slug"].as_str() else {
             continue;
         };
-        if load_state()
-            .installed
-            .iter()
-            .any(|m| m.slug == dep_slug && cache_complete(m))
-        {
+        // Installed is not enough when the pack asks for a newer one: a
+        // remastered map needs the runtime release that carries its
+        // masters, and an older runtime left it drawing without them.
+        let floor = dep["range"].as_str().and_then(range_floor);
+        if load_state().installed.iter().any(|m| {
+            m.slug == dep_slug
+                && cache_complete(m)
+                && floor.as_deref().is_none_or(|f| version_key(&m.version) >= version_key(f))
+        }) {
             continue;
         }
         if live.is_some() {
-            return Err(format!(
-                "{name} needs {dep_slug}, which is not installed. Install it from the                  MJOLNIR launcher and restart the game."
-            ));
+            let range = dep["range"].as_str().unwrap_or("");
+            let have = load_state()
+                .installed
+                .iter()
+                .find(|m| m.slug == dep_slug)
+                .map(|m| m.version.clone());
+            return Err(match have {
+                Some(v) => format!(
+                    "{name} needs {dep_slug} {range}, and {v} is installed. Update it from the \
+                     MJOLNIR launcher and restart the game."
+                ),
+                None => format!(
+                    "{name} needs {dep_slug}, which is not installed. Install it from the \
+                     MJOLNIR launcher and restart the game."
+                ),
+            });
         }
         if depth + 1 >= MAX_DEP_DEPTH {
             return Err(format!(
@@ -861,6 +1034,14 @@ fn install_one_as(
         ] {
             fs::write(dir.join(file), data).map_err(|e| e.to_string())?;
             container_hashes.insert(format!("map/{file}"), sha256_hex(data));
+        }
+        for (rel, data) in &map.extra {
+            let target = dir.join(rel);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&target, data).map_err(|e| e.to_string())?;
+            container_hashes.insert(format!("map/{rel}"), sha256_hex(data));
         }
     }
 
@@ -929,6 +1110,7 @@ fn install_one_as(
             Some(notices.join(" "))
         },
         map_code: map.map(|m| m.code),
+        map_files_kept: true,
     });
     let active = state.active.clone();
     for profile in &mut state.profiles {
@@ -1019,23 +1201,25 @@ pub fn install_live(
     let before = load_state()
         .installed
         .iter()
-        .find(|m| m.map_code.as_deref() == Some(code) && cache_complete(m))
+        .find(|m| m.map_code.as_deref() == Some(code) && containers_cached(m))
         .cloned();
-    let have = before
-        .as_ref()
-        .is_some_and(|m| release.is_none_or(|id| m.release_id == id));
+    let have = before.as_ref().is_some_and(|m| {
+        release.is_none_or(|id| m.release_id == id) && map_gaps(m).is_empty()
+    });
     if !have {
-        let size = match release {
+        // A map missing files its level needs (`map_gaps`) is fetched again
+        // at the release it has, unless the game asked for another.
+        let wanted = release
+            .map(str::to_string)
+            .or_else(|| before.as_ref().map(|m| m.release_id.clone()));
+        let size = match wanted.as_deref() {
             Some(id) => get_json(&format!("{}/releases/{id}", hub_api()))
                 .ok()
                 .and_then(|r| r["file_size"].as_u64()),
             None => listing.pointer("/release/file_size").and_then(|v| v.as_u64()),
         };
-        install_one_as(&slug, release.map(str::to_string), 0, Some(&Live { progress, size }))?;
+        install_one_as(&slug, wanted, 0, Some(&Live { progress, size }))?;
     }
-    // Another release of the map was in Paks before this install: the game
-    // may hold its containers open.
-    let updated = !have && before.is_some();
 
     let mut state = load_state();
     let inst = state
@@ -1044,6 +1228,10 @@ pub fn install_live(
         .find(|m| m.map_code.as_deref() == Some(code))
         .cloned()
         .ok_or_else(|| format!("{code} did not install"))?;
+    // Another release of the map was in Paks before this install: the game
+    // may hold its containers open. The same release fetched again for its
+    // missing files leaves the containers in Paks as they are.
+    let updated = before.is_some_and(|b| b.release_id != inst.release_id);
     let active = state.active.clone();
     if let Some(profile) = state.profiles.iter_mut().find(|p| p.name == active) {
         match profile.entries.iter_mut().find(|e| e.slug == inst.slug) {
@@ -1209,9 +1397,14 @@ pub struct UpdateInfo {
     pub latest_release_id: String,
     pub channel: String,
     pub changelog: Option<String>,
+    /// Set when nothing newer is out but the installed release is missing
+    /// files (`map_gaps`): the update is the same release downloaded again,
+    /// and this says why.
+    pub repair: Option<String>,
 }
 
-/// What the hub has that is newer than what is installed.
+/// What the hub has that is newer than what is installed, and the installed
+/// maps whose files are missing, offered as the same release again.
 ///
 /// One request per installed mod, which is fine at the scale a profile
 /// reaches, and it keeps the answer honest — the hub decides what "newest"
@@ -1242,8 +1435,33 @@ pub fn check_updates() -> Result<Vec<UpdateInfo>, String> {
                     .as_ref()
                     .and_then(|d| d["changelog_md"].as_str())
                     .map(str::to_string),
+                repair: None,
             });
+            continue;
         }
+        let gaps = map_gaps(inst);
+        if gaps.is_empty() {
+            continue;
+        }
+        // The release that is installed, or one of the same version the hub
+        // lists in its place; never an older one.
+        let Some(again) = releases
+            .iter()
+            .find(|r| r.id == inst.release_id)
+            .or_else(|| (latest.version == inst.version).then_some(latest))
+        else {
+            continue;
+        };
+        out.push(UpdateInfo {
+            slug: inst.slug.clone(),
+            name: inst.name.clone(),
+            installed_version: inst.version.clone(),
+            latest_version: again.version.clone(),
+            latest_release_id: again.id.clone(),
+            channel: again.channel.clone(),
+            changelog: None,
+            repair: Some(gaps_note(&gaps, &again.version)),
+        });
     }
     Ok(out)
 }
@@ -1503,6 +1721,13 @@ fn pending_device() -> &'static Mutex<Option<String>> {
 /// Who this launcher is signed in as, without ever handing out the key.
 pub fn auth_status() -> Option<HubUser> {
     load_auth().map(|a| a.user)
+}
+
+/// The paired key, for the crash report upload (crash.rs), which makes its
+/// own requests: `api` sends JSON, and a report is a zip. Still never handed
+/// to the webview.
+pub(crate) fn auth_key() -> Option<String> {
+    load_auth().map(|a| a.key)
 }
 
 /// Begin pairing: returns the code to show and the page to open.
@@ -2176,7 +2401,8 @@ pub fn code_mods_install_defaults() -> Result<Vec<String>, String> {
 /// map needs before it can start. A mod missing from disk is installed; one
 /// the launcher installed and nobody edited is brought up to date (a map
 /// built today may need today's loader); one the player edited is left as
-/// it is. Returns the ids it installed or updated.
+/// it is. Switching on adds the mod's `mods.txt` line if it has lost one.
+/// Returns the ids it installed, updated or switched on.
 fn ensure_code_mods(ids: &[&str]) -> Result<Vec<String>, String> {
     let status = code_mods_status()?;
     require_signed(&status)?;
@@ -2193,7 +2419,9 @@ fn ensure_code_mods(ids: &[&str]) -> Result<Vec<String>, String> {
             install_entry(&row.entry, &mods_dir)?;
             changed.push(id.to_string());
         }
-        crate::toggle_mod(id.to_string(), true)?;
+        if crate::set_mod_enabled(&mods_dir, id, true)? && !changed.iter().any(|c| c == id) {
+            changed.push(id.to_string());
+        }
     }
     Ok(changed)
 }
@@ -2296,7 +2524,7 @@ const RUNTIME_SLUG: &str = "mjolnir-ce-runtime";
 pub fn multiplayer_ready() -> Result<PathBuf, String> {
     let (install, _) = crate::find_game_install().ok_or("The game was not found.")?;
     let mods_dir = crate::mods_dir(&install);
-    let listed = crate::parse_mods_txt(&mods_dir);
+    let listed = crate::list_script_mods(&mods_dir);
     let missing: Vec<&str> = MAP_CODE_MODS
         .iter()
         .copied()
@@ -2633,6 +2861,88 @@ mod tests {
             "a code is never a path"
         );
         assert!(read_map(&serde_json::json!({}), &members("BGL")).is_err());
+
+        // A remastered map's other files come along, by their path under map/.
+        let mut more = members("BGL");
+        more.push(("map/foliage.bin".to_string(), b"MJF3".to_vec()));
+        more.push(("map/decals/sym_0.png".to_string(), vec![1, 2]));
+        let map = read_map(&manifest, &more).expect("extra files read");
+        let names: Vec<&str> = map.extra.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, ["foliage.bin", "decals/sym_0.png"]);
+        for bad in ["map/../evil.dll", "map/decals/../../x", "map/C:/x", "map/a\\b"] {
+            let mut evil = members("BGL");
+            evil.push((bad.to_string(), vec![0]));
+            assert!(read_map(&manifest, &evil).is_err(), "{bad} must not install");
+        }
+    }
+
+    /// Remastered maps installed by launcher 0.13 have a level file naming
+    /// `foliage.bin` and decals that their cache never got. That reads as a
+    /// gap, and fetching again settles it. A file the pack itself lacks
+    /// reads as a gap only until a current launcher has installed it once,
+    /// or every launch would download it again.
+    #[test]
+    fn a_map_missing_what_its_level_names_reads_as_a_gap() {
+        let level = serde_json::json!({
+            "foliage": {"file": "foliage.bin", "groups": []},
+            "decor": [{"materials": [
+                {"textures": {"Map0": "decals/symb_blue.png"}},
+                {"textures": {"Map0": "/Game/MJOLNIR/Maps/BGL/Textures/T_ground.T_ground"}},
+                {"textures": {"Map0": "bake\\bgl_ground.png", "Map1": "textures/bgl/ground.png"}},
+                {"textures": {"Map0": "decals/../../evil.png"}}
+            ]}]
+        });
+        let named: Vec<String> = level_named_files(&level).into_iter().collect();
+        assert_eq!(named, ["decals/symb_blue.png", "foliage.bin"]);
+        assert!(level_named_files(&serde_json::json!({"decor": []})).is_empty());
+
+        let dir = std::env::temp_dir().join(format!("mjolnir-gaps-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("decals")).unwrap();
+        fs::write(dir.join("level.json"), level.to_string()).unwrap();
+
+        // An entry written before the field existed reads as not kept.
+        let mut inst: InstalledHubMod = serde_json::from_value(serde_json::json!({
+            "slug": "ce-blood-gulch", "name": "Blood Gulch", "release_id": "r1",
+            "version": "2.0.0", "sha256": "x", "containers": [], "map_code": "BGL"
+        }))
+        .unwrap();
+        assert!(!inst.map_files_kept);
+        assert_eq!(map_gaps_in(&dir, &inst), ["decals/symb_blue.png", "foliage.bin"]);
+
+        fs::write(dir.join("foliage.bin"), b"MJF3").unwrap();
+        assert_eq!(map_gaps_in(&dir, &inst), ["decals/symb_blue.png"]);
+
+        // Installed by a launcher that keeps a pack's files: what it never
+        // had is the pack's gap, and what it recorded is the cache's.
+        inst.map_files_kept = true;
+        assert!(map_gaps_in(&dir, &inst).is_empty());
+        inst.container_hashes.insert("map/decals/symb_blue.png".into(), "h".into());
+        assert_eq!(map_gaps_in(&dir, &inst), ["decals/symb_blue.png"]);
+        fs::write(dir.join("decals/symb_blue.png"), [1u8, 2]).unwrap();
+        assert!(map_gaps_in(&dir, &inst).is_empty());
+
+        // No level file to read is not a gap of this kind.
+        fs::remove_file(dir.join("level.json")).unwrap();
+        inst.map_files_kept = false;
+        assert!(map_gaps_in(&dir, &inst).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+
+        let note = gaps_note(&["foliage.bin".into()], "2.0.0");
+        assert!(note.contains("missing foliage.bin, so") && note.contains("v2.0.0 again"), "{note}");
+        let many: Vec<String> = (0..5).map(|i| format!("decals/{i}.png")).collect();
+        assert!(gaps_note(&many, "2.0.0").contains("decals/2.png and 2 more"));
+    }
+
+    #[test]
+    fn a_dependency_range_has_a_floor() {
+        assert_eq!(range_floor("^1.8.0").as_deref(), Some("1.8.0"));
+        assert_eq!(range_floor(">=1.8.0").as_deref(), Some("1.8.0"));
+        assert_eq!(range_floor("~1.8").as_deref(), Some("1.8"));
+        assert_eq!(range_floor("1.8.0").as_deref(), Some("1.8.0"));
+        assert_eq!(range_floor("*"), None);
+        assert!(version_key("1.7.0") < version_key("1.8.0"));
+        assert!(version_key("1.10.0") >= version_key("1.8.0"));
     }
 
     #[test]

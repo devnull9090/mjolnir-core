@@ -1,0 +1,18 @@
+[package]
+name = "shaderlib-extract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone: not a member of the repo workspace.
+[workspace]
+
+[dependencies]
+ue-iostore = { path = "../../../../crates/ue-iostore" }
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Same decoder fix as the repo workspace (see the root Cargo.toml).
+[patch.crates-io]
+oozextract = { git = "https://github.com/devnull9090/oozextract", rev = "75fbb3812cc8273f8738eb72623035f0510e3359" }

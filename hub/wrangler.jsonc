@@ -3,6 +3,13 @@
   "compatibility_date": "2025-07-20",
   "compatibility_flags": ["nodejs_compat"],
   "main": ".open-next/worker.js",
+  // CPU per request, the most a Workers paid plan allows (default 30 s).
+  // Publishing a release unzips and hashes its whole archive: Timberland
+  // 2.1.0 (117 MiB, 202 MiB unpacked) took 32 s of CPU and was cut off
+  // (exceededCpu, 2026-10-20). Ordinary requests take milliseconds.
+  "limits": {
+    "cpu_ms": 300000
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

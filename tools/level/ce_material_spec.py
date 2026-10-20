@@ -83,7 +83,21 @@ def write_cube_dds(path, faces):
 
 
 def sky_fog(staging):
-    """The scenario sky's outdoor fog as material parameters (cm), or {}."""
+    """The map's atmospheric fog as material parameters (cm), or {}: the
+    scenario sky's outdoor fog, or sky 0's indoor fog where no cluster draws
+    a sky (ce_fog.py's fog.json), as CE fogs those (Chill Out)."""
+    try:
+        cefog = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        cefog = {}
+    indoor = cefog.get("indoor_fog")
+    if cefog.get("sky_clusters") == 0 and indoor:
+        if indoor.get("max_density", 0) <= 0:
+            return {}
+        return {"scalars": {"FogDensity": indoor["max_density"],
+                            "FogStart": indoor["start_distance"] * WU_TO_CM,
+                            "FogOpaque": indoor["opaque_distance"] * WU_TO_CM},
+                "vectors": {"FogColor": list(indoor["color"]) + [1.0]}}
     try:
         placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
     except FileNotFoundError:
@@ -139,6 +153,15 @@ def cook_chunk(code):
     return 10000 + int(code, 36)
 
 
+# What CE samples for a bitmap a shader leaves empty: rasterizer\default 2d's
+# white bitmap (#1; #0 black, #2 grey, #3 flat normal), the runtime pack's
+# T_CE_White. A shader_model with a self-illumination colour and no
+# multipurpose map glows over all of it: MCC's ShaderModel lights by
+# saturate(light + multipurpose.g * colour), and Bungie's sirens carry only
+# a colour (Yoyorast's and Wizard's drew white, 2026-10-13).
+DEFAULT_WHITE = "/Game/MJOLNIR/CE/T_CE_White.T_CE_White"
+
+
 def model_shader(entry, s, texture):
     """shader_model's own terms on the environment master (ModelShader): the
     multipurpose map's masks (PC order: r auxiliary, g self-illumination,
@@ -151,6 +174,9 @@ def model_shader(entry, s, texture):
     sc, vec = entry["scalars"], entry["vectors"]
     sc["ModelShader"] = 1.0
     multi = texture(model.get("multipurpose"))
+    si = model.get("self_illum") or {}
+    if not multi and (any(si.get("lower") or []) or any(si.get("upper") or [])):
+        multi = DEFAULT_WHITE
     if multi:
         entry["textures"]["Multipurpose"] = multi
         sc["HasMulti"] = 1.0
@@ -161,7 +187,6 @@ def model_shader(entry, s, texture):
         sc["ModelCC"] = 1.0
         # Columns 2-5 of the object lighting page hold change colours A-D.
         sc["CCOffset"] = (1 + source) / 8.0
-    si = model.get("self_illum") or {}
     lower, upper = si.get("lower") or [0, 0, 0], si.get("upper") or [0, 0, 0]
     if multi and (any(lower) or any(upper)):
         sc["HasModelSelfIllum"] = 1.0
@@ -414,6 +439,51 @@ def argb_to_rgba(c):
     """A tag's ARGB colour (a, r, g, b) as RGBA."""
     c = list(c or [0.0, 0.0, 0.0, 0.0])
     return [c[1], c[2], c[3], c[0]]
+
+
+# The noise every stock plasma shader uses, which M_CE_Plasma carries itself
+# (build_ce_materials.py build_plasma, MJ_PLASMA_NOISE).
+PLASMA_DEFAULT_NOISE = "characters\\elite\\bitmaps\\plasma shield noise"
+
+
+def plasma(entry, s, textures_dir, texture):
+    """shader_transparent_plasma on M_CE_Plasma: its tints and brightness,
+    and each noise map's scale, period and drift (halo2ue's shader `tag`).
+    A noise map other than the master's own goes in as a volume atlas: MCC's
+    tag where the HEK has it (mcc_tags.volume_atlas), else halo2ue's export,
+    one slice, its border wrapped."""
+    import numpy as np
+    from PIL import Image
+    t = s["tag"]
+    entry["parent"] = master("M_CE_Plasma")
+    vec = entry["vectors"]
+
+    def tint(key):
+        c = list(t.get(f"{key}_tint_color") or [1, 1, 1])
+        b = t.get(f"{key}_brightness", 1.0)
+        return [c[0] * b, c[1] * b, c[2] * b, 1.0]
+
+    vec["PlasmaPerpendicular"] = tint("perpendicular")
+    vec["PlasmaParallel"] = tint("parallel")
+    for which, prefix in (("A", "primary"), ("B", "secondary")):
+        vec[f"PlasmaNoise{which}"] = [t.get(f"{prefix}_noise_map_scale", 1.0),
+                                      t.get(f"{prefix}_animation_period", 1.0), 0.0, 0.0]
+        vec[f"PlasmaNoise{which}Dir"] = list(t.get(f"{prefix}_animation_direction") or [0, 0, 0]) + [0.0]
+        ref = t.get(f"{prefix}_noise_map") or {}
+        path = ref.get("path") or ""
+        if not path or path.lower() == PLASMA_DEFAULT_NOISE:
+            continue
+        import mcc_tags
+        stem = mcc_tags.stem_for(path) + "_volume"
+        info = mcc_tags.volume_atlas(path, os.path.join(textures_dir, stem + ".png"))
+        if not info and ref.get("file") and os.path.exists(os.path.join(textures_dir, ref["file"])):
+            img = np.asarray(Image.open(os.path.join(textures_dir, ref["file"])).convert("RGBA"))
+            Image.fromarray(np.pad(img, ((1, 1), (1, 1), (0, 0)), mode="wrap"), "RGBA").save(
+                os.path.join(textures_dir, stem + ".png"))
+            info = {"file": stem + ".png", "tile": [img.shape[1], img.shape[0]], "cols": 1, "depth": 1}
+        if info:
+            entry["textures"][f"Noise{which}Map"] = texture(info["file"])
+            vec[f"PlasmaAtlas{which}"] = [info["tile"][0], info["tile"][1], info["cols"], info["depth"]]
 
 
 def generic(entry, tag_path, texture, textures_dir):
@@ -686,6 +756,8 @@ def main():
             water(entry, s, texture, cube, halo)
         elif cls == "sgla" and s.get("tag"):
             glass(entry, s, texture, cube, halo)
+        elif cls == "spla" and s.get("tag"):
+            plasma(entry, s, textures_dir, texture)
         else:
             flags = s.get("shader_flags", 0)
             if cls == "senv":
@@ -786,7 +858,9 @@ def main():
             # The planar fog (ce_fog.py): the masters that draw it.
             if leaf.startswith(("M_CE_Environment", "M_CE_Transparent")):
                 entry["vectors"].update(planar)
-        entry["textures"] = {k: f"{root}/Textures/{v}.{v}" for k, v in entry["textures"].items() if v}
+        # (An object path is a texture of the masters' own: DEFAULT_WHITE.)
+        entry["textures"] = {k: v if v.startswith("/") else f"{root}/Textures/{v}.{v}"
+                             for k, v in entry["textures"].items() if v}
         runtime = {k: entry[k] for k in ("parent", "textures", "scalars", "vectors", "bounds_scale") if entry.get(k)}
         materials.append(entry)
         slots.append({"name": mi, "pattern": mat["name"].lower() + "$", "material": runtime})

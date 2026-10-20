@@ -165,6 +165,32 @@ startup, because the same flag gates *reading* unversioned data and the editor's
 full of it — so it is passed to the cook process alone. **Untested against the game.** If it
 works, modders get to author real geometry in the editor instead of scripting it.
 
+**Fixed another way (2026-10-11): re-encode the properties in the game's layout.** The
+editor's `WriteUsmap` (MjolnirUIBuilder, `Scripts/write_stock_usmap.py`) writes stock 5.5's
+schemas to `defs/ue/UE-5.5-stock.usmap`; `ue_asset::retarget` (example `retarget_package`)
+decodes each export of a cooked package with it and encodes it again with the game's usmap,
+matching properties by name. 343's `PrimitiveComponent` has backported fields (5.6's
+`FirstPersonPrimitiveType`, `bHoldout`), so before this every stock component was misread
+from that slot on. Proven with a Landscape (`Scripts/build_landscape_test.py`): unversioned
+as cooked, the game died with "this landscape does not contain cooked data"; retargeted, it
+loads, renders and answers Unreal traces with its heightfield collision on Death Island. The
+native data after the properties is kept as cooked, so a class whose `Serialize` 343 changed
+would still fail. The retarget is per package: anything else cooked beside the world needs it
+too, or must be left out — a `MaterialInstanceConstant` package next to the landscape crashed
+the game on load until the landscape drew with its parent material instead (Death Island's
+landscape, `tools/level/build_landscape.py`, 2026-10-11).
+
+**Materials too (2026-10-12).** 343's `Material` has its own slots (`PhysicalMaterialMap`,
+`bIs6Point`, `bSupportsFirstPerson`, four translucency scalars and more), so every material we
+cooked was read one slot late from there on: `bUsedWithNanite` arrived as `bUsesDistortion`
+(Nanite cladding drew its fallback mesh: about 2,900 extra draws on Yoyorast), and the first
+byte of `StateId` arrived as `PixelDepthOffsetMode`. `tools/ue/cook.ps1` now rewrites every
+staged chunk container that holds materials with them re-encoded in the game's layout (`mjolnir
+ue retarget --rewrite`: the whole container, shader library included, keeping its name and
+number). The rewrite stores every chunk uncompressed, so a container grows (988: 4.4 to 7.4 MB);
+a map chunk with one material beside large textures would grow by all of them. `mjolnir ue get`
+shows how the game reads any cooked package.
+
 ### Runtime spawning has one sharp edge
 
 `AStaticMeshActor`'s component ships with **`Mobility = Static`**, and `SetStaticMesh` silently

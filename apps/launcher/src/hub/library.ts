@@ -57,6 +57,8 @@ export interface UpdateInfo {
   latest_release_id: string;
   channel: string;
   changelog: string | null;
+  /** Set when the update is the installed release again, to restore missing files. */
+  repair: string | null;
 }
 
 export interface VerifiedMod {

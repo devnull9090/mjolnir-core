@@ -1,0 +1,7660 @@
+[
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Boulder_A/SM_Rock_Desert_Boulder_A.SM_Rock_Desert_Boulder_A",
+"min": [
+-190.8,
+-161.1,
+-3.4
+],
+"max": [
+190.3,
+153.8,
+223.8
+],
+"verts": 51053
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Boulder_B/SM_Rock_Desert_Boulder_B.SM_Rock_Desert_Boulder_B",
+"min": [
+-128.4,
+-103.8,
+-3.5
+],
+"max": [
+93.1,
+103.1,
+192.3
+],
+"verts": 2879
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Boulder_C/SM_Rock_Desert_Boulder_C.SM_Rock_Desert_Boulder_C",
+"min": [
+-81.7,
+-66.4,
+-2.1
+],
+"max": [
+109.9,
+71.6,
+119.4
+],
+"verts": 5921
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+"min": [
+-1826.6,
+-1619.9,
+-124.5
+],
+"max": [
+1563.4,
+1948.5,
+2743.6
+],
+"verts": 145745
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+"min": [
+-1897.3,
+-1456.1,
+-114.7
+],
+"max": [
+1840.1,
+1299.2,
+2394.2
+],
+"verts": 122373
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+"min": [
+-1350.5,
+-1753.8,
+-142.4
+],
+"max": [
+1250.7,
+1208.2,
+2693.5
+],
+"verts": 83039
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+"min": [
+-2542.4,
+-1350.8,
+-139.8
+],
+"max": [
+2566.5,
+1412.6,
+2779.5
+],
+"verts": 91522
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_Round_A/SM_Rock_Desert_Cliff_Round_A.SM_Rock_Desert_Cliff_Round_A",
+"min": [
+-821.0,
+-1188.2,
+-104.9
+],
+"max": [
+817.0,
+1181.4,
+1343.8
+],
+"verts": 90878
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Rubble_A/SM_Rock_Desert_Rubble_A.SM_Rock_Desert_Rubble_A",
+"min": [
+-1431.2,
+-726.2,
+-168.0
+],
+"max": [
+1320.4,
+613.1,
+768.5
+],
+"verts": 39610
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Rubble_B/SM_Rock_Desert_Rubble_B.SM_Rock_Desert_Rubble_B",
+"min": [
+-257.8,
+-166.1,
+-3.3
+],
+"max": [
+270.1,
+139.2,
+47.2
+],
+"verts": 18806
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Stone_A/SM_Rock_Desert_Stone_A.SM_Rock_Desert_Stone_A",
+"min": [
+-28.3,
+-24.2,
+-0.2
+],
+"max": [
+27.4,
+21.6,
+32.1
+],
+"verts": 501
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Stone_B/SM_Rock_Desert_Stone_B.SM_Rock_Desert_Stone_B",
+"min": [
+-18.9,
+-16.6,
+-0.5
+],
+"max": [
+15.0,
+15.6,
+30.4
+],
+"verts": 309
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Stone_C/SM_Rock_Desert_Stone_C.SM_Rock_Desert_Stone_C",
+"min": [
+-16.6,
+-12.2,
+-0.8
+],
+"max": [
+19.4,
+14.4,
+22.8
+],
+"verts": 250
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rocks_Desert_Arches_A/SM_Rocks_Desert_Arches_A.SM_Rocks_Desert_Arches_A",
+"min": [
+-1037.1,
+-1607.3,
+-104.9
+],
+"max": [
+1037.6,
+1608.1,
+1031.4
+],
+"verts": 91324
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rocks_Desert_Arches_B/SM_Rocks_Desert_Arches_B.SM_Rocks_Desert_Arches_B",
+"min": [
+-1064.8,
+-834.7,
+-193.9
+],
+"max": [
+945.6,
+771.7,
+926.9
+],
+"verts": 25925
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rocks_Desert_Arches_C/SM_Rocks_Desert_Arches_C.SM_Rocks_Desert_Arches_C",
+"min": [
+-1500.6,
+-393.9,
+-13.8
+],
+"max": [
+1500.4,
+495.6,
+570.4
+],
+"verts": 26231
+},
+{
+"path": "/Game/Env/Bio/Rock/Desert/Rocks_Desert_Arches_D/SM_Rocks_Desert_Arches_D.SM_Rocks_Desert_Arches_D",
+"min": [
+-2466.9,
+-1003.2,
+-32.2
+],
+"max": [
+2630.3,
+892.8,
+1454.0
+],
+"verts": 136080
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/SM_Rock_B30_TunnelMesh_01.SM_Rock_B30_TunnelMesh_01",
+"min": [
+7035.7,
+-21.4,
+2257.0
+],
+"max": [
+11777.8,
+3829.5,
+3703.0
+],
+"verts": 10159
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/SM_Rock_B30_TunnelMesh_OG_02.SM_Rock_B30_TunnelMesh_OG_02",
+"min": [
+6680.1,
+-625.1,
+1665.6
+],
+"max": [
+11777.8,
+3829.5,
+4305.6
+],
+"verts": 10176
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B.SM_Rock_Uluwatu_Cliff_B",
+"min": [
+-2695.4,
+-2149.1,
+-2850.9
+],
+"max": [
+3442.2,
+3702.8,
+3194.8
+],
+"verts": 286547
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B_BG.SM_Rock_Uluwatu_Cliff_B_BG",
+"min": [
+-2695.4,
+-2149.1,
+-2850.9
+],
+"max": [
+3442.2,
+3702.8,
+3194.8
+],
+"verts": 286547
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/_GENERATED/SM_Rock_Uluwatu_Cliff_B_8MsingleUV/SM_ChunkedPart_0_4CC4B5.SM_ChunkedPart_0_4CC4B5",
+"min": [
+-2623.6,
+-2116.9,
+-2851.2
+],
+"max": [
+373.1,
+776.9,
+170.4
+],
+"verts": 1010260
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/_GENERATED/SM_Rock_Uluwatu_Cliff_B_8MsingleUV/SM_ChunkedPart_2_D6A162.SM_ChunkedPart_2_D6A162",
+"min": [
+-2696.2,
+776.9,
+-2770.9
+],
+"max": [
+373.1,
+3703.1,
+170.4
+],
+"verts": 1133024
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/_GENERATED/SM_Rock_Uluwatu_Cliff_B_8MsingleUV/SM_ChunkedPart_4_47053B.SM_ChunkedPart_4_47053B",
+"min": [
+373.1,
+-2054.2,
+-2816.1
+],
+"max": [
+3442.4,
+776.9,
+170.4
+],
+"verts": 1282212
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/_GENERATED/SM_Rock_Uluwatu_Cliff_B_8MsingleUV/SM_ChunkedPart_6_0B5D4D.SM_ChunkedPart_6_0B5D4D",
+"min": [
+373.1,
+776.9,
+-2754.2
+],
+"max": [
+3419.9,
+3419.1,
+170.4
+],
+"verts": 1176074
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+"min": [
+-96.4,
+-107.8,
+-82.2
+],
+"max": [
+60.8,
+118.4,
+66.9
+],
+"verts": 82607
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A_Asteroid.SM_Rock_Uluwatu_Med_A_Asteroid",
+"min": [
+-96.4,
+-107.8,
+-82.2
+],
+"max": [
+60.8,
+118.4,
+66.9
+],
+"verts": 82102
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+"min": [
+-202.4,
+-156.4,
+-126.1
+],
+"max": [
+141.3,
+153.1,
+140.8
+],
+"verts": 82276
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B_Asteroid.SM_Rock_Uluwatu_Med_B_Asteroid",
+"min": [
+-202.4,
+-156.4,
+-126.1
+],
+"max": [
+141.3,
+153.1,
+140.8
+],
+"verts": 82236
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+"min": [
+-201.6,
+-168.2,
+-161.6
+],
+"max": [
+161.3,
+124.8,
+206.1
+],
+"verts": 82373
+},
+{
+"path": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C_Asteroid.SM_Rock_Uluwatu_Med_C_Asteroid",
+"min": [
+-201.6,
+-168.2,
+-161.6
+],
+"max": [
+161.3,
+124.8,
+206.1
+],
+"verts": 82372
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/SharedAssets/SM_Tree_Maned_Kuenovo_branch_01.SM_Tree_Maned_Kuenovo_branch_01",
+"min": [
+-510.7,
+-18.2,
+-172.9
+],
+"max": [
+416.5,
+996.7,
+276.9
+],
+"verts": 15115
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/SharedAssets/SM_Tree_Maned_Kuenovo_branch_Pro.SM_Tree_Maned_Kuenovo_branch_Pro",
+"min": [
+-430.7,
+-0.2,
+-181.3
+],
+"max": [
+438.4,
+992.3,
+396.9
+],
+"verts": 1150
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_ManedKuenovo_Cluster_A/InstanceMeshDefinitions/SM_branch_01.SM_branch_01",
+"min": [
+-510.7,
+-18.2,
+-173.2
+],
+"max": [
+416.5,
+996.7,
+276.9
+],
+"verts": 20565
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_ManedKuenovo_Cluster_A/Meshes/SM_Trunk_3.SM_Trunk_3",
+"min": [
+-371.7,
+-353.2,
+-695.8
+],
+"max": [
+502.7,
+371.8,
+1366.1
+],
+"verts": 89357
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_ManedKuenovo_Double_A/InstanceMeshDefinitions/SM_branch_01.SM_branch_01",
+"min": [
+-510.7,
+-18.2,
+-173.2
+],
+"max": [
+416.5,
+996.7,
+276.9
+],
+"verts": 20565
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_ManedKuenovo_Young_B/InstanceMeshDefinitions/SM_branch_01.SM_branch_01",
+"min": [
+-510.7,
+-18.2,
+-173.2
+],
+"max": [
+416.5,
+996.7,
+276.9
+],
+"verts": 20565
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big.SM_Tree_Maned_Kuenovo_BigMix_A_Big",
+"min": [
+-116.0,
+-58.4,
+-325.4
+],
+"max": [
+473.3,
+707.8,
+524.2
+],
+"verts": 15387
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_10.SM_Tree_Maned_Kuenovo_BigMix_A_Big_10",
+"min": [
+-532.5,
+-536.0,
+-228.8
+],
+"max": [
+53.1,
+47.9,
+494.2
+],
+"verts": 10266
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_11.SM_Tree_Maned_Kuenovo_BigMix_A_Big_11",
+"min": [
+-585.0,
+-546.2,
+-246.9
+],
+"max": [
+54.9,
+168.3,
+635.2
+],
+"verts": 7684
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_12.SM_Tree_Maned_Kuenovo_BigMix_A_Big_12",
+"min": [
+-335.6,
+-36.1,
+-103.9
+],
+"max": [
+267.6,
+264.9,
+431.6
+],
+"verts": 2918
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_13.SM_Tree_Maned_Kuenovo_BigMix_A_Big_13",
+"min": [
+-105.8,
+-174.9,
+-142.5
+],
+"max": [
+55.5,
+179.4,
+420.1
+],
+"verts": 1071
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_14.SM_Tree_Maned_Kuenovo_BigMix_A_Big_14",
+"min": [
+-40.9,
+-150.8,
+-4.9
+],
+"max": [
+38.4,
+8.3,
+201.6
+],
+"verts": 2662
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_15.SM_Tree_Maned_Kuenovo_BigMix_A_Big_15",
+"min": [
+-154.4,
+-357.2,
+-258.8
+],
+"max": [
+530.8,
+131.3,
+591.2
+],
+"verts": 2802
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_16.SM_Tree_Maned_Kuenovo_BigMix_A_Big_16",
+"min": [
+-7.2,
+-14.0,
+-105.3
+],
+"max": [
+114.1,
+182.6,
+285.4
+],
+"verts": 1705
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_17.SM_Tree_Maned_Kuenovo_BigMix_A_Big_17",
+"min": [
+-267.1,
+-389.1,
+-229.8
+],
+"max": [
+699.8,
+434.4,
+870.1
+],
+"verts": 3218
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_18.SM_Tree_Maned_Kuenovo_BigMix_A_Big_18",
+"min": [
+-13.4,
+-34.7,
+-89.3
+],
+"max": [
+241.3,
+234.2,
+280.0
+],
+"verts": 3192
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_19.SM_Tree_Maned_Kuenovo_BigMix_A_Big_19",
+"min": [
+-75.0,
+-316.1,
+-206.1
+],
+"max": [
+326.2,
+148.5,
+822.7
+],
+"verts": 2317
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_2.SM_Tree_Maned_Kuenovo_BigMix_A_Big_2",
+"min": [
+-30.6,
+-282.6,
+-203.5
+],
+"max": [
+236.2,
+39.6,
+169.4
+],
+"verts": 4449
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_20.SM_Tree_Maned_Kuenovo_BigMix_A_Big_20",
+"min": [
+-170.3,
+-480.4,
+-177.1
+],
+"max": [
+224.1,
+81.8,
+777.0
+],
+"verts": 3052
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_21.SM_Tree_Maned_Kuenovo_BigMix_A_Big_21",
+"min": [
+-8.9,
+-72.1,
+-46.0
+],
+"max": [
+104.7,
+125.0,
+194.6
+],
+"verts": 1470
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_22.SM_Tree_Maned_Kuenovo_BigMix_A_Big_22",
+"min": [
+-706.3,
+-412.4,
+-240.4
+],
+"max": [
+24.1,
+456.8,
+457.7
+],
+"verts": 9595
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_23.SM_Tree_Maned_Kuenovo_BigMix_A_Big_23",
+"min": [
+-185.6,
+-35.2,
+-226.8
+],
+"max": [
+633.2,
+736.8,
+531.7
+],
+"verts": 7415
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_24.SM_Tree_Maned_Kuenovo_BigMix_A_Big_24",
+"min": [
+-657.8,
+-30.0,
+-256.6
+],
+"max": [
+34.7,
+727.8,
+359.8
+],
+"verts": 16012
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_25.SM_Tree_Maned_Kuenovo_BigMix_A_Big_25",
+"min": [
+-352.2,
+-31.4,
+-174.5
+],
+"max": [
+137.6,
+464.4,
+373.6
+],
+"verts": 11500
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_26.SM_Tree_Maned_Kuenovo_BigMix_A_Big_26",
+"min": [
+-52.0,
+-45.9,
+-257.8
+],
+"max": [
+636.4,
+745.4,
+466.8
+],
+"verts": 14689
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_27.SM_Tree_Maned_Kuenovo_BigMix_A_Big_27",
+"min": [
+-90.4,
+-67.8,
+-9.9
+],
+"max": [
+123.7,
+121.1,
+214.1
+],
+"verts": 2885
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_28.SM_Tree_Maned_Kuenovo_BigMix_A_Big_28",
+"min": [
+-49.8,
+-20.8,
+-203.6
+],
+"max": [
+467.1,
+627.8,
+285.1
+],
+"verts": 12342
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_29.SM_Tree_Maned_Kuenovo_BigMix_A_Big_29",
+"min": [
+-397.0,
+-116.4,
+-116.5
+],
+"max": [
+43.3,
+340.2,
+340.2
+],
+"verts": 7578
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_3.SM_Tree_Maned_Kuenovo_BigMix_A_Big_3",
+"min": [
+-57.9,
+-329.9,
+-312.2
+],
+"max": [
+847.4,
+339.9,
+508.9
+],
+"verts": 14119
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_30.SM_Tree_Maned_Kuenovo_BigMix_A_Big_30",
+"min": [
+-459.4,
+-604.4,
+-175.2
+],
+"max": [
+8.0,
+16.9,
+341.5
+],
+"verts": 7124
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_31.SM_Tree_Maned_Kuenovo_BigMix_A_Big_31",
+"min": [
+-12.1,
+-361.1,
+-240.4
+],
+"max": [
+836.7,
+10.4,
+473.4
+],
+"verts": 11089
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_32.SM_Tree_Maned_Kuenovo_BigMix_A_Big_32",
+"min": [
+-11.0,
+-355.4,
+-244.2
+],
+"max": [
+689.8,
+10.6,
+460.1
+],
+"verts": 8202
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_33.SM_Tree_Maned_Kuenovo_BigMix_A_Big_33",
+"min": [
+-197.6,
+-257.1,
+-34.1
+],
+"max": [
+63.6,
+28.9,
+232.5
+],
+"verts": 3804
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_34.SM_Tree_Maned_Kuenovo_BigMix_A_Big_34",
+"min": [
+-459.9,
+-568.5,
+-68.8
+],
+"max": [
+178.5,
+9.9,
+826.4
+],
+"verts": 3087
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_35.SM_Tree_Maned_Kuenovo_BigMix_A_Big_35",
+"min": [
+-57.9,
+-5.6,
+-6.6
+],
+"max": [
+130.6,
+163.9,
+170.8
+],
+"verts": 3789
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_4.SM_Tree_Maned_Kuenovo_BigMix_A_Big_4",
+"min": [
+-124.6,
+-106.2,
+-85.5
+],
+"max": [
+34.3,
+47.4,
+136.3
+],
+"verts": 3044
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_5.SM_Tree_Maned_Kuenovo_BigMix_A_Big_5",
+"min": [
+-42.8,
+-651.5,
+-312.4
+],
+"max": [
+900.7,
+388.9,
+607.2
+],
+"verts": 14653
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_6.SM_Tree_Maned_Kuenovo_BigMix_A_Big_6",
+"min": [
+-130.8,
+-437.0,
+-213.8
+],
+"max": [
+245.2,
+28.5,
+344.9
+],
+"verts": 3888
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_7.SM_Tree_Maned_Kuenovo_BigMix_A_Big_7",
+"min": [
+-137.6,
+-508.8,
+-310.9
+],
+"max": [
+626.8,
+78.6,
+460.4
+],
+"verts": 11674
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_8.SM_Tree_Maned_Kuenovo_BigMix_A_Big_8",
+"min": [
+-373.4,
+-359.6,
+-110.9
+],
+"max": [
+138.2,
+30.9,
+306.8
+],
+"verts": 5011
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Big_9.SM_Tree_Maned_Kuenovo_BigMix_A_Big_9",
+"min": [
+-491.9,
+-415.5,
+-192.4
+],
+"max": [
+33.4,
+27.2,
+435.2
+],
+"verts": 8094
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Mid_2.SM_Tree_Maned_Kuenovo_BigMix_A_Mid_2",
+"min": [
+-340.9,
+-141.6,
+-14.4
+],
+"max": [
+15.4,
+133.7,
+514.5
+],
+"verts": 5075
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Mid_3.SM_Tree_Maned_Kuenovo_BigMix_A_Mid_3",
+"min": [
+-37.9,
+-2.6,
+-4.2
+],
+"max": [
+42.8,
+153.9,
+209.4
+],
+"verts": 1640
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Mid_4.SM_Tree_Maned_Kuenovo_BigMix_A_Mid_4",
+"min": [
+-12.1,
+-45.8,
+-21.8
+],
+"max": [
+116.7,
+101.8,
+352.1
+],
+"verts": 1874
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Mid_9.SM_Tree_Maned_Kuenovo_BigMix_A_Mid_9",
+"min": [
+-13.8,
+-105.1,
+-35.2
+],
+"max": [
+209.8,
+151.6,
+263.7
+],
+"verts": 1705
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Trunk.SM_Tree_Maned_Kuenovo_BigMix_A_Trunk",
+"min": [
+-294.3,
+-404.6,
+-479.1
+],
+"max": [
+222.7,
+282.8,
+1520.4
+],
+"verts": 65657
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Trunk_2.SM_Tree_Maned_Kuenovo_BigMix_A_Trunk_2",
+"min": [
+-184.5,
+-204.9,
+-439.4
+],
+"max": [
+219.9,
+372.2,
+1387.1
+],
+"verts": 77853
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_BigMix_A/Meshes/SM_Tree_Maned_Kuenovo_BigMix_A_Trunk_3.SM_Tree_Maned_Kuenovo_BigMix_A_Trunk_3",
+"min": [
+-118.8,
+-188.4,
+-300.9
+],
+"max": [
+165.1,
+85.4,
+782.6
+],
+"verts": 16215
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big.SM_Tree_Maned_Kuenovo_Cluster_A_Big",
+"min": [
+-610.0,
+-850.4,
+-322.9
+],
+"max": [
+565.0,
+233.1,
+1047.4
+],
+"verts": 6651
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_10.SM_Tree_Maned_Kuenovo_Cluster_A_Big_10",
+"min": [
+-288.5,
+-697.4,
+-325.9
+],
+"max": [
+227.1,
+58.5,
+548.4
+],
+"verts": 6727
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_11.SM_Tree_Maned_Kuenovo_Cluster_A_Big_11",
+"min": [
+-662.0,
+-453.4,
+-400.1
+],
+"max": [
+145.5,
+148.5,
+545.9
+],
+"verts": 11500
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_12.SM_Tree_Maned_Kuenovo_Cluster_A_Big_12",
+"min": [
+-521.7,
+-715.9,
+-319.2
+],
+"max": [
+229.2,
+35.0,
+692.1
+],
+"verts": 5192
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_13.SM_Tree_Maned_Kuenovo_Cluster_A_Big_13",
+"min": [
+-956.5,
+-582.4,
+-322.6
+],
+"max": [
+143.8,
+362.9,
+606.1
+],
+"verts": 19754
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_14.SM_Tree_Maned_Kuenovo_Cluster_A_Big_14",
+"min": [
+-74.1,
+-62.4,
+-8.4
+],
+"max": [
+9.6,
+54.6,
+97.4
+],
+"verts": 4498
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_15.SM_Tree_Maned_Kuenovo_Cluster_A_Big_15",
+"min": [
+-838.0,
+-286.9,
+-323.9
+],
+"max": [
+170.6,
+820.7,
+723.8
+],
+"verts": 16428
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_16.SM_Tree_Maned_Kuenovo_Cluster_A_Big_16",
+"min": [
+-11.1,
+-63.4,
+-27.4
+],
+"max": [
+26.2,
+21.8,
+111.9
+],
+"verts": 1115
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_17.SM_Tree_Maned_Kuenovo_Cluster_A_Big_17",
+"min": [
+-251.3,
+-595.8,
+-197.2
+],
+"max": [
+18.2,
+11.6,
+602.9
+],
+"verts": 2443
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_18.SM_Tree_Maned_Kuenovo_Cluster_A_Big_18",
+"min": [
+-6.7,
+-5.4,
+-34.6
+],
+"max": [
+405.0,
+186.9,
+483.4
+],
+"verts": 1533
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_19.SM_Tree_Maned_Kuenovo_Cluster_A_Big_19",
+"min": [
+-101.1,
+-8.9,
+-87.7
+],
+"max": [
+176.3,
+531.8,
+423.4
+],
+"verts": 2823
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_2.SM_Tree_Maned_Kuenovo_Cluster_A_Big_2",
+"min": [
+-48.6,
+-75.1,
+-246.1
+],
+"max": [
+757.5,
+725.7,
+372.3
+],
+"verts": 9156
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_20.SM_Tree_Maned_Kuenovo_Cluster_A_Big_20",
+"min": [
+-7.3,
+-220.2,
+-41.2
+],
+"max": [
+202.6,
+37.5,
+275.6
+],
+"verts": 2642
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_21.SM_Tree_Maned_Kuenovo_Cluster_A_Big_21",
+"min": [
+-390.1,
+-310.4,
+-128.2
+],
+"max": [
+36.1,
+218.9,
+337.2
+],
+"verts": 8526
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_22.SM_Tree_Maned_Kuenovo_Cluster_A_Big_22",
+"min": [
+-85.8,
+-151.2,
+-36.2
+],
+"max": [
+120.7,
+8.5,
+180.4
+],
+"verts": 2513
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_23.SM_Tree_Maned_Kuenovo_Cluster_A_Big_23",
+"min": [
+-12.9,
+-158.4,
+-47.8
+],
+"max": [
+330.5,
+134.3,
+244.4
+],
+"verts": 3971
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_24.SM_Tree_Maned_Kuenovo_Cluster_A_Big_24",
+"min": [
+-61.2,
+-31.2,
+-5.4
+],
+"max": [
+3.2,
+27.1,
+319.9
+],
+"verts": 1224
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_25.SM_Tree_Maned_Kuenovo_Cluster_A_Big_25",
+"min": [
+-374.1,
+-749.8,
+-256.2
+],
+"max": [
+345.2,
+99.2,
+349.6
+],
+"verts": 18024
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_26.SM_Tree_Maned_Kuenovo_Cluster_A_Big_26",
+"min": [
+-300.9,
+-37.9,
+-187.3
+],
+"max": [
+415.8,
+751.4,
+571.1
+],
+"verts": 8051
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_27.SM_Tree_Maned_Kuenovo_Cluster_A_Big_27",
+"min": [
+-100.9,
+-529.9,
+-243.8
+],
+"max": [
+782.7,
+303.5,
+508.4
+],
+"verts": 12052
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_28.SM_Tree_Maned_Kuenovo_Cluster_A_Big_28",
+"min": [
+-83.3,
+-581.2,
+-235.2
+],
+"max": [
+661.8,
+190.1,
+496.1
+],
+"verts": 12084
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_29.SM_Tree_Maned_Kuenovo_Cluster_A_Big_29",
+"min": [
+-93.3,
+-601.0,
+-276.0
+],
+"max": [
+887.5,
+192.2,
+502.9
+],
+"verts": 14225
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_3.SM_Tree_Maned_Kuenovo_Cluster_A_Big_3",
+"min": [
+-241.1,
+-37.8,
+-231.0
+],
+"max": [
+286.4,
+410.2,
+367.9
+],
+"verts": 3484
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_30.SM_Tree_Maned_Kuenovo_Cluster_A_Big_30",
+"min": [
+-293.1,
+-27.7,
+-172.9
+],
+"max": [
+156.9,
+778.3,
+687.6
+],
+"verts": 6763
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_31.SM_Tree_Maned_Kuenovo_Cluster_A_Big_31",
+"min": [
+-20.2,
+-33.4,
+-164.2
+],
+"max": [
+651.9,
+583.9,
+445.7
+],
+"verts": 6063
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_32.SM_Tree_Maned_Kuenovo_Cluster_A_Big_32",
+"min": [
+-95.6,
+-22.8,
+-121.2
+],
+"max": [
+247.8,
+467.2,
+358.0
+],
+"verts": 6152
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_33.SM_Tree_Maned_Kuenovo_Cluster_A_Big_33",
+"min": [
+-320.1,
+-22.9,
+-79.1
+],
+"max": [
+106.5,
+478.5,
+189.1
+],
+"verts": 7728
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_34.SM_Tree_Maned_Kuenovo_Cluster_A_Big_34",
+"min": [
+-468.4,
+-24.1,
+-184.5
+],
+"max": [
+170.6,
+585.9,
+431.9
+],
+"verts": 7938
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_35.SM_Tree_Maned_Kuenovo_Cluster_A_Big_35",
+"min": [
+-358.2,
+-706.8,
+-188.1
+],
+"max": [
+109.4,
+68.8,
+574.1
+],
+"verts": 8226
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_36.SM_Tree_Maned_Kuenovo_Cluster_A_Big_36",
+"min": [
+-688.6,
+-662.8,
+-245.8
+],
+"max": [
+48.7,
+278.9,
+486.1
+],
+"verts": 11924
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_37.SM_Tree_Maned_Kuenovo_Cluster_A_Big_37",
+"min": [
+-243.1,
+-362.4,
+-135.7
+],
+"max": [
+195.4,
+18.7,
+429.1
+],
+"verts": 3439
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_38.SM_Tree_Maned_Kuenovo_Cluster_A_Big_38",
+"min": [
+-144.0,
+-504.9,
+-171.8
+],
+"max": [
+234.5,
+89.3,
+755.1
+],
+"verts": 1857
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_39.SM_Tree_Maned_Kuenovo_Cluster_A_Big_39",
+"min": [
+-206.5,
+-18.1,
+-49.1
+],
+"max": [
+23.9,
+190.0,
+257.1
+],
+"verts": 2022
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_4.SM_Tree_Maned_Kuenovo_Cluster_A_Big_4",
+"min": [
+-24.5,
+-51.2,
+-160.4
+],
+"max": [
+160.2,
+54.9,
+154.5
+],
+"verts": 1048
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_40.SM_Tree_Maned_Kuenovo_Cluster_A_Big_40",
+"min": [
+-111.5,
+-30.5,
+-79.1
+],
+"max": [
+177.2,
+243.3,
+252.9
+],
+"verts": 3839
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_41.SM_Tree_Maned_Kuenovo_Cluster_A_Big_41",
+"min": [
+-315.9,
+-105.1,
+-85.9
+],
+"max": [
+102.5,
+306.4,
+321.0
+],
+"verts": 4209
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_42.SM_Tree_Maned_Kuenovo_Cluster_A_Big_42",
+"min": [
+-69.9,
+-30.0,
+-64.2
+],
+"max": [
+31.5,
+76.6,
+100.4
+],
+"verts": 1851
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_43.SM_Tree_Maned_Kuenovo_Cluster_A_Big_43",
+"min": [
+-263.4,
+-858.6,
+-241.5
+],
+"max": [
+724.5,
+93.9,
+896.7
+],
+"verts": 4710
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_44.SM_Tree_Maned_Kuenovo_Cluster_A_Big_44",
+"min": [
+-114.9,
+-7.7,
+-8.6
+],
+"max": [
+6.6,
+133.6,
+137.2
+],
+"verts": 2668
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_5.SM_Tree_Maned_Kuenovo_Cluster_A_Big_5",
+"min": [
+-800.2,
+-811.4,
+-413.9
+],
+"max": [
+133.4,
+241.2,
+667.8
+],
+"verts": 10600
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_6.SM_Tree_Maned_Kuenovo_Cluster_A_Big_6",
+"min": [
+-143.9,
+-71.9,
+-336.9
+],
+"max": [
+141.6,
+439.5,
+397.9
+],
+"verts": 2656
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_7.SM_Tree_Maned_Kuenovo_Cluster_A_Big_7",
+"min": [
+-30.9,
+-392.8,
+-253.6
+],
+"max": [
+595.7,
+343.7,
+428.1
+],
+"verts": 8154
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_8.SM_Tree_Maned_Kuenovo_Cluster_A_Big_8",
+"min": [
+-11.8,
+-21.9,
+-107.2
+],
+"max": [
+128.2,
+150.1,
+267.7
+],
+"verts": 1353
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Big_9.SM_Tree_Maned_Kuenovo_Cluster_A_Big_9",
+"min": [
+-40.7,
+-301.6,
+-218.8
+],
+"max": [
+596.2,
+81.3,
+421.9
+],
+"verts": 8191
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_10.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_10",
+"min": [
+-19.4,
+-15.6,
+-104.0
+],
+"max": [
+422.8,
+633.6,
+234.4
+],
+"verts": 3452
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_11.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_11",
+"min": [
+-4.1,
+-57.5,
+-11.6
+],
+"max": [
+279.9,
+215.4,
+359.9
+],
+"verts": 4174
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_2.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_2",
+"min": [
+-29.9,
+-33.8,
+-99.8
+],
+"max": [
+772.1,
+478.9,
+283.6
+],
+"verts": 3992
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_3.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_3",
+"min": [
+-171.3,
+-124.9,
+-53.1
+],
+"max": [
+370.3,
+475.5,
+800.2
+],
+"verts": 6751
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_4.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_4",
+"min": [
+-13.1,
+-160.1,
+-32.8
+],
+"max": [
+306.9,
+37.6,
+493.1
+],
+"verts": 3475
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_5.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_5",
+"min": [
+-15.6,
+-129.4,
+-24.1
+],
+"max": [
+76.4,
+11.6,
+354.6
+],
+"verts": 1863
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_6.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_6",
+"min": [
+-127.2,
+-1.2,
+-5.0
+],
+"max": [
+57.7,
+258.7,
+365.9
+],
+"verts": 1951
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_7.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_7",
+"min": [
+-13.5,
+-256.3,
+-23.2
+],
+"max": [
+134.4,
+13.9,
+327.9
+],
+"verts": 2082
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_8.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_8",
+"min": [
+-784.4,
+-839.9,
+-87.4
+],
+"max": [
+265.1,
+55.6,
+830.2
+],
+"verts": 8383
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Mid_9.SM_Tree_Maned_Kuenovo_Cluster_A_Mid_9",
+"min": [
+-552.5,
+-201.4,
+-91.7
+],
+"max": [
+67.9,
+60.8,
+396.5
+],
+"verts": 2927
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Trunk.SM_Tree_Maned_Kuenovo_Cluster_A_Trunk",
+"min": [
+-385.1,
+-472.5,
+-658.3
+],
+"max": [
+293.2,
+365.7,
+1277.9
+],
+"verts": 62058
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Trunk_2.SM_Tree_Maned_Kuenovo_Cluster_A_Trunk_2",
+"min": [
+-144.7,
+-216.6,
+-344.5
+],
+"max": [
+126.9,
+154.7,
+931.9
+],
+"verts": 27046
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/Meshes/SM_Tree_Maned_Kuenovo_Cluster_A_Trunk_3.SM_Tree_Maned_Kuenovo_Cluster_A_Trunk_3",
+"min": [
+-371.7,
+-353.2,
+-695.8
+],
+"max": [
+502.7,
+371.8,
+1366.1
+],
+"verts": 89357
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Cluster_A/ST9/SM_Tree_Maned_Kuenovo_Cluster_A_NavCut_CollisionMesh.SM_Tree_Maned_Kuenovo_Cluster_A_NavCut_CollisionMesh",
+"min": [
+-239.7,
+-471.5,
+-439.5
+],
+"max": [
+520.1,
+355.6,
+1186.5
+],
+"verts": 1158
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/InstanceMeshDefinitions/SM_Tree_Maned_Kuenovo_Double_A_branch_01.SM_Tree_Maned_Kuenovo_Double_A_branch_01",
+"min": [
+-510.7,
+-18.2,
+-173.2
+],
+"max": [
+416.5,
+996.7,
+276.9
+],
+"verts": 20565
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big.SM_Tree_Maned_Kuenovo_Double_A_Big",
+"min": [
+-100.9,
+-136.5,
+-87.8
+],
+"max": [
+75.5,
+22.4,
+90.1
+],
+"verts": 2886
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_10.SM_Tree_Maned_Kuenovo_Double_A_Big_10",
+"min": [
+-105.9,
+-314.6,
+-108.3
+],
+"max": [
+403.0,
+134.4,
+224.2
+],
+"verts": 7978
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_11.SM_Tree_Maned_Kuenovo_Double_A_Big_11",
+"min": [
+-96.4,
+-190.9,
+-253.2
+],
+"max": [
+102.4,
+61.8,
+301.7
+],
+"verts": 851
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_12.SM_Tree_Maned_Kuenovo_Double_A_Big_12",
+"min": [
+-627.8,
+-481.1,
+-432.3
+],
+"max": [
+52.4,
+645.2,
+911.2
+],
+"verts": 6353
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_13.SM_Tree_Maned_Kuenovo_Double_A_Big_13",
+"min": [
+-878.4,
+-266.2,
+-433.1
+],
+"max": [
+53.2,
+667.1,
+515.7
+],
+"verts": 19396
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_14.SM_Tree_Maned_Kuenovo_Double_A_Big_14",
+"min": [
+-112.8,
+-42.3,
+-52.8
+],
+"max": [
+219.8,
+248.9,
+267.3
+],
+"verts": 4678
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_15.SM_Tree_Maned_Kuenovo_Double_A_Big_15",
+"min": [
+-81.2,
+-366.9,
+-250.8
+],
+"max": [
+385.4,
+41.0,
+259.6
+],
+"verts": 6246
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_16.SM_Tree_Maned_Kuenovo_Double_A_Big_16",
+"min": [
+-46.1,
+-39.6,
+-101.0
+],
+"max": [
+223.3,
+282.7,
+297.4
+],
+"verts": 5509
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_17.SM_Tree_Maned_Kuenovo_Double_A_Big_17",
+"min": [
+-311.7,
+-556.2,
+-312.4
+],
+"max": [
+96.6,
+58.8,
+230.8
+],
+"verts": 10354
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_18.SM_Tree_Maned_Kuenovo_Double_A_Big_18",
+"min": [
+-147.9,
+-515.1,
+-273.3
+],
+"max": [
+309.0,
+80.4,
+309.5
+],
+"verts": 10147
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_19.SM_Tree_Maned_Kuenovo_Double_A_Big_19",
+"min": [
+-493.5,
+-555.8,
+-277.1
+],
+"max": [
+57.1,
+77.8,
+353.1
+],
+"verts": 10203
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_2.SM_Tree_Maned_Kuenovo_Double_A_Big_2",
+"min": [
+-210.2,
+-433.8,
+-155.2
+],
+"max": [
+167.4,
+25.9,
+311.0
+],
+"verts": 5810
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_20.SM_Tree_Maned_Kuenovo_Double_A_Big_20",
+"min": [
+-588.6,
+-651.2,
+-334.4
+],
+"max": [
+64.9,
+85.9,
+402.7
+],
+"verts": 13490
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_21.SM_Tree_Maned_Kuenovo_Double_A_Big_21",
+"min": [
+-31.4,
+-9.6,
+-37.1
+],
+"max": [
+238.1,
+264.4,
+195.9
+],
+"verts": 8137
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_3.SM_Tree_Maned_Kuenovo_Double_A_Big_3",
+"min": [
+-654.4,
+-382.9,
+-229.1
+],
+"max": [
+40.4,
+384.0,
+485.4
+],
+"verts": 9843
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_4.SM_Tree_Maned_Kuenovo_Double_A_Big_4",
+"min": [
+-761.9,
+-77.5,
+-205.9
+],
+"max": [
+34.6,
+352.4,
+406.5
+],
+"verts": 8562
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_5.SM_Tree_Maned_Kuenovo_Double_A_Big_5",
+"min": [
+-1003.2,
+-244.1,
+-288.6
+],
+"max": [
+56.8,
+154.8,
+306.6
+],
+"verts": 12217
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_6.SM_Tree_Maned_Kuenovo_Double_A_Big_6",
+"min": [
+-195.0,
+-99.1,
+-7.8
+],
+"max": [
+7.7,
+72.4,
+291.6
+],
+"verts": 2295
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_7.SM_Tree_Maned_Kuenovo_Double_A_Big_7",
+"min": [
+-341.2,
+-275.1,
+-431.2
+],
+"max": [
+714.9,
+769.6,
+509.4
+],
+"verts": 13814
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_8.SM_Tree_Maned_Kuenovo_Double_A_Big_8",
+"min": [
+-155.2,
+-246.2,
+-415.7
+],
+"max": [
+354.0,
+866.2,
+559.8
+],
+"verts": 11966
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Big_9.SM_Tree_Maned_Kuenovo_Double_A_Big_9",
+"min": [
+-61.8,
+-123.4,
+-58.1
+],
+"max": [
+297.9,
+238.9,
+218.6
+],
+"verts": 7237
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Mid_2.SM_Tree_Maned_Kuenovo_Double_A_Mid_2",
+"min": [
+-266.5,
+-13.1,
+-28.6
+],
+"max": [
+11.8,
+85.6,
+349.3
+],
+"verts": 2035
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Mid_3.SM_Tree_Maned_Kuenovo_Double_A_Mid_3",
+"min": [
+-76.4,
+-74.8,
+-106.9
+],
+"max": [
+73.0,
+191.3,
+125.4
+],
+"verts": 891
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Mid_4.SM_Tree_Maned_Kuenovo_Double_A_Mid_4",
+"min": [
+-25.4,
+-103.2,
+-57.1
+],
+"max": [
+73.0,
+30.5,
+109.1
+],
+"verts": 851
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Mid_5.SM_Tree_Maned_Kuenovo_Double_A_Mid_5",
+"min": [
+-63.7,
+-76.4,
+-40.7
+],
+"max": [
+14.9,
+30.2,
+162.8
+],
+"verts": 858
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Mid_6.SM_Tree_Maned_Kuenovo_Double_A_Mid_6",
+"min": [
+-8.7,
+-5.8,
+-15.1
+],
+"max": [
+37.2,
+23.4,
+36.2
+],
+"verts": 567
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Mid_9.SM_Tree_Maned_Kuenovo_Double_A_Mid_9",
+"min": [
+-84.6,
+-199.2,
+-39.0
+],
+"max": [
+23.9,
+20.7,
+153.9
+],
+"verts": 1259
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Trunk.SM_Tree_Maned_Kuenovo_Double_A_Trunk",
+"min": [
+-352.1,
+-296.9,
+-710.0
+],
+"max": [
+326.6,
+223.7,
+1352.9
+],
+"verts": 93961
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/Meshes/SM_Tree_Maned_Kuenovo_Double_A_Trunk_2.SM_Tree_Maned_Kuenovo_Double_A_Trunk_2",
+"min": [
+-305.2,
+-311.2,
+-603.9
+],
+"max": [
+272.8,
+431.6,
+1586.6
+],
+"verts": 57487
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Double_A/ST9/SM_Tree_Maned_Kuenovo_Double_A_NavCut_CollisionMesh.SM_Tree_Maned_Kuenovo_Double_A_NavCut_CollisionMesh",
+"min": [
+-312.8,
+-225.3,
+-227.4
+],
+"max": [
+231.2,
+292.5,
+1563.0
+],
+"verts": 862
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big.SM_Tree_Maned_Kuenovo_Lrg_A_Big",
+"min": [
+-15.1,
+-114.2,
+-194.0
+],
+"max": [
+452.9,
+320.4,
+303.6
+],
+"verts": 6803
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_10.SM_Tree_Maned_Kuenovo_Lrg_A_Big_10",
+"min": [
+-385.2,
+-520.2,
+-250.2
+],
+"max": [
+172.8,
+82.2,
+390.2
+],
+"verts": 9458
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_11.SM_Tree_Maned_Kuenovo_Lrg_A_Big_11",
+"min": [
+-638.6,
+-584.9,
+-264.9
+],
+"max": [
+89.0,
+174.2,
+347.7
+],
+"verts": 14042
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_12.SM_Tree_Maned_Kuenovo_Lrg_A_Big_12",
+"min": [
+-636.3,
+-49.5,
+-284.8
+],
+"max": [
+80.9,
+565.5,
+598.0
+],
+"verts": 16720
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_13.SM_Tree_Maned_Kuenovo_Lrg_A_Big_13",
+"min": [
+-71.9,
+-37.8,
+-283.8
+],
+"max": [
+451.9,
+461.6,
+537.1
+],
+"verts": 4498
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_14.SM_Tree_Maned_Kuenovo_Lrg_A_Big_14",
+"min": [
+-95.4,
+-176.8,
+-285.8
+],
+"max": [
+710.6,
+200.5,
+505.3
+],
+"verts": 9430
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_15.SM_Tree_Maned_Kuenovo_Lrg_A_Big_15",
+"min": [
+-615.2,
+-647.8,
+-323.1
+],
+"max": [
+90.0,
+48.4,
+469.2
+],
+"verts": 11409
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_16.SM_Tree_Maned_Kuenovo_Lrg_A_Big_16",
+"min": [
+-66.9,
+-582.2,
+-334.2
+],
+"max": [
+680.2,
+186.4,
+603.6
+],
+"verts": 12882
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_17.SM_Tree_Maned_Kuenovo_Lrg_A_Big_17",
+"min": [
+-65.1,
+-65.9,
+-9.7
+],
+"max": [
+73.9,
+45.2,
+116.6
+],
+"verts": 2744
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_2.SM_Tree_Maned_Kuenovo_Lrg_A_Big_2",
+"min": [
+-10.9,
+-327.4,
+-139.5
+],
+"max": [
+319.3,
+18.5,
+279.1
+],
+"verts": 4510
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_3.SM_Tree_Maned_Kuenovo_Lrg_A_Big_3",
+"min": [
+-337.2,
+-338.7,
+-138.1
+],
+"max": [
+51.6,
+54.8,
+423.2
+],
+"verts": 4141
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_4.SM_Tree_Maned_Kuenovo_Lrg_A_Big_4",
+"min": [
+-20.1,
+-167.4,
+-193.8
+],
+"max": [
+514.3,
+137.2,
+374.4
+],
+"verts": 8920
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_5.SM_Tree_Maned_Kuenovo_Lrg_A_Big_5",
+"min": [
+-156.8,
+-352.9,
+-191.6
+],
+"max": [
+18.2,
+17.6,
+347.1
+],
+"verts": 2013
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_6.SM_Tree_Maned_Kuenovo_Lrg_A_Big_6",
+"min": [
+-20.4,
+-112.4,
+-139.8
+],
+"max": [
+381.1,
+343.9,
+306.5
+],
+"verts": 7589
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_7.SM_Tree_Maned_Kuenovo_Lrg_A_Big_7",
+"min": [
+-25.4,
+-23.1,
+-236.8
+],
+"max": [
+413.8,
+440.4,
+434.8
+],
+"verts": 8183
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_8.SM_Tree_Maned_Kuenovo_Lrg_A_Big_8",
+"min": [
+-86.1,
+-25.9,
+-176.3
+],
+"max": [
+355.4,
+494.1,
+321.4
+],
+"verts": 8657
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Big_9.SM_Tree_Maned_Kuenovo_Lrg_A_Big_9",
+"min": [
+-514.8,
+-35.6,
+-205.6
+],
+"max": [
+63.4,
+367.5,
+404.9
+],
+"verts": 9604
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_A/Meshes/SM_Tree_Maned_Kuenovo_Lrg_A_Trunk.SM_Tree_Maned_Kuenovo_Lrg_A_Trunk",
+"min": [
+-266.9,
+-283.7,
+-700.2
+],
+"max": [
+221.3,
+242.6,
+1474.8
+],
+"verts": 79957
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big.SM_Tree_Maned_Kuenovo_Lrg_B_Big",
+"min": [
+-7.5,
+-62.8,
+-131.9
+],
+"max": [
+401.6,
+187.8,
+162.8
+],
+"verts": 7265
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_10.SM_Tree_Maned_Kuenovo_Lrg_B_Big_10",
+"min": [
+-275.2,
+-36.2,
+-334.6
+],
+"max": [
+319.2,
+756.4,
+332.5
+],
+"verts": 15815
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_11.SM_Tree_Maned_Kuenovo_Lrg_B_Big_11",
+"min": [
+-816.3,
+-614.2,
+-371.7
+],
+"max": [
+83.9,
+218.8,
+481.1
+],
+"verts": 12974
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_12.SM_Tree_Maned_Kuenovo_Lrg_B_Big_12",
+"min": [
+-33.4,
+-43.4,
+-7.7
+],
+"max": [
+78.9,
+93.8,
+115.6
+],
+"verts": 2941
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_2.SM_Tree_Maned_Kuenovo_Lrg_B_Big_2",
+"min": [
+-274.5,
+-18.6,
+-154.6
+],
+"max": [
+126.1,
+453.2,
+326.1
+],
+"verts": 5942
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_3.SM_Tree_Maned_Kuenovo_Lrg_B_Big_3",
+"min": [
+-14.0,
+-323.2,
+-192.7
+],
+"max": [
+569.4,
+122.8,
+290.8
+],
+"verts": 9612
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_4.SM_Tree_Maned_Kuenovo_Lrg_B_Big_4",
+"min": [
+-397.7,
+-30.5,
+-212.9
+],
+"max": [
+33.1,
+555.3,
+268.4
+],
+"verts": 8809
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_5.SM_Tree_Maned_Kuenovo_Lrg_B_Big_5",
+"min": [
+-24.2,
+-162.4,
+-224.4
+],
+"max": [
+666.2,
+373.4,
+403.0
+],
+"verts": 10993
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_6.SM_Tree_Maned_Kuenovo_Lrg_B_Big_6",
+"min": [
+-204.8,
+-50.1,
+-240.3
+],
+"max": [
+313.9,
+673.3,
+337.0
+],
+"verts": 12974
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_7.SM_Tree_Maned_Kuenovo_Lrg_B_Big_7",
+"min": [
+-32.4,
+-80.2,
+-271.9
+],
+"max": [
+499.0,
+668.2,
+355.8
+],
+"verts": 5967
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_8.SM_Tree_Maned_Kuenovo_Lrg_B_Big_8",
+"min": [
+-645.1,
+-203.2,
+-251.6
+],
+"max": [
+32.5,
+597.2,
+252.2
+],
+"verts": 15282
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Big_9.SM_Tree_Maned_Kuenovo_Lrg_B_Big_9",
+"min": [
+-760.6,
+-122.3,
+-319.5
+],
+"max": [
+67.1,
+629.2,
+377.1
+],
+"verts": 20058
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_B/Meshes/SM_Tree_Maned_Kuenovo_Lrg_B_Trunk.SM_Tree_Maned_Kuenovo_Lrg_B_Trunk",
+"min": [
+-235.9,
+-212.9,
+-630.1
+],
+"max": [
+263.4,
+267.5,
+1406.1
+],
+"verts": 92322
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big.SM_Tree_Maned_Kuenovo_Lrg_C_Big",
+"min": [
+-38.6,
+-416.2,
+-118.9
+],
+"max": [
+248.1,
+34.0,
+138.3
+],
+"verts": 6431
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_10.SM_Tree_Maned_Kuenovo_Lrg_C_Big_10",
+"min": [
+-523.1,
+-163.1,
+-371.2
+],
+"max": [
+489.6,
+835.6,
+396.6
+],
+"verts": 22983
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_11.SM_Tree_Maned_Kuenovo_Lrg_C_Big_11",
+"min": [
+-87.8,
+-72.9,
+-299.4
+],
+"max": [
+753.4,
+621.3,
+213.4
+],
+"verts": 17564
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_12.SM_Tree_Maned_Kuenovo_Lrg_C_Big_12",
+"min": [
+-34.9,
+-58.0,
+-8.4
+],
+"max": [
+51.1,
+6.6,
+61.1
+],
+"verts": 3846
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_2.SM_Tree_Maned_Kuenovo_Lrg_C_Big_2",
+"min": [
+-16.2,
+-379.3,
+-103.9
+],
+"max": [
+357.7,
+60.8,
+272.8
+],
+"verts": 5599
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_3.SM_Tree_Maned_Kuenovo_Lrg_C_Big_3",
+"min": [
+-128.1,
+-198.2,
+-270.6
+],
+"max": [
+688.4,
+425.1,
+332.8
+],
+"verts": 16509
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_4.SM_Tree_Maned_Kuenovo_Lrg_C_Big_4",
+"min": [
+-126.2,
+-285.4,
+-263.8
+],
+"max": [
+694.9,
+400.6,
+280.2
+],
+"verts": 14594
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_5.SM_Tree_Maned_Kuenovo_Lrg_C_Big_5",
+"min": [
+-68.6,
+-435.2,
+-237.4
+],
+"max": [
+729.6,
+250.9,
+284.3
+],
+"verts": 4383
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_6.SM_Tree_Maned_Kuenovo_Lrg_C_Big_6",
+"min": [
+-227.5,
+-132.3,
+-253.8
+],
+"max": [
+621.4,
+622.4,
+335.6
+],
+"verts": 16561
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_7.SM_Tree_Maned_Kuenovo_Lrg_C_Big_7",
+"min": [
+-98.3,
+-157.9,
+-250.1
+],
+"max": [
+747.6,
+459.2,
+187.3
+],
+"verts": 17636
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_8.SM_Tree_Maned_Kuenovo_Lrg_C_Big_8",
+"min": [
+-103.1,
+-58.7,
+-353.3
+],
+"max": [
+733.8,
+473.4,
+77.3
+],
+"verts": 19157
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Big_9.SM_Tree_Maned_Kuenovo_Lrg_C_Big_9",
+"min": [
+-57.5,
+-75.1,
+-368.7
+],
+"max": [
+739.9,
+560.4,
+357.4
+],
+"verts": 8542
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_C/Meshes/SM_Tree_Maned_Kuenovo_Lrg_C_Trunk.SM_Tree_Maned_Kuenovo_Lrg_C_Trunk",
+"min": [
+-238.2,
+-259.6,
+-677.2
+],
+"max": [
+204.1,
+228.9,
+1386.6
+],
+"verts": 55440
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big.SM_Tree_Maned_Kuenovo_Lrg_D_Big",
+"min": [
+-29.2,
+-393.0,
+-206.7
+],
+"max": [
+367.9,
+26.4,
+96.7
+],
+"verts": 10033
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_10.SM_Tree_Maned_Kuenovo_Lrg_D_Big_10",
+"min": [
+-666.6,
+-305.9,
+-238.6
+],
+"max": [
+147.8,
+328.6,
+351.4
+],
+"verts": 14238
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_11.SM_Tree_Maned_Kuenovo_Lrg_D_Big_11",
+"min": [
+-40.7,
+-392.2,
+-279.4
+],
+"max": [
+685.8,
+310.3,
+585.4
+],
+"verts": 11508
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_12.SM_Tree_Maned_Kuenovo_Lrg_D_Big_12",
+"min": [
+-585.0,
+-704.4,
+-299.6
+],
+"max": [
+156.1,
+108.3,
+550.2
+],
+"verts": 10095
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_13.SM_Tree_Maned_Kuenovo_Lrg_D_Big_13",
+"min": [
+-889.6,
+-280.8,
+-348.7
+],
+"max": [
+187.9,
+526.4,
+650.9
+],
+"verts": 20559
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_14.SM_Tree_Maned_Kuenovo_Lrg_D_Big_14",
+"min": [
+-768.6,
+-160.2,
+-332.1
+],
+"max": [
+133.6,
+563.6,
+531.8
+],
+"verts": 19056
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_15.SM_Tree_Maned_Kuenovo_Lrg_D_Big_15",
+"min": [
+-505.8,
+-46.8,
+-281.1
+],
+"max": [
+416.2,
+773.1,
+455.9
+],
+"verts": 18020
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_16.SM_Tree_Maned_Kuenovo_Lrg_D_Big_16",
+"min": [
+-768.3,
+-92.1,
+-327.8
+],
+"max": [
+100.8,
+740.5,
+321.8
+],
+"verts": 21160
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_17.SM_Tree_Maned_Kuenovo_Lrg_D_Big_17",
+"min": [
+-457.3,
+-59.1,
+-341.1
+],
+"max": [
+533.1,
+721.0,
+628.4
+],
+"verts": 6866
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_18.SM_Tree_Maned_Kuenovo_Lrg_D_Big_18",
+"min": [
+-474.1,
+-685.9,
+-291.2
+],
+"max": [
+123.7,
+180.9,
+511.8
+],
+"verts": 7877
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_19.SM_Tree_Maned_Kuenovo_Lrg_D_Big_19",
+"min": [
+-10.1,
+-36.8,
+-5.4
+],
+"max": [
+33.6,
+4.1,
+30.6
+],
+"verts": 2436
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_2.SM_Tree_Maned_Kuenovo_Lrg_D_Big_2",
+"min": [
+-131.2,
+-461.4,
+-187.4
+],
+"max": [
+343.5,
+16.1,
+291.2
+],
+"verts": 8057
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_3.SM_Tree_Maned_Kuenovo_Lrg_D_Big_3",
+"min": [
+-67.9,
+-43.6,
+-181.5
+],
+"max": [
+438.5,
+359.8,
+162.5
+],
+"verts": 10037
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_4.SM_Tree_Maned_Kuenovo_Lrg_D_Big_4",
+"min": [
+-33.1,
+-380.8,
+-210.3
+],
+"max": [
+627.6,
+338.5,
+311.4
+],
+"verts": 13698
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_5.SM_Tree_Maned_Kuenovo_Lrg_D_Big_5",
+"min": [
+-222.4,
+-100.0,
+-226.9
+],
+"max": [
+332.4,
+589.0,
+269.4
+],
+"verts": 14125
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_6.SM_Tree_Maned_Kuenovo_Lrg_D_Big_6",
+"min": [
+-179.9,
+-84.2,
+-275.1
+],
+"max": [
+341.9,
+677.9,
+212.2
+],
+"verts": 15425
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_7.SM_Tree_Maned_Kuenovo_Lrg_D_Big_7",
+"min": [
+-163.7,
+-39.6,
+-244.8
+],
+"max": [
+485.6,
+544.9,
+348.9
+],
+"verts": 13135
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_8.SM_Tree_Maned_Kuenovo_Lrg_D_Big_8",
+"min": [
+-514.4,
+-106.4,
+-304.3
+],
+"max": [
+58.6,
+716.8,
+456.6
+],
+"verts": 18147
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Big_9.SM_Tree_Maned_Kuenovo_Lrg_D_Big_9",
+"min": [
+-139.7,
+-44.0,
+-265.4
+],
+"max": [
+452.4,
+650.2,
+445.4
+],
+"verts": 14691
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Lrg_D/Meshes/SM_Tree_Maned_Kuenovo_Lrg_D_Trunk.SM_Tree_Maned_Kuenovo_Lrg_D_Trunk",
+"min": [
+-231.2,
+-236.5,
+-610.3
+],
+"max": [
+248.8,
+257.1,
+1474.2
+],
+"verts": 74584
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big.SM_Tree_Maned_Kuenovo_Pitcher_A_Big",
+"min": [
+-145.9,
+-954.2,
+-377.1
+],
+"max": [
+705.0,
+93.9,
+776.2
+],
+"verts": 20653
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_10.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_10",
+"min": [
+-225.1,
+-684.6,
+-259.6
+],
+"max": [
+745.2,
+92.1,
+684.5
+],
+"verts": 9641
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_11.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_11",
+"min": [
+-282.9,
+-680.1,
+-241.5
+],
+"max": [
+225.1,
+170.8,
+406.6
+],
+"verts": 10481
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_12.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_12",
+"min": [
+-354.2,
+-106.5,
+-95.6
+],
+"max": [
+60.9,
+135.4,
+209.3
+],
+"verts": 5143
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_13.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_13",
+"min": [
+-355.2,
+-275.2,
+-89.2
+],
+"max": [
+52.8,
+104.1,
+388.3
+],
+"verts": 4853
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_14.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_14",
+"min": [
+-161.3,
+-63.9,
+-232.8
+],
+"max": [
+280.4,
+200.4,
+441.4
+],
+"verts": 1221
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_15.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_15",
+"min": [
+-44.8,
+-131.0,
+-6.6
+],
+"max": [
+10.6,
+7.5,
+159.4
+],
+"verts": 2179
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_16.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_16",
+"min": [
+-56.1,
+-794.2,
+-373.9
+],
+"max": [
+855.8,
+126.8,
+519.6
+],
+"verts": 17141
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_17.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_17",
+"min": [
+-38.1,
+-561.4,
+-266.2
+],
+"max": [
+512.9,
+35.6,
+472.2
+],
+"verts": 7528
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_18.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_18",
+"min": [
+-179.3,
+-709.6,
+-391.7
+],
+"max": [
+637.9,
+66.4,
+591.8
+],
+"verts": 11581
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_19.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_19",
+"min": [
+-81.1,
+-677.2,
+-388.4
+],
+"max": [
+531.6,
+85.8,
+556.5
+],
+"verts": 10192
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_2.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_2",
+"min": [
+-441.3,
+-435.8,
+-114.0
+],
+"max": [
+54.9,
+31.8,
+401.1
+],
+"verts": 11144
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_20.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_20",
+"min": [
+-79.4,
+-400.5,
+-349.8
+],
+"max": [
+203.0,
+39.8,
+318.7
+],
+"verts": 2320
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_21.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_21",
+"min": [
+-279.2,
+-461.8,
+-277.0
+],
+"max": [
+156.6,
+41.6,
+482.8
+],
+"verts": 4096
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_22.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_22",
+"min": [
+-582.2,
+-468.9,
+-323.1
+],
+"max": [
+80.8,
+188.2,
+611.4
+],
+"verts": 6903
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_23.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_23",
+"min": [
+-400.2,
+-69.9,
+-303.6
+],
+"max": [
+94.8,
+348.1,
+426.1
+],
+"verts": 5506
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_24.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_24",
+"min": [
+-1020.1,
+-178.2,
+-409.2
+],
+"max": [
+62.6,
+439.6,
+530.3
+],
+"verts": 16506
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_25.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_25",
+"min": [
+-353.2,
+-65.1,
+-279.3
+],
+"max": [
+34.2,
+378.1,
+334.6
+],
+"verts": 5023
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_26.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_26",
+"min": [
+-363.1,
+-141.2,
+-280.2
+],
+"max": [
+37.3,
+289.0,
+338.7
+],
+"verts": 3893
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_27.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_27",
+"min": [
+-146.8,
+-30.9,
+-9.0
+],
+"max": [
+71.2,
+385.0,
+421.8
+],
+"verts": 2889
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_28.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_28",
+"min": [
+-156.8,
+-173.1,
+-259.7
+],
+"max": [
+722.2,
+805.4,
+476.3
+],
+"verts": 13429
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_29.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_29",
+"min": [
+-101.2,
+-85.1,
+-407.9
+],
+"max": [
+646.3,
+453.1,
+664.0
+],
+"verts": 11325
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_3.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_3",
+"min": [
+-38.9,
+-364.3,
+-236.2
+],
+"max": [
+773.6,
+366.5,
+568.0
+],
+"verts": 15987
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_30.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_30",
+"min": [
+-103.4,
+-112.6,
+-226.1
+],
+"max": [
+490.6,
+322.9,
+563.2
+],
+"verts": 3792
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_31.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_31",
+"min": [
+-48.8,
+-25.3,
+-17.5
+],
+"max": [
+23.8,
+33.0,
+46.4
+],
+"verts": 459
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_4.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_4",
+"min": [
+-250.9,
+-60.4,
+-171.1
+],
+"max": [
+56.9,
+489.6,
+235.8
+],
+"verts": 5643
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_5.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_5",
+"min": [
+-190.6,
+-78.8,
+-196.5
+],
+"max": [
+228.6,
+570.5,
+293.9
+],
+"verts": 8565
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_6.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_6",
+"min": [
+-70.8,
+-573.4,
+-254.8
+],
+"max": [
+835.4,
+317.4,
+459.1
+],
+"verts": 15093
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_7.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_7",
+"min": [
+-529.0,
+-149.4,
+-132.8
+],
+"max": [
+67.8,
+289.2,
+279.4
+],
+"verts": 5908
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_8.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_8",
+"min": [
+-378.6,
+-66.5,
+-128.7
+],
+"max": [
+70.5,
+342.8,
+249.6
+],
+"verts": 6387
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Big_9.SM_Tree_Maned_Kuenovo_Pitcher_A_Big_9",
+"min": [
+-433.9,
+-88.7,
+-196.3
+],
+"max": [
+203.1,
+597.4,
+388.6
+],
+"verts": 7960
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_2.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_2",
+"min": [
+-249.9,
+-274.9,
+-39.1
+],
+"max": [
+20.9,
+30.9,
+347.8
+],
+"verts": 2132
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_3.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_3",
+"min": [
+-22.3,
+-25.9,
+-38.1
+],
+"max": [
+162.9,
+108.3,
+192.1
+],
+"verts": 1245
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_4.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_4",
+"min": [
+-28.7,
+-28.6,
+-55.4
+],
+"max": [
+109.8,
+171.2,
+198.1
+],
+"verts": 1264
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_5.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_5",
+"min": [
+-69.9,
+-79.4,
+-144.9
+],
+"max": [
+233.8,
+60.0,
+153.7
+],
+"verts": 689
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_6.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_6",
+"min": [
+-126.4,
+-64.9,
+-113.1
+],
+"max": [
+45.8,
+183.5,
+218.2
+],
+"verts": 1146
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_7.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_7",
+"min": [
+-46.9,
+-119.2,
+-56.9
+],
+"max": [
+409.0,
+42.6,
+345.1
+],
+"verts": 2465
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_8.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_8",
+"min": [
+-44.3,
+-22.1,
+-36.2
+],
+"max": [
+17.6,
+187.5,
+64.2
+],
+"verts": 1039
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_9.SM_Tree_Maned_Kuenovo_Pitcher_A_Mid_9",
+"min": [
+-63.6,
+-386.4,
+-125.0
+],
+"max": [
+222.9,
+61.1,
+902.2
+],
+"verts": 3958
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Trunk.SM_Tree_Maned_Kuenovo_Pitcher_A_Trunk",
+"min": [
+-356.4,
+-377.1,
+-829.3
+],
+"max": [
+450.8,
+340.1,
+1430.4
+],
+"verts": 70723
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Trunk_2.SM_Tree_Maned_Kuenovo_Pitcher_A_Trunk_2",
+"min": [
+-388.8,
+-286.1,
+-699.4
+],
+"max": [
+434.4,
+299.4,
+1436.4
+],
+"verts": 55266
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Pitcher_A/Meshes/SM_Tree_Maned_Kuenovo_Pitcher_A_Trunk_3.SM_Tree_Maned_Kuenovo_Pitcher_A_Trunk_3",
+"min": [
+-292.9,
+-440.4,
+-460.8
+],
+"max": [
+261.9,
+246.6,
+817.9
+],
+"verts": 33282
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big",
+"min": [
+-4.0,
+-106.8,
+-57.3
+],
+"max": [
+52.1,
+6.2,
+15.2
+],
+"verts": 2441
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_2.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_2",
+"min": [
+-21.5,
+-71.7,
+-23.6
+],
+"max": [
+70.9,
+12.5,
+34.0
+],
+"verts": 1232
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_3.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_3",
+"min": [
+-17.9,
+-6.9,
+-41.0
+],
+"max": [
+69.2,
+97.5,
+18.6
+],
+"verts": 1881
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_4.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_4",
+"min": [
+-5.2,
+-11.7,
+-35.9
+],
+"max": [
+92.2,
+43.8,
+46.1
+],
+"verts": 1239
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_5.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_5",
+"min": [
+-6.0,
+-5.0,
+-5.1
+],
+"max": [
+2.5,
+2.8,
+3.2
+],
+"verts": 50
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_6.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_6",
+"min": [
+-2.2,
+-4.7,
+-3.2
+],
+"max": [
+1.6,
+3.9,
+1.2
+],
+"verts": 45
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_7.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_7",
+"min": [
+-6.6,
+-3.4,
+-6.6
+],
+"max": [
+3.4,
+1.4,
+1.8
+],
+"verts": 55
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_8.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Big_8",
+"min": [
+-2.1,
+-4.6,
+-1.3
+],
+"max": [
+1.2,
+1.2,
+3.4
+],
+"verts": 72
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_SaplingTwist_A/Meshes/SM_Tree_Maned_Kuenovo_SaplingTwist_A_Trunk.SM_Tree_Maned_Kuenovo_SaplingTwist_A_Trunk",
+"min": [
+-18.5,
+-27.4,
+-88.2
+],
+"max": [
+45.9,
+34.9,
+303.4
+],
+"verts": 29352
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big.SM_Tree_Maned_Kuenovo_Sapling_A_Big",
+"min": [
+-48.2,
+-2.3,
+-12.2
+],
+"max": [
+2.8,
+27.6,
+10.1
+],
+"verts": 252
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big_2.SM_Tree_Maned_Kuenovo_Sapling_A_Big_2",
+"min": [
+-0.8,
+-6.2,
+-6.1
+],
+"max": [
+19.1,
+1.4,
+6.8
+],
+"verts": 152
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big_3.SM_Tree_Maned_Kuenovo_Sapling_A_Big_3",
+"min": [
+-27.7,
+-6.8,
+-8.4
+],
+"max": [
+3.2,
+4.1,
+2.9
+],
+"verts": 140
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big_4.SM_Tree_Maned_Kuenovo_Sapling_A_Big_4",
+"min": [
+-5.0,
+-7.9,
+-8.8
+],
+"max": [
+2.0,
+3.0,
+2.5
+],
+"verts": 36
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big_5.SM_Tree_Maned_Kuenovo_Sapling_A_Big_5",
+"min": [
+-2.2,
+-0.8,
+-5.6
+],
+"max": [
+5.4,
+4.4,
+3.2
+],
+"verts": 36
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big_6.SM_Tree_Maned_Kuenovo_Sapling_A_Big_6",
+"min": [
+-4.9,
+-7.6,
+-8.8
+],
+"max": [
+2.9,
+2.9,
+2.9
+],
+"verts": 40
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Big_7.SM_Tree_Maned_Kuenovo_Sapling_A_Big_7",
+"min": [
+-0.8,
+-1.2,
+-1.2
+],
+"max": [
+3.1,
+1.0,
+5.4
+],
+"verts": 44
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Sapling_A/Meshes/SM_Tree_Maned_Kuenovo_Sapling_A_Trunk.SM_Tree_Maned_Kuenovo_Sapling_A_Trunk",
+"min": [
+-8.0,
+-27.0,
+-94.0
+],
+"max": [
+29.2,
+10.4,
+233.3
+],
+"verts": 4338
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big",
+"min": [
+-10.8,
+-6.4,
+-40.2
+],
+"max": [
+27.6,
+9.6,
+4.1
+],
+"verts": 359
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_10.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_10",
+"min": [
+-248.2,
+-388.4,
+-132.7
+],
+"max": [
+151.1,
+19.4,
+157.7
+],
+"verts": 10040
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_11.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_11",
+"min": [
+-7.2,
+-142.1,
+-15.1
+],
+"max": [
+208.8,
+121.0,
+145.9
+],
+"verts": 3205
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_2.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_2",
+"min": [
+-95.6,
+-97.6,
+-39.6
+],
+"max": [
+28.0,
+13.2,
+41.1
+],
+"verts": 2954
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_3.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_3",
+"min": [
+-234.8,
+-8.1,
+-39.6
+],
+"max": [
+26.8,
+109.8,
+292.2
+],
+"verts": 480
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_4.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_4",
+"min": [
+-84.3,
+-164.0,
+-30.3
+],
+"max": [
+3.9,
+14.5,
+175.1
+],
+"verts": 377
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_5.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_5",
+"min": [
+-314.8,
+-7.1,
+-101.1
+],
+"max": [
+30.6,
+297.5,
+213.5
+],
+"verts": 7510
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_6.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_6",
+"min": [
+-5.9,
+-61.4,
+-32.1
+],
+"max": [
+85.1,
+10.6,
+78.1
+],
+"verts": 1817
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_7.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_7",
+"min": [
+-20.0,
+-4.2,
+-65.8
+],
+"max": [
+150.7,
+190.5,
+83.6
+],
+"verts": 7485
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_8.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_8",
+"min": [
+-9.0,
+-13.1,
+-27.7
+],
+"max": [
+9.9,
+11.5,
+204.8
+],
+"verts": 468
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_9.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Big_9",
+"min": [
+-13.9,
+-74.5,
+-50.1
+],
+"max": [
+128.4,
+39.9,
+58.0
+],
+"verts": 5191
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleLean_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Trunk.SM_Tree_Maned_Kuenovo_ShortSingleLean_A_Trunk",
+"min": [
+-133.7,
+-75.1,
+-148.8
+],
+"max": [
+113.0,
+68.1,
+503.9
+],
+"verts": 17890
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big",
+"min": [
+-102.8,
+-377.1,
+-94.7
+],
+"max": [
+60.5,
+16.9,
+340.9
+],
+"verts": 1988
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_2.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_2",
+"min": [
+-292.3,
+-320.1,
+-86.7
+],
+"max": [
+19.9,
+45.5,
+328.6
+],
+"verts": 2032
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_3.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_3",
+"min": [
+-183.4,
+-26.1,
+-67.2
+],
+"max": [
+10.4,
+162.9,
+233.4
+],
+"verts": 2124
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_4.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_4",
+"min": [
+-71.7,
+-97.6,
+-46.9
+],
+"max": [
+135.3,
+31.7,
+189.0
+],
+"verts": 2570
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_5.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_5",
+"min": [
+-8.1,
+-34.6,
+-46.0
+],
+"max": [
+34.7,
+16.3,
+35.9
+],
+"verts": 1416
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_6.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_6",
+"min": [
+-22.3,
+-261.6,
+-110.8
+],
+"max": [
+402.1,
+224.6,
+222.1
+],
+"verts": 6026
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_7.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Big_7",
+"min": [
+-14.6,
+-26.6,
+-47.5
+],
+"max": [
+9.4,
+14.8,
+25.7
+],
+"verts": 422
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortSingleStraight_A/Meshes/SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Trunk.SM_Tree_Maned_Kuenovo_ShortSingleStraight_A_Trunk",
+"min": [
+-58.6,
+-82.9,
+-197.2
+],
+"max": [
+108.0,
+89.6,
+603.5
+],
+"verts": 14466
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big",
+"min": [
+-25.8,
+-177.1,
+-93.3
+],
+"max": [
+71.5,
+34.4,
+142.9
+],
+"verts": 1579
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_10.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_10",
+"min": [
+-2.9,
+-14.9,
+-6.9
+],
+"max": [
+56.6,
+13.3,
+137.2
+],
+"verts": 1162
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_11.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_11",
+"min": [
+-28.1,
+-287.4,
+-112.6
+],
+"max": [
+98.2,
+8.0,
+202.7
+],
+"verts": 3952
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_12.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_12",
+"min": [
+-5.8,
+-42.7,
+-90.9
+],
+"max": [
+209.1,
+61.7,
+156.6
+],
+"verts": 1815
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_13.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_13",
+"min": [
+-4.8,
+-90.9,
+-20.8
+],
+"max": [
+40.4,
+5.8,
+77.6
+],
+"verts": 619
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_14.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_14",
+"min": [
+-77.6,
+-225.8,
+-33.7
+],
+"max": [
+159.4,
+6.0,
+171.5
+],
+"verts": 2851
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_15.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_15",
+"min": [
+-12.3,
+-15.3,
+-10.1
+],
+"max": [
+21.5,
+5.4,
+33.5
+],
+"verts": 1761
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_2.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_2",
+"min": [
+-89.9,
+-33.4,
+-78.1
+],
+"max": [
+61.6,
+150.3,
+108.0
+],
+"verts": 1899
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_3.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_3",
+"min": [
+-90.5,
+-24.9,
+-54.9
+],
+"max": [
+23.9,
+10.6,
+51.4
+],
+"verts": 1518
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_4.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_4",
+"min": [
+-9.0,
+-47.6,
+-26.7
+],
+"max": [
+46.7,
+53.7,
+94.8
+],
+"verts": 1684
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_5.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_5",
+"min": [
+-11.1,
+-9.3,
+-6.8
+],
+"max": [
+2.5,
+4.3,
+127.8
+],
+"verts": 857
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_6.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_6",
+"min": [
+-40.1,
+-61.3,
+-17.0
+],
+"max": [
+39.8,
+4.2,
+109.0
+],
+"verts": 653
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_7.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_7",
+"min": [
+-175.8,
+-8.3,
+-90.3
+],
+"max": [
+7.4,
+195.8,
+196.4
+],
+"verts": 1998
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_8.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_8",
+"min": [
+-74.4,
+-92.4,
+-14.6
+],
+"max": [
+42.2,
+53.2,
+185.4
+],
+"verts": 1132
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_9.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Big_9",
+"min": [
+-6.1,
+-115.8,
+-33.8
+],
+"max": [
+37.3,
+7.8,
+74.6
+],
+"verts": 1757
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_10.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_10",
+"min": [
+-61.8,
+-1.2,
+-2.3
+],
+"max": [
+0.9,
+49.7,
+85.8
+],
+"verts": 327
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_11.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_11",
+"min": [
+-0.9,
+-26.3,
+-2.2
+],
+"max": [
+27.9,
+0.4,
+86.6
+],
+"verts": 263
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_12.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_12",
+"min": [
+-3.1,
+-20.1,
+-6.7
+],
+"max": [
+33.7,
+3.1,
+72.1
+],
+"verts": 359
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_13.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_13",
+"min": [
+-12.9,
+-2.1,
+-5.1
+],
+"max": [
+1.9,
+5.4,
+20.9
+],
+"verts": 502
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_14.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_14",
+"min": [
+-62.5,
+-1.4,
+-2.8
+],
+"max": [
+1.2,
+21.3,
+88.9
+],
+"verts": 851
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_15.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_15",
+"min": [
+-53.6,
+-0.9,
+-1.9
+],
+"max": [
+0.8,
+42.6,
+79.8
+],
+"verts": 295
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_16.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_16",
+"min": [
+-1.9,
+-22.8,
+-1.7
+],
+"max": [
+1.4,
+0.7,
+48.7
+],
+"verts": 286
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_2.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_2",
+"min": [
+-12.1,
+-93.3,
+-16.1
+],
+"max": [
+72.9,
+12.6,
+53.2
+],
+"verts": 627
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_3.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_3",
+"min": [
+-8.5,
+-7.5,
+-13.8
+],
+"max": [
+30.4,
+8.6,
+17.6
+],
+"verts": 468
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_4.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_4",
+"min": [
+-5.1,
+-5.4,
+-9.4
+],
+"max": [
+27.7,
+20.6,
+45.8
+],
+"verts": 330
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_5.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_5",
+"min": [
+-3.5,
+-1.1,
+-4.2
+],
+"max": [
+1.9,
+11.0,
+19.0
+],
+"verts": 323
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_6.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_6",
+"min": [
+-187.1,
+-152.1,
+-8.9
+],
+"max": [
+5.6,
+5.2,
+117.6
+],
+"verts": 1175
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_7.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_7",
+"min": [
+-27.8,
+-22.9,
+-3.9
+],
+"max": [
+2.4,
+1.9,
+33.9
+],
+"verts": 359
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_8.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_8",
+"min": [
+-1.8,
+-1.8,
+-3.4
+],
+"max": [
+42.1,
+135.8,
+126.6
+],
+"verts": 1714
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_9.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Mid_9",
+"min": [
+-82.8,
+-14.4,
+-23.8
+],
+"max": [
+13.2,
+51.9,
+212.4
+],
+"verts": 901
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Trunk.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Trunk",
+"min": [
+-133.6,
+-85.5,
+-191.1
+],
+"max": [
+90.8,
+105.1,
+429.7
+],
+"verts": 13499
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Trunk_2.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Trunk_2",
+"min": [
+-47.9,
+-114.9,
+-168.8
+],
+"max": [
+75.4,
+68.0,
+462.8
+],
+"verts": 12640
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_ShortTripleScraggles_A/Meshes/SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Trunk_3.SM_Tree_Maned_Kuenovo_ShortTripleScraggles_A_Trunk_3",
+"min": [
+-83.2,
+-98.6,
+-221.0
+],
+"max": [
+96.1,
+17.1,
+424.7
+],
+"verts": 10833
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big",
+"min": [
+-48.9,
+-807.8,
+-291.4
+],
+"max": [
+583.4,
+55.9,
+314.8
+],
+"verts": 17484
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_10.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_10",
+"min": [
+-848.1,
+-378.3,
+-303.7
+],
+"max": [
+87.5,
+287.0,
+365.8
+],
+"verts": 12065
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_11.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_11",
+"min": [
+-172.6,
+-32.9,
+-60.1
+],
+"max": [
+275.3,
+380.6,
+338.3
+],
+"verts": 6864
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_12.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_12",
+"min": [
+-228.4,
+-54.6,
+-53.8
+],
+"max": [
+77.3,
+213.9,
+225.4
+],
+"verts": 6867
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_2.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_2",
+"min": [
+-51.4,
+-504.2,
+-344.2
+],
+"max": [
+813.5,
+379.6,
+279.7
+],
+"verts": 18769
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_3.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_3",
+"min": [
+-120.6,
+-169.6,
+-175.9
+],
+"max": [
+413.1,
+339.0,
+656.9
+],
+"verts": 2981
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_4.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_4",
+"min": [
+-155.1,
+-589.8,
+-142.6
+],
+"max": [
+439.2,
+35.7,
+529.1
+],
+"verts": 4435
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_5.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_5",
+"min": [
+-96.6,
+-445.1,
+-395.9
+],
+"max": [
+867.7,
+187.5,
+725.6
+],
+"verts": 11801
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_6.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_6",
+"min": [
+-269.9,
+-586.0,
+-192.2
+],
+"max": [
+215.9,
+27.6,
+341.9
+],
+"verts": 9442
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_7.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_7",
+"min": [
+-301.9,
+-27.8,
+-148.5
+],
+"max": [
+161.9,
+419.2,
+219.1
+],
+"verts": 7611
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_8.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_8",
+"min": [
+-19.6,
+-113.2,
+-121.4
+],
+"max": [
+264.4,
+31.5,
+160.5
+],
+"verts": 2083
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_9.SM_Tree_Maned_Kuenovo_TwistedLean_A_Big_9",
+"min": [
+-54.7,
+-310.1,
+-179.4
+],
+"max": [
+463.9,
+103.2,
+295.9
+],
+"verts": 11304
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Mid_9.SM_Tree_Maned_Kuenovo_TwistedLean_A_Mid_9",
+"min": [
+-563.3,
+-31.9,
+-62.3
+],
+"max": [
+83.4,
+633.9,
+433.2
+],
+"verts": 5518
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedLean_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedLean_A_Trunk.SM_Tree_Maned_Kuenovo_TwistedLean_A_Trunk",
+"min": [
+-505.6,
+-233.8,
+-501.4
+],
+"max": [
+264.0,
+359.6,
+1300.8
+],
+"verts": 45195
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big",
+"min": [
+-190.9,
+-226.4,
+-436.7
+],
+"max": [
+108.0,
+132.0,
+268.8
+],
+"verts": 3624
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_10.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_10",
+"min": [
+-84.9,
+-27.1,
+-6.2
+],
+"max": [
+115.5,
+130.4,
+211.3
+],
+"verts": 5394
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_2.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_2",
+"min": [
+-221.9,
+-418.4,
+-670.4
+],
+"max": [
+963.1,
+902.7,
+913.4
+],
+"verts": 18804
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_3.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_3",
+"min": [
+-478.5,
+-761.1,
+-468.5
+],
+"max": [
+45.0,
+224.3,
+395.5
+],
+"verts": 10614
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_4.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_4",
+"min": [
+-469.7,
+-402.7,
+-257.4
+],
+"max": [
+144.9,
+190.8,
+368.2
+],
+"verts": 6156
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_5.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_5",
+"min": [
+-248.8,
+-261.7,
+-523.4
+],
+"max": [
+120.1,
+119.1,
+654.7
+],
+"verts": 1684
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_6.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_6",
+"min": [
+-98.8,
+-319.6,
+-232.8
+],
+"max": [
+204.4,
+71.6,
+358.9
+],
+"verts": 2171
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_7.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_7",
+"min": [
+-149.7,
+-299.8,
+-673.2
+],
+"max": [
+504.6,
+271.0,
+652.6
+],
+"verts": 5152
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_8.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_8",
+"min": [
+-124.6,
+-444.8,
+-555.4
+],
+"max": [
+867.1,
+282.6,
+523.9
+],
+"verts": 18225
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_9.SM_Tree_Maned_Kuenovo_TwistedThick_A_Big_9",
+"min": [
+-157.8,
+-273.6,
+-617.5
+],
+"max": [
+482.3,
+705.8,
+606.8
+],
+"verts": 11584
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_A/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_A_Trunk.SM_Tree_Maned_Kuenovo_TwistedThick_A_Trunk",
+"min": [
+-388.2,
+-267.9,
+-510.7
+],
+"max": [
+281.7,
+361.2,
+1449.6
+],
+"verts": 56327
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big",
+"min": [
+-122.7,
+-742.4,
+-590.9
+],
+"max": [
+841.6,
+472.6,
+465.9
+],
+"verts": 17614
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_10.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_10",
+"min": [
+-918.5,
+-589.2,
+-404.2
+],
+"max": [
+126.0,
+168.8,
+469.8
+],
+"verts": 11900
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_11.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_11",
+"min": [
+-263.1,
+-460.9,
+-515.3
+],
+"max": [
+1101.7,
+652.4,
+626.7
+],
+"verts": 23800
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_12.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_12",
+"min": [
+-395.4,
+-94.2,
+-295.4
+],
+"max": [
+123.5,
+568.2,
+442.7
+],
+"verts": 9672
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_13.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_13",
+"min": [
+-17.3,
+-16.4,
+-6.2
+],
+"max": [
+44.3,
+32.7,
+107.2
+],
+"verts": 1156
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_2.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_2",
+"min": [
+-635.5,
+-432.6,
+-333.0
+],
+"max": [
+174.4,
+273.2,
+535.7
+],
+"verts": 11035
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_3.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_3",
+"min": [
+-45.1,
+-366.1,
+-300.1
+],
+"max": [
+586.4,
+135.5,
+552.8
+],
+"verts": 4368
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_4.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_4",
+"min": [
+-247.0,
+-34.2,
+-249.6
+],
+"max": [
+160.2,
+376.1,
+398.7
+],
+"verts": 2886
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_5.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_5",
+"min": [
+-246.0,
+-140.0,
+-553.9
+],
+"max": [
+614.1,
+325.3,
+604.9
+],
+"verts": 7767
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_6.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_6",
+"min": [
+-250.5,
+-47.8,
+-253.4
+],
+"max": [
+21.2,
+325.1,
+379.9
+],
+"verts": 3309
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_7.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_7",
+"min": [
+-416.3,
+-428.8,
+-482.9
+],
+"max": [
+196.8,
+166.7,
+333.7
+],
+"verts": 9994
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_8.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_8",
+"min": [
+-321.9,
+-454.0,
+-449.0
+],
+"max": [
+89.1,
+208.7,
+347.6
+],
+"verts": 9279
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_9.SM_Tree_Maned_Kuenovo_TwistedThick_B_Big_9",
+"min": [
+-20.4,
+-103.9,
+-173.2
+],
+"max": [
+81.2,
+138.5,
+381.5
+],
+"verts": 1853
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_TwistedThick_B/Meshes/SM_Tree_Maned_Kuenovo_TwistedThick_B_Trunk.SM_Tree_Maned_Kuenovo_TwistedThick_B_Trunk",
+"min": [
+-518.1,
+-343.2,
+-1052.1
+],
+"max": [
+322.2,
+350.3,
+1421.1
+],
+"verts": 67871
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big.SM_Tree_Maned_Kuenovo_YoungDual_A_Big",
+"min": [
+-433.6,
+-1023.0,
+-279.6
+],
+"max": [
+121.1,
+141.2,
+613.1
+],
+"verts": 19491
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_10.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_10",
+"min": [
+-341.5,
+-17.2,
+-116.4
+],
+"max": [
+44.8,
+290.1,
+332.2
+],
+"verts": 1449
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_11.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_11",
+"min": [
+-813.0,
+-422.7,
+-314.1
+],
+"max": [
+30.2,
+220.3,
+698.2
+],
+"verts": 13358
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_12.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_12",
+"min": [
+-606.8,
+-181.9,
+-201.6
+],
+"max": [
+21.2,
+236.3,
+451.8
+],
+"verts": 5960
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_13.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_13",
+"min": [
+-43.2,
+-204.8,
+-63.6
+],
+"max": [
+355.6,
+236.4,
+443.9
+],
+"verts": 3326
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_14.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_14",
+"min": [
+-666.3,
+-37.1,
+-252.8
+],
+"max": [
+39.1,
+841.5,
+743.4
+],
+"verts": 18083
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_15.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_15",
+"min": [
+-8.5,
+-190.0,
+-59.7
+],
+"max": [
+275.2,
+90.9,
+287.9
+],
+"verts": 3212
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_16.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_16",
+"min": [
+-29.8,
+-73.1,
+-3.5
+],
+"max": [
+38.6,
+35.6,
+220.5
+],
+"verts": 2134
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_2.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_2",
+"min": [
+-143.4,
+-250.6,
+-144.8
+],
+"max": [
+384.4,
+278.8,
+726.8
+],
+"verts": 2131
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_3.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_3",
+"min": [
+-122.8,
+-320.2,
+-117.7
+],
+"max": [
+234.9,
+19.4,
+357.1
+],
+"verts": 4741
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_4.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_4",
+"min": [
+-173.5,
+-188.6,
+-31.3
+],
+"max": [
+136.6,
+25.6,
+262.0
+],
+"verts": 3710
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_5.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_5",
+"min": [
+-310.1,
+-315.4,
+-111.9
+],
+"max": [
+203.9,
+34.1,
+468.9
+],
+"verts": 3368
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_6.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_6",
+"min": [
+-344.2,
+-245.5,
+-160.6
+],
+"max": [
+234.4,
+19.1,
+490.8
+],
+"verts": 2815
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_7.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_7",
+"min": [
+-33.4,
+-48.2,
+-10.7
+],
+"max": [
+8.2,
+40.4,
+61.8
+],
+"verts": 3152
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_8.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_8",
+"min": [
+-195.2,
+-859.4,
+-326.6
+],
+"max": [
+566.6,
+161.7,
+954.9
+],
+"verts": 10808
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Big_9.SM_Tree_Maned_Kuenovo_YoungDual_A_Big_9",
+"min": [
+-413.4,
+-15.9,
+-112.1
+],
+"max": [
+22.7,
+477.9,
+427.9
+],
+"verts": 3613
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_2.SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_2",
+"min": [
+-27.3,
+-20.2,
+-22.5
+],
+"max": [
+10.4,
+10.2,
+64.9
+],
+"verts": 532
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_3.SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_3",
+"min": [
+-3.6,
+-131.2,
+-6.5
+],
+"max": [
+115.9,
+2.8,
+108.5
+],
+"verts": 1783
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_4.SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_4",
+"min": [
+-279.7,
+-702.8,
+-50.6
+],
+"max": [
+263.7,
+82.1,
+1026.3
+],
+"verts": 9409
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_9.SM_Tree_Maned_Kuenovo_YoungDual_A_Mid_9",
+"min": [
+-202.1,
+-448.2,
+-42.8
+],
+"max": [
+75.3,
+24.4,
+301.4
+],
+"verts": 3024
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Trunk.SM_Tree_Maned_Kuenovo_YoungDual_A_Trunk",
+"min": [
+-109.8,
+-310.3,
+-366.6
+],
+"max": [
+135.3,
+221.0,
+653.9
+],
+"verts": 34260
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_YoungDual_A/Meshes/SM_Tree_Maned_Kuenovo_YoungDual_A_Trunk_2.SM_Tree_Maned_Kuenovo_YoungDual_A_Trunk_2",
+"min": [
+-203.1,
+-200.4,
+-498.2
+],
+"max": [
+262.0,
+238.1,
+1539.5
+],
+"verts": 101027
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big.SM_Tree_Maned_Kuenovo_Young_A_Big",
+"min": [
+-323.6,
+-55.9,
+-239.4
+],
+"max": [
+274.6,
+633.9,
+553.9
+],
+"verts": 3753
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_2.SM_Tree_Maned_Kuenovo_Young_A_Big_2",
+"min": [
+-39.9,
+-579.4,
+-217.4
+],
+"max": [
+446.4,
+32.4,
+382.9
+],
+"verts": 7341
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_3.SM_Tree_Maned_Kuenovo_Young_A_Big_3",
+"min": [
+-366.0,
+-38.4,
+-167.4
+],
+"max": [
+29.5,
+363.8,
+212.2
+],
+"verts": 7568
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_4.SM_Tree_Maned_Kuenovo_Young_A_Big_4",
+"min": [
+-9.5,
+-95.4,
+-60.7
+],
+"max": [
+135.2,
+9.8,
+365.4
+],
+"verts": 742
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_5.SM_Tree_Maned_Kuenovo_Young_A_Big_5",
+"min": [
+-27.3,
+-105.2,
+-75.8
+],
+"max": [
+36.9,
+14.9,
+129.8
+],
+"verts": 1432
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_6.SM_Tree_Maned_Kuenovo_Young_A_Big_6",
+"min": [
+-237.2,
+-90.5,
+-182.1
+],
+"max": [
+557.8,
+553.6,
+567.0
+],
+"verts": 11595
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_7.SM_Tree_Maned_Kuenovo_Young_A_Big_7",
+"min": [
+-125.8,
+-111.7,
+-72.7
+],
+"max": [
+29.9,
+43.7,
+150.6
+],
+"verts": 2921
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Big_8.SM_Tree_Maned_Kuenovo_Young_A_Big_8",
+"min": [
+-101.2,
+-70.7,
+-11.1
+],
+"max": [
+57.7,
+105.8,
+227.6
+],
+"verts": 2247
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Mid_2.SM_Tree_Maned_Kuenovo_Young_A_Mid_2",
+"min": [
+-58.3,
+-257.1,
+-51.4
+],
+"max": [
+96.1,
+30.9,
+240.8
+],
+"verts": 1254
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Mid_3.SM_Tree_Maned_Kuenovo_Young_A_Mid_3",
+"min": [
+-24.7,
+-7.4,
+-36.4
+],
+"max": [
+9.7,
+27.2,
+15.7
+],
+"verts": 96
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Mid_4.SM_Tree_Maned_Kuenovo_Young_A_Mid_4",
+"min": [
+-244.4,
+-27.9,
+-27.9
+],
+"max": [
+14.5,
+353.0,
+420.7
+],
+"verts": 4299
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Mid_5.SM_Tree_Maned_Kuenovo_Young_A_Mid_5",
+"min": [
+-17.2,
+-10.2,
+-19.7
+],
+"max": [
+7.4,
+10.7,
+32.1
+],
+"verts": 468
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Mid_9.SM_Tree_Maned_Kuenovo_Young_A_Mid_9",
+"min": [
+-29.2,
+-45.0,
+-81.8
+],
+"max": [
+337.9,
+542.1,
+1004.0
+],
+"verts": 5823
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_A/Meshes/SM_Tree_Maned_Kuenovo_Young_A_Trunk.SM_Tree_Maned_Kuenovo_Young_A_Trunk",
+"min": [
+-223.2,
+-245.8,
+-671.6
+],
+"max": [
+334.2,
+222.4,
+1282.6
+],
+"verts": 42580
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big.SM_Tree_Maned_Kuenovo_Young_B_Big",
+"min": [
+-18.3,
+-394.8,
+-159.4
+],
+"max": [
+404.4,
+116.9,
+417.1
+],
+"verts": 7318
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big_2.SM_Tree_Maned_Kuenovo_Young_B_Big_2",
+"min": [
+-191.6,
+-270.4,
+-54.3
+],
+"max": [
+9.1,
+97.2,
+293.5
+],
+"verts": 1751
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big_3.SM_Tree_Maned_Kuenovo_Young_B_Big_3",
+"min": [
+-203.1,
+-382.4,
+-130.9
+],
+"max": [
+161.0,
+19.1,
+401.3
+],
+"verts": 5435
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big_4.SM_Tree_Maned_Kuenovo_Young_B_Big_4",
+"min": [
+-467.4,
+-216.9,
+-180.7
+],
+"max": [
+136.1,
+137.6,
+506.7
+],
+"verts": 4819
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big_5.SM_Tree_Maned_Kuenovo_Young_B_Big_5",
+"min": [
+-327.8,
+-213.0,
+-95.8
+],
+"max": [
+23.0,
+154.8,
+309.8
+],
+"verts": 4231
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big_6.SM_Tree_Maned_Kuenovo_Young_B_Big_6",
+"min": [
+-514.4,
+-138.6,
+-152.8
+],
+"max": [
+169.2,
+489.5,
+504.2
+],
+"verts": 7011
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Big_7.SM_Tree_Maned_Kuenovo_Young_B_Big_7",
+"min": [
+-41.4,
+-3.4,
+-9.3
+],
+"max": [
+39.2,
+126.2,
+217.1
+],
+"verts": 2484
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Mid_2.SM_Tree_Maned_Kuenovo_Young_B_Mid_2",
+"min": [
+-17.8,
+-21.2,
+-45.2
+],
+"max": [
+16.6,
+37.5,
+103.6
+],
+"verts": 608
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Mid_3.SM_Tree_Maned_Kuenovo_Young_B_Mid_3",
+"min": [
+-569.9,
+-123.2,
+-35.5
+],
+"max": [
+19.6,
+306.9,
+622.9
+],
+"verts": 4962
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Mid_9.SM_Tree_Maned_Kuenovo_Young_B_Mid_9",
+"min": [
+-172.7,
+-530.9,
+-37.8
+],
+"max": [
+72.5,
+25.1,
+275.2
+],
+"verts": 3059
+},
+{
+"path": "/Game/Env/Bio/Tree/ManedKuenovo/Tree_Maned_Kuenovo_Young_B/Meshes/SM_Tree_Maned_Kuenovo_Young_B_Trunk.SM_Tree_Maned_Kuenovo_Young_B_Trunk",
+"min": [
+-164.4,
+-138.6,
+-290.4
+],
+"max": [
+217.9,
+97.5,
+886.1
+],
+"verts": 26315
+},
+{
+"path": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_Combined_A.SM_Downy_Willow_Combined_A",
+"min": [
+-68.3,
+-72.1,
+-6.1
+],
+"max": [
+61.5,
+74.6,
+131.5
+],
+"verts": 76090
+},
+{
+"path": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_Combined_B.SM_Downy_Willow_Combined_B",
+"min": [
+-114.3,
+-178.3,
+-18.4
+],
+"max": [
+72.3,
+129.5,
+159.8
+],
+"verts": 205861
+},
+{
+"path": "/Game/Megascans/3D_Plants/Fern/SM_Fern_01.SM_Fern_01",
+"min": [
+-67.7,
+-91.1,
+-3.9
+],
+"max": [
+87.4,
+96.8,
+99.3
+],
+"verts": 1199
+},
+{
+"path": "/Game/Megascans/3D_Plants/Fern/SM_Fern_02.SM_Fern_02",
+"min": [
+-85.1,
+-102.4,
+-3.7
+],
+"max": [
+81.6,
+73.1,
+91.3
+],
+"verts": 847
+},
+{
+"path": "/Game/Megascans/3D_Plants/Fern/SM_Fern_03.SM_Fern_03",
+"min": [
+-76.4,
+-48.7,
+-2.1
+],
+"max": [
+72.2,
+89.0,
+61.1
+],
+"verts": 902
+},
+{
+"path": "/Game/Megascans/3D_Plants/Fern/SM_Fern_04.SM_Fern_04",
+"min": [
+-84.3,
+-82.7,
+-2.2
+],
+"max": [
+94.4,
+81.9,
+70.8
+],
+"verts": 1031
+},
+{
+"path": "/Game/Megascans/3D_Plants/Fern/SM_Fern_05.SM_Fern_05",
+"min": [
+-97.2,
+-100.6,
+-2.2
+],
+"max": [
+104.4,
+86.1,
+89.1
+],
+"verts": 1420
+},
+{
+"path": "/Game/Megascans/3D_Plants/Fern/SM_Fern_06.SM_Fern_06",
+"min": [
+-130.2,
+-94.1,
+-5.9
+],
+"max": [
+27.2,
+64.9,
+60.2
+],
+"verts": 482
+},
+{
+"path": "/Game/Megascans/3D_Plants/Taro/SM_Taro_02.SM_Taro_02",
+"min": [
+-71.7,
+-46.1,
+-0.8
+],
+"max": [
+52.2,
+65.8,
+105.0
+],
+"verts": 708
+},
+{
+"path": "/Game/Megascans/3D_Plants/Taro/SM_Taro_03.SM_Taro_03",
+"min": [
+-87.4,
+-56.8,
+-4.9
+],
+"max": [
+76.2,
+67.2,
+101.6
+],
+"verts": 715
+},
+{
+"path": "/Game/Megascans/3D_Plants/Taro/SM_Taro_06.SM_Taro_06",
+"min": [
+-71.4,
+-66.1,
+-2.6
+],
+"max": [
+60.1,
+68.5,
+112.9
+],
+"verts": 1572
+},
+{
+"path": "/Game/Megascans/3D_Plants/Taro/SM_Taro_07.SM_Taro_07",
+"min": [
+-46.0,
+-60.2,
+-9.4
+],
+"max": [
+58.9,
+41.7,
+92.0
+],
+"verts": 596
+},
+{
+"path": "/Game/Megascans/3D_Plants/Taro/SM_Taro_08.SM_Taro_08",
+"min": [
+-55.0,
+-65.2,
+-0.5
+],
+"max": [
+72.7,
+65.9,
+96.3
+],
+"verts": 742
+},
+{
+"path": "/Game/Megascans/3D_Plants/Taro/SM_Taro_10.SM_Taro_10",
+"min": [
+-54.6,
+-65.2,
+-1.5
+],
+"max": [
+60.9,
+51.1,
+97.6
+],
+"verts": 1544
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_10.SM_Tree_Pine_A_Big_10",
+"min": [
+-420.25,
+-272.0,
+-310.75
+],
+"max": [
+39.3125,
+264.6875,
+56.8125
+],
+"verts": 662
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_100.SM_Tree_Pine_A_Big_100",
+"min": [
+-43.375,
+-957.8125,
+-847.25
+],
+"max": [
+2830.3125,
+1474.0625,
+180.6875
+],
+"verts": 3931
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_11.SM_Tree_Pine_A_Big_11",
+"min": [
+-609.8125,
+-45.25,
+-1239.75
+],
+"max": [
+527.6875,
+1946.5625,
+54.75
+],
+"verts": 5941
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_12.SM_Tree_Pine_A_Big_12",
+"min": [
+-36.25,
+-881.875,
+-1068.8125
+],
+"max": [
+2031.1875,
+493.25,
+58.6875
+],
+"verts": 4824
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_13.SM_Tree_Pine_A_Big_13",
+"min": [
+-237.375,
+-721.9375,
+-316.125
+],
+"max": [
+175.6875,
+44.0,
+57.25
+],
+"verts": 1595
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_14.SM_Tree_Pine_A_Big_14",
+"min": [
+-1195.5625,
+-61.3125,
+-1221.8125
+],
+"max": [
+53.9375,
+1259.875,
+102.0
+],
+"verts": 3628
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_15.SM_Tree_Pine_A_Big_15",
+"min": [
+-61.3125,
+-68.8125,
+-630.875
+],
+"max": [
+881.375,
+954.75,
+79.5
+],
+"verts": 2174
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_16.SM_Tree_Pine_A_Big_16",
+"min": [
+-62.875,
+-624.0625,
+-398.25
+],
+"max": [
+542.1875,
+66.625,
+86.25
+],
+"verts": 852
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_17.SM_Tree_Pine_A_Big_17",
+"min": [
+-692.0625,
+-754.8125,
+-558.9375
+],
+"max": [
+72.25,
+75.375,
+101.9375
+],
+"verts": 2643
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_18.SM_Tree_Pine_A_Big_18",
+"min": [
+-2341.1875,
+-445.25,
+-1700.9375
+],
+"max": [
+48.9375,
+891.25,
+81.5625
+],
+"verts": 6044
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_19.SM_Tree_Pine_A_Big_19",
+"min": [
+-419.25,
+-41.3125,
+-834.25
+],
+"max": [
+500.3125,
+1538.125,
+64.4375
+],
+"verts": 4665
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_2.SM_Tree_Pine_A_Big_2",
+"min": [
+-70.0,
+-38.0625,
+-77.0625
+],
+"max": [
+152.125,
+244.75,
+57.6875
+],
+"verts": 565
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_20.SM_Tree_Pine_A_Big_20",
+"min": [
+-53.0,
+-532.3125,
+-714.125
+],
+"max": [
+1109.125,
+442.3125,
+76.9375
+],
+"verts": 4011
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_21.SM_Tree_Pine_A_Big_21",
+"min": [
+-753.125,
+-2411.75,
+-1327.0625
+],
+"max": [
+645.625,
+43.375,
+74.375
+],
+"verts": 7474
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_22.SM_Tree_Pine_A_Big_22",
+"min": [
+-1022.8125,
+-57.8125,
+-817.75
+],
+"max": [
+61.875,
+968.625,
+88.0
+],
+"verts": 2340
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_23.SM_Tree_Pine_A_Big_23",
+"min": [
+-70.25,
+-67.0,
+-800.3125
+],
+"max": [
+1314.75,
+1295.75,
+89.1875
+],
+"verts": 4835
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_24.SM_Tree_Pine_A_Big_24",
+"min": [
+-65.125,
+-1599.5625,
+-1175.6875
+],
+"max": [
+1339.6875,
+63.3125,
+78.1875
+],
+"verts": 6013
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_25.SM_Tree_Pine_A_Big_25",
+"min": [
+-1792.75,
+-1538.375,
+-1051.5
+],
+"max": [
+80.375,
+76.125,
+98.125
+],
+"verts": 5195
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_26.SM_Tree_Pine_A_Big_26",
+"min": [
+-1580.875,
+-543.125,
+-943.6875
+],
+"max": [
+68.5,
+387.625,
+96.375
+],
+"verts": 4750
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_27.SM_Tree_Pine_A_Big_27",
+"min": [
+-672.75,
+-63.6875,
+-1171.125
+],
+"max": [
+806.6875,
+2134.875,
+107.375
+],
+"verts": 5690
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_28.SM_Tree_Pine_A_Big_28",
+"min": [
+-72.0,
+-642.625,
+-1237.25
+],
+"max": [
+1326.8125,
+569.9375,
+118.1875
+],
+"verts": 2189
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_29.SM_Tree_Pine_A_Big_29",
+"min": [
+-554.3125,
+-2230.0625,
+-1119.6875
+],
+"max": [
+736.0625,
+71.6875,
+99.375
+],
+"verts": 4807
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_3.SM_Tree_Pine_A_Big_3",
+"min": [
+-45.5625,
+-190.0625,
+-195.6875
+],
+"max": [
+311.3125,
+208.625,
+72.375
+],
+"verts": 732
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_30.SM_Tree_Pine_A_Big_30",
+"min": [
+-1117.375,
+-81.125,
+-971.5625
+],
+"max": [
+86.4375,
+1184.25,
+117.8125
+],
+"verts": 2993
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_31.SM_Tree_Pine_A_Big_31",
+"min": [
+-78.4375,
+-83.375,
+-1501.25
+],
+"max": [
+1875.0,
+1678.4375,
+104.3125
+],
+"verts": 5450
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_32.SM_Tree_Pine_A_Big_32",
+"min": [
+-75.3125,
+-1504.0,
+-1389.375
+],
+"max": [
+1586.25,
+78.0625,
+113.4375
+],
+"verts": 5180
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_33.SM_Tree_Pine_A_Big_33",
+"min": [
+-2073.125,
+-2137.0,
+-1445.9375
+],
+"max": [
+66.125,
+76.5625,
+102.0625
+],
+"verts": 5460
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_34.SM_Tree_Pine_A_Big_34",
+"min": [
+-2102.8125,
+-711.375,
+-1303.0
+],
+"max": [
+97.625,
+1010.3125,
+149.0
+],
+"verts": 4657
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_35.SM_Tree_Pine_A_Big_35",
+"min": [
+-421.1875,
+-65.125,
+-1071.8125
+],
+"max": [
+810.875,
+1693.5625,
+114.625
+],
+"verts": 3351
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_36.SM_Tree_Pine_A_Big_36",
+"min": [
+-103.9375,
+-698.6875,
+-1100.375
+],
+"max": [
+1963.4375,
+837.1875,
+148.6875
+],
+"verts": 2980
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_37.SM_Tree_Pine_A_Big_37",
+"min": [
+-635.6875,
+-1583.375,
+-1043.8125
+],
+"max": [
+665.75,
+97.0,
+155.4375
+],
+"verts": 3488
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_38.SM_Tree_Pine_A_Big_38",
+"min": [
+-1408.4375,
+-94.0625,
+-937.5625
+],
+"max": [
+120.8125,
+1411.625,
+142.125
+],
+"verts": 4777
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_39.SM_Tree_Pine_A_Big_39",
+"min": [
+-120.25,
+-103.875,
+-1689.9375
+],
+"max": [
+1809.0,
+2183.25,
+143.4375
+],
+"verts": 4052
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_4.SM_Tree_Pine_A_Big_4",
+"min": [
+-161.5625,
+-379.0,
+-195.4375
+],
+"max": [
+196.8125,
+41.5,
+96.0
+],
+"verts": 1139
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_40.SM_Tree_Pine_A_Big_40",
+"min": [
+-98.25,
+-2339.3125,
+-2098.3125
+],
+"max": [
+2404.9375,
+84.1875,
+110.25
+],
+"verts": 10281
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_41.SM_Tree_Pine_A_Big_41",
+"min": [
+-1635.1875,
+-1576.875,
+-1830.9375
+],
+"max": [
+102.0,
+98.25,
+116.4375
+],
+"verts": 7952
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_42.SM_Tree_Pine_A_Big_42",
+"min": [
+-2444.9375,
+-952.75,
+-1265.8125
+],
+"max": [
+93.875,
+662.375,
+168.4375
+],
+"verts": 5048
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_43.SM_Tree_Pine_A_Big_43",
+"min": [
+-561.5625,
+-110.4375,
+-1120.1875
+],
+"max": [
+728.75,
+1540.4375,
+165.0625
+],
+"verts": 4227
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_44.SM_Tree_Pine_A_Big_44",
+"min": [
+-110.8125,
+-745.8125,
+-2300.8125
+],
+"max": [
+2754.1875,
+1143.625,
+187.125
+],
+"verts": 6500
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_45.SM_Tree_Pine_A_Big_45",
+"min": [
+-820.125,
+-3177.1875,
+-1989.125
+],
+"max": [
+874.125,
+108.75,
+157.5625
+],
+"verts": 6728
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_46.SM_Tree_Pine_A_Big_46",
+"min": [
+-1371.4375,
+-2004.25,
+-1227.125
+],
+"max": [
+72.5,
+52.6875,
+74.25
+],
+"verts": 10319
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_47.SM_Tree_Pine_A_Big_47",
+"min": [
+-1535.75,
+-59.8125,
+-1719.5625
+],
+"max": [
+62.5,
+1812.25,
+110.5625
+],
+"verts": 11185
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_48.SM_Tree_Pine_A_Big_48",
+"min": [
+-63.0,
+-100.5,
+-1271.625
+],
+"max": [
+2308.6875,
+805.25,
+133.3125
+],
+"verts": 5875
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_49.SM_Tree_Pine_A_Big_49",
+"min": [
+-1777.8125,
+-486.25,
+-1166.875
+],
+"max": [
+89.625,
+528.5,
+106.1875
+],
+"verts": 6102
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_5.SM_Tree_Pine_A_Big_5",
+"min": [
+-560.25,
+-48.625,
+-377.25
+],
+"max": [
+49.5,
+644.0,
+73.875
+],
+"verts": 2387
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_50.SM_Tree_Pine_A_Big_50",
+"min": [
+-71.125,
+-45.75,
+-939.625
+],
+"max": [
+705.125,
+1816.5,
+103.375
+],
+"verts": 7348
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_51.SM_Tree_Pine_A_Big_51",
+"min": [
+-43.125,
+-1230.125,
+-807.3125
+],
+"max": [
+1139.5625,
+60.75,
+98.0
+],
+"verts": 6399
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_52.SM_Tree_Pine_A_Big_52",
+"min": [
+-1178.3125,
+-1519.875,
+-991.9375
+],
+"max": [
+46.3125,
+28.5625,
+172.4375
+],
+"verts": 9747
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_53.SM_Tree_Pine_A_Big_53",
+"min": [
+-1173.6875,
+-84.25,
+-1296.1875
+],
+"max": [
+65.75,
+1849.0,
+103.375
+],
+"verts": 6300
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_54.SM_Tree_Pine_A_Big_54",
+"min": [
+-35.8125,
+-241.75,
+-856.1875
+],
+"max": [
+1432.625,
+758.375,
+69.625
+],
+"verts": 4356
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_55.SM_Tree_Pine_A_Big_55",
+"min": [
+-2467.375,
+-436.8125,
+-1408.875
+],
+"max": [
+18.6875,
+616.9375,
+80.0
+],
+"verts": 19683
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_56.SM_Tree_Pine_A_Big_56",
+"min": [
+-29.1875,
+-16.25,
+-1194.75
+],
+"max": [
+1352.9375,
+2324.375,
+178.375
+],
+"verts": 19340
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_57.SM_Tree_Pine_A_Big_57",
+"min": [
+-44.625,
+-1788.625,
+-925.25
+],
+"max": [
+2090.0625,
+225.625,
+204.8125
+],
+"verts": 15957
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_58.SM_Tree_Pine_A_Big_58",
+"min": [
+-1299.6875,
+-427.3125,
+-1304.1875
+],
+"max": [
+337.1875,
+1432.0,
+84.0
+],
+"verts": 7437
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_59.SM_Tree_Pine_A_Big_59",
+"min": [
+-253.3125,
+-575.9375,
+-1032.5625
+],
+"max": [
+1693.5,
+989.8125,
+272.4375
+],
+"verts": 6417
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_6.SM_Tree_Pine_A_Big_6",
+"min": [
+-213.4375,
+-93.25,
+-74.8125
+],
+"max": [
+29.6875,
+36.6875,
+53.0
+],
+"verts": 102
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_60.SM_Tree_Pine_A_Big_60",
+"min": [
+-1190.375,
+-615.0,
+-764.5
+],
+"max": [
+103.875,
+707.125,
+92.625
+],
+"verts": 2930
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_61.SM_Tree_Pine_A_Big_61",
+"min": [
+-477.4375,
+-254.1875,
+-756.0
+],
+"max": [
+982.375,
+1212.625,
+205.4375
+],
+"verts": 4848
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_62.SM_Tree_Pine_A_Big_62",
+"min": [
+-243.5625,
+-1070.125,
+-566.8125
+],
+"max": [
+1164.1875,
+275.1875,
+154.6875
+],
+"verts": 4058
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_63.SM_Tree_Pine_A_Big_63",
+"min": [
+-1137.6875,
+-1528.5,
+-722.125
+],
+"max": [
+348.625,
+87.0,
+364.875
+],
+"verts": 4251
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_64.SM_Tree_Pine_A_Big_64",
+"min": [
+-1233.6875,
+-171.25,
+-1117.4375
+],
+"max": [
+342.875,
+1507.375,
+92.875
+],
+"verts": 6691
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_65.SM_Tree_Pine_A_Big_65",
+"min": [
+-67.4375,
+-402.4375,
+-594.3125
+],
+"max": [
+1067.3125,
+710.3125,
+107.0625
+],
+"verts": 2059
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_66.SM_Tree_Pine_A_Big_66",
+"min": [
+-1501.375,
+-456.125,
+-761.6875
+],
+"max": [
+38.9375,
+569.125,
+72.4375
+],
+"verts": 1994
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_67.SM_Tree_Pine_A_Big_67",
+"min": [
+-515.1875,
+-36.1875,
+-975.6875
+],
+"max": [
+978.8125,
+1543.25,
+150.5
+],
+"verts": 3622
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_68.SM_Tree_Pine_A_Big_68",
+"min": [
+-336.125,
+-1025.875,
+-590.5625
+],
+"max": [
+1197.5625,
+206.125,
+201.4375
+],
+"verts": 2382
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_69.SM_Tree_Pine_A_Big_69",
+"min": [
+-822.5625,
+-982.3125,
+-597.25
+],
+"max": [
+422.3125,
+148.0625,
+87.375
+],
+"verts": 1473
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_7.SM_Tree_Pine_A_Big_7",
+"min": [
+-51.9375,
+-51.1875,
+-240.0
+],
+"max": [
+337.8125,
+345.5625,
+45.0625
+],
+"verts": 1284
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_70.SM_Tree_Pine_A_Big_70",
+"min": [
+-1280.625,
+-44.875,
+-683.8125
+],
+"max": [
+145.5625,
+1181.875,
+277.25
+],
+"verts": 2801
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_71.SM_Tree_Pine_A_Big_71",
+"min": [
+-51.0625,
+-528.4375,
+-568.5625
+],
+"max": [
+1214.8125,
+899.4375,
+224.5
+],
+"verts": 2314
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_72.SM_Tree_Pine_A_Big_72",
+"min": [
+-1553.75,
+-859.375,
+-771.25
+],
+"max": [
+58.0625,
+561.9375,
+374.875
+],
+"verts": 3244
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_73.SM_Tree_Pine_A_Big_73",
+"min": [
+-54.25,
+-395.0625,
+-826.6875
+],
+"max": [
+1242.75,
+1867.6875,
+136.1875
+],
+"verts": 2714
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_74.SM_Tree_Pine_A_Big_74",
+"min": [
+-74.1875,
+-1192.125,
+-920.4375
+],
+"max": [
+1448.5625,
+247.0625,
+155.0625
+],
+"verts": 3351
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_75.SM_Tree_Pine_A_Big_75",
+"min": [
+-1116.5625,
+-925.1875,
+-984.8125
+],
+"max": [
+171.0,
+59.625,
+95.0625
+],
+"verts": 1929
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_76.SM_Tree_Pine_A_Big_76",
+"min": [
+-978.25,
+-248.0,
+-375.4375
+],
+"max": [
+323.0625,
+1096.9375,
+321.6875
+],
+"verts": 1259
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_77.SM_Tree_Pine_A_Big_77",
+"min": [
+-161.6875,
+-150.625,
+-614.0
+],
+"max": [
+1853.25,
+986.5625,
+179.4375
+],
+"verts": 3303
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_78.SM_Tree_Pine_A_Big_78",
+"min": [
+-1294.9375,
+-476.5625,
+-692.4375
+],
+"max": [
+48.75,
+820.625,
+80.5625
+],
+"verts": 1460
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_79.SM_Tree_Pine_A_Big_79",
+"min": [
+-283.625,
+-50.625,
+-482.8125
+],
+"max": [
+1038.0625,
+1618.6875,
+303.125
+],
+"verts": 3306
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_8.SM_Tree_Pine_A_Big_8",
+"min": [
+-40.75,
+-324.75,
+-216.8125
+],
+"max": [
+393.5,
+40.875,
+57.9375
+],
+"verts": 1281
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_80.SM_Tree_Pine_A_Big_80",
+"min": [
+-75.5625,
+-1490.5625,
+-1019.0625
+],
+"max": [
+1455.25,
+465.8125,
+174.375
+],
+"verts": 3445
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_81.SM_Tree_Pine_A_Big_81",
+"min": [
+-1266.0625,
+-943.1875,
+-596.5
+],
+"max": [
+363.9375,
+189.6875,
+296.8125
+],
+"verts": 1620
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_82.SM_Tree_Pine_A_Big_82",
+"min": [
+-1362.625,
+-120.1875,
+-711.5
+],
+"max": [
+225.1875,
+1269.5625,
+266.375
+],
+"verts": 2090
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_83.SM_Tree_Pine_A_Big_83",
+"min": [
+-91.5,
+-372.375,
+-511.875
+],
+"max": [
+1566.25,
+867.625,
+353.25
+],
+"verts": 1847
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_84.SM_Tree_Pine_A_Big_84",
+"min": [
+-1258.1875,
+-589.4375,
+-828.3125
+],
+"max": [
+71.4375,
+749.9375,
+120.0625
+],
+"verts": 1930
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_85.SM_Tree_Pine_A_Big_85",
+"min": [
+-433.25,
+-53.5625,
+-876.1875
+],
+"max": [
+1228.625,
+2112.6875,
+331.5
+],
+"verts": 2837
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_86.SM_Tree_Pine_A_Big_86",
+"min": [
+-84.0625,
+-1725.25,
+-959.3125
+],
+"max": [
+1320.625,
+49.0625,
+77.25
+],
+"verts": 3044
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_87.SM_Tree_Pine_A_Big_87",
+"min": [
+-1395.0,
+-2046.75,
+-1168.5
+],
+"max": [
+123.5,
+77.8125,
+197.1875
+],
+"verts": 3286
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_88.SM_Tree_Pine_A_Big_88",
+"min": [
+-1127.75,
+-148.5625,
+-691.125
+],
+"max": [
+301.375,
+1458.8125,
+210.625
+],
+"verts": 2118
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_89.SM_Tree_Pine_A_Big_89",
+"min": [
+-72.875,
+-236.0,
+-863.9375
+],
+"max": [
+1681.0,
+916.5,
+133.125
+],
+"verts": 3047
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_9.SM_Tree_Pine_A_Big_9",
+"min": [
+-133.0625,
+-122.875,
+-50.25
+],
+"max": [
+43.5,
+42.625,
+36.5625
+],
+"verts": 114
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_90.SM_Tree_Pine_A_Big_90",
+"min": [
+-2134.5625,
+-783.75,
+-933.3125
+],
+"max": [
+55.125,
+817.3125,
+195.5
+],
+"verts": 3463
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_91.SM_Tree_Pine_A_Big_91",
+"min": [
+-653.0,
+-81.75,
+-777.625
+],
+"max": [
+1091.5625,
+2047.6875,
+283.875
+],
+"verts": 2614
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_92.SM_Tree_Pine_A_Big_92",
+"min": [
+-91.9375,
+-1393.0,
+-645.5
+],
+"max": [
+1555.125,
+158.8125,
+342.8125
+],
+"verts": 2252
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_93.SM_Tree_Pine_A_Big_93",
+"min": [
+-760.125,
+-1233.4375,
+-674.8125
+],
+"max": [
+528.4375,
+104.4375,
+256.0
+],
+"verts": 1792
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_94.SM_Tree_Pine_A_Big_94",
+"min": [
+-1413.5,
+-92.0625,
+-690.9375
+],
+"max": [
+534.75,
+1263.0,
+271.375
+],
+"verts": 1696
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_95.SM_Tree_Pine_A_Big_95",
+"min": [
+-143.4375,
+-559.1875,
+-407.0625
+],
+"max": [
+1473.625,
+1269.375,
+586.5625
+],
+"verts": 1710
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_96.SM_Tree_Pine_A_Big_96",
+"min": [
+-1571.1875,
+-681.5625,
+-681.5625
+],
+"max": [
+50.375,
+1287.625,
+153.9375
+],
+"verts": 1907
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_97.SM_Tree_Pine_A_Big_97",
+"min": [
+-400.9375,
+-72.5,
+-809.8125
+],
+"max": [
+1536.8125,
+2533.1875,
+296.1875
+],
+"verts": 3978
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_98.SM_Tree_Pine_A_Big_98",
+"min": [
+-138.875,
+-1854.625,
+-615.8125
+],
+"max": [
+2217.0,
+77.25,
+755.75
+],
+"verts": 3418
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Big_99.SM_Tree_Pine_A_Big_99",
+"min": [
+-1604.875,
+-2110.6875,
+-934.75
+],
+"max": [
+317.3125,
+401.25,
+246.0
+],
+"verts": 3095
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5.SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5",
+"min": [
+-22.125,
+-22.3125,
+-1.75
+],
+"max": [
+47.8125,
+72.875,
+946.1875
+],
+"verts": 55
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Trunk.SM_Tree_Pine_A_Trunk",
+"min": [
+-1020.875,
+-1054.25,
+-1696.5625
+],
+"max": [
+1176.5625,
+1082.625,
+20738.812
+],
+"verts": 287812
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5.SM_Tree_Pine_A_Tree_Windswept_Big_Branches__5",
+"min": [
+-22.125,
+-22.3125,
+-1.75
+],
+"max": [
+47.8125,
+72.875,
+946.1875
+],
+"verts": 55
+},
+{
+"path": "/Game/Env/Bio/Tree/Pine/Tree_Windswept_A/InstanceMeshDefinitions/SM_Tree_Windswept_A_Tree_Protoype_Branch.SM_Tree_Windswept_A_Tree_Protoype_Branch",
+"min": [
+-367.5625,
+-8.75,
+-246.5
+],
+"max": [
+382.4375,
+982.25,
+134.1875
+],
+"verts": 4536
+}
+]

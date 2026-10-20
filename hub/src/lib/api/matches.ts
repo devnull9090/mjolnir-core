@@ -17,11 +17,18 @@
  *
  * What a report says is the host's word. The standings are recorded as
  * reported; ranking built on them later should weigh hosts accordingly.
+ *
+ * Chat is kept apart (migrations/0020): the host's game sends every match's
+ * chat log, private games' too. A public match's chat shows on its match
+ * page (players are told in game that public matches post their chat); a
+ * private game's is read only by moderators, to judge the player reports
+ * filed from it.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { createRoute, z } from "@hono/zod-openapi";
 
 import type { ApiEnv } from "./bindings";
+import { requireModerator } from "./account";
 import { requireScoped } from "./auth";
 import { ErrorSchema, avatarUrl } from "./schemas";
 
@@ -104,6 +111,50 @@ const MatchClaimSchema = z
   })
   .openapi("MatchClaim");
 
+export const MAX_CHAT_LINES = 5000;
+/** Lines per INSERT: keeps each statement's JSON well under D1's 2 MB value cap. */
+const CHAT_CHUNK = 1000;
+
+const MatchChatLineInputSchema = z
+  .object({
+    t_ms: z.number().int().min(0).max(MAX_DURATION_MS),
+    /** The sender's player index; -1 for a line no player sent. */
+    index: z.number().int().min(-1).max(15),
+    name: PLAYER_NAME.openapi({ description: "The sender's in-game (Steam or Xbox) name." }),
+    user_id: z.string().max(64).nullable().optional().openapi({
+      description: "The hub account the host's game resolved for the sender, when it had one.",
+    }),
+    display: z.string().max(64).nullable().optional().openapi({ description: "That account's hub name." }),
+    team: z.enum(["red", "blue"]).nullable().optional(),
+    channel: z.enum(["all", "team"]).default("all"),
+    text: z.string().min(1).max(300),
+  })
+  .openapi("MatchChatLineInput");
+
+const MatchChatLogSchema = z
+  .object({
+    host_match_id: HOST_MATCH_ID,
+    map_code: MAP_CODE.nullable().optional(),
+    /** Unix seconds, the host's clock. */
+    started_at: z.number().int().min(0).optional(),
+    lines: z.array(MatchChatLineInputSchema).max(MAX_CHAT_LINES),
+  })
+  .openapi("MatchChatLog");
+
+const MatchChatLineSchema = z
+  .object({
+    seq: z.number(),
+    t_ms: z.number(),
+    index: z.number(),
+    name: z.string(),
+    user_id: z.string().nullable(),
+    display_name: z.string().nullable(),
+    team: z.enum(["red", "blue"]).nullable(),
+    channel: z.enum(["all", "team"]),
+    text: z.string(),
+  })
+  .openapi("MatchChatLine");
+
 const LinkedUserSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -172,12 +223,43 @@ const MatchEventSchema = z
   })
   .openapi("MatchEvent");
 
+const MatchChatEntrySchema = z
+  .object({
+    t_ms: z.number(),
+    /** The sender's player index; -1 for a line no player sent. */
+    index: z.number(),
+    /** The sender's in-game name. */
+    name: z.string(),
+    /** The hub name the host's game showed; only with `user`. */
+    display_name: z.string().nullable(),
+    /** The sender's hub account, only when the line's account is the one linked to that seat. */
+    user: LinkedUserSchema.nullable(),
+    team: z.enum(["red", "blue"]).nullable(),
+    channel: z.enum(["all", "team"]),
+    text: z.string(),
+  })
+  .openapi("MatchChatEntry");
+
 const MatchDetailSchema = MatchSummarySchema.omit({ player: true })
   .extend({
     players: z.array(MatchPlayerSchema),
     events: z.array(MatchEventSchema),
+    /** The match's chat, in order; empty when the host's game sent none. */
+    chat: z.array(MatchChatEntrySchema),
   })
   .openapi("MatchDetail");
+
+const MatchChatTranscriptSchema = z
+  .object({
+    host_match_id: z.string(),
+    map_code: z.string().nullable(),
+    started_at: z.string().nullable(),
+    received_at: z.string(),
+    /** The host whose game sent the log. */
+    reporter: LinkedUserSchema.nullable(),
+    lines: z.array(MatchChatLineSchema),
+  })
+  .openapi("MatchChatTranscript");
 
 const PlayerTotalsSchema = z
   .object({
@@ -199,8 +281,11 @@ export type MatchSummary = z.infer<typeof MatchSummarySchema>;
 export type MatchDetail = z.infer<typeof MatchDetailSchema>;
 export type MatchPlayer = z.infer<typeof MatchPlayerSchema>;
 export type MatchEvent = z.infer<typeof MatchEventSchema>;
+export type MatchChatEntry = z.infer<typeof MatchChatEntrySchema>;
 export type PlayerTotals = z.infer<typeof PlayerTotalsSchema>;
+export type MatchChatTranscript = z.infer<typeof MatchChatTranscriptSchema>;
 type MatchReport = z.infer<typeof MatchReportSchema>;
+type MatchChatLog = z.infer<typeof MatchChatLogSchema>;
 
 // ── Standings ─────────────────────────────────────────────────────────
 
@@ -375,7 +460,7 @@ export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches:
 }
 
 export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> {
-  const [head, players, events] = await db.batch([
+  const [head, players, events, chat] = await db.batch([
     db.prepare(
       `SELECT ${SUMMARY_COLUMNS}
        FROM matches m
@@ -391,6 +476,20 @@ export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> 
        ORDER BY p.place, p.player_index`,
     ).bind(id),
     db.prepare(`SELECT * FROM match_events WHERE match_id = ?1 ORDER BY seq`).bind(id),
+    // Only the log the match's own host sent. A line names an account only
+    // when it is the one linked to the sender's seat: the host's word is
+    // not enough to put an account's name to a line on a public page.
+    db.prepare(
+      `SELECT l.*, u.id AS u_id, u.display_name AS u_display_name, u.discord_username AS u_username,
+              u.discord_id AS u_discord_id, u.discord_avatar AS u_avatar
+       FROM matches m
+       JOIN match_chat_logs cl ON cl.host_match_id = m.host_match_id AND cl.reporter_user_id = m.reporter_user_id
+       JOIN match_chat_lines l ON l.host_match_id = cl.host_match_id
+       LEFT JOIN match_players p ON p.match_id = m.id AND p.player_index = l.player_index AND p.user_id = l.user_id
+       LEFT JOIN users u ON u.id = p.user_id AND u.banned_at IS NULL
+       WHERE m.id = ?1
+       ORDER BY l.seq`,
+    ).bind(id),
   ]);
   const row = head.results[0] as Row | undefined;
   if (!row) return null;
@@ -415,6 +514,19 @@ export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> 
       cause_pos: pos(r, "cause"),
       effect_pos: pos(r, "effect"),
     })),
+    chat: (chat.results as Row[]).map((r) => {
+      const user = linkedUser(r);
+      return {
+        t_ms: r.t_ms as number,
+        index: r.player_index as number,
+        name: r.name as string,
+        display_name: user ? ((r.display_name as string) ?? null) : null,
+        user,
+        team: (r.team as "red" | "blue" | null) ?? null,
+        channel: r.channel as "all" | "team",
+        text: r.text as string,
+      };
+    }),
   };
 }
 
@@ -560,6 +672,90 @@ function reportStatements(db: Db, id: string, userId: string, body: MatchReport)
   ];
 }
 
+/**
+ * The statements that store a chat log, all in one batch: the log's row, out
+ * with the lines a previous send stored, in with these. Each statement is
+ * guarded on the log being the caller's, so a race with another account's
+ * first send writes nothing of the loser's.
+ */
+function chatStatements(db: Db, userId: string, body: MatchChatLog) {
+  const started = body.started_at === undefined ? null : matchTimes(body.started_at, 0).started;
+  const owned = `EXISTS (SELECT 1 FROM match_chat_logs WHERE host_match_id = ?1 AND reporter_user_id = ?2)`;
+  const lines = body.lines.map((l) => ({
+    t: l.t_ms,
+    i: l.index,
+    n: l.name,
+    u: l.user_id || null,
+    d: l.display || null,
+    tm: l.team ?? null,
+    ch: l.channel,
+    x: l.text,
+  }));
+  const chunks: (typeof lines)[] = [];
+  for (let i = 0; i < lines.length; i += CHAT_CHUNK) chunks.push(lines.slice(i, i + CHAT_CHUNK));
+  return [
+    db.prepare(
+      `INSERT INTO match_chat_logs (host_match_id, reporter_user_id, map_code, started_at, line_count)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT (host_match_id) DO UPDATE SET
+         map_code = COALESCE(excluded.map_code, map_code),
+         started_at = COALESCE(excluded.started_at, started_at),
+         line_count = excluded.line_count,
+         received_at = datetime('now')
+       WHERE reporter_user_id = excluded.reporter_user_id`,
+    ).bind(body.host_match_id, userId, body.map_code ?? null, started, body.lines.length),
+    db.prepare(`DELETE FROM match_chat_lines WHERE host_match_id = ?1 AND ${owned}`).bind(
+      body.host_match_id,
+      userId,
+    ),
+    ...chunks.map((chunk, n) =>
+      db.prepare(
+        `INSERT INTO match_chat_lines (host_match_id, seq, t_ms, player_index, name, user_id, display_name,
+           team, channel, text)
+         SELECT ?1, ?3 + CAST(l.key AS INTEGER), json_extract(l.value, '$.t'), json_extract(l.value, '$.i'),
+                json_extract(l.value, '$.n'), json_extract(l.value, '$.u'), json_extract(l.value, '$.d'),
+                json_extract(l.value, '$.tm'), json_extract(l.value, '$.ch'), json_extract(l.value, '$.x')
+         FROM json_each(?4) l
+         WHERE ${owned}`,
+      ).bind(body.host_match_id, userId, n * CHAT_CHUNK, JSON.stringify(chunk)),
+    ),
+  ];
+}
+
+/** A match's chat log, as moderators read it; null when none was sent. */
+export async function getMatchChat(db: Db, hostMatchId: string): Promise<MatchChatTranscript | null> {
+  const [head, lines] = await db.batch([
+    db.prepare(
+      `SELECT l.*, u.id AS u_id, u.display_name AS u_display_name, u.discord_username AS u_username,
+              u.discord_id AS u_discord_id, u.discord_avatar AS u_avatar
+       FROM match_chat_logs l
+       LEFT JOIN users u ON u.id = l.reporter_user_id
+       WHERE l.host_match_id = ?1`,
+    ).bind(hostMatchId),
+    db.prepare(`SELECT * FROM match_chat_lines WHERE host_match_id = ?1 ORDER BY seq`).bind(hostMatchId),
+  ]);
+  const row = head.results[0] as Row | undefined;
+  if (!row) return null;
+  return {
+    host_match_id: row.host_match_id as string,
+    map_code: (row.map_code as string) ?? null,
+    started_at: (row.started_at as string) ?? null,
+    received_at: row.received_at as string,
+    reporter: linkedUser(row),
+    lines: (lines.results as Row[]).map((r) => ({
+      seq: r.seq as number,
+      t_ms: r.t_ms as number,
+      index: r.player_index as number,
+      name: r.name as string,
+      user_id: (r.user_id as string) ?? null,
+      display_name: (r.display_name as string) ?? null,
+      team: (r.team as "red" | "blue" | null) ?? null,
+      channel: r.channel as "all" | "team",
+      text: r.text as string,
+    })),
+  };
+}
+
 export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
   // ── Report ──────────────────────────────────────────────────────────
 
@@ -683,6 +879,82 @@ export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
     },
   );
 
+  // ── Chat log ────────────────────────────────────────────────────────
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/matches/chat",
+      tags: ["matches"],
+      summary: "Send the chat log of a match the caller hosted",
+      description:
+        "The host's game records every chat line its match carried and sends the whole log, at " +
+        "checkpoints during the match and once more at the end; each send replaces the last. " +
+        "`host_match_id` is the host's own id for the match, as POST /matches takes it, but the " +
+        "match need not be reported: a private game's chat is kept too. A reported public match " +
+        "shows its chat on its match page (GET /matches/{id}); otherwise only moderators read it " +
+        "(GET /moderation/match-chat/{host_match_id}), to judge reports filed from the match. " +
+        "Needs the `lobbies:write` scope.",
+      request: { body: { content: { "application/json": { schema: MatchChatLogSchema } } } },
+      responses: {
+        201: {
+          description: "Recorded.",
+          content: { "application/json": { schema: z.object({ host_match_id: z.string(), lines: z.number() }) } },
+        },
+        200: {
+          description: "Replaced the log this account sent before.",
+          content: { "application/json": { schema: z.object({ host_match_id: z.string(), lines: z.number() }) } },
+        },
+        400: { description: "Invalid log.", content: { "application/json": { schema: ErrorSchema } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Missing scope.", content: { "application/json": { schema: ErrorSchema } } },
+        409: { description: "That match id is another account's.", content: { "application/json": { schema: ErrorSchema } } },
+        429: { description: "Too many sends.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      // A host sends a match's log several times (checkpoints, then the
+      // end), and a client retries a 429 until it lands, so the budget sits
+      // well above a long session of matches rather than at the report's.
+      const auth = await requireScoped(c, "lobbies:write", "match_chat", 600);
+      const body = c.req.valid("json");
+      const existing = await c.env.DB.prepare(
+        `SELECT reporter_user_id FROM match_chat_logs WHERE host_match_id = ?1`,
+      )
+        .bind(body.host_match_id)
+        .first<{ reporter_user_id: string }>();
+      if (existing && existing.reporter_user_id !== auth.user.id) return c.json({ error: "conflict" }, 409);
+      await c.env.DB.batch(chatStatements(c.env.DB, auth.user.id, body));
+      return c.json({ host_match_id: body.host_match_id, lines: body.lines.length }, existing ? 200 : 201);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/moderation/match-chat/{host_match_id}",
+      tags: ["moderation"],
+      summary: "A match's chat log (moderators)",
+      description:
+        "Every line the host's game sent for the match, in order, with the hub account the host " +
+        "resolved for each sender when it had one. What a log says is the host's word.",
+      request: { params: z.object({ host_match_id: HOST_MATCH_ID }) },
+      responses: {
+        200: { description: "The log.", content: { "application/json": { schema: MatchChatTranscriptSchema } } },
+        400: { description: "Not a match id.", content: { "application/json": { schema: ErrorSchema } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No log for that match.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      await requireModerator(c);
+      const log = await getMatchChat(c.env.DB, c.req.valid("param").host_match_id);
+      if (!log) return c.json({ error: "not_found" }, 404);
+      return c.json(log, 200);
+    },
+  );
+
   // ── Browse ──────────────────────────────────────────────────────────
 
   app.openapi(
@@ -720,7 +992,7 @@ export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
       method: "get",
       path: "/matches/{id}",
       tags: ["matches"],
-      summary: "One match: standings and every event, in order",
+      summary: "One match: standings, every event and the chat, in order",
       request: { params: z.object({ id: z.string() }) },
       responses: {
         200: { description: "The match.", content: { "application/json": { schema: MatchDetailSchema } } },

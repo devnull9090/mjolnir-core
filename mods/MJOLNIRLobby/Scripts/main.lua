@@ -3618,7 +3618,13 @@ local AUTO = {
     end,
     kick = function(args, ban)
         local wanted = string.lower(table.concat(args, " "))
-        for _, p in ipairs(remotePlayers()) do
+        -- An exact name first: chat's /kick names the player exactly, and
+        -- "Bob" must not kick "Bobby" for being listed earlier.
+        local players = remotePlayers()
+        table.sort(players, function(a, b)
+            return (string.lower(a.name) == wanted and 0 or 1) < (string.lower(b.name) == wanted and 0 or 1)
+        end)
+        for _, p in ipairs(players) do
             if string.lower(p.name):find(wanted, 1, true) then
                 if ban then
                     loadBans()[string.lower(p.name)] = { name = p.name, at = os.time() }

@@ -35,8 +35,9 @@ support them.
 
 [Get multiplayer and read the FAQ](https://mjolnircore.com/multiplayer), download
 the launcher, and join the community to play or create. The current alpha supports
-up to 16 players, each on their own PC, and is tested on Windows with the Steam
-version of the game.
+up to 16 players, each on their own PC, and is tested on Windows with both the
+Steam and the Xbox app (Game Pass) versions of the game. Steam and Xbox app
+players can play together.
 
 ## Repository Structure
 
@@ -165,11 +166,11 @@ Core framework initialization and `UEHelpers` utility library.
 ## Quick Start
 
 ### Prerequisites
-- [Halo Campaign Evolved](https://store.steampowered.com/app/2806050/Halo_Campaign_Evolved/) (Steam)
+- [Halo Campaign Evolved](https://store.steampowered.com/app/2806050/Halo_Campaign_Evolved/) (Steam, or the Xbox app / Game Pass)
 - [RE-UE4SS v3.0.1 experimental](https://github.com/UE4SS-RE/RE-UE4SS/releases) (`dwmapi.dll` proxy)
 
 ### Installation
-1. Install UE4SS into `Meteorite/Binaries/Win64/ue4ss/`
+1. Install UE4SS into `Meteorite/Binaries/Win64/ue4ss/` (`Meteorite/Binaries/WinGDK/ue4ss/` on the Xbox app)
 2. Copy the `mods/` folder contents into `ue4ss/Mods/`
 3. Copy the `signatures/` folder contents into `ue4ss/UE4SS_Signatures/`
 4. Copy `config/UE4SS-settings.ini` to `ue4ss/UE4SS-settings.ini`
@@ -179,7 +180,7 @@ Core framework initialization and `UEHelpers` utility library.
    MJOLNIRConsoleEnabler : 1
    MJOLNIRFlyCam : 1
    ```
-6. Launch the game via Steam
+6. Launch the game via Steam or the Xbox app
 
 ### Reloading Mods
 UE4SS reads `mods.txt` and loads Lua scripts during process startup in the tested configuration.

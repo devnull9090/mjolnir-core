@@ -8,7 +8,7 @@ export const MULTIPLAYER_RELEASE_PATH = "/blog/classic-multiplayer-alpha";
 // Published gameplay captures from the multiplayer alpha announcement.
 // Absolute URLs let local previews use the published media, too.
 export const MULTIPLAYER_IMAGES = {
-  bloodGulch: SITE_URL + "/api/v1/media/85842056-a669-4f26-845f-ade0ed2818cb",
+  bloodGulch: SITE_URL + "/api/v1/media/a5f46d72-16af-4e0e-866d-226645d19df1",
   dangerCanyon: SITE_URL + "/api/v1/media/4a528587-20d4-4503-acc8-73567f30b464",
   chillOut: SITE_URL + "/api/v1/media/0408e37f-635c-42f0-a978-3b74da4965fb",
 };
@@ -117,7 +117,7 @@ export const MULTIPLAYER_FAQS = [
   {
     id: "requirements",
     question: "What do I need to play? Does it work with Game Pass?",
-    answer: "You need Windows 10 or 11 (64-bit), the MJOLNIR Launcher, and your own copy of Halo Campaign Evolved. The multiplayer alpha is built and tested on Steam. The Xbox app / Game Pass version has not been verified yet. MJOLNIR is free and open source; the base game is a separate requirement.",
+    answer: "You need Windows 10 or 11 (64-bit), the MJOLNIR Launcher, and your own copy of Halo Campaign Evolved. The multiplayer alpha works on both the Steam and the Xbox app / Game Pass versions, and Steam and Game Pass players can play in the same game. If a Steam player is dropped soon after joining a Game Pass host, check that the host's Xbox account allows cross-network play in its privacy settings. MJOLNIR is free and open source; the base game is a separate requirement.",
     href: "/download",
     linkLabel: "Check downloads and requirements",
   },

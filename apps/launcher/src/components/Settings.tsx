@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import GameLocation from "./GameLocation";
+import CrashReports from "./CrashReports";
 
 interface LauncherSettings {
   launch_method: string;
@@ -354,6 +355,10 @@ export default function Settings() {
           </button>
         </div>
       </section>
+
+      <hr className="border-border-subtle mb-8" />
+
+      <CrashReports />
 
       <hr className="border-border-subtle mb-8" />
 

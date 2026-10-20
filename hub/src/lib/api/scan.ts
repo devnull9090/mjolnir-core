@@ -10,18 +10,26 @@
  * (findings recorded to release_scans, chunks to release_chunks) is what a
  * future Queue-consumer scanner would keep.
  */
-import { unzipSync } from "fflate";
+import { Unzip, UnzipInflate } from "fflate";
 
 import type { DeclaredChanges } from "./changes";
 import { DeclaredChangesSchema, MAX_CHANGES_BYTES } from "./changes";
 import type { Manifest } from "./manifest";
 import { ManifestSchema } from "./manifest";
 import { chunkIdToHex, parseTocChunkIds } from "./iostore";
+import { Sha256 } from "./sha256";
 
-/** Hard cap on the archive as stored; the Worker holds it in memory. */
-export const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
+/** Hard cap on an archive uploaded in one request (PUT .../archive): under
+ *  the 100 MB request body Cloudflare takes. Its members are hashed as they
+ *  stream (scanArchive), never held whole. */
+export const MAX_ARCHIVE_BYTES = 90 * 1024 * 1024;
+/** Hard cap on an archive uploaded in parts (.../archive/multipart): a
+ *  remastered map with its foliage baked in runs to 117 MB (Timberland
+ *  2.1.0, 2026-10-20). /complete scans it from R2 as a stream
+ *  (scanArchiveStream), so this is not bounded by the Worker's memory. */
+export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
-const MAX_UNPACKED_BYTES = 256 * 1024 * 1024;
+const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
 
 export const SCANNER_VERSION = "ts-1";
 
@@ -43,29 +51,162 @@ export interface ScanResult {
   /** Deduped raw 12-byte chunk IDs across every container in the archive. */
   chunkIds: Uint8Array[];
   containerCount: number;
-  /** The unzipped archive, so later steps (signature verification) never
-   *  unzip a second time. Empty when the zip did not open. */
+  /** The members the scan reads (`.json`, `.utoc`), unzipped, so later steps
+   *  (signature verification) never unzip a second time. Empty when the zip
+   *  did not open. */
   files: Record<string, Uint8Array>;
+  /** Every member's SHA-256 (hex) and size, directory entries included. */
+  hashes: Record<string, string>;
+  sizes: Record<string, number>;
+}
+
+/** Members read whole; everything else (container data, images) is hashed
+ *  as it streams out and dropped: held whole beside the archive, a
+ *  remastered map's containers went past the Worker's 128 MB. */
+const READ_WHOLE = /\.(json|utoc)$/i;
+
+/** How much of the archive is handed to the unzip at a time (unpack). */
+const PUSH_SLICE = 256 * 1024;
+
+interface Unpacked {
+  files: Record<string, Uint8Array>;
+  hashes: Record<string, string>;
+  sizes: Record<string, number>;
+}
+
+/** The archive's members, streamed: `files` the ones READ_WHOLE keeps, the
+ *  hash and size of each. Fed the archive a piece at a time (`push`), so it
+ *  never needs the archive whole; `finish` throws on a broken zip or past
+ *  MAX_UNPACKED_BYTES. */
+function unpacker() {
+  const out: Unpacked = { files: {}, hashes: {}, sizes: {} };
+  const open = new Set<string>();
+  let unpacked = 0;
+  let failure: unknown = null;
+  const unzip = new Unzip((file) => {
+    const keep = READ_WHOLE.test(file.name);
+    const parts: Uint8Array[] = [];
+    const hash = new Sha256();
+    let size = 0;
+    open.add(file.name);
+    file.ondata = (e, chunk, final) => {
+      if (failure) return;
+      if (e) {
+        failure = e;
+        return;
+      }
+      size += chunk.length;
+      unpacked += chunk.length;
+      if (unpacked > MAX_UNPACKED_BYTES) {
+        failure = new Error("unpacked size limit exceeded");
+        file.terminate();
+        return;
+      }
+      hash.update(chunk);
+      if (keep) parts.push(chunk.slice());
+      if (final) {
+        open.delete(file.name);
+        out.sizes[file.name] = size;
+        out.hashes[file.name] = hash.hex();
+        if (keep) {
+          const whole = new Uint8Array(size);
+          let at = 0;
+          for (const part of parts) {
+            whole.set(part, at);
+            at += part.length;
+          }
+          out.files[file.name] = whole;
+        }
+      }
+    };
+    file.start();
+  });
+  unzip.register(UnzipInflate);
+  return {
+    /** In slices: fflate inflates all the input it is handed in one go, so
+     *  one push of the whole archive inflated a member whole, and the CE
+     *  runtime's 92 MB container (37 MB packed) took the Worker past its
+     *  memory (Cloudflare 1102, runtime 1.12.0, 2026-10-20). A slice
+     *  inflates to a few MB at most, hashed and dropped. */
+    push(bytes: Uint8Array, final: boolean) {
+      if (failure) return;
+      if (bytes.length === 0) {
+        if (final) unzip.push(bytes, true);
+        return;
+      }
+      for (let at = 0; at < bytes.length; at += PUSH_SLICE) {
+        unzip.push(bytes.subarray(at, at + PUSH_SLICE), final && at + PUSH_SLICE >= bytes.length);
+        if (failure) return;
+      }
+    },
+    finish(): Unpacked {
+      if (failure) throw failure;
+      if (open.size > 0) throw new Error(`truncated member ${[...open][0]}`);
+      return out;
+    },
+  };
+}
+
+function unpack(bytes: Uint8Array): Unpacked {
+  const u = unpacker();
+  u.push(bytes, true);
+  return u.finish();
+}
+
+/** An archive scanned straight from a stream (R2's body): never held whole,
+ *  so its size is not bounded by the Worker's memory. Also its SHA-256 and
+ *  size, which a multipart upload cannot work out as it goes. Stops reading
+ *  past `maxBytes`, failing the scan. */
+export async function scanArchiveStream(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Promise<{ scan: ScanResult; sha256: string; size: number }> {
+  const u = unpacker();
+  const hash = new Sha256();
+  let size = 0;
+  let unpacked: Unpacked | Error;
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        u.push(new Uint8Array(0), true);
+        break;
+      }
+      size += value.length;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new Error(`archive is over ${maxBytes / (1024 * 1024)} MiB`);
+      }
+      hash.update(value);
+      u.push(value, false);
+    }
+    unpacked = u.finish();
+  } catch (e) {
+    unpacked = e instanceof Error ? e : new Error(String(e));
+  }
+  return { scan: inspect(unpacked), sha256: hash.hex(), size };
 }
 
 export function scanArchive(bytes: Uint8Array): ScanResult {
+  let unpacked: Unpacked | Error;
+  try {
+    unpacked = unpack(bytes);
+  } catch (e) {
+    unpacked = e instanceof Error ? e : new Error(String(e));
+  }
+  return inspect(unpacked);
+}
+
+/** The checks on an unpacked archive (or why it did not unpack). */
+function inspect(unpacked: Unpacked | Error): ScanResult {
   const findings: Finding[] = [];
   const err = (code: string, message: string) => findings.push({ level: "error", code, message });
   const warn = (code: string, message: string) =>
     findings.push({ level: "warning", code, message });
 
-  let files: Record<string, Uint8Array>;
-  try {
-    let unpacked = 0;
-    files = unzipSync(bytes, {
-      filter: (f) => {
-        unpacked += f.originalSize ?? 0;
-        if (unpacked > MAX_UNPACKED_BYTES) throw new Error("unpacked size limit exceeded");
-        return true;
-      },
-    });
-  } catch (e) {
-    err("bad_zip", `Archive did not unzip: ${e instanceof Error ? e.message : e}`);
+  if (unpacked instanceof Error) {
+    err("bad_zip", `Archive did not unzip: ${unpacked.message}`);
     return {
       verdict: "fail",
       findings,
@@ -74,11 +215,14 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
       chunkIds: [],
       containerCount: 0,
       files: {},
+      hashes: {},
+      sizes: {},
     };
   }
+  const { files, hashes, sizes } = unpacked;
 
   // Path hygiene before anything is trusted.
-  for (const name of Object.keys(files)) {
+  for (const name of Object.keys(sizes)) {
     if (name.includes("..") || name.startsWith("/") || /^[a-zA-Z]:/.test(name)) {
       err("path_traversal", `Illegal path in archive: ${name}`);
     }
@@ -140,10 +284,13 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
 
   // File inventory: reject-by-default.
   const utocs: string[] = [];
-  for (const [name, data] of Object.entries(files)) {
-    if (name.endsWith("/") || data.length === 0) continue; // directory entries
+  for (const [name, size] of Object.entries(sizes)) {
+    if (name.endsWith("/") || size === 0) continue; // directory entries
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
-    if (!ALLOWED.has(ext)) {
+    // A map's own data beside its level file: a remastered map's foliage
+    // placements (foliage.bin, read by the level loader, never run).
+    const mapData = ext === "bin" && name.startsWith("map/");
+    if (!ALLOWED.has(ext) && !mapData) {
       err("forbidden_file", `Content releases may not carry .${ext} files: ${name}`);
       continue;
     }
@@ -165,15 +312,15 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
         continue;
       }
       const cas = name.slice(0, -"utoc".length) + "ucas";
-      if (!files[cas]) err("orphan_utoc", `${name} has no matching .ucas.`);
+      if (!(cas in sizes)) err("orphan_utoc", `${name} has no matching .ucas.`);
       if (toc.chunkIds.length === 0) warn("empty_container", `${name} holds no chunks.`);
       for (const id of toc.chunkIds) seen.set(chunkIdToHex(id), id);
     } catch (e) {
       err("bad_container", `${name}: ${e instanceof Error ? e.message : e}`);
     }
   }
-  for (const [name] of Object.entries(files)) {
-    if (name.endsWith(".ucas") && !files[name.slice(0, -"ucas".length) + "utoc"]) {
+  for (const name of Object.keys(sizes)) {
+    if (name.endsWith(".ucas") && !(name.slice(0, -"ucas".length) + "utoc" in sizes)) {
       err("orphan_ucas", `${name} has no matching .utoc.`);
     }
   }
@@ -217,5 +364,7 @@ export function scanArchive(bytes: Uint8Array): ScanResult {
     chunkIds: [...seen.values()],
     containerCount: utocs.length,
     files,
+    hashes,
+    sizes,
   };
 }

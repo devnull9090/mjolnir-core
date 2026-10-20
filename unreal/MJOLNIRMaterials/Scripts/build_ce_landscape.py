@@ -1,0 +1,263 @@
+"""A converted CE map's ground as a Landscape, in a world of its own.
+
+    set MJ_LANDSCAPE=<dir written by tools/level/build_landscape.py>
+    powershell -File tools/ue/editor_cmd.ps1 -Script Scripts/build_ce_landscape.py
+
+Reads <dir>/landscape.json and builds /Game/Levels/Halo1/Solo/<NAME>/<NAME>
+(MJ_LANDSCAPE_NAME, default LTS: a classic level, its folder labelled for
+chunk MJ_LANDSCAPE_CHUNK, default 979): a Landscape from
+heights.r16 with holes.r8 its visibility layer, drawn with the B30 ground
+master (MJ_LANDSCAPE_MASTER, default /Game/MJOLNIR/CETrial/M_CE_LandscapePBR;
+M_CE_Landscape draws CE's look instead; both from build_ce_materials.py),
+and the world-space bakes in /Game/MJOLNIR/Landscape/<NAME> (T_LandBase,
+T_LandLightmap, T_LandBake, T_LandSunShare, T_LandMask; both folders
+labelled for the chunk). MJOLNIRLevelLoader sets the material's textures and
+parameters at runtime (level.landscape.pbr, or the ground slot's own for the
+CE look); the landscape has dynamic material instances for that.
+
+Then: tools/ue/cook.ps1 -Map /Game/Levels/Halo1/Solo/<NAME>/<NAME> and
+tools/level/bake_editor_world.sh, which retargets the cooked world to the
+game's property layout and bakes the map around it.
+"""
+import json
+import os
+import sys
+from array import array
+
+import unreal
+
+# One landscape a map, each its own world, bake folder and chunk (MJ_LANDSCAPE_NAME,
+# MJ_LANDSCAPE_CHUNK; Death Island's are the defaults, LTS and 979): two maps
+# sharing them would overwrite each other's bakes.
+NAME = os.environ.get("MJ_LANDSCAPE_NAME", "LTS")
+PACKAGE = f"/Game/Levels/Halo1/Solo/{NAME}/{NAME}"
+FOLDER = PACKAGE.rsplit("/", 1)[0]
+# The bakes: nothing in the world refers to them (the loader sets them), so
+# they live where the project always cooks (DirectoriesToAlwaysCook).
+TEXTURES = f"/Game/MJOLNIR/Landscape/{NAME}"
+CHUNK = int(os.environ.get("MJ_LANDSCAPE_CHUNK", "979"))
+MASTER = os.environ.get("MJ_LANDSCAPE_MASTER", "/Game/MJOLNIR/CETrial/M_CE_LandscapePBR")
+
+src = os.environ.get("MJ_LANDSCAPE")
+if not src:
+    raise RuntimeError("set MJ_LANDSCAPE to a build_landscape.py output folder")
+spec = json.load(open(os.path.join(src, "landscape.json"), encoding="utf-8"))
+
+eal = unreal.EditorAssetLibrary
+les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+tools = unreal.AssetToolsHelpers.get_asset_tools()
+
+# Fresh folders: the world and its label, the bakes and theirs. The asset
+# registry gathers in the background at startup: unscanned, the old world
+# was not found to delete, and new_level then refused the path ("an asset
+# already exists"), for whichever map's folder the gather had not reached
+# (Ice Fields, then Yoyorast, 2026-10-16). So scan first, and take what is
+# left off the disk.
+les.new_level("/Game/__MJOLNIR_Scratch")
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([FOLDER, TEXTURES], True)
+for folder in (FOLDER, TEXTURES):
+    if eal.does_directory_exist(folder):
+        eal.delete_directory(folder)
+disk = os.path.join(unreal.Paths.project_content_dir(), FOLDER[len("/Game/"):])
+for leaf in (f"{NAME}.umap", f"PAL_MJOLNIR_{NAME}.uasset"):
+    path = os.path.join(disk, leaf)
+    if os.path.exists(path):
+        unreal.log_warning(f"removing {path} the editor left")
+        os.remove(path)
+master = unreal.load_asset(MASTER)
+if not master:
+    raise RuntimeError(f"no landscape master at {MASTER} (build_ce_materials.py with MJ_CE_ROOT)")
+
+
+def import_texture(file, name):
+    task = unreal.AssetImportTask()
+    task.set_editor_property("filename", file)
+    task.set_editor_property("destination_path", TEXTURES)
+    task.set_editor_property("destination_name", name)
+    task.set_editor_property("replace_existing", True)
+    task.set_editor_property("automated", True)
+    task.set_editor_property("save", False)
+    tools.import_asset_tasks([task])
+    tex = unreal.load_asset(f"{TEXTURES}/{name}")
+    # As the CE masters read every CE bitmap (build_ce_materials.py
+    # ce_texture_settings): gamma values used as they are, BGRA8. The bakes
+    # cover the landscape exactly, so they clamp.
+    tex.set_editor_property("srgb", False)
+    tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
+    tex.set_editor_property("never_stream", True)
+    tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+    tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+    eal.save_loaded_asset(tex)
+    return tex
+
+
+# The bakes, as build_landscape.py names them in the loader's material. The
+# landscape draws with the master itself: a cooked material instance is a
+# package of its own, in stock UE's property layout, which the game misreads
+# (only the world is retargeted, tools/level/bake_editor_world.sh).
+for param, file in spec["textures"].items():
+    import_texture(os.path.join(src, file), f"T_Land{param}")
+# The hole mask for the terrain mesh's ground slots: a texel a vertex, read
+# bilinear at the top mip only.
+for name, file in (spec.get("masks") or {}).items():
+    tex = import_texture(os.path.join(src, file), f"T_{name}")
+    tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+    eal.save_loaded_asset(tex)
+
+try:
+    ok = les.new_level(PACKAGE, False)
+except TypeError:
+    ok = les.new_level(PACKAGE)
+if not ok:
+    raise RuntimeError(f"new_level {PACKAGE} failed")
+world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+size = spec["size"]
+heights = array("H")
+with open(os.path.join(src, spec["heights"]), "rb") as f:
+    heights.frombytes(f.read())
+if sys.byteorder != "little":
+    heights.byteswap()
+if len(heights) != size * size:
+    raise RuntimeError(f"{spec['heights']}: {len(heights)} samples, want {size} x {size}")
+holes = []
+if spec.get("holes"):
+    with open(os.path.join(src, spec["holes"]), "rb") as f:
+        holes = list(f.read())
+landscape = unreal.MjolnirUIBuilderLibrary.create_landscape(
+    world, unreal.Vector(*spec["location"]), unreal.Vector(*spec["scale"]), spec["components"], spec["components"],
+    spec["sections"], spec["quads"], heights.tolist(), master, holes)
+if not landscape:
+    raise RuntimeError("create_landscape failed")
+
+
+def standin(entry):
+    """An editor-only stand-in for a game mesh at its path: a box of the game
+    mesh's bounds with its slots (tools/level/foliage_bake.py). Never cooked
+    (DefaultGame.ini DirectoriesToNeverCook): in game the world's reference
+    resolves to the game's own mesh."""
+    path = entry["path"].split(".", 1)[0]
+    # Made by its full path in C++: create_asset dropped a trailing _<n>
+    # from the name (SM_..._Big_6 became SM_..._Big).
+    mesh = unreal.MjolnirUIBuilderLibrary.create_stand_in_mesh(entry["path"])
+    if not mesh or mesh.get_path_name() != entry["path"]:
+        raise RuntimeError(f"stand-in {entry['path']} came out as {mesh.get_path_name() if mesh else None}")
+    (ox, oy, oz), (ex, ey, ez) = entry["origin"], entry["extent"]
+    corners = [unreal.Vector(ox + sx * ex, oy + sy * ey, oz + sz * ez)
+               for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    normals = [unreal.Vector(sx, sy, sz) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    # The six faces, two triangles each, wound outward (corner index =
+    # 4 * x + 2 * y + z, 0 the minimum on that axis).
+    quads = ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+    indices = [i for a, b, c, d in quads for i in (a, b, c, a, c, d)]
+    uv = [unreal.Vector2D(0, 0)] * len(indices)
+    slots = [unreal.Name(s) for s in entry["slots"]]
+    if not unreal.MjolnirUIBuilderLibrary.build_static_mesh(mesh, corners, normals, indices, uv, uv,
+                                                            [0] * (len(indices) // 3), slots, [], []):
+        raise RuntimeError(f"stand-in {path} did not build")
+    eal.save_loaded_asset(mesh)
+    return mesh
+
+
+def decor_material(entry):
+    """A cooked MIC referring to the native game's material, by a never-cooked stand-in.
+
+    Only the scalar override array ships. No static switches/permutation are
+    authored: in game its parent supplies the real layers, textures and shader.
+    """
+    material = entry["material"]
+    parent_path = material["parent"].split(".", 1)[0]
+    if not parent_path.startswith(("/Game/Env/", "/Game/Megascans/")):
+        raise RuntimeError(f"decor material parent is not a never-cooked game asset: {parent_path}")
+    parent = unreal.load_asset(parent_path)
+    if not parent:
+        folder, name = parent_path.rsplit("/", 1)
+        unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([folder], True)
+        parent = unreal.load_asset(parent_path)
+        if not parent:
+            parent = tools.create_asset(name, folder, unreal.MaterialInstanceConstant,
+                                        unreal.MaterialInstanceConstantFactoryNew())
+            if not parent:
+                raise RuntimeError(f"could not create native material stand-in: {parent_path}")
+            unreal.MaterialEditingLibrary.set_material_instance_parent(
+                parent, unreal.load_asset("/Engine/EngineMaterials/DefaultMaterial"))
+            eal.save_loaded_asset(parent)
+    if not isinstance(parent, unreal.MaterialInstanceConstant):
+        raise RuntimeError(f"native material stand-in has the wrong class: {parent_path}")
+    mi = tools.create_asset(f"MI_{NAME}_{entry['id']}", TEXTURES, unreal.MaterialInstanceConstant,
+                            unreal.MaterialInstanceConstantFactoryNew())
+    if not mi:
+        raise RuntimeError(f"could not create baked decor material: {entry['id']}")
+    unreal.MaterialEditingLibrary.set_material_instance_parent(mi, parent)
+    values = []
+    for key, value in sorted(material["scalars"].items()):
+        name, layer = key.rsplit("#", 1)
+        info = unreal.MaterialParameterInfo(name=unreal.Name(name),
+                    association=unreal.MaterialParameterAssociation.LAYER_PARAMETER, index=int(layer))
+        values.append(unreal.ScalarParameterValue(parameter_info=info, parameter_value=float(value)))
+    # ByInfo includes the layer index; SetMaterialInstanceScalarParameterValue
+    # only takes an association, so cannot address both native rock layers.
+    mi.set_editor_property("scalar_parameter_values", values)
+    if not eal.save_loaded_asset(mi):
+        raise RuntimeError(f"could not save baked decor material: {entry['id']}")
+    return mi
+
+
+# The map's foliage baked into the world (MJ_FOLIAGE: tools/level/foliage_bake.py's
+# spec), as MJOLNIRLevelLoader's Foliage.spawn would place it at runtime.
+FOLIAGE = os.environ.get("MJ_FOLIAGE")
+if FOLIAGE:
+    fspec = json.load(open(FOLIAGE, encoding="utf-8"))
+    # Scanned first, as the world's folder above: a stand-in the registry has
+    # not reached yet would be made afresh over its file, and the editor's
+    # overwrite prompt crashes it unattended.
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(
+        sorted({e["path"].rsplit("/", 1)[0] for e in fspec["standins"]}), True)
+    for entry in fspec["standins"]:
+        standin(entry)
+    groups = fspec["groups"]
+    placed = unreal.MjolnirUIBuilderLibrary.bake_foliage(
+        world, fspec["bin"], fspec["actor"], [g["mesh"] for g in groups], [g["bands"] for g in groups],
+        [unreal.Vector2D(*g["cull"]) for g in groups], [g["flags"] for g in groups])
+    if placed < 0:
+        raise RuntimeError(f"bake_foliage failed for {FOLIAGE}")
+    # The swapped scenery (decor the loader would spawn: game meshes, no
+    # materials of their own), a mesh actor a piece, MJDecor_<id>.
+    decor = fspec.get("decor") or []
+    if decor:
+        pieces = unreal.MjolnirUIBuilderLibrary.bake_decor(
+            world, [d["id"] for d in decor], [d["mesh"] for d in decor], [unreal.Vector(*d["loc"]) for d in decor],
+            [unreal.Vector(*d["rot"]) for d in decor], [unreal.Vector(*d["scale"]) for d in decor],
+            [d["flags"] for d in decor])
+        if pieces < 0:
+            raise RuntimeError(f"bake_decor failed for {FOLIAGE}")
+        # Material work happens in the editor. These entries are omitted from
+        # runtime decor, so UE4SS neither reads their components nor replaces
+        # the saved MIC with the mesh's native material.
+        materials = {f"MJDecor_{d['id']}": d for d in decor if d.get("material")}
+        if materials:
+            material_count = len(materials)
+            actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+            for actor in actors:
+                entry = materials.pop(actor.get_name(), None)
+                if entry:
+                    actor.static_mesh_component.set_material(0, decor_material(entry))
+            if materials:
+                raise RuntimeError(f"baked decor missing for material assignment: {sorted(materials)}")
+            unreal.log(f"MJOLNIR baked decor materials: {material_count} cooked MIC(s)")
+    unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
+               f"{len(fspec['standins'])} stand-in(s)")
+if not les.save_current_level():
+    raise RuntimeError("save_current_level failed")
+
+# Labels are primary assets, named apart: one name in two folders is one id,
+# and the second label would be the only one.
+for folder, name in ((FOLDER, f"PAL_MJOLNIR_{NAME}"), (TEXTURES, f"PAL_MJOLNIR_{NAME}Bakes")):
+    label = tools.create_asset(name, folder, unreal.PrimaryAssetLabel, unreal.DataAssetFactory())
+    rules = label.get_editor_property("rules")
+    rules.set_editor_property("chunk_id", CHUNK)
+    rules.set_editor_property("apply_recursively", True)
+    rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
+    label.set_editor_property("rules", rules)
+    label.set_editor_property("label_assets_in_my_directory", True)
+    eal.save_loaded_asset(label)
+unreal.log(f"MJOLNIR CE landscape built: {spec['components']}^2 components from {src} in {PACKAGE}")

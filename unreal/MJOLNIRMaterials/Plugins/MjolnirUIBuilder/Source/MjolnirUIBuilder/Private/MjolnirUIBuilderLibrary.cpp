@@ -17,8 +17,28 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "Engine/StaticMesh.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Engine/CollisionProfile.h"
+#include "Engine/StaticMeshActor.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "MeshDescription.h"
+#include "StaticMeshAttributes.h"
 #include "Modules/ModuleManager.h"
 #include "WidgetBlueprint.h"
+#include "Landscape.h"
+#include "LandscapeInfo.h"
+#include "LandscapeImportHelper.h"
+#include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
+#include "Misc/Parse.h"
+#include "UObject/EnumProperty.h"
+#include "UObject/FieldPathProperty.h"
+#include "UObject/PropertyOptional.h"
+#include "UObject/TextProperty.h"
+#include "UObject/UObjectIterator.h"
 
 IMPLEMENT_MODULE(FDefaultModuleImpl, MjolnirUIBuilder)
 
@@ -229,3 +249,783 @@ bool UMjolnirUIBuilderLibrary::ConnectWorldPositionOffset(UMaterial* Material, U
 	Material->MarkPackageDirty();
 	return true;
 }
+
+bool UMjolnirUIBuilderLibrary::ConnectDisplacement(UMaterial* Material, UMaterialExpression* From, const FString& OutputName)
+{
+	if (!Material || !From || !UMaterialEditingLibrary::ConnectMaterialProperty(From, OutputName, MP_Displacement))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("MJOLNIR: could not connect Displacement on %s"), Material ? *Material->GetName() : TEXT("(none)"));
+		return false;
+	}
+	Material->MarkPackageDirty();
+	return true;
+}
+
+bool UMjolnirUIBuilderLibrary::ConnectPixelDepthOffset(UMaterial* Material, UMaterialExpression* From, const FString& OutputName)
+{
+	if (!Material || !From || !UMaterialEditingLibrary::ConnectMaterialProperty(From, OutputName, MP_PixelDepthOffset))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("MJOLNIR: could not connect Pixel Depth Offset on %s"), Material ? *Material->GetName() : TEXT("(none)"));
+		return false;
+	}
+	Material->MarkPackageDirty();
+	return true;
+}
+
+ALandscape* UMjolnirUIBuilderLibrary::CreateLandscape(UWorld* World, FVector Location, FVector Scale, int32 ComponentsX,
+	int32 ComponentsY, int32 SectionsPerComponent, int32 QuadsPerSection, const TArray<int32>& Heights,
+	UMaterialInterface* Material, const TArray<uint8>& Holes)
+{
+	if (!World || ComponentsX < 1 || ComponentsY < 1 || SectionsPerComponent < 1 || QuadsPerSection < 1)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("CreateLandscape: bad arguments"));
+		return nullptr;
+	}
+	const int32 QuadsPerComponent = SectionsPerComponent * QuadsPerSection;
+	const int32 SizeX = ComponentsX * QuadsPerComponent + 1;
+	const int32 SizeY = ComponentsY * QuadsPerComponent + 1;
+	if (Heights.Num() != SizeX * SizeY)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("CreateLandscape: %d heights for %d x %d samples"), Heights.Num(), SizeX, SizeY);
+		return nullptr;
+	}
+	TArray<uint16> Data;
+	Data.SetNumUninitialized(Heights.Num());
+	for (int32 i = 0; i < Heights.Num(); ++i)
+	{
+		Data[i] = static_cast<uint16>(FMath::Clamp(Heights[i], 0, 65535));
+	}
+	TMap<FGuid, TArray<uint16>> HeightDataPerLayers;
+	HeightDataPerLayers.Add(FGuid(), MoveTemp(Data));
+	TMap<FGuid, TArray<FLandscapeImportLayerInfo>> MaterialLayerDataPerLayers;
+	TArray<FLandscapeImportLayerInfo>& Layers = MaterialLayerDataPerLayers.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
+	if (Holes.Num() > 0)
+	{
+		if (Holes.Num() != SizeX * SizeY || !ALandscapeProxy::VisibilityLayer)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("CreateLandscape: %d hole samples for %d x %d"), Holes.Num(), SizeX, SizeY);
+			return nullptr;
+		}
+		FLandscapeImportLayerInfo Visibility(ALandscapeProxy::VisibilityLayer->LayerName);
+		Visibility.LayerInfo = ALandscapeProxy::VisibilityLayer;
+		Visibility.LayerData = Holes;
+		Layers.Add(MoveTemp(Visibility));
+	}
+
+	ALandscape* Landscape = World->SpawnActor<ALandscape>(Location, FRotator::ZeroRotator);
+	if (!Landscape)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("CreateLandscape: spawn failed"));
+		return nullptr;
+	}
+	Landscape->bCanHaveLayersContent = false;
+	Landscape->LandscapeMaterial = Material;
+	Landscape->LandscapeHoleMaterial = Material;
+	// Per-component MIDs, so the loader can set the material's parameters at
+	// runtime (SetLandscapeMaterial*ParameterValue does nothing without them).
+	Landscape->bUseDynamicMaterialInstance = true;
+	Landscape->SetActorRelativeScale3D(Scale);
+	Landscape->Import(FGuid::NewGuid(), 0, 0, SizeX - 1, SizeY - 1, SectionsPerComponent, QuadsPerSection,
+		HeightDataPerLayers, TEXT(""), MaterialLayerDataPerLayers, ELandscapeImportAlphamapType::Additive,
+		TArrayView<const FLandscapeLayer>());
+	if (ULandscapeInfo* Info = Landscape->GetLandscapeInfo())
+	{
+		Info->UpdateLayerInfoMap(Landscape);
+	}
+	Landscape->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("CreateLandscape: %d x %d samples, %d component(s), %s"), SizeX, SizeY,
+		Landscape->LandscapeComponents.Num(), Holes.Num() ? TEXT("with holes") : TEXT("no holes"));
+	return Landscape;
+}
+
+namespace MjolnirUsmap
+{
+	struct FWriter
+	{
+		TArray<uint8> Out;
+		TMap<FString, uint32> NameIndex;
+		TArray<FString> Names;
+
+		uint32 Name(const FString& S)
+		{
+			if (const uint32* Found = NameIndex.Find(S))
+			{
+				return *Found;
+			}
+			const uint32 Index = Names.Add(S);
+			NameIndex.Add(S, Index);
+			return Index;
+		}
+		void U8(uint8 V) { Out.Add(V); }
+		void U16(uint16 V) { Out.Append(reinterpret_cast<uint8*>(&V), 2); }
+		void U32(uint32 V) { Out.Append(reinterpret_cast<uint8*>(&V), 4); }
+
+		// The usmap type tags (ue-asset's usmap.rs read_type).
+		void Type(const FProperty* P)
+		{
+			if (const FEnumProperty* E = CastField<FEnumProperty>(P))
+			{
+				U8(26);
+				Type(E->GetUnderlyingProperty());
+				U32(Name(E->GetEnum() ? E->GetEnum()->GetName() : FString()));
+			}
+			else if (const FByteProperty* B = CastField<FByteProperty>(P))
+			{
+				if (B->Enum)
+				{
+					U8(26);
+					U8(0);
+					U32(Name(B->Enum->GetName()));
+				}
+				else
+				{
+					U8(0);
+				}
+			}
+			else if (CastField<FBoolProperty>(P)) { U8(1); }
+			else if (CastField<FIntProperty>(P)) { U8(2); }
+			else if (CastField<FFloatProperty>(P)) { U8(3); }
+			else if (CastField<FDoubleProperty>(P)) { U8(7); }
+			else if (CastField<FSoftObjectProperty>(P)) { U8(17); }
+			else if (CastField<FWeakObjectProperty>(P)) { U8(14); }
+			else if (CastField<FLazyObjectProperty>(P)) { U8(15); }
+			else if (CastField<FObjectPropertyBase>(P)) { U8(4); }
+			else if (CastField<FInterfaceProperty>(P)) { U8(12); }
+			else if (CastField<FNameProperty>(P)) { U8(5); }
+			else if (CastField<FMulticastDelegateProperty>(P)) { U8(13); }
+			else if (CastField<FDelegateProperty>(P)) { U8(6); }
+			else if (const FArrayProperty* A = CastField<FArrayProperty>(P))
+			{
+				U8(8);
+				Type(A->Inner);
+			}
+			else if (const FStructProperty* S = CastField<FStructProperty>(P))
+			{
+				U8(9);
+				U32(Name(S->Struct ? S->Struct->GetName() : FString()));
+			}
+			else if (CastField<FStrProperty>(P)) { U8(10); }
+			else if (CastField<FTextProperty>(P)) { U8(11); }
+			else if (CastField<FUInt64Property>(P)) { U8(18); }
+			else if (CastField<FUInt32Property>(P)) { U8(19); }
+			else if (CastField<FUInt16Property>(P)) { U8(20); }
+			else if (CastField<FInt64Property>(P)) { U8(21); }
+			else if (CastField<FInt16Property>(P)) { U8(22); }
+			else if (CastField<FInt8Property>(P)) { U8(23); }
+			else if (const FMapProperty* M = CastField<FMapProperty>(P))
+			{
+				U8(24);
+				Type(M->KeyProp);
+				Type(M->ValueProp);
+			}
+			else if (const FSetProperty* T = CastField<FSetProperty>(P))
+			{
+				U8(25);
+				Type(T->ElementProp);
+			}
+			else if (CastField<FFieldPathProperty>(P)) { U8(27); }
+			else if (const FOptionalProperty* O = CastField<FOptionalProperty>(P))
+			{
+				U8(28);
+				Type(O->GetValueProperty());
+			}
+			else
+			{
+				U8(0xFF);
+			}
+		}
+	};
+}
+
+bool UMjolnirUIBuilderLibrary::WriteUsmap(const FString& Path)
+{
+	using namespace MjolnirUsmap;
+	FWriter Body;
+
+	TArray<UEnum*> Enums;
+	TSet<FString> SeenEnums;
+	for (TObjectIterator<UEnum> It; It; ++It)
+	{
+		if (!SeenEnums.Contains(It->GetName()))
+		{
+			SeenEnums.Add(It->GetName());
+			Enums.Add(*It);
+		}
+	}
+	Body.U32(Enums.Num());
+	for (UEnum* E : Enums)
+	{
+		Body.U32(Body.Name(E->GetName()));
+		const int32 Count = FMath::Min(E->NumEnums(), 65535);
+		Body.U16(static_cast<uint16>(Count));
+		for (int32 I = 0; I < Count; ++I)
+		{
+			Body.U32(Body.Name(E->GetNameStringByIndex(I)));
+		}
+	}
+
+	// A struct's own properties in PropertyLink order, as
+	// FUnversionedStructSchema numbers them in a cook (editor-only left out).
+	TArray<UStruct*> Structs;
+	TSet<FString> SeenStructs;
+	for (TObjectIterator<UStruct> It; It; ++It)
+	{
+		UStruct* S = *It;
+		if (S->IsA<UFunction>() || S->GetName().StartsWith(TEXT("REINST_")) || S->GetName().StartsWith(TEXT("SKEL_"))
+			|| SeenStructs.Contains(S->GetName()))
+		{
+			continue;
+		}
+		SeenStructs.Add(S->GetName());
+		Structs.Add(S);
+	}
+	Body.U32(Structs.Num());
+	for (UStruct* S : Structs)
+	{
+		TArray<FProperty*> Own;
+		for (FProperty* P = S->PropertyLink; P; P = P->PropertyLinkNext)
+		{
+			if (P->GetOwnerStruct() != S)
+			{
+				break;
+			}
+			if (!P->IsEditorOnlyProperty())
+			{
+				Own.Add(P);
+			}
+		}
+		Body.U32(Body.Name(S->GetName()));
+		UStruct* Super = S->GetSuperStruct();
+		Body.U32(Super ? Body.Name(Super->GetName()) : 0xFFFFFFFFu);
+		uint16 Slots = 0;
+		for (FProperty* P : Own)
+		{
+			Slots += static_cast<uint16>(P->ArrayDim);
+		}
+		Body.U16(Slots);
+		Body.U16(static_cast<uint16>(Own.Num()));
+		uint16 Slot = 0;
+		for (FProperty* P : Own)
+		{
+			Body.U16(Slot);
+			Body.U8(static_cast<uint8>(P->ArrayDim));
+			Body.U32(Body.Name(P->GetName()));
+			Body.Type(P);
+			Slot += static_cast<uint16>(P->ArrayDim);
+		}
+	}
+
+	FWriter Names;
+	Names.U32(Body.Names.Num());
+	for (const FString& N : Body.Names)
+	{
+		FTCHARToUTF8 Utf8(*N);
+		Names.U16(static_cast<uint16>(Utf8.Length()));
+		Names.Out.Append(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+	}
+	TArray<uint8> Payload = MoveTemp(Names.Out);
+	Payload.Append(Body.Out);
+
+	FWriter File;
+	File.U16(0x30C4);
+	File.U8(3);
+	File.U32(0);
+	File.U8(0);
+	File.U32(Payload.Num());
+	File.U32(Payload.Num());
+	File.Out.Append(Payload);
+	UE_LOG(LogMjolnirUI, Display, TEXT("WriteUsmap: %d enum(s), %d struct(s), %d name(s) -> %s"), Enums.Num(),
+		Structs.Num(), Body.Names.Num(), *Path);
+	return FFileHelper::SaveArrayToFile(File.Out, *Path);
+}
+
+bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions,
+	const TArray<FVector>& Normals, const TArray<int32>& Indices, const TArray<FVector2D>& UV0,
+	const TArray<FVector2D>& UV1, const TArray<int32>& Sections, const TArray<FName>& SlotNames,
+	const TArray<FLinearColor>& Colors, const TArray<FVector>& ShadeNormals)
+{
+	const int32 Tris = Indices.Num() / 3;
+	if (!Mesh || Normals.Num() != Positions.Num() || Indices.Num() % 3 != 0 || UV0.Num() != Indices.Num()
+		|| UV1.Num() != Indices.Num() || Sections.Num() != Tris || SlotNames.Num() == 0
+		|| (Colors.Num() != 0 && Colors.Num() != Positions.Num())
+		|| (ShadeNormals.Num() != 0 && ShadeNormals.Num() != Indices.Num()))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: inconsistent arrays"));
+		return false;
+	}
+	FMeshDescription Desc;
+	FStaticMeshAttributes Attr(Desc);
+	Attr.Register();
+	Attr.GetVertexInstanceUVs().SetNumChannels(ShadeNormals.Num() ? 4 : 2);
+	TVertexAttributesRef<FVector3f> Pos = Attr.GetVertexPositions();
+	TVertexInstanceAttributesRef<FVector3f> Nrm = Attr.GetVertexInstanceNormals();
+	TVertexInstanceAttributesRef<FVector2f> UVs = Attr.GetVertexInstanceUVs();
+	TPolygonGroupAttributesRef<FName> Slots = Attr.GetPolygonGroupMaterialSlotNames();
+	TVertexInstanceAttributesRef<FVector4f> Col = Attr.GetVertexInstanceColors();
+
+	Desc.ReserveNewVertices(Positions.Num());
+	TArray<FVertexID> Vertices;
+	for (const FVector& P : Positions)
+	{
+		const FVertexID V = Desc.CreateVertex();
+		Pos[V] = FVector3f(P);
+		Vertices.Add(V);
+	}
+	TArray<FPolygonGroupID> Groups;
+	Mesh->GetStaticMaterials().Reset();
+	for (const FName& Name : SlotNames)
+	{
+		const FPolygonGroupID G = Desc.CreatePolygonGroup();
+		Slots[G] = Name;
+		Groups.Add(G);
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(nullptr, Name, Name));
+	}
+	Desc.ReserveNewVertexInstances(Indices.Num());
+	Desc.ReserveNewTriangles(Tris);
+	for (int32 T = 0; T < Tris; ++T)
+	{
+		if (!Groups.IsValidIndex(Sections[T]))
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: triangle %d names slot %d"), T, Sections[T]);
+			return false;
+		}
+		FVertexInstanceID Corner[3];
+		for (int32 K = 0; K < 3; ++K)
+		{
+			const int32 I = Indices[3 * T + K];
+			if (!Vertices.IsValidIndex(I))
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BuildStaticMesh: index %d out of range"), I);
+				return false;
+			}
+			Corner[K] = Desc.CreateVertexInstance(Vertices[I]);
+			Nrm[Corner[K]] = FVector3f(Normals[I].GetSafeNormal());
+			UVs.Set(Corner[K], 0, FVector2f(UV0[3 * T + K]));
+			UVs.Set(Corner[K], 1, FVector2f(UV1[3 * T + K]));
+			if (Colors.Num())
+			{
+				Col[Corner[K]] = FVector4f(Colors[I]);
+			}
+			if (ShadeNormals.Num())
+			{
+				const FVector N = ShadeNormals[3 * T + K].GetSafeNormal();
+				UVs.Set(Corner[K], 2, FVector2f(N.X, N.Y));
+				UVs.Set(Corner[K], 3, FVector2f(N.Z, 0.0f));
+			}
+		}
+		Desc.CreateTriangle(Groups[Sections[T]], MakeArrayView(Corner, 3));
+	}
+
+	Mesh->SetNumSourceModels(1);
+	FStaticMeshSourceModel& Source = Mesh->GetSourceModel(0);
+	Source.BuildSettings.bRecomputeNormals = false;
+	Source.BuildSettings.bRecomputeTangents = true;
+	Source.BuildSettings.bGenerateLightmapUVs = false;
+	Source.BuildSettings.bRemoveDegenerates = true;
+	Mesh->CreateMeshDescription(0, MoveTemp(Desc));
+	Mesh->CommitMeshDescription(0);
+	Mesh->SetLightMapCoordinateIndex(1);
+	Mesh->Build();
+	Mesh->PostEditChange();
+	Mesh->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("BuildStaticMesh: %s, %d vertices, %d triangles, %d slot(s)"),
+		*Mesh->GetPathName(), Positions.Num(), Tris, SlotNames.Num());
+	return true;
+}
+
+// A cooked GUID's 16 bytes (four little-endian words) from 32 hex digits.
+static bool GuidFromCookedHex(const FString& Hex, FGuid& Out)
+{
+	if (Hex.Len() != 32)
+	{
+		return false;
+	}
+	uint32 Words[4];
+	for (int32 W = 0; W < 4; ++W)
+	{
+		uint32 Value = 0;
+		for (int32 B = 3; B >= 0; --B)
+		{
+			const FString Byte = Hex.Mid(W * 8 + B * 2, 2);
+			Value = (Value << 8) | FParse::HexNumber(*Byte);
+		}
+		Words[W] = Value;
+	}
+	Out = FGuid(Words[0], Words[1], Words[2], Words[3]);
+	return true;
+}
+
+bool UMjolnirUIBuilderLibrary::SetCollectionIds(UMaterialParameterCollection* Collection, const FString& StateId,
+	const TArray<FString>& ScalarIds, const TArray<FString>& VectorIds)
+{
+	if (!Collection || ScalarIds.Num() != Collection->ScalarParameters.Num()
+		|| VectorIds.Num() != Collection->VectorParameters.Num())
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("SetCollectionIds: the collection or its parameter counts do not match"));
+		return false;
+	}
+	FGuid Guid;
+	if (!GuidFromCookedHex(StateId, Guid))
+	{
+		return false;
+	}
+	Collection->StateId = Guid;
+	for (int32 I = 0; I < ScalarIds.Num(); ++I)
+	{
+		if (!GuidFromCookedHex(ScalarIds[I], Collection->ScalarParameters[I].Id))
+		{
+			return false;
+		}
+	}
+	for (int32 I = 0; I < VectorIds.Num(); ++I)
+	{
+		if (!GuidFromCookedHex(VectorIds[I], Collection->VectorParameters[I].Id))
+		{
+			return false;
+		}
+	}
+	Collection->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("SetCollectionIds: %s state %s"), *Collection->GetPathName(),
+		*Collection->StateId.ToString());
+	return true;
+}
+
+namespace
+{
+	// MJOLNIRLevelLoader's Foliage.rotation: turned Yaw (radians) about the
+	// vertical, then tilted so the clump's up is the ground normal (Nx, Ny, up).
+	FQuat FoliageRotation(double Yaw, double Nx, double Ny)
+	{
+		const double Hz = FMath::Sin(Yaw / 2), Hw = FMath::Cos(Yaw / 2);
+		const double S2 = Nx * Nx + Ny * Ny;
+		if (S2 < 1e-6)
+		{
+			return FQuat(0, 0, Hz, Hw);
+		}
+		const double Nz = FMath::Sqrt(FMath::Max(1 - S2, 0.0));
+		const double Half = FMath::Acos(FMath::Min(Nz, 1.0)) / 2;
+		const double K = FMath::Sin(Half) / FMath::Sqrt(S2);
+		const double Ax = -Ny * K, Ay = Nx * K, Aw = FMath::Cos(Half);
+		return FQuat(Ax * Hw + Ay * Hz, Ay * Hw - Ax * Hz, Aw * Hz, Aw * Hw);
+	}
+
+	// A grassy clump's quality tier by its turn in its band (mod 12): Low
+	// draws tier 0 (3 in 12, the loader's keep 4), Medium 0-1 (4 in 12,
+	// keep 3), High 0-2 (6 in 12, keep 2), Epic all.
+	const int32 FoliageTier[12] = { 0, 3, 2, 3, 0, 3, 1, 3, 0, 3, 2, 3 };
+}
+
+int32 UMjolnirUIBuilderLibrary::BakeFoliage(UWorld* World, const FString& BinPath, const FString& ActorName,
+	const TArray<FString>& Meshes, const TArray<int32>& Bands, const TArray<FVector2D>& Cull,
+	const TArray<int32>& Flags)
+{
+	TArray<uint8> Raw;
+	if (!World || !FFileHelper::LoadFileToArray(Raw, *BinPath) || Raw.Num() < 12 || Bands.Num() != Meshes.Num()
+		|| Cull.Num() != Meshes.Num() || Flags.Num() != Meshes.Num())
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: no foliage file at %s, or inconsistent groups"), *BinPath);
+		return -1;
+	}
+	const FString Magic = FString::ConstructFromPtrSize(reinterpret_cast<const ANSICHAR*>(Raw.GetData()), 4);
+	const bool bTilted = Magic == TEXT("MJF2") || Magic == TEXT("MJF3");
+	const bool bColoured = Magic == TEXT("MJF3");
+	if (!bTilted && Magic != TEXT("MJFG"))
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: %s is not a foliage file"), *BinPath);
+		return -1;
+	}
+	const int32 Stride = bColoured ? 19 : bTilted ? 16 : 14;
+	int64 Pos = 4;
+	auto U32 = [&Raw, &Pos]() { uint32 V; FMemory::Memcpy(&V, Raw.GetData() + Pos, 4); Pos += 4; return V; };
+	U32();
+	const uint32 Count = U32();
+
+	FActorSpawnParameters Params;
+	Params.Name = FName(*ActorName);
+	AActor* Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Params);
+	if (!Actor)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: could not spawn %s"), *ActorName);
+		return -1;
+	}
+	Actor->SetActorLabel(ActorName);
+	// Out of Flux's ground capture, as the loader tags every actor it spawns.
+	const FName FluxHide(TEXT("FluxHide"));
+	Actor->Tags.Add(FluxHide);
+	USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("Root"), RF_Transactional);
+	Root->SetMobility(EComponentMobility::Movable);
+	Actor->SetRootComponent(Root);
+	Actor->AddInstanceComponent(Root);
+	Root->RegisterComponent();
+
+	int32 Placed = 0, Components = 0;
+	for (uint32 G = 0; G < Count; ++G)
+	{
+		if (Pos + 4 > Raw.Num())
+		{
+			break;
+		}
+		const uint32 Size = U32();
+		const int64 Start = Pos;
+		Pos += int64(Size) * Stride;
+		if (Pos > Raw.Num())
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d runs past the end of the file"), G + 1);
+			return -1;
+		}
+		if (int32(G) >= Meshes.Num() || Meshes[G].IsEmpty() || Size == 0)
+		{
+			continue;
+		}
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Meshes[G]);
+		if (!Mesh)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no mesh %s"), G + 1, *Meshes[G]);
+			return -1;
+		}
+		if (Flags[G] & 8)
+		{
+			// Cladding: a mesh actor a rock, named MJClad_<group>_<rock>,
+			// as Foliage.spawnCladding spawns them (our cliff materials drew
+			// black on instanced meshes in this game). Flag 16: the record's
+			// colour bytes, the CE light under the rock, as custom primitive
+			// data 0-2 (M_CE_CliffPBR's CladLight.a 2).
+			for (uint32 K = 0; K < Size; ++K)
+			{
+				const uint8* R = Raw.GetData() + Start + int64(K) * Stride;
+				float X, Y, Z;
+				FMemory::Memcpy(&X, R, 4);
+				FMemory::Memcpy(&Y, R + 4, 4);
+				FMemory::Memcpy(&Z, R + 8, 4);
+				const double S = R[13] / 100.0;
+				const double Nx = bTilted ? int8(R[14]) / 127.0 : 0.0;
+				const double Ny = bTilted ? int8(R[15]) / 127.0 : 0.0;
+				FActorSpawnParameters RockParams;
+				RockParams.Name = FName(*FString::Printf(TEXT("MJClad_%d_%d"), G + 1, K + 1));
+				const FTransform T(FoliageRotation(R[12] * PI / 128, Nx, Ny), FVector(X, Y, Z), FVector(S));
+				AStaticMeshActor* Rock = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), T, RockParams);
+				if (!Rock)
+				{
+					UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: rock %d did not spawn"), G + 1, K + 1);
+					return -1;
+				}
+				Rock->Tags.Add(FluxHide);
+				UStaticMeshComponent* C = Rock->GetStaticMeshComponent();
+				C->SetMobility(EComponentMobility::Movable);
+				C->SetStaticMesh(Mesh);
+				C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				C->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+				C->SetCastShadow((Flags[G] & 1) != 0);
+				// Out of Lumen's bounce: lit by the cliffs' fill (emissive)
+				// the rocks bounced the whole scene orange.
+				C->bAffectDynamicIndirectLighting = false;
+				if ((Flags[G] & 16) && bColoured)
+				{
+					C->SetDefaultCustomPrimitiveDataFloat(0, R[16] / 255.0f);
+					C->SetDefaultCustomPrimitiveDataFloat(1, R[17] / 255.0f);
+					C->SetDefaultCustomPrimitiveDataFloat(2, R[18] / 255.0f);
+				}
+				Rock->SetActorTransform(T);
+				++Placed;
+				++Components;
+			}
+			continue;
+		}
+		const int32 NBands = FMath::Max(1, Bands[G]);
+		const bool bGrassy = (Flags[G] & 4) != 0;
+		const int32 NTiers = bGrassy ? 4 : 1;
+		TArray<TArray<FTransform>> Dealt;
+		Dealt.SetNum(NBands * NTiers);
+		// Flag 32: the group's exact transforms beside the file, ten floats a
+		// record (location, rotation x y z w, scale), in the records' order
+		// (foliage_bake.py write_exact). B30 places its leaf clusters
+		// mirrored, which a record's yaw and normal cannot hold.
+		TArray<uint8> Exact;
+		if (Flags[G] & 32)
+		{
+			const FString XfPath = FString::Printf(TEXT("%s.xf%d"), *BinPath, G + 1);
+			if (!FFileHelper::LoadFileToArray(Exact, *XfPath) || Exact.Num() != int64(Size) * 40)
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no exact transforms for %u record(s) in %s"),
+					G + 1, Size, *XfPath);
+				return -1;
+			}
+		}
+		// Flag 64: four custom floats an instance beside the file (<bin>.xcN):
+		// B30 gives every part of a Kuenovo tree its tree's pivot and size,
+		// which the trees' materials bend each part about.
+		TArray<uint8> Custom;
+		if (Flags[G] & 64)
+		{
+			const FString XcPath = FString::Printf(TEXT("%s.xc%d"), *BinPath, G + 1);
+			if (!FFileHelper::LoadFileToArray(Custom, *XcPath) || Custom.Num() != int64(Size) * 16)
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BakeFoliage: group %d: no custom data for %u record(s) in %s"),
+					G + 1, Size, *XcPath);
+				return -1;
+			}
+		}
+		TArray<TArray<int32>> DealtRecords;
+		DealtRecords.SetNum(NBands * NTiers);
+		for (uint32 K = 0; K < Size; ++K)
+		{
+			if (Exact.Num())
+			{
+				float F[10];
+				FMemory::Memcpy(F, Exact.GetData() + int64(K) * 40, 40);
+				const int32 Band = K % NBands;
+				const int32 Tier = bGrassy ? FoliageTier[(K / NBands) % 12] : 0;
+				Dealt[Band * NTiers + Tier].Add(FTransform(FQuat(F[3], F[4], F[5], F[6]).GetNormalized(),
+					FVector(F[0], F[1], F[2]), FVector(F[7], F[8], F[9])));
+				DealtRecords[Band * NTiers + Tier].Add(int32(K));
+				continue;
+			}
+			const uint8* R = Raw.GetData() + Start + int64(K) * Stride;
+			float X, Y, Z;
+			FMemory::Memcpy(&X, R, 4);
+			FMemory::Memcpy(&Y, R + 4, 4);
+			FMemory::Memcpy(&Z, R + 8, 4);
+			const double Yaw = R[12] * PI / 128;
+			const double S = R[13] / 100.0;
+			const double Nx = bTilted ? int8(R[14]) / 127.0 : 0.0;
+			const double Ny = bTilted ? int8(R[15]) / 127.0 : 0.0;
+			const int32 Band = K % NBands;
+			const int32 Tier = bGrassy ? FoliageTier[(K / NBands) % 12] : 0;
+			Dealt[Band * NTiers + Tier].Add(FTransform(FoliageRotation(Yaw, Nx, Ny), FVector(X, Y, Z), FVector(S)));
+			DealtRecords[Band * NTiers + Tier].Add(int32(K));
+		}
+		for (int32 B = 0; B < NBands; ++B)
+		{
+			// As Foliage.spawn: bands culled at distances spread over the
+			// group's range, in whole centimetres.
+			const double Far = NBands > 1 ? Cull[G].X + (Cull[G].Y - Cull[G].X) * (B + 1) / NBands : Cull[G].Y;
+			for (int32 T = 0; T < NTiers; ++T)
+			{
+				const TArray<FTransform>& Instances = Dealt[B * NTiers + T];
+				if (Instances.Num() == 0)
+				{
+					continue;
+				}
+				const FName Name(*FString::Printf(TEXT("MJFol_%d_%d_%d"), G + 1, B + 1, T));
+				UHierarchicalInstancedStaticMeshComponent* C =
+					NewObject<UHierarchicalInstancedStaticMeshComponent>(Actor, Name, RF_Transactional);
+				C->SetMobility(EComponentMobility::Movable);
+				C->SetupAttachment(Root);
+				C->SetStaticMesh(Mesh);
+				C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				C->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+				C->SetCastShadow((Flags[G] & 1) != 0);
+				C->SetEvaluateWorldPositionOffset((Flags[G] & 2) == 0);
+				// Rigid: the wind's offset does not invalidate the virtual
+				// shadow map's cached pages (Foliage.spawn).
+				C->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+				C->InstanceStartCullDistance = FMath::FloorToInt(FMath::Min(Cull[G].X, Far));
+				C->InstanceEndCullDistance = FMath::FloorToInt(Far);
+				Actor->AddInstanceComponent(C);
+				C->RegisterComponent();
+				if (Custom.Num())
+				{
+					C->SetNumCustomDataFloats(4);
+				}
+				C->AddInstances(Instances, false, false);
+				if (Custom.Num())
+				{
+					const TArray<int32>& Records = DealtRecords[B * NTiers + T];
+					for (int32 I = 0; I < Records.Num(); ++I)
+					{
+						float F[4];
+						FMemory::Memcpy(F, Custom.GetData() + int64(Records[I]) * 16, 16);
+						C->SetCustomData(I, TArrayView<const float>(F, 4), false);
+					}
+				}
+				C->BuildTreeIfOutdated(false, true);
+				Placed += Instances.Num();
+				++Components;
+			}
+		}
+	}
+	Actor->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("BakeFoliage: %d clump(s) in %d component(s) from %s"), Placed, Components,
+		*BinPath);
+	return Placed;
+}
+
+
+int32 UMjolnirUIBuilderLibrary::BakeDecor(UWorld* World, const TArray<FString>& Ids, const TArray<FString>& Meshes,
+	const TArray<FVector>& Locations, const TArray<FVector>& Rotations, const TArray<FVector>& Scales,
+	const TArray<int32>& Flags)
+{
+	const int32 N = Ids.Num();
+	if (!World || Meshes.Num() != N || Locations.Num() != N || Rotations.Num() != N || Scales.Num() != N
+		|| Flags.Num() != N)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BakeDecor: inconsistent arrays"));
+		return -1;
+	}
+	const FName FluxHide(TEXT("FluxHide"));
+	TMap<FString, UStaticMesh*> Loaded;
+	for (int32 I = 0; I < N; ++I)
+	{
+		UStaticMesh*& Mesh = Loaded.FindOrAdd(Meshes[I]);
+		if (!Mesh)
+		{
+			Mesh = LoadObject<UStaticMesh>(nullptr, *Meshes[I]);
+		}
+		if (!Mesh)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeDecor: %s: no mesh %s"), *Ids[I], *Meshes[I]);
+			return -1;
+		}
+		FActorSpawnParameters Params;
+		Params.Name = FName(*(TEXT("MJDecor_") + Ids[I]));
+		// The rotation the level file asks for. The loader's SpawnActor rotation
+		// came out wrong through UE4SS (one sign of the quaternion turned), and
+		// a tilted tree's 20 to 60 pieces, each turned about its own pivot,
+		// stood apart: a trunk with a gap in it (Death Island, 2026-10-18).
+		const FTransform T(FRotator(Rotations[I].X, Rotations[I].Y, Rotations[I].Z), Locations[I], Scales[I]);
+		AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), T, Params);
+		if (!Actor)
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BakeDecor: %s did not spawn"), *Ids[I]);
+			return -1;
+		}
+		Actor->Tags.Add(FluxHide);
+		UStaticMeshComponent* C = Actor->GetStaticMeshComponent();
+		C->SetMobility(EComponentMobility::Movable);
+		C->SetStaticMesh(Mesh);
+		C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		C->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+		if (Flags[I] & 2)
+		{
+			C->SetEvaluateWorldPositionOffset(false);
+		}
+		Actor->SetActorTransform(T);
+	}
+	UE_LOG(LogMjolnirUI, Display, TEXT("BakeDecor: %d piece(s) of %d mesh(es)"), N, Loaded.Num());
+	return N;
+}
+
+UStaticMesh* UMjolnirUIBuilderLibrary::CreateStandInMesh(const FString& ObjectPath)
+{
+	FString PackageName = ObjectPath, AssetName;
+	if (!ObjectPath.Split(TEXT("."), &PackageName, &AssetName))
+	{
+		AssetName = FPackageName::GetShortName(ObjectPath);
+	}
+	if (UStaticMesh* Found = LoadObject<UStaticMesh>(nullptr, *(PackageName + TEXT(".") + AssetName), nullptr,
+		LOAD_NoWarn | LOAD_Quiet))
+	{
+		return Found;
+	}
+	UPackage* Package = CreatePackage(*PackageName);
+	if (!Package)
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("CreateStandInMesh: no package %s"), *PackageName);
+		return nullptr;
+	}
+	UStaticMesh* Mesh = NewObject<UStaticMesh>(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+	FAssetRegistryModule::AssetCreated(Mesh);
+	Package->MarkPackageDirty();
+	return Mesh;
+}
+

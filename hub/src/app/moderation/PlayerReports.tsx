@@ -12,9 +12,15 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Ban, Check, X } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronRight, MessageSquare, X } from "lucide-react";
 
-import type { BannedPlayer, HubClient, PlayerReportReason, ReportedPlayer } from "@mjolnir/hub-kit";
+import type {
+  BannedPlayer,
+  HubClient,
+  MatchChatLog,
+  PlayerReportReason,
+  ReportedPlayer,
+} from "@mjolnir/hub-kit";
 
 const REASONS: Record<PlayerReportReason, string> = {
   cheating: "Cheating",
@@ -51,6 +57,95 @@ function PlayerAvatar({ url }: { url: string | null }) {
     <img src={url} alt="" className="w-9 h-9 rounded-full border border-border" />
   ) : (
     <div className="w-9 h-9 rounded-full border border-border bg-surface-card" />
+  );
+}
+
+/** m:ss into the match. */
+function clock(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * The match's chat as the host's game sent it, fetched when opened. Lines
+ * the reported player sent stand out: by the account the host resolved for
+ * them, or by the in-game name the reporter saw.
+ */
+function ChatLog({
+  client,
+  hostMatchId,
+  count,
+  subjectId,
+  subjectName,
+}: {
+  client: HubClient;
+  hostMatchId: string;
+  count: number;
+  subjectId: string;
+  subjectName: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [log, setLog] = useState<MatchChatLog | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !log) {
+      setError(null);
+      client
+        .getMatchChatLog(hostMatchId)
+        .then(setLog)
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    }
+  };
+
+  return (
+    <div className="mt-1.5">
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-foreground transition-colors cursor-pointer"
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        <MessageSquare className="w-3 h-3" />
+        Chat log ({count})
+      </button>
+      {open && (
+        <div className="mt-1.5 max-h-72 overflow-y-auto rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-[11px] leading-relaxed">
+          {error ? (
+            <p className="text-red-400">{error}</p>
+          ) : !log ? (
+            <p className="text-text-dim">Loading…</p>
+          ) : log.lines.length === 0 ? (
+            <p className="text-text-dim">Nobody said anything.</p>
+          ) : (
+            log.lines.map((l) => {
+              const subject = l.user_id === subjectId || (!!subjectName && l.name === subjectName);
+              const team = l.team === "red" ? "text-red-400" : l.team === "blue" ? "text-sky-400" : "text-text-muted";
+              return (
+                <div
+                  key={l.seq}
+                  className={`flex gap-2 px-1 rounded ${subject ? "bg-gold/15" : ""}`}
+                >
+                  <span className="text-text-dim shrink-0 tabular-nums">{clock(l.t_ms)}</span>
+                  <span className="min-w-0 break-words">
+                    {l.channel === "team" && <span className="text-text-dim">[TEAM] </span>}
+                    <span
+                      className={`font-semibold ${subject ? "text-gold" : team}`}
+                      title={l.display_name ? `In game: ${l.name}` : undefined}
+                    >
+                      {l.display_name || l.name}
+                    </span>
+                    <span className="text-text-dim">: </span>
+                    <span className="text-foreground whitespace-pre-wrap">{l.text}</span>
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -250,6 +345,15 @@ export function PlayerReports({
                         )}
                       </div>
                       {r.detail && <p className="text-sm text-text-muted mt-1.5 whitespace-pre-wrap">{r.detail}</p>}
+                      {r.host_match_id && !!r.chat_lines && (
+                        <ChatLog
+                          client={client}
+                          hostMatchId={r.host_match_id}
+                          count={r.chat_lines}
+                          subjectId={p.player.id}
+                          subjectName={r.subject_name}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>

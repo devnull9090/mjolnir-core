@@ -24,6 +24,8 @@ import { registerLobbyRoutes } from "./lobby";
 import { registerMapRoutes } from "./maps";
 import { registerMatchRoutes } from "./matches";
 import { registerPlayerRoutes } from "./players";
+import { registerCrashRoutes } from "./crashes";
+import { registerBenchRoutes } from "./benches";
 import {
   ErrorSchema,
   HealthSchema,
@@ -453,6 +455,10 @@ registerLobbyRoutes(app);
 registerMatchRoutes(app);
 // Hub identities in game, player reports, matchmaking bans (docs/player_identity.md).
 registerPlayerRoutes(app);
+// Crash reports from the launcher (docs/crash_reports.md).
+registerCrashRoutes(app);
+// Frame-time benches players send from the game (docs/performance.md).
+registerBenchRoutes(app);
 
 // ── Spec ──────────────────────────────────────────────────────────────
 

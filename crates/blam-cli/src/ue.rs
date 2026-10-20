@@ -30,6 +30,11 @@ pub enum UeCommand {
     Get(GetArgs),
     /// Set one property by path and write an override container.
     Set(SetArgs),
+    /// Overwrite bytes of a package at given offsets, checking what was
+    /// there first, and write an override container: for natively
+    /// serialized data the property codec does not model (a Niagara
+    /// system's fixed bounds).
+    Patch(PatchArgs),
     /// Decode and re-encode every export of the packages matching a
     /// substring, counting the ones that come back byte for byte.
     Roundtrip(RoundtripArgs),
@@ -38,6 +43,9 @@ pub enum UeCommand {
     MenuButton(MenuButtonArgs),
     /// Print a Blueprint function's bytecode, statement by statement.
     Disasm(DisasmArgs),
+    /// Re-encode a cooked container's packages from stock UE 5.5's property
+    /// layout into the game's, and write the changed ones as an override.
+    Retarget(RetargetArgs),
 }
 
 #[derive(Args)]
@@ -127,6 +135,66 @@ pub struct SetArgs {
 }
 
 #[derive(Args)]
+pub struct PatchArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// The package, as `/Game/...` or a substring of its path.
+    #[arg(long)]
+    pub package: String,
+    /// `offset:old-hex:new-hex`, offset in bytes into the package (decimal
+    /// or 0x), old and new the same length. Repeat for several.
+    #[arg(long, required = true)]
+    pub edit: Vec<String>,
+    /// Directory to write the container into.
+    #[arg(long, default_value = ".")]
+    pub out_dir: PathBuf,
+    /// Container name (`_P` is added when missing).
+    #[arg(long, default_value = "pakchunk996-MJOLNIRUE_P")]
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct RetargetArgs {
+    /// Directory holding the cooked container and a `global.utoc` (the
+    /// cook's staged `Paks` folder, or the game's).
+    #[arg(long)]
+    pub paks: PathBuf,
+    /// Path to `oo2core_*_win64.dll`, or a directory containing one.
+    #[arg(long, env = "OODLE")]
+    pub oodle: Option<PathBuf>,
+    /// The container whose packages to re-encode, by file stem (e.g.
+    /// `pakchunk988-Windows`).
+    #[arg(long)]
+    pub container: String,
+    /// Only exports of these classes; the rest of a package is kept as
+    /// cooked.
+    #[arg(long, value_delimiter = ',', default_value = "Material")]
+    pub classes: Vec<String>,
+    /// Directory to write the override container into.
+    #[arg(long, default_value = ".")]
+    pub out_dir: PathBuf,
+    /// Output container name: an override (`_P` is added when missing), or
+    /// with `--rewrite` the whole container's file stem.
+    #[arg(long)]
+    pub name: String,
+    /// Write the whole container again, every chunk (its shader library
+    /// too) with the re-encoded packages in place, instead of an override.
+    /// A container keeps its shader library by the chunk number in its
+    /// name, and a hub-mounted container is a `_P` itself, so an override
+    /// beside it would tie with it; the cook rewrites its staged containers
+    /// this way (tools/ue/cook.ps1).
+    #[arg(long)]
+    pub rewrite: bool,
+    /// Re-encode a container even though it looks like one this command
+    /// already wrote (not one compressed block).
+    #[arg(long)]
+    pub force: bool,
+    /// Print every dropped property, not just the per-package summary.
+    #[arg(long)]
+    pub verbose: bool,
+}
+
+#[derive(Args)]
 pub struct RoundtripArgs {
     #[command(flatten)]
     pub src: Source,
@@ -142,9 +210,11 @@ pub fn run(a: UeArgs) -> Result<()> {
     match a.command {
         UeCommand::Get(a) => get(a),
         UeCommand::Set(a) => set(a),
+        UeCommand::Patch(a) => patch(a),
         UeCommand::Roundtrip(a) => roundtrip(a),
         UeCommand::MenuButton(a) => menu_button(a),
         UeCommand::Disasm(a) => disasm(a),
+        UeCommand::Retarget(a) => retarget(a),
     }
 }
 
@@ -315,6 +385,58 @@ fn set(a: SetArgs) -> Result<()> {
     )
 }
 
+fn patch(a: PatchArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let (ci, chunk, name) = locate(&containers, &a.package)?;
+    let data = ue_iostore::read_chunk(&containers[ci], &chunk, None, &oodle)?;
+    let mut patched = data.clone();
+    let hex = |t: &str| -> Result<Vec<u8>> {
+        let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+        if t.len() % 2 != 0 {
+            bail!("{t:?}: odd number of hex digits");
+        }
+        (0..t.len() / 2)
+            .map(|i| {
+                u8::from_str_radix(&t[i * 2..i * 2 + 2], 16)
+                    .with_context(|| format!("{t:?} is not hex"))
+            })
+            .collect()
+    };
+    println!("{name}");
+    for e in &a.edit {
+        let parts: Vec<&str> = e.split(':').collect();
+        let [at, old, new] = parts[..] else {
+            bail!("{e:?} is not offset:old-hex:new-hex");
+        };
+        let at = match at.strip_prefix("0x") {
+            Some(h) => usize::from_str_radix(h, 16)?,
+            None => at.parse::<usize>()?,
+        };
+        let (old, new) = (hex(old)?, hex(new)?);
+        if old.len() != new.len() {
+            bail!("{e:?}: old and new differ in length");
+        }
+        let end = at + old.len();
+        if end > patched.len() || patched[at..end] != old[..] {
+            bail!("{e:?}: the package does not hold those bytes at {at}");
+        }
+        patched[at..end].copy_from_slice(&new);
+        println!("  {at}: {} bytes replaced", new.len());
+    }
+    ue_asset::package::ZenPackage::parse(&patched)?;
+    write_override(
+        &containers[ci],
+        &oodle,
+        chunk,
+        &name,
+        data.len(),
+        patched,
+        &a.out_dir,
+        &a.name,
+    )
+}
+
 /// Put a rewritten package into an override container (`_P`), read it back
 /// through its perfect hash, and write the stub `.pak` beside it.
 #[allow(clippy::too_many_arguments)]
@@ -329,20 +451,43 @@ fn write_override(
     container_name: &str,
 ) -> Result<()> {
     let patched_len = patched.len();
-    let built = blam_pack::build_override(
+    let utoc = write_packages(
         source,
         oodle,
-        &[blam_pack::ChunkEdit {
-            label: format!("{name}.uasset"),
+        vec![(format!("{name}.uasset"), chunk, patched)],
+        out_dir,
+        container_name,
+    )?;
+    println!(
+        "  wrote {} ({original_len} -> {patched_len} bytes in the package)",
+        utoc.display()
+    );
+    Ok(())
+}
+
+/// Rewritten packages of `source`, as `(label, chunk, bytes)`, in one
+/// override container (`_P`), read back through its perfect hash, with the
+/// stub `.pak` beside it. Returns the `.utoc` path.
+fn write_packages(
+    source: &ue_iostore::Container,
+    oodle: &[PathBuf],
+    packages: Vec<(String, ue_iostore::ChunkEntry, Vec<u8>)>,
+    out_dir: &std::path::Path,
+    container_name: &str,
+) -> Result<PathBuf> {
+    let edits: Vec<blam_pack::ChunkEdit> = packages
+        .into_iter()
+        .map(|(label, chunk, patched)| blam_pack::ChunkEdit {
+            label,
             chunk,
             // A cooked Unreal package has no Blam `BinaryBlobSize` to keep in
             // step: declaring the patched length keeps the packer on the
             // plain-replacement path (package_override.rs).
-            original_len: patched_len,
+            original_len: patched.len(),
             patched,
-        }],
-    )
-    .map_err(|e| anyhow::anyhow!(e))?;
+        })
+        .collect();
+    let built = blam_pack::build_override(source, oodle, &edits).map_err(|e| anyhow::anyhow!(e))?;
     let mut container = container_name.to_string();
     if !container.ends_with("_P") {
         container.push_str("_P");
@@ -357,11 +502,178 @@ fn write_override(
         out_dir.join(format!("{container}.pak")),
         ue_iostore::pak::stub_for(&container),
     )?;
+    Ok(utoc)
+}
+
+/// Stock UE 5.5's reflected layouts (the editor's `WriteUsmap`), which our
+/// cook writes unversioned property blocks against.
+fn stock_usmap() -> Result<ue_asset::Usmap> {
+    static BYTES: &[u8] = include_bytes!("../../../defs/ue/UE-5.5-stock.usmap");
+    Ok(ue_asset::Usmap::parse(BYTES)?)
+}
+
+/// Our cook runs a stock UE 5.5 editor and writes property blocks by stock
+/// schema slot; 343's engine numbers the slots differently (its `Material`
+/// carries `PhysicalMaterialMap`, `bIs6Point`, `bSupportsFirstPerson` and
+/// more), so a cooked material is misread from the first shifted slot on:
+/// `bUsedWithNanite` arrived as `bUsesDistortion`, and Nanite cladding drew
+/// through its fallback mesh (2026-10-12). This re-encodes the chosen
+/// classes by property name (`ue_asset::retarget`) and packs every package
+/// that changed into an override; the cooked container keeps its shader
+/// library and everything else.
+fn retarget(a: RetargetArgs) -> Result<()> {
+    let oodle: Vec<PathBuf> = a.oodle.clone().into_iter().collect();
+    let containers = ue_iostore::load_all(&a.paks)?;
+    let ci = containers
+        .iter()
+        .position(|c| {
+            c.utoc_path
+                .file_stem()
+                .is_some_and(|s| s.to_string_lossy().eq_ignore_ascii_case(&a.container))
+        })
+        .with_context(|| format!("no container {:?} in {}", a.container, a.paks.display()))?;
+    let source = &containers[ci];
+    // Re-encoding is not idempotent: a block already in the game's layout,
+    // read against stock's, is misread again. The cook compresses what it
+    // stages and `--rewrite` writes uncompressed, so an uncompressed
+    // container has most likely been through here already.
+    if source.blocks.iter().all(|b| b.method_index == 0) && !a.force {
+        bail!(
+            "{} is uncompressed, so this command has probably rewritten it already; re-encode the cook's own output (or pass --force)",
+            source.utoc_path.display()
+        );
+    }
+    let scripts = crate::mesh::script_objects(&containers, &oodle)?;
+    let stock = stock_usmap()?;
+    let game = crate::mesh::usmap()?;
+    let wanted = |c: &str| a.classes.iter().any(|w| w == c);
+    let mut files: Vec<(&String, &usize)> = source
+        .files
+        .iter()
+        .filter(|(rel, _)| rel.ends_with(".uasset") || rel.ends_with(".umap"))
+        .collect();
+    files.sort();
+    let mut out = Vec::new();
+    let mut kept = 0usize;
+    for (rel, chunk_index) in files {
+        let chunk = source.chunks[*chunk_index];
+        let data = ue_iostore::read_chunk(source, &chunk, None, &oodle)?;
+        let mut pkg = ue_asset::package::ZenPackage::parse(&data)?;
+        let lines = ue_asset::retarget::package_where(&mut pkg, &stock, &game, &scripts, wanted)
+            .map_err(|e| anyhow::anyhow!("{rel}: {e}"))?;
+        let patched = pkg.write();
+        if patched == data {
+            kept += 1;
+            continue;
+        }
+        let full = source.full_path(rel);
+        let dropped = lines.iter().filter(|l| l.starts_with("  ")).count();
+        println!("{full}: re-encoded, {dropped} property(ies) dropped");
+        for l in &lines {
+            if (a.verbose || !l.starts_with("  ")) && !l.ends_with("kept") {
+                println!("  {}", l.trim_start());
+            }
+        }
+        // Read it back the way the game will: every export of a chosen class
+        // decodes against the game's layout.
+        let check = ue_asset::package::ZenPackage::parse(&patched)?;
+        for i in 0..check.export_map.len() {
+            if ue_asset::edit::export_class(&check, &scripts, i).is_some_and(|c| wanted(&c)) {
+                let back = ue_asset::edit::open_export(&check, &game, &scripts, i)
+                    .map_err(|e| anyhow::anyhow!("{full}: export {i} reads back badly: {e}"))?;
+                if a.verbose {
+                    let names = &check.names.names;
+                    for r in ue_asset::edit::describe(&game, &back.class, names, &back.block) {
+                        println!("    {} = {}", r.path, r.value);
+                    }
+                }
+            }
+        }
+        out.push((full, chunk, patched));
+    }
+    if out.is_empty() {
+        println!("nothing to re-encode ({kept} package(s) already read the same)");
+        return Ok(());
+    }
+    let n = out.len();
+    let utoc = if a.rewrite {
+        rewrite_container(source, &oodle, out, &a.out_dir, &a.name)?
+    } else {
+        write_packages(source, &oodle, out, &a.out_dir, &a.name)?
+    };
     println!(
-        "  wrote {} ({original_len} -> {patched_len} bytes in the package)",
+        "{n} package(s) re-encoded, {kept} unchanged; wrote {}",
         utoc.display()
     );
     Ok(())
+}
+
+/// `source` written again in full as `<out_dir>/<name>.utoc/.ucas`: the
+/// same container id, mount point and directory index, every chunk in its
+/// order, the rewritten packages in place of theirs. Every chunk is read
+/// before anything is written, so `out_dir` may be the source's own folder.
+fn rewrite_container(
+    source: &ue_iostore::Container,
+    oodle: &[PathBuf],
+    packages: Vec<(String, ue_iostore::ChunkEntry, Vec<u8>)>,
+    out_dir: &std::path::Path,
+    name: &str,
+) -> Result<PathBuf> {
+    let toc = ue_iostore::toc::Toc::read(&source.utoc_path)
+        .with_context(|| source.utoc_path.display().to_string())?;
+    if toc.chunk_ids.len() != source.chunks.len() {
+        bail!(
+            "{}: {} index entries but {} chunks",
+            source.utoc_path.display(),
+            toc.chunk_ids.len(),
+            source.chunks.len()
+        );
+    }
+    let mut entries = Vec::with_capacity(source.chunks.len());
+    for (i, c) in source.chunks.iter().enumerate() {
+        let id = toc.chunk_ids[i];
+        if id.id != c.chunk_id || id.kind != c.chunk_type {
+            bail!(
+                "{}: index entry {i} does not match its chunk",
+                source.utoc_path.display()
+            );
+        }
+        let data = match packages.iter().find(|(_, p, _)| {
+            p.chunk_id == c.chunk_id
+                && p.chunk_index == c.chunk_index
+                && p.chunk_type == c.chunk_type
+        }) {
+            Some((_, _, patched)) => patched.clone(),
+            None => ue_iostore::read_chunk(source, c, None, oodle)?,
+        };
+        entries.push(ue_iostore::pack::Entry {
+            id,
+            data,
+            meta: Vec::new(),
+        });
+    }
+    let files: Vec<(String, usize)> = source
+        .files
+        .iter()
+        .map(|(rel, i)| (rel.clone(), *i))
+        .collect();
+    let built = ue_iostore::pack::build_indexed(
+        &toc,
+        toc.container_id,
+        &entries,
+        Some((source.mount_point.as_str(), &files)),
+    );
+    std::fs::create_dir_all(out_dir)?;
+    let utoc = out_dir.join(format!("{name}.utoc"));
+    std::fs::write(&utoc, &built.utoc)?;
+    std::fs::write(out_dir.join(format!("{name}.ucas")), &built.ucas)?;
+    let expect: Vec<_> = entries.into_iter().map(|e| (e.id, e.data)).collect();
+    blam_pack::verify_written(&utoc, oodle, &expect).map_err(|e| anyhow::anyhow!(e))?;
+    let pak = out_dir.join(format!("{name}.pak"));
+    if !pak.exists() {
+        std::fs::write(&pak, ue_iostore::pak::stub_for(name))?;
+    }
+    Ok(utoc)
 }
 
 fn menu_button(a: MenuButtonArgs) -> Result<()> {

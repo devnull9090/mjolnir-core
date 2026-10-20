@@ -32,7 +32,18 @@ import {
   modFromRow,
   releaseFromRow,
 } from "./schemas";
-import { MAX_ARCHIVE_BYTES, SCANNER_VERSION, scanArchive } from "./scan";
+import {
+  MAX_ARCHIVE_BYTES,
+  MAX_MULTIPART_ARCHIVE_BYTES,
+  SCANNER_VERSION,
+  scanArchiveStream,
+} from "./scan";
+
+/** R2 multipart: every part but the last at least 5 MiB, and the same size.
+ *  The cap keeps a part, held whole as it arrives, well inside the Worker's
+ *  memory and under Cloudflare's 100 MB request body. */
+const MIN_PART_BYTES = 5 * 1024 * 1024;
+const MAX_PART_BYTES = 64 * 1024 * 1024;
 import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
 
@@ -277,6 +288,205 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     },
   );
 
+  // ── Upload archive in parts ─────────────────────────────────────────
+  //
+  // For an archive over the single PUT's limit: Cloudflare takes at most
+  // 100 MB in one request body, and a remastered map with its foliage
+  // baked in runs past that (Timberland 2.1.0, 117 MB). An R2 multipart
+  // upload, each part its own request; /complete then scans the stored
+  // archive as a stream.
+
+  const multipartError = {
+    401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+    403: { description: "Not the owner.", content: { "application/json": { schema: ErrorSchema } } },
+    404: { description: "No such release.", content: { "application/json": { schema: ErrorSchema } } },
+    409: { description: "Release is published or yanked.", content: { "application/json": { schema: ErrorSchema } } },
+  } as const;
+
+  /** The release, if its archive may still be (re)placed. */
+  async function uploadableRelease(c: Ctx, id: string) {
+    const { release } = await ownedRelease(c, id);
+    const status = release.status as string;
+    if (status !== "pending" && status !== "rejected") {
+      throw new HTTPException(409, {
+        res: c.json({ error: "immutable", message: `Release is ${status}.` }, 409),
+      });
+    }
+    return release;
+  }
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/releases/{id}/archive/multipart",
+      tags: ["publish"],
+      summary: "Start uploading the archive in parts",
+      description:
+        `For an archive over ${MAX_ARCHIVE_BYTES / (1024 * 1024)} MiB, up to ` +
+        `${MAX_MULTIPART_ARCHIVE_BYTES / (1024 * 1024)} MiB. Upload every part ` +
+        `but the last at the same size, ${MIN_PART_BYTES / (1024 * 1024)} to ` +
+        `${MAX_PART_BYTES / (1024 * 1024)} MiB, then complete the upload, then ` +
+        "call /complete on the release as for a single upload.",
+      request: { params: z.object({ id: z.string() }) },
+      responses: {
+        200: {
+          description: "The upload to send parts to.",
+          content: {
+            "application/json": {
+              schema: z.object({
+                upload_id: z.string(),
+                min_part_bytes: z.number().int(),
+                max_part_bytes: z.number().int(),
+                max_archive_bytes: z.number().int(),
+              }),
+            },
+          },
+        },
+        ...multipartError,
+      },
+    }),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      await uploadableRelease(c, id);
+      const upload = await c.env.MODS_BUCKET.createMultipartUpload(`releases/${id}.mjolnir`, {
+        httpMetadata: { contentType: "application/zip" },
+      });
+      return c.json(
+        {
+          upload_id: upload.uploadId,
+          min_part_bytes: MIN_PART_BYTES,
+          max_part_bytes: MAX_PART_BYTES,
+          max_archive_bytes: MAX_MULTIPART_ARCHIVE_BYTES,
+        },
+        200,
+      );
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/releases/{id}/archive/multipart/{upload_id}/{part}",
+      tags: ["publish"],
+      summary: "Upload one part of the archive",
+      description: `Raw bytes, at most ${MAX_PART_BYTES / (1024 * 1024)} MiB. Parts are numbered from 1.`,
+      request: {
+        params: z.object({
+          id: z.string(),
+          upload_id: z.string(),
+          part: z.coerce.number().int().min(1).max(10000),
+        }),
+        body: {
+          content: {
+            "application/octet-stream": {
+              schema: z.any().openapi({ type: "string", format: "binary" }),
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: "Stored; keep the etag for completing the upload.",
+          content: {
+            "application/json": {
+              schema: z.object({ part: z.number().int(), etag: z.string() }),
+            },
+          },
+        },
+        ...multipartError,
+        413: { description: "Part too large.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { id, upload_id, part } = c.req.valid("param");
+      await uploadableRelease(c, id);
+      const declared = Number(c.req.header("content-length") ?? 0);
+      if (declared > MAX_PART_BYTES) return c.json({ error: "too_large" }, 413);
+      const bytes = new Uint8Array(await c.req.arrayBuffer());
+      if (bytes.length > MAX_PART_BYTES) return c.json({ error: "too_large" }, 413);
+      if (bytes.length === 0) return c.json({ error: "too_large", message: "Empty body." }, 413);
+      const upload = c.env.MODS_BUCKET.resumeMultipartUpload(`releases/${id}.mjolnir`, upload_id);
+      const done = await upload.uploadPart(part, bytes as unknown as ArrayBuffer);
+      return c.json({ part: done.partNumber, etag: done.etag }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/releases/{id}/archive/multipart/{upload_id}/complete",
+      tags: ["publish"],
+      summary: "Finish uploading the archive in parts",
+      description:
+        "Joins the parts into the release's archive. Its SHA-256 is worked out " +
+        "when /complete scans it.",
+      request: {
+        params: z.object({ id: z.string(), upload_id: z.string() }),
+        body: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                parts: z
+                  .array(z.object({ part: z.number().int().min(1), etag: z.string() }))
+                  .min(1)
+                  .max(10000),
+              }),
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: "Stored; call /complete to scan and publish.",
+          content: { "application/json": { schema: z.object({ file_size: z.number().int() }) } },
+        },
+        ...multipartError,
+        413: { description: "Archive too large.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { id, upload_id } = c.req.valid("param");
+      const { parts } = c.req.valid("json");
+      await uploadableRelease(c, id);
+      const key = `releases/${id}.mjolnir`;
+      const upload = c.env.MODS_BUCKET.resumeMultipartUpload(key, upload_id);
+      const obj = await upload.complete(parts.map((p) => ({ partNumber: p.part, etag: p.etag })));
+      if (obj.size > MAX_MULTIPART_ARCHIVE_BYTES) {
+        await c.env.MODS_BUCKET.delete(key);
+        return c.json({ error: "too_large" }, 413);
+      }
+      // The archive changed: its hash is the scan's to fill in.
+      await c.env.DB.prepare(
+        `UPDATE mod_releases
+         SET r2_key = ?2, sha256 = NULL, file_size = ?3, status = 'pending'
+         WHERE id = ?1`,
+      )
+        .bind(id, key, obj.size)
+        .run();
+      return c.json({ file_size: obj.size }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "delete",
+      path: "/releases/{id}/archive/multipart/{upload_id}",
+      tags: ["publish"],
+      summary: "Abandon an upload in parts",
+      request: { params: z.object({ id: z.string(), upload_id: z.string() }) },
+      responses: {
+        204: { description: "Its parts are discarded." },
+        ...multipartError,
+      },
+    }),
+    async (c) => {
+      const { id, upload_id } = c.req.valid("param");
+      await uploadableRelease(c, id);
+      await c.env.MODS_BUCKET.resumeMultipartUpload(`releases/${id}.mjolnir`, upload_id).abort();
+      return c.body(null, 204);
+    },
+  );
+
   // ── Complete: scan & publish ────────────────────────────────────────
 
   app.openapi(
@@ -309,9 +519,21 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
 
       const obj = await c.env.MODS_BUCKET.get(release.r2_key as string);
       if (!obj) return c.json({ error: "not_ready", message: "Archive missing from storage." }, 409);
-      const bytes = new Uint8Array(await obj.arrayBuffer());
-
-      const scan = scanArchive(bytes);
+      // Streamed from R2, never held whole: a multipart archive may be
+      // bigger than the Worker's memory.
+      const streamed = await scanArchiveStream(
+        obj.body as unknown as ReadableStream<Uint8Array>,
+        MAX_MULTIPART_ARCHIVE_BYTES,
+      );
+      const scan = streamed.scan;
+      if (release.sha256 && release.sha256 !== streamed.sha256) {
+        scan.findings.push({
+          level: "error",
+          code: "hash_mismatch",
+          message: "The stored archive is not the one uploaded.",
+        });
+        scan.verdict = "fail";
+      }
       // The manifest must agree with what the release claims to be.
       if (scan.manifest && scan.manifest.version !== release.version) {
         scan.findings.push({
@@ -326,6 +548,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       // uploader must all be the same account (docs/mod_signing_design.md).
       const sig = await checkArchiveSignature(
         scan.files,
+        scan.hashes,
         release.mod_slug as string,
         release.version as string,
       );
@@ -421,8 +644,17 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         ),
         c.env.DB.prepare(`DELETE FROM release_chunks WHERE release_id = ?1`).bind(id),
         c.env.DB.prepare(
-          `UPDATE mod_releases SET status = ?2, signing_key_id = ?3, changes_json = ?4 WHERE id = ?1`,
-        ).bind(id, finalStatus, signingKeyId, scan.changes ? JSON.stringify(scan.changes) : null),
+          `UPDATE mod_releases
+           SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6
+           WHERE id = ?1`,
+        ).bind(
+          id,
+          finalStatus,
+          signingKeyId,
+          scan.changes ? JSON.stringify(scan.changes) : null,
+          streamed.sha256,
+          streamed.size,
+        ),
         c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
       if (scan.verdict === "pass") {

@@ -7,7 +7,10 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRHello   the first test: a message and an OK button.
                      SetMessage(Text) sets the message; clicking OK calls
                      MJ_Event("hello_clicked"), an empty function Lua hooks.
-  WBP_MJOLNIRKillFeed    the multiplayer kill feed and respawn countdown
+  WBP_MJOLNIRKillFeed    the multiplayer kill feed (rows with the game's weapon
+                         silhouettes and our glyphs), medal callouts, the
+                         respawn countdown and the match score bars
+  Icons/T_MJHud_*        the HUD's glyphs (tools/ue/draw_hud_icons.py)
   WBP_MJOLNIRScoreboard  the multiplayer scoreboard
   WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
                          players, START GAME
@@ -20,6 +23,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRMapDownload a map this PC does not have: its hub screenshot and
                          details, DOWNLOAD, and the download's progress
                          (docs/live_map_install.md)
+  WBP_MJOLNIRChat        match chat: the lines above the kill feed and the
+                         box you type in (MJOLNIRHud Scripts/chat.lua)
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
   PAL_MJOLNIR_UI    the label that puts the folder in chunk 984
@@ -31,6 +36,8 @@ classes are used: their property layouts match the game's fork, while
 CommonUI's button and text classes, and every scene component, do not
 (docs/custom_ui.md).
 """
+import os
+
 import unreal
 
 ROOT = "/Game/MJOLNIR/UI"
@@ -53,11 +60,11 @@ def widget(bp, cls, name, parent=""):
     return w
 
 
-def text_style(block, text, size, color=(1.0, 1.0, 1.0, 1.0)):
+def text_style(block, text, size, color=(1.0, 1.0, 1.0, 1.0), face="Regular"):
     block.set_editor_property("text", unreal.Text(text))
     font = block.get_editor_property("font")
     font.set_editor_property("size", size)
-    font.set_editor_property("typeface_font_name", "Regular")
+    font.set_editor_property("typeface_font_name", face)
     block.set_editor_property("font", font)
     block.set_editor_property("color_and_opacity", unreal.SlateColor(unreal.LinearColor(*color)))
 
@@ -160,59 +167,275 @@ def finish(bp, name):
     unreal.log(f"MJOLNIR UI: {ROOT}/{name} built")
 
 
-# The kill feed: FEED_LINES lines, newest at the bottom, at the left of the
-# screen above the motion tracker; and the respawn countdown in the middle.
-# MJOLNIRHud fills the lines (Line0 oldest) and fades them out.
-FEED_LINES = 6
+# The HUD's own glyphs (tools/ue/draw_hud_icons.py): white silhouettes the
+# kill feed tints, imported as T_MJHud_<Name> under ICON_ROOT. The game's
+# weapon silhouettes are not copied: MJOLNIRHud draws the game's own, through
+# the game's icon material, at runtime.
+ICON_ROOT = f"{ROOT}/Icons"
 
 
-def build_kill_feed():
+def import_hud_icons():
+    src = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), "Art", "HudIcons")
+    names = sorted(os.path.splitext(f)[0] for f in os.listdir(src) if f.lower().endswith(".png"))
+    tasks = []
+    for n in names:
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", os.path.join(src, n + ".png"))
+        task.set_editor_property("destination_path", ICON_ROOT)
+        task.set_editor_property("destination_name", "T_MJHud_" + n)
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("save", False)
+        tasks.append(task)
+    assets.import_asset_tasks(tasks)
+    icons = {}
+    for n in names:
+        tex = eal.load_asset(f"{ICON_ROOT}/T_MJHud_{n}.T_MJHud_{n}")
+        if not tex:
+            fail(f"icon {n} did not import")
+        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_EDITOR_ICON)
+        tex.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_UI)
+        tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+        tex.set_editor_property("never_stream", True)
+        tex.set_editor_property("srgb", True)
+        eal.save_loaded_asset(tex)
+        icons[n] = tex
+    unreal.log(f"MJOLNIR UI: {len(icons)} HUD icons under {ICON_ROOT}")
+    return icons
+
+
+def rounded(border, radius, color, padding=0):
+    """A Border drawn as a rounded box of `color`."""
+    brush = border.get_editor_property("background")
+    brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.ROUNDED_BOX)
+    brush.set_editor_property("resource_object", None)
+    outline = brush.get_editor_property("outline_settings")
+    outline.set_editor_property("corner_radii", unreal.Vector4(radius, radius, radius, radius))
+    outline.set_editor_property("rounding_type", unreal.SlateBrushRoundingType.FIXED_RADIUS)
+    outline.set_editor_property("width", 0.0)
+    brush.set_editor_property("outline_settings", outline)
+    border.set_editor_property("background", brush)
+    border.set_editor_property("brush_color", unreal.LinearColor(*color))
+    border.set_editor_property("padding", unreal.Margin(padding, padding, padding, padding))
+    return border
+
+
+def icon_box(bp, name, parent, width, height, collapsed=True):
+    """An Image `<name>` in a SizeBox `<name>Box` of width x height. MJOLNIRHud
+    sets the box's width to the picture's aspect for weapons."""
+    box = sized(bp, name + "Box", parent, width=width, height=height)
+    middle(box)
+    widget(bp, unreal.Image, name, box.get_name())
+    if collapsed:
+        box.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    return box
+
+
+def hidden_text(block):
+    block.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    return block
+
+
+# The kill feed: a pool of FEED_ROWS rows, newest at the bottom, at the left
+# of the screen above the motion tracker. Every row sits at the same anchor;
+# MJOLNIRHud stacks them with render translations and animates them in, up
+# and out (Scripts/feed.lua), so a row never snaps when another leaves.
+#
+#   FeedEdge<i>        rounded Border: a gold rim when the line names you
+#    FeedRow<i>        rounded Border: the row's dark fill
+#     FeedAccent<i>    the coloured bar at the row's left edge
+#     FeedGlyph<i>     an event's glyph (joined, left, a medal ...)
+#     FeedLeadAvatar<i> the killer's hub avatar, round (hidden without one)
+#     FeedLead<i>      the killer, or the player the line is about
+#     FeedWeapon<i>    the weapon, the game's own silhouette, facing the victim
+#     FeedMod<i>       headshot, splatter, stuck ...
+#     FeedTailAvatar<i> the victim's hub avatar
+#     FeedTail<i>      the victim, or what happened
+#     FeedNote<i>      a quiet extra: a weapon with no picture, "x2" ...
+#
+# Also: Callout, the local player's medals in the middle of the screen
+# (DOUBLE KILL); RespawnBox, the respawn countdown; MatchScore, the match's
+# score as two bars filling toward the score to win, with the clock between.
+FEED_ROWS = 7
+FEED_ROW_HEIGHT = 40
+SCORE_TRACK = (320, 32)
+FEED_FILL = (0.012, 0.03, 0.045, 0.70)
+FEED_AVATAR = 28
+
+
+def round_image(image, size):
+    """An Image drawn as a circle with a faint rim: a player's hub avatar,
+    which Lua sets with SetBrushFromTexture (the draw type stays)."""
+    brush = image.get_editor_property("brush")
+    brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.ROUNDED_BOX)
+    outline = brush.get_editor_property("outline_settings")
+    outline.set_editor_property("corner_radii", unreal.Vector4(size / 2, size / 2, size / 2, size / 2))
+    outline.set_editor_property("rounding_type", unreal.SlateBrushRoundingType.HALF_HEIGHT_RADIUS)
+    outline.set_editor_property("width", 1.5)
+    outline.set_editor_property("color", unreal.SlateColor(unreal.LinearColor(1.0, 1.0, 1.0, 0.45)))
+    brush.set_editor_property("outline_settings", outline)
+    image.set_editor_property("brush", brush)
+
+
+def feed_row(bp, i):
+    edge = widget(bp, unreal.Border, f"FeedEdge{i}", "Root")
+    rounded(edge, 8, (1.0, 0.80, 0.35, 0.0), padding=2)
+    place(edge, (0.018, 0.79), (0.0, 1.0))
+    edge.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    row = widget(bp, unreal.Border, f"FeedRow{i}", edge.get_name())
+    rounded(row, 6, FEED_FILL)
+    sized(bp, f"FeedRowSize{i}", row.get_name(), height=FEED_ROW_HEIGHT)
+    widget(bp, unreal.HorizontalBox, f"FeedRowBox{i}", f"FeedRowSize{i}")
+    accent = sized(bp, f"FeedAccentSize{i}", f"FeedRowBox{i}", width=4)
+    accent.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+    rounded(widget(bp, unreal.Border, f"FeedAccent{i}", accent.get_name()), 2, (0.46, 0.79, 0.94, 1.0))
+    cols = widget(bp, unreal.HorizontalBox, f"FeedCols{i}", f"FeedRowBox{i}")
+    cols.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 16, 0))
+    cols.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+    glyph = icon_box(bp, f"FeedGlyph{i}", cols.get_name(), 26, 26)
+    glyph.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
+    face = icon_box(bp, f"FeedLeadAvatar{i}", cols.get_name(), FEED_AVATAR, FEED_AVATAR)
+    face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 8, 0))
+    round_image(face.get_content(), FEED_AVATAR)
+    lead = widget(bp, unreal.TextBlock, f"FeedLead{i}", cols.get_name())
+    text_style(lead, "", 22, WHITE, "Bold")
+    middle(lead)
+    weapon = icon_box(bp, f"FeedWeapon{i}", cols.get_name(), 80, 28)
+    weapon.get_editor_property("slot").set_padding(unreal.Margin(14, 0, 6, 0))
+    mod = icon_box(bp, f"FeedMod{i}", cols.get_name(), 24, 24)
+    mod.get_editor_property("slot").set_padding(unreal.Margin(2, 0, 4, 0))
+    face = icon_box(bp, f"FeedTailAvatar{i}", cols.get_name(), FEED_AVATAR, FEED_AVATAR)
+    face.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
+    round_image(face.get_content(), FEED_AVATAR)
+    tail = widget(bp, unreal.TextBlock, f"FeedTail{i}", cols.get_name())
+    text_style(tail, "", 22, WHITE, "Bold")
+    middle(tail)
+    tail.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
+    note = hidden_text(widget(bp, unreal.TextBlock, f"FeedNote{i}", cols.get_name()))
+    text_style(note, "", 17, GREY)
+    note.get_editor_property("slot").set_padding(unreal.Margin(10, 0, 0, 0))
+    middle(note)
+
+
+def score_side(bp, side, color, label):
+    """One team's (or player's) bar: `Score<side>Label` beside the track,
+    `Score<side>Fill` the SizeBox whose width Lua sets to the share of the
+    score to win, `Score<side>Accent` its ink, `Score<side>Value` the score at
+    the bar's inner end. The left bar fills from the middle outward to the
+    left, the right one to the right."""
+    left = side == "Left"
+
+    def tag():
+        box = sized(bp, f"Score{side}LabelSize", "ScoreRow", width=170)
+        middle(box)
+        box.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0) if left else unreal.Margin(14, 0, 0, 0))
+        caption = widget(bp, unreal.TextBlock, f"Score{side}Label", box.get_name())
+        text_style(caption, label, 17, color, "Bold")
+        caption.set_editor_property("justification", unreal.TextJustify.RIGHT if left else unreal.TextJustify.LEFT)
+        caption.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        shadowed(caption)
+
+    # The label outside the bar: before it on the left, after it on the right.
+    if left:
+        tag()
+    track = sized(bp, f"Score{side}Track", "ScoreRow", width=SCORE_TRACK[0], height=SCORE_TRACK[1])
+    middle(track)
+    frame = widget(bp, unreal.Overlay, f"Score{side}Frame", track.get_name())
+    back = rounded(widget(bp, unreal.Border, f"Score{side}Back", frame.get_name()), 5, (0.01, 0.025, 0.04, 0.62))
+    lane = widget(bp, unreal.HorizontalBox, f"Score{side}Lane", frame.get_name())
+    for w in (back, lane):
+        slot = w.get_editor_property("slot")
+        slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+    if left:
+        fill(widget(bp, unreal.Spacer, f"Score{side}Space", lane.get_name()), 1)
+    bar = widget(bp, unreal.SizeBox, f"Score{side}Fill", lane.get_name())
+    bar.set_width_override(0)
+    bar.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    bar.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+    rounded(widget(bp, unreal.Border, f"Score{side}Accent", bar.get_name()), 5, color)
+    if not left:
+        fill(widget(bp, unreal.Spacer, f"Score{side}Space", lane.get_name()), 1)
+    value = widget(bp, unreal.TextBlock, f"Score{side}Value", frame.get_name())
+    text_style(value, "0", 26, WHITE, "Bold")
+    shadowed(value)
+    slot = value.get_editor_property("slot")
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_RIGHT if left else unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+    slot.set_padding(unreal.Margin(0, 0, 12, 0) if left else unreal.Margin(12, 0, 0, 0))
+    if not left:
+        tag()
+
+
+def build_kill_feed(icons):
     name = "WBP_MJOLNIRKillFeed"
     bp = fresh_widget(name)
     hud_root(bp)
-    feed = widget(bp, unreal.VerticalBox, "Feed", "Root")
-    place(feed, (0.02, 0.68), (0.0, 1.0))
-    for i in range(FEED_LINES):
-        line = widget(bp, unreal.TextBlock, f"Line{i}", "Feed")
-        text_style(line, "", 32)
-        shadowed(line)
-    respawn = widget(bp, unreal.TextBlock, "Respawn", "Root")
-    place(respawn, (0.5, 0.36), (0.5, 0.5))
-    text_style(respawn, "", 52, (0.55, 0.85, 1.0, 1.0))
-    respawn.set_editor_property("justification", unreal.TextJustify.CENTER)
-    shadowed(respawn)
 
-    # Persistent match score, pinned to the top edge above the native shield
-    # bar. Lua uses Red / Blue for teams, YOU / LEADER for free-for-all.
-    strip = panel(bp, "MatchScore", "Root", alpha=0.55, padding=(16, 8, 16, 10))
-    place(strip, (0.5, 0.0), (0.5, 0.0))
-    widget(bp, unreal.HorizontalBox, "ScoreSides", "MatchScore")
-    for side, label, color in (("Left", "RED", RED), ("Target", "TO WIN", GREY), ("Right", "BLUE", BLUE)):
-        sized(bp, "Score" + side + "Size", "ScoreSides", width=80 if side == "Target" else 170)
-        widget(bp, unreal.VerticalBox, "Score" + side + "Stack", "Score" + side + "Size")
-        if side != "Target":
-            line = sized(bp, "Score" + side + "Rule", "Score" + side + "Stack", height=2)
-            ink = widget(bp, unreal.Border, "Score" + side + "Accent", line.get_name())
-            ink.set_editor_property("brush_color", unreal.LinearColor(*color))
-            ink.set_editor_property("padding", unreal.Margin(0))
-            gap(line, bottom=5)
-        caption = widget(bp, unreal.TextBlock, "Score" + side + "Label", "Score" + side + "Stack")
-        text_style(caption, label, 11 if side == "Target" else 14, color)
-        caption.set_editor_property("justification", unreal.TextJustify.CENTER)
-        if side == "Target":
-            gap(caption, top=10, bottom=2)
-        value = widget(bp, unreal.TextBlock, "ScoreTarget" if side == "Target" else "Score" + side + "Value",
-                       "Score" + side + "Stack")
-        text_style(value, "0", 18 if side == "Target" else 30, GREY if side == "Target" else WHITE)
-        value.set_editor_property("justification", unreal.TextJustify.CENTER)
-        if side == "Target":
-            # The round clock (a time limit from the host's game settings);
-            # MJOLNIRHud fills it and hides it when there is no limit.
-            clock = widget(bp, unreal.TextBlock, "MatchClock", "ScoreTargetStack")
-            text_style(clock, "", 16, WHITE)
-            clock.set_editor_property("justification", unreal.TextJustify.CENTER)
-            clock.set_visibility(unreal.SlateVisibility.COLLAPSED)
-            gap(clock, top=2)
+    # The glyphs, so they cook with the widget and are loaded with it; Lua
+    # finds them by path (T_MJHud_<Name>) and never shows the palette.
+    palette = widget(bp, unreal.HorizontalBox, "IconPalette", "Root")
+    place(palette, (0.0, 0.0), (0.0, 0.0))
+    palette.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for n, tex in icons.items():
+        image = widget(bp, unreal.Image, f"Icon{n}", palette.get_name())
+        image.set_brush_from_texture(tex, False)
+
+    for i in range(FEED_ROWS):
+        feed_row(bp, i)
+
+    callout = widget(bp, unreal.VerticalBox, "Callout", "Root")
+    place(callout, (0.5, 0.25), (0.5, 0.5))
+    callout.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    mark = icon_box(bp, "CalloutIcon", callout.get_name(), 64, 64, collapsed=False)
+    mark.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+    title = widget(bp, unreal.TextBlock, "CalloutTitle", callout.get_name())
+    text_style(title, "", 50, WHITE, "Bold")
+    title.set_editor_property("justification", unreal.TextJustify.CENTER)
+    shadowed(title)
+    gap(title, top=6)
+    sub = widget(bp, unreal.TextBlock, "CalloutSub", callout.get_name())
+    text_style(sub, "", 21, (0.80, 0.90, 1.0, 1.0))
+    sub.set_editor_property("justification", unreal.TextJustify.CENTER)
+    shadowed(sub)
+
+    respawn = widget(bp, unreal.VerticalBox, "RespawnBox", "Root")
+    place(respawn, (0.5, 0.36), (0.5, 0.5))
+    respawn.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    caption = widget(bp, unreal.TextBlock, "RespawnLabel", respawn.get_name())
+    text_style(caption, "RESPAWN IN", 22, ACCENT, "Bold")
+    caption.set_editor_property("justification", unreal.TextJustify.CENTER)
+    shadowed(caption)
+    count = widget(bp, unreal.TextBlock, "Respawn", respawn.get_name())
+    text_style(count, "", 84, WHITE, "Bold")
+    count.set_editor_property("justification", unreal.TextJustify.CENTER)
+    shadowed(count)
+
+    # The match score, pinned to the top edge above the native shield bar:
+    # Red / Blue for teams, YOU / LEADER in free for all.
+    strip = widget(bp, unreal.VerticalBox, "MatchScore", "Root")
+    place(strip, (0.5, 0.0), (0.5, 0.0), (0.0, 22.0))
+    widget(bp, unreal.HorizontalBox, "ScoreRow", strip.get_name())
+    score_side(bp, "Left", RED, "RED")
+    mid = sized(bp, "ScoreMidSize", "ScoreRow", width=140)
+    middle(mid)
+    widget(bp, unreal.VerticalBox, "ScoreMid", mid.get_name())
+    # The round clock (a time limit from the host's game settings); MJOLNIRHud
+    # fills it and hides it when there is no limit.
+    clock = widget(bp, unreal.TextBlock, "MatchClock", "ScoreMid")
+    text_style(clock, "", 30, WHITE, "Bold")
+    clock.set_editor_property("justification", unreal.TextJustify.CENTER)
+    clock.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    shadowed(clock)
+    target = widget(bp, unreal.HorizontalBox, "ScoreTargetLine", "ScoreMid")
+    target.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+    caption = widget(bp, unreal.TextBlock, "ScoreTargetLabel", target.get_name())
+    text_style(caption, "TO WIN  ", 14, GREY, "Bold")
+    value = widget(bp, unreal.TextBlock, "ScoreTarget", target.get_name())
+    text_style(value, "0", 14, WHITE, "Bold")
+    for block in (caption, value):
+        shadowed(block)
+    score_side(bp, "Right", BLUE, "BLUE")
     watermark(bp)
     finish(bp, name)
 
@@ -1336,6 +1559,211 @@ def build_game_settings():
     finish_screen(bp, name)
 
 
+# Match chat (MJOLNIRHud, Scripts/chat.lua): CHAT_ROWS lines, oldest at the
+# top, at the left of the screen above the kill feed, and the box you type
+# in. Lua fills the lines from the bottom, collapses the rest, and fades
+# them out a few seconds after they arrive; while the box is open every
+# line shows on a dark panel.
+#
+#   Chat               VerticalBox at the left edge, growing up
+#    ChatPanel         rounded Border: clear, dark while typing
+#     ChatLines        the lines
+#      ChatLine<i>     rounded Border: one line's own dark fill
+#       ChatTag<i>     [TEAM], collapsed for all chat
+#       ChatAvatar<i>  the sender's hub avatar, round (collapsed without one)
+#       ChatName<i>    the sender, in their colour
+#       ChatText<i>    what they said, wrapped
+#    ChatInputBar      rounded Border, collapsed until T (all) or Y (team)
+#     ChatChannel      ALL or TEAM
+#     ChatInput        the EditableTextBox; Lua focuses it
+#    ChatHint          ENTER to send, ESC to cancel
+#
+# Every container passes the mouse through (SelfHitTestInvisible) and the
+# lines take nothing; only the input box is hit-testable, because Slate
+# gives keyboard focus only along a path of visible widgets.
+CHAT_ROWS = 10
+CHAT_WIDTH = 920
+CHAT_FILL = (0.012, 0.03, 0.045, 0.62)
+CHAT_AVATAR = 28
+CHAT_SUGGEST_ROWS = 6  # Scripts/commands.lua ROWS
+
+
+def chat_line(bp, i):
+    line = widget(bp, unreal.Border, f"ChatLine{i}", "ChatLines")
+    rounded(line, 6, CHAT_FILL)
+    line.set_editor_property("padding", unreal.Margin(12, 7, 16, 7))
+    line.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    line.get_editor_property("slot").set_padding(unreal.Margin(0, 3, 0, 0))
+    line.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    row = widget(bp, unreal.HorizontalBox, f"ChatLineBox{i}", line.get_name())
+    tag = hidden_text(widget(bp, unreal.TextBlock, f"ChatTag{i}", row.get_name()))
+    text_style(tag, "[TEAM]", 17, ACCENT, "Bold")
+    tag.get_editor_property("slot").set_padding(unreal.Margin(0, 6, 8, 0))
+    face = icon_box(bp, f"ChatAvatar{i}", row.get_name(), CHAT_AVATAR, CHAT_AVATAR)
+    # Centred on the first line of text: Normative Pro's 22 px line is about
+    # 42 px tall, so a 28 px picture at the top of the row sat high (and,
+    # beside the text's drop shadow, a little left). A message that wraps
+    # keeps its name and picture on its first line.
+    face.get_editor_property("slot").set_padding(unreal.Margin(2, 7, 8, 0))
+    face.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_TOP)
+    round_image(face.get_content(), CHAT_AVATAR)
+    name = widget(bp, unreal.TextBlock, f"ChatName{i}", row.get_name())
+    text_style(name, "", 22, WHITE, "Bold")
+    shadowed(name)
+    text = widget(bp, unreal.TextBlock, f"ChatText{i}", row.get_name())
+    text_style(text, "", 22, WHITE)
+    # A fixed wrap width: auto-wrap in a row sized to its content wraps at
+    # almost nothing ("Press T to / chat"). A short line keeps a short row.
+    text.set_editor_property("wrap_text_at", CHAT_WIDTH - 260)
+    shadowed(text)
+    text.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
+    for w in (row, name, text):
+        w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
+
+def chat_input_style(box):
+    try:
+        style = box.get_editor_property("widget_style")
+        for state in ("background_image_normal", "background_image_hovered", "background_image_focused",
+                      "background_image_read_only"):
+            brush = style.get_editor_property(state)
+            brush.set_editor_property("resource_object", None)
+            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(0.0, 0.0, 0.0, 0.0)))
+            style.set_editor_property(state, brush)
+        style.set_editor_property("foreground_color", unreal.SlateColor(unreal.LinearColor(*WHITE)))
+        style.set_editor_property("padding", unreal.Margin(4, 6, 4, 6))
+        inner = style.get_editor_property("text_style")
+        font = inner.get_editor_property("font")
+        font.set_editor_property("size", 24)
+        inner.set_editor_property("font", font)
+        style.set_editor_property("text_style", inner)
+        box.set_editor_property("widget_style", style)
+    except Exception as e:  # a style field this engine lacks: the stock look
+        unreal.log_warning(f"MJOLNIR UI: chat input style: {e}")
+
+
+def build_chat():
+    name = "WBP_MJOLNIRChat"
+    bp = fresh_widget(name)
+    passes = unreal.SlateVisibility.SELF_HIT_TEST_INVISIBLE
+    viewport = widget(bp, unreal.CanvasPanel, "Viewport")
+    fit = widget(bp, unreal.ScaleBox, "Fit", "Viewport")
+    stretch(fit)
+    fit.set_stretch(unreal.Stretch.SCALE_TO_FIT)
+    design = sized(bp, "Design", "Fit", width=2560, height=1440)
+    root = widget(bp, unreal.CanvasPanel, "Root", "Design")
+    for w in (viewport, fit, design, root):
+        w.set_visibility(passes)
+
+    chat = widget(bp, unreal.VerticalBox, "Chat", "Root")
+    place(chat, (0.018, 0.55), (0.0, 1.0))
+    chat.set_visibility(passes)
+    size = sized(bp, "ChatSize", "Chat", width=CHAT_WIDTH)
+    size.set_visibility(passes)
+    stack = widget(bp, unreal.VerticalBox, "ChatStack", size.get_name())
+    stack.set_visibility(passes)
+
+    chat_panel = widget(bp, unreal.Border, "ChatPanel", stack.get_name())
+    rounded(chat_panel, 8, (0.005, 0.018, 0.03, 0.0), padding=8)
+    chat_panel.set_visibility(passes)
+    lines = widget(bp, unreal.VerticalBox, "ChatLines", chat_panel.get_name())
+    lines.set_visibility(passes)
+    for i in range(CHAT_ROWS):
+        chat_line(bp, i)
+
+    # Slash commands (Scripts/commands.lua): what "/" can do, under the
+    # lines and over the box, the one Tab completes highlighted.
+    suggest = widget(bp, unreal.Border, "ChatSuggest", stack.get_name())
+    rounded(suggest, 8, (0.0, 0.03, 0.05, 0.92), padding=6)
+    gap(suggest, top=8)
+    suggest.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    rows = widget(bp, unreal.VerticalBox, "ChatSugRows", suggest.get_name())
+    rows.set_visibility(passes)
+    for i in range(CHAT_SUGGEST_ROWS):
+        row = widget(bp, unreal.Border, f"ChatSugRow{i}", rows.get_name())
+        rounded(row, 5, (0.0, 0.0, 0.0, 0.0))
+        row.set_editor_property("padding", unreal.Margin(10, 4, 10, 4))
+        row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        line = widget(bp, unreal.HorizontalBox, f"ChatSugLine{i}", row.get_name())
+        line.set_visibility(passes)
+        label = widget(bp, unreal.TextBlock, f"ChatSugName{i}", line.get_name())
+        text_style(label, "", 20, ACCENT, "Bold")
+        hint_text = widget(bp, unreal.TextBlock, f"ChatSugHelp{i}", line.get_name())
+        text_style(hint_text, "", 18, GREY)
+        hint_text.get_editor_property("slot").set_padding(unreal.Margin(14, 1, 0, 0))
+        for w in (label, hint_text):
+            w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
+    bar = widget(bp, unreal.Border, "ChatInputBar", stack.get_name())
+    rounded(bar, 8, (0.0, 0.03, 0.05, 0.92), padding=0)
+    bar.set_editor_property("padding", unreal.Margin(16, 6, 16, 6))
+    gap(bar, top=8)
+    bar.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    row = widget(bp, unreal.HorizontalBox, "ChatInputRow", bar.get_name())
+    row.set_visibility(passes)
+    channel = widget(bp, unreal.TextBlock, "ChatChannel", row.get_name())
+    text_style(channel, "ALL", 22, ACCENT, "Bold")
+    middle(channel)
+    channel.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+    channel.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+    box = widget(bp, unreal.EditableTextBox, "ChatInput", row.get_name())
+    box.set_editor_property("hint_text", unreal.Text("Say something"))
+    box.set_editor_property("clear_keyboard_focus_on_commit", False)
+    chat_input_style(box)
+    fill(box, 1)
+    middle(box)
+
+    hint = widget(bp, unreal.TextBlock, "ChatHint", stack.get_name())
+    text_style(hint, "ENTER  SEND      ESC  CANCEL      /  COMMANDS      TAB  COMPLETE", 15, GREY, "Bold")
+    gap(hint, top=6)
+    hint.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    shadowed(hint)
+
+    # The chat rules, shown the first time a player opens chat; chat opens
+    # only once they agree. Lua fills the text (Scripts/chat.lua RULES), so
+    # the wording can change without a new container.
+    rules = panel(bp, "ChatRules", "Root", alpha=0.94, padding=(48, 40, 48, 36))
+    rounded(rules, 12, (0.005, 0.018, 0.03, 0.94), padding=0)
+    rules.set_editor_property("padding", unreal.Margin(48, 40, 48, 36))
+    place(rules, (0.5, 0.5), (0.5, 0.5))
+    rules.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    size = sized(bp, "ChatRulesSize", rules.get_name(), width=1080)
+    stack = widget(bp, unreal.VerticalBox, "ChatRulesStack", size.get_name())
+    title = widget(bp, unreal.TextBlock, "ChatRulesTitle", stack.get_name())
+    text_style(title, "MATCH CHAT IS MODERATED", 34, ACCENT, "Bold")
+    body = widget(bp, unreal.TextBlock, "ChatRulesBody", stack.get_name())
+    text_style(body, "", 22, WHITE)
+    wrapped(body)
+    gap(body, top=18)
+    listed = widget(bp, unreal.TextBlock, "ChatRulesList", stack.get_name())
+    text_style(listed, "", 21, WHITE)
+    wrapped(listed)
+    gap(listed, top=18)
+    note = widget(bp, unreal.TextBlock, "ChatRulesNote", stack.get_name())
+    text_style(note, "", 19, GREY)
+    wrapped(note)
+    gap(note, top=18)
+    actions = widget(bp, unreal.HorizontalBox, "ChatRulesActions", stack.get_name())
+    gap(actions, top=28)
+    events = []
+    for key, label, event in (("ChatRulesAccept", "I AGREE", "chat_accept"),
+                              ("ChatRulesDecline", "NOT NOW", "chat_decline")):
+        button = menu_button(bp, key, label, actions.get_name(), size=26)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
+        events.append((key, "OnClicked", event))
+    keys = widget(bp, unreal.TextBlock, "ChatRulesKeys", stack.get_name())
+    text_style(keys, "ENTER  AGREE      ESC  NOT NOW", 15, GREY, "Bold")
+    gap(keys, top=14)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish(bp, name)
+
+
 def build_label():
     full = f"{ROOT}/PAL_MJOLNIR_UI"
     if eal.does_asset_exist(full):
@@ -1351,7 +1779,7 @@ def build_label():
 
 
 build_hello()
-build_kill_feed()
+build_kill_feed(import_hud_icons())
 build_scoreboard()
 build_lobby()
 build_map_select()
@@ -1359,5 +1787,6 @@ build_find_games()
 build_post_game()
 build_map_download()
 build_game_settings()
+build_chat()
 build_label()
 unreal.log("MJOLNIR UI built")

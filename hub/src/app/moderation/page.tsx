@@ -8,7 +8,12 @@
  * else so nobody stares at a wall of 403s.
  *
  * Admins additionally get the user directory: every registered account
- * with its Discord ID, findable by ID or name.
+ * with its Discord ID, findable by ID or name, the launcher's crash reports
+ * and players' /bench runs.
+ *
+ * One tab a desk, so the page is not one long scroll; the URL's hash names
+ * the tab (/moderation#crashes), and a tab's data loads when it opens
+ * except the counts the tab bar shows.
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -20,6 +25,20 @@ import { useHub } from "../components/HubKit";
 import type { AdminUser, HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
 import { PlayerReports } from "./PlayerReports";
+import { Crashes } from "./Crashes";
+import { Benches } from "./Benches";
+
+type Tab = "gallery" | "players" | "hidden" | "reports" | "users" | "crashes" | "benchmarks";
+
+const TABS: { key: Tab; label: string; admin?: boolean }[] = [
+  { key: "gallery", label: "Gallery" },
+  { key: "players", label: "Players" },
+  { key: "hidden", label: "Hidden mods" },
+  { key: "reports", label: "Reports" },
+  { key: "users", label: "Users", admin: true },
+  { key: "crashes", label: "Crashes", admin: true },
+  { key: "benchmarks", label: "Benchmarks", admin: true },
+];
 
 export default function ModerationPage() {
   const { client, user, ready, signIn } = useHub();
@@ -35,6 +54,24 @@ export default function ModerationPage() {
 
   const isModerator = user !== null && user.role !== "user";
   const isAdmin = user !== null && user.role === "admin";
+
+  const [tab, setTab] = useState<Tab>("gallery");
+  useEffect(() => {
+    const fromHash = () => {
+      const h = window.location.hash.slice(1);
+      if (TABS.some((t) => t.key === h)) setTab(h as Tab);
+    };
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    return () => window.removeEventListener("hashchange", fromHash);
+  }, []);
+  const tabs = TABS.filter((t) => !t.admin || isAdmin);
+  // An admin tab in a moderator's link falls back to the first.
+  const active: Tab = tabs.some((t) => t.key === tab) ? tab : "gallery";
+  const pick = (t: Tab) => {
+    setTab(t);
+    history.replaceState(null, "", `#${t}`);
+  };
 
   const load = useCallback(() => {
     if (!isModerator) return;
@@ -122,7 +159,7 @@ export default function ModerationPage() {
   return (
     <>
       <Navbar />
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-4xl mx-auto">
+      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-6xl mx-auto">
         <div className="flex items-center gap-3 mb-8">
           <ShieldCheck className="w-7 h-7 text-gold" />
           <h1 className="text-3xl font-black text-foreground">Moderation</h1>
@@ -147,8 +184,38 @@ export default function ModerationPage() {
               </div>
             )}
 
+            <nav role="tablist" className="mb-8 flex flex-wrap gap-x-1 border-b border-border">
+              {tabs.map((t, i) => {
+                const count =
+                  t.key === "gallery" ? queue?.length : t.key === "hidden" ? hidden?.length : t.key === "reports" ? reports?.length : undefined;
+                return (
+                  <button
+                    key={t.key}
+                    role="tab"
+                    aria-selected={active === t.key}
+                    onClick={() => pick(t.key)}
+                    className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors cursor-pointer ${
+                      t.admin && !tabs[i - 1]?.admin ? "ml-3" : ""
+                    } ${
+                      active === t.key
+                        ? "border-gold text-gold"
+                        : "border-transparent text-text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {t.label}
+                    {count ? (
+                      <span className="ml-1.5 rounded-full bg-surface-card px-1.5 py-0.5 text-[10px] text-text-muted">
+                        {count}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </nav>
+
             {/* ── Gallery queue ── */}
-            <section className="mb-12">
+            {active === "gallery" && (
+            <section>
               <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
                 Gallery submissions{queue ? ` · ${queue.length}` : ""}
               </h2>
@@ -215,12 +282,14 @@ export default function ModerationPage() {
                 </div>
               )}
             </section>
+            )}
 
             {/* ── Player reports and matchmaking bans ── */}
-            <PlayerReports client={client} onError={setBanner} />
+            {active === "players" && <PlayerReports client={client} onError={setBanner} />}
 
             {/* ── Hidden mods ── */}
-            <section className="mb-12">
+            {active === "hidden" && (
+            <section>
               <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
                 Hidden mods{hidden ? ` · ${hidden.length}` : ""}
               </h2>
@@ -264,8 +333,10 @@ export default function ModerationPage() {
                 </div>
               )}
             </section>
+            )}
 
             {/* ── Reports ── */}
+            {active === "reports" && (
             <section>
               <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
                 Open reports{reports ? ` · ${reports.length}` : ""}
@@ -310,10 +381,11 @@ export default function ModerationPage() {
                 </div>
               )}
             </section>
+            )}
 
             {/* ── User directory (admins) ── */}
-            {isAdmin && (
-              <section className="mt-12">
+            {isAdmin && active === "users" && (
+              <section>
                 <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
                   Users{users ? ` · ${userTotal}` : ""}
                 </h2>
@@ -404,6 +476,12 @@ export default function ModerationPage() {
                 )}
               </section>
             )}
+
+            {/* ── Crash reports from the launcher (admins) ── */}
+            {isAdmin && active === "crashes" && <Crashes client={client} onError={setBanner} />}
+
+            {/* ── Players' /bench runs (admins) ── */}
+            {isAdmin && active === "benchmarks" && <Benches client={client} onError={setBanner} />}
           </>
         )}
       </main>

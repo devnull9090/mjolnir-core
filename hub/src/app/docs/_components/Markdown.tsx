@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { slugify } from "@/lib/docs";
+import { CompareImage } from "./CompareImage";
 import { ZoomableImages } from "./ZoomableImages";
 
 /**
@@ -86,6 +87,11 @@ const components: Components = {
    */
   img: ({ src, alt }: { src?: string | Blob; alt?: string }) => {
     if (typeof src !== "string") return null;
+    // `after.jpg?before=before.jpg`: a before-and-after pair (CompareImage).
+    const pair = src.match(/^([^?]+)\?before=([^&]+)$/);
+    if (pair) {
+      return <CompareImage after={pair[1]} before={decodeURIComponent(pair[2])} alt={alt ?? ""} />;
+    }
     // Spans, not figure/figcaption: Markdown wraps a standalone image in a
     // paragraph, and flow content inside a `p` is invalid HTML that React
     // reports as a hydration error.

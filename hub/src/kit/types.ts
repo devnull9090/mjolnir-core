@@ -266,6 +266,118 @@ export interface AdminUserList {
   total: number;
 }
 
+/** Crash reports from the launcher sharing one signature and build. Admin-only. */
+export interface CrashSignature {
+  signature: string;
+  build_version: string;
+  /** "Crash", "Assert", "GPUCrash", ... */
+  crash_type: string;
+  /** Where it crashed: `MODULE+0xOFFSET (0xCODE)`, or the assert's message. */
+  fault: string;
+  reports: number;
+  players: number;
+  /** Full dumps held. */
+  dumps: number;
+  maps: string[];
+  first_seen: string;
+  last_seen: string;
+}
+
+/**
+ * stat unit's split of a bench frame in ms, a mean over a condition's turns.
+ * Game includes the game thread's wait for the GPU; the `_cp` figures are
+ * critical paths, without waits. Draw is the render thread.
+ */
+export interface BenchTimes {
+  game?: number;
+  game_cp?: number;
+  draw?: number;
+  draw_cp?: number;
+  rhit?: number;
+  gpu?: number;
+}
+
+/** Where a bench held the camera: world position in cm, pitch and yaw in degrees. */
+export interface BenchView {
+  x: number;
+  y: number;
+  z: number;
+  pitch: number;
+  yaw: number;
+}
+
+/** One player's /bench run (docs/performance.md). Admin-only. */
+export interface BenchReport {
+  id: string;
+  user: { id: string; name: string };
+  map_code: string;
+  /** "foliage" or "cvar". */
+  kind: string;
+  label: string;
+  gpu_name: string | null;
+  gpu_score: number | null;
+  cpu: string | null;
+  cpu_threads: number | null;
+  viewport_w: number | null;
+  viewport_h: number | null;
+  window_mode: string | null;
+  vsync: boolean;
+  fps_limit: number | null;
+  screen_percentage: number | null;
+  /** sg.<name>Quality levels, 0 (Low) to 3 (Epic). */
+  sg: Record<string, number>;
+  seconds_in_world: number | null;
+  base_ms: number;
+  base_min_ms: number | null;
+  base_max_ms: number | null;
+  results: { name: string; ms: number; times?: BenchTimes | null }[];
+  /** stat unit's split of the base frame; null from clients before MJOLNIRHud 0.11.0. */
+  base_times: BenchTimes | null;
+  /** The held camera; null from clients before MJOLNIRHud 0.11.0. */
+  view: BenchView | null;
+  /** "no foliage" less the base: negative, the frame time the foliage costs. */
+  foliage_delta_ms: number | null;
+  client_version: string | null;
+  created_at: string;
+}
+
+/** Foliage benches averaged over one GPU, map, height drawn and foliage quality. Admin-only. */
+export interface BenchSummaryRow {
+  gpu_name: string | null;
+  map_code: string;
+  viewport_h: number | null;
+  foliage_quality: number | null;
+  reports: number;
+  base_ms: number;
+  foliage_delta_ms: number | null;
+}
+
+/** One player's report of one crash. Admin-only. */
+export interface CrashReport {
+  id: string;
+  crash_id: string;
+  user: { id: string; name: string };
+  crash_type: string;
+  fault: string;
+  error_message: string | null;
+  crashed_at: string;
+  seconds_since_start: number | null;
+  mode: string | null;
+  map: string | null;
+  role: string | null;
+  launcher_version: string | null;
+  /** Size of the stored bundle; null until it is uploaded. */
+  bundle_bytes: number | null;
+  /** The dump's size on the player's disk, unzipped. */
+  dump_bytes: number | null;
+  dump_zip_bytes: number | null;
+  has_bundle: boolean;
+  has_dump: boolean;
+  /** The hub asked this report for its full dump. */
+  dump_wanted: boolean;
+  created_at: string;
+}
+
 /** One field edit as a release's changes.json declares it. */
 export interface DeclaredField {
   field: string;
@@ -354,6 +466,8 @@ export interface PlayerReport {
   /** Null when the match is not on the hub. */
   reporter_in_match: boolean | null;
   subject_in_match: boolean | null;
+  /** Lines in the match's chat log, when the host's game sent one. */
+  chat_lines: number | null;
   status: "open" | "upheld" | "dismissed";
   decided_by: string | null;
   decided_at: string | null;
@@ -369,6 +483,34 @@ export interface ReportedPlayer {
   counted_reports: number;
   ban: MatchmakingBan | null;
   reports: PlayerReport[];
+}
+
+/** One chat line as the host's game recorded it. */
+export interface MatchChatLine {
+  seq: number;
+  /** Milliseconds into the match. */
+  t_ms: number;
+  /** The sender's player index; -1 for a line no player sent. */
+  index: number;
+  /** The sender's in-game (Steam or Xbox) name. */
+  name: string;
+  /** The hub account the host's game resolved for the sender. */
+  user_id: string | null;
+  display_name: string | null;
+  team: "red" | "blue" | null;
+  channel: "all" | "team";
+  text: string;
+}
+
+/** A match's chat log. Moderators only. */
+export interface MatchChatLog {
+  host_match_id: string;
+  map_code: string | null;
+  started_at: string | null;
+  received_at: string;
+  /** The host whose game sent it. */
+  reporter: { id: string; name: string; avatar_url: string | null } | null;
+  lines: MatchChatLine[];
 }
 
 export interface BannedPlayer {

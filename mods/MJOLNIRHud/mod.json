@@ -1,5 +1,5 @@
 {
-  "version": "0.6.0",
-  "summary": "The multiplayer HUD for classic CE maps: a kill feed, the respawn countdown, and a scoreboard on Tab, drawn with MJOLNIR's own widgets.",
+  "version": "0.11.3",
+  "summary": "The multiplayer HUD for classic CE maps: an animated kill feed with the game's weapon icons, medals, score bars, the respawn countdown, and a scoreboard on Tab.",
   "category": "multiplayer"
 }

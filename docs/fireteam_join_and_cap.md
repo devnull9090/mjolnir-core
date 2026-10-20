@@ -47,8 +47,9 @@ platform-native: `PFMultiplayerSendInvite` is not imported.
 3. The fallback is calling JoinSession with a search result whose settings
    hold `CONNECTIONSTRING`.
 
-The PlayFab half is the same on Game Pass. That binary isn't on this box, so
-Game Pass is unverified.
+The PlayFab half is the same on Game Pass. Joins there take the GDK invite
+route instead of Steam's (docs/game_pass.md); a Steam player joining an Xbox
+app host was verified 2026-10-10.
 
 ## Finding lobbies
 

@@ -231,6 +231,11 @@ pub struct LevelFile {
     /// opaque to the bake.
     #[serde(default)]
     pub vehicle_sets: Option<serde_json::Value>,
+    /// The game's grass, tufts and stones on the map's ground
+    /// (tools/level/scatter_foliage.py), which the loader spawns; opaque to
+    /// the bake.
+    #[serde(default)]
+    pub foliage: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -247,6 +252,12 @@ pub struct BlamSection {
     pub clear: Clear,
     #[serde(default)]
     pub player_starts: Vec<PlayerStart>,
+    /// Cutscene flags at these points: the canvas's own first flags, moved,
+    /// so their names (`string id`s the canvas already has) stay valid. For
+    /// `player_teleport` / `object_teleport` from the Blam console. Kept by a
+    /// `clear` of "cutscene flags".
+    #[serde(default)]
+    pub cutscene_flags: Vec<PlayerStart>,
     #[serde(default)]
     pub vehicles: Vec<TypedPlacement>,
     #[serde(default)]
@@ -1161,6 +1172,31 @@ impl Baker {
         Ok(())
     }
 
+    /// Move the canvas's first cutscene flags to `flags` (see
+    /// `BlamSection::cutscene_flags`), printing each one's name.
+    fn cutscene_flags(&mut self, flags: &[PlayerStart]) -> Result<()> {
+        if flags.is_empty() {
+            return Ok(());
+        }
+        let count = block_count(&self.file, "cutscene flags")?;
+        if flags.len() > count {
+            bail!("{} cutscene flag(s) asked for, the canvas has {count}", flags.len());
+        }
+        // Keep the first ones: a clear keeps the block's last `added` elements.
+        let (out, _) = blockedit::resize(&self.file, "cutscene flags", &[Op::Truncate { keep: flags.len() }])?;
+        self.file = out;
+        for (i, f) in flags.iter().enumerate() {
+            let (x, y, z) = ue_to_blam(abs_pos(self.origin, f.pos));
+            let p = |n: &str| format!("cutscene flags[{i}].{n}");
+            apply_set(&mut self.file, &p("position"), &format!("({x}, {y}, {z})"))?;
+            apply_set(&mut self.file, &p("facing"), &format!("({}, 0)", ue_yaw_to_blam(f.yaw)))?;
+            let name = read_value(&self.file, &p("name"))?;
+            println!("  flag    [{i}] {} <- ({x:.3}, {y:.3}, {z:.3}) wu", name.display());
+        }
+        *self.added.entry("cutscene flags").or_default() += flags.len();
+        Ok(())
+    }
+
     /// Append typed placements (vehicles / weapons / equipment) cloned from
     /// element 0 and re-pointed at the palette entry the type names.
     fn typed(
@@ -1528,6 +1564,7 @@ fn bake(a: BakeArgs) -> Result<()> {
     // then the clears, which keep only what this bake appended. Clears never
     // touch player starts or the structure blocks.
     baker.player_starts(&level.blam.player_starts)?;
+    baker.cutscene_flags(&level.blam.cutscene_flags)?;
     baker.typed(
         "vehicles",
         "vehicle palette",
@@ -1763,11 +1800,19 @@ fn bake(a: BakeArgs) -> Result<()> {
         for line in blam_world_settings(&mut zp, &idx.containers, &a.src.oodle_roots())? {
             println!("  world    {line}");
         }
+        // Each with its FName number folded back in: a package named
+        // `SM_Foo_6` is stored as `SM_Foo` and 7, and hashing the bare name
+        // pointed the world's imports of a baked tree's 147 numbered pieces
+        // at `SM_Foo` (they drew nothing, 2026-10-18).
         let imported: Vec<u64> = zp
             .imported_package_names
             .names
             .iter()
-            .map(|n| ue_iostore::city::package_id(n))
+            .enumerate()
+            .map(|(i, n)| {
+                let number = zp.imported_package_name_numbers.get(i).copied().unwrap_or(0);
+                ue_iostore::city::package_id(&ue_asset::tagwrap::fname_join(n, number))
+            })
             .collect();
         // A shipped world's bulk data (its textures) rides a `.ubulk` beside
         // the `.umap`; the bare MapKit world has none.

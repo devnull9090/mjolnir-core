@@ -1,0 +1,1592 @@
+{
+ "FRasterizePassParameters": {
+  "binding_flags": 1,
+  "file": "Unknown",
+  "layout_name": "FRasterizePassParameters",
+  "line": 1542,
+  "members": [
+   {
+    "base": 19,
+    "cols": 1,
+    "elements": 0,
+    "name": "Scene",
+    "offset": 0,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "FSceneUniformParameters",
+    "struct": {
+     "binding_flags": 3,
+     "file": "Unknown",
+     "layout_name": "FSceneUniformParameters",
+     "line": 110,
+     "members": [
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "GPUScene",
+       "offset": 0,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FGPUSceneResourceParameters",
+        "line": 38,
+        "members": [
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "GPUSceneInstanceSceneData",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<float4>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "GPUSceneInstancePayloadData",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<float4>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "GPUScenePrimitiveSceneData",
+          "offset": 16,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<float4>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "GPUSceneLightmapData",
+          "offset": 24,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<float4>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "GPUSceneLightData",
+          "offset": 32,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<FLightSceneData>",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "InstanceDataSOAStride",
+          "offset": 40,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "GPUSceneFrameNumber",
+          "offset": 44,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 1,
+          "elements": 0,
+          "name": "NumInstances",
+          "offset": 48,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 1,
+          "elements": 0,
+          "name": "NumScenePrimitives",
+          "offset": 52,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         }
+        ],
+        "size": 64,
+        "static_slot": null,
+        "type": "FGPUSceneResourceParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      },
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "MeshPaint",
+       "offset": 64,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FMeshPaintTextureParameters",
+        "line": 27,
+        "members": [
+         {
+          "base": 5,
+          "cols": 1,
+          "elements": 0,
+          "name": "PageTableTexture",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "Texture2D<uint4>",
+          "struct": null
+         },
+         {
+          "base": 5,
+          "cols": 1,
+          "elements": 0,
+          "name": "PhysicalTexture",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "Texture2D<float4>",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 4,
+          "elements": 0,
+          "name": "PackedUniform",
+          "offset": 16,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         }
+        ],
+        "size": 32,
+        "static_slot": null,
+        "type": "FMeshPaintTextureParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      },
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "NaniteMaterials",
+       "offset": 96,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FNaniteMaterialsParameters",
+        "line": 62,
+        "members": [
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "PrimitiveMaterialElementStride",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "PrimitiveMaterialData",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "MaterialData",
+          "offset": 16,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         }
+        ],
+        "size": 32,
+        "static_slot": null,
+        "type": "FNaniteMaterialsParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      },
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "NaniteOwnershipVisibility",
+       "offset": 128,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FNaniteOwnershipVisibilityParameters",
+        "line": 11,
+        "members": [
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "PrimitivesPerView",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "HiddenPrimitives",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint>",
+          "struct": null
+         }
+        ],
+        "size": 16,
+        "static_slot": null,
+        "type": "FNaniteOwnershipVisibilityParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      },
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "NaniteSkinning",
+       "offset": 144,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FNaniteSkinningParameters",
+        "line": 74,
+        "members": [
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "SkinningHeaders",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "BoneHierarchy",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "BoneObjectSpace",
+          "offset": 16,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "BoneTransforms",
+          "offset": 24,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         }
+        ],
+        "size": 32,
+        "static_slot": null,
+        "type": "FNaniteSkinningParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      },
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "SplineMesh",
+       "offset": 176,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FSplineMeshSceneResourceParameters",
+        "line": 46,
+        "members": [
+         {
+          "base": 4,
+          "cols": 2,
+          "elements": 0,
+          "name": "SplineTextureInvExtent",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 12,
+          "cols": 1,
+          "elements": 0,
+          "name": "SplinePosTexture",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "Texture2D<float4>",
+          "struct": null
+         },
+         {
+          "base": 12,
+          "cols": 1,
+          "elements": 0,
+          "name": "SplineRotTexture",
+          "offset": 16,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "Texture2D<float4>",
+          "struct": null
+         },
+         {
+          "base": 8,
+          "cols": 1,
+          "elements": 0,
+          "name": "SplineSampler",
+          "offset": 24,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "SamplerState",
+          "struct": null
+         }
+        ],
+        "size": 32,
+        "static_slot": null,
+        "type": "FSplineMeshSceneResourceParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      },
+      {
+       "base": 20,
+       "cols": 1,
+       "elements": 0,
+       "name": "ViewData",
+       "offset": 208,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": {
+        "binding_flags": 1,
+        "file": "Unknown",
+        "layout_name": "FParameters",
+        "line": 34,
+        "members": [
+         {
+          "base": 21,
+          "cols": 1,
+          "elements": 0,
+          "name": "Common",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "FCommonParameters",
+          "struct": {
+           "binding_flags": 1,
+           "file": "Unknown",
+           "layout_name": "FCommonParameters",
+           "line": 23,
+           "members": [
+            {
+             "base": 17,
+             "cols": 1,
+             "elements": 0,
+             "name": "InViews",
+             "offset": 0,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "StructuredBuffer< FPackedNaniteView >",
+             "struct": null
+            },
+            {
+             "base": 2,
+             "cols": 1,
+             "elements": 0,
+             "name": "MaxPersistentViewId",
+             "offset": 8,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "",
+             "struct": null
+            },
+            {
+             "base": 3,
+             "cols": 1,
+             "elements": 0,
+             "name": "NumSceneRendererPrimaryViews",
+             "offset": 12,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "",
+             "struct": null
+            },
+            {
+             "base": 3,
+             "cols": 1,
+             "elements": 0,
+             "name": "InstanceMaskWordStride",
+             "offset": 16,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "",
+             "struct": null
+            }
+           ],
+           "size": 32,
+           "static_slot": null,
+           "type": "FCommonParameters",
+           "usage_flags": 0,
+           "use_case": 0,
+           "variable": null
+          }
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "DeformingInstanceViewMask",
+          "offset": 32,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "PersistentIdToIndexMap",
+          "offset": 40,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint>",
+          "struct": null
+         }
+        ],
+        "size": 48,
+        "static_slot": null,
+        "type": "FParameters",
+        "usage_flags": 0,
+        "use_case": 0,
+        "variable": null
+       }
+      }
+     ],
+     "size": 256,
+     "static_slot": "Scene",
+     "type": "FSceneUniformParameters",
+     "usage_flags": 0,
+     "use_case": 1,
+     "variable": "Scene"
+    }
+   },
+   {
+    "base": 21,
+    "cols": 1,
+    "elements": 0,
+    "name": "RasterParameters",
+    "offset": 16,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "FRasterParameters",
+    "struct": {
+     "binding_flags": 1,
+     "file": "Unknown",
+     "layout_name": "FRasterParameters",
+     "line": 14,
+     "members": [
+      {
+       "base": 14,
+       "cols": 1,
+       "elements": 0,
+       "name": "OutDepthBuffer",
+       "offset": 0,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWTexture2D<uint>",
+       "struct": null
+      },
+      {
+       "base": 14,
+       "cols": 1,
+       "elements": 0,
+       "name": "OutDepthBufferArray",
+       "offset": 8,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWTexture2DArray<uint>",
+       "struct": null
+      },
+      {
+       "base": 14,
+       "cols": 1,
+       "elements": 0,
+       "name": "OutVisBuffer64",
+       "offset": 16,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWTexture2D<UlongType>",
+       "struct": null
+      },
+      {
+       "base": 14,
+       "cols": 1,
+       "elements": 0,
+       "name": "OutDbgBuffer64",
+       "offset": 24,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWTexture2D<UlongType>",
+       "struct": null
+      },
+      {
+       "base": 14,
+       "cols": 1,
+       "elements": 0,
+       "name": "OutDbgBuffer32",
+       "offset": 32,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWTexture2D<uint>",
+       "struct": null
+      }
+     ],
+     "size": 48,
+     "static_slot": null,
+     "type": "FRasterParameters",
+     "usage_flags": 0,
+     "use_case": 0,
+     "variable": null
+    }
+   },
+   {
+    "base": 19,
+    "cols": 1,
+    "elements": 0,
+    "name": "NaniteRaster",
+    "offset": 64,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "FNaniteRasterUniformParameters",
+    "struct": {
+     "binding_flags": 2,
+     "file": "Unknown",
+     "layout_name": "FNaniteRasterUniformParameters",
+     "line": 338,
+     "members": [
+      {
+       "base": 2,
+       "cols": 4,
+       "elements": 0,
+       "name": "PageConstants",
+       "offset": 0,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "MaxNodes",
+       "offset": 16,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "MaxVisibleClusters",
+       "offset": 20,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "MaxCandidatePatches",
+       "offset": 24,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "MaxPatchesPerGroup",
+       "offset": 28,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "MeshPass",
+       "offset": 32,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 4,
+       "cols": 1,
+       "elements": 0,
+       "name": "InvDiceRate",
+       "offset": 36,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "RenderFlags",
+       "offset": 40,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      },
+      {
+       "base": 3,
+       "cols": 1,
+       "elements": 0,
+       "name": "DebugFlags",
+       "offset": 44,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "",
+       "struct": null
+      }
+     ],
+     "size": 48,
+     "static_slot": "NaniteRaster",
+     "type": "FNaniteRasterUniformParameters",
+     "usage_flags": 0,
+     "use_case": 1,
+     "variable": "NaniteRaster"
+    }
+   },
+   {
+    "base": 3,
+    "cols": 4,
+    "elements": 0,
+    "name": "PassData",
+    "offset": 80,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "",
+    "struct": null
+   },
+   {
+    "base": 3,
+    "cols": 4,
+    "elements": 0,
+    "name": "ViewSizeAndOffset",
+    "offset": 96,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "ClusterPageData",
+    "offset": 112,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "ByteAddressBuffer",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "InViews",
+    "offset": 120,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "StructuredBuffer< FPackedView >",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "VisibleClustersSWHW",
+    "offset": 128,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "ByteAddressBuffer",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "InTotalPrevDrawClusters",
+    "offset": 136,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "StructuredBuffer< FUintVector2 >",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "RasterBinData",
+    "offset": 144,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "StructuredBuffer<uint>",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "RasterBinMeta",
+    "offset": 152,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "StructuredBuffer<FNaniteRasterBinMeta>",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "InClusterOffsetSWHW",
+    "offset": 160,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "Buffer< uint >",
+    "struct": null
+   },
+   {
+    "base": 6,
+    "cols": 1,
+    "elements": 0,
+    "name": "TessellationTable_Offsets",
+    "offset": 168,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "ByteAddressBuffer",
+    "struct": null
+   },
+   {
+    "base": 6,
+    "cols": 1,
+    "elements": 0,
+    "name": "TessellationTable_VertsAndIndexes",
+    "offset": 176,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "ByteAddressBuffer",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "VisiblePatches",
+    "offset": 184,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "ByteAddressBuffer",
+    "struct": null
+   },
+   {
+    "base": 17,
+    "cols": 1,
+    "elements": 0,
+    "name": "VisiblePatchesArgs",
+    "offset": 192,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "Buffer< uint >",
+    "struct": null
+   },
+   {
+    "base": 20,
+    "cols": 1,
+    "elements": 0,
+    "name": "SplitWorkQueue",
+    "offset": 208,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "FGlobalWorkQueueParameters",
+    "struct": {
+     "binding_flags": 1,
+     "file": "Unknown",
+     "layout_name": "FGlobalWorkQueueParameters",
+     "line": 1212,
+     "members": [
+      {
+       "base": 18,
+       "cols": 1,
+       "elements": 0,
+       "name": "DataBuffer",
+       "offset": 0,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWByteAddressBuffer",
+       "struct": null
+      },
+      {
+       "base": 18,
+       "cols": 1,
+       "elements": 0,
+       "name": "StateBuffer",
+       "offset": 8,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWStructuredBuffer< FWorkQueueState >",
+       "struct": null
+      }
+     ],
+     "size": 16,
+     "static_slot": null,
+     "type": "FGlobalWorkQueueParameters",
+     "usage_flags": 0,
+     "use_case": 0,
+     "variable": null
+    }
+   },
+   {
+    "base": 18,
+    "cols": 1,
+    "elements": 0,
+    "name": "OutStatsBuffer",
+    "offset": 224,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "RWStructuredBuffer<FNaniteStats>",
+    "struct": null
+   },
+   {
+    "base": 15,
+    "cols": 1,
+    "elements": 0,
+    "name": "IndirectArgs",
+    "offset": 232,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "",
+    "struct": null
+   },
+   {
+    "base": 21,
+    "cols": 1,
+    "elements": 0,
+    "name": "VirtualShadowMap",
+    "offset": 256,
+    "precision": 0,
+    "rows": 1,
+    "shader_type": "FVirtualTargetParameters",
+    "struct": {
+     "binding_flags": 1,
+     "file": "Unknown",
+     "layout_name": "FVirtualTargetParameters",
+     "line": 589,
+     "members": [
+      {
+       "base": 19,
+       "cols": 1,
+       "elements": 0,
+       "name": "VirtualShadowMap",
+       "offset": 0,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "FVirtualShadowMapUniformParameters",
+       "struct": {
+        "binding_flags": 2,
+        "file": "Unknown",
+        "layout_name": "FVirtualShadowMapUniformParameters",
+        "line": 161,
+        "members": [
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "NumFullShadowMaps",
+          "offset": 0,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "NumSinglePageShadowMaps",
+          "offset": 4,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "MaxPhysicalPages",
+          "offset": 8,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "NumShadowMapSlots",
+          "offset": 12,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "StaticCachedArrayIndex",
+          "offset": 16,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "StaticHZBArrayIndex",
+          "offset": 20,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "PhysicalPageRowMask",
+          "offset": 24,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "PhysicalPageRowShift",
+          "offset": 28,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "PackedShadowMaskMaxLightCount",
+          "offset": 32,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 4,
+          "elements": 0,
+          "name": "RecPhysicalPoolSize",
+          "offset": 48,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 2,
+          "elements": 0,
+          "name": "PhysicalPoolSize",
+          "offset": 64,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 2,
+          "elements": 0,
+          "name": "PhysicalPoolSizePages",
+          "offset": 72,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "bExcludeNonNaniteFromCoarsePages",
+          "offset": 80,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "CoarsePagePixelThresholdDynamic",
+          "offset": 84,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "CoarsePagePixelThresholdStatic",
+          "offset": 88,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "CoarsePagePixelThresholdDynamicNanite",
+          "offset": 92,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "SceneFrameNumber",
+          "offset": 96,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "bClipmapGreedyLevelSelection",
+          "offset": 100,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "GlobalResolutionLodBias",
+          "offset": 104,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "ScreenRayLength",
+          "offset": 108,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "NormalBias",
+          "offset": 112,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTAdaptiveRayCount",
+          "offset": 116,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTRayCountLocal",
+          "offset": 120,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTSamplesPerRayLocal",
+          "offset": 124,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTExtrapolateMaxSlopeLocal",
+          "offset": 128,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTTexelDitherScaleLocal",
+          "offset": 132,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTMaxSlopeBiasLocal",
+          "offset": 136,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTCotMaxRayAngleFromLight",
+          "offset": 140,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTRayCountDirectional",
+          "offset": 144,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 2,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTSamplesPerRayDirectional",
+          "offset": 148,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTExtrapolateMaxSlopeDirectional",
+          "offset": 152,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTTexelDitherScaleDirectional",
+          "offset": 156,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 4,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTRayLengthScale",
+          "offset": 160,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 3,
+          "cols": 1,
+          "elements": 0,
+          "name": "SMRTHairRayCount",
+          "offset": 164,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "ProjectionData",
+          "offset": 168,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "ByteAddressBuffer",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "PageTable",
+          "offset": 176,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "PageFlags",
+          "offset": 184,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "AllocatedPageRectBounds",
+          "offset": 192,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint4>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "UncachedPageRectBounds",
+          "offset": 200,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint4>",
+          "struct": null
+         },
+         {
+          "base": 9,
+          "cols": 1,
+          "elements": 0,
+          "name": "PhysicalPagePool",
+          "offset": 208,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "Texture2DArray<uint>",
+          "struct": null
+         },
+         {
+          "base": 17,
+          "cols": 1,
+          "elements": 0,
+          "name": "CachePrimitiveAsDynamic",
+          "offset": 216,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "StructuredBuffer<uint>",
+          "struct": null
+         },
+         {
+          "base": 21,
+          "cols": 1,
+          "elements": 0,
+          "name": "PerViewData",
+          "offset": 224,
+          "precision": 0,
+          "rows": 1,
+          "shader_type": "FVirtualShadowMapPerViewParameters",
+          "struct": {
+           "binding_flags": 1,
+           "file": "Unknown",
+           "layout_name": "FVirtualShadowMapPerViewParameters",
+           "line": 153,
+           "members": [
+            {
+             "base": 17,
+             "cols": 1,
+             "elements": 0,
+             "name": "LightGridData",
+             "offset": 0,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "StructuredBuffer<uint>",
+             "struct": null
+            },
+            {
+             "base": 17,
+             "cols": 1,
+             "elements": 0,
+             "name": "NumCulledLightsGrid",
+             "offset": 8,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "StructuredBuffer<uint>",
+             "struct": null
+            },
+            {
+             "base": 3,
+             "cols": 1,
+             "elements": 0,
+             "name": "MaxLightGridEntryIndex",
+             "offset": 16,
+             "precision": 0,
+             "rows": 1,
+             "shader_type": "",
+             "struct": null
+            }
+           ],
+           "size": 32,
+           "static_slot": null,
+           "type": "FVirtualShadowMapPerViewParameters",
+           "usage_flags": 0,
+           "use_case": 0,
+           "variable": null
+          }
+         }
+        ],
+        "size": 256,
+        "static_slot": "VirtualShadowMapUbSlot",
+        "type": "FVirtualShadowMapUniformParameters",
+        "usage_flags": 0,
+        "use_case": 1,
+        "variable": "VirtualShadowMap"
+       }
+      },
+      {
+       "base": 17,
+       "cols": 1,
+       "elements": 0,
+       "name": "HZBPageTable",
+       "offset": 16,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "StructuredBuffer< uint >",
+       "struct": null
+      },
+      {
+       "base": 17,
+       "cols": 1,
+       "elements": 0,
+       "name": "HZBPageRectBounds",
+       "offset": 24,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "StructuredBuffer< uint4 >",
+       "struct": null
+      },
+      {
+       "base": 17,
+       "cols": 1,
+       "elements": 0,
+       "name": "HZBPageFlags",
+       "offset": 32,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "StructuredBuffer< uint >",
+       "struct": null
+      },
+      {
+       "base": 18,
+       "cols": 1,
+       "elements": 0,
+       "name": "OutDirtyPageFlags",
+       "offset": 40,
+       "precision": 0,
+       "rows": 1,
+       "shader_type": "RWStructuredBuffer< uint >",
+       "struct": null
+      }
+     ],
+     "size": 48,
+     "static_slot": null,
+     "type": "FVirtualTargetParameters",
+     "usage_flags": 0,
+     "use_case": 0,
+     "variable": null
+    }
+   }
+  ],
+  "shader_types": [
+   "FMicropolyRasterizeCS",
+   "FHWRasterizeVS",
+   "FHWRasterizeMS",
+   "FHWRasterizePS"
+  ],
+  "size": 304,
+  "static_slot": null,
+  "type": "FRasterizePassParameters",
+  "usage_flags": 0,
+  "use_case": 0,
+  "variable": null
+ }
+}

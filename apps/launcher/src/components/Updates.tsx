@@ -157,6 +157,14 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
                           beta
                         </Badge>
                       )}
+                      {item.repair && (
+                        <Badge
+                          tone="amber"
+                          title="Files are missing from this install; the same version is downloaded again."
+                        >
+                          repair
+                        </Badge>
+                      )}
                       {item.restarts && (
                         <Badge tone="amber" title="The launcher will restart itself">
                           restarts
@@ -164,7 +172,7 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
                       )}
                     </div>
                     <p className="text-xs text-text-secondary mt-0.5 font-mono">
-                      {item.from ? `v${item.from} → ` : ""}
+                      {item.from && !item.repair ? `v${item.from} → ` : ""}
                       <span className="text-mjolnir-gold">v{item.to}</span>
                     </p>
                   </div>
