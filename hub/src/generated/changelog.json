@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.31.1",
+      "tag": "mods-v0.31.1",
+      "title": "Benches that fill the screen",
+      "date": "2026-10-20",
+      "summary": "/bench and mjolnirbench now measure the whole screen at your own field of view, so their timings are right on monitors that aren't 16:9.",
+      "body": "### Fixed\n\n- **Benches see the whole screen** (MJOLNIRHud 0.11.3). On a screen that\n  isn't 16:9, `/bench` and `mjolnir_bench` drew the held view with black\n  bars, so their timings read about 10% light on a 16:10 monitor. The held\n  view now fills the screen at your own field of view.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Benches see the whole screen (MJOLNIRHud 0.11.3). On a screen that isn't 16:9, /bench and mjolnirbench drew the held view with black bars, so their timings read about 10% light on a 16:10 monitor. The held view now fills the screen at your own field of view."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.31.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.31.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.31.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.31.0",
       "tag": "mods-v0.31.0",
       "title": "Faster map loads and rivers that start full",
