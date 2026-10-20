@@ -60,6 +60,9 @@ export interface ScanResult {
  *  remastered map's containers went past the Worker's 128 MB. */
 const READ_WHOLE = /\.(json|utoc)$/i;
 
+/** How much of the archive is handed to the unzip at a time (unpack). */
+const PUSH_SLICE = 256 * 1024;
+
 /** The archive's members, streamed: `files` the ones READ_WHOLE keeps, the
  *  hash and size of each. Throws on a broken zip or past MAX_UNPACKED_BYTES. */
 function unpack(bytes: Uint8Array) {
@@ -108,7 +111,16 @@ function unpack(bytes: Uint8Array) {
     file.start();
   });
   unzip.register(UnzipInflate);
-  unzip.push(bytes, true);
+  // In slices: fflate inflates all the input it is handed in one go, so one
+  // push of the whole archive inflated a member whole, and the CE runtime's
+  // 92 MB container (37 MB packed) took the Worker past its memory
+  // (Cloudflare 1102, runtime 1.12.0, 2026-10-20). A slice inflates to a
+  // few MB at most, hashed and dropped.
+  for (let at = 0; at < bytes.length; at += PUSH_SLICE) {
+    unzip.push(bytes.subarray(at, at + PUSH_SLICE), at + PUSH_SLICE >= bytes.length);
+    if (failure) break;
+  }
+  if (bytes.length === 0) unzip.push(bytes, true);
   if (failure) throw failure;
   if (open.size > 0) throw new Error(`truncated member ${[...open][0]}`);
   return { files, hashes, sizes };
