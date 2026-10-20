@@ -198,9 +198,14 @@ RULES = [
     # (b30_collision.py FOLIAGE_RULES) where a player wades.
     {"name": "sea rocks", "optional": True, "group": "sea", "on": "any", "share": [0.0, 0.0], "density": 0.006, "slope": 25, "above": [-4.0, -0.3],
      "cluster": [40.0, 0.5], "shore": [3.0, 60.0],
-     "meshes": [(ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A", 0.9, 2.2, 40),
-                (ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 1.0, 2.6, 60),
-                (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 1.0, 2.4, 80)],
+     # The meshes' bottom and top over their pivot at scale 1 (cm,
+     # b30_scenery_bounds.json).
+     "floor": {"out": 30.0, "extent": {ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A": (-82.0, 67.0),
+                                       ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B": (-126.0, 141.0),
+                                       ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C": (-162.0, 206.0)}},
+     "meshes": [(ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A", 1.2, 2.6, 0),
+                (ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 1.0, 2.6, 0),
+                (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 1.0, 2.4, 0)],
      "materials": WATERLINE, "cull": [25000, 45000], "shadow": True},
     # Grass along every lip (--edge: the landscape's edge map), dense and
     # tall, so blades break the edge's line where the cliff's turf hem
@@ -1054,6 +1059,14 @@ def main():
         zs = land["location"][2] + (hts.reshape(n, n).astype(np.float64) - 32768) * land["scale"][2] / 128.0
         floor = (zs, land["location"], land["scale"])
 
+    def floor_z(x, y):
+        if floor is None:
+            return None
+        zs, loc, sc = floor
+        i = int(round((x - loc[0]) / sc[0]))
+        j = int(round((y - loc[1]) / sc[1]))
+        return float(zs[j, i]) if 0 <= i < zs.shape[1] and 0 <= j < zs.shape[0] else None
+
     def under_floor(x, y, z):
         if floor is None or z >= a.sea:
             return False
@@ -1178,7 +1191,7 @@ def main():
                             h = (z - a.lift - a.sea) / 100.0
                             if (low is not None and h < low) or (high is not None and h > high):
                                 continue
-                        if under_floor(x, y, z - a.lift):
+                        if not rule.get("floor") and under_floor(x, y, z - a.lift):
                             continue
                         if rule.get("edge") and not on_lip(edge, x, y, z, rule["edge"]):
                             continue
@@ -1221,6 +1234,19 @@ def main():
                             if nu[2] < 0:
                                 nu = -nu
                             tilt = (float(nu[0]), float(nu[1]))
+                        fl = rule.get("floor")
+                        if fl:
+                            # On the landscape's own sea floor (it shelves away
+                            # under CE's sandbars), a fifth of its height in it,
+                            # and only where its top breaks the surface by
+                            # fl["out"] cm: under it, nobody sees it.
+                            fz = floor_z(x, y)
+                            lo_z, hi_z = fl["extent"][path]
+                            if fz is None:
+                                continue
+                            z = fz - lo_z * scale - 0.2 * (hi_z - lo_z) * scale + sink * scale
+                            if z - sink * scale + hi_z * scale < a.sea + fl["out"]:
+                                continue
                         seat = rule.get("seat")
                         if seat:
                             down = ground.drop(x, y, z - a.lift, tilt, seat[0] * scale)
