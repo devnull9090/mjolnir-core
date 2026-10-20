@@ -3458,6 +3458,14 @@ function Effects.dryTick()
     end
 end
 
+--- Hide CE's water (level.flux.hide), once the Flux water has taken over.
+function Effects.hideCE(spec)
+    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
+        local a = Current.actors[key]
+        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
+    end
+end
+
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
     if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
@@ -3477,6 +3485,7 @@ function Effects.flux(world)
         local w = getWorld()
         if not w or Current.worldName ~= name or Current.level ~= level then return end
         Current.fluxPending = false
+        Current.fluxHideLater = false
         local ok, err = pcall(function()
             local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
             local gs = findObject("/Script/Engine.Default__GameplayStatics")
@@ -3582,6 +3591,10 @@ function Effects.flux(world)
                     comps[#comps + 1] = m
                     if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
                 end
+                -- A primed river fills over prime_ms: its bed showed dry for
+                -- that minute with CE's water already hidden (Battle Creek,
+                -- 2026-10-19). CE's stays until the river is full.
+                Current.fluxHideLater = #primed > 0
                 -- `prime` sources fill the river at the start, then go: held,
                 -- a Set source takes away the water that runs in, and the river
                 -- stood still (Timberland, 2026-10-14).
@@ -3602,6 +3615,7 @@ function Effects.flux(world)
                         end
                     end)
                     Log(string.format("flux: river filled, %d priming source(s) removed", gone))
+                    Effects.hideCE(spec)
                 end)
                 dom:FindWorldModifiers(true)
                 -- Volume, mode and velocity reach the simulation through the
@@ -3648,12 +3662,7 @@ function Effects.flux(world)
         -- CE's water (`hide`) goes once Flux's is up, not before: until then
         -- the level has its old water rather than none. It is out of the
         -- ground capture already (FluxHide, with every actor not `ground`).
-        if ok then
-            for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
-                local a = Current.actors[key]
-                if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
-            end
-        end
+        if ok and not Current.fluxHideLater then Effects.hideCE(spec) end
         if not ok then Log("flux: " .. tostring(err)) end
     end)
 end
