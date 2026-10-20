@@ -3458,6 +3458,81 @@ function Effects.dryTick()
     end
 end
 
+--- A river's settled water, baked (level.flux.state: `mjolnir_flux_bake`'s
+--- height/velocity EXRs beside the level file, and the domain they fit), as
+--- the domain's InitialState: its ResetRenderTargets at BeginPlay draws it in
+--- (LoadInitialState) instead of starting dry, as the game's own
+--- PDA_M06_343_FluxState does. Set before the deferred spawn finishes. A
+--- state baked for another domain (centre, resolution or cell) is left out.
+--- Returns whether the state went in.
+function Effects.fluxState(w, dom, spec, centre)
+    local bs, d = spec.state, spec.domain
+    if type(bs) ~= "table" or type(bs.height) ~= "string" or type(bs.velocity) ~= "string" then return false end
+    local fits = type(bs.centre) == "table" and type(bs.res) == "table"
+        and math.abs(bs.centre[1] - d.centre[1]) < 1 and math.abs(bs.centre[2] - d.centre[2]) < 1
+        and math.abs(bs.centre[3] - d.centre[3]) < 1 and bs.res[1] == d.res[1] and bs.res[2] == d.res[2]
+        and bs.cell == d.cell and bs.height_cm == d.height
+    if not fits then Log("flux: the baked state is for another domain; filling instead") return false end
+    local K = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local cls = findObject("/Game/FluidFlux/Simulation/Blueprints/PDA_FluxSimulationState.PDA_FluxSimulationState_C")
+    local dir = (Current.level._dir or MOD_DIR) .. "\\"
+    local hw = K:ImportFileAsTexture2D(w, dir .. bs.height)
+    local vd = K:ImportFileAsTexture2D(w, dir .. bs.velocity)
+    if not (cls and hw and hw:IsValid() and vd and vd:IsValid()) then
+        Log("flux: baked state files missing; filling instead") return false
+    end
+    hw.SRGB = false
+    vd.SRGB = false
+    -- Outer the domain: its InitialState property keeps the state (and the
+    -- state its textures) alive.
+    local st = StaticConstructObject(cls, dom)
+    st.HeightWetMap = hw
+    st.VelocityDepthFoamMap = vd
+    -- The raw simulation targets, as the domain's own CurrentState holds
+    -- them: no encoding.
+    st.EncodeHeightMax = 1.0
+    st.EncodeVelocityMax = 1.0
+    st.Compression = false
+    st.AreaLocation = centre
+    st.AreaSize = { X = d.res[1] * d.cell, Y = d.res[2] * d.cell, Z = d.height }
+    st.Resolution = { X = d.res[1], Y = d.res[2] }
+    st.CaptureOffset = tonumber(bs.capture) or 0
+    dom.InitialState = st
+    return true
+end
+
+--- `mjolnir_flux_bake`: the river as it is now (let it settle first) into
+--- flux_state\ beside the level file: its height/wet and velocity/depth/foam
+--- targets as EXR (the RG16f height copied into RGBA16f first, which the
+--- engine writes as EXR rather than a clamped PNG), and state.json with the
+--- domain it fits. tools/level/upgrade_ce_map.py ships them.
+function Effects.fluxBake()
+    local dom = Current.actors["__flux_domain"]
+    local spec = Current.level and Current.level.flux
+    if not (dom and dom:IsValid() and type(spec) == "table" and type(spec.domain) == "table") then
+        return "no Flux river on this level"
+    end
+    local st, w = dom.CurrentState, getWorld()
+    local K = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local d = spec.domain
+    local dir = (Current.level._dir or MOD_DIR) .. "\\flux_state"
+    local rt = K:CreateRenderTarget2D(w, d.res[1], d.res[2], 6, { R = 0, G = 0, B = 0, A = 0 }, false, false)
+    local outs, size, ctx = {}, {}, {}
+    K:BeginDrawCanvasToRenderTarget(w, rt, outs, size, ctx)
+    outs.Canvas:K2_DrawTexture(st.HeightWetMap, { X = 0, Y = 0 }, { X = d.res[1], Y = d.res[2] }, { X = 0, Y = 0 },
+        { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = 1 }, 0, 0, { X = 0, Y = 0 })
+    K:EndDrawCanvasToRenderTarget(w, ctx)
+    K:ExportRenderTarget(w, rt, dir, "height.exr")
+    K:ExportRenderTarget(w, st.VelocityDepthFoamMap, dir, "velocity.exr")
+    local f = io.open(dir .. "\\state.json", "w")
+    if not f then return "could not write " .. dir end
+    f:write(string.format('{"height": "flux_state/height.exr", "velocity": "flux_state/velocity.exr", '
+        .. '"centre": [%s, %s, %s], "res": [%d, %d], "cell": %s, "height_cm": %s, "capture": %s}\n',
+        d.centre[1], d.centre[2], d.centre[3], d.res[1], d.res[2], d.cell, d.height, st.CaptureOffset))
+    f:close()
+    return "baked into " .. dir
+end
+
 --- Hide CE's water (level.flux.hide), once the Flux water has taken over.
 function Effects.hideCE(spec)
     for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
@@ -3572,10 +3647,14 @@ function Effects.flux(world)
                 sv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
                 sv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
                 dom.SceneVisibility = sv
+                -- Its baked water, if any: then it starts full and needs
+                -- no priming.
+                local baked = Effects.fluxState(w, dom, spec, c)
                 gs:FinishSpawningActor(dom, xf, 0)
                 Current.actors["__flux_domain"] = dom
                 local src, comps, primed = cls(Effects.FLUX_SOURCE), {}, {}
                 for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
+                  if not (baked and s.prime) then
                     local p, sc = s.pos, tonumber(s.scale) or 1.0
                     local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
                         Translation = { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
@@ -3590,6 +3669,7 @@ function Effects.flux(world)
                     Current.actors["__flux_source_" .. i] = a
                     comps[#comps + 1] = m
                     if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
+                  end
                 end
                 -- A primed river fills over prime_ms: its bed showed dry for
                 -- that minute with CE's water already hidden (Battle Creek,
@@ -6016,6 +6096,11 @@ local function initialize()
     end)
     RegisterConsoleCommandHandler("mjolnir_level_reload", function()
         reload()
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_flux_bake", function()
+        local _, msg = pcall(Effects.fluxBake)
+        Log("flux bake: " .. tostring(msg))
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_level_clear", function()

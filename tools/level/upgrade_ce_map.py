@@ -1238,6 +1238,32 @@ def flux_spec(code, fx, river, level):
     return spec
 
 
+def flux_state(code, p, flux):
+    """The river's baked water (MJOLNIRLevelLoader's `mjolnir_flux_bake`,
+    run in game once the river has settled): <work>/flux_state, or picked up
+    from the game's map folder where the bake wrote it. Kept only when it was
+    baked for this domain; the loader checks again and fills the river the old
+    way otherwise."""
+    work = os.path.join(p["work"], "flux_state")
+    baked = os.path.join(UE4SS, "MJOLNIRMaps", code, "flux_state")
+    if os.path.exists(os.path.join(baked, "state.json")) and (
+            not os.path.exists(os.path.join(work, "state.json"))
+            or os.path.getmtime(os.path.join(baked, "state.json")) > os.path.getmtime(os.path.join(work, "state.json"))):
+        shutil.copytree(baked, work, dirs_exist_ok=True)
+    path = os.path.join(work, "state.json")
+    if not os.path.exists(path):
+        return None
+    state = json.load(open(path, encoding="utf-8"))
+    d = flux.get("domain") or {}
+    fits = (state.get("res") == d.get("res") and state.get("cell") == d.get("cell")
+            and state.get("height_cm") == d.get("height")
+            and all(abs(a - b) < 1 for a, b in zip(state.get("centre", []), d.get("centre", []))))
+    if not fits:
+        print(f"  {code}: the baked flux state is for another domain; rebake it (mjolnir_flux_bake)")
+        return None
+    return state
+
+
 def stage_assemble(code, m, p):
     baked = bool(m.get("bake_foliage"))
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
@@ -1334,6 +1360,10 @@ def stage_assemble(code, m, p):
                     mats[i] = HIDDEN
     if m.get("flux") and os.path.exists(river):
         level["flux"] = flux_spec(code, m["flux"], json.load(open(river, encoding="utf-8")), level)
+        state = flux_state(code, p, level["flux"])
+        if state:
+            level["flux"]["state"] = state
+            print(f"  {code}: flux river starts from its baked state")
         # The bed Flux alone sees (flux_bed), its only ground.
         if m["flux"].get("bed") and os.path.exists(os.path.join(p["work"], "flux_bed.json")):
             origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
@@ -2059,6 +2089,8 @@ def stage_install(code, m, p):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
+    if os.path.exists(os.path.join(p["work"], "flux_state", "state.json")):
+        shutil.copytree(os.path.join(p["work"], "flux_state"), os.path.join(data, "flux_state"), dirs_exist_ok=True)
     decals = os.path.join(p["work"], "decals")
     if os.path.isdir(decals) and os.listdir(decals):
         os.makedirs(os.path.join(data, "decals"), exist_ok=True)

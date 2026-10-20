@@ -89,6 +89,9 @@ def stage(code, m, work, out):
     decals = os.path.join(w, "decals")
     if os.path.isdir(decals) and os.listdir(decals):
         shutil.copytree(decals, os.path.join(dst, "decals"))
+    # A river's baked water (level.flux.state), beside the level file.
+    if (level.get("flux") or {}).get("state"):
+        shutil.copytree(os.path.join(w, "flux_state"), os.path.join(dst, "flux_state"))
     return inst, dst
 
 
