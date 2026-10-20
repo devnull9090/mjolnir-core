@@ -341,6 +341,12 @@ def recipes(a):
               f"(scale 1), {isolation(t) / 100:.0f} m from the next")
     if a.meshes:
         prune_leaves(out, a)
+    # The out file can hold other trees' recipes too (Timberland's Tree_Pine,
+    # from A30's cells with another --prefix): keep what this run did not
+    # make. Regenerating the Kuenovo ones dropped it (2026-10-19).
+    if os.path.exists(a.out):
+        for variant, r in json.load(open(a.out, encoding="utf-8")).items():
+            out.setdefault(variant, r)
     json.dump(out, open(a.out, "w", encoding="utf-8"), indent=1)
 
 
