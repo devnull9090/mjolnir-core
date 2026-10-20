@@ -358,6 +358,24 @@ def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
     return out
 
 
+def swapped_surface(staging, snow=False):
+    """A test for the scene's materials scenery_swap.py hides (its CE
+    boulders, trees and plants, drawn in the scene mesh): nothing grows on
+    them. Grass on a CE boulder's top floated over the smaller B30 rock that
+    stands there instead once the circle no longer cleared it (Danger
+    Canyon, 2026-10-19). Its own rule: the slot names it hides by."""
+    from scenery_swap import model_shaders, swap_rule
+    path = os.path.join(staging, "placement.json")
+    tokens, shaders = set(), set()
+    if os.path.exists(path):
+        for e in json.load(open(path, encoding="utf-8")).get("entries", []):
+            if swap_rule(e, staging, snow):
+                tokens.add(e["asset"].lower().rsplit("\\", 1)[0].replace("\\", "_").replace(" ", "_") + "_shaders_")
+                shaders.update(sh + "__" for sh in model_shaders(os.path.join(staging, e["model"])))
+    prefixes = tuple(tokens | shaders)
+    return lambda name: bool(prefixes) and name.startswith(prefixes)
+
+
 SCENERY_CELL = 1000.0
 
 
@@ -990,6 +1008,8 @@ def main():
     off = [float(v) for v in a.offset.split(",")]
     footprints = scenery_footprints(a.gltf, off, a.staging, a.swapped_rocks, a.biome == "snow")
     scenery = scenery_grid(footprints)
+    staging_dir = a.staging or os.path.join(os.path.dirname(os.path.abspath(a.gltf)), "staging")
+    swapped = swapped_surface(staging_dir, a.biome == "snow") if a.swapped_rocks else (lambda name: False)
     print(f"{len(footprints)} scenery object(s) kept clear of foliage")
     rng = random.Random(a.seed)
     rng_lip = random.Random(a.seed + 7)
@@ -1003,7 +1023,7 @@ def main():
         for prim in mesh["primitives"]:
             name = doc["materials"][prim["material"]]["name"].lower()
             hit = slots.get(name)
-            if not hit:
+            if not hit or swapped(name):
                 continue
             cliff = name in turfed
             file, primary, secondary, shader_type = hit
