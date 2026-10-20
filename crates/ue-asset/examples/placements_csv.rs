@@ -1,7 +1,8 @@
 //! Every placement of a mission's World Partition cells whose mesh path
 //! contains one of the filters, as CSV: mesh, x, y, z (cm), yaw (degrees),
 //! uniform scale, kind, cell, and the full 3 x 3 (rotation and scale, row
-//! vectors: m00..m22) for parts that tilt (a tree's branches).
+//! vectors: m00..m22) for parts that tilt (a tree's branches), and the actor
+//! the component belongs to (a tree's parts and twigs share one).
 //!
 //!   cargo run -p ue-asset --example placements_csv -- <paks> <usmap> <mission> <out.csv> [filter...]
 //!
@@ -47,7 +48,7 @@ fn main() {
     let reader = CellReader::new(&usmap, &scripts, &load);
     let cells = mission_cells(index.keys().map(|k| k.as_str()), mission);
     let mut f = std::fs::File::create(out).expect("create csv");
-    writeln!(f, "mesh,x,y,z,yaw,scale,kind,cell,m00,m01,m02,m10,m11,m12,m20,m21,m22").unwrap();
+    writeln!(f, "mesh,x,y,z,yaw,scale,kind,cell,m00,m01,m02,m10,m11,m12,m20,m21,m22,actor").unwrap();
     let mut rows = 0usize;
     for key in &cells {
         let Some(data) = load(key) else { continue };
@@ -68,9 +69,10 @@ fn main() {
                 Kind::Instanced => "instanced",
                 Kind::Hlod => "hlod",
             };
-            writeln!(f, "{mesh},{:.1},{:.1},{:.1},{:.1},{:.3},{kind},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5}",
+            writeln!(f, "{mesh},{:.1},{:.1},{:.1},{:.1},{:.3},{kind},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{:.5},{}",
                 t[0], t[1], t[2], yaw, sx, key.rsplit('/').next().unwrap_or(key),
-                m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2])
+                m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2],
+                cell.components[p.component].actor)
             .unwrap();
             rows += 1;
         }

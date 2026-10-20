@@ -792,6 +792,31 @@ mjolnir live engine --launch-engine 2 --map-variant-gate skip --map-variant-rese
 The level spawns its terrain once the player pawn exists, so the first
 seconds after the loading screen are dark.
 
+### Baked Flux rivers
+
+A Fluid Flux river (an upgraded map's `flux` with a `domain`) fills from
+priming sources over about a minute. Baking its settled water makes it start
+full, as the game's own 343 Guilty Spark water does (`PDA_M06_343_FluxState`):
+
+1. Host the map and wait for `flux: river filled` in `UE4SS.log`, plus a
+   few seconds.
+2. Run `mjolnir_flux_bake` in the console. It writes `flux_state/`
+   (`height.exr`, `velocity.exr`, `state.json`) beside the installed level
+   file.
+3. Run `python tools/level/upgrade_ce_map.py <CODE> --stages assemble`, then
+   `--stages install` with the game closed. Assemble copies the bake into the
+   upgrade's work folder and sets `level.flux.state`; install and
+   `pack_remastered.py` ship `flux_state/` beside the level file.
+
+MJOLNIRLevelLoader builds a `PDA_FluxSimulationState` from the EXRs and sets
+it as the domain's `InitialState` before the domain starts. Its
+`ResetRenderTargets` then loads that state rather than clearing the water,
+the priming sources are skipped, and CE's water is hidden at once. A bake
+for another domain (centre, resolution, cell or height) is ignored, by
+assemble and by the loader, and the river fills the old way: rebake after
+changing a map's `flux` settings or its river mesh. Battle Creek was baked
+on 2026-10-19.
+
 ## Limits
 
 - **Weather and model-less skies.** `ce_fog.py` also reads the weather

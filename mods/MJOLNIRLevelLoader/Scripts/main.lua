@@ -242,6 +242,17 @@ local Current = {
     -- source material, shared by every decor piece and foliage group that
     -- asks for the same values.
     scalarMids = {},
+    -- The world the level was furnished in (spawnDecor), for the loops that
+    -- need a world context: getWorld() reads a dozen properties and leaves
+    -- ~1.5 KB of handles behind a call.
+    world = nil,
+    -- The one table every call with a hit-result out parameter is handed
+    -- (K2_SetActorTransform's SweepHitResult and the like). UE4SS keeps a
+    -- registry reference to an out parameter's table and never lets it go:
+    -- a fresh {} a call left 7,733 FHitResult tables (13 objects each) live
+    -- on Death Island, all marked again by every garbage collection, and a
+    -- 10 Hz loop added one a run. One shared table: nothing piles up.
+    hit = {},
 }
 
 local function resetState()
@@ -266,6 +277,8 @@ local function resetState()
     Current.scalarMids = {}
     Current.water = nil
     Current.weatherHidden = nil
+    Current.weatherAt = nil
+    Current.world = nil
     Current.fluxPending = nil
     -- The console variables a level changed (the sun's shadows,
     -- spawnEnvironment) back as the game had them.
@@ -437,25 +450,34 @@ local function resolveMesh(path)
         Resolved[path] = nil
     end
     if Unresolved[path] then return nil end
+    -- A soft-path blocking load first: it hands back an object already in
+    -- memory in ~0.03 ms and loads one in ~1 ms, where StaticFindObject
+    -- took ~21 ms a path, loaded or not. Death Island's terrain resolves 124
+    -- textures: 3.5 s of its load frame were these lookups (2026-10-18).
+    local ok, loaded = pcall(function()
+        local ksl = Resolved["\0ksl"]
+        if not (ksl and ksl:IsValid()) then
+            ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+            Resolved["\0ksl"] = ksl
+        end
+        return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
+    end)
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
+    -- The soft path does not take a name with a number (SM_..._Big_6):
+    -- UE4SS's LoadAsset does, for what the game's AssetRegistry lists (none
+    -- of our own packages, which the soft path loads).
+    ok, loaded = pcall(function() return LoadAsset(path) end)
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
     local mesh = findObject(path)
     if mesh then
         Resolved[path] = mesh
         return mesh
-    end
-    local ok, loaded = pcall(function() return LoadAsset(path) end)
-    if not (ok and loaded and loaded:IsValid()) then
-        -- UE4SS's LoadAsset only knows what the game's AssetRegistry lists,
-        -- which leaves out every package of ours (the converted levels'
-        -- cooked materials and textures, pakchunk988). A soft-path blocking
-        -- load goes straight to the package store instead.
-        ok, loaded = pcall(function()
-            local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
-            return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
-        end)
-    end
-    if ok and loaded and loaded:IsValid() then
-        Resolved[path] = loaded
-        return loaded
     end
     Unresolved[path] = true
     Log("asset not found, not tried again on this map: " .. path)
@@ -1346,6 +1368,12 @@ local function spawnDecorItem(world, origin, item)
         -- Order matters: SetStaticMesh silently refuses on a registered
         -- component whose mobility is Static, and StaticMeshActor ships Static.
         comp.Mobility = MOBILITY_MOVABLE
+        -- The rotation asked for, set exactly (once Movable: a Static actor
+        -- refuses it): through UE4SS, SpawnActor's comes out wrong (pitch
+        -- alone negated, mixed angles composed otherwise), and a tilted
+        -- tree's pieces, each turned about its own pivot, stood apart: a
+        -- trunk with a gap, a branch hanging in the air (2026-10-18).
+        actor:K2_SetActorRotation({ Pitch = rot[1] or 0.0, Yaw = rot[2] or 0.0, Roll = rot[3] or 0.0 }, false)
         comp:SetStaticMesh(mesh)
         local s = item.scale
         if type(s) == "table" and #s >= 3 then
@@ -1404,8 +1432,11 @@ local function spawnDecorItem(world, origin, item)
             local base = type(first) == "table" and first.scalars and first.scalars[pulse.param]
             local okM, mid = pcall(function() return actor.StaticMeshComponent:GetMaterial(0) end)
             if okM and mid and mid:IsValid() and base then
+                -- The setter kept: UE4SS hands back a new function handle at
+                -- every method lookup (~250 bytes), and one bound to its
+                -- object, so it is this instance's own.
                 Current.pulses[#Current.pulses + 1] = {
-                    mid = mid, param = FName(pulse.param), base = base,
+                    mid = mid, set = mid.SetScalarParameterValue, param = FName(pulse.param), base = base,
                     fn = pulse["function"] or 2, period = pulse.period or 1.0,
                 }
             end
@@ -1426,7 +1457,12 @@ local function spawnDecorItem(world, origin, item)
     -- for ray tracing every frame and re-renders its shadow pages; Ice
     -- Fields' 506 fir pieces hung the GPU in Lumen's reflections and their
     -- shadows jumped as the player walked (2026-10-13).
-    if item.static then
+    -- A swapped tree's piece (its sway calmed, scenery_swap.py TREE_CALM)
+    -- too: each piece bends about its own pivot, and a 10 m trunk piece's
+    -- tip moved far enough to part from the next, the trunk breaking apart
+    -- and joining again in the wind (Infinity, 2026-10-18). Its leaf
+    -- clusters (foliage) still flutter.
+    if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
         pcall(function() actor.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
     end
     -- After the materials: the strength is set on them.
@@ -1580,7 +1616,7 @@ local function spawnEnvironment(world)
         place("__sky_fog", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
             pcall(function()
                 actor:K2_SetActorLocation({ X = high.X, Y = high.Y, Z = high.Z + (skyFog.height or 400000.0) },
-                    false, {}, false)
+                    false, Current.hit, false)
             end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
@@ -1605,7 +1641,7 @@ local function spawnEnvironment(world)
     local haze = env.haze
     if type(haze) == "table" and type(haze.color) == "table" then
         place("__haze", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
-            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, {}, false) end)
+            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, Current.hit, false) end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
             c.FogCutoffDistance = haze.cutoff or 80000
@@ -1614,10 +1650,14 @@ local function spawnEnvironment(world)
             c:SetStartDistance(haze.start or 2500)
             c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
-            ExecuteInGameThreadWithDelay(1000, function()
+            -- Both as soon as they can be: the capture on the first tick after
+            -- the load lets go (the delay has run out by then), the haze a few
+            -- frames after it. At 1 s and 2 s it came up ~2 s after the
+            -- player spawned (2026-10-18), once the load itself was short.
+            ExecuteInGameThreadWithDelay(50, function()
                 local sky = Current.actors.__sky
                 if sky and sky:IsValid() then pcall(function() sky.LightComponent:RecaptureSky() end) end
-                ExecuteInGameThreadWithDelay(2000, function()
+                ExecuteInGameThreadWithDelay(250, function()
                     if actor:IsValid() then pcall(function() actor.Component:SetFogMaxOpacity(haze.max_opacity or 0.7) end) end
                 end)
             end)
@@ -1879,7 +1919,7 @@ local function attachFlagMesh(world, actor, ctf, name, pos, rot, scale)
     comp:SetStaticMesh(mesh)
     comp:SetCollisionEnabled(COLLISION_NONE)
     comp:K2_SetRelativeLocationAndRotation({ X = pos[1], Y = pos[2], Z = pos[3] },
-        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, {}, false)
+        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, Current.hit, false)
     comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
     FlagMeshes[actor:GetFullName()] = comp
     hideSkull(actor)
@@ -1904,7 +1944,7 @@ local function pinFlag(comp, flag, stand, name, actor)
         X = stand.pos[1] + p[1] * math.cos(yaw) - p[2] * math.sin(yaw),
         Y = stand.pos[2] + p[1] * math.sin(yaw) + p[2] * math.cos(yaw),
         Z = stand.pos[3] + p[3],
-    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, {}, false)
+    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, Current.hit, false)
     HomeFlags[name] = { comp = comp, flag = flag, actor = actor }
 end
 
@@ -1915,7 +1955,7 @@ local function unpinFlag(name)
     local p = home.flag.pos or { 0, 0, 0 }
     home.comp:SetAbsolute(false, false, false)
     home.comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
 end
 
 local function teamName(team)
@@ -2151,9 +2191,9 @@ local function seatPackMesh(actor, comp, hp)
     -- straight up from the crate's lowest corner, in the crate's frame.
     local p = hp.pos or { 0, 0, 0 }
     local up = (p[3] or 0) + lowest
-    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, {}, false)
+    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, Current.hit, false)
     comp:SetAbsolute(false, true, false)
-    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, {}, false)
+    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, Current.hit, false)
 end
 
 local function dressHealthPack(world, actor, hp)
@@ -2179,7 +2219,7 @@ local function dressHealthPack(world, actor, hp)
     comp:SetCollisionEnabled(COLLISION_NONE)
     local p, s = hp.pos or { 0, 0, 0 }, hp.scale or 1.0
     comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
     comp:SetRelativeScale3D({ X = s, Y = s, Z = s })
     pcall(seatPackMesh, actor, comp, hp)
     PackMeshes[key] = comp
@@ -2732,11 +2772,17 @@ local function updateWeather()
     local changed = hidden ~= (Current.weatherHidden or false)
     Current.weatherHidden = hidden
     if changed then Log(hidden and "weather: under a roof, hidden" or "weather: in the open, shown") end
+    -- Moved when the camera has gone half a metre: each move is a call that
+    -- leaves a reference behind (Current.hit), ten a second a copy.
+    local last = Current.weatherAt
+    local follow = w.follow ~= false and not (last and math.abs(here.X - last.X) < 50
+        and math.abs(here.Y - last.Y) < 50 and math.abs(here.Z - last.Z) < 50)
+    if follow then Current.weatherAt = here end
     local missing = {}
     for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
         local comp = Current.actors["__weather" .. i]
         if comp and comp:IsValid() then
-            if w.follow ~= false then comp:K2_SetWorldLocation(here, false, {}, true) end
+            if follow then comp:K2_SetWorldLocation(here, false, Current.hit, true) end
             if changed then pcall(function() comp:SetVisibility(not hidden, false) end) end
         else
             missing[#missing + 1] = i
@@ -3089,7 +3135,7 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
                     end)
                 end
                 actor:K2_SetActorTransform({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
-                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
+                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, Current.hit, true)
                 actors[#actors + 1] = actor
                 Current.actors[string.format("__clad_%d_%d", g, k)] = actor
             end
@@ -3238,6 +3284,25 @@ end
 Effects.FLUX_DOMAIN = "/Game/FluidFlux/Simulation/Blueprints/BP_FluxSimulationDomain.BP_FluxSimulationDomain_C"
 Effects.FLUX_SOURCE = "/Game/FluidFlux/Simulation/Modifiers/BP_FluxModifierSourceActor.BP_FluxModifierSourceActor_C"
 Effects.FLUX_SURFACE = "/Game/FluidFlux/Surface/Templates/River/BP_FluxSurface_River.BP_FluxSurface_River_C"
+
+--- Optional river colour, on the new Flux surface's own material instances.
+--- CE's rivers.spec belongs to the hidden CE water and cannot colour Flux.
+function Effects.fluxColor(surf, spec)
+    if type(spec.color_preset) == "string" then
+        local preset = resolveMesh(spec.color_preset)
+        if not preset then error("Flux colour preset not found: " .. spec.color_preset) end
+        surf.BaseColorPreset = preset
+        surf:ApplyColor()
+    end
+    if type(spec.surface_vectors) == "table" then
+        local materials = surf.MaterialInstances
+        for i = 1, #materials do
+            for key, v in pairs(spec.surface_vectors) do
+                materials[i]:SetVectorParameterValue(FName(key), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+            end
+        end
+    end
+end
 
 --- The sea as B30's beach has it (level.flux.coast): Fluid Flux's ocean wave
 --- (BP_FluxOceanWave) and a coastline domain, which captures the ground
@@ -3393,23 +3458,109 @@ function Effects.dryTick()
     end
 end
 
+--- A river's settled water, baked (level.flux.state: `mjolnir_flux_bake`'s
+--- height/velocity EXRs beside the level file, and the domain they fit), as
+--- the domain's InitialState: its ResetRenderTargets at BeginPlay draws it in
+--- (LoadInitialState) instead of starting dry, as the game's own
+--- PDA_M06_343_FluxState does. Set before the deferred spawn finishes. A
+--- state baked for another domain (centre, resolution or cell) is left out.
+--- Returns whether the state went in.
+function Effects.fluxState(w, dom, spec, centre)
+    local bs, d = spec.state, spec.domain
+    if type(bs) ~= "table" or type(bs.height) ~= "string" or type(bs.velocity) ~= "string" then return false end
+    local fits = type(bs.centre) == "table" and type(bs.res) == "table"
+        and math.abs(bs.centre[1] - d.centre[1]) < 1 and math.abs(bs.centre[2] - d.centre[2]) < 1
+        and math.abs(bs.centre[3] - d.centre[3]) < 1 and bs.res[1] == d.res[1] and bs.res[2] == d.res[2]
+        and bs.cell == d.cell and bs.height_cm == d.height
+    if not fits then Log("flux: the baked state is for another domain; filling instead") return false end
+    local K = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local cls = findObject("/Game/FluidFlux/Simulation/Blueprints/PDA_FluxSimulationState.PDA_FluxSimulationState_C")
+    local dir = (Current.level._dir or MOD_DIR) .. "\\"
+    local hw = K:ImportFileAsTexture2D(w, dir .. bs.height)
+    local vd = K:ImportFileAsTexture2D(w, dir .. bs.velocity)
+    if not (cls and hw and hw:IsValid() and vd and vd:IsValid()) then
+        Log("flux: baked state files missing; filling instead") return false
+    end
+    hw.SRGB = false
+    vd.SRGB = false
+    -- Outer the domain: its InitialState property keeps the state (and the
+    -- state its textures) alive.
+    local st = StaticConstructObject(cls, dom)
+    st.HeightWetMap = hw
+    st.VelocityDepthFoamMap = vd
+    -- The raw simulation targets, as the domain's own CurrentState holds
+    -- them: no encoding.
+    st.EncodeHeightMax = 1.0
+    st.EncodeVelocityMax = 1.0
+    st.Compression = false
+    st.AreaLocation = centre
+    st.AreaSize = { X = d.res[1] * d.cell, Y = d.res[2] * d.cell, Z = d.height }
+    st.Resolution = { X = d.res[1], Y = d.res[2] }
+    st.CaptureOffset = tonumber(bs.capture) or 0
+    dom.InitialState = st
+    return true
+end
+
+--- `mjolnir_flux_bake`: the river as it is now (let it settle first) into
+--- flux_state\ beside the level file: its height/wet and velocity/depth/foam
+--- targets as EXR (the RG16f height copied into RGBA16f first, which the
+--- engine writes as EXR rather than a clamped PNG), and state.json with the
+--- domain it fits. tools/level/upgrade_ce_map.py ships them.
+function Effects.fluxBake()
+    local dom = Current.actors["__flux_domain"]
+    local spec = Current.level and Current.level.flux
+    if not (dom and dom:IsValid() and type(spec) == "table" and type(spec.domain) == "table") then
+        return "no Flux river on this level"
+    end
+    local st, w = dom.CurrentState, getWorld()
+    local K = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local d = spec.domain
+    local dir = (Current.level._dir or MOD_DIR) .. "\\flux_state"
+    local rt = K:CreateRenderTarget2D(w, d.res[1], d.res[2], 6, { R = 0, G = 0, B = 0, A = 0 }, false, false)
+    local outs, size, ctx = {}, {}, {}
+    K:BeginDrawCanvasToRenderTarget(w, rt, outs, size, ctx)
+    outs.Canvas:K2_DrawTexture(st.HeightWetMap, { X = 0, Y = 0 }, { X = d.res[1], Y = d.res[2] }, { X = 0, Y = 0 },
+        { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = 1 }, 0, 0, { X = 0, Y = 0 })
+    K:EndDrawCanvasToRenderTarget(w, ctx)
+    K:ExportRenderTarget(w, rt, dir, "height.exr")
+    K:ExportRenderTarget(w, st.VelocityDepthFoamMap, dir, "velocity.exr")
+    local f = io.open(dir .. "\\state.json", "w")
+    if not f then return "could not write " .. dir end
+    f:write(string.format('{"height": "flux_state/height.exr", "velocity": "flux_state/velocity.exr", '
+        .. '"centre": [%s, %s, %s], "res": [%d, %d], "cell": %s, "height_cm": %s, "capture": %s}\n',
+        d.centre[1], d.centre[2], d.centre[3], d.res[1], d.res[2], d.cell, d.height, st.CaptureOffset))
+    f:close()
+    return "baked into " .. dir
+end
+
+--- Hide CE's water (level.flux.hide), once the Flux water has taken over.
+function Effects.hideCE(spec)
+    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
+        local a = Current.actors[key]
+        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
+    end
+end
+
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
     if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
     for _, key in ipairs({ "__flux_domain", "__flux_coast" }) do
         if Current.actors[key] and Current.actors[key]:IsValid() then return end
     end
-    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
-        local a = Current.actors[key]
-        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
-    end
     if Current.fluxPending then return end
     Current.fluxPending = true
     local name, level = Current.worldName, Current.level
-    ExecuteInGameThreadWithDelay(tonumber(spec.delay_ms) or 4000, function()
+    -- A coast goes in a third of a second after the decor, so its sea is up
+    -- by the time the screen fades in: 4 s after, CE's water showed for ~3 s
+    -- and then the sea changed in front of the player (Death Island,
+    -- 2026-10-18). Its capture came out the same. A river keeps 4 s: that
+    -- wait is what its capture of the ground was proved with (Timberland).
+    local delay = tonumber(spec.delay_ms) or (type(spec.domain) == "table" and 4000 or 300)
+    ExecuteInGameThreadWithDelay(delay, function()
         local w = getWorld()
         if not w or Current.worldName ~= name or Current.level ~= level then return end
         Current.fluxPending = false
+        Current.fluxHideLater = false
         local ok, err = pcall(function()
             local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
             local gs = findObject("/Script/Engine.Default__GameplayStatics")
@@ -3496,10 +3647,14 @@ function Effects.flux(world)
                 sv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
                 sv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
                 dom.SceneVisibility = sv
+                -- Its baked water, if any: then it starts full and needs
+                -- no priming.
+                local baked = Effects.fluxState(w, dom, spec, c)
                 gs:FinishSpawningActor(dom, xf, 0)
                 Current.actors["__flux_domain"] = dom
                 local src, comps, primed = cls(Effects.FLUX_SOURCE), {}, {}
                 for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
+                  if not (baked and s.prime) then
                     local p, sc = s.pos, tonumber(s.scale) or 1.0
                     local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
                         Translation = { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
@@ -3514,7 +3669,12 @@ function Effects.flux(world)
                     Current.actors["__flux_source_" .. i] = a
                     comps[#comps + 1] = m
                     if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
+                  end
                 end
+                -- A primed river fills over prime_ms: its bed showed dry for
+                -- that minute with CE's water already hidden (Battle Creek,
+                -- 2026-10-19). CE's stays until the river is full.
+                Current.fluxHideLater = #primed > 0
                 -- `prime` sources fill the river at the start, then go: held,
                 -- a Set source takes away the water that runs in, and the river
                 -- stood still (Timberland, 2026-10-14).
@@ -3535,12 +3695,25 @@ function Effects.flux(world)
                         end
                     end)
                     Log(string.format("flux: river filled, %d priming source(s) removed", gone))
+                    Effects.hideCE(spec)
                 end)
                 dom:FindWorldModifiers(true)
                 -- Volume, mode and velocity reach the simulation through the
                 -- source's material, which only UpdateMaterial writes.
                 for _, m in ipairs(comps) do m:UpdateMaterial() end
                 pcall(function() dom:CaptureGroundHeightmap(true) end)
+                if type(spec.color_preset) == "string" or type(spec.surface_vectors) == "table" then
+                    -- InitializeStates applies the preset again when the domain
+                    -- binds its state. Apply our vectors after that startup; the
+                    -- surface's later 2 s callback only initializes overlaps.
+                    ExecuteInGameThreadWithDelay(math.max(1500, ((tonumber(dom.RuntimeCaptureDelay) or 0) + 0.5) * 1000), function()
+                        if Current.worldName ~= name or Current.level ~= level then return end
+                        local applied, why = pcall(function()
+                            if surf:IsValid() then Effects.fluxColor(surf, spec) end
+                        end)
+                        if not applied then Log("flux: colour: " .. tostring(why)) end
+                    end)
+                end
                 made[#made + 1] = string.format("river %dx%d at %g cm, %d source(s)", d.res[1], d.res[2], d.cell, #comps)
             end
             if type(spec.coast) == "table" then
@@ -3566,6 +3739,10 @@ function Effects.flux(world)
             Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it, "
                 .. "%d sea floor slot(s) out of it", table.concat(made, ", "), tagged, #uncut, #floored))
         end)
+        -- CE's water (`hide`) goes once Flux's is up, not before: until then
+        -- the level has its old water rather than none. It is out of the
+        -- ground capture already (FluxHide, with every actor not `ground`).
+        if ok and not Current.fluxHideLater then Effects.hideCE(spec) end
         if not ok then Log("flux: " .. tostring(err)) end
     end)
 end
@@ -3703,9 +3880,130 @@ function Foliage.quality()
     return Foliage.QUALITY[math.max(0, math.min(3, q))] or Foliage.QUALITY[3]
 end
 
+--- A group's material on one of its meshes (a spawned band or a baked
+--- one): `material`, `tint`/`tint_param`/`params`/`scalars` as tinted
+--- instances, one a slot shared by the group's meshes (`mids`, returned).
+function Foliage.dress(world, kml, g, group, comp, mids)
+    local material = type(group.material) == "string" and resolveMesh(group.material)
+    if material then comp:SetMaterial(0, material) end
+    if type(group.tint) == "table" and kml then
+        -- One tinted instance a slot, shared by the bands.
+        if not mids then
+            mids = {}
+            for i = 0, comp:GetNumMaterials() - 1 do
+                local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
+                -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
+                -- tints through "Color Tint", the Megascans one through
+                -- "Color Overlay".
+                local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
+                mid:SetVectorParameterValue(FName(param),
+                    { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
+                -- `params`: more vector parameters by name, e.g. a
+                -- B30 grass's "Subsurface Color Tint" with its tint.
+                if type(group.params) == "table" then
+                    for name, v in pairs(group.params) do
+                        if type(v) == "table" then
+                            mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+                        end
+                    end
+                end
+                for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
+                    if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
+                end
+                mids[i] = mid
+            end
+        end
+        for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
+    elseif type(group.scalars) == "table" then
+        -- `scalars`: values on the mesh's own materials (scalarMid),
+        -- e.g. a swapped tree's leaf clusters.
+        for i = 0, comp:GetNumMaterials() - 1 do
+            local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
+            if mid then comp:SetMaterial(i, mid) end
+        end
+    end
+    return mids
+end
+
+--- A level whose foliage is `baked` (tools/level/foliage_bake.py,
+--- upgrade_ce_map.py `bake_foliage`) carries its groups in the world as
+--- hierarchical instanced meshes named MJFol_<group>_<band>_<tier>: this
+--- gives them what Foliage.spawn gives its own, the group's materials and
+--- tints, its cull distances scaled and its wind stilled by the quality,
+--- and hides the grassy groups' tiers above the quality (tier 0 at Low, 0-1
+--- Medium, 0-2 High: the loader's keep 4, 3, 2). `quality` nil hides them
+--- all (`mjolnir_foliage off`). Cull and wind are worked out afresh from
+--- the level file each time (the components keep the last load's), as
+--- Foliage.spawn and BakeFoliage work them out. One FindAllOf, no handles
+--- kept. Returns the baked meshes found, then the meshes and clumps drawn.
+Foliage.TIERS = { [4] = 0, [3] = 1, [2] = 2, [1] = 3 }
+function Foliage.dressBaked(world, foliage, quality)
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local top = quality and (Foliage.TIERS[quality.keep] or 3) or -1
+    local mids, found, comps, drawn = {}, 0, 0, 0
+    for _, comp in ipairs(FindAllOf("HierarchicalInstancedStaticMeshComponent") or {}) do
+        local g, b, tier = comp:GetFName():ToString():match("^MJFol_(%d+)_(%d+)_(%d+)$")
+        g, b, tier = tonumber(g), tonumber(b), tonumber(tier)
+        local group = g and foliage.groups[g]
+        if type(group) == "table" then
+            found = found + 1
+            local shown = tier <= top
+            comp:SetVisibility(shown, false)
+            if shown then
+                -- Back to the mesh's own materials first: a reload dressed
+                -- the last load's tinted instances again, and the grass
+                -- drew dark grey (2026-10-18).
+                pcall(function()
+                    local mesh = comp.StaticMesh
+                    for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
+                end)
+                mids[g] = Foliage.dress(world, kml, g, group, comp, mids[g])
+                local gc = type(group.cull) == "table" and group.cull
+                    or type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
+                gc = { gc[1] * quality.cull, gc[2] * quality.cull }
+                local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
+                local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
+                comp:SetCullDistances(math.floor(math.min(gc[1], far)), math.floor(far))
+                local sway = not (group.static or quality.still)
+                pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
+                comps, drawn = comps + 1, drawn + comp:GetInstanceCount()
+            end
+        end
+    end
+    return found, comps, drawn
+end
+
+--- The cladding rocks a baked world carries (MJClad_<group>_<rock>, mesh
+--- actors: BakeFoliage's flag 8), by group, from one FindAllOf. `shown`
+--- false hides them (`mjolnir_foliage off`). The lists go to
+--- Foliage.cliffGroups for Land.cliffs, which drops them once the rocks
+--- have their material: the loader keeps no handle a rock.
+function Foliage.bakedRocks(shown)
+    local rocks, found = {}, 0
+    for _, actor in ipairs(FindAllOf("StaticMeshActor") or {}) do
+        local g = tonumber(actor:GetFName():ToString():match("^MJClad_(%d+)_%d+$"))
+        if g then
+            local list = rocks[g] or {}
+            list[#list + 1] = actor
+            rocks[g], found = list, found + 1
+            if shown ~= nil then actor:SetActorHiddenInGame(not shown) end
+        end
+    end
+    return rocks, found
+end
+
 function Foliage.spawn(world)
     local foliage = Current.level and Current.level.foliage
-    if not Foliage.on or type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+    if type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+        return
+    end
+    -- Only a landscape world (upgrade_ce_map.py) can carry baked foliage.
+    local landWorld = type(Current.level.landscape) == "table"
+    if not Foliage.on then
+        if landWorld then
+            Foliage.dressBaked(world, foliage, nil)
+            Foliage.bakedRocks(false)
+        end
         return
     end
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
@@ -3725,10 +4023,42 @@ function Foliage.spawn(world)
     Foliage.cliffGroups = {}
     local quality = Foliage.quality()
     local total, sx, sy, n = 0, 0, 0, 0
+    -- Baked: what the world carries decides, not the level file's `baked`.
+    -- The launcher puts the hub's level.json back on every launch and leaves
+    -- installed containers alone, so a baked world under an older level file
+    -- spawned every clump and rock a second time: trees with a swaying copy
+    -- of their leaves, rocks flickering in each other (2026-10-18). A level
+    -- file that says baked over a world without them spawns them as before.
+    local baked, centre = nil, nil
+    if landWorld then
+        local found, comps, drawn = Foliage.dressBaked(world, foliage, quality)
+        if found > 0 then
+            baked = string.format(", %d baked clump(s) drawn in %d mesh(es)", drawn, comps)
+            -- The wind's flowmap centres on the clumps: assemble's mean of
+            -- them (it spans 4 km, so the origin serves a level without one).
+            centre = drawn > 0 and (type(foliage.centre) == "table" and foliage.centre or { 0, 0 }) or nil
+        elseif foliage.baked == true then
+            Log("foliage: the level file says baked, but the world carries none; spawning it")
+        end
+    end
+    -- Baked cladding rocks likewise: spawned only for a group the world
+    -- does not carry.
+    local rocks, rocked = {}, 0
+    if landWorld and coloured then rocks, rocked = Foliage.bakedRocks(true) end
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         local group = foliage.groups[g] or {}
+        if baked and not (group.cliff == true and coloured) then
+            pos = pos + size * (coloured and 19 or tilted and 16 or 14)
+            goto continue
+        end
+        if group.cliff == true and coloured and rocks[g] then
+            pos = pos + size * 19
+            Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = rocks[g], base = group.base,
+                light = group.light, lm = group.lm, baked = true }
+            goto continue
+        end
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
         if group.cliff == true and coloured then
             pos = Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
@@ -3768,44 +4098,7 @@ function Foliage.spawn(world)
             -- (2026-10-12); the shadows stay, they just do not sway.
             pcall(function() comp.ShadowCacheInvalidationBehavior = SHADOW_CACHE_RIGID end)
             comp:SetCastShadow(group.shadow ~= false)
-            local material = type(group.material) == "string" and resolveMesh(group.material)
-            if material then comp:SetMaterial(0, material) end
-            if type(group.tint) == "table" and kml then
-                -- One tinted instance a slot, shared by the bands.
-                if not mids then
-                    mids = {}
-                    for i = 0, comp:GetNumMaterials() - 1 do
-                        local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
-                        -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
-                        -- tints through "Color Tint", the Megascans one through
-                        -- "Color Overlay".
-                        local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
-                        mid:SetVectorParameterValue(FName(param),
-                            { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
-                        -- `params`: more vector parameters by name, e.g. a
-                        -- B30 grass's "Subsurface Color Tint" with its tint.
-                        if type(group.params) == "table" then
-                            for name, v in pairs(group.params) do
-                                if type(v) == "table" then
-                                    mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
-                                end
-                            end
-                        end
-                        for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
-                            if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
-                        end
-                        mids[i] = mid
-                    end
-                end
-                for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
-            elseif type(group.scalars) == "table" then
-                -- `scalars`: values on the mesh's own materials (scalarMid),
-                -- e.g. a swapped tree's leaf clusters.
-                for i = 0, comp:GetNumMaterials() - 1 do
-                    local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
-                    if mid then comp:SetMaterial(i, mid) end
-                end
-            end
+            mids = Foliage.dress(world, kml, g, group, comp, mids)
             comps[#comps + 1] = comp
         end
         if #comps > 0 then
@@ -3834,9 +4127,11 @@ function Foliage.spawn(world)
         end
         ::continue::
     end
-    local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
-    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s), %.1f s%s",
-        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", os.clock() - started, wind and ", wind on" or ""))
+    centre = centre or n > 0 and { sx / n, sy / n }
+    local wind = centre and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, centre)
+    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s)%s%s, %.1f s%s",
+        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked or "",
+        rocked > 0 and string.format(", %d baked rock(s)", rocked) or "", os.clock() - started, wind and ", wind on" or ""))
 end
 
 --- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)
@@ -4312,6 +4607,8 @@ function Land.cliffs(world, spec)
                     pcall(function() actor.StaticMeshComponent:SetMaterial(0, mid) end)
                 end
             end
+            -- Baked rocks are the world's: no handle kept once dressed.
+            if group.baked then group.actors = {} end
             changed = changed + 1
             Land.cliffMids[#Land.cliffMids + 1] = mid
         end
@@ -4565,8 +4862,15 @@ function Footprints.draw(world, fn, rt)
     if not (rt and rt:IsValid()) then return false end
     local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
     -- UE4SS hands the out parameters back shifted: the canvas (and size) in
-    -- the first table, the drawing context in the second.
-    local c1, c2, c3 = {}, {}, {}
+    -- the first table, the drawing context in the second. The same three
+    -- tables every draw (UE4SS keeps each out parameter's table: Current.hit),
+    -- emptied first so a begin that fails does not hand back the last
+    -- canvas and context.
+    Footprints.out = Footprints.out or { {}, {}, {} }
+    for _, t in ipairs(Footprints.out) do
+        for k in pairs(t) do t[k] = nil end
+    end
+    local c1, c2, c3 = Footprints.out[1], Footprints.out[2], Footprints.out[3]
     krl:BeginDrawCanvasToRenderTarget(world, rt, c1, c2, c3)
     local canvas = c1.Canvas
     if not (canvas and canvas:IsValid()) then
@@ -4730,16 +5034,32 @@ function Footprints.deformStart(world)
             g:SetTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
         end
     end
-    Footprints.deformHook()
+    -- `foot_mpc` (upgrade_ce_map.py): the sand reads the map's centre from
+    -- the game's globals itself (FootFromMPC), as the campaign's ground does,
+    -- and nothing here follows the manager.
+    if land.pbr.foot_mpc == true then
+        Footprints.deform.fromMpc = true
+        local rect = { R = 0, G = 0, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
+        ldl:SetLandscapeMaterialScalarParameterValue(FName("FootFromMPC"), 1.0)
+        ldl:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+        for _, g in ipairs(Land.groundMids or {}) do
+            if g:IsValid() then
+                g:SetScalarParameterValue(FName("FootFromMPC"), 1.0)
+                g:SetVectorParameterValue(FName("FootRect"), rect)
+            end
+        end
+    else
+        Footprints.deformHook()
+    end
     Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
-        Footprints.hooked and ", recentres followed" or ""))
+        Footprints.deform.fromMpc and ", centre read by the sand" or Footprints.hooked and ", recentres followed" or ""))
 end
 
 --- The map's centre to the sand: FootRect on the landscape and the mesh's
 --- ground in its holes.
 function Footprints.deformRect(x, y)
     local d = Footprints.deform
-    if not (d and d.land:IsValid()) then return end
+    if not (d and not d.fromMpc and d.land:IsValid()) then return end
     d.cx, d.cy = x, y
     local rect = { R = x, G = y, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
     d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
@@ -4776,6 +5096,7 @@ function Footprints.deformTick()
         Footprints.deform, Footprints.on = nil, d.footprints
         return false
     end
+    if d.fromMpc then return true end
     -- Kept for the map: a StaticFindObject of the collection takes ~13 ms,
     -- the library ~1 ms, and asking every run held each 100 ms tick ~15 ms,
     -- a beat ten times a second (MJOLNIRHud's hitch log, 2026-10-17).
@@ -4877,6 +5198,7 @@ end
 
 local function spawnDecor(world)
     local level = Current.level
+    Current.world = world
     spawnEnvironment(world)
     spawnSounds(world)
     preloadEventSounds()
@@ -4886,9 +5208,40 @@ local function spawnDecor(world)
         return
     end
     local origin = level.canvas.origin
+    -- Swapped scenery baked into a landscape world (BakeDecor, MJDecor_<id>):
+    -- the world's own. It gets its `scalars` and `static` here, back from
+    -- the mesh's own materials (a reload would stack instances), and no
+    -- handle is kept. One FindAllOf; what the world lacks is spawned.
+    local baked, nBaked = {}, 0
+    if type(level.landscape) == "table" then
+        for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
+            local id = a:GetFName():ToString():match("^MJDecor_(.+)$")
+            if id then baked[id] = a end
+        end
+    end
     for index, item in ipairs(decor) do
         local id = (type(item) == "table" and item.id) or ("#" .. index)
-        if not (Current.actors[id] and Current.actors[id]:IsValid()) then
+        local own = baked[id]
+        if own then
+            nBaked = nBaked + 1
+            -- Still, as spawnDecorItem keeps them (a swapped tree's piece),
+            -- first and on its own: a material error below skipped it, and
+            -- Infinity's small trees swayed apart (2026-10-19). Worlds baked
+            -- since carry it themselves (foliage_bake.py `still`).
+            -- Either way: a world baked still follows a level file that
+            -- lets the piece move, and the other way round.
+            local still = item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0)
+            pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(not still) end)
+            pcall(function()
+                local comp = own.StaticMeshComponent
+                local mesh = comp.StaticMesh
+                for i = 0, comp:GetNumMaterials() - 1 do
+                    local src = mesh:GetMaterial(i)
+                    local mid = type(item.scalars) == "table" and scalarMid(world, src, item.scalars) or src
+                    if mid then comp:SetMaterial(i, mid) end
+                end
+            end)
+        elseif not (Current.actors[id] and Current.actors[id]:IsValid()) then
             local actor, err = spawnDecorItem(world, origin, item)
             if actor then
                 Current.actors[id] = actor
@@ -4899,8 +5252,9 @@ local function spawnDecor(world)
             end
         end
     end
-    Log(string.format("level '%s': %d decor spawned, %d failed",
-        tostring(level.name), Current.spawned, Current.failed))
+    Log(string.format("level '%s': %d decor spawned, %d failed%s",
+        tostring(level.name), Current.spawned, Current.failed,
+        nBaked > 0 and string.format(", %d baked in the world", nBaked) or ""))
     if type(level.slot_meshes) == "table" then
         local sok, sn = pcall(Land.slotMeshes, world, level)
         Log("slot meshes: " .. tostring(sok and sn or sn))
@@ -5005,6 +5359,19 @@ local function tick()
     end
 end
 
+-- The Lua collector in generational mode. Incremental, it let ~40 MB of
+-- garbage pile up between cycles, and finishing one (sweeping it, and
+-- running the finalizers of the thousands of object handles UE4SS hands
+-- out) landed in a single step: whichever loop allocated next held the game
+-- thread 30-200 ms, the pulses most often, being the most frequent (MJOLNIRHud
+-- hitch log, 2026-10-18). A smaller step size made it worse: the heap ran to
+-- 230 MB and the step that finished the cycle took 205 ms. Generational, a
+-- young collection takes only what was made since the last. At the default
+-- 20% of the heap that was ~3.5 MB, an 11 ms run every ~97 s; at 5% it is a
+-- quarter of that, four times as often. UE4SS ships Lua 5.4.7, whose
+-- generational mode is sound.
+pcall(collectgarbage, "generational", 5, 100)
+
 --- Run `fn` on the game thread every `ms`, from the game thread: each run
 --- schedules the next. An async loop that hands work to the game thread
 --- (LoopAsync + ExecuteInGameThread) can deadlock UE4SS, the async thread
@@ -5061,16 +5428,20 @@ end
 
 local KismetSystem = nil
 
---- Every pulsing decor material, at the game's time.
+--- Every pulsing decor material, at the game's time. 25 times a second
+--- with Death Island's 25 flares, so nothing here may leave garbage: a
+--- getWorld() and a method lookup a flare made ~8 KB a run, 200 KB a
+--- second, and the collections that bought cost 30-150 ms runs (MJOLNIRHud
+--- hitch log, 2026-10-18).
 local function updatePulses()
     if #Current.pulses == 0 then return end
-    local world = getWorld()
-    if not world then return end
+    local world = Current.world
+    if not (world and world:IsValid()) then return end
     KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local t = KismetSystem:GetGameTimeInSeconds(world)
     for _, p in ipairs(Current.pulses) do
         if p.mid:IsValid() then
-            p.mid:SetScalarParameterValue(p.param, p.base * ceWave(p.fn, t / p.period))
+            p.set(p.mid, p.param, p.base * ceWave(p.fn, t / p.period))
         end
     end
 end
@@ -5118,19 +5489,27 @@ local function watch()
     -- (build_ce_materials.py DEVICE_WPO_CODE).
     every(100, "moving sounds", function()
         if #Current.movingSounds == 0 then return end
-        local world = getWorld()
-        local gs = findObject("/Script/Engine.Default__GameplayStatics")
-        if not (world and gs) then return end
-        local now = gs:GetTimeSeconds(world)
+        local world = Current.world
+        if not (world and world:IsValid()) then return end
+        -- The world's time (as GameplayStatics' GetTimeSeconds), through
+        -- the library pulses keep: a StaticFindObject a run cost ~1 ms.
+        KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local now = KismetSystem:GetGameTimeInSeconds(world)
         for _, m in ipairs(Current.movingSounds) do
             if m.comp:IsValid() then
                 local p = m.period > 0 and ((now / m.period + m.position) % 1.0) or m.position
                 local sc = m.s0 + (m.s1 - m.s0) * p
-                local at = {}
+                local at = m.at or {}
+                m.at = at
+                local moved = false
                 for k = 1, 3 do
-                    at[k] = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                    local v = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                    if at[k] == nil or math.abs(v - at[k]) > 1 then at[k], moved = v, true end
                 end
-                m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, {}, false)
+                -- A held part (period 0) is placed once.
+                if moved then
+                    m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, Current.hit, false)
+                end
             end
         end
     end)
@@ -5166,6 +5545,16 @@ local function status()
     else
         Log("no level loaded")
     end
+    -- The live heap: two full collections, as a finalized UE4SS handle
+    -- survives one (docs/performance.md). Then back to generational.
+    local held = 0
+    for _ in pairs(Current.actors or {}) do held = held + 1 end
+    local before = collectgarbage("count")
+    collectgarbage("collect")
+    collectgarbage("collect")
+    Log(string.format("lua heap: %.1f MB live (%.1f MB before collecting), %d actor handle(s) held",
+        collectgarbage("count") / 1024, before / 1024, held))
+    pcall(collectgarbage, "generational", 5, 100)
 end
 
 local function reload()
@@ -5707,6 +6096,11 @@ local function initialize()
     end)
     RegisterConsoleCommandHandler("mjolnir_level_reload", function()
         reload()
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_flux_bake", function()
+        local _, msg = pcall(Effects.fluxBake)
+        Log("flux bake: " .. tostring(msg))
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_level_clear", function()

@@ -1,5 +1,5 @@
 {
-  "version": "0.11.0",
+  "version": "0.11.2",
   "summary": "The multiplayer HUD for classic CE maps: an animated kill feed with the game's weapon icons, medals, score bars, the respawn countdown, and a scoreboard on Tab.",
   "category": "multiplayer"
 }

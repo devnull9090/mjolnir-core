@@ -276,7 +276,11 @@ mask_args=()
 [ -n "${lightmaps_args+x}" ] && [ "${#lightmaps_args[@]}" -gt 0 ] && mask_args=(--no-sun-mask)
 foliage_args=()
 [ -f "$out/foliage.json" ] && foliage_args=(--foliage "$out/foliage.json")
-python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}" "${foliage_args[@]}"
+# CE_START_LIFT overrides the generator's 1.0-wu lift (3.048 m). Low-ceiling
+# maps need lower starts; this applies to starts and their spawn scenery.
+start_args=()
+[ -n "${CE_START_LIFT:-}" ] && start_args=(--start-lift "$CE_START_LIFT")
+python "$here/gen_ce_level.py" "$staging" "$out/$name.sbsp.transform.json" "$out/$name.level.json"   --name "$name" --code "$code" --terrain "$out/terrain.json" "${sound_args[@]}" "${title_args[@]}" "${mask_args[@]}" "${foliage_args[@]}" "${start_args[@]}"
 
 echo "== 5/6 bake"
 bake=("$mjolnir" level bake "$out/$name.level.json" --standalone "$code" --bsp "8=$out/$name.sbsp" --out-dir "$out")

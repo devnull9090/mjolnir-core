@@ -1800,11 +1800,19 @@ fn bake(a: BakeArgs) -> Result<()> {
         for line in blam_world_settings(&mut zp, &idx.containers, &a.src.oodle_roots())? {
             println!("  world    {line}");
         }
+        // Each with its FName number folded back in: a package named
+        // `SM_Foo_6` is stored as `SM_Foo` and 7, and hashing the bare name
+        // pointed the world's imports of a baked tree's 147 numbered pieces
+        // at `SM_Foo` (they drew nothing, 2026-10-18).
         let imported: Vec<u64> = zp
             .imported_package_names
             .names
             .iter()
-            .map(|n| ue_iostore::city::package_id(n))
+            .enumerate()
+            .map(|(i, n)| {
+                let number = zp.imported_package_name_numbers.get(i).copied().unwrap_or(0);
+                ue_iostore::city::package_id(&ue_asset::tagwrap::fname_join(n, number))
+            })
             .collect();
         // A shipped world's bulk data (its textures) rides a `.ubulk` beside
         // the `.umap`; the bare MapKit world has none.
