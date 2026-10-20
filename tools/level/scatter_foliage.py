@@ -111,6 +111,10 @@ TALL_TINT = [0.45, 0.8, 0.3]
 # `tints` and `tint_cell`: a group a tint, chosen by patch; `tint_param` the
 # material parameter the loader tints (B30's own MM_Foliage_MET grasses take
 # "Color Tint", the Megascans ones "Color Overlay").
+# B30's wet beach rocks: Uluwatu in their Waterline materials.
+WATERLINE = {ROCKS + f"Rock_Uluwatu_Med_{v}/SM_Rock_Uluwatu_Med_{v}":
+             ROCKS + f"Rock_Uluwatu_Med_{v}/Materials/MI_Rock_Uluwatu_Med_{v}_Waterline" for v in "ABC"}
+
 RULES = [
     {"name": "grass", "on": "grass", "share": [0.3, 0.7], "density": 5.0, "slope": 50, "above": [0.3, None],
      "meshes": [(MEGA + "Wild_Grass_vdilbaiia/S_Wild_Grass_vdilbaiia_Var11_lod0", 0.9, 1.5, 0),
@@ -162,23 +166,42 @@ RULES = [
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var6_lod0", 0.62, 0.79, 0),
                 (MEGA + "Dune_Sword-sedge_ueyoebmia/S_Dune_Sword-sedge_ueyoebmia_0_Var7_lod0", 0.62, 0.79, 0)],
      "tint": TUFT_TINT, "cull": [8000, 22000], "bands": 6},
-    {"name": "rocky ground", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.06, "slope": 15, "above": [-0.4, 1.5],
-     "cluster": [14.0, 0.62],
+    # B30's own (its placements, 2026-10-20): slabs at scale 0.5 to 0.85
+    # (median 0.64), mostly in twos, the groups about 13 m apart, each slab
+    # with an Uluwatu stone at its centre (`centre`). Ours were bigger (0.8)
+    # in groups of four to nine, 17 m apart, and stood on CE's coarse ground
+    # triangles: on ground falling away their edges stood off the sand
+    # (Death Island, 2026-10-19). `seat` [half-size cm, most drop cm, both
+    # at scale 1]: the slab goes down to where its rim meets the ground, or
+    # is left out where the ground falls further.
+    {"name": "rocky ground", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.03, "slope": 15, "above": [-0.4, 1.5],
+     "cluster": [10.0, 0.62], "seat": [150.0, 16.0],
      "meshes": [("/Game/Megascans/3D_Assets/Nordic_Beach_Rocky_Ground_ve3qdhmqx/S_Nordic_Beach_Rocky_Ground_Uluwata_B",
-                 0.6, 1.0, 6)],
+                 0.5, 0.85, 8)],
+     "centre": {"name": "rocky ground stones",
+                "meshes": [(ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A", 0.15, 0.35, 40, 6),
+                           (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 0.12, 0.25, 80, 4),
+                           (ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 0.10, 0.20, 60, 1)],
+                "materials": WATERLINE, "cull": [6000, 11000], "shadow": True},
      "cull": [8000, 14000], "shadow": True},
     {"name": "stones", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.15, "slope": 30, "above": [-0.5, 2.5],
      "cluster": [14.0, 0.55],
      "meshes": [(ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A", 0.06, 0.25, 40),
                 (ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 0.04, 0.14, 60),
                 (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 0.04, 0.10, 80)],
-     "materials": {ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B":
-                   ROCKS + "Rock_Uluwatu_Med_B/Materials/MI_Rock_Uluwatu_Med_B_Waterline",
-                   ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C":
-                   ROCKS + "Rock_Uluwatu_Med_C/Materials/MI_Rock_Uluwatu_Med_C_Waterline",
-                   ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A":
-                   ROCKS + "Rock_Uluwatu_Med_A/Materials/MI_Rock_Uluwatu_Med_A_Waterline"},
+     "materials": WATERLINE,
      "cull": [5000, 9000], "shadow": True},
+    # B30's big rocks out in the sea (about 450 of its 1500 Uluwatu rocks
+    # of scale 1 or more stand 0.75 m or more under the beach line; the
+    # biggest, scale 2 and up, at 1.6 m under it), wet in the Waterline
+    # materials. Upright, set into the sea bed; they collide
+    # (b30_collision.py FOLIAGE_RULES) where a player wades.
+    {"name": "sea rocks", "optional": True, "group": "sea", "on": "any", "share": [0.0, 0.0], "density": 0.006, "slope": 25, "above": [-4.0, -0.3],
+     "cluster": [40.0, 0.5], "shore": [3.0, 60.0],
+     "meshes": [(ROCKS + "Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A", 0.9, 2.2, 40),
+                (ROCKS + "Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B", 1.0, 2.6, 60),
+                (ROCKS + "Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C", 1.0, 2.4, 80)],
+     "materials": WATERLINE, "cull": [25000, 45000], "shadow": True},
     # Grass along every lip (--edge: the landscape's edge map), dense and
     # tall, so blades break the edge's line where the cliff's turf hem
     # (M_CE_CliffPBR) runs down from it: B30's cliff tops are fringed so.
@@ -497,6 +520,39 @@ COVER_OVER = 150.0
 COVER_UNDER = 800.0
 
 
+class ShoreGrid:
+    """Distance (cm) from land, by SHORE_CELL cell: a cell is land when any
+    walkable ground in it stands over the sea (WalkGrid's heights), and the
+    rest count their 8-way steps out from the nearest land cell. A rule's
+    `shore` [near, far] m keeps it within that band of the shoreline: Death
+    Island's sea bed lies 1.5 to 2.6 m under the sea for kilometres out, so a
+    depth alone put its sea rocks over all of it (2026-10-20)."""
+    def __init__(self, walk, sea, cell=500.0):
+        self.cell = cell
+        land = set()
+        for (ix, iy), zs in walk.cells.items():
+            if max(zs) > sea:
+                land.add((math.floor(ix * walk.cell / cell), math.floor(iy * walk.cell / cell)))
+        self.dist = {c: 0 for c in land}
+        frontier, steps = list(land), 0
+        # Out to 200 m: no rule asks further.
+        while frontier and steps * cell < 20000.0:
+            steps += 1
+            nxt = []
+            for ix, iy in frontier:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        c = (ix + dx, iy + dy)
+                        if c not in self.dist:
+                            self.dist[c] = steps
+                            nxt.append(c)
+            frontier = nxt
+
+    def within(self, x, y, near, far):
+        d = self.dist.get((math.floor(x / self.cell), math.floor(y / self.cell)))
+        return d is not None and near * 100.0 <= d * self.cell <= far * 100.0
+
+
 def turf_share(nz):
     """The cliff master's turf share on a face with normal z `nz`."""
     t = min(1.0, max(0.0, (nz - TURF_Z[0]) / (TURF_Z[1] - TURF_Z[0])))
@@ -648,6 +704,25 @@ class WalkGrid:
             if not zs or not any(abs(q - z) <= 40.0 for q in zs):
                 return False
         return True
+
+    def drop(self, x, y, z, tilt, r):
+        """How far (cm) a rigid piece r cm across from (x, y, z), lying on
+        the plane of normal `tilt` (its x, y), must go down so no edge
+        stands over the ground: the most the ground falls below that plane
+        at eight points round its rim (0 where it rises). None if no ground
+        within 40 cm is known under one of them."""
+        nx, ny = tilt
+        nz = math.sqrt(max(1e-6, 1.0 - nx * nx - ny * ny))
+        worst = 0.0
+        for k in range(8):
+            dx, dy = r * math.cos(k * math.pi / 4), r * math.sin(k * math.pi / 4)
+            plane = z - (nx * dx + ny * dy) / nz
+            zs = self.cells.get((math.floor((x + dx) / self.cell), math.floor((y + dy) / self.cell)))
+            near = [q for q in zs or () if abs(q - plane) <= 40.0]
+            if not near:
+                return None
+            worst = max(worst, plane - max(near))
+        return worst
 
     def blocks(self, c, reach, across=PLAYER_R):
         """Whether a rock (a sphere: centre `c`, cm, radius `reach`) enters
@@ -925,6 +1000,8 @@ def main():
     ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
+    ap.add_argument("--extra", action="append", default=[], metavar="RULE",
+                    help="an optional rule to add (sea rocks); repeatable")
     ap.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
                                       "beside the scene")
     ap.add_argument("--rule-tint", action="append", default=[], metavar="RULE=R,G,B[:PARAM]",
@@ -940,7 +1017,8 @@ def main():
         global CLADDING
         CLADDING = SNOW_CLADDING
     rules = [dict(r) for r in (SNOW_RULES if a.biome == "snow" else RULES)
-             if not a.only or r["name"] in a.only.split(",")]
+             if (not a.only or r["name"] in a.only.split(","))
+             and (not r.get("optional") or r["name"] in a.extra)]
     for spec in a.rule_tint:
         name, _, rest = spec.partition("=")
         rgb, _, param = rest.partition(":")
@@ -1015,7 +1093,9 @@ def main():
     rng_lip = random.Random(a.seed + 7)
     walls = WallGrid(doc, data, off) if any(r.get("wall") for r in rules) else None
     cover = CoverGrid(doc, data, off)
-    ground = WalkGrid(doc, data, off) if any(r.get("support") for r in rules) else None
+    ground = WalkGrid(doc, data, off) if any(r.get("support") or r.get("seat") or r.get("shore") for r in rules) else None
+    shore = ShoreGrid(ground, a.sea) if a.sea is not None and any(r.get("shore") for r in rules) else None
+    rng_centre = random.Random(a.seed + 17)
     images = {}
     groups = {}  # mesh -> (rule, instances)
     counts = {r["name"]: 0 for r in rules}
@@ -1111,6 +1191,9 @@ def main():
                         cl = rule.get("cluster")
                         if cl and value_noise(x, y, cl[0], a.seed) < cl[1]:
                             continue
+                        sb = rule.get("shore")
+                        if sb and not (shore and shore.within(x, y, sb[0], sb[1])):
+                            continue
                         path, smin, smax, sink = rule["meshes"][R.randrange(len(rule["meshes"]))]
                         scale = R.uniform(smin, smax)
                         # `support` (cm a unit of scale): the piece's half-size,
@@ -1122,7 +1205,9 @@ def main():
                         pt = rule.get("patch")
                         if pt:
                             scale *= pt[1] + (pt[2] - pt[1]) * value_noise(x, y, pt[0], a.seed + 7)
-                        key = path
+                        # A rule sharing meshes with another (the sea rocks,
+                        # the stones') keeps its own group: its own culling.
+                        key = path + ("|" + rule["group"] if rule.get("group") else "")
                         if rule.get("tints"):
                             # Ragged patch edges: the noise jittered a little.
                             v = value_noise(x + 7919.0, y - 3571.0, rule.get("tint_cell", 15.0), a.seed + 11)
@@ -1136,9 +1221,24 @@ def main():
                             if nu[2] < 0:
                                 nu = -nu
                             tilt = (float(nu[0]), float(nu[1]))
+                        seat = rule.get("seat")
+                        if seat:
+                            down = ground.drop(x, y, z - a.lift, tilt, seat[0] * scale)
+                            if down is None or down > seat[1] * scale:
+                                continue
+                            z -= down
                         groups.setdefault(key, (rule, []))[1].append(
                             [x, y, z - sink * scale, R.uniform(0, 360), scale, tilt])
                         counts[rule["name"]] += 1
+                        cr = rule.get("centre")
+                        if cr:
+                            # A stone at the piece's centre (its own RNG: the
+                            # rest of the scatter stays where it was).
+                            pick = rng_centre.choices(cr["meshes"], weights=[m[4] for m in cr["meshes"]])[0]
+                            cs = rng_centre.uniform(pick[1], pick[2])
+                            groups.setdefault(pick[0] + "|centre", (cr, []))[1].append(
+                                [x, y, z - pick[3] * cs, rng_centre.uniform(0, 360), cs, tilt])
+                            counts[cr["name"]] = counts.get(cr["name"], 0) + 1
     clad_bases, clad_lights = {}, {}
     if not a.no_cladding:
         n_clad = clad(doc, data, spec, off, a, groups, clad_bases, clad_lights, random.Random(a.seed + 13))

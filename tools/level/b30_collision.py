@@ -35,7 +35,7 @@ HULL_POINTS = int(os.environ.get("B30_HULL_POINTS", 48))
 SOLID = [("/Rock/", "hard_terrain_stone"), ("Rock_", "hard_terrain_stone"), ("_Trunk", "tough_organic_wood"),
          ("Driftwood", "tough_organic_wood"), ("Log_", "tough_organic_wood")]
 # Foliage rules that collide, and the smallest that does (cm of height).
-FOLIAGE_RULES = {"stones": 45.0, "driftwood": 25.0}
+FOLIAGE_RULES = {"stones": 45.0, "driftwood": 25.0, "sea rocks": 45.0}
 # The cliffs' cladding rocks (thousands a map) collide only where a player
 # can reach them: some hull point within CLAD_REACH above walkable ground,
 # each a coarser hull.

@@ -555,6 +555,9 @@ def stage_foliage(code, m, p):
         cmd += ["--ground-shaders", ",".join(m["shaders"] + m.get("ground_also", []))]
     if m.get("cliff_shaders"):
         cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
+    # `foliage_extra`: optional scatter rules (Death Island's sea rocks).
+    for rule in m.get("foliage_extra", []):
+        cmd += ["--extra", rule]
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])
