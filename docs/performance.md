@@ -198,7 +198,7 @@ up to 240 fps in the campaign and about 51-58 fps on our maps, choppy. Their
 set of settings, to see where that gap comes from.
 
 **Settings, every run:** 1710x1073 borderless (Remote Desktop's display;
-the bench camera letterboxes it to 1710x962, see below), every `sg.*` at 3
+the bench camera letterboxed it to 1710x962, since fixed, see below), every `sg.*` at 3
 (Epic), `r.ScreenPercentage` 100, vsync off, no fps limit, MJOLNIRHud
 0.11.0 (stat unit split from `mjolnir_frame_times.dll`). The game's own
 Frame Generation setting was on (`bFrameGeneration=True`), which does not
@@ -342,11 +342,12 @@ out.
 
 For the tools:
 
-- **The bench camera letterboxes non-16:9 windows.** `lockView` spawns a
-  CameraActor with `bConstrainAspectRatio` on, so on 1710x1073 every bench
-  drew 1710x962. Comparisons on one PC hold; a 16:10 player's absolute
-  numbers read about 10% light. Set the component's `bConstrainAspectRatio`
-  to false.
+- **Fixed in MJOLNIRHud 0.11.2: the bench camera letterboxed non-16:9
+  windows.** `lockView` spawned a CameraActor with `bConstrainAspectRatio`
+  on, so on 1710x1073 every bench drew 1710x962. Comparisons on one PC hold;
+  a 16:10 player's absolute numbers read about 10% light. The held camera
+  now turns the constraint off and takes the player camera's FOV (checked at
+  1280x800 on Blood Gulch, 2026-10-18: full frame, FOV 85 on both).
 - **Ask the player** whether Frame Generation is on, and what their overlay
   counts. A campaign-side bench players can run (`/bench` lives in match
   chat) would let the hub compare their campaign and our maps directly.
