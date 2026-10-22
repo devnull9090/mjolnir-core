@@ -1674,7 +1674,8 @@ pub fn check_conflicts() -> Result<serde_json::Value, String> {
 //
 // The key is stored in the launcher's config directory and only ever leaves
 // this process as an Authorization header — see `api` above. It carries
-// mods:read, ratings:write and comments:write; it cannot publish anything.
+// mods:read, ratings:write, comments:write and lobbies:write; it cannot
+// publish anything.
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HubUser {

@@ -6,7 +6,9 @@ their Steam or Xbox name. From the post-game screen a player can report
 another. Moderators review reports at `/moderation`, and can ban a player
 from matchmaking. Status as of 2026-10-10: the hub, the HUD and the Lobby
 work end to end on one PC against a local hub. The two-PC exchange (a
-joiner proving itself to a host) is still untested.
+joiner proving itself to a host) is still untested. **Update 2026-10-21:**
+shipped in mods-v0.22.0 (PR #172), and the hub side reached main with that
+merge. No two-PC test of the exchange is recorded since.
 
 ## Who is who
 
@@ -56,7 +58,9 @@ MJOLNIRHud reads that file; it never touches the hub itself.
   `Avatar<i>` image per row.
 - **Kill feed and winner line**: the name. A joiner's "joined the game"
   line waits up to 8 s for its account (its ticket lands a few seconds after
-  the join), then falls back to the in-game name.
+  the join), then falls back to the in-game name. Since MJOLNIRHud 0.7.0
+  (PR #189, mods-v0.25.0) each feed row also shows both players' avatars.
+- **Match chat** (PR #200, mods-v0.27.0): the sender's hub name and avatar.
 - **The game's FIRETEAM panel** (top right of the main menu): each row's
   `NameText`. The game's view model rewrites its names every few seconds,
   and each row writes its text again in `OnBackingDataChanged`, so
@@ -137,6 +141,12 @@ Dismissed. Each player shows:
 - a link to the match when the host reported it, or a flag when either
   player is not linked to a seat in it.
 
+**Update 2026-10-21:** since PR #200 (mods-v0.27.0) a report from a match
+whose host sent its chat log opens that log
+(`GET /moderation/match-chat/{host_match_id}`, `hub/src/lib/api/matches.ts`,
+migration 0020), with the reported player's lines marked. Since PR #201
+this desk is the Players tab of `/moderation`.
+
 The decisions:
 
 - **Uphold**: the report stands and stays in the public count.
@@ -187,6 +197,7 @@ only if that game is public.
 | `POST /players/reports` | `lobbies:write`, 30 an hour |
 | `GET /moderation/player-reports`, `POST /moderation/player-reports/{id}` | moderators |
 | `GET`/`POST /moderation/matchmaking-bans`, `DELETE /moderation/matchmaking-bans/{user_id}` | moderators |
+| `GET /moderation/match-chat/{host_match_id}` (`matches.ts`, since PR #200) | moderators |
 
 Like every migration, 0018 must be applied to production by hand before
 the hub deploy that uses it (`pnpm db:migrate:prod`).

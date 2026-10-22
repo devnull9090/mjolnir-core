@@ -127,10 +127,12 @@ a profile is the active one.
 
 ### Load order is free
 
-Mount priority is expressed by container filename. The launcher owns the `pakchunk1000_P` and
-up namespace, and reordering a profile is *renaming files*. No repacking, no re-download,
-instant. Ordering is deterministic and matches what the engine will actually do, so the
-launcher's conflict preview is a prediction it cannot get wrong.
+Mount priority is expressed by container filename. The launcher owns the `pakchunk900` to
+`pakchunk999` band (`pakchunk9NN-MJOLNIRHUB-<slug>-<j>_P`), and reordering a profile is
+*renaming files*. No repacking, no re-download, instant. A container carrying a shader library
+keeps its own number, because UE finds that library by the number in the file name. Ordering
+is deterministic and matches what the engine will actually do, so the launcher's conflict
+preview is a prediction it cannot get wrong.
 
 ### Later: merge instead of shadow
 
@@ -146,6 +148,11 @@ attributed to the profile, never uploaded).
 ---
 
 ## 4. The artifact format
+
+**Superseded 2026-10-21** (the manifest sketch that opens this section): the manifest that
+shipped is specified in [`mjolnir_format.md`](mjolnir_format.md). `type` is `content` or `map`,
+because script and native mods never travel as `.mjolnir`; `compat` carries only `min_build` and
+`max_build`; and there is no `id`, `entrypoints`, `verified_builds` or `provides`/`replaces`.
 
 A `.mjolnir` file is a zip:
 
@@ -231,6 +238,12 @@ Two rules the signing story depends on, both learned the hard way:
 ---
 
 ## 5. Upload pipeline
+
+**Superseded 2026-10-21:** this pipeline did not ship as drawn. Archive bytes go through the
+Worker (a direct `PUT`, or R2 multipart for a large archive; see §7), the scan runs inside
+`/complete` rather than a Queue consumer (§8, Phase 1), and gallery media is uploaded through the
+API, magic-byte checked, held until a moderator approves it, and served from `/api/v1/media/{id}`
+with its validated type and `nosniff`, not re-encoded or moved to a separate origin.
 
 Workers cap request bodies well below mod sizes, so bytes must never transit the Worker.
 
@@ -334,6 +347,14 @@ from the same source. Hono runs natively on Workers, which OpenNext already targ
 **Shipped**, and the spec above is the authority — this table is a map, not a contract. `auth`
 means an API key or a session cookie; everything else is public and CORS-open.
 
+**Update 2026-10-21:** much of the surface now postdates this table. The spec also carries the
+map catalog (`/v1/maps`, `/v1/maps/{code}`), the lobby browser (`/v1/lobbies`), match history and
+chat (`/v1/matches`, `/v1/matches/claims`, `/v1/matches/chat`, `/v1/players/{name}/stats`),
+player identity and reports (`/v1/identity/tickets`, `/v1/players/reports`), benches
+(`/v1/benches`, `/v1/admin/benches`), view counters and tool galleries, the moderation queues for
+media, map releases, player reports, matchmaking bans and match chat, `/v1/admin/users`, and the
+multipart archive upload: 93 operations in all.
+
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/v1/health` | |
@@ -341,10 +362,10 @@ means an API key or a session cookie; everything else is public and CORS-open.
 | `GET` | `/v1/mods/{slug}` | |
 | `GET` | `/v1/mods/{slug}/releases` | newest first |
 | `GET` | `/v1/releases/{id}` | status and scan findings |
-| `GET` | `/v1/releases/{id}/download` | 302 to R2, counts the download; attributes it when the caller has an identity |
+| `GET` | `/v1/releases/{id}/download` | streams the archive from R2 (a signed code-mod artifact 302s to the artifact URL its signed manifest names), counts the download; attributes it when the caller has an identity |
 | `GET` | `/v1/users/{id}` | public profile: identity, activity totals, published mods |
 | `GET` | `/v1/releases/{id}/conflicts` | ← the chunk-ID join |
-| `POST` | `/v1/conflicts/check` | body: `[release_ids]` → conflict matrix + suggested order |
+| `POST` | `/v1/conflicts/check` | body: `{ release_ids }` → every conflicting pair, with its shared-chunk count and up to 10 sample chunk IDs |
 | `GET` | `/v1/mods/{slug}/media` · `/comments` · `/ratings` | |
 | `GET` | `/v1/media/{id}` | serves the image |
 | `POST` | `/v1/mods` | auth — create a mod |
@@ -362,7 +383,7 @@ means an API key or a session cookie; everything else is public and CORS-open.
 | `GET` `POST` `DELETE` | `/v1/account/api-keys`, `/v1/account/signing-keys` | auth — and `/{id}` to revoke |
 | `GET` | `/v1/account/me` | auth |
 | `POST` | `/v1/code-mods/sync` | auth — mirrors the signed code-mod set onto hub pages |
-| `POST` | `/v1/crashes` | auth (any scope) — the launcher files a game crash ([crash reports](crash_reports.md)) |
+| `POST` | `/v1/crashes` | auth (any scope) — the launcher files a game crash ([crash reports](https://github.com/devnull9090/mjolnir-core/blob/main/docs/crash_reports.md)) |
 | `PUT` | `/v1/crashes/{id}/bundle` · `/v1/crashes/{id}/dump` | auth — the report's owner; the dump only when the hub asked |
 | `GET` | `/v1/admin/crashes`, `/v1/admin/crashes/{signature}`, `/v1/admin/crash-reports/{id}/{file}` | admins — grouped signatures, their reports, file downloads |
 
@@ -371,6 +392,14 @@ originally called for. The Worker has to hold the bytes anyway to scan them, and
 (`MAX_ARCHIVE_BYTES`) keeps that affordable; presigning becomes worth it when archives outgrow
 that, and the three-step create → upload → complete shape is already the one that would survive
 the change.
+
+**Update 2026-10-21:** archives did outgrow it, and the answer was R2 multipart through the Worker
+rather than presigning. A single `PUT` now takes up to 90 MiB (`MAX_ARCHIVE_BYTES`, PR #184); a
+larger archive, up to 400 MiB, goes up in parts (`POST /v1/releases/{id}/archive/multipart`, a
+`PUT` per part, then `POST …/multipart/{upload_id}/complete`; PR #210). `/complete` no longer
+holds the archive: it scans the stored object as a stream, feeding the unzip 256 KiB at a time
+(PRs #209 and #210), and a request may now use up to five minutes of CPU (`limits.cpu_ms` in
+`hub/wrangler.jsonc`, PR #211).
 
 **Not built:** `GET /v1/collections/{slug}` (Phase 4) and `GET /v1/builds`.
 
@@ -381,7 +410,8 @@ and it is the reason to publish a spec at all. Make it good.
 
 - **Humans:** Discord OAuth → short-lived JWT in an `HttpOnly; Secure; SameSite=Lax` cookie.
 - **Tools:** API keys, `Authorization: Bearer mjc_...`, hash stored, scoped
-  (`mods:read`, `mods:write`, `ratings:write`, `comments:write`), revocable, rate-limited per key.
+  (`mods:read`, `mods:write`, `ratings:write`, `comments:write`, `lobbies:write`), revocable,
+  rate-limited per key (admins excepted).
 - **Desktop clients:** device pairing (below), which is just a supervised way of minting one of
   those keys — with the scopes the client asked for, shown to the user before they approve.
 - **Public reads:** no auth, IP rate-limited at the Cloudflare edge.
@@ -412,8 +442,10 @@ Rules that make it safe rather than merely convenient:
   holds a key, and a key cannot mint another one. Each app pairs for itself.
 - **A client asks for the scopes it needs.** The launcher rates and comments; the tag editor
   also asks for `mods:write`, because it publishes. Omitting `scopes` yields
-  `mods:read ratings:write comments:write` — what pairing granted before scopes were
-  requestable, so older launchers keep working. Keys last 180 days, or 90 if they can publish.
+  `mods:read ratings:write comments:write lobbies:write` — what pairing granted before scopes
+  were requestable, plus `lobbies:write` for the games list (migration 0013 gave it to launcher
+  keys paired earlier), so older launchers keep working. Keys last 180 days, or 90 if they can
+  publish.
 - The scopes asked for are recorded at handshake time and are exactly what approval mints, so
   `/link` can list them before the user commits. Granting `mods:write` to a desktop app is a
   real widening over the original design; it is worth it because the flow it replaces was
@@ -512,8 +544,8 @@ digest of each mod's file tree at install and re-checks it, so a folder carrying
 name but different contents reads as `modified` rather than `signed`. The runtime that hosts
 these mods was split out and signed at the same time (§4, Signing).
 
-Still open from this phase: the review criteria are not published, and §9's second open question
-— who reviews — is unanswered.
+Still open from this phase: §9's second open question — who reviews — is unanswered. The review
+criteria are published, in [`contributing_code_mods.md`](contributing_code_mods.md#review-criteria).
 
 **Phase 4 — The differentiators**
 Collections. Delta/patch content mods against the user's own install. Field-level tag merging
@@ -526,7 +558,10 @@ for soft conflicts. Per-build compatibility signals and automatic revalidation o
 1. **Does the game mount extra containers by priority on the current build?** `iostore_packaging.md`
    lists this as verified for a single `_P` container. Ordering *between* several `_P` containers
    is the assumption load order rests on, and it should be tested with three deliberately
-   conflicting containers before Phase 1 UI is built.
+   conflicting containers before Phase 1 UI is built. **Update 2026-10-21:** Phase 1 shipped
+   without it. No commit records the test, and the launcher's notes still call the ordering
+   unconfirmed; the assumption lives in one function (`order_number` in
+   `apps/launcher/src-tauri/src/hub.rs`), so reversing it is a one-line change.
 2. **Where does moderation capacity come from?** Every code mod needs a human reviewer. One
    person is a bottleneck and a bus factor; the process should name at least two from the start.
 3. **What is the policy on mods that redistribute base-game assets wholesale?** The delta

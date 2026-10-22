@@ -65,7 +65,7 @@ export const PLAY_STEPS = [
   },
   {
     title: "Bring your fireteam",
-    description: "Launch the game, open MULTIPLAYER, choose a map and mode, invite your friends, and start the game. Everyone needs the same maps installed.",
+    description: "Launch the game, open MULTIPLAYER, choose a map and mode, invite your friends, and start the game. Everyone needs the same maps installed; a player missing a hub map can download it from inside the game.",
   },
 ];
 
@@ -110,7 +110,7 @@ export const MULTIPLAYER_FAQS = [
   {
     id: "player-count",
     question: "How many players can join a multiplayer game?",
-    answer: "Up to 16 players, on every classic map. Each player needs their own PC and their own copy of the game, with the same maps installed. More than two players on one PC isn't supported yet.",
+    answer: "Up to 16 players, on every classic map. Each player needs their own PC and their own copy of the game, with the same maps installed; a missing hub map can be downloaded from inside the game, with no restart. More than two players on one PC isn't supported yet.",
     href: MULTIPLAYER_RELEASE_PATH,
     linkLabel: "See the alpha release notes",
   },

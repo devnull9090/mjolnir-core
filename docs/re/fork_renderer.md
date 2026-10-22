@@ -99,6 +99,18 @@ loader creates a dynamic instance of a master per mesh slot, with the textures
 The same reasoning dropped a `MaterialParameterCollection` for live exposure
 tuning: `Exposure` is a scalar parameter on every instance instead.
 
+**Update 2026-10-21:** two later changes touch this section. 343's `Material`
+has slots stock lacks too, so the materials cooked here were read one slot late
+from the first shifted slot on (`bUsedWithNanite` arrived as `bUsesDistortion`).
+`tools/ue/cook.ps1` now rewrites every staged chunk container that holds
+materials with them re-encoded in the game's property layout
+(`mjolnir ue retarget --rewrite`, `8b8f9e70`); its default `-Classes` are
+`Material,MaterialInstanceConstant`. And the foliage bake can cook a MIC: a
+baked rock's material that only overrides scalars on a never-cooked stand-in of
+the game's own material instance (`build_ce_landscape.py` `decor_material`,
+`83f1825a`, PR #208; only the TST map sets `rock_roughness`). The crash above
+was measured before the retarget existed and has not been re-measured here.
+
 ## 4. What happens to a colour after the material
 
 The probe was an unlit `M_CE_Environment` cube with a 50% grey base map,
@@ -151,6 +163,15 @@ drew on a stock cube.
 
 So the transparent sections are a second mesh (over `/Engine/BasicShapes/Cone`)
 whose slot 0 is one of them (`tools/level/build_terrain_meshes.py`).
+
+**Update 2026-10-21:** a map is now up to four meshes: the opaque terrain
+(`basicshapes/cylinder`), the translucent sections (`basicshapes/cone`) and
+the sky (`basicshapes/sphere`), per `tools/level/convert_ce_map.sh`, and since
+`30cfaf86` (2026-10-10) the water (`basicshapes/cube`, `SM_<map>_Water`, split
+off in `build_terrain_meshes.py`). The sky has its own mesh for another
+reason: kilometres across, it cost the transparent pieces their precision when
+they shared one (`d17b0a7d`). The water split is this rule again: Unreal draws
+water as water only on a mesh whose slot 0 is water.
 
 ## Finding the next difference
 

@@ -104,11 +104,11 @@ function MapCard({ map }: { map: MapListing }) {
         {map.release && (
           <a
             href={`mjolnir://map/${map.code}`}
-            title={`${LAUNCHER_LINK_TITLE} and installs this map.`}
+            title={`${LAUNCHER_LINK_TITLE} on this map's page.`}
             className="shrink-0 inline-flex items-center gap-1 font-semibold text-gold hover:underline"
           >
             <Rocket className="w-3 h-3" />
-            Install in launcher
+            Open in launcher
           </a>
         )}
       </div>
@@ -291,7 +291,7 @@ export default async function MapsPage({
                   <p>
                     {filtered
                       ? "No community maps match."
-                      : "No community maps yet. Convert one and publish it from the tag editor."}
+                      : "No community maps yet. Convert one, pack it with mjolnir map pack, and upload it from your mod's page."}
                   </p>
                 </div>
               ) : (

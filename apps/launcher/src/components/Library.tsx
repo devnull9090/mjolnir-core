@@ -252,8 +252,8 @@ export default function Library({
         <div className="p-3 rounded-xl bg-accent-red/8 border border-accent-red/20 text-sm">
           <p className="font-medium text-accent-red">Modding is disabled</p>
           <p className="text-text-secondary text-xs mt-0.5">
-            UE4SS is switched off, so the game will run unmodded — including the content mods
-            below. Toggle the switch above to re-enable.
+            UE4SS is switched off, so code mods and maps will not run. The content mods below
+            still load, because the game mounts them itself. Toggle the switch above to re-enable.
           </p>
         </div>
       )}

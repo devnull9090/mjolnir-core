@@ -61,7 +61,7 @@ const research = [
     href: "/docs/research/multiplayer",
     title: "Multiplayer viability",
     description:
-      "Inventory of retained multiplayer systems, packed content, campaign worlds, and the shortest route to a CTF prototype.",
+      "The earlier CU2 investigation: retained multiplayer systems, packed content, campaign worlds, and the route it proposed to a CTF prototype. CTF has since shipped in the multiplayer alpha.",
     status: "Observed" as EvidenceLevel,
     icon: FlaskConical,
   },

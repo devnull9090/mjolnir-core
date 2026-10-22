@@ -29,8 +29,8 @@ import process from "node:process";
 
 const execFileAsync = promisify(execFile);
 
-// Steam's own appmanifest, and apps/launcher, agree on this. The store page id
-// in the README is a different app.
+// Steam's own appmanifest, apps/launcher and the README's store link agree on
+// this.
 const STEAM_APP_ID = "2806050";
 const EXE_NAME = "HaloCampaignEvolved.exe";
 const PROCESS_NAME = "HaloCampaignEvolved";
@@ -434,7 +434,7 @@ define({
       windowed: { type: "boolean", description: "Windowed mode (default true)." },
       width: { type: "number", description: "Window width, default 1280." },
       height: { type: "number", description: "Window height, default 720." },
-      wait_seconds: { type: "number", description: "How long to wait for the bridge, default 180." },
+      wait_seconds: { type: "number", description: "How long to wait for the bridge, default 240." },
       via: { type: "string", enum: ["steam", "exe"], description: "Launch route, default steam." },
     },
   },
@@ -678,9 +678,10 @@ define({
 define({
   name: "game_input",
   description:
-    "Send keyboard and mouse input to the game window, for menus and movement the console cannot reach. " +
-    "Steals focus while it runs. Steps: {key:'Enter'}, {key:'W',hold:800}, {key:'Shift',down:true}, " +
-    "{mouse:'left',hold:60}, {move:[dx,dy]}, {wait:500}.",
+    "Send keyboard and mouse input to the game window, for the menus the console cannot reach " +
+    "(player movement through it is unverified on CU4). Steals focus while it runs. Steps: " +
+    "{key:'Enter'}, {key:'W',hold:800}, {key:'Shift',down:true}, {mouse:'left',hold:60}, " +
+    "{move:[dx,dy]}, {click:[x,y]} (absolute, window client space: what the frontend menu needs), {wait:500}.",
   inputSchema: {
     type: "object",
     properties: {

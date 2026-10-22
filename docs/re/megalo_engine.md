@@ -1,10 +1,13 @@
 # The Megalo engine is still in the simulation (CU4)
 
-**Status:** 2026-09-30. **The simulation ran the Megalo engine live** (engine
-index 2, `megalo_objects` valid, map objects placed) on a converted CE map, with
-three one-byte launch patches plus one to the map-load handler. See *Running
-it* below. Later the same day it ran our own Megalo script, loaded from a file
-once a sixth patch unblocked the variant loader (*The variant file loader,
+**Status:** 2026-10-21. Shipped. Every converted multiplayer map (level file
+`"multiplayer": true`) runs under the Megalo engine: MJOLNIRLevelLoader's
+native half (`mjolnir_map_registry.dll`) applies the switch's six patches
+before such a map starts and installs its game type's variant (`slayer.mglo`,
+`ctf.mglo`, written by each mods release). A seventh patch lets the game quit
+from a match (MJOLNIRLevelLoader 0.3.1, PR #152; first in mods-v0.17.0). The sections below are
+the working history, from the first live run on 2026-09-30 (*Running it*) and
+our own script loaded from a file the same day (*The variant file loader,
 fixed*).
 **Binary:** `HaloSimulation_tag_release.dll`, CU4 (build lock in
 [`../build_lock.md`](../build_lock.md)). Every address is an RVA into that
@@ -77,6 +80,11 @@ at the frontend).
 
 ## What still blocks a match
 
+Superseded by the sections from *Running it* on: the switch is byte patches
+rather than a console route, a player spawns at spawn-point scenery through a
+map variant palette, and variants load from a file. The CTF flag is an added
+`multiplayer_object_type_list` entry (18, `tools/level/build_ctf_flag.sh`).
+
 - **No console route.** `game_multiplayer`, `game_set_variant`, `game_start*`,
   `net_load_and_use_game_variant`, `net_build_game_variant`,
   `load_binary_game_engine` and `read_map_variant_and_make_current` are stubs
@@ -92,6 +100,9 @@ at the frontend).
 - Networking goes through Unreal, not the sim's stubbed `net_*` layer.
 
 ## Next experiments, cheapest first
+
+Done: 1 and 2 in *Running it*, 3 with our own variant rather than Reach's in
+*The variant file loader, fixed*.
 
 1. **Read only.** In a running mission, read TLS `+0x38` → `+0x846c` on the sim
    thread (the Blam console's native mailbox already runs there). Expect 3,
@@ -194,6 +205,9 @@ mjolnir live engine --launch-engine 2 --map-variant-gate skip --map-variant-rese
 On the converted Hang 'Em High the same pipeline creates the weapons, and
 they fall through the terrain and are deleted (z ≈ -636): the sim still has
 no working collision for converted terrain (`../ce_terrain_collision.md`).
+(**Update 2026-10-21:** converted maps now get a structure BSP built from the
+CE collision alone, `mjolnir level collision --own-bsp`, step 2 of
+`tools/level/convert_ce_map.sh`, since 2026-10-01, d17b0a7d.)
 
 ## A variant from a file: Slayer (2026-09-30, offline)
 
@@ -220,6 +234,13 @@ scores. Two findings make real modes a file away:
   score (action 1);
 - trigger 1, for each player: if their score reaches the score to win
   (number kinds 8 and 16), end the round (action 21).
+
+**Update 2026-10-21:** the command now writes more than this: 31 rounds by
+default (2026-10-02), CE health packs unless `--no-health-packs`
+(2026-10-01), and a trigger that ends the round on its time limit
+(2026-10-05; `crates/blam-cli/src/megalo.rs`). `Variant::slayer(25)` alone is
+still 1,131 bytes (its fingerprint test in
+`crates/blam-megalo/src/variant.rs`).
 
 Scores live in the engine globals at `+0x32c0` (player i at `+i*8`, a 16-bit
 score); there is no built-in kill scoring.
@@ -310,6 +331,13 @@ The frontend's own start (`BP_FrontendGameState` export 4 → helpers export
 difference is native: the CU3 campaign's in-mission switch (A15 → A30)
 worked, but a Megalo game in progress blocks the next one. This is
 unexplained.
+
+**Update 2026-10-21:** MJOLNIR's matches go around it. At a match's end the
+host travels the fireteam back to the frontend seamlessly and, after the
+post-game vote, starts the next map there as START GAME would (PR #119,
+2026-10-02, mods-v0.9.0; `mods/MJOLNIRLobby/Scripts/main.lua`,
+`../multiplayer_postgame.md`). Variants default to 31 rounds, so a game
+never ends on its own (`mjolnir megalo write --rounds`).
 
 `BlamCampaignFlowGameSubsystem`'s reflected functions: `SetAndBeginCampaign`,
 `SetActiveCampaign`, `RevertToLastSave`, `RestartLevel`, `LeaveGame`

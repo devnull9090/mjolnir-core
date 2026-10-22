@@ -1,13 +1,15 @@
 # Blam Tag Data in Halo Campaign Evolved
 
 **Status:** Active research
-**Last verified:** 2026-07-26
+**Last verified:** 2026-09-06
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 **Host SHA-256:** `0670FAA751E2553940B90DF6BE43D3B0FF59EA87F22155CF3C3FE9D439367F1D`
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** this note is stamped CU2, the build its inventory and container counts were
+> taken on. The installed build is CU4 (`config/hce-build.lock.json`, locked 2026-08-18), and the
+> sections dated 2026-08-19 and later were measured after that lock. See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU4 and which notes are
+> still CU3-or-earlier-measured.
 
 ## Question
 
@@ -320,7 +322,8 @@ editor's Model and World views draw the chase's results (`render_mesh_refs` in
   and vehicles like the warthog keep only the suspension in their SK's classic buffers — the
   hull ships as ~40 per-region rig statics (`Mesh/Static/SM_Warthog_*`, bone-local frames,
   matching Blam region names) attached at runtime, and whole in the SK's Nanite pages.
-  Assembling those rigs is open work; affected objects fall back to their collision shells.
+  ~~Assembling those rigs is open work; affected objects fall back to their collision shells.~~
+  Assembled the same day; see "a vehicle's hull is rig statics" below.
 
 **Verified 2026-08-19 — a vehicle's hull is rig statics on the SK's skeleton.** The warthog's
 `SK_Warthog_01` carries only the suspension geometry (one `InteriorWheelsShocks` material); the
@@ -375,7 +378,11 @@ cache map. The shipped data layout is consistent with that: individual tag files
 no cache-relative offsets in the container.
 
 **Observed, not Verified:** the runtime path that maps an Unreal package back to a tag path has not
-yet been traced through the simulation DLL.
+yet been traced through the simulation DLL. **Update 2026-10-21:** its behaviour was measured from
+outside on CU4 (2026-09-05, `476fe695`): the simulation's tag table is enumerated from the mounted
+containers, and a brand-new tag package in a mod container loads by name, with no import declared
+anywhere ([`tag_table_and_string_ids.md`](tag_table_and_string_ids.md)). The trace through the
+DLL is still not done.
 
 ## Multiplayer Relevance
 
@@ -389,6 +396,13 @@ This supersedes the earlier string-derived claim in
 [`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md) with a file-level
 inventory. It still does **not** prove the shipping UI or UE5 bridge can launch a competitive
 variant. No multiplayer `scenario` tag and no competitive world package exists in this build.
+
+**Update 2026-10-21:** the simulation runs competitive variants once it is asked to. The shipping
+campaign flow still never selects the Megalo engine; MJOLNIRLevelLoader's native half patches the
+map-load handler to it just before a converted CE multiplayer map starts, and the map runs a
+`.mglo` variant from `mjolnir megalo write`, which writes Slayer and CTF
+(`mods/MJOLNIRLevelLoader/Scripts/main.lua`, `crates/blam-cli/src/megalo.rs`; PR #106,
+mods-v0.7.0).
 
 ## Reproduction
 
@@ -441,6 +455,9 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
    unidentified. See [`tag_body_format.md`](tag_body_format.md).
 4. Trace the simulation-side loader that resolves an Unreal package to a tag, starting from shell
    primary slot 2 (see [`halosimulation_tag_release.md`](halosimulation_tag_release.md)).
+   **Partly answered 2026-09-05:** measured from outside, the tag table is enumerated from the
+   mounted containers and a brand-new tag package loads by name (see *Why the DLL Is Named
+   `tag_release`* above). The trace through the DLL is still open.
 5. Read `game_engine_settings-game_engine_settings_definition` and
    `globals-multiplayer_object_type_list` to enumerate which competitive variants the shipped data
    actually defines.

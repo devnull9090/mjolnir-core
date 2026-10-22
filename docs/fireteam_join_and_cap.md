@@ -14,6 +14,13 @@ caps to raise, none of them known to be impossible.
 - The CU3 study before it is on the `mjolnir/coop-lobby-8-players-de2bcd`
   branch (`docs/coop_player_cap.md`, `tools/pe/lobby_size_hook.py`).
 
+**Update 2026-10-21:** the caps were raised and tested on two PCs on
+2026-10-02 ("Raising the caps in game" below). Fireteams of up to 16
+shipped in mods-v0.10.0 (PR #120, #121), and the host's MAX PLAYERS in
+mods-v0.16.0 (PR #143). Our lobby service took route step 2: FIND GAMES
+hands the string to the game's own join handler (mods-v0.11.0, PR #127;
+[multiplayer_servers.md](multiplayer_servers.md)).
+
 ## The stack
 
 The session layer is Microsoft's OnlineSubsystemPlayFab:
@@ -72,8 +79,8 @@ app host was verified 2026-10-10.
 |---|---|---|---|
 | PlayFab lobby `maxMemberCount` | `CreateAndJoinLobby` at `0x6f4156e` in CreateSession `0x6f40880`: from `FOnlineSessionSettings.NumPublicConnections` (settings+8) | 4 today; the game code supplying it not traced | Verified |
 | Native (Steam) presence session after a PlayFab join | `0x6f2007b` | `NumPublicConnections = NumPrivateConnections = 4`, a literal | Verified |
-| PlayFab Party network | `PartyCreateNewNetwork` `0x6f375dc`; fields loaded at `0x6f2eecb` from `[OnlineSubsystemPlayFab]` MaxDeviceCount, MaxUserCount, MaxUsersPerDeviceCount, MaxDevicesPerUserCount, MaxEndpointsPerDeviceCount | ini values unread (in the Oodle-compressed paks) | Verified as ini-driven |
-| Unreal `GameSession.MaxPlayers` | `HaloOnlineGameSession` | 4, rebuilt every level; MJOLNIRLobby holds it at 16 | Verified (CU3) |
+| PlayFab Party network | `PartyCreateNewNetwork` `0x6f375dc`; fields loaded at `0x6f2eecb` from `[OnlineSubsystemPlayFab]` MaxDeviceCount, MaxUserCount, MaxUsersPerDeviceCount, MaxDevicesPerUserCount, MaxEndpointsPerDeviceCount | ini values unread (in the Oodle-compressed paks); read from the call on 2026-10-02 (below) | Verified as ini-driven |
+| Unreal `GameSession.MaxPlayers` | `HaloOnlineGameSession` | 4, rebuilt every level; MJOLNIRLobby holds it at the host's MAX PLAYERS, 16 unless the host picks fewer (below) | Verified (CU3) |
 | Simulation players array | `0x181010` (sim DLL) | **16** of `0x4B0` bytes. CU3 notes read 32: `0x20` there is the name buffer, not the count | Verified |
 | `k_maximum_campaign_players` | block definition `0x9bb460` | 4 | Verified |
 | `net_maximum_player_count` | registered at `0x9a3dd8` | value unread | Verified present |
@@ -89,14 +96,17 @@ app host was verified 2026-10-10.
 
 ## Unknowns
 
-- PlayFab may reject a larger `maxMemberCount`, depending on the title's
-  configuration.
-- The Party ini values.
+- ~~PlayFab may reject a larger `maxMemberCount`, depending on the title's
+  configuration.~~ It took 16, and a fifth player joined (2026-10-02, below).
+- ~~The Party ini values.~~ Read 2026-10-02 as the game creates its network:
+  users 4, devices 4, users/device 2, devices/user 1, endpoints/device 3
+  (`fireteam.log` below).
 - Where the sim raises `0x50000a`, and `net_maximum_player_count`'s value.
 - Whether Steam presence lobbies cap at 4 elsewhere.
 
 None of this can be settled without a second machine or account in the
-lobby.
+lobby. **Update 2026-10-21:** the first two were settled on two PCs on
+2026-10-02; the other two are still open.
 
 ## Other CU4 RVAs
 
@@ -165,7 +175,7 @@ players, then blank INVITE + rows. A fifth player gets no row and the header
 reads "n/4". MJOLNIRLobby's `squadpanel.lua` rebuilds the difference after
 the panel's own `BackingDataChanged` and `UpdateHeader`: a row for every
 player in the game state, one INVITE + row while there is room, and
-"Fireteam n/16".
+"Fireteam n/16" (since 2026-10-04, on the host, n over its MAX PLAYERS).
 - A row's widget class travels with its item in a native field. The list's
   `EntryWidgetClass` is only the fallback, read whenever the list builds the
   row, so a fresh item gets whichever class happens to be set by then.

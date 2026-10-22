@@ -96,7 +96,7 @@ first.
 
 ## The pieces
 
-**Launcher, `--install-map <CODE> --progress <file>`** (`hub::run_live_install`).
+**Launcher, `--install-map <CODE> [--release <id>] --progress <file>`** (`hub::run_live_install`).
 This is the ordinary install (`install_one`), run with no window:
 
 - It checks the hub's sha256, the platform signature when there is one, and
@@ -104,17 +104,25 @@ This is the ordinary install (`install_one`), run with no window:
 - It writes the same cache, `hub_state.json` and active profile, and uses the
   same Paks file names. The next launch therefore copies nothing and rebuilds
   the registration container, because its record lacks the new code.
+- Since launcher 0.14.0 it writes every file under the pack's `map/` (a
+  remastered map's foliage file and `decals/`). Since 0.14.1 a map that is
+  installed but missing one of the files its level names is fetched again at
+  the release it has, and its containers in Paks are left as they are.
 
 What it leaves out, because the game is running:
 
-- It never rewrites a container already in Paks: the game holds them open,
-  and a mounted map's update waits for a restart.
+- It never rewrites a container the game holds open: an update of a mounted
+  map is written beside it under a patch name, and the game swaps them
+  ([below](#versions-and-updating-a-map-the-game-has-loaded)).
 - It doesn't install or update code mods: their DLLs are loaded.
-- It treats a missing dependency (the CE runtime pack) as an error.
+- It treats a missing dependency (the CE runtime pack) as an error, and
+  since launcher 0.14.0 one older than the floor of the pack's range too,
+  naming the range and the installed version.
 - It doesn't rebuild the registration container: it is mounted.
 
 Progress goes to `<file>` as one JSON object, replaced as it changes:
 
+- `{"stage":"start","code":...}` first.
 - `{"stage":"download","received":n,"total":n}`, where the total comes from
   the hub listing, since the archive is streamed without a length.
 - Then `{"stage":"done","mount":[...],...}` or `{"stage":"error","message":...}`.
@@ -150,7 +158,10 @@ the game says to update it instead of opening it.
   +0x28, Free at +0x48), so the engine frees them at shutdown like its own.
   An FText copied by value takes a reference (`+8` of its text data).
 
-Both are CU4-only by RVA, guarded by the exe's timestamp.
+Both are CU4-only, with one set of exe addresses per build picked by the
+exe's PE timestamp (`exe_profiles`). The exe RVAs in this note are the Steam
+exe's; the Xbox app's CU4 exe has its own set (PR #179,
+[game_pass.md](game_pass.md)).
 
 **MJOLNIRLobby** (`Scripts/maplive.lua`, wired into `main.lua`):
 
@@ -268,7 +279,10 @@ open the launcher's pages).
 
 **Not tested yet:** all of it in game. The launcher side is unit-tested.
 
-## What is not done yet
+## What was still open on 2026-10-09
+
+**Update 2026-10-21:** both items below are done; they were verified on two
+PCs on 2026-10-09 (eced8a14).
 
 - **A guest that can't get the map.** One left in the fireteam holds
   everyone's start. Two PCs showed the host waiting forever on Gephyrophobia

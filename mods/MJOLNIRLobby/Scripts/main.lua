@@ -22,7 +22,7 @@
 -- MULTIPLAYER opens MJOLNIR's own lobby and map select screens
 -- (WBP_MJOLNIRLobby, WBP_MJOLNIRMapSelect, "Our own screens" below), with the
 -- campaign-menu screens as the fallback when the UI container is missing.
--- Finding and joining other players' games is still to come.
+-- Public games, FIND GAMES and joins by connection string are in games.lua.
 
 local function modDirectory()
     local source = debug.getinfo(1, "S").source or ""
@@ -251,7 +251,7 @@ local function mapScreen()
         title = "SELECT MAP",
         subtitle = "HOST GAME",
         description = #buttons > 0 and buttons[1].description
-            or "No classic CE maps are installed. Convert one with tools/level/convert_ce_map.sh.",
+            or "No classic CE maps are installed. Install them from the MJOLNIR launcher's Multiplayer page.",
         buttons = buttons,
     })
 end
@@ -912,7 +912,7 @@ local function drawLobby()
         or (map.update and ("The host runs version " .. tostring(map.update.version or "?") .. " of this map; you have "
             .. tostring(map.update.have or "?") .. ". UPDATE MAP installs the host's version without leaving the game."))
         or map.description) or
-        "Convert a classic CE map (tools/level/convert_ce_map.sh) or install a map pack.")
+        "Install the classic maps from the MJOLNIR launcher's Multiplayer page, or a map pack from mjolnircore.com.")
     Live.showCover(Lobby, map and map.code)
     setText(Lobby.ModeTitle, mode and mode.name or "")
     setText(Lobby.ModeDescription, mode and mode.description or "")

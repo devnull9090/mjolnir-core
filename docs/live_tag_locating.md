@@ -23,6 +23,10 @@ offsets, resolved once per build and chased by pointer thereafter — no scan.
 Measured 2026-09-01 against the shipped build (`…Meteorite-2607-CU3`) in mission
 a30, 369 tags verified loaded.
 
+**Update 2026-10-21:** the build lock had read `…Meteorite-2607-CU4` since
+2026-08-18 (commit 0b02b919), so the CU3 label above is probably carried
+forward; see `build_lock.md`.
+
 ## Finding 1 — the loaded *list* needs no scan at all
 
 Loaded Blam tags are UE `UObject`s named `Blam<Group>TagDataAsset`
@@ -48,6 +52,10 @@ and filter to `*TagDataAsset`. That is a bounded read of a few MB, not a 13 GB
 sweep, and it answers "what is loaded / which level" in well under a second —
 and more reliably than fingerprinting the scenario tag. This is the recommended
 next step and does **not** depend on Finding 2.
+
+**Update 2026-10-21:** done the same day: `crates/blam-live/src/objects.rs` and
+`names.rs`, wired into the tag editor's live mode in 0.16.0 (PRs #88, #89); see
+`guobjectarray_reader.md`.
 
 ## Finding 2 — the pokeable buffer is *not* reachable from the UObject
 
@@ -469,6 +477,13 @@ Blam object table (every spawned object → its tag definition), the classic
 exact route, still unlocated; (3) a hook in the UE4SS bridge that reports
 tag definition pointers from inside the process.
 
+**Update 2026-10-21:** option (2) is found. The object table is the `object`
+data array in the simulation thread's TLS block, and each object's datum starts
+with its definition's tag handle (`crates/blam-live/src/world.rs`, `mjolnir live
+objects`, cli 0.3.0, PR #104; see `game_state_reader.md`). On a build with a
+tag-table profile the census no longer fingerprints tags at all (the note at the
+top).
+
 ## 2026-09-02 — why a weapon poke did nothing, and the two facts that fix it
 
 A live edit of the magnum's `zoom levels[0].magnification` reported success —
@@ -538,6 +553,12 @@ Proof: the assault rifle's `zoom levels[0].magnification` (1.4) read back at
 on the HUD and the camera FOV at 85/8 = 10.6°; writing 1.4 put it back. The
 same through the editor's own `live::Live::poke` and through `mjolnir poke`.
 
+**Update 2026-10-21:** the arena is one of the tag module's sixteen segment
+bases (table at RVA `0x02C2CCC0` on CU4; the top four bits of the encoded offset
+pick the slot). Since tag editor 0.18.0 (first tagged in 0.20.0, PR #95) the
+editor takes it from that table whenever the tag table was read
+(`blam_live::tagtable::Segments`), and `derive_arena` is the fallback.
+
 ### Gotchas met on the way
 
 - Root-level fields still poke at `base + file offset`; only nested ones need
@@ -549,7 +570,9 @@ same through the editor's own `live::Live::poke` and through `mjolnir poke`.
 - The UE console's keys are Tilde **and Tab**; a Tab sent by the input tool
   opened it and it ate every click afterwards. Replacing the viewport's
   `UConsole` with a freshly constructed one (what the ConsoleEnabler mod does
-  at startup) closed it.
+  at startup) closed it. **Update 2026-10-21:** since mods-v0.7.0 the
+  ConsoleEnabler mod (1.1.0) also rewrites the Tab entry in `ConsoleKeys` to
+  Tilde, so with it installed only Tilde opens the console.
 
 **Update 2026-09-07.** The two globals the table read depends on (and the
 six registry globals) no longer need measuring after an update: four code

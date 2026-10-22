@@ -17,8 +17,11 @@ import { getReleasesFor } from "./changelog";
  * bundling an icon set to do it. `icon` is a key the pages resolve.
  */
 
-/** How you get the tool: a published build, or your own compiler. */
-export type ToolAvailability = "download" | "source";
+/**
+ * How you get the tool: a build the launcher installs, a package manager (with
+ * the release archives beside it), or your own compiler.
+ */
+export type ToolAvailability = "download" | "package" | "source";
 
 /** Resolved to a component by `app/tools/_components/icons.tsx`. */
 export type ToolIcon = "file-code" | "terminal";
@@ -39,6 +42,8 @@ export type Tool = {
   /** Two or three sentences, for the top of the tool's own page. */
   summary: string;
   availability: ToolAvailability;
+  /** The platforms its builds run on, as the page's structured data states them. */
+  operatingSystem: string;
   icon: ToolIcon;
   /** Product id in `changelog/products.json`, when the tool cuts releases. */
   changelogProduct?: string;
@@ -49,8 +54,11 @@ export type Tool = {
   requirements: { label: string; value: string }[];
   /** Published artifacts. Empty for a tool you build yourself. */
   downloads: ToolDownload[];
-  /** How to build it, for a tool that ships no binary. */
-  build?: { intro: string; steps: { label: string; command: string }[] };
+  /**
+   * Commands to get it when the launcher does not install it: the package
+   * managers for a "package" tool, the build for a "source" one.
+   */
+  install?: { intro: string; steps: { label: string; command: string }[] };
   /**
    * Root of the tool's release directory, when the launcher installs it.
    * `latest/manifest.json` under here is what `/api/tools/latest` reads.
@@ -66,6 +74,7 @@ export const TOOLS: Tool[] = [
     summary:
       "A desktop editor for the game's own data. It reads the installed containers directly — no extraction step, nothing shipped is ever modified — and turns them into something you can search, read and change. Edits become a mod project you can test in the running game and publish to the hub.",
     availability: "download",
+    operatingSystem: "Windows 10, Windows 11",
     icon: "file-code",
     changelogProduct: "tag-editor",
     docsUrl: "/docs/guides/tag-editing-guide",
@@ -126,9 +135,11 @@ export const TOOLS: Tool[] = [
     name: "mjolnir CLI",
     tagline: "Inspect and patch tag data from the command line.",
     summary:
-      "The same tag engine the editor runs on, driven from a shell. It reads an installed game read-only, prints fields with their resolved values, and patches one by name — as a dry run until you ask for a file. It is also how the format's claims are checked, over all 12,290 shipped tags at once.",
-    availability: "source",
+      "The same tag engine the editor runs on, driven from a shell. It reads an installed game read-only, prints fields with their resolved values, and patches one by name — as a dry run until you ask for a file. It is also how the format's claims are checked, over all 12,292 shipped tags at once.",
+    availability: "package",
+    operatingSystem: "Windows, Linux, macOS",
     icon: "terminal",
+    changelogProduct: "cli",
     docsUrl: "/docs/guides/tag-editing-guide",
     repoUrl: "https://github.com/devnull9090/mjolnir-core/tree/main/crates/blam-cli",
     highlights: [
@@ -142,7 +153,7 @@ export const TOOLS: Tool[] = [
       },
       {
         title: "Check the whole install",
-        body: "validate, roundtrip and recode run over all 12,290 tags: structural invariants, byte-identical rewrites, and a decode/re-encode of every field. None of them writes anything.",
+        body: "validate, roundtrip and recode run over all 12,292 tags: structural invariants, byte-identical rewrites, and a decode/re-encode of every field. None of them writes anything.",
       },
       {
         title: "Poke the running game",
@@ -154,24 +165,53 @@ export const TOOLS: Tool[] = [
       },
     ],
     requirements: [
-      { label: "Toolchain", value: "Rust (stable) — cargo build" },
+      { label: "OS", value: "Windows x64, Linux x64, or macOS" },
       { label: "Game", value: "Halo Campaign Evolved (Steam)" },
       { label: "Paths", value: "HCE_PAKS env var, or --paks" },
       { label: "Oodle", value: "Optional — OODLE points at a DLL for ~4× faster decodes" },
     ],
-    downloads: [],
-    build: {
+    downloads: [
+      {
+        label: "Windows (.zip)",
+        href: "https://releases.mjolnircore.com/cli/latest/mjolnir-windows-x64.zip",
+        note: "mjolnir.exe for 64-bit Windows.",
+      },
+      {
+        label: "Linux (.tar.gz)",
+        href: "https://releases.mjolnircore.com/cli/latest/mjolnir-linux-x64.tar.gz",
+        note: "Statically linked, so it runs on any distribution. The release also has .deb and .rpm.",
+      },
+      {
+        label: "macOS (.tar.gz)",
+        href: "https://releases.mjolnircore.com/cli/latest/mjolnir-macos-universal.tar.gz",
+        note: "Universal binary, Intel and Apple silicon.",
+      },
+      {
+        label: "Checksums",
+        href: "https://releases.mjolnircore.com/cli/latest/checksums.txt",
+        note: "SHA-256 of every archive and package in the latest release.",
+      },
+    ],
+    install: {
       intro:
-        "No binary is published yet — build it from the repository. The result lands at target/release/mjolnir.",
+        "Install it with Scoop on Windows or Homebrew on macOS and Linux, or take an archive below. Building it yourself (cargo build --release -p blam-cli) is only needed to change the tool.",
       steps: [
-        { label: "Clone", command: "git clone https://github.com/devnull9090/mjolnir-core" },
-        { label: "Build", command: "cd mjolnir-core; cargo build --release -p blam-cli" },
         {
-          label: "Point it at the game",
+          label: "Scoop (Windows)",
+          command:
+            "scoop bucket add mjolnir https://github.com/devnull9090/mjolnir-core; scoop install mjolnir",
+        },
+        {
+          label: "Homebrew (macOS, Linux)",
+          command:
+            "brew tap devnull9090/core https://github.com/devnull9090/mjolnir-core && brew install mjolnir",
+        },
+        {
+          label: "Point it at the game (PowerShell)",
           command:
             '$env:HCE_PAKS = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Halo Campaign Evolved\\Meteorite\\Content\\Paks"',
         },
-        { label: "Try it", command: ".\\target\\release\\mjolnir.exe groups" },
+        { label: "Try it", command: "mjolnir groups" },
       ],
     },
   },

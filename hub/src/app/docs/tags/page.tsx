@@ -80,7 +80,7 @@ export default function TagsIndexPage() {
           Halo Campaign Evolved ships self-describing tag files. Each one carries a layout section
           holding its own field names, type names, and enum option names, so this reference is
           generated mechanically from the game rather than reconstructed by hand. The extractor
-          parses all 101 groups across all 12,290 shipped tags.
+          parses all 101 groups across every shipped tag (12,292 on CU4).
         </p>
         <p className="mt-4 text-sm leading-6 text-text-muted">
           This is schema only. Field names, types, offsets, and option names are published; tag

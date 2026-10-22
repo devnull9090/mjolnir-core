@@ -1,5 +1,14 @@
 # Halo CE terrain as Campaign Evolved collision (2026-09-03)
 
+**Status:** 2026-10-21. Closed. What every converted map ships is "A BSP of
+our own" below: `mjolnir level collision --own-bsp`
+(`blam_sbsp::convert::convert_own`), with scenery in the BSP tree or behind
+instances of its own (2026-10-03), each such piece one whole-instance key in
+`structure_physics` since 2026-10-12.
+[ce_map_conversion.md](ce_map_conversion.md) has the pipeline. The sections
+before "A BSP of our own" are the investigation, superseded turns included;
+the in-game test the next paragraph awaits has long since passed.
+
 How a classic `bloodgulch.map` collision BSP becomes something the Meteorite
 simulation walks on, what was proven offline, and what the single remaining
 in-game test is. Tooling lives in `crates/blam-sbsp` (`unpack16`, `pack16`,
@@ -402,6 +411,8 @@ for `tools/level/gen_ce_level.py`. With the old hand-typed numbers it
 reproduces the September Blood Gulch payload exactly, apart from the rounding
 of those numbers. 21 of the 23 halo2ue exports convert offline; Coldsnap's two
 BSPs exceed 32,767 surfaces after the fan split and need two definitions.
+(Superseded 2026-10-03: where triangles do not fit, the split makes quads,
+and Coldsnap converts in one definition; see "Quads for the biggest BSPs".)
 MOPPs past 64 KB (Infinity, 135 KB) now reach their far subtree through a
 24-bit jump (`07`).
 
@@ -518,6 +529,11 @@ Still open: the canvas shell's inside region limits where a terrain can sit
 has to be replaced (the CE tree plus a matching kd hierarchy, case A); terrain
 visuals; collision materials.
 
+**Update 2026-10-21:** all three landed. The shell is the CE map's own
+(`--own-bsp`, next section), the terrain is drawn as CE drew it
+(`ce_map_conversion.md`, step 3), and each surface keeps its CE collision
+material (`convert::Options::keep_materials`, "Surface materials" there).
+
 ## A BSP of our own: Blood Gulch without B40's geometry (2026-09-30, late)
 
 `mjolnir level collision <collision_N.json> --out <bsp> --own-bsp [--delta dx dy dz]`
@@ -549,6 +565,12 @@ Gulch** at the CE bases' heights (z 0..4). 1.18 MB payload, 5,305 surfaces.
 Next: trim the standalone scenario to this one BSP and zone set (then the
 coordinates can stay CE's own), the terrain mesh, and the bare world.
 
+**Update 2026-10-21:** done on 2026-10-01. The bake trims the scenario to the
+map's BSP alone (`blam.single_bsp`, the BSP built for index 0 with
+`--bsp-index 0`), the map keeps CE's coordinates (`--lift` 0 by default), its
+terrain meshes ship with it, and it bakes onto the bare MapKit world
+(`defs/level/empty_world.umap`); see `ce_map_conversion.md`.
+
 ## Scenery behind instances of its own (2026-10-01)
 
 A definition's tables are 16-bit (surfaces 32,767, planes 65,535, edges and
@@ -575,6 +597,13 @@ Infinity (8) build this way.
 
 Since 2026-10-03 each piece has a real tree instead (below), and a piece
 holds as many surfaces as its tables allow, at most 8,192.
+
+**Update 2026-10-21:** since 2026-10-12, each piece is one whole-instance key (type 2) in
+`structure_physics`, and Havok descends through the piece's own MOPP. As
+type-3 keys, Death Island's ~96k piece surfaces shared the structure tree's
+quantisation, about 10 wu a step, so a pawn's query came back with
+10,000-20,000 candidates and players fell through the terrain. Verified in
+game on Death Island and Blood Gulch.
 
 A child of "none" in a bsp3d node is **solid**, not empty. The first version
 gave each piece a node with "none" on both sides, so every point of the map
@@ -631,6 +660,14 @@ hits went from 35 to 0 and phantoms from 81 to 0 (`ray_probe ce`, step 2).
 BSP's floors before and after: every miss left has an end in solid (a
 triangle buried in the ground), and no floor ray is lost.
 
+**Update 2026-10-21:** the simulation's polygon test for that crossing is
+one-winding (`FUN_1802f0170`, CU4): the point, projected on the crossed
+plane (negated for a signed reference), must lie left of every edge of the
+surface's loop, so a two-sided surface stops a ray only from the side its
+plane faces. Hulls wound inward stopped bullets on their far wall, from
+inside (Death Island, in game, 2026-10-18). `raytest::tree_game` walks by this rule;
+`tree`, which `ray_probe` and `scenery_probe` use, takes either winding.
+
 | map | scenery | where | nodes | 2D references |
 |---|---|---|---|---|
 | Rat Race | 280 | BSP | 2,646 -> 3,526 | 3,251 -> 9,291 |
@@ -649,3 +686,9 @@ space offline (2026-10-03); none has been loaded with its scenery linked.
 Both judgements (in the tree, or in instances) are made after the transplant's
 fan split (`fan_split_fit`), as for the quads above. Coldsnap and Yoyorast Island
 have not been run with their scenery linked.
+
+**Update 2026-10-21:** Death Island and Blood Gulch have since been played in
+game with their scenery linked (2026-10-12; on Death Island against a B30
+rock's hull too). `level collision` links a staging's scenery whenever
+it lists any, so every conversion since 2026-10-03 has it, Yoyorast Island's
+and Coldsnap's of 2026-10-10 included.

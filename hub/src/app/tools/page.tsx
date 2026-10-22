@@ -7,7 +7,13 @@ import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
 import { ToolIcon } from "./_components/icons";
 import { listToolImages, type MediaRow } from "@/lib/api/queries";
-import { TOOLS, getToolVersion } from "@/lib/tools";
+import { TOOLS, getToolVersion, type ToolAvailability } from "@/lib/tools";
+
+const BADGE: Record<ToolAvailability, string> = {
+  download: "Download",
+  package: "Install",
+  source: "Build from source",
+};
 
 /** The cards carry preview images, which live in D1 — bound per request. */
 export const dynamic = "force-dynamic";
@@ -116,7 +122,7 @@ export default async function ToolsIndexPage() {
                               : "bg-accent-blue/10 text-accent-blue"
                           }`}
                         >
-                          {tool.availability === "download" ? "Download" : "Build from source"}
+                          {BADGE[tool.availability]}
                         </span>
                       </div>
                       <p className="mt-1.5 text-sm leading-6 text-text-muted">{tool.tagline}</p>
@@ -147,12 +153,13 @@ export default async function ToolsIndexPage() {
           <div className="rounded-2xl border border-border bg-surface-raised p-6">
             <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
               <Download className="h-5 w-5 text-gold" />
-              Install them from the launcher
+              Install the Tag Editor from the launcher
             </h2>
             <p className="mt-3 text-sm leading-6 text-text-muted">
-              The launcher&apos;s Tools view installs and updates every tool that publishes
-              a build, checks the download against its published hash, and keeps it beside
-              your game — so you do not have to track versions by hand.
+              The launcher&apos;s Tools view installs and updates the Tag Editor, checks the
+              download against its published hash, and starts it on your game install — so
+              you do not have to track versions by hand. The mjolnir command line installs
+              with Scoop or Homebrew instead.
             </p>
             <Link
               href="/download"
@@ -166,9 +173,9 @@ export default async function ToolsIndexPage() {
           <div className="rounded-2xl border border-dashed border-border-bright p-6">
             <h2 className="text-lg font-bold text-foreground">More to come</h2>
             <p className="mt-3 text-sm leading-6 text-text-muted">
-              Anything that publishes a manifest here becomes installable from the
-              launcher, so new tools land without a launcher release. If you are building
-              one, or want one built, say so — the roadmap is set in the open.
+              A new tool joins the launcher&apos;s Tools view in a launcher release; from
+              then on its updates land without one. If you are building one, or want one
+              built, say so — the roadmap is set in the open.
             </p>
             <div className="mt-4 flex flex-wrap gap-4 text-sm font-semibold">
               <Link

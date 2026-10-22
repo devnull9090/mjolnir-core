@@ -17,8 +17,7 @@ it documents.
 # Post title
 
 **Author:** MJOLNIR Core
-**Summary:** One or two sentences, under 300 characters. This is the card
-text, the RSS description and the meta description.
+**Summary:** One or two sentences, under 300 characters, on one line. This is the card text, the RSS description and the meta description.
 **Tags:** game-update, cu4
 **Image:** /blog-images/slug/featured.jpg
 
@@ -26,15 +25,27 @@ Body Markdown starts after the meta block...
 ```
 
 `**Author:**`, `**Tags:**` and `**Image:**` are optional; `**Summary:**` is
-required. `**Image:**` is the featured image: the link preview (`og:image` and
+required. Each value is one line: the block ends at the first blank line or the
+first line that is not `**Label:** value`, so a wrapped summary pushes the
+lines below it into the body.
+`**Image:**` is the featured image: the link preview (`og:image` and
 the wide Twitter/Discord card), the picture at the top of the post, and the
-post's thumbnail on `/blog` and the tag pages. It is a 1200×630 file under
-`hub/public`, which the build checks exists. Each
+post's thumbnail on `/blog` and the tag pages. It is the site path of a 1200×630
+`.jpg`, `.png` or `.webp` under `hub/public`, which the build checks exists;
+its HTML source goes in `blog/featured/<slug>.html`, with the render command
+in the file's header comment. Each
 tag becomes a filter page at `/blog/tag/<tag>`, so tags are held to slug
 grammar (lowercase letters, digits, hyphens) and the build fails otherwise.
 Reuse existing tags before inventing one: `game-update` marks every update
 report, `cu3`/`cu4`/… pin the specific update, `tag-data` marks posts built on
-the tag-diff pipeline.
+the tag-diff pipeline. `multiplayer` and `maps` mark the classic-map posts,
+`lighting` the ones that cover how those maps are lit, and `alpha` the alpha
+announcement.
+
+New post images go in `hub/public/blog-images/<slug>/`. An image whose path
+ends `?before=<path>`, as in
+`![alt](/blog-images/<slug>/after.jpg?before=/blog-images/<slug>/before.jpg)`,
+draws a before-and-after slider.
 
 ## Game-update posts
 

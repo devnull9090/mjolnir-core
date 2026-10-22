@@ -4,9 +4,10 @@
 **Last verified:** 2026-07-26
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** this note is stamped CU2; the installed build is CU4, whose simulation DLL is
+> a different binary (SHA-256 `C8C14440...3BF7`, `config/hce-build.lock.json`). The RVAs below
+> are CU2's; apart from the embedded interface's table (see the update there), they have not been
+> re-measured on CU4. See [`build_lock.md`](build_lock.md).
 
 ## Artifact
 
@@ -81,6 +82,14 @@ This shape is consistent with the shell output callback layer named by
 `FBlamEngineLauncher::RegisterShellOutputHandlerCallbacks`, but that source-level name is still an
 **Observed** correlation rather than a recovered RTTI symbol.
 
+**Update 2026-10-21:** on CU4 this table is at RVA `0x7B0610`, and slot 0 is the per-tick drain
+at `0xE670` that the simulation thread calls; MJOLNIRBlamConsole swaps that one pointer to run
+console commands (`native/blam_console/mjolnir_blam_console.c`, PR #91, mods-v0.5.0). The
+lobby's native half finds the table from `CreateBlamEngineShell` and hooks slots 1, 2 and 4
+(`native/lobby/mjolnir_lobby.c`, PR #130, mods-v0.12.0). Their callers are exe frames: the exe
+queues type-0, object and type-3 commands through them for the network tick in slot 0, and
+command 0/0 resets the session flow to state 1.
+
 ## UE5 Loader Path
 
 **Verified in the matching host executable:**
@@ -114,6 +123,13 @@ Infection, Juggernaut, Assault, Territories, team options, respawn, loadouts, Me
 Sandbox. This verifies that those definitions are present; it does not prove the shipping UE5 layer
 can select or run each mode.
 
+**Update 2026-10-21:** the project now runs the DLL's Megalo engine. The shipping UE5 flow still
+never asks for it, but once the load-map handler is patched to request it (MJOLNIRLevelLoader's
+multiplayer switch, which also lifts the map-variant checks the campaign flow cannot satisfy;
+`mjolnir live engine --launch-engine 2` makes the handler patch alone, by hand), converted CE
+maps run under it with a `.mglo` variant from `mjolnir megalo write`, which writes Slayer and CTF
+(PR #106, mods-v0.7.0).
+
 ## Reproduction
 
 Use Ghidra 12.1.2 or newer. The current headless launcher does not execute repository Python scripts
@@ -137,5 +153,12 @@ For the host-side loader path, run `AnalyzeBlamLoader.java` against an analyzed
 3. Correlate that structure with live `/Script/BlamEngine` objects discovered through UE4SS.
 4. Trace CTF and team-option string references to their owning functions and data tables.
 5. Capture shell output event types while entering, hosting, and joining campaign co-op.
+   **Partly done 2026-10-03:** the lobby's hooks on slots 1, 2 and 4 of the embedded interface log
+   every command the exe queues on it, with the exe frames that queued it, while a client joins a
+   multiplayer match (`native/lobby/mjolnir_lobby.c`).
 6. Trace how slot 2's tag initialization resolves an Unreal package path back to a Blam tag, using
    the packaged tag inventory in [`tag_data_pipeline.md`](tag_data_pipeline.md) as the ground truth.
+   **Partly answered 2026-09-05:** measured from outside on CU4, the simulation's tag table is
+   enumerated from the mounted containers and a brand-new tag package loads by name
+   ([`tag_table_and_string_ids.md`](tag_table_and_string_ids.md)). The trace through the DLL is
+   still open.
