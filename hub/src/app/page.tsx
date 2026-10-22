@@ -109,7 +109,7 @@ export default function HomePage() {
             <div className="mt-4 grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
               <div>
                 <h2 className="text-4xl font-black leading-tight tracking-tight md:text-5xl">One more match.<br /><span className="text-gold">You know the feeling.</span></h2>
-                <p className="mt-6 leading-7 text-text-muted">The chase for the last kill. A flag run that should never have worked. MJOLNIR brings classic competitive multiplayer to Halo Campaign Evolved, with its own lobby, scoreboard, and multiplayer HUD.</p>
+                <p className="mt-6 leading-7 text-text-muted">The chase for the last kill. A flag run that should never have worked. MJOLNIR brings classic competitive multiplayer to Halo Campaign Evolved, with its own lobby, a browser for public games, match chat, a scoreboard, and a multiplayer HUD.</p>
                 <Link href={MULTIPLAYER_PATH} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-gold hover:underline">Discover Campaign Evolved multiplayer <ArrowRight aria-hidden="true" className="size-4" /></Link>
               </div>
               <div>

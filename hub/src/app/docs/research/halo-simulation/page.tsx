@@ -37,7 +37,7 @@ export default function HaloSimulationPage() {
             </h1>
             <p className="mt-4 max-w-3xl text-base leading-7 text-text-muted">
               Native Blam simulation module loaded by the UE5 BlamEngine plugin. This page records
-              the current factory ABI and interface shape recovered from the installed CU2 build.
+              the factory ABI and interface shape recovered from the CU2 build.
             </p>
           </div>
         </div>
@@ -57,6 +57,16 @@ export default function HaloSimulationPage() {
           <dt className="py-3 font-semibold text-text-muted sm:pr-5">Image base</dt>
           <dd className="py-3 font-mono">0x180000000</dd>
         </dl>
+        <p className="mt-4 break-words text-sm leading-6 text-text-muted">
+          <strong className="text-foreground">Update 2026-10-21:</strong> the project now targets
+          CU4, build 2026.08.11.1121610.2 (config/hce-build.lock.json). Its
+          HaloSimulation_tag_release.dll is 14,668,560 bytes with SHA-256{" "}
+          <span className="break-all font-mono text-xs">
+            C8C144404ADF61A9DE821C996682A7E66ABADD7E530397D3BBDE31C123203BF7
+          </span>
+          . The fingerprint above, the RVAs, and the host hash on this page are CU2&apos;s and were
+          not re-recorded for CU4.
+        </p>
       </section>
 
       <section className="border-t border-border py-9" aria-labelledby="factory-heading">
@@ -155,6 +165,17 @@ export default function HaloSimulationPage() {
           established which startup structures select CTF or another game variant. The next useful
           step is to trace host call sites for primary slots 2 and 3, then correlate their inputs
           with the reflected BlamGameEngineBaseVariant and BlamGameEngineCampaignVariant objects.
+        </p>
+        <p className="mt-4 text-sm leading-6 text-text-muted">
+          <strong className="text-foreground">Update 2026-10-21:</strong> answered on CU4. The
+          engine a map load starts is one constant in the simulation&apos;s load-map handler (RVA
+          0xf650): <span className="font-mono text-foreground">mov r8d, 3</span> at 0xf6db, where 3
+          is campaign and 2 is Megalo. MJOLNIRLevelLoader&apos;s native half patches it so converted
+          multiplayer maps start the Megalo engine, and the game type comes from the Megalo variant
+          file it installs (native/map_registry, shipped in mods-v0.7.0, PR #106; the Slayer and
+          CTF variant files themselves ship since mods-v0.9.0).{" "}
+          <span className="font-mono text-foreground">mjolnir live engine</span> reads the running
+          engine and patches the same constant.
         </p>
       </section>
 

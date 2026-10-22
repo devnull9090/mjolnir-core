@@ -62,14 +62,14 @@ export default function MultiplayerPage() {
               <p className="marketing-eyebrow">The answer you came for</p>
               <h2 className="mt-4 text-3xl font-black tracking-tight">Does Halo Campaign Evolved have multiplayer?</h2>
               <p className="mt-5 text-lg leading-8"><strong className="text-gold">With MJOLNIR Core, it does.</strong> Install our multiplayer mod to play classic competitive Halo with your friends inside Campaign Evolved.</p>
-              <p className="mt-4 leading-7 text-text-muted">Get the original maps, a multiplayer lobby, a kill feed, a scoreboard, and team-aware HUD elements. Slayer and CTF are available across the classic collection, with framework support for Team Slayer, King of the Hill, and Oddball when the map and installed variant support them.</p>
+              <p className="mt-4 leading-7 text-text-muted">Get the original maps, a multiplayer lobby, a browser for public games, match chat, a kill feed, a scoreboard, team-aware HUD elements, and public match history on the hub. Slayer and CTF are available across the classic collection, with framework support for Team Slayer, King of the Hill, and Oddball when the map and installed variant support them.</p>
             </div>
             <aside className="border-l-2 border-gold bg-surface p-6 sm:p-8">
               <h3 className="text-lg font-bold">What to know about the alpha</h3>
               <ul className="mt-4 space-y-3 text-sm leading-7 text-text-muted">
                 <li>Up to 16 players in a fireteam, each on their own PC.</li>
                 <li>Works on Windows with the Steam and Game Pass versions, and Steam and Game Pass players can play in the same game.</li>
-                <li>Everyone needs the same maps installed.</li>
+                <li>Everyone needs the same maps installed. A map you are missing can be downloaded from inside the game, without a restart.</li>
                 <li>Community-made multiplayer, separate from official campaign and co-op features.</li>
               </ul>
               <Link href={MULTIPLAYER_RELEASE_PATH} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-gold hover:underline">Read the alpha announcement <ArrowRight aria-hidden="true" className="size-4" /></Link>

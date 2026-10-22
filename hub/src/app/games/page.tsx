@@ -123,7 +123,7 @@ export default async function GamesPage({
         {lobbies.length === 0 ? (
           <div className="flex items-center gap-3 text-text-muted">
             <Users className="w-5 h-5" />
-            <p>No games right now. Host one from the game and it shows up here.</p>
+            <p>No games right now. Host one from the game, set it to PUBLIC GAME in the lobby, and it shows up here.</p>
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
