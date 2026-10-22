@@ -1,0 +1,16 @@
+[package]
+name = "blam-cache"
+description = "Read classic and MCC Halo cache files (.map): identify the game, and stage Halo 2 maps for conversion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+flate2.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# Bitmaps: BC1-3 blocks decode to RGBA (the same decoder ue-texture reads
+# cooked textures with), and staging writes PNGs the material tools import.
+texture2ddecoder = "0.1"
+png = "0.17"

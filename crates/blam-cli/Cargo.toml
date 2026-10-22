@@ -15,6 +15,7 @@ name = "mjolnir"
 path = "src/main.rs"
 
 [dependencies]
+blam-cache = { path = "../blam-cache" }
 blam-defs = { path = "../blam-defs" }
 blam-tag = { path = "../blam-tag" }
 blam-hsc = { path = "../blam-hsc" }
