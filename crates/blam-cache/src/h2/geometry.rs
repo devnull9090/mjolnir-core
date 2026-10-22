@@ -23,7 +23,7 @@
 //! | type | stride | contents |
 //! |---|---|---|
 //! | 0x01 | 12 | position |
-//! | 0x02, 0x04, 0x06 | 16, 20, 20 | position (rigid boned, skinned), then node indices and weights |
+//! | 0x02, 0x04, 0x06, 0x08 | 16, 20, 20, 20 | position (rigid boned; skinned by 2, 3, 4 nodes), then node indices and weights |
 //! | 0x17 | 8 | texture coordinate |
 //! | 0x19 | 36 | normal, binormal, tangent |
 //! | 0x1D | 8 | lightmap coordinate |
@@ -149,7 +149,7 @@ fn f32s<const N: usize>(b: &[u8], at: usize) -> [f32; N] {
 }
 
 /// The raw block a geometry block info points at, in whichever file holds it.
-fn block<'a>(cache: &'a Cache, owner: &'a CacheFile, raw: u32) -> Result<(&'a CacheFile, usize), Error> {
+pub(crate) fn block<'a>(cache: &'a Cache, owner: &'a CacheFile, raw: u32) -> Result<(&'a CacheFile, usize), Error> {
     let file = match raw >> 30 {
         0 => owner,
         2 => cache.shared.as_ref().ok_or_else(|| Error::Unsupported("section data in shared.map, which is not open".into()))?,
@@ -222,10 +222,11 @@ pub fn read(
         for (i, v) in s.vertices.iter_mut().enumerate().take(n) {
             let o = i * stride;
             match (ty, stride) {
-                // Plain (0x01), rigid boned (0x02) and skinned (0x04, 0x06)
-                // positions: the node indices and weights after the first 12
-                // bytes are not needed for a model staged in its rest pose.
-                (0x01, 12) | (0x02, 16) | (0x04 | 0x06, 20) => {
+                // Plain (0x01), rigid boned (0x02) and skinned (0x04, 0x06,
+                // 0x08) positions, all in object space already: the node
+                // indices and weights after the first 12 bytes only matter
+                // for animation.
+                (0x01, 12) | (0x02, 16) | (0x04 | 0x06 | 0x08, 20) => {
                     let p: [f32; 3] = f32s(bytes, o);
                     v.position = match compression.position {
                         Some(r) => [expand(p[0], r[0]), expand(p[1], r[1]), expand(p[2], r[2])],
@@ -250,7 +251,7 @@ pub fn read(
             }
         }
         match (ty, stride) {
-            (0x01, 12) | (0x02, 16) | (0x04 | 0x06, 20) => has_position = true,
+            (0x01, 12) | (0x02, 16) | (0x04 | 0x06 | 0x08, 20) => has_position = true,
             (0x1D, _) => s.has_lightmap_uv = true,
             (0x2F, _) => s.has_incident = true,
             _ => {}

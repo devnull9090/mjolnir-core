@@ -142,14 +142,71 @@ lying within 2e-4 wu of their planes.
 
 **ltmp**: lightmap groups at 0x80 (0x68): bitmap group reference 0x18,
 cluster render info 0x28 and instance render info 0x48 (4 bytes: i16 bitmap
-index). Lockout's 65 pages are A8R8G8B8.
+index, -1 for a vertex-lit instance), geometry buckets 0x40 (0x38: u16
+flags, bit 0 incident direction, bit 1 colour; the raw block offset at 0x0C,
+section struct size 0x14 (8), resources block 0x1C), instance bucket refs
+0x50 (12 bytes: i16 flags, i16 bucket, a block of i16 section offsets: the
+instance's first vertex in the bucket). A bucket's raw block is laid out as
+a geometry section's, with vertex buffers of type 0x2F (12 bytes: the
+incident light direction, in world space) and, for vertex-lit geometry, 0x2E
+(u8 R, G, B, 0: the light's colour, in the pages' units, half intensity).
+Definition vertex k of instance i is bucket vertex offset + k; every
+instance has a ref, so every instance's incident directions come from its
+bucket (no instanced geometry definition carries a 0x2F buffer). Checked on
+all 24 maps' 2,341 instances. Lockout's 65 pages are A8R8G8B8.
+
+**Nodes** (mode +0x48, 0x60 bytes): string id name, i16 parent, first
+child, next sibling, import index; translation in the parent's space at
+0x0C; rotation quaternion (i, j, k, w) at 0x18, the node's forward
+rotation; inverse forward, left, up and position at 0x2C, 0x38, 0x44, 0x50.
+A node's object transform is its parent's composed with its own (rotate,
+then translate), parents first. A collision model's BSP vertices are in its
+node's space (the coll node list matches the mode's by index); a render
+section's vertices are already in object space, whatever their node
+(rigid: section +0x2C; rigid boned and skinned: node map indices and
+weights after each vertex's position), so the node transforms serve
+animation only. Checked on Zanzibar's crane and hinged lights, where the
+posed collision lands on the mesh within 1 cm.
 
 **shad**: template (`stem`) 0x00, global material name 0x08, runtime
 properties 0x0C (0x50: diffuse map 0x00), postprocess definition 0x20 (0x7C:
-bitmaps at 0x04, 12 bytes each (datum, submap, log size); vertex constants
-at 0x14, float4, the maps' u and v scales first). MCC keeps no parameter
-names; each template's bitmap slots come in its own order (the table is
-`h2::render::template`).
+bitmaps at 0x04, 12 bytes each (datum, submap, log size); pixel constants
+at 0x0C, 4 bytes each as D3DCOLOR (B, G, R, A); vertex constants at 0x14,
+float4: for the opaque templates the maps' u and v scales, for the
+transparent ones a 2 x 4 texture transform per map (u row, v row: scale
+in .x/.y, offset in .w); overlays at 0x3C (0x14: f32 period at 8, the
+function at 0xC as {size, address}: byte 0 type, 0 identity, the value at
+t = 0 at +4 and at t = period at +8); overlay refs at 0x44 (i16 overlay,
+i16 transform type: 4 translation u, 5 translation v); animated parameters
+at 0x4C (u16: count in the top 7 bits, first in the low 9, into the overlay
+refs); animated parameter refs at 0x54 (u16 descriptor, u8, i8 parameter; a
+descriptor below 0x100 is the bitmap slot)). MCC keeps no parameter names;
+each template's bitmap slots come in its own order (the table is
+`h2::render::template`). The pixel math is in the compiled DXBC pixel
+shaders inside the `spas` tags (postprocess definitions 0x1C, implementation
++0x132, three data refs); read back for the glass, plasma and "two plus
+two" families: glass = base x albedo tint x base.a + cube(reflection) x
+environment tint x specular mask, both scaled by a facing/glancing tint
+(pixel constants 0 environment tint, 1 albedo tint; vertex constants 0
+facing, 1 glancing), premultiplied blend; "two plus two" = the product of
+its three maps, colour and alpha, alpha blended, two-sided; plasma = two
+noise maps banded against each other through the mask's alpha, additive.
+
+**sky**: render model 0x00, flags 0x10 (bit 0 fixed in world space, bit 2
+casts light from below, bit 5 use clear colour), render model scale 0x14,
+indoor ambient 0x24, outdoor ambient 0x34, atmospheric fog 0x48 (0x18:
+colour, maximum density 0x0C, start 0x10, opaque 0x14), lights 0x78 (0x34:
+yaw 0x0C, pitch 0x10, radians, towards the sun as `(cos p cos y, cos p sin
+y, sin p)`; radiosity block 0x2C (0x28: flags (bit 0 affects exteriors, bit
+1 interiors, bit 2 direct light in the lightmaps, bit 3 indirect), colour
+0x04, power 0x10, angular diameter 0x24)), clear colour 0xA0. Every
+multiplayer map has one light; Lockout's has no radiosity flags and its
+lightmaps' incident directions (yaw 78, pitch 48 degrees over flat ground)
+match the sky model's brightness, not the light.
+
+**Cube maps** (`bitm` type 2) are stored mip-major, the six faces of each
+level together in the order +X, +Y, -X, -Y, +Z, -Z on Halo's axes, no face
+flipped (every seam matched across the Lockout and Forerunner cubes).
 
 **mode** (MCC): compression info 0x14 (0x38: seven ranges, position x, y,
 z, texture u, v, secondary u, v), regions 0x1C (0x10: name, permutations at

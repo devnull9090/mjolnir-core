@@ -206,6 +206,30 @@ fn decode_level(format: u16, w: u32, h: u32, data: &[u8]) -> Result<Vec<u8>, Err
     Ok(rgba)
 }
 
+/// A cube map's six faces at their largest level, in D3D order (+X, -X,
+/// +Y, -Y, +Z, -Z) on Halo's axes. MCC stores a cube mip-major, the six
+/// faces of each level together, in the order +X, +Y, -X, -Y, +Z, -Z
+/// (checked on Lockout's and the Forerunner interiors' cubes by matching
+/// every face's edge texels across each seam: this order scores 13 against
+/// 65 for the next best and 110 for D3D's own). No face is flipped.
+pub fn decode_cube(info: &Info, data: &[u8]) -> Result<Vec<Image>, Error> {
+    if info.kind != 2 {
+        return Err(Error::Format("not a cube map".into()));
+    }
+    let size = level_bytes(info.format, info.width, info.height)
+        .ok_or_else(|| Error::Unsupported(format!("bitmap format {} ({})", format_name(info.format), info.format)))?;
+    const STORED_FOR_D3D: [usize; 6] = [0, 2, 1, 3, 4, 5];
+    STORED_FOR_D3D
+        .iter()
+        .map(|&f| {
+            let bytes = data
+                .get(f * size..(f + 1) * size)
+                .ok_or_else(|| Error::Format(format!("{} bytes of pixels for a six-face cube of {size} each", data.len())))?;
+            Ok(Image { width: info.width, height: info.height, rgba: decode_level(info.format, info.width, info.height, bytes)? })
+        })
+        .collect()
+}
+
 /// Decode a 2D bitmap's mip chain (or a cube map's or volume's first face
 /// or slice, the largest level only).
 pub fn decode(info: &Info, data: &[u8]) -> Result<Vec<Image>, Error> {

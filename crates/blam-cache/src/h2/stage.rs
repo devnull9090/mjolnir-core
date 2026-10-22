@@ -400,11 +400,14 @@ fn placements<'c>(
                 *skipped.entry(format!("{} (the level's own teleporters replace it)", object.name())).or_default() += 1;
                 continue;
             }
-            let scale = e.f32(0x20);
-            if scale != 0.0 && (scale - 1.0).abs() > 1e-4 {
-                notes.push(format!("{} placed at scale {scale}: staged at 1", object.name()));
-            }
-            let collision = stage_object_collision(cache, &object, dir, &mut notes)?;
+            // A placement's scale (0 means 1; Zanzibar's bushes are placed
+            // at 2, 3 and 4) is baked into a copy of the model and its
+            // collision, since the placement contract carries none.
+            let scale = match e.f32(0x20) {
+                s if s == 0.0 || (s - 1.0).abs() < 1e-4 => 1.0,
+                s => s,
+            };
+            let collision = stage_object_collision(cache, &object, dir, &mut notes, scale)?;
             let mut entry = json!({
                 "kind": "scenery",
                 "asset": object.name(),
@@ -416,7 +419,7 @@ fn placements<'c>(
                 entry["collision"] = json!(c);
             }
             if let Some(model) = object_model(cache, &object, &mut notes) {
-                if let Some(record) = render.model(&model, object.name(), group)? {
+                if let Some(record) = render.model(&model, object.name(), group, scale)? {
                     entry["model"] = record["gltf"].clone();
                 }
             }
@@ -433,11 +436,13 @@ fn placements<'c>(
     // out around the map. (sky: render model ref at 0x00.)
     if let Some(sky) = root.block(0x08, 0x08).get(0).and_then(|s| follow(cache, s, 0x00, &mut notes)) {
         if let Some(model) = follow(cache, sky.root, 0x00, &mut notes) {
-            if let Some(record) = render.model(&model, sky.name(), "sky")? {
-                entries.push(json!({
+            if let Some(record) = render.model(&model, sky.name(), "sky", 1.0)? {
+                let mut entry = json!({
                     "kind": "sky", "asset": sky.name(), "tag_class": "sky", "model": record["gltf"],
                     "skeletal": false, "origin_offset": [0.0, 0.0, 0.0], "pos": [0.0, 0.0, 0.0], "rot": [0.0, 0.0, 0.0],
-                }));
+                });
+                sky_lighting(&sky, &mut entry);
+                entries.push(entry);
                 count(summary, "sky");
             }
         }
@@ -490,6 +495,51 @@ fn placements<'c>(
     }))
 }
 
+/// The sky's light, ambient and fog, in the terms halo2ue gives a CE
+/// sky's (which tools/level/gen_ce_level.py and ce_material_spec.py read):
+/// each light's yaw and pitch (radians, towards the sun), its radiosity
+/// colour and power, the disc's angular diameter and whether it lights
+/// exteriors and the lightmaps (radiosity flags bits 0 and 2: Lockout's
+/// light has neither set, and its lightmaps were lit by the sky model, so
+/// the generator falls back to the lightmaps' own incident directions); the
+/// outdoor ambient colour (power 1) when it is not black; the atmospheric
+/// fog's colour, maximum density and start and opaque distances (world
+/// units). Sky tag: outdoor ambient 0x34, atmospheric fog block 0x48 (0x18:
+/// colour, density 0x0C, start 0x10, opaque 0x14), lights 0x78 (0x34: yaw
+/// 0x0C, pitch 0x10, radiosity block 0x2C (0x28: flags, colour 0x04, power
+/// 0x10, diameter 0x24)).
+fn sky_lighting(sky: &Tag<'_>, entry: &mut Value) {
+    let s = sky.root;
+    let lights: Vec<Value> = s
+        .block(0x78, 0x34)
+        .iter()
+        .map(|l| {
+            let r = l.block(0x2C, 0x28).get(0);
+            let flags = r.map(|r| r.u32(0)).unwrap_or(0);
+            json!({
+                "yaw": l.f32(0x0C), "pitch": l.f32(0x10),
+                "color": r.map(|r| r.vec3(0x04)).unwrap_or([1.0, 1.0, 1.0]),
+                "power": r.map(|r| r.f32(0x10)).unwrap_or(0.0),
+                "diameter": r.map(|r| r.f32(0x24)).unwrap_or(0.0),
+                "affects_exteriors": flags & 1 != 0 && flags & 4 != 0,
+                "affects_interiors": flags & 2 != 0,
+                "h2_radiosity_flags": flags,
+            })
+        })
+        .collect();
+    entry["lights"] = json!(lights);
+    let ambient = s.vec3(0x34);
+    if ambient.iter().any(|&c| c > 0.0) {
+        entry["outdoor_ambient"] = json!({"color": ambient, "power": 1.0});
+    }
+    if let Some(f) = s.block(0x48, 0x18).get(0) {
+        entry["outdoor_fog"] = json!({
+            "color": f.vec3(0x00), "max_density": f.f32(0x0C),
+            "start_distance": f.f32(0x10), "opaque_distance": f.f32(0x14),
+        });
+    }
+}
+
 /// A placed object's render model: object +0x34 the model (`hlmt`), whose
 /// +0x00 is the render model (`mode`).
 fn object_model<'a>(cache: &'a Cache, object: &Tag<'a>, notes: &mut Vec<String>) -> Option<Tag<'a>> {
@@ -497,26 +547,92 @@ fn object_model<'a>(cache: &'a Cache, object: &Tag<'a>, notes: &mut Vec<String>)
     follow(cache, model.root, 0x00, notes)
 }
 
+/// The file-name suffix of a scaled copy of a model: `_x2`, `_x2_5`.
+pub(crate) fn scale_suffix(scale: f32) -> String {
+    if (scale - 1.0).abs() < 1e-4 {
+        String::new()
+    } else {
+        format!("_x{}", format!("{scale}").replace('.', "_"))
+    }
+}
+
+/// A node's rest-pose transform in object space: rotation (rows) and
+/// translation, world units.
+type Pose = ([[f32; 3]; 3], [f32; 3]);
+
+/// The rest pose of a render model's nodes (mode +0x48, 0x60 bytes each:
+/// name, i16 parent, first child, next sibling, import index; translation
+/// in parent space at 0x0C; rotation quaternion (i, j, k, w) at 0x18, the
+/// node's forward rotation). A node's object transform is its parent's
+/// composed with its own (rotate, then translate); parents precede
+/// children. Checked against the stored inverse transforms on 210 models
+/// (every one within 1e-3) and against the render meshes of Zanzibar's crane
+/// and hinged lights (collision lands on the mesh within 1 cm).
+fn rest_pose(mode: &Tag<'_>) -> Vec<Pose> {
+    let mut out: Vec<Pose> = Vec::new();
+    for n in mode.root.block(0x48, 0x60).iter() {
+        let q = [n.f32(0x18), n.f32(0x1C), n.f32(0x20), n.f32(0x24)];
+        let parent = usize::try_from(n.i16(0x04)).ok().and_then(|p| out.get(p));
+        out.push(quat_pose(q, n.vec3(0x0C), parent));
+    }
+    out
+}
+
+/// A node's object pose from its rotation (i, j, k, w), its translation in
+/// its parent's space, and its parent's pose.
+fn quat_pose([x, y, z, w]: [f32; 4], t: [f32; 3], parent: Option<&Pose>) -> Pose {
+    let r = [
+        [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+        [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+        [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+    ];
+    match parent {
+        Some((pr, pt)) => {
+            let rr: [[f32; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| pr[i][k] * r[k][j]).sum()));
+            let tt: [f32; 3] = std::array::from_fn(|i| (0..3).map(|k| pr[i][k] * t[k]).sum());
+            (rr, [tt[0] + pt[0], tt[1] + pt[1], tt[2] + pt[2]])
+        }
+        None => (r, t),
+    }
+}
+
 /// A placed object's collision model as `collision/<name>.json`: every
-/// region's first permutation, each BSP's polygons fan-split into a flat
-/// triangle list (9 floats each, object space, world units). Only BSPs on
-/// the root node are taken where the model has more than one node, since
-/// node transforms are not applied (a note says so).
-fn stage_object_collision(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Result<Option<String>, Error> {
+/// region's first permutation, each BSP's polygons placed by its node's rest
+/// pose (the BSP's vertices are node-local) and fan-split into a flat
+/// triangle list (9 floats each, object space, world units).
+fn stage_object_collision(
+    cache: &Cache,
+    object: &Tag<'_>,
+    dir: &Path,
+    notes: &mut Vec<String>,
+    scale: f32,
+) -> Result<Option<String>, Error> {
     let Some(model) = follow(cache, object.root, 0x34, notes) else { return Ok(None) };
     let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else { return Ok(None) };
+    let poses = follow(cache, model.root, 0x00, notes).map(|mode| rest_pose(&mode)).unwrap_or_default();
+    // The collision model's own node list matches the render model's by
+    // index (158 of 159 models with both; the odd one is single-node).
+    let coll_nodes = coll.root.block(0x2C, 0x0C);
     let mut tris = Vec::new();
-    let mut skipped = 0;
+    let mut unplaced = 0;
     for region in coll.root.block(0x1C, 0x0C).iter() {
         let Some(perm) = region.block(0x04, 0x14).get(0) else { continue };
         for bsp in perm.block(0x04, 0x44).iter() {
-            if bsp.i16(0) > 0 {
-                skipped += 1;
-                continue;
+            let node = bsp.i16(0).max(0) as usize;
+            let pose = poses.get(node).copied();
+            if pose.is_none() && (node > 0 || coll_nodes.count > 1) {
+                unplaced += 1;
             }
             let c = collision::read(bsp.at(0x04));
             for s in 0..c.surfaces.len() {
-                let pts = c.polygon(s);
+                let pts: Vec<[f32; 3]> = c
+                    .polygon(s)
+                    .into_iter()
+                    .map(|v| match pose {
+                        Some((r, t)) => std::array::from_fn(|i| (r[i][0] * v[0] + r[i][1] * v[1] + r[i][2] * v[2] + t[i]) * scale),
+                        None => [v[0] * scale, v[1] * scale, v[2] * scale],
+                    })
+                    .collect();
                 for k in 1..pts.len().saturating_sub(1) {
                     for v in [pts[0], pts[k], pts[k + 1]] {
                         tris.extend_from_slice(&v);
@@ -525,13 +641,13 @@ fn stage_object_collision(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &m
             }
         }
     }
-    if skipped > 0 {
-        notes.push(format!("{}: {skipped} collision BSP(s) on child nodes left out", coll.name()));
+    if unplaced > 0 {
+        notes.push(format!("{}: {unplaced} collision BSP(s) on nodes the render model lacks, left in node space", coll.name()));
     }
     if tris.is_empty() {
         return Ok(None);
     }
-    let rel = format!("collision/{}.json", sanitize(object.name()));
+    let rel = format!("collision/{}{}.json", sanitize(object.name()), scale_suffix(scale));
     write_json(&dir.join(&rel), &json!({"tag_path": object.name(), "units": "halo_wu", "triangles": tris}))?;
     Ok(Some(rel))
 }
@@ -629,6 +745,20 @@ mod tests {
         for name in ["soft_terrain_snow", "hard_metal_thin_cov", "tough_terrain_grass_tall"] {
             assert!(GAME_MATERIALS.contains(&game_material(name).0.as_str()));
         }
+    }
+
+    /// Zanzibar's crane: the link node under the arm (rotated -75 degrees
+    /// about Y) at (1.5, 0, 0.05) sits at (0.3399, 0, 1.4618) in the
+    /// object, as its stored inverse transform has it.
+    #[test]
+    fn child_nodes_compose_onto_their_parents() {
+        let arm = quat_pose([0.0, 0.60876, 0.0, -0.79335], [0.0, 0.0, 0.0], None);
+        let link = quat_pose([0.0, -0.32144, 0.0, -0.94693], [1.5, 0.0, 0.05], Some(&arm));
+        let t = link.1;
+        assert!((t[0] - 0.3399).abs() < 1e-3 && t[1].abs() < 1e-6 && (t[2] - 1.4618).abs() < 1e-3, "{t:?}");
+        // The composed rotation is R_y(-37.5 degrees): forward tilts up.
+        let f = link.0;
+        assert!((f[0][0] - (-37.5f32).to_radians().cos()).abs() < 1e-3, "{f:?}");
     }
 
     #[test]

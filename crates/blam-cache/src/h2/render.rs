@@ -45,6 +45,11 @@ const WU_TO_M: f32 = 3.048;
 /// as it is, 2026-10-21). The pages are staged doubled, clamped at white.
 const LIGHTMAP_GAIN: f32 = 2.0;
 
+/// The vertex-lit page: one block per vertex-lit instance.
+const TEXEL_BLOCK: usize = 4;
+const TEXELS_PER_ROW: usize = 16;
+const TEXEL_ROWS_MAX: usize = 16;
+
 fn to_gltf(v: [f32; 3]) -> [f32; 3] {
     [v[0], v[2], -v[1]]
 }
@@ -102,8 +107,20 @@ pub fn template(name: &str) -> Template {
         n if n.starts_with("tex_alpha_test") => t(&["", "base", "detail"], &[], 0, true),
         "tex_env" => t(&["base", "detail"], &[], 0, false),
         n if n.starts_with("illum") => t(&["self_illum"], &[], 0, false),
-        n if n.ends_with("one_alpha_env") || n.ends_with("one_alpha_env_illum") => t(&["", "", "base"], &[], 1, false),
-        "plasma_alpha" => t(&["base"], &[], 4, false),
+        // Glass: an environment cube through a specular mask, the base map
+        // blended by its alpha, a self-illumination map (the sky dome's
+        // layers use the same slots with a black cube).
+        n if n.ends_with("one_alpha_env") => t(&["env", "mask", "base", "", "self_illum"], &[], 1, false),
+        n if n.ends_with("one_alpha_env_illum") => t(&["env", "mask", "base", "self_illum"], &[], 1, false),
+        // Plasma: two scrolling noise maps banded against each other, through
+        // the mask's alpha, added to the frame.
+        "plasma_alpha" => t(&["noise_a", "noise_b", "mask"], &[], 4, false),
+        // "two plus two": the mask and two tiled, scrolling layers multiplied
+        // together and alpha blended (the sky's cloud banks, the containment
+        // gas); the compiled shader is a product, whatever the name says. The
+        // maps' transforms are 2 x 4 rows per map in the vertex constants,
+        // read by [`two_plus_two_maps`].
+        n if n.contains("two_plus_two") => t(&["mask", "base", "base2"], &[], 1, false),
         n if n.contains("add") => t(&["", "base"], &[], 4, false),
         "overlay" => t(&["base"], &[], 1, false),
         n if n.contains("alpha") && !n.contains("alpha_test") => t(&["base"], &[], 1, false),
@@ -124,21 +141,35 @@ fn is_placeholder(path: &str) -> bool {
     p.contains("default_bitmaps") || p.starts_with("rasterizer\\") || p.ends_with("gray_50_percent") || p.ends_with("color_white")
 }
 
-/// Staged bitmaps: PNG (and DDS) per (bitm datum in its file, submap).
+/// Staged bitmaps: PNG (and DDS) per (bitm datum in its file, submap,
+/// tint), cube maps as six face PNGs.
 #[derive(Default)]
 struct Textures {
-    done: BTreeMap<(usize, u32, u32), Option<String>>,
+    done: BTreeMap<(usize, u32, u32, String), Option<String>>,
+    cubes: BTreeMap<(usize, u32), Option<Vec<String>>>,
     names: BTreeMap<String, usize>,
+}
+
+/// A colour multiplier, as the suffix of a tinted copy's file name.
+fn tint_suffix(gain: [f32; 3]) -> String {
+    if gain == [1.0; 3] {
+        String::new()
+    } else {
+        format!("__t{:02x}{:02x}{:02x}", (gain[0] * 100.0).round().min(255.0) as u8, (gain[1] * 100.0).round().min(255.0) as u8, (gain[2] * 100.0).round().min(255.0) as u8)
+    }
 }
 
 impl Textures {
     /// Stage one submap of a bitmap tag; its PNG's file name, or `None`
     /// (with a note) when it cannot be decoded.
     fn stage(&mut self, cache: &Cache, tag: &Tag<'_>, index: u32, dir: &Path, notes: &mut Vec<String>) -> Option<String> {
-        self.stage_with(cache, tag, index, dir, notes, 1.0)
+        self.stage_with(cache, tag, index, dir, notes, [1.0; 3], "")
     }
 
-    /// As [`Textures::stage`], the colour scaled by `gain` (clamped).
+    /// As [`Textures::stage`], each channel scaled by `gain` (clamped), the
+    /// file named with `suffix` (a tinted copy of a map is
+    /// `<stem>__t<rrggbb>.png`, the tint in hundredths; the lightmap pages,
+    /// doubled, keep their plain names, which the bake finds page N by).
     fn stage_with(
         &mut self,
         cache: &Cache,
@@ -146,9 +177,10 @@ impl Textures {
         index: u32,
         dir: &Path,
         notes: &mut Vec<String>,
-        gain: f32,
+        gain: [f32; 3],
+        suffix: &str,
     ) -> Option<String> {
-        let key = (tag.file as *const CacheFile as usize, tag.entry.datum, index);
+        let key = (tag.file as *const CacheFile as usize, tag.entry.datum, index, suffix.to_string());
         if let Some(done) = self.done.get(&key) {
             return done.clone();
         }
@@ -158,11 +190,11 @@ impl Textures {
             let info = infos.get(index as usize).ok_or_else(|| Error::Format(format!("no bitmap {index}")))?;
             let data = bitmap::read_entry(textures, info.offset, info.size)?;
             let mut mips = bitmap::decode(info, &data)?;
-            if gain != 1.0 {
+            if gain != [1.0; 3] {
                 for m in &mut mips {
                     for p in m.rgba.chunks_exact_mut(4) {
-                        for c in &mut p[..3] {
-                            *c = (*c as f32 * gain).round().min(255.0) as u8;
+                        for (c, g) in p[..3].iter_mut().zip(gain) {
+                            *c = (*c as f32 * g).round().min(255.0) as u8;
                         }
                     }
                 }
@@ -171,6 +203,7 @@ impl Textures {
             if index > 0 {
                 stem = format!("{stem}_{index}");
             }
+            stem.push_str(suffix);
             let n = self.names.entry(stem.clone()).or_default();
             *n += 1;
             if *n > 1 {
@@ -192,6 +225,40 @@ impl Textures {
         self.done.insert(key, out.clone());
         out
     }
+
+    /// Stage a cube map's six faces as `<stem>__face<k>.png` in D3D order
+    /// (what tools/level/ce_material_spec.py's `cube()` assembles into a
+    /// TextureCube); the six names, or `None` with a note.
+    fn stage_cube(&mut self, cache: &Cache, tag: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Option<Vec<String>> {
+        let key = (tag.file as *const CacheFile as usize, tag.entry.datum);
+        if let Some(done) = self.cubes.get(&key) {
+            return done.clone();
+        }
+        let result = (|| -> Result<Vec<String>, Error> {
+            let textures = cache.textures.as_ref().ok_or_else(|| Error::Unsupported("no textures.dat".into()))?;
+            let infos = bitmap::infos(tag);
+            let info = infos.first().ok_or_else(|| Error::Format("no bitmap".into()))?;
+            let data = bitmap::read_entry(textures, info.offset, info.size)?;
+            let faces = bitmap::decode_cube(info, &data)?;
+            let stem = sanitize(tag.name());
+            let mut names = Vec::new();
+            for (k, face) in faces.iter().enumerate() {
+                let name = format!("{stem}__face{k}.png");
+                bitmap::write_png(&dir.join("textures").join(&name), face)?;
+                names.push(name);
+            }
+            Ok(names)
+        })();
+        let out = match result {
+            Ok(faces) => Some(faces),
+            Err(e) => {
+                notes.push(format!("cube map {}: {e}", tag.name()));
+                None
+            }
+        };
+        self.cubes.insert(key, out.clone());
+        out
+    }
 }
 
 /// A shader's staged summary and the glTF facts it implies.
@@ -203,6 +270,8 @@ struct Shader {
     base: Option<String>,
     /// The base map's tiling, baked into TEXCOORD_0.
     base_scale: [f32; 2],
+    /// Drawn without a lightmap (Halo 2's glass takes none).
+    unlit: bool,
     summary: Value,
 }
 
@@ -215,6 +284,7 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             double_sided: true,
             base: None,
             base_scale: [1.0, 1.0],
+            unlit: false,
             summary: json!({"tag_path": "", "shader_class": "shad", "shader_type": 0, "shader_flags": 0,
                             "base_map": Value::Null, "detail": {}, "bump": {}, "self_illum": {}, "specular": {}}),
         };
@@ -229,7 +299,11 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     // and vertex constants (float4: per-map u and v scale first).
     let post = root.block(0x20, 0x7C).get(0);
     let mut roles: BTreeMap<&str, Option<String>> = BTreeMap::new();
+    let mut tags: BTreeMap<&str, Tag<'_>> = BTreeMap::new();
+    let mut cube_faces: Option<Vec<String>> = None;
     let mut constants: Vec<[f32; 4]> = Vec::new();
+    // Pixel constants: D3DCOLOR (B, G, R, A) each, here as RGBA in 0..1.
+    let mut pixel: Vec<[f32; 4]> = Vec::new();
     if let Some(p) = post {
         for (slot, b) in p.block(0x04, 0x0C).iter().enumerate() {
             let Some(&role) = tpl.slots.get(slot) else { break };
@@ -240,9 +314,19 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             if is_placeholder(t.name()) {
                 continue;
             }
+            if role == "env" {
+                cube_faces = tex.stage_cube(cache, &t, dir, notes);
+                continue;
+            }
             roles.insert(role, tex.stage(cache, &t, b.u32(4).max(0), dir, notes));
+            tags.insert(role, t);
         }
         constants = p.block(0x14, 0x10).iter().map(|c| [c.f32(0), c.f32(4), c.f32(8), c.f32(12)]).collect();
+        pixel = p
+            .block(0x0C, 4)
+            .iter()
+            .map(|c| [c.u8(2) as f32 / 255.0, c.u8(1) as f32 / 255.0, c.u8(0) as f32 / 255.0, c.u8(3) as f32 / 255.0])
+            .collect();
     }
     // The runtime properties' diffuse map when the template table found no base.
     if roles.get("base").cloned().flatten().is_none() {
@@ -253,6 +337,8 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         }
     }
     let role = |r: &str| roles.get(r).cloned().flatten();
+    let rgb = |c: Option<&[f32; 4]>| -> [f32; 3] { c.map(|c| [c[0], c[1], c[2]]).unwrap_or([1.0; 3]) };
+    let mul = |a: [f32; 3], b: [f32; 3]| [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
     let scale = |r: &str| -> [f32; 2] {
         tpl.tiling
             .iter()
@@ -265,40 +351,206 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     let rel = |r: &str| scale(r)[0] / base_scale[0];
     let key = sanitize(shader.name());
     let base = role("base");
-    let (class, alpha_mode, double_sided, summary) = if tpl.transparent > 0 {
+    let mut unlit = false;
+    let (class, alpha_mode, double_sided, base, summary) = if template_name.contains("one_alpha_env") && !template_name.starts_with("sky_") {
+        // Glass (one_alpha_env, one_alpha_env_illum; the compiled MCC shader
+        // read back): colour = base.rgb * albedo tint * base.a + cube(R) *
+        // env tint * specular mask, both scaled by a tint between the facing
+        // and glancing colours; unlit. As CE's shader_transparent_glass: the
+        // diffuse pass draws the base copy tinted by the albedo and facing
+        // tints (flag bit 3 makes the bump map the reflection's specular
+        // mask), the reflection pass the cube, tinted by the environment and
+        // facing/glancing tints. Pixel constants: 0 env tint, 1 albedo tint;
+        // vertex constants: 0 facing tint, 1 glancing tint.
+        unlit = true;
+        let albedo = rgb(pixel.get(1));
+        let facing = rgb(constants.get(0));
+        let glancing = rgb(constants.get(1));
+        let env = rgb(pixel.get(0));
+        let tinted = tags.get("base").and_then(|t| tex.stage_with(cache, t, 0, dir, notes, mul(albedo, facing), &tint_suffix(mul(albedo, facing))));
+        let reflects = cube_faces.is_some();
+        let s = json!({
+            "tag_path": shader.name(), "shader_class": "sgla", "h2_template": template_name,
+            "shader_flags": 8, "base_map": tinted,
+            "tag": {
+                "flags": 8,
+                "diffuse_map": {"file": tinted}, "diffuse_map_scale": 1.0,
+                "bump_map": {"file": role("mask")}, "bump_map_scale": 1.0,
+                "reflection_map": cube_faces.as_ref().map(|f| json!({"faces": f})),
+                "reflection_type": 1,
+                "perpendicular_brightness": if reflects { 1.0 } else { 0.0 },
+                "parallel_brightness": if reflects { 1.0 } else { 0.0 },
+                "perpendicular_tint_color": mul(env, facing),
+                "parallel_tint_color": mul(env, glancing),
+                "background_tint_color": [0.0, 0.0, 0.0],
+            },
+        });
+        ("sgla", "BLEND", false, tinted, s)
+    } else if tpl.transparent > 0 {
         let blend = (tpl.transparent - 1) as i64;
-        let maps = vec![json!({"map": {"file": base}, "color_function": 0, "alpha_function": 0,
-                               "map_u_scale": base_scale[0], "map_v_scale": base_scale[1]})];
+        let (maps, base, two_sided) = if template_name.contains("two_plus_two") {
+            // mask * A * B, alpha the product of theirs (the compiled shader
+            // multiplies all three, whatever the name says), two-sided.
+            (two_plus_two_maps(&role, &constants, &slot_scroll(post)), base, true)
+        } else if template_name == "plasma_alpha" {
+            // noise A * noise B * the mask's alpha, added to the frame; the
+            // "medium" colour (pixel constant 0) is baked into noise A.
+            let medium = rgb(pixel.get(0));
+            let a = tags.get("noise_a").and_then(|t| tex.stage_with(cache, t, 0, dir, notes, [medium[0] * 2.0, medium[1] * 2.0, medium[2] * 2.0], &tint_suffix([medium[0] * 2.0, medium[1] * 2.0, medium[2] * 2.0])));
+            let scroll = slot_scroll(post);
+            let rows = |k: usize| two_plus_two_rows(&constants, k);
+            let (ra, rb, rm) = (rows(0), rows(1), rows(2));
+            let mut maps = vec![
+                json!({"map": {"file": a}, "color_function": 2, "alpha_function": 2, "map_u_scale": ra[0], "map_v_scale": ra[1], "map_u_offset": ra[2], "map_v_offset": ra[3]}),
+                json!({"map": {"file": role("noise_b")}, "color_function": 2, "alpha_function": 2, "flags": 2, "map_u_scale": rb[0], "map_v_scale": rb[1], "map_u_offset": rb[2], "map_v_offset": rb[3]}),
+                json!({"map": {"file": role("mask")}, "color_function": 0, "alpha_function": 0, "map_u_scale": rm[0], "map_v_scale": rm[1], "map_u_offset": rm[2], "map_v_offset": rm[3]}),
+            ];
+            for (k, m) in maps.iter_mut().enumerate() {
+                scroll_json(m, scroll.get(&k));
+            }
+            (maps, a, true)
+        } else {
+            // The sky's layers: the base, tinted by the albedo tint (pixel
+            // constant 1), blended by its alpha.
+            let tinted = match (tags.get("base"), pixel.get(1)) {
+                (Some(t), Some(c)) if [c[0], c[1], c[2]] != [1.0; 3] => tex.stage_with(cache, t, 0, dir, notes, [c[0], c[1], c[2]], &tint_suffix([c[0], c[1], c[2]])),
+                _ => base,
+            };
+            (vec![json!({"map": {"file": tinted}, "color_function": 0, "alpha_function": 0,
+                         "map_u_scale": base_scale[0], "map_v_scale": base_scale[1]})], tinted, true)
+        };
+        let flags = if two_sided { 4 } else { 0 };
         let s = json!({
             "tag_path": shader.name(), "shader_class": "schi", "h2_template": template_name,
-            "shader_flags": 4, "framebuffer_blend_function": blend, "base_map": base,
-            "tag": {"flags": 4, "framebuffer_blend_function": blend, "maps": maps},
+            "shader_flags": flags, "framebuffer_blend_function": blend, "base_map": base,
+            "tag": {"flags": flags, "framebuffer_blend_function": blend, "maps": maps},
         });
-        ("schi", "BLEND", true, s)
+        ("schi", "BLEND", two_sided, base, s)
     } else {
         let detail2 = role("detail2");
+        // A second detail blends over the first by the base map's alpha,
+        // CE's "blended" environment type, which draws its primary detail
+        // where the alpha is high. Halo 2 draws its second detail there
+        // (Lockout's snow is where composite_block_snow's alpha is high), so
+        // the second detail goes in as the primary.
+        let (primary, secondary) = match detail2 {
+            Some(d2) => (Some(d2), role("detail")),
+            None => (role("detail"), None),
+        };
+        let (primary_scale, secondary_scale) = if secondary.is_some() {
+            (rel("detail2"), rel("detail"))
+        } else {
+            (rel("detail"), 1.0)
+        };
         let s = json!({
             "tag_path": shader.name(), "shader_class": "shad", "h2_template": template_name,
             "h2_material": root.sid(0x08),
-            // A second detail blends over the first by the base map's alpha,
-            // CE's "blended" environment type.
-            "shader_type": if detail2.is_some() { 1 } else { 0 },
+            "shader_type": if secondary.is_some() { 1 } else { 0 },
             "shader_flags": 0,
             "base_map": base,
             "base_map_has_alpha": tpl.alpha_tested,
             "detail": {
                 "function": 0,
-                "primary": role("detail"), "primary_scale": rel("detail"),
-                "secondary": detail2, "secondary_scale": rel("detail2"),
+                "primary": primary, "primary_scale": primary_scale,
+                "secondary": secondary, "secondary_scale": secondary_scale,
                 "micro": Value::Null, "micro_scale": 1.0, "micro_function": 0,
             },
             "bump": {"map": role("bump"), "scale": rel("bump")},
             "self_illum": {"map": role("self_illum"), "map_scale": 1.0, "on_color": [1.0, 1.0, 1.0]},
             "specular": {"flags": 0, "brightness": 0.0},
         });
-        ("shad", if tpl.alpha_tested { "MASK" } else { "OPAQUE" }, false, s)
+        ("shad", if tpl.alpha_tested { "MASK" } else { "OPAQUE" }, false, base, s)
     };
-    Shader { key, class, alpha_mode, double_sided, base, base_scale, summary }
+    Shader { key, class, alpha_mode, double_sided, base, base_scale, unlit, summary }
+}
+
+/// A map's scrolling: per axis, (period in seconds, repeats per period).
+type Scroll = [Option<(f32, f32)>; 2];
+
+/// A transparent shader's animated texture translations, by bitmap slot,
+/// from its postprocess definition: animated parameter refs (+0x54, 4
+/// bytes: u16 descriptor, u8, i8 parameter; a descriptor below 0x100 is
+/// the bitmap slot), animated parameters (+0x4C, u16: count in the top 7
+/// bits, first in the low 9, a range of overlay refs), overlay refs (+0x44:
+/// i16 overlay, i16 transform type; 4 translation u, 5 translation v) and
+/// overlays (+0x3C, 0x14 bytes: f32 period at 8, the function at 0xC as
+/// {size, address}: byte 0 type, 0 identity; the value at t = 0 at +4 and
+/// at t = period at +8). Lockout's clouds drift 1 repeat in 200 and 500 s,
+/// its lower clouds in 20 and 40 s, the containment gas in 20 to 50 s.
+fn slot_scroll(post: Option<Struct<'_>>) -> BTreeMap<usize, Scroll> {
+    let mut out: BTreeMap<usize, Scroll> = BTreeMap::new();
+    let Some(p) = post else { return out };
+    let overlays: Vec<Option<(f32, f32)>> = p
+        .block(0x3C, 0x14)
+        .iter()
+        .map(|o| {
+            let period = o.f32(8);
+            let at = p.file.offset(o.u32(0x10))?;
+            let f = p.file.data.get(at..at + 12)?;
+            if f[0] != 0 || period <= 0.0 {
+                return None;
+            }
+            let v = |k: usize| f32::from_le_bytes(f[k..k + 4].try_into().unwrap());
+            Some((period, v(8) - v(4)))
+        })
+        .collect();
+    let refs: Vec<(i16, i16)> = p.block(0x44, 4).iter().map(|r| (r.i16(0), r.i16(2))).collect();
+    let params: Vec<(usize, usize)> = p.block(0x4C, 2).iter().map(|r| ((r.u16(0) & 0x1FF) as usize, (r.u16(0) >> 9) as usize)).collect();
+    for r in p.block(0x54, 4).iter() {
+        let (descriptor, param) = (r.u16(0), r.i16(3) as i8);
+        if descriptor >= 0x100 || param < 0 {
+            continue;
+        }
+        let Some(&(first, count)) = params.get(param as usize) else { continue };
+        let slot = out.entry(descriptor as usize).or_default();
+        for &(overlay, transform) in refs.iter().skip(first).take(count) {
+            let Some(Some(motion)) = usize::try_from(overlay).ok().and_then(|i| overlays.get(i)) else { continue };
+            match transform {
+                4 => slot[0] = Some(*motion),
+                5 => slot[1] = Some(*motion),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// CE's chicago map animation for a scroll: function 6 slides the map
+/// `scale` repeats every `period` seconds.
+fn scroll_json(map: &mut Value, scroll: Option<&Scroll>) {
+    let Some(scroll) = scroll else { return };
+    for (axis, motion) in ["u", "v"].iter().zip(scroll) {
+        if let Some((period, repeats)) = motion {
+            map[format!("{axis}_animation_function")] = json!(6);
+            map[format!("{axis}_animation_period")] = json!(period);
+            map[format!("{axis}_animation_scale")] = json!(repeats);
+        }
+    }
+}
+
+/// Map `k`'s texture transform from a transparent template's vertex
+/// constants, which hold a 2 x 4 affine row pair per map (u row, v row:
+/// scale in .x / .y, offset in .w): `[u scale, v scale, u offset, v offset]`.
+fn two_plus_two_rows(constants: &[[f32; 4]], k: usize) -> [f32; 4] {
+    let u = constants.get(2 * k).copied().unwrap_or([1.0, 0.0, 0.0, 0.0]);
+    let v = constants.get(2 * k + 1).copied().unwrap_or([0.0, 1.0, 0.0, 0.0]);
+    [if u[0] == 0.0 { 1.0 } else { u[0] }, if v[1] == 0.0 { 1.0 } else { v[1] }, u[3], v[3]]
+}
+
+/// A "two plus two" template's chicago maps: the mask, layer A and layer B
+/// multiplied together, colour and alpha (the compiled MCC shader is a
+/// plain product; the sky's cloud banks and the containment gas), each map
+/// with its own tiling and offset from the vertex constants (the mask's
+/// rows first, then A's, then B's).
+fn two_plus_two_maps(role: &dyn Fn(&str) -> Option<String>, constants: &[[f32; 4]], scroll: &BTreeMap<usize, Scroll>) -> Vec<Value> {
+    let map = |r: &str, k: usize, function: i64| {
+        let x = two_plus_two_rows(constants, k);
+        let mut m = json!({"map": {"file": role(r)}, "color_function": function, "alpha_function": function,
+               "map_u_scale": x[0], "map_v_scale": x[1], "map_u_offset": x[2], "map_v_offset": x[3]});
+        scroll_json(&mut m, scroll.get(&k));
+        m
+    };
+    vec![map("mask", 0, 2), map("base", 1, 2), map("base2", 2, 0)]
 }
 
 /// One primitive under construction.
@@ -346,8 +598,19 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 impl Prim {
     /// Add a part's triangles; `uv1` replaces every vertex's lightmap
-    /// coordinate when given (a vertex-lit piece on its flat page).
-    fn add(&mut self, section: &Section, part: &geometry::Part, frame: Frame, base_scale: [f32; 2], uv1: Option<[f32; 2]>) {
+    /// coordinate when given (a vertex-lit piece on its own texel), and
+    /// `incident` gives each definition vertex's incident light direction in
+    /// world space (an instance's, from its lightmap bucket) in place of the
+    /// section's own.
+    fn add(
+        &mut self,
+        section: &Section,
+        part: &geometry::Part,
+        frame: Frame,
+        base_scale: [f32; 2],
+        uv1: Option<[f32; 2]>,
+        incident: Option<&[[f32; 3]]>,
+    ) {
         let tris = section.triangles(part);
         let mut remap: BTreeMap<u32, u32> = BTreeMap::new();
         for t in tris {
@@ -367,7 +630,11 @@ impl Prim {
                     self.tangents.push([tg[0], tg[1], tg[2], w]);
                     self.uv0.push([v.uv[0] * base_scale[0], v.uv[1] * base_scale[1]]);
                     self.uv1.push(uv1.unwrap_or(v.lightmap_uv));
-                    self.incident.push(if section.has_incident { to_gltf(frame.dir(v.incident)) } else { [0.0; 3] });
+                    self.incident.push(match incident.and_then(|inc| inc.get(i as usize)) {
+                        Some(&world) => to_gltf(world),
+                        None if section.has_incident => to_gltf(frame.dir(v.incident)),
+                        None => [0.0; 3],
+                    });
                     next
                 });
                 self.indices.push(out);
@@ -402,22 +669,104 @@ fn section_compression(s: Struct<'_>) -> Compression {
     Compression::from(s.u16(0x16), s.block(0x18, 0x38).get(0))
 }
 
-/// The scenario BSP's lightmap: its bitmap group and each cluster's and
-/// instance's submap.
+/// A lightmap vertex bucket: per vertex, the incident light direction in
+/// world space (type 0x2F, 12 bytes) and, for vertex-lit geometry, the
+/// light's colour (type 0x2E: u8 R, G, B, 0, in the lightmap pages' units).
+#[derive(Default)]
+struct Bucket {
+    incident: Vec<[f32; 3]>,
+    colour: Vec<[u8; 3]>,
+}
+
+/// The scenario BSP's lightmap: its bitmap group, each cluster's and
+/// instance's submap, and the vertex buckets every instance's light comes
+/// from (ltmp group +0x40; the instance bucket refs at +0x50 give the
+/// bucket and the instance's first vertex in it, and definition vertex k is
+/// bucket vertex offset + k; checked on the 24 maps' 2,341 instances).
 struct Lightmap<'a> {
     bitmap: Option<Tag<'a>>,
     clusters: Vec<i16>,
     instances: Vec<i16>,
+    buckets: Vec<Bucket>,
+    /// Per instance: (bucket, first vertex), or `None` for an empty one.
+    refs: Vec<Option<(usize, usize)>>,
+}
+
+impl<'a> Lightmap<'a> {
+    /// Instance `i`'s vertices in its bucket: the incident directions and,
+    /// when the bucket carries colour, the colours, for its definition's
+    /// `n` vertices.
+    fn instance_vertices(&self, i: usize, n: usize) -> (Option<&[[f32; 3]]>, Option<&[[u8; 3]]>) {
+        let Some(Some((b, o))) = self.refs.get(i) else { return (None, None) };
+        let Some(bucket) = self.buckets.get(*b) else { return (None, None) };
+        let incident = bucket.incident.get(*o..(*o + n).min(bucket.incident.len())).filter(|s| !s.is_empty());
+        let colour = bucket.colour.get(*o..(*o + n).min(bucket.colour.len())).filter(|s| !s.is_empty());
+        (incident, colour)
+    }
 }
 
 fn lightmap<'a>(cache: &'a Cache, bsp_entry: Struct<'a>) -> Lightmap<'a> {
-    let group = bsp_entry.tagref(0x18).and_then(|r| cache.follow(r)).and_then(|t| t.root.block(0x80, 0x68).get(0));
-    let Some(g) = group else { return Lightmap { bitmap: None, clusters: vec![], instances: vec![] } };
-    Lightmap {
-        bitmap: g.tagref(0x18).and_then(|r| cache.follow(r)),
-        clusters: g.block(0x28, 4).iter().map(|e| e.i16(0)).collect(),
-        instances: g.block(0x48, 4).iter().map(|e| e.i16(0)).collect(),
+    let mut lm = Lightmap { bitmap: None, clusters: vec![], instances: vec![], buckets: vec![], refs: vec![] };
+    let Some(tag) = bsp_entry.tagref(0x18).and_then(|r| cache.follow(r)) else { return lm };
+    let Some(g) = tag.root.block(0x80, 0x68).get(0) else { return lm };
+    lm.bitmap = g.tagref(0x18).and_then(|r| cache.follow(r));
+    lm.clusters = g.block(0x28, 4).iter().map(|e| e.i16(0)).collect();
+    lm.instances = g.block(0x48, 4).iter().map(|e| e.i16(0)).collect();
+    for b in g.block(0x40, 0x38).iter() {
+        lm.buckets.push(read_bucket(cache, tag.file, b).unwrap_or_default());
     }
+    lm.refs = g
+        .block(0x50, 12)
+        .iter()
+        .map(|r| {
+            let offset = r.block(4, 2).get(0).map(|o| o.i16(0)).unwrap_or(-1);
+            let bucket = r.i16(2);
+            (offset >= 0 && bucket >= 0).then(|| (bucket as usize, offset as usize))
+        })
+        .collect();
+    lm
+}
+
+/// A bucket's raw block: like a geometry section's (`blkh`, an 8-byte
+/// section struct, `rsrc`, the resources), with the vertex buffer
+/// descriptors (type 0 at locator 0, 32 bytes each: type, stride) and the
+/// buffers (type 2, by index).
+fn read_bucket(cache: &Cache, owner: &CacheFile, b: Struct<'_>) -> Result<Bucket, Error> {
+    let raw = b.u32(0x0C);
+    if raw == u32::MAX {
+        return Ok(Bucket::default());
+    }
+    let (file, at) = geometry::block(cache, owner, raw)?;
+    let d = &file.data;
+    let rsrc = at + 8 + b.u32(0x14) as usize;
+    if d.get(at..at + 4) != Some(b"hklb") || d.get(rsrc..rsrc + 4) != Some(b"crsr") {
+        return Err(Error::Format(format!("no bucket block at {at:#x}")));
+    }
+    let mut types: Vec<(u8, usize)> = Vec::new();
+    let mut buffers: Vec<(usize, &[u8])> = Vec::new();
+    for r in b.block(0x1C, 16).iter() {
+        let (kind, locator, index) = (r.u8(0), r.u16(2), r.i16(6));
+        let (size, off) = (r.u32(8) as usize, rsrc + r.u32(12) as usize);
+        let bytes = d.get(off..off + size).ok_or_else(|| Error::Format(format!("bucket resource at {off:#x} runs past the file")))?;
+        match (kind, locator) {
+            (0, 0) => types = bytes.chunks_exact(32).map(|c| (c[0], c[1] as usize)).collect(),
+            (2, _) if index >= 0 => buffers.push((index as usize, bytes)),
+            _ => {}
+        }
+    }
+    let mut out = Bucket::default();
+    for (index, bytes) in buffers {
+        match types.get(index) {
+            Some(&(0x2F, 12)) => out.incident = bytes.chunks_exact(12).map(|c| f32s(c, 0)).collect(),
+            Some(&(0x2E, 4)) => out.colour = bytes.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect(),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+fn f32s<const N: usize>(b: &[u8], at: usize) -> [f32; N] {
+    std::array::from_fn(|i| f32::from_le_bytes(b[at + i * 4..at + i * 4 + 4].try_into().unwrap()))
 }
 
 /// The staging's render side: one texture bank and one shader table for the
@@ -467,7 +816,7 @@ impl<'c> Renderer<'c> {
         let mut pages: Vec<String> = Vec::new();
         if let Some(b) = &lm.bitmap {
             for k in 0..bitmap::infos(b).len() as u32 {
-                pages.push(self.tex.stage_with(cache, b, k, &self.dir, &mut self.notes, LIGHTMAP_GAIN).unwrap_or_default());
+                pages.push(self.tex.stage_with(cache, b, k, &self.dir, &mut self.notes, [LIGHTMAP_GAIN; 3], "").unwrap_or_default());
             }
         }
         // sbsp materials (32 bytes: old shader ref, shader ref, ...).
@@ -482,17 +831,39 @@ impl<'c> Renderer<'c> {
             .collect();
 
         // Vertex-lit pieces (instanced geometry Halo 2 lights from per-vertex
-        // buckets, not read yet) go on a flat page of the level's average
-        // light, the page after the last, rather than drawing fullbright.
+        // buckets) draw on a page of their own, the one after the last, one
+        // 4 x 4 block per instance holding that instance's light
+        // (`instance_light`, else the level's average), rather than
+        // fullbright. Clusters always carry lightmap coordinates.
         let flat_page = pages.len() as i16;
+        let mut texels: Vec<usize> = Vec::new();
+        let texel_uv = |k: usize| -> [f32; 2] {
+            let (col, row) = (k % TEXELS_PER_ROW, k / TEXELS_PER_ROW);
+            [(col as f32 + 0.5) / TEXELS_PER_ROW as f32, (row as f32 + 0.5) / TEXEL_ROWS_MAX as f32]
+        };
         // (shader, page) -> primitive, in first-seen order.
         let mut order: Vec<(usize, Option<i16>)> = Vec::new();
         let mut prims: BTreeMap<(usize, Option<i16>), Prim> = BTreeMap::new();
         let shaders = &self.shaders;
-        let mut add_section = |section: &Section, frame: Frame, page: Option<i16>| {
+        let mut texel_light: Vec<Option<[u8; 3]>> = Vec::new();
+        let mut add_section = |section: &Section, frame: Frame, page: Option<i16>, instance: Option<usize>| {
+            let (incident, colour) = match instance {
+                Some(i) => lm.instance_vertices(i, section.vertices.len()),
+                None => (None, None),
+            };
             let (page, uv1) = match page.filter(|&p| p >= 0 && section.has_lightmap_uv) {
                 Some(p) => (p, None),
-                None => (flat_page, Some([0.5, 0.5])),
+                None => {
+                    let k = texels.len();
+                    texels.push(instance.unwrap_or(usize::MAX));
+                    // The instance's light: its vertices' mean, in the pages'
+                    // units, doubled as the pages are.
+                    texel_light.push(colour.map(|c| {
+                        let n = c.len() as f32;
+                        std::array::from_fn(|k| (c.iter().map(|v| v[k] as f32).sum::<f32>() / n * LIGHTMAP_GAIN).round().min(255.0) as u8)
+                    }));
+                    (flat_page, Some(texel_uv(k)))
+                }
             };
             for part in section.parts.iter().filter(|p| p.is_drawn()) {
                 let Some(&s) = materials.get(part.material.max(0) as usize) else { continue };
@@ -500,12 +871,12 @@ impl<'c> Renderer<'c> {
                 if !prims.contains_key(&key) {
                     order.push(key);
                 }
-                prims.entry(key).or_default().add(section, part, frame, shaders[s].base_scale, uv1);
+                prims.entry(key).or_default().add(section, part, frame, shaders[s].base_scale, uv1, incident);
             }
         };
         for (i, c) in sbsp.root.block(0x9C, 0xB0).iter().enumerate() {
             let section = geometry::read(cache, sbsp.file, c.at(0x28), c.u16(0) as usize, section_compression(c))?;
-            add_section(&section, Frame::IDENTITY, lm.clusters.get(i).copied());
+            add_section(&section, Frame::IDENTITY, lm.clusters.get(i).copied(), None);
         }
         let defs: Vec<Section> = sbsp
             .root
@@ -517,10 +888,10 @@ impl<'c> Renderer<'c> {
             let Some(def) = defs.get(inst.i16(0x34).max(0) as usize) else { continue };
             let scale = if inst.f32(0) == 0.0 { 1.0 } else { inst.f32(0) };
             let frame = Frame { scale, axes: [inst.vec3(0x04), inst.vec3(0x10), inst.vec3(0x1C)], origin: inst.vec3(0x28) };
-            add_section(def, frame, lm.instances.get(i).copied());
+            add_section(def, frame, lm.instances.get(i).copied(), Some(i));
         }
 
-        if order.iter().any(|k| k.1 == Some(flat_page)) {
+        if !texels.is_empty() {
             // Named as the pages after page 0 are (`<page 0 stem>_<N>`):
             // lightmap_bake finds page N by that name, not by the manifest.
             let png = match pages.first().and_then(|p| p.strip_suffix(".png")) {
@@ -528,9 +899,24 @@ impl<'c> Renderer<'c> {
                 _ => "h2_vertex_lit.png".to_string(),
             };
             let mean = average_light(&self.dir.join("textures"), &pages).unwrap_or([128, 128, 128]);
-            let img = bitmap::Image { width: 4, height: 4, rgba: [mean[0], mean[1], mean[2], 255].repeat(16) };
+            let (w, h) = (TEXELS_PER_ROW * TEXEL_BLOCK, TEXEL_ROWS_MAX * TEXEL_BLOCK);
+            let mut rgba = vec![0u8; w * h * 4];
+            let mut lit = 0;
+            for k in 0..texels.len().min(TEXELS_PER_ROW * TEXEL_ROWS_MAX) {
+                let c = texel_light.get(k).copied().flatten().inspect(|_| lit += 1).unwrap_or(mean);
+                let (x0, y0) = ((k % TEXELS_PER_ROW) * TEXEL_BLOCK, (k / TEXELS_PER_ROW) * TEXEL_BLOCK);
+                for y in y0..y0 + TEXEL_BLOCK {
+                    for x in x0..x0 + TEXEL_BLOCK {
+                        rgba[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+                    }
+                }
+            }
+            let img = bitmap::Image { width: w as u32, height: h as u32, rgba };
             bitmap::write_png(&self.dir.join("textures").join(&png), &img)?;
-            self.notes.push(format!("vertex-lit geometry drawn on a flat page of the level's average light {mean:?}"));
+            self.notes.push(format!(
+                "{} vertex-lit piece(s) on a page of their own: {lit} from Halo 2's vertex light, the rest at the level's average {mean:?}",
+                texels.len()
+            ));
             pages.push(png);
         }
 
@@ -541,7 +927,7 @@ impl<'c> Renderer<'c> {
         for key in &order {
             let p = &prims[key];
             let sh = &self.shaders[key.0];
-            let page = key.1.and_then(|k| pages.get(k as usize).filter(|s| !s.is_empty()).cloned());
+            let page = key.1.and_then(|k| pages.get(k as usize).filter(|s| !s.is_empty()).cloned()).filter(|_| !sh.unlit);
             let name = match key.1 {
                 Some(k) => format!("{}__lm{k}", sh.key),
                 None => sh.key.clone(),
@@ -564,14 +950,17 @@ impl<'c> Renderer<'c> {
         }))
     }
 
-    /// Stage a render model (`mode`) as `models/<name>__<class>.gltf`, in
-    /// model space: every region's first permutation at its most detailed
-    /// level, one primitive per shader, named for the shader (the scene
-    /// merge adds the object lighting suffix). Returns the manifest's model
+    /// Stage a render model (`mode`) as `models/<name>__<class>.gltf` (a
+    /// scaled placement's copy as `<name>_x<scale>__<class>.gltf`), in
+    /// object space (a section's vertices are stored posed, whatever node
+    /// they belong to; the node transforms serve animation): every region's
+    /// first permutation at its most detailed level, one primitive per
+    /// shader, named for the shader (the scene merge adds the object
+    /// lighting suffix). Returns the manifest's model
     /// record (`gltf` relative to the staging), or `None` when the model has
     /// no drawable geometry.
-    pub fn model(&mut self, mode: &Tag<'c>, object: &str, class: &str) -> Result<Option<Value>, Error> {
-        let rel = format!("models/{}__{class}.gltf", sanitize(object));
+    pub fn model(&mut self, mode: &Tag<'c>, object: &str, class: &str, scale: f32) -> Result<Option<Value>, Error> {
+        let rel = format!("models/{}{}__{class}.gltf", sanitize(object), crate::h2::stage::scale_suffix(scale));
         if let Some(done) = self.models.get(&rel) {
             return Ok(done.clone());
         }
@@ -589,9 +978,6 @@ impl<'c> Renderer<'c> {
             .into_iter()
             .map(|t| self.shader(t))
             .collect();
-        if root.block(0x48, 0x60).count > 1 {
-            self.notes.push(format!("{}: {} nodes; sections are staged in model space without node transforms", mode.name(), root.block(0x48, 0x60).count));
-        }
         let sections = root.block(0x24, 0x5C);
         let mut wanted = Vec::new();
         for region in root.block(0x1C, 0x10).iter() {
@@ -624,7 +1010,8 @@ impl<'c> Renderer<'c> {
                 if !prims.contains_key(&m) {
                     order.push(m);
                 }
-                prims.entry(m).or_default().add(&section, part, Frame::IDENTITY, self.shaders[m].base_scale, Some([0.0, 0.0]));
+                let frame = Frame { scale, ..Frame::IDENTITY };
+                prims.entry(m).or_default().add(&section, part, frame, self.shaders[m].base_scale, Some([0.0, 0.0]), None);
             }
         }
         if order.is_empty() {
@@ -796,7 +1183,7 @@ mod tests {
         assert!(template("tex_bump_alpha_test").alpha_tested);
         assert_eq!(template("one_alpha_env").transparent, 1);
         assert_eq!(template("plasma_alpha").transparent, 4);
-        assert_eq!(template("one_add_two_plus_two").transparent, 4);
+        assert_eq!(template("one_add_two_plus_two").transparent, 1, "a product of its maps, alpha blended");
         assert_eq!(template("tex_bump_env_illum_combined").slots[5], "self_illum");
     }
 
@@ -813,6 +1200,18 @@ mod tests {
         assert!(template("tex_bump_env_alpha_test").alpha_tested);
         assert_eq!(template("tex_bump_alpha_test_single_pass").slots[2], "base");
         assert_eq!(template("tex_bump_alpha_test_single_pass").transparent, 0);
+    }
+
+    /// A tinted copy is named by its tint in hundredths; a plain gain names
+    /// nothing. The transparent templates' texture rows give scale and offset.
+    #[test]
+    fn tinted_copies_and_texture_rows_read_as_the_shaders_have_them() {
+        assert_eq!(tint_suffix([1.0; 3]), "");
+        assert_eq!(tint_suffix([0.47, 0.47, 0.6]), "__t2f2f3c");
+        // Lockout's mountains_clouds layer 2: u x 6, v x 2 offset 1.
+        let rows = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [8.0, 0.0, 0.0, 0.0], [0.0, 3.0, 0.0, 0.0], [6.0, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 1.0]];
+        assert_eq!(two_plus_two_rows(&rows, 2), [6.0, 2.0, 0.0, 1.0]);
+        assert_eq!(two_plus_two_rows(&rows, 7), [1.0, 1.0, 0.0, 0.0]);
     }
 
     /// Halo (x, y, z) is glTF (x, z, -y): a rotation, so winding survives.
