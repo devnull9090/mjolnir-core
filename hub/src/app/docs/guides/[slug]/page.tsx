@@ -65,7 +65,7 @@ export default async function GuidePage({ params }: { params: Promise<{ slug: st
       </header>
 
       <article className="py-9">
-        <Markdown>{guide.body}</Markdown>
+        <Markdown source="docs">{guide.body}</Markdown>
       </article>
 
       <footer className="border-t border-border py-9">

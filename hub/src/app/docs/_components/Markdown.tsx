@@ -3,7 +3,7 @@ import Link from "next/link";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
-import { slugify } from "@/lib/docs";
+import { getDocNotes, getGuides, slugify } from "@/lib/docs";
 import { CompareImage } from "./CompareImage";
 import { ZoomableImages } from "./ZoomableImages";
 
@@ -20,17 +20,76 @@ type Cell = Kids & { style?: CSSProperties };
 const heading = "scroll-mt-28 break-words font-bold text-foreground";
 const linkStyle = "text-gold underline underline-offset-4 hover:text-foreground";
 
-/** Rewrites relative `*.md` links onto their rendered hub route. */
-function resolveHref(href: string): { href: string; external: boolean } {
+const REPO_BLOB = "https://github.com/devnull9090/mjolnir-core/blob/main";
+const noteSlugs = new Set(getDocNotes().map((note) => note.slug));
+const guideSlugs = new Set(getGuides().map((guide) => guide.slug));
+
+/** Resolves `.` and `..` segments; null when the path climbs out of the repository. */
+function normalizePath(path: string): string | null {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (parts.pop() === undefined) return null;
+  }
+  return parts.join("/");
+}
+
+/**
+ * Rewrites a relative link onto where it is actually served.
+ *
+ * With `source` (the repository directory the Markdown was authored in), a
+ * link is resolved the way GitHub resolves it: a published note or guide goes
+ * to its hub route, and anything else (source files, `docs/re/`, a doc in
+ * neither list) goes to the file on GitHub, which a relative link here would
+ * miss with a 404. Notes and guides link to each other by file name, so the
+ * two routes have to be told apart.
+ *
+ * Without `source` only `*.md` links are rewritten, onto the notes route.
+ */
+function resolveHref(href: string, source?: string): { href: string; external: boolean } {
   if (/^https?:\/\//i.test(href)) return { href, external: true };
-  if (href.startsWith("#") || href.startsWith("/")) return { href, external: false };
+  if (href.startsWith("#") || href.startsWith("/") || /^[a-z][a-z\d+.-]*:/i.test(href)) {
+    return { href, external: false };
+  }
 
   const [file, hash] = href.split("#");
+  const suffix = hash ? `#${hash}` : "";
+  if (source) {
+    const path = normalizePath(`${source}/${file}`);
+    if (path === null) return { href, external: false };
+    if (/^docs\/[^/]+\.md$/i.test(path)) {
+      const slug = slugify(path.slice("docs/".length));
+      if (noteSlugs.has(slug)) return { href: `/docs/notes/${slug}${suffix}`, external: false };
+      if (guideSlugs.has(slug)) return { href: `/docs/guides/${slug}${suffix}`, external: false };
+    }
+    return { href: `${REPO_BLOB}/${path}${suffix}`, external: true };
+  }
   if (/\.md$/i.test(file)) {
     const target = `/docs/notes/${slugify(file.split("/").pop() ?? file)}`;
-    return { href: hash ? `${target}#${hash}` : target, external: false };
+    return { href: `${target}${suffix}`, external: false };
   }
   return { href, external: false };
+}
+
+/** Links resolve against the Markdown's source directory, so one renderer per source. */
+function makeLink(source?: string): Components["a"] {
+  return function MarkdownLink({ children, href }: Kids & { href?: string }) {
+    if (!href) return <>{children}</>;
+    const resolved = resolveHref(href, source);
+    if (resolved.external) {
+      return (
+        <a href={resolved.href} target="_blank" rel="noreferrer" className={linkStyle}>
+          {children}
+        </a>
+      );
+    }
+    return (
+      <Link href={resolved.href} className={linkStyle}>
+        {children}
+      </Link>
+    );
+  };
 }
 
 const components: Components = {
@@ -115,22 +174,7 @@ const components: Components = {
       </span>
     );
   },
-  a: ({ children, href }: Kids & { href?: string }) => {
-    if (!href) return <>{children}</>;
-    const resolved = resolveHref(href);
-    if (resolved.external) {
-      return (
-        <a href={resolved.href} target="_blank" rel="noreferrer" className={linkStyle}>
-          {children}
-        </a>
-      );
-    }
-    return (
-      <Link href={resolved.href} className={linkStyle}>
-        {children}
-      </Link>
-    );
-  },
+  a: makeLink(),
   pre: ({ children }: Kids) => (
     <pre className="mt-5 overflow-x-auto border border-border bg-surface p-4 text-xs leading-6 text-text-muted">
       {children}
@@ -165,14 +209,19 @@ const components: Components = {
   ),
 };
 
-export function Markdown({ children }: { children: string }) {
+/**
+ * `source` is the repository directory the Markdown was authored in (`docs`
+ * for notes and guides). Pass it when the text is a repository file, so its
+ * relative links resolve; leave it out for anything else.
+ */
+export function Markdown({ children, source }: { children: string; source?: string }) {
   return (
     <div className="markdown">
       <ZoomableImages>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeSlug]}
-          components={components}
+          components={source ? { ...components, a: makeLink(source) } : components}
         >
           {children}
         </ReactMarkdown>
