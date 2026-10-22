@@ -232,6 +232,10 @@ local Current = {
     -- Sounds on a machine's moving part (spawnSounds): { comp, pos, pivot,
     -- t0, t1, s0, s1, period, position }, moved by moveSounds.
     movingSounds = {},
+    -- Decor that turns about a pivot (a Halo 2 gear: Ascension's antennas;
+    -- level.decor[].motion): { actor, rest, pivot, period, keys }, turned
+    -- by the "turning machines" loop.
+    turning = {},
     -- Level sounds that follow the game's volume sliders (spawnSounds):
     -- { comp, gain, category, volume }, kept in step by syncVolumes.
     volumed = {},
@@ -272,6 +276,7 @@ local function resetState()
     Current.fileMissing = false
     Current.pulses = {}
     Current.movingSounds = {}
+    Current.turning = {}
     Current.volumed = {}
     Current.sunMids = {}
     Current.scalarMids = {}
@@ -312,6 +317,7 @@ local function clearActors()
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.movingSounds = {}
+    Current.turning = {}
     Current.volumed = {}
     Current.spawned = 0
     Current.failed = 0
@@ -5246,6 +5252,19 @@ local function spawnDecor(world)
             if actor then
                 Current.actors[id] = actor
                 Current.spawned = Current.spawned + 1
+                -- A turning machine: turned from its rest by the "turning
+                -- machines" loop (motion: pivot_cm from the actor, period
+                -- in seconds, keys { seconds, yaw degrees }).
+                local mo = item.motion
+                if type(mo) == "table" and type(mo.keys) == "table" and #mo.keys >= 2
+                    and type(mo.pivot_cm) == "table" and (tonumber(mo.period) or 0) > 0 then
+                    local l = actor:K2_GetActorLocation()
+                    Current.turning[#Current.turning + 1] = {
+                        actor = actor, rest = { l.X, l.Y, l.Z }, period = mo.period, keys = mo.keys,
+                        pivot = { l.X + mo.pivot_cm[1], l.Y + mo.pivot_cm[2], l.Z + mo.pivot_cm[3] },
+                        loc = { X = 0, Y = 0, Z = 0 }, rot = { Pitch = 0, Yaw = 0, Roll = 0 },
+                    }
+                end
             else
                 Current.failed = Current.failed + 1
                 Log(string.format("decor '%s': %s", tostring(id), tostring(err)))
@@ -5509,6 +5528,42 @@ local function watch()
                 -- A held part (period 0) is placed once.
                 if moved then
                     m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, Current.hit, false)
+                end
+            end
+        end
+    end)
+    -- Turning machines (Halo 2 gears: Ascension's antennas), on the world's
+    -- clock from the level's load, as the game runs a gear's position from
+    -- it: the yaw between the keys at t mod period, the actor swung about
+    -- its pivot to it. Its tables are its own, refilled: nothing per run.
+    every(33, "turning machines", function()
+        if #Current.turning == 0 then return end
+        local world = Current.world
+        if not (world and world:IsValid()) then return end
+        KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local now = KismetSystem:GetGameTimeInSeconds(world)
+        for _, m in ipairs(Current.turning) do
+            if m.actor:IsValid() then
+                local t = now % m.period
+                local keys, yaw = m.keys, m.keys[#m.keys][2]
+                for k = 2, #keys do
+                    if t <= keys[k][1] then
+                        local a, b = keys[k - 1], keys[k]
+                        local span = b[1] - a[1]
+                        yaw = span > 0 and (a[2] + (b[2] - a[2]) * (t - a[1]) / span) or b[2]
+                        break
+                    end
+                end
+                if yaw ~= m.yaw then
+                    m.yaw = yaw
+                    local r = math.rad(yaw)
+                    local c, sn = math.cos(r), math.sin(r)
+                    local dx, dy = m.rest[1] - m.pivot[1], m.rest[2] - m.pivot[2]
+                    m.loc.X = m.pivot[1] + dx * c - dy * sn
+                    m.loc.Y = m.pivot[2] + dx * sn + dy * c
+                    m.loc.Z = m.rest[3]
+                    m.rot.Yaw = yaw
+                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
                 end
             end
         end

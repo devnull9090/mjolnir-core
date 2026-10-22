@@ -289,8 +289,10 @@ decor entry with three. `mesh_rewrite --material` prints the list to paste here.
 A converted map's decor also uses `cast_shadow` (false on level geometry whose shadows are
 baked), `sort_priority` (translucent sort order, for the sky), `pulse` (one runtime-material
 scalar driven by a CE periodic function), `scalars` (values on the mesh's own materials),
-`static` (no world-position offset) and `capture_only` (seen by the Fluid Flux ground capture,
-then hidden); see the loader's `spawnDecorItem`.
+`static` (no world-position offset), `capture_only` (seen by the Fluid Flux ground capture,
+then hidden) and `motion` (a Halo 2 gear that turns: `pivot_cm` from the actor, `period` in
+seconds, `keys` as `[seconds, yaw degrees]`, linear between them; the loader swings the actor
+about the pivot on the world's clock); see the loader's `spawnDecorItem`.
 
 ### `markers`
 

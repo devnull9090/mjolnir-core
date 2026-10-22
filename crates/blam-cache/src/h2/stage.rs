@@ -376,10 +376,20 @@ fn placements<'c>(
     }
 
     let mut skipped: BTreeMap<String, usize> = BTreeMap::new();
-    // Scenery (0x5C) and crates (0x4C): props, each placed by its palette's
-    // object, with the object's collision model staged in object space for
-    // tools/level/merge_ce_collision.py to place.
-    for (kind_block, palette_block, size, group) in [(0x50usize, 0x58usize, 0x5Cusize, "scen"), (0x328, 0x330, 0x4C, "bloc")] {
+    // Scenery (0x5C), crates (0x4C) and machines (0x48): props, each placed
+    // by its palette's object, with the object's collision model staged in
+    // object space for tools/level/merge_ce_collision.py to place. A machine
+    // goes in only when its motion can be drawn: a gear that turns about its
+    // own vertical axis (crate::h2::animation; Ascension's antennas), as
+    // scenery carrying the turn (`h2_motion`), which
+    // tools/level/merge_ce_scene.py gives a mesh of its own for the level
+    // loader to turn; its collision stays at rest (the simulation cannot
+    // move it). Any other machine (a door, a lift, Triplicate's train) is
+    // left out, as before: still, with its collision, a closed gate or a
+    // parked train would block a way Halo 2 opens.
+    for (kind_block, palette_block, size, group) in
+        [(0x50usize, 0x58usize, 0x5Cusize, "scen"), (0x328, 0x330, 0x4C, "bloc"), (0xA8, 0xB0, 0x48, "mach")]
+    {
         let palette = root.block(palette_block, 0x28);
         for e in root.block(kind_block, size).iter() {
             let i = e.i16(0x00);
@@ -400,6 +410,16 @@ fn placements<'c>(
                 *skipped.entry(format!("{} (the level's own teleporters replace it)", object.name())).or_default() += 1;
                 continue;
             }
+            let turn = match group {
+                "mach" => match crate::h2::animation::gear_turn(cache, &object) {
+                    Ok(turn) => Some(turn),
+                    Err(why) => {
+                        *skipped.entry(format!("{} (a machine whose motion is not drawn: {why})", object.name())).or_default() += 1;
+                        continue;
+                    }
+                },
+                _ => None,
+            };
             // A placement's scale (0 means 1; Zanzibar's bushes are placed
             // at 2, 3 and 4) is baked into a copy of the model and its
             // collision, since the placement contract carries none.
@@ -423,8 +443,11 @@ fn placements<'c>(
                     entry["model"] = record["gltf"].clone();
                 }
             }
+            if let Some(turn) = &turn {
+                entry["h2_motion"] = turn.to_json();
+            }
             entries.push(entry);
-            count(summary, if group == "scen" { "scenery" } else { "crate" });
+            count(summary, match group { "scen" => "scenery", "bloc" => "crate", _ => "machine" });
         }
     }
 
@@ -528,9 +551,13 @@ fn sky_lighting(sky: &Tag<'_>, entry: &mut Value) {
         })
         .collect();
     entry["lights"] = json!(lights);
+    // Halo 2 stores the ambient as a colour alone; CE pairs its colour with
+    // a power, about 0.2 on its maps (Blood Gulch's 0.2 is the level
+    // generator's reference). Given as power 1, Ascension's (0.62, 0.64,
+    // 0.71) lit the player 3.8 times too bright (sun 30, sky light 11).
     let ambient = s.vec3(0x34);
     if ambient.iter().any(|&c| c > 0.0) {
-        entry["outdoor_ambient"] = json!({"color": ambient, "power": 1.0});
+        entry["outdoor_ambient"] = json!({"color": ambient, "power": 0.2});
     }
     if let Some(f) = s.block(0x48, 0x18).get(0) {
         entry["outdoor_fog"] = json!({

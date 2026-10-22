@@ -214,6 +214,30 @@ multiplayer map has one light; Lockout's has no radiosity flags and its
 lightmaps' incident directions (yaw 78, pitch 48 degrees over flat ground)
 match the sky model's brightness, not the light.
 
+**Machines** (scnr +0xA8, 0x48 bytes: palette index 0x00, position 0x08,
+rotation 0x14, scale 0x20; power and position groups i16 0x34 / 0x36,
+device and machine flags 0x38 / 0x3C; palette +0xB0). The `mach` tag's
+device part: position transition at +0xC8 stored as a rate (1 / seconds;
+a time of 0 is stored as 900), machine type u16 +0x11C (0 door, 1
+platform, 2 gear). A gear's position runs 0 to 1 over its transition time
+and starts again, from the map's load (Ascension's scenario has no
+scripts or device groups). The model's animation graph (`jmad`, hlmt
++0x10): nodes 0x0C (0x20), sound refs 0x14 (0xC), animations 0x2C (0x60:
+name 0x00, type u8 0x10, node count u8 0x13, frame count i16 0x14, frame
+data dataref 0x28, static data size i16 0x36, sound events 0x48 (8 bytes:
+sound ref, frame, marker)). The frame data sits in the tag: the static
+codec block, then the animated one. Keyframe codecs 4-7 (byte, word,
+reverse byte, reverse word frame indices): u8 codec, u8 rotating /
+sliding / scaling node counts, error and rate floats, eight u32 offsets
+from 0x0C (translation and scale frame info, rotation / translation /
+scale keyframe indices, rotation / translation / scale data), the
+rotating nodes' frame info from 0x30 (count in the low 12 bits, first key
+in the high 20); a rotation key is i16 (i, j, k, w) / 32767, the node's
+turn from its default pose; a translation key three floats in world
+units. Ascension's antenna (codec 6, 21 frames over 40 s) turns about +Z:
+0, +20 (held 6-10 s), -30 (22-26 s), +5 (32-36 s), 0. Codec 3 (Zanzibar's
+wheels, Foundation's fan) is not read.
+
 **Cube maps** (`bitm` type 2) are stored mip-major, the six faces of each
 level together in the order +X, +Y, -X, -Y, +Z, -Z on Halo's axes, no face
 flipped (every seam matched across the Lockout and Forerunner cubes).

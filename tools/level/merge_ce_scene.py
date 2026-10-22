@@ -383,6 +383,10 @@ def main():
     ap.add_argument("--sky", help="write the sky's sections here instead, as a mesh of their own (with "
                                   "--translucent: the sky is kilometres across, and sharing one normalised mesh "
                                   "with the map's transparent pieces cost those centimetres of precision)")
+    ap.add_argument("--machines", help="write each placement that carries a turn (`h2_motion`: a Halo 2 gear "
+                    "turning about its vertical axis, Ascension's antennas) as a mesh of its own, "
+                    "<MACHINES>_<k>.gltf, with <MACHINES>_<k>.motion.json beside it for the level loader to "
+                    "turn it by; without it they join the scene, still")
     ap.add_argument("--sky-radius", type=float, default=3000.0,
                     help="metres from the map centre to the sky's nearest layer (default 3000)")
     a = ap.parse_args()
@@ -458,6 +462,8 @@ def main():
     skies_seen = 0
     sky_origin = np.zeros(3)
     devices = 0
+    # A turning machine's opaque primitives, per placement, and its turn.
+    machines = []
     for e in placement["entries"]:
         # Machines too (Infinity's beam emitters, whose model is the beam):
         # a part their device animation moves draws with a material of its
@@ -511,11 +517,17 @@ def main():
             # bumped-lightmap term, sat(N.L), gives it back.
             lit = [light_vertices(q["nrm"], lighting) for q in prims]
             peak = np.clip(np.max(np.concatenate(lit), axis=0) if prims else np.ones(3), 1e-3, 1.0)
+            turn = e.get("h2_motion") if a.machines else None
+            if turn:
+                machines.append({"prims": [], "pivot": t, "turn": turn})
             for q, colour in zip(prims, lit):
                 share = np.clip((colour @ LUMA) / float(peak @ LUMA), 0.0, 1.0)[:, None]
                 q["inc"] = share * q["nrm"] + np.sqrt(1.0 - share * share) * q["tan"][:, :3]
                 q["block"] = len(object_texels)
-                out.append(q)
+                opaque = q["extras"]["halo"].get("shader_class") not in TRANSPARENT
+                # A transparent part of a turning machine stays still in the
+                # translucent mesh (none on Ascension's antennas).
+                (machines[-1]["prims"] if turn and opaque else out).append(q)
             object_texels.append([peak, lighting[2]] + change_colors(e))
             object_prims += prims
             placed += 1
@@ -564,6 +576,21 @@ def main():
 
     out = with_passes(out, shaders)
     out = with_decal_offset(out, shaders)
+
+    for k, m in enumerate(machines):
+        # Spawned at its box centre (as the sky mesh is); the turn's pivot
+        # from there in Unreal cm (glTF metres, Y up -> X, Z, Y), and its
+        # keys as Unreal yaw: Halo's counter-clockwise about +Z is a
+        # negative yaw once y is mirrored.
+        allpos = np.concatenate([p["pos"] for p in m["prims"]])
+        d = m["pivot"] - (allpos.max(0) + allpos.min(0)) / 2
+        base = f"{a.machines}_{k}"
+        write_gltf(m["prims"], base + ".gltf")
+        with open(base + ".motion.json", "w") as f:
+            json.dump({"pivot_cm": [float(d[0]) * 100, float(d[2]) * 100, float(d[1]) * 100],
+                       "period": m["turn"]["period"],
+                       "keys": [[t, -angle] for t, angle in m["turn"]["keys"]]}, f)
+        print(f"  turning machine {k}: {len(m['prims'])} primitive(s), {m['turn']['period']:g} s -> {base}.gltf")
 
     if a.translucent:
         # A mesh enters Unreal's translucency pass only if its own material

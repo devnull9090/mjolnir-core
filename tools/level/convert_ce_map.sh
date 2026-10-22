@@ -150,8 +150,20 @@ if [ "$cook" = "1" ]; then
   # enters Unreal's translucency pass only through its single donor slot.
   # The sky is a mesh of its own: kilometres across, it cost the map's
   # transparent pieces their precision when they shared one.
+  # A Halo 2 gear that turns (Ascension's antennas) is a mesh of its own,
+  # scene_machine_<k>.gltf, which the level loader turns.
+  [ -n "$out" ] && rm -f -- "$out"/scene_machine_*.gltf "$out"/scene_machine_*.bin "$out"/scene_machine_*.motion.json
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
-    --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf" --lights "$out/scene_lights.json"
+    --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf" --lights "$out/scene_lights.json" \
+    --machines "$out/scene_machine"
+  machine_gltfs=()
+  machine_jobs=()
+  for g in "$out"/scene_machine_*.gltf; do
+    [ -f "$g" ] || continue
+    k="${g##*_}"; k="${k%.gltf}"
+    machine_gltfs+=("$g")
+    machine_jobs+=("$g=basicshapes/cube=MACHINE$k")
+  done
   # The lightmaps re-solved (crates/blam-radiosity: tool.exe's radiosity on
   # every core, the sun and fill per texel) at LIGHTMAP_SCALE times the
   # shipped pages' size (auto: the power of two that brings the texel
@@ -204,7 +216,7 @@ if [ "$cook" = "1" ]; then
   [ -f "$src" ] && [ "$source_game" = halo_ce ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
   python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
-    "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
+    "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf" "${machine_gltfs[@]}"
   # The meshes, packages of the map's own beside its materials
   # (<root>/SM_<map>_Terrain, _Translucent and _Sky, and _Water when the
   # translucent sections hold CE water), built from the shipped cylinder,
@@ -218,7 +230,8 @@ if [ "$cook" = "1" ]; then
     --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" \
     "$out/scene.gltf=basicshapes/cylinder=$root/SM_${leaf}_Terrain" \
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
-    "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky"
+    "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky" \
+    "${machine_jobs[@]//MACHINE/$root/SM_${leaf}_Machine}"
   # The game's grass, tufts and shore stones on the map's ground
   # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
   # sea's height is the water mesh's, when the map has one. FOLIAGE=0 leaves

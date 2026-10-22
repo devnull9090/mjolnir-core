@@ -8,6 +8,7 @@
 
 pub mod cache;
 pub mod collision;
+pub mod animation;
 pub mod bitmap;
 pub mod geometry;
 pub mod render;

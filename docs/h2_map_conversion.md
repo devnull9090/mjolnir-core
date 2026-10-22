@@ -7,7 +7,8 @@ standing in the BSP, the pickups resting where Halo 2 put them, every
 material applied. Lockout was played by a person on 2026-10-21; the glass,
 snow and sky they found wrong are fixed (reflecting tinted glass, the
 chambers' gas behind it, snow where Halo 2 puts it, cloud banks in place of
-flat white planes). The Halo 1 pipeline is unchanged; its outputs for Chill
+flat white planes). Ascension was compared side by side with MCC on
+2026-10-22: its turning antennas and storm sky match. The Halo 1 pipeline is unchanged; its outputs for Chill
 Out and TST are byte-identical before and after the Halo 2 work.
 
 MCC's Halo 2 multiplayer maps (`halo2/h2_maps_win64_dx11/*.map`) become
@@ -95,10 +96,21 @@ units and axes, so every later step reads them unchanged:
   the template's black placeholder cube reflects nothing. 22 of the 24 maps
   have such surfaces (Lockout only its grav pads; Ascension its Forerunner
   windows and panels).
+- **Sky layers.** Besides the alpha and "two plus two" layers, Ascension's
+  sky uses two more templates, read back from their compiled shaders: the
+  cloud cover (`sky_two_alpha_clouds`: a cloud map tiled 8x and scrolling,
+  times a cover mask, colour and alpha, alpha blended) and the sun shafts
+  (`sky_one_add_illum_detail`: a mask's colour times its alpha, times a
+  scrolling detail, tinted, added). Drawn as one map each, the cloud map
+  covered the whole dome in flat grey and the shafts were white wedges. A
+  shader's scroll names a texture slot of its template; the template's
+  remapping table says which bitmap that is.
 - **Sky.** The sky's lights (yaw, pitch, colour, power, diameter, whether
   the lightmaps used them), outdoor ambient and atmospheric fog go to the
   placement as halo2ue puts a CE sky's, so the level's sun, sky light and
-  fog follow them. Lockout's light lit nothing (its radiosity flags are
+  fog follow them. Halo 2 stores the ambient as a colour alone; it goes in
+  at CE's usual power, 0.2 (at 1, Ascension's lit the player and weapons
+  3.8 times too bright). Lockout's light lit nothing (its radiosity flags are
   clear; the sky model lit the lightmaps), so its sun comes from the
   lightmaps' incident directions, as for a CE map without one.
 - **Placements.** Halo 2 spawns every multiplayer pickup and vehicle through
@@ -113,6 +125,23 @@ units and axes, so every later step reads them unchanged:
   scenery and crates (`bloc`), staged with their
   render and collision models. Game-type props (the CTF and territory flag
   bases) are left out: the level's own CTF stands replace them.
+- **Machines.** A gear whose device animation turns its one node about its
+  own vertical axis (Ascension's three antennas, the big arms that swing
+  around the central pillar every 40 s) is placed like scenery, with its
+  turn: the keys of its `device:position` animation as (seconds, degrees)
+  over its position transition time, read by `crate::h2::animation`.
+  `merge_ce_scene.py --machines` writes each such placement as a mesh of
+  its own (`scene_machine_<k>.gltf`, built as `SM_<code>_Machine<k>`) with
+  its pivot and keys beside it (`.motion.json`); the level's decor entry
+  carries them as `motion`, and MJOLNIRLevelLoader swings the actor about
+  the pivot on the world's clock from the level's load, as the game runs a
+  gear from the map's. Its collision stays at rest: the simulation cannot
+  move it. Every other machine (doors, lifts, Triplicate's train,
+  Zanzibar's wheel, which uses a codec not read yet) is left out as
+  before, listed in staging's notes: still, a closed gate or a parked train
+  would block a way Halo 2 opens. The antennas' sounds (12 cues at fixed
+  frames of the animation) are not played: Halo 2's sounds are not
+  extracted yet.
 - **Lightmaps.** Halo 2 keeps its pages at half their light and doubles
   them in the shader; the CE masters take a page as it is, so the pages are
   staged doubled (clamped). Without that Lockout's interiors were nearly
@@ -149,6 +178,9 @@ units and axes, so every later step reads them unchanged:
   scene, Halo 2's `tex_bump` (Lockout's frozen panels) has none either: its
   lightmap pass is diffuse only and its specular pass has no
   implementation, so the panels' look is their albedo and light.
+- The sun shafts' fade towards edge-on (the vertex colour going from the
+  facing colour to black as (N.V)^2) has no CE chicago equivalent; they draw
+  at their facing colour.
 - An env reflection's colour is one hue (the mean of the facing and
   glancing colours) baked into a copy of the cube, and its facing-to-glancing
   blend uses CE's squared view term rather than Halo 2's linear one.

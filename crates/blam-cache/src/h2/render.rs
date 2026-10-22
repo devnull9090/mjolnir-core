@@ -121,6 +121,12 @@ pub fn template(name: &str) -> Template {
         // maps' transforms are 2 x 4 rows per map in the vertex constants,
         // read by [`two_plus_two_maps`].
         n if n.contains("two_plus_two") => t(&["mask", "base", "base2"], &[], 1, false),
+        // The sky's cloud cover: a tiled, scrolling cloud map times a cover
+        // mask, colour and alpha, alpha blended.
+        "sky_two_alpha_clouds" => t(&["base", "mask"], &[], 1, false),
+        // The sky's sun shafts: a mask (rgb x its alpha) times a tiled,
+        // scrolling detail, tinted, added.
+        "sky_one_add_illum_detail" => t(&["mask", "base"], &[], 4, false),
         n if n.contains("add") => t(&["", "base"], &[], 4, false),
         "overlay" => t(&["base"], &[], 1, false),
         n if n.contains("alpha") && !n.contains("alpha_test") => t(&["base"], &[], 1, false),
@@ -169,7 +175,9 @@ impl Textures {
     /// As [`Textures::stage`], each channel scaled by `gain` (clamped), the
     /// file named with `suffix` (a tinted copy of a map is
     /// `<stem>__t<rrggbb>.png`, the tint in hundredths; the lightmap pages,
-    /// doubled, keep their plain names, which the bake finds page N by).
+    /// doubled, keep their plain names, which the bake finds page N by). A
+    /// suffix starting `__pm` also multiplies the colour by the map's own
+    /// alpha (a shader that draws rgb x a, additive).
     fn stage_with(
         &mut self,
         cache: &Cache,
@@ -190,11 +198,13 @@ impl Textures {
             let info = infos.get(index as usize).ok_or_else(|| Error::Format(format!("no bitmap {index}")))?;
             let data = bitmap::read_entry(textures, info.offset, info.size)?;
             let mut mips = bitmap::decode(info, &data)?;
-            if gain != [1.0; 3] {
+            let premultiply = suffix.starts_with("__pm");
+            if gain != [1.0; 3] || premultiply {
                 for m in &mut mips {
                     for p in m.rgba.chunks_exact_mut(4) {
+                        let a = if premultiply { p[3] as f32 / 255.0 } else { 1.0 };
                         for (c, g) in p[..3].iter_mut().zip(gain) {
-                            *c = (*c as f32 * g).round().min(255.0) as u8;
+                            *c = (*c as f32 * g * a).round().min(255.0) as u8;
                         }
                     }
                 }
@@ -398,17 +408,47 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         ("sgla", "BLEND", false, tinted, s)
     } else if tpl.transparent > 0 {
         let blend = (tpl.transparent - 1) as i64;
+        let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+        let scroll = slot_scroll(post, stem.as_ref());
+        let rows = |k: usize| two_plus_two_rows(&constants, k);
+        let map = |file: Option<String>, k: usize, function: i64| {
+            let x = rows(k);
+            json!({"map": {"file": file}, "color_function": function, "alpha_function": function,
+                   "map_u_scale": x[0], "map_v_scale": x[1], "map_u_offset": x[2], "map_v_offset": x[3]})
+        };
         let (maps, base, two_sided) = if template_name.contains("two_plus_two") {
             // mask * A * B, alpha the product of theirs (the compiled shader
             // multiplies all three, whatever the name says), two-sided.
-            (two_plus_two_maps(&role, &constants, &slot_scroll(post)), base, true)
+            (two_plus_two_maps(&role, &constants, &scroll), base, true)
+        } else if template_name == "sky_two_alpha_clouds" {
+            // Compiled: cloud map (bitmap 0, rows 0-1) x cover mask (bitmap
+            // 1, rows 2-3), rgba; source alpha blend, two-sided.
+            let mut maps = vec![map(role("mask"), 1, 2), map(role("base"), 0, 0)];
+            scroll_json(&mut maps[0], scroll.get(&1));
+            scroll_json(&mut maps[1], scroll.get(&0));
+            (maps, role("base"), true)
+        } else if template_name == "sky_one_add_illum_detail" {
+            // Compiled: 2 x tint (pixel constant 0) x vertex colour x mask.rgb
+            // x mask.a x detail.rgb, added. The vertex colour fades from the
+            // facing colour (vertex constant 4, alpha 6.w) to the glancing
+            // one (5, 7.w) as (N.V)^2 when the glancing alpha is 0; CE's
+            // chicago has no view term, so the facing colour stands for it.
+            // Mask: bitmap 0, rows 0-1; detail: bitmap 1, rows 2-3.
+            let tint = rgb(pixel.get(0));
+            let facing = rgb(constants.get(4));
+            let gain = [2.0 * tint[0] * facing[0], 2.0 * tint[1] * facing[1], 2.0 * tint[2] * facing[2]];
+            let mask = tags
+                .get("mask")
+                .and_then(|t| tex.stage_with(cache, t, 0, dir, notes, gain, &format!("__pm{}", tint_suffix(gain))));
+            let mut maps = vec![map(mask.clone(), 0, 2), map(role("base"), 1, 0)];
+            scroll_json(&mut maps[0], scroll.get(&0));
+            scroll_json(&mut maps[1], scroll.get(&1));
+            (maps, mask, true)
         } else if template_name == "plasma_alpha" {
             // noise A * noise B * the mask's alpha, added to the frame; the
             // "medium" colour (pixel constant 0) is baked into noise A.
             let medium = rgb(pixel.get(0));
             let a = tags.get("noise_a").and_then(|t| tex.stage_with(cache, t, 0, dir, notes, [medium[0] * 2.0, medium[1] * 2.0, medium[2] * 2.0], &tint_suffix([medium[0] * 2.0, medium[1] * 2.0, medium[2] * 2.0])));
-            let scroll = slot_scroll(post);
-            let rows = |k: usize| two_plus_two_rows(&constants, k);
             let (ra, rb, rm) = (rows(0), rows(1), rows(2));
             let mut maps = vec![
                 json!({"map": {"file": a}, "color_function": 2, "alpha_function": 2, "map_u_scale": ra[0], "map_v_scale": ra[1], "map_u_offset": ra[2], "map_v_offset": ra[3]}),
@@ -550,10 +590,15 @@ type Scroll = [Option<(f32, f32)>; 2];
 /// bits, first in the low 9, a range of overlay refs), overlay refs (+0x44:
 /// i16 overlay, i16 transform type; 4 translation u, 5 translation v) and
 /// overlays (+0x3C, 0x14 bytes: f32 period at 8, the function at 0xC as
-/// {size, address}: byte 0 type, 0 identity; the value at t = 0 at +4 and
-/// at t = period at +8). Lockout's clouds drift 1 repeat in 200 and 500 s,
-/// its lower clouds in 20 and 40 s, the containment gas in 20 to 50 s.
-fn slot_scroll(post: Option<Struct<'_>>) -> BTreeMap<usize, Scroll> {
+/// {size, address}: byte 0 type, 0 identity, 2 transition, 4 linear, each
+/// running from the value at +4 at t = 0 to the one at +8 at t = period).
+/// A descriptor is a texture slot of the template's; the template's
+/// remapping table (stem +0x58, +0x20: u16 destination, u8, u8 source)
+/// names the shader bitmap it takes (Ascension's cloud cover binds bitmap 1
+/// to slot 0). Lockout's clouds drift 1 repeat in 200 and 500 s, its lower
+/// clouds in 20 and 40 s, the containment gas in 20 to 50 s, Ascension's
+/// cloud cover in 120 s.
+fn slot_scroll(post: Option<Struct<'_>>, stem: Option<&Tag<'_>>) -> BTreeMap<usize, Scroll> {
     let mut out: BTreeMap<usize, Scroll> = BTreeMap::new();
     let Some(p) = post else { return out };
     let overlays: Vec<Option<(f32, f32)>> = p
@@ -563,7 +608,7 @@ fn slot_scroll(post: Option<Struct<'_>>) -> BTreeMap<usize, Scroll> {
             let period = o.f32(8);
             let at = p.file.offset(o.u32(0x10))?;
             let f = p.file.data.get(at..at + 12)?;
-            if f[0] != 0 || period <= 0.0 {
+            if !matches!(f[0], 0 | 2 | 4) || period <= 0.0 {
                 return None;
             }
             let v = |k: usize| f32::from_le_bytes(f[k..k + 4].try_into().unwrap());
@@ -578,7 +623,11 @@ fn slot_scroll(post: Option<Struct<'_>>) -> BTreeMap<usize, Scroll> {
             continue;
         }
         let Some(&(first, count)) = params.get(param as usize) else { continue };
-        let slot = out.entry(descriptor as usize).or_default();
+        let source = stem
+            .and_then(|t| t.root.block(0x58, 0x28).get(0))
+            .and_then(|d| d.block(0x20, 4).iter().find(|m| m.u16(0) == descriptor).map(|m| m.u8(3) as usize))
+            .unwrap_or(descriptor as usize);
+        let slot = out.entry(source).or_default();
         for &(overlay, transform) in refs.iter().skip(first).take(count) {
             let Some(Some(motion)) = usize::try_from(overlay).ok().and_then(|i| overlays.get(i)) else { continue };
             match transform {
@@ -1260,6 +1309,11 @@ mod tests {
         assert_eq!(template("one_alpha_env").transparent, 1);
         assert_eq!(template("plasma_alpha").transparent, 4);
         assert_eq!(template("one_add_two_plus_two").transparent, 1, "a product of its maps, alpha blended");
+        // Ascension's sky: the cloud cover's cloud map is bitmap 0 and its
+        // mask bitmap 1; the sun shafts' mask is bitmap 0, added.
+        assert_eq!(template("sky_two_alpha_clouds").slots, &["base", "mask"]);
+        assert_eq!(template("sky_one_add_illum_detail").slots, &["mask", "base"]);
+        assert_eq!(template("sky_one_add_illum_detail").transparent, 4);
         assert_eq!(template("tex_bump_env_illum_combined").slots[5], "self_illum");
     }
 
