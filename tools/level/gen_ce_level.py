@@ -201,6 +201,36 @@ H2_TITLES = {
 SOURCE_GAMES = {"halo_ce": "Halo: Combat Evolved", "halo2_mcc": "Halo 2"}
 
 
+# Halo 2's planar fog over what no surface covers (docs/h2_map_conversion.md,
+# "Planar fog"), as the loader's height fog (`environment.haze`) at the fog
+# plane: density and falloff (Unreal's units) and where it starts (cm), past
+# Ascension's cloud plane (1 km out), which Halo 2 draws unfogged. Tuned
+# against MCC on Ascension (2026-10-22).
+H2_FOG_FILL = {"density": 0.2, "falloff": 2.0, "start": 150000.0, "cutoff": 0, "max_opacity": 1.0}
+
+
+def h2_fog_fill(staging, to_ue):
+    """The background under a Halo 2 map's planar fog as `environment.haze`,
+    or None. The masters fog each surface below the plane, as Halo 2's
+    `fog_planar` pass does; Halo 2 also lays a depth copy there for its
+    full-screen fog shaders, and under Ascension's island MCC draws the fog's
+    colour wherever the view passes below the plane and finds no surface:
+    the rocks' fogged lower ends vanish into it. Ours showed the sky's dark
+    lower edge there and the rocks' ends stood out. A height fog at the plane
+    in the fog's colour fills it, past the level's own surfaces. A plane that
+    is not level gets none."""
+    try:
+        planes = json.load(open(os.path.join(staging, "fog.json"), encoding="utf-8")).get("planes") or []
+    except (OSError, ValueError):
+        return None
+    if not planes or planes[0]["plane"][2] < 0.99:
+        return None
+    p = planes[0]
+    i, j, k, d = p["plane"]
+    return {**H2_FOG_FILL, "height": to_ue([0.0, 0.0, d / k])[2],
+            "color": [round(srgb_to_linear(c), 6) for c in p["color"]]}
+
+
 def staging_source(staging):
     """The staging's `source` (halo2ue writes `halo_ce`; a staging from
     before the field existed is a CE one too)."""
@@ -1368,6 +1398,8 @@ def main():
         "environment": {**environment(blank["environment"], placement, scene, a.staging, bake,
                                       f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else None),
                         **sky_and_weather(placement, a.staging, to_ue),
+                        **({"haze": fill} if (fill := h2_fog_fill(a.staging, to_ue) if source == "halo2_mcc" else None)
+                           else {}),
                         **({"water": {"style": "ocean", **({"params": OCEAN_MAPS[name]} if OCEAN_MAPS[name] else {})}}
                            if name in OCEAN_MAPS else {}),
                         "post": {"tone_curve": 0.0, "expand_gamut": 0.0, "blue_correction": 0.0,

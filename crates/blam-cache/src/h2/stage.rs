@@ -680,6 +680,37 @@ fn stage_object_collision(
 }
 
 /// Stage `cache`'s scenario into `dir`.
+/// The BSP's planar fog as `fog.json`, in the terms tools/level/ce_fog.py
+/// writes a CE map's (`planes`: the plane in world units, fog below it, and
+/// its fog's colour, maximum density, opaque distance and opaque depth),
+/// for tools/level/ce_material_spec.py; `None` without one. Ascension's
+/// cloud deck, Lockout's mountain haze below the map, the water of Dune,
+/// Needle and Zanzibar. sbsp fog planes at 0x64 (i16 scenario planar fog
+/// index, i16 material, plane i, j, k, d); the scenario's planar fog
+/// palette at 0x348 (0x10: name, `fog ` reference 0x04, i16 material);
+/// `fog `: maximum density 0x0C, opaque distance 0x10, opaque depth 0x14
+/// (world units; Ascension's distance is 0: its fog thickens with depth
+/// alone), colour 0x24. Every multiplayer map has at most one plane.
+fn planar_fog(cache: &Cache, scnr: &Tag<'_>, sbsp: &Tag<'_>, notes: &mut Vec<String>) -> Option<Value> {
+    let plane = sbsp.root.block(0x64, 0x1C).get(0)?;
+    let index = plane.i16(0);
+    let entry = scnr.root.block(0x348, 0x10).get(usize::try_from(index).ok()?);
+    let Some(fog) = entry.and_then(|e| e.tagref(0x04)).and_then(|r| cache.follow(r)) else {
+        notes.push(format!("the BSP's fog plane names planar fog {index}, which the scenario does not have: no fog"));
+        return None;
+    };
+    let f = fog.root;
+    let [i, j, k] = plane.vec3(0x04);
+    Some(json!({"planes": [{
+        "tag": fog.name(),
+        "plane": [i, j, k, plane.f32(0x10)],
+        "color": f.vec3(0x24),
+        "max_density": f.f32(0x0C),
+        "opaque_distance": f.f32(0x10),
+        "opaque_depth": f.f32(0x14),
+    }]}))
+}
+
 pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
     for sub in ["bsp", "collision", "models", "textures"] {
         std::fs::create_dir_all(dir.join(sub)).map_err(|e| Error::Io(dir.join(sub), e))?;
@@ -709,6 +740,10 @@ pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
     let render = renderer.bsp(&sbsp, first)?;
     let placement = placements(cache, &scnr, dir, &mut summary, &mut renderer)?;
     write_json(&dir.join("placement.json"), &placement)?;
+    let fog = planar_fog(cache, &scnr, &sbsp, &mut summary.notes);
+    if let Some(fog) = fog {
+        write_json(&dir.join("fog.json"), &fog)?;
+    }
     let models = renderer.finish(&mut summary)?;
     // One note per fact, not per placement of the same prop.
     let mut seen = std::collections::BTreeSet::new();

@@ -214,6 +214,36 @@ multiplayer map has one light; Lockout's has no radiosity flags and its
 lightmaps' incident directions (yaw 78, pitch 48 degrees over flat ground)
 match the sky model's brightness, not the light.
 
+**Planar fog**: sbsp fog planes at 0x64 (i16 scenario planar fog index,
+i16 material, plane i, j, k, d; at most one, horizontal, on the 24 maps);
+the scenario's planar fog palette at 0x348 (0x10: name, `fog ` reference
+0x04, i16 material); `fog ` (0x60): flags 0x00 (bit 0 render only
+submerged geometry, bit 5 do not render unless submerged), priority 0x02,
+material 0x04 / 0x08, maximum density 0x0C, opaque distance 0x10, opaque
+depth 0x14 (world units), atmospheric-planar depth 0x18, eye offset scale
+0x20, colour 0x24, patchy fog block 0x30 (0x34: colour, density range
+0x18, distance range 0x20, minimum depth fraction 0x28, `fpch` 0x2C;
+Lockout's `clouds`, Dune's and Needle's `water`), background sound 0x38,
+sound environment 0x40. Eleven maps have a plane; Ascension's `big_fog`
+is density 1, distance 0, depth 18, (0.38, 0.41, 0.40) at z = -1.89, no
+patchy fog. Planar fog is drawn per surface by every opaque template's
+`fog_planar` pass (z-test equal over the lit surface); there is no
+fog-plane mesh or full-screen planar fog pass.
+
+**Shader animation** (halo2.dll): an overlay's value is lo + (hi - lo) x
+clamp01(f) with lo and hi at +4 and +8 and x = time / period, wrapped to
+0..1 except for periodic functions; f by byte 0: 0 identity (x), 1
+constant (0), 2 transition (lerp(+0x14, +0x18, g(x)), g the curve at byte
+2, 0 linear), 3 periodic (lerp(+0x1C, +0x20, P(x +0x14 + +0x18)), P the
+wave at byte 2, 6 slide = frac), 4 linear (x +0x24 + +0x28). Value
+records per texture slot hold uniform scale, scale u/v/w, translation
+u/v/w and rotation (turns); the constant writer (0x959380) builds the 2D
+affine rows as row 1 = (su cos, -su sin, 0, tu + 0.5 su ((1 - cos) +
+sin)), row 2 = (sv sin, sv cos, 0, tv + 0.5 sv ((1 - cos) - sin)): the
+translation is added. A constant descriptor: register bits 0-3, bank bit
+4, mask bits 5-9 (14 and 15 the affine rows), texture slot bits 10-12;
+the template's remapping table names each slot's bitmap.
+
 **Machines** (scnr +0xA8, 0x48 bytes: palette index 0x00, position 0x08,
 rotation 0x14, scale 0x20; power and position groups i16 0x34 / 0x36,
 device and machine flags 0x38 / 0x3C; palette +0xB0). The `mach` tag's

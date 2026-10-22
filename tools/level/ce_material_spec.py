@@ -856,8 +856,9 @@ def main():
         if halo.get("sky") and sky_origin and leaf.startswith(("M_CE_Transparent", "M_CE_WaterSky")):
             entry["scalars"]["SkyFollow"] = 1.0
             entry["vectors"]["SkyOrigin"] = sky_origin + [0.0]
-        if not halo.get("sky"):
-            # CE fogs the level, not its sky.
+        if not halo.get("sky") and s.get("fogged", True):
+            # CE fogs the level, not its sky (nor, in a Halo 2 staging, the
+            # transparents whose compiled shaders have no fog: `fogged`).
             entry["scalars"].update(fog.get("scalars", {}))
             entry["vectors"].update(fog.get("vectors", {}))
             # The planar fog (ce_fog.py): the masters that draw it.

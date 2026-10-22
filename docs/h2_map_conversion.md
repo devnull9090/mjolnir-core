@@ -103,8 +103,13 @@ units and axes, so every later step reads them unchanged:
   (`sky_one_add_illum_detail`: a mask's colour times its alpha, times a
   scrolling detail, tinted, added). Drawn as one map each, the cloud map
   covered the whole dome in flat grey and the shafts were white wedges. A
-  shader's scroll names a texture slot of its template; the template's
-  remapping table says which bitmap that is.
+  transparent template's textures, transforms and scrolls are read the way
+  halo2.dll reads them: a constant's descriptor names its texture slot
+  (bits 10-12) and row (bits 5-9: 14 and 15, the 2D affine rows), the
+  template's remapping table names each slot's bitmap, and an overlay's
+  function is evaluated as the engine's evaluator does (identity,
+  transition, periodic slide, linear with its own slope; the engine adds
+  the translation, as CE's masters add their animation).
 - **Sky.** The sky's lights (yaw, pitch, colour, power, diameter, whether
   the lightmaps used them), outdoor ambient and atmospheric fog go to the
   placement as halo2ue puts a CE sky's, so the level's sun, sky light and
@@ -125,6 +130,29 @@ units and axes, so every later step reads them unchanged:
   scenery and crates (`bloc`), staged with their
   render and collision models. Game-type props (the CTF and territory flag
   bases) are left out: the level's own CTF stands replace them.
+- **Planar fog.** A BSP's fog plane (Ascension's cloud deck, Lockout's
+  haze below the map, the water of Dune, Needle and Zanzibar) goes to
+  `fog.json` as `ce_fog.py` writes a CE map's, so the masters fog what lies
+  below the plane by its depth under it and its distance, as CE's planar
+  fog does. Halo 2 draws planar fog per surface only (every opaque
+  template's `fog_planar` pass; no fog-plane mesh, no full-screen pass), so
+  that is all there is to it. The cloud sea MCC shows under Ascension's
+  island, wisps drifting through it, is not fog: it is a transparent cloud
+  plane in the BSP 12.6 wu under the fog plane (`ascension_clouds`, a
+  `two_alpha_clouds` shader), a static disk of cloud puffs times a cloud
+  tile scrolled over it, drawn unfogged over the sky's lower half. Drawn as
+  one static grey map, it was the flat pale plane the rocks stood in.
+  Halo 2's transparent templates other than glass have no fog in their
+  compiled shaders, so they go in `fogged: false` and the material spec
+  leaves their fog out. Where the view passes below the plane and finds no
+  surface, MCC draws the fog's colour (its fog pass lays a depth copy for
+  the engine's full-screen fog shaders): the rocks' fogged lower ends vanish
+  into it, where ours stood out against the sky's dark lower edge. A level
+  plane gets that as the loader's height fog at the plane, in the fog's
+  colour, starting 1.5 km out past the cloud plane
+  (`gen_ce_level.h2_fog_fill`, `environment.haze`). The plane names its fog through the scenario's
+  planar fog palette; Beaver Creek's names an entry the scenario does not
+  have and gets none.
 - **Machines.** A gear whose device animation turns its one node about its
   own vertical axis (Ascension's three antennas, the big arms that swing
   around the central pillar every 40 s) is placed like scenery, with its
