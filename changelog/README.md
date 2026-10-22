@@ -57,7 +57,11 @@ and having five slightly different accounts of the same release.
   `### Known issues`. Use the ones that apply, in that order. Bullets are
   sentences, not commit subjects.
 
-Everything else is ordinary Markdown and renders on the hub.
+Everything else is ordinary Markdown and renders on the hub. The
+`**Date:**`/`**Summary:**` block ends at the first blank line after it, so keep
+those lines together; the body below may open with a bold sentence. (Before
+2026-10-21 the block ran on past blank lines, and launcher 0.3.2 lost its bold
+opening line to it.)
 
 ## Writing for a player, not for us
 
@@ -83,8 +87,10 @@ read about a release.
 2. Bump the version in the product's manifest, in the same commit.
 3. Merge, then tag.
 
-`scripts/check-changelog.mjs` runs first in every release workflow and fails the
-release if the pushed tag has no entry, so a release without one cannot ship.
+`scripts/check-changelog.mjs` runs in every release workflow before anything is
+signed or published (the mods release builds its native DLLs and game types
+first), and fails the release if the pushed tag has no entry, so a release
+without one cannot ship.
 Run it yourself before tagging:
 
 ```bash
