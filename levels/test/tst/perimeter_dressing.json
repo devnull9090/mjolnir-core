@@ -1,0 +1,3244 @@
+{
+  "schema_version": 1,
+  "coordinates": "unreal_centimetres",
+  "note": "Native game geology; same authored transforms feed preview and runtime. No extracted meshes in source.",
+  "decor": [
+    {
+      "id": "tst_geology_000",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -7700.0,
+        4600,
+        -200.0
+      ],
+      "rot": [
+        0,
+        90,
+        6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.2000000000000002
+      ]
+    },
+    {
+      "id": "tst_geology_001",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -7819.0,
+        3100,
+        -115.853
+      ],
+      "rot": [
+        0,
+        71,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.154030230586814
+      ]
+    },
+    {
+      "id": "tst_geology_002",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -8069.335,
+        1600,
+        -109.07
+      ],
+      "rot": [
+        0,
+        52,
+        -6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.0583853163452859
+      ]
+    },
+    {
+      "id": "tst_geology_003",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -7988.902,
+        100,
+        -185.888
+      ],
+      "rot": [
+        0,
+        33,
+        6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.0010007503399556
+      ]
+    },
+    {
+      "id": "tst_geology_004",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -8159.294,
+        -1400,
+        -275.68
+      ],
+      "rot": [
+        0,
+        14,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.034635637913639
+      ]
+    },
+    {
+      "id": "tst_geology_005",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -7795.818,
+        -2900,
+        -295.892
+      ],
+      "rot": [
+        0,
+        -5,
+        -6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.1283662185463228
+      ]
+    },
+    {
+      "id": "tst_geology_006",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -7616.015,
+        -4400,
+        -227.942
+      ],
+      "rot": [
+        0,
+        -24,
+        6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.1960170286650367
+      ]
+    },
+    {
+      "id": "tst_geology_007",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -7300,
+        -200,
+        1150.0
+      ],
+      "rot": [
+        0,
+        90,
+        0
+      ],
+      "scale": [
+        0.7,
+        0.8,
+        0.75
+      ]
+    },
+    {
+      "id": "tst_geology_008",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        7700.0,
+        4600,
+        -200.0
+      ],
+      "rot": [
+        0,
+        -90,
+        -6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.2000000000000002
+      ]
+    },
+    {
+      "id": "tst_geology_009",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        7819.0,
+        3100,
+        -115.853
+      ],
+      "rot": [
+        0,
+        -109,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.154030230586814
+      ]
+    },
+    {
+      "id": "tst_geology_010",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        8069.335,
+        1600,
+        -109.07
+      ],
+      "rot": [
+        0,
+        -128,
+        6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.0583853163452859
+      ]
+    },
+    {
+      "id": "tst_geology_011",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        7988.902,
+        100,
+        -185.888
+      ],
+      "rot": [
+        0,
+        -147,
+        -6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.0010007503399556
+      ]
+    },
+    {
+      "id": "tst_geology_012",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        8159.294,
+        -1400,
+        -275.68
+      ],
+      "rot": [
+        0,
+        -166,
+        0
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.034635637913639
+      ]
+    },
+    {
+      "id": "tst_geology_013",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        7795.818,
+        -2900,
+        -295.892
+      ],
+      "rot": [
+        0,
+        -185,
+        6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.1283662185463228
+      ]
+    },
+    {
+      "id": "tst_geology_014",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        7616.015,
+        -4400,
+        -227.942
+      ],
+      "rot": [
+        0,
+        -204,
+        -6
+      ],
+      "scale": [
+        0.75,
+        0.76,
+        1.1960170286650367
+      ]
+    },
+    {
+      "id": "tst_geology_015",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        7300,
+        -200,
+        1150.0
+      ],
+      "rot": [
+        0,
+        -90,
+        0
+      ],
+      "scale": [
+        0.7,
+        0.8,
+        0.75
+      ]
+    },
+    {
+      "id": "tst_geology_016",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -9000,
+        5000.0,
+        -1700
+      ],
+      "rot": [
+        0,
+        0,
+        18.0
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1
+      ]
+    },
+    {
+      "id": "tst_geology_017",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -7800,
+        4824.707,
+        -1700
+      ],
+      "rot": [
+        0,
+        -31,
+        28.097651817694757
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1589029689365529
+      ]
+    },
+    {
+      "id": "tst_geology_018",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -6600,
+        5079.654,
+        -1700
+      ],
+      "rot": [
+        0,
+        -62,
+        28.91156912190818
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1636508198777977
+      ]
+    },
+    {
+      "id": "tst_geology_019",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -5400,
+        5139.098,
+        -1700
+      ],
+      "rot": [
+        0,
+        -93,
+        19.693440096718405
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1098784005641908
+      ]
+    },
+    {
+      "id": "tst_geology_020",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -4200,
+        4857.14,
+        -1700
+      ],
+      "rot": [
+        0,
+        -124,
+        8.918370056304862
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.0470238253284452
+      ]
+    },
+    {
+      "id": "tst_geology_021",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -3000,
+        4925.819,
+        -1700
+      ],
+      "rot": [
+        0,
+        -155,
+        6.492908704042339
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.0328753007735805
+      ]
+    },
+    {
+      "id": "tst_geology_022",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -1800,
+        5176.569,
+        -1700
+      ],
+      "rot": [
+        0,
+        -186,
+        14.64701402161289
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.0804409151260752
+      ]
+    },
+    {
+      "id": "tst_geology_023",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -600,
+        4993.948,
+        -1700
+      ],
+      "rot": [
+        0,
+        -217,
+        25.88383918462547
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1459890619103152
+      ]
+    },
+    {
+      "id": "tst_geology_024",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        600,
+        4826.182,
+        -1700
+      ],
+      "rot": [
+        0,
+        -248,
+        29.87229895948058
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1692550772636368
+      ]
+    },
+    {
+      "id": "tst_geology_025",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        1800,
+        5085.036,
+        -1700
+      ],
+      "rot": [
+        0,
+        -279,
+        22.94542182290108
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.128848293966923
+      ]
+    },
+    {
+      "id": "tst_geology_026",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        3000,
+        5135.178,
+        -1700
+      ],
+      "rot": [
+        0,
+        -310,
+        11.471746669327562
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.0619185222377443
+      ]
+    },
+    {
+      "id": "tst_geology_027",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        4200,
+        4853.539,
+        -2000
+      ],
+      "rot": [
+        0,
+        -341,
+        6.000117521391559
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.0300006855414507
+      ]
+    },
+    {
+      "id": "tst_geology_028",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        5400,
+        4931.375,
+        -1700
+      ],
+      "rot": [
+        0,
+        -372,
+        11.56112498399478
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.0624398957399697
+      ]
+    },
+    {
+      "id": "tst_geology_029",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        6600,
+        5177.645,
+        -1700
+      ],
+      "rot": [
+        0,
+        -403,
+        23.04200444191969
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.129411692577865
+      ]
+    },
+    {
+      "id": "tst_geology_030",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        7800,
+        4987.903,
+        -1700
+      ],
+      "rot": [
+        0,
+        -434,
+        29.887288268338445
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.169342514898641
+      ]
+    },
+    {
+      "id": "tst_geology_031",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        9000,
+        4827.852,
+        -1700
+      ],
+      "rot": [
+        0,
+        -465,
+        25.803454081885402
+      ],
+      "scale": [
+        0.68,
+        0.78,
+        1.1455201488109983
+      ]
+    },
+    {
+      "id": "tst_geology_032",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -6800,
+        4500.0,
+        -50.0
+      ],
+      "rot": [
+        0,
+        -15,
+        -18
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_033",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -4700,
+        4600.977,
+        50.0
+      ],
+      "rot": [
+        0,
+        -62,
+        0
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_034",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -2600,
+        4609.116,
+        150.0
+      ],
+      "rot": [
+        0,
+        -109,
+        18
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_035",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -700,
+        4516.934,
+        -50.0
+      ],
+      "rot": [
+        0,
+        -156,
+        -18
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_036",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        1600,
+        4409.184,
+        50.0
+      ],
+      "rot": [
+        0,
+        -203,
+        0
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_037",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        4400,
+        4384.929,
+        150.0
+      ],
+      "rot": [
+        0,
+        -250,
+        18
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_038",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        6600,
+        4466.47,
+        -50.0
+      ],
+      "rot": [
+        0,
+        -297,
+        -18
+      ],
+      "scale": [
+        0.58,
+        0.48,
+        0.38
+      ]
+    },
+    {
+      "id": "tst_geology_039",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -8500,
+        -5600.0,
+        200.0
+      ],
+      "rot": [
+        0,
+        0,
+        0.0
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_040",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -6400,
+        -5768.294,
+        -45.44
+      ],
+      "rot": [
+        0,
+        -59,
+        6.731767878463172
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_041",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -4300,
+        -5781.859,
+        -179.352
+      ],
+      "rot": [
+        0,
+        -118,
+        7.274379414605454
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_042",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        -2200,
+        -5628.224,
+        126.939
+      ],
+      "rot": [
+        0,
+        -177,
+        1.1289600644789377
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_043",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -100,
+        -5448.64,
+        121.67
+      ],
+      "rot": [
+        0,
+        -236,
+        -6.054419962463426
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_044",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        2000,
+        -5408.215,
+        -182.226
+      ],
+      "rot": [
+        0,
+        -295,
+        -7.671394197305108
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_045",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        4100,
+        -5544.117,
+        -38.866
+      ],
+      "rot": [
+        0,
+        -354,
+        -2.235323985591407
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_046",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        6200,
+        -5731.397,
+        199.887
+      ],
+      "rot": [
+        0,
+        -413,
+        5.2558927897503125
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_047",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        8300,
+        -5797.872,
+        -51.963
+      ],
+      "rot": [
+        0,
+        -472,
+        7.914865972987054
+      ],
+      "scale": [
+        0.95,
+        0.8,
+        0.72
+      ]
+    },
+    {
+      "id": "tst_geology_048",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        -6600,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -82,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_049",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        -4900,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -90,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_050",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        -3200,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -98,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_051",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        -1500,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -82,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_052",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        200,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -90,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_053",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        1900,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -98,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_054",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        3600,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -82,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_055",
+      "mesh": "/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B",
+      "pos": [
+        5300,
+        -3260.0,
+        370.0
+      ],
+      "rot": [
+        0,
+        -90,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.65,
+        0.8
+      ]
+    },
+    {
+      "id": "tst_geology_056",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        -6400,
+        -2880.0,
+        125.0
+      ],
+      "rot": [
+        -14,
+        -24,
+        -18
+      ],
+      "scale": [
+        2.32,
+        1.52,
+        1.056
+      ]
+    },
+    {
+      "id": "tst_geology_057",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -6150.0,
+        -2700.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -16,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_058",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -5400,
+        -2910.0,
+        125.0
+      ],
+      "rot": [
+        11,
+        -85,
+        0
+      ],
+      "scale": [
+        1.9575,
+        1.2825,
+        0.8910000000000001
+      ]
+    },
+    {
+      "id": "tst_geology_059",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -5690.0,
+        -2730.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -109,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_060",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        -4500,
+        -2940.0,
+        125.0
+      ],
+      "rot": [
+        -14,
+        -146,
+        18
+      ],
+      "scale": [
+        2.2475,
+        1.4725,
+        1.0230000000000001
+      ]
+    },
+    {
+      "id": "tst_geology_061",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -4250.0,
+        -2760.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -202,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_062",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -2100,
+        -2880.0,
+        125.0
+      ],
+      "rot": [
+        11,
+        -207,
+        -18
+      ],
+      "scale": [
+        2.3924999999999996,
+        1.5675,
+        1.089
+      ]
+    },
+    {
+      "id": "tst_geology_063",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -2390.0,
+        -2700.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -295,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_064",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        -800,
+        -2960.0,
+        125.0
+      ],
+      "rot": [
+        -14,
+        -268,
+        0
+      ],
+      "scale": [
+        2.03,
+        1.3299999999999998,
+        0.9239999999999999
+      ]
+    },
+    {
+      "id": "tst_geology_065",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -550.0,
+        -2780.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -388,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_066",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        400,
+        -2910.0,
+        125.0
+      ],
+      "rot": [
+        11,
+        -329,
+        18
+      ],
+      "scale": [
+        2.32,
+        1.52,
+        1.056
+      ]
+    },
+    {
+      "id": "tst_geology_067",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        110.0,
+        -2730.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -481,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_068",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        1900,
+        -2970.0,
+        125.0
+      ],
+      "rot": [
+        -14,
+        -390,
+        -18
+      ],
+      "scale": [
+        1.9575,
+        1.2825,
+        0.8910000000000001
+      ]
+    },
+    {
+      "id": "tst_geology_069",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        2150.0,
+        -2790.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -574,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_070",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4600,
+        -2900.0,
+        125.0
+      ],
+      "rot": [
+        11,
+        -451,
+        0
+      ],
+      "scale": [
+        2.465,
+        1.615,
+        1.122
+      ]
+    },
+    {
+      "id": "tst_geology_071",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        4310.0,
+        -2720.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -667,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_072",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        5600,
+        -2950.0,
+        125.0
+      ],
+      "rot": [
+        -14,
+        -512,
+        18
+      ],
+      "scale": [
+        1.8125,
+        1.1875,
+        0.8250000000000001
+      ]
+    },
+    {
+      "id": "tst_geology_073",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        5850.0,
+        -2770.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -760,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_074",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        6500,
+        -2880.0,
+        125.0
+      ],
+      "rot": [
+        11,
+        -573,
+        -18
+      ],
+      "scale": [
+        2.175,
+        1.4249999999999998,
+        0.99
+      ]
+    },
+    {
+      "id": "tst_geology_075",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        6210.0,
+        -2700.0,
+        65.0
+      ],
+      "rot": [
+        -9,
+        -853,
+        22
+      ],
+      "scale": [
+        1.35,
+        1.1,
+        0.9
+      ]
+    },
+    {
+      "id": "tst_geology_076",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -6200,
+        -2540.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -28,
+        5
+      ],
+      "scale": [
+        0.4928,
+        0.33440000000000003,
+        0.21120000000000003
+      ]
+    },
+    {
+      "id": "tst_geology_077",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -4250.0,
+        -2890.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -85,
+        -5
+      ],
+      "scale": [
+        0.40319999999999995,
+        0.27359999999999995,
+        0.17279999999999998
+      ]
+    },
+    {
+      "id": "tst_geology_078",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -2200,
+        -2550.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -142,
+        5
+      ],
+      "scale": [
+        0.4704,
+        0.3192,
+        0.2016
+      ]
+    },
+    {
+      "id": "tst_geology_079",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        -700,
+        -2710.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -199,
+        -5
+      ],
+      "scale": [
+        0.3584,
+        0.2432,
+        0.1536
+      ]
+    },
+    {
+      "id": "tst_geology_080",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        1300,
+        -2570.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -256,
+        5
+      ],
+      "scale": [
+        0.5376,
+        0.3648,
+        0.2304
+      ]
+    },
+    {
+      "id": "tst_geology_081",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        4500,
+        -2620.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -313,
+        -5
+      ],
+      "scale": [
+        0.44800000000000006,
+        0.30400000000000005,
+        0.19200000000000003
+      ]
+    },
+    {
+      "id": "tst_geology_082",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        6300,
+        -2530.0,
+        15.0
+      ],
+      "rot": [
+        5,
+        -370,
+        5
+      ],
+      "scale": [
+        0.3808,
+        0.2584,
+        0.1632
+      ]
+    },
+    {
+      "id": "tst_geology_083",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -2610.0,
+        -2670.0,
+        145.0
+      ],
+      "rot": [
+        -12,
+        -31,
+        14
+      ],
+      "scale": [
+        1.4375,
+        1.9375,
+        1.1875
+      ]
+    },
+    {
+      "id": "tst_geology_084",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -2680.0,
+        -2345.0,
+        62.0
+      ],
+      "rot": [
+        8,
+        -105,
+        -19
+      ],
+      "scale": [
+        1.2,
+        1.35,
+        0.85
+      ]
+    },
+    {
+      "id": "tst_geology_085",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -2560.0,
+        -2180.0,
+        28.0
+      ],
+      "rot": [
+        -17,
+        -158,
+        21
+      ],
+      "scale": [
+        0.52,
+        0.68,
+        0.43
+      ]
+    },
+    {
+      "id": "tst_geology_086",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        -4010.0,
+        -2560.0,
+        170.0
+      ],
+      "rot": [
+        -12,
+        -83,
+        14
+      ],
+      "scale": [
+        1.265,
+        1.7050000000000003,
+        1.045
+      ]
+    },
+    {
+      "id": "tst_geology_087",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        -4080.0,
+        -2235.0,
+        62.0
+      ],
+      "rot": [
+        8,
+        -157,
+        -19
+      ],
+      "scale": [
+        1.2,
+        1.35,
+        0.85
+      ]
+    },
+    {
+      "id": "tst_geology_088",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -4180.0,
+        -2070.0,
+        28.0
+      ],
+      "rot": [
+        -17,
+        -210,
+        21
+      ],
+      "scale": [
+        0.52,
+        0.68,
+        0.43
+      ]
+    },
+    {
+      "id": "tst_geology_089",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2600.0,
+        -2610.0,
+        170.0
+      ],
+      "rot": [
+        -12,
+        -145,
+        14
+      ],
+      "scale": [
+        1.3224999999999998,
+        1.7825,
+        1.0924999999999998
+      ]
+    },
+    {
+      "id": "tst_geology_090",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        2670.0,
+        -2285.0,
+        62.0
+      ],
+      "rot": [
+        8,
+        -219,
+        -19
+      ],
+      "scale": [
+        1.2,
+        1.35,
+        0.85
+      ]
+    },
+    {
+      "id": "tst_geology_091",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2790.0,
+        -2120.0,
+        28.0
+      ],
+      "rot": [
+        -17,
+        -272,
+        21
+      ],
+      "scale": [
+        0.52,
+        0.68,
+        0.43
+      ]
+    },
+    {
+      "id": "tst_geology_092",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        4040.0,
+        -2700.0,
+        130.0
+      ],
+      "rot": [
+        -12,
+        -207,
+        14
+      ],
+      "scale": [
+        1.4375,
+        1.9375,
+        1.1875
+      ]
+    },
+    {
+      "id": "tst_geology_093",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        4110.0,
+        -2375.0,
+        62.0
+      ],
+      "rot": [
+        8,
+        -281,
+        -19
+      ],
+      "scale": [
+        1.2,
+        1.35,
+        0.85
+      ]
+    },
+    {
+      "id": "tst_geology_094",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4010.0,
+        -2210.0,
+        28.0
+      ],
+      "rot": [
+        -17,
+        -334,
+        21
+      ],
+      "scale": [
+        0.52,
+        0.68,
+        0.43
+      ]
+    },
+    {
+      "id": "tst_geology_095",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -6300,
+        3540.0,
+        147.89
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.675,
+        0.45,
+        0.3825
+      ]
+    },
+    {
+      "id": "tst_geology_096",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -5600,
+        3464.296,
+        -0.289
+      ],
+      "rot": [
+        0,
+        -53,
+        0
+      ],
+      "scale": [
+        0.8692221074959965,
+        0.579481404997331,
+        0.49255919424773137
+      ]
+    },
+    {
+      "id": "tst_geology_097",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -4900,
+        3588.949,
+        7.497
+      ],
+      "rot": [
+        0,
+        -106,
+        0
+      ],
+      "scale": [
+        0.47889545120694266,
+        0.31926363413796177,
+        0.2713740890172675
+      ]
+    },
+    {
+      "id": "tst_geology_098",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -4200,
+        3584.055,
+        20.427
+      ],
+      "rot": [
+        0,
+        -159,
+        0
+      ],
+      "scale": [
+        0.678783127608979,
+        0.4525220850726526,
+        0.38464377231175473
+      ]
+    },
+    {
+      "id": "tst_geology_099",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -3500,
+        3462.566,
+        30.037
+      ],
+      "rot": [
+        0,
+        -212,
+        0
+      ],
+      "scale": [
+        0.8672847543198631,
+        0.578189836213242,
+        0.49146136078125574
+      ]
+    },
+    {
+      "id": "tst_geology_100",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -2800,
+        3546.012,
+        25.095
+      ],
+      "rot": [
+        0,
+        -265,
+        0
+      ],
+      "scale": [
+        0.47706845400637427,
+        0.3180456360042495,
+        0.2703387906036121
+      ]
+    },
+    {
+      "id": "tst_geology_101",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -2100,
+        3613.546,
+        277.465
+      ],
+      "rot": [
+        0,
+        -318,
+        0
+      ],
+      "scale": [
+        0.6825651856247562,
+        0.4550434570831708,
+        0.3867869385206952
+      ]
+    },
+    {
+      "id": "tst_geology_102",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -1400,
+        3486.434,
+        1.049
+      ],
+      "rot": [
+        0,
+        -371,
+        0
+      ],
+      "scale": [
+        0.86529303700716,
+        0.57686202467144,
+        0.490332720970724
+      ]
+    },
+    {
+      "id": "tst_geology_103",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -700,
+        3501.088,
+        2.606
+      ],
+      "rot": [
+        0,
+        -424,
+        0
+      ],
+      "scale": [
+        0.47529741744416154,
+        0.31686494496277434,
+        0.2693352032183582
+      ]
+    },
+    {
+      "id": "tst_geology_104",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        0,
+        3618.725,
+        15.0
+      ],
+      "rot": [
+        0,
+        -477,
+        0
+      ],
+      "scale": [
+        0.6863451047565333,
+        0.45756340317102223,
+        0.3889288926953689
+      ]
+    },
+    {
+      "id": "tst_geology_105",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        700,
+        3528.01,
+        27.133
+      ],
+      "rot": [
+        0,
+        -530,
+        0
+      ],
+      "scale": [
+        0.8632475186706126,
+        0.5754983457804084,
+        0.4891735939133471
+      ]
+    },
+    {
+      "id": "tst_geology_106",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        1400,
+        3469.027,
+        29.107
+      ],
+      "rot": [
+        0,
+        -583,
+        0
+      ],
+      "scale": [
+        0.47358284224057157,
+        0.3157218948270477,
+        0.2683636106029905
+      ]
+    },
+    {
+      "id": "tst_geology_107",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2100,
+        3597.88,
+        17.727
+      ],
+      "rot": [
+        0,
+        -636,
+        0
+      ],
+      "scale": [
+        0.6901218163182327,
+        0.46008121087882176,
+        0.3910690292469985
+      ]
+    },
+    {
+      "id": "tst_geology_108",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2800,
+        3573.549,
+        5.177
+      ],
+      "rot": [
+        0,
+        -689,
+        0
+      ],
+      "scale": [
+        0.8611487776339601,
+        0.5740991850893068,
+        0.48798430732591075
+      ]
+    },
+    {
+      "id": "tst_geology_109",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        3500,
+        3460.428,
+        39.409
+      ],
+      "rot": [
+        0,
+        -742,
+        0
+      ],
+      "scale": [
+        0.47192521315270797,
+        0.314616808768472,
+        0.2674242874532012
+      ]
+    },
+    {
+      "id": "tst_geology_110",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4200,
+        3557.9,
+        9.423
+      ],
+      "rot": [
+        0,
+        -795,
+        0
+      ],
+      "scale": [
+        0.6938942525306431,
+        0.46259616835376205,
+        0.39320674310069775
+      ]
+    },
+    {
+      "id": "tst_geology_111",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4900,
+        3607.998,
+        126.496
+      ],
+      "rot": [
+        0,
+        -848,
+        0
+      ],
+      "scale": [
+        0.8589974072684494,
+        0.5726649381789662,
+        0.48676519745212127
+      ]
+    },
+    {
+      "id": "tst_geology_112",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        5600,
+        3478.134,
+        30.16
+      ],
+      "rot": [
+        0,
+        -901,
+        0
+      ],
+      "scale": [
+        0.47032499883745615,
+        0.3135499992249708,
+        0.26651749934122515
+      ]
+    },
+    {
+      "id": "tst_geology_113",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        6300,
+        3512.004,
+        23.415
+      ],
+      "rot": [
+        0,
+        -954,
+        0
+      ],
+      "scale": [
+        0.6976613468233142,
+        0.46510756454887614,
+        0.3953414298665447
+      ]
+    },
+    {
+      "id": "tst_geology_114",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -6380.0,
+        2900,
+        29.583
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_115",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -6422.074,
+        2400,
+        36.021
+      ],
+      "rot": [
+        0,
+        -71,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_116",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -6425.465,
+        -2300,
+        107.437
+      ],
+      "rot": [
+        0,
+        -142,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_117",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        -6387.056,
+        -2800,
+        269.324
+      ],
+      "rot": [
+        0,
+        -213,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_118",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        6380.0,
+        2900,
+        40.417
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_119",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        6422.074,
+        2400,
+        33.979
+      ],
+      "rot": [
+        0,
+        -71,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_120",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        6425.465,
+        -2300,
+        32.765
+      ],
+      "rot": [
+        0,
+        -142,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_121",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        6387.056,
+        -2800,
+        235.725
+      ],
+      "rot": [
+        0,
+        -213,
+        0
+      ],
+      "scale": [
+        0.65,
+        0.8,
+        0.55
+      ]
+    },
+    {
+      "id": "tst_geology_122",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        4987.132,
+        2300.0,
+        9.143
+      ],
+      "rot": [
+        -11,
+        0,
+        0.0
+      ],
+      "scale": [
+        0.952,
+        0.68,
+        0.42160000000000003
+      ]
+    },
+    {
+      "id": "tst_geology_123",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        5032.132,
+        2395.0,
+        53.184
+      ],
+      "rot": [
+        -14,
+        0,
+        17
+      ],
+      "scale": [
+        0.44200000000000006,
+        0.34,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_124",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        5032.132,
+        2220.0,
+        -6.557
+      ],
+      "rot": [
+        -14,
+        -94,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_125",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4807.204,
+        1856.966,
+        12.088
+      ],
+      "rot": [
+        -11,
+        -142,
+        13.639461402385226
+      ],
+      "scale": [
+        0.7028778339665477,
+        0.5020555956903913,
+        0.3112744693280426
+      ]
+    },
+    {
+      "id": "tst_geology_126",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4036.84,
+        1431.269,
+        9.529
+      ],
+      "rot": [
+        -11,
+        -355,
+        -14.383864119947077
+      ],
+      "scale": [
+        0.8362602659606733,
+        0.597328761400481,
+        0.3703438320682982
+      ]
+    },
+    {
+      "id": "tst_geology_127",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        3674.769,
+        1405.663,
+        42.362
+      ],
+      "rot": [
+        -11,
+        -426,
+        -4.191232472983888
+      ],
+      "scale": [
+        0.8021025326605868,
+        0.5729303804718477,
+        0.3552168358925456
+      ]
+    },
+    {
+      "id": "tst_geology_128",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3772.348,
+        1366.569,
+        62.838
+      ],
+      "rot": [
+        -14,
+        -486,
+        17
+      ],
+      "scale": [
+        0.44200000000000006,
+        0.34,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_129",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3597.677,
+        1355.845,
+        58.489
+      ],
+      "rot": [
+        -14,
+        -580,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_130",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        3335.032,
+        1455.851,
+        -2.693
+      ],
+      "rot": [
+        -11,
+        -497,
+        9.854798980781837
+      ],
+      "scale": [
+        0.5209942527836187,
+        0.37213875198829904,
+        0.2307260262327454
+      ]
+    },
+    {
+      "id": "tst_geology_131",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3417.496,
+        1390.662,
+        30.284
+      ],
+      "rot": [
+        -14,
+        -567,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_132",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3246.968,
+        1429.97,
+        15.261
+      ],
+      "rot": [
+        -14,
+        -661,
+        17
+      ],
+      "scale": [
+        0.65,
+        0.5,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_133",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        3127.714,
+        1479.389,
+        14.731
+      ],
+      "rot": [
+        -11,
+        -568,
+        14.840373699350726
+      ],
+      "scale": [
+        0.9297433986141882,
+        0.664102427581563,
+        0.41174350510056906
+      ]
+    },
+    {
+      "id": "tst_geology_134",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2499.616,
+        2582.562,
+        10.402
+      ],
+      "rot": [
+        -11,
+        -994,
+        14.859110335423056
+      ],
+      "scale": [
+        0.8866016016126104,
+        0.6332868582947218,
+        0.3926378521427275
+      ]
+    },
+    {
+      "id": "tst_geology_135",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        2574.55,
+        2851.493,
+        -0.851
+      ],
+      "rot": [
+        -11,
+        -1065,
+        9.754317602356753
+      ],
+      "scale": [
+        0.5043704450514817,
+        0.36026460360820123,
+        0.22336405423708475
+      ]
+    },
+    {
+      "id": "tst_geology_136",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        2482.115,
+        2801.436,
+        40.87
+      ],
+      "rot": [
+        -14,
+        -1215,
+        17
+      ],
+      "scale": [
+        0.44200000000000006,
+        0.34,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_137",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        2585.512,
+        2942.624,
+        18.466
+      ],
+      "rot": [
+        -14,
+        -1309,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_138",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2802.584,
+        3063.405,
+        16.423
+      ],
+      "rot": [
+        -11,
+        -1136,
+        -4.318549749975979
+      ],
+      "scale": [
+        0.8673964186107429,
+        0.619568870436245,
+        0.38413269967047187
+      ]
+    },
+    {
+      "id": "tst_geology_139",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        2997.985,
+        3147.634,
+        20.76
+      ],
+      "rot": [
+        -11,
+        -1207,
+        -14.420962378193352
+      ],
+      "scale": [
+        0.7658765726032736,
+        0.547054694716624,
+        0.3391739107243069
+      ]
+    },
+    {
+      "id": "tst_geology_140",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        2892.944,
+        3143.6,
+        21.67
+      ],
+      "rot": [
+        -14,
+        -1377,
+        17
+      ],
+      "scale": [
+        0.65,
+        0.5,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_141",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3048.107,
+        3224.529,
+        22.989
+      ],
+      "rot": [
+        -14,
+        -1471,
+        17
+      ],
+      "scale": [
+        0.44200000000000006,
+        0.34,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_142",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        3359.43,
+        3249.49,
+        -3.623
+      ],
+      "rot": [
+        -11,
+        -1278,
+        -11.264808701575143
+      ],
+      "scale": [
+        0.538131077201607,
+        0.38437934085829073,
+        0.23831519133214024
+      ]
+    },
+    {
+      "id": "tst_geology_143",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3257.801,
+        3276.352,
+        3.948
+      ],
+      "rot": [
+        -14,
+        -1458,
+        17
+      ],
+      "scale": [
+        0.44200000000000006,
+        0.34,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_144",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        3429.848,
+        3308.365,
+        -3.765
+      ],
+      "rot": [
+        -14,
+        -1552,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_145",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        3735.885,
+        3302.746,
+        17.423
+      ],
+      "rot": [
+        -11,
+        -1349,
+        2.248158144944285
+      ],
+      "scale": [
+        0.9431336482903259,
+        0.6736668916359471,
+        0.4176734728142872
+      ]
+    },
+    {
+      "id": "tst_geology_146",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        4284.133,
+        3082.501,
+        4.107
+      ],
+      "rot": [
+        -11,
+        -1491,
+        12.54983457804084
+      ],
+      "scale": [
+        0.6418678628276924,
+        0.45847704487692315,
+        0.28425576782369233
+      ]
+    },
+    {
+      "id": "tst_geology_147",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4449.278,
+        2844.896,
+        11.224
+      ],
+      "rot": [
+        -11,
+        -1562,
+        -0.13276963935605815
+      ],
+      "scale": [
+        0.9395834149731764,
+        0.671131010695126,
+        0.41610122663097815
+      ]
+    },
+    {
+      "id": "tst_geology_148",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        4420.662,
+        2946.045,
+        3.598
+      ],
+      "rot": [
+        -14,
+        -1782,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_149",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        4535.801,
+        2814.257,
+        11.118
+      ],
+      "rot": [
+        -14,
+        -1876,
+        17
+      ],
+      "scale": [
+        0.65,
+        0.5,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_150",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B",
+      "pos": [
+        4552.659,
+        2723.366,
+        -0.745
+      ],
+      "rot": [
+        -11,
+        -1633,
+        -12.69330606262756
+      ],
+      "scale": [
+        0.5321862253780559,
+        0.3801330181271828,
+        0.23568247123885333
+      ]
+    },
+    {
+      "id": "tst_geology_151",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_Rock_Uluwatu_Med_C",
+      "pos": [
+        4811.971,
+        2522.807,
+        49.943
+      ],
+      "rot": [
+        -11,
+        -1704,
+        -13.583675430099357
+      ],
+      "scale": [
+        0.7773486303606094,
+        0.5552490216861496,
+        0.34425439344541275
+      ]
+    },
+    {
+      "id": "tst_geology_152",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        4832.554,
+        2625.891,
+        23.103
+      ],
+      "rot": [
+        -14,
+        -1944,
+        17
+      ],
+      "scale": [
+        0.44200000000000006,
+        0.34,
+        0.32
+      ]
+    },
+    {
+      "id": "tst_geology_153",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_A/SM_Rock_Uluwatu_Med_A.SM_Rock_Uluwatu_Med_A",
+      "pos": [
+        4875.051,
+        2456.13,
+        5.376
+      ],
+      "rot": [
+        -14,
+        -2038,
+        17
+      ],
+      "scale": [
+        0.546,
+        0.42000000000000004,
+        0.32
+      ]
+    }
+  ],
+  "leaf_cluster_scale": 1.43,
+  "background_trees": [
+    {
+      "id": "tst_ridge_tree_0_0",
+      "position_m": [
+        -75.3,
+        54.0,
+        19.0
+      ],
+      "yaw_degrees": 0,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_0_1",
+      "position_m": [
+        -73.0,
+        55.4874972156787,
+        19.0
+      ],
+      "yaw_degrees": 47,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_0_2",
+      "position_m": [
+        -70.7,
+        53.616688346959755,
+        19.0
+      ],
+      "yaw_degrees": 94,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_1_0",
+      "position_m": [
+        -59.3,
+        55.26220647721185,
+        18.54030230586814
+      ],
+      "yaw_degrees": 73,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_1_1",
+      "position_m": [
+        -57.0,
+        54.641069820350744,
+        18.54030230586814
+      ],
+      "yaw_degrees": 120,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_1_2",
+      "position_m": [
+        -54.7,
+        52.57259688916572,
+        18.54030230586814
+      ],
+      "yaw_degrees": 167,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_1_3",
+      "position_m": [
+        -52.4,
+        53.72675624359186,
+        18.54030230586814
+      ],
+      "yaw_degrees": 214,
+      "height_m": 4.8,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_2_0",
+      "position_m": [
+        -37.3,
+        55.363946140238525,
+        17.583853163452858
+      ],
+      "yaw_degrees": 146,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_2_1",
+      "position_m": [
+        -35.0,
+        53.20524578863726,
+        17.583853163452858
+      ],
+      "yaw_degrees": 193,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_2_2",
+      "position_m": [
+        -32.7,
+        52.84085326866602,
+        17.583853163452858
+      ],
+      "yaw_degrees": 240,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_3_0",
+      "position_m": [
+        -19.3,
+        54.2116800120898,
+        17.010007503399553
+      ],
+      "yaw_degrees": 219,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_3_1",
+      "position_m": [
+        -17.0,
+        52.50011511365385,
+        17.010007503399553
+      ],
+      "yaw_degrees": 266,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_3_2",
+      "position_m": [
+        -14.7,
+        54.17482380727574,
+        17.010007503399553
+      ],
+      "yaw_degrees": 313,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_3_3",
+      "position_m": [
+        -12.4,
+        55.45483471626763,
+        17.010007503399553
+      ],
+      "yaw_degrees": 360,
+      "height_m": 4.8,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_4_0",
+      "position_m": [
+        14.7,
+        52.86479625703811,
+        17.346356379136388
+      ],
+      "yaw_degrees": 292,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_4_1",
+      "position_m": [
+        17.0,
+        53.17397168610354,
+        17.346356379136388
+      ],
+      "yaw_degrees": 339,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_4_2",
+      "position_m": [
+        19.3,
+        55.34806214371744,
+        17.346356379136388
+      ],
+      "yaw_degrees": 386,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_5_0",
+      "position_m": [
+        33.7,
+        52.561613588005294,
+        18.283662185463225
+      ],
+      "yaw_degrees": 365,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_5_1",
+      "position_m": [
+        36.0,
+        54.6072748809249,
+        18.283662185463225
+      ],
+      "yaw_degrees": 412,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_5_2",
+      "position_m": [
+        38.3,
+        55.281898362132424,
+        18.283662185463225
+      ],
+      "yaw_degrees": 459,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_5_3",
+      "position_m": [
+        40.6,
+        53.06239402666068,
+        18.283662185463225
+      ],
+      "yaw_degrees": 506,
+      "height_m": 4.8,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_6_0",
+      "position_m": [
+        54.7,
+        53.58087675270161,
+        18.960170286650367
+      ],
+      "yaw_degrees": 438,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_6_1",
+      "position_m": [
+        57.0,
+        55.4822523508155,
+        18.960170286650367
+      ],
+      "yaw_degrees": 485,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_6_2",
+      "position_m": [
+        59.3,
+        54.037163138180034,
+        18.960170286650367
+      ],
+      "yaw_degrees": 532,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_7_0",
+      "position_m": [
+        70.7,
+        54.98547989807818,
+        18.753902254343306
+      ],
+      "yaw_degrees": 511,
+      "height_m": 4.5,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_7_1",
+      "position_m": [
+        73.0,
+        54.994453845123275,
+        18.753902254343306
+      ],
+      "yaw_degrees": 558,
+      "height_m": 5.7,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_7_2",
+      "position_m": [
+        75.3,
+        52.75826029637152,
+        18.753902254343306
+      ],
+      "yaw_degrees": 605,
+      "height_m": 5.0,
+      "variant": "Pine_Optimized"
+    },
+    {
+      "id": "tst_ridge_tree_7_3",
+      "position_m": [
+        77.6,
+        53.3255288031981,
+        18.753902254343306
+      ],
+      "yaw_degrees": 652,
+      "height_m": 4.8,
+      "variant": "Pine_Optimized"
+    }
+  ]
+}

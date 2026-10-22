@@ -540,6 +540,11 @@ def stage_foliage(code, m, p):
            os.path.join(p["scene"], "materials.spec.json"), os.path.join(p["foliage"], "foliage.json"),
            "--bin", os.path.join(p["foliage"], "foliage.bin"), "--offset", "0,0,0", "--lift", str(FOLIAGE_LIFT),
            "--edge", os.path.join(p["land"], "landscape.json"), "--swapped-rocks"]
+    if m.get("surface_policy"):
+        policy = os.path.join(REPO, m["surface_policy"])
+        if not os.path.isfile(policy):
+            raise FileNotFoundError(f"Missing authored PCG permissions: {policy}")
+        cmd += ["--surface-policy", policy]
     sea = sea_height(level)
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
@@ -548,6 +553,11 @@ def stage_foliage(code, m, p):
         cmd += ["--detail", f"{name}={cls}"]
     for rule, tint in (m.get("tints") or {}).items():
         cmd += ["--rule-tint", f"{rule}={tint}"]
+    for field, option in (("foliage_scale", "--rule-scale"), ("foliage_density", "--rule-density")):
+        for rule, factor in (m.get(field) or {}).items():
+            cmd += [option, f"{rule}={factor}"]
+    for rule, cluster in (m.get("foliage_cluster") or {}).items():
+        cmd += ["--rule-cluster", f"{rule}=" + ",".join(str(v) for v in cluster)]
     if m.get("biome"):
         cmd += ["--biome", m["biome"]]
     if m.get("biome") == "snow":
@@ -577,6 +587,7 @@ def stage_swap(code, m, p):
                "--staging", staging(p)]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
+              + (["--authored-decor", os.path.join(REPO,m["authored_decor"])] if m.get("authored_decor") else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
     # The grass up to each swapped rock's own hull (the foliage stage left
@@ -776,7 +787,9 @@ def build_cliffs(maps, ps):
     if not specs:
         return
     powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_cliffs.py"],
-               env={"MJ_CLIFF_MESHES": ";".join(specs)})
+               env={"MJ_CLIFF_MESHES": ";".join(specs),
+                    "MJ_MAP_MESH_CHUNKS": json.dumps({code: m["chunk"] for code, m in maps.items()
+                                                       if m.get("map_mesh_chunk")})})
     log = open(os.path.join(PROJECT, "Saved_build_ce_cliffs.log"), encoding="utf-8", errors="replace").read()
     built = [l.split("MJOLNIR cliffs: ", 1)[1] for l in log.splitlines() if "MJOLNIR cliffs: " in l]
     if not built or built[-1] != "built" or "Traceback" in log or len(built) != len(specs) + 1:
@@ -931,6 +944,10 @@ def horizon_skirt(code, m, p, level):
     # hairline of sky showed down each seam from above.
     o = 0.0 if custom else 2000.0
     rects = [(-R, -R, lo[0], R), (hi[0], -R, R, R), (lo[0] - o, -R, hi[0] + o, lo[1]), (lo[0] - o, hi[1], hi[0] + o, R)]
+    if hz.get("continuous"):
+        # A submerged ocean floor can use one square. This avoids stretched
+        # tangent frames and reflection seams between very long thin strips.
+        rects = [(-R, -R, R, R)]
     out = []
     for i, (x0, y0, x1, y1) in enumerate(rects):
         # The ground's maps tiled at the map's own size: one copy over a
@@ -943,7 +960,7 @@ def horizon_skirt(code, m, p, level):
                     "pos": [round((x0 + x1) / 2 - origin[0]), round((y0 + y1) / 2 - origin[1]), round(z - origin[2])],
                     "scale": [round((x1 - x0) / 100.0, 1), round((y1 - y0) / 100.0, 1), 1.0],
                     "materials": [strip], "cast_shadow": False})
-    print(f"  horizon: 4 strip(s) round {((hi - lo) / 100).round()} m at {z / 100:g} m, out {R / 100000:g} km")
+    print(f"  horizon: {len(rects)} plane(s) round {((hi - lo) / 100).round()} m at {z / 100:g} m, out {R / 100000:g} km")
     return out
 
 
@@ -1280,6 +1297,10 @@ def stage_assemble(code, m, p):
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
     fol = None if m.get("indoor") else json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
+    # Retain CE lighting metadata while replacing the rendered sky mesh.
+    if m.get("sky_mesh") is False:
+        level["decor"] = [item for item in level.get("decor", [])
+                          if f"/SM_{code}_Sky." not in str(item.get("mesh", ""))]
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
     # The masters this pipeline builds read the deformation map's centre from
     # the game's globals (FootFromMPC): the loader stops following it.

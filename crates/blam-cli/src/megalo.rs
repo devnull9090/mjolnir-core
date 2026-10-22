@@ -35,6 +35,10 @@ pub enum Mode {
     /// Capture the Flag (CE rules): flags on the map's `ctf_flag_return`
     /// stands; carry the enemy's to your own while yours is home.
     Ctf,
+    /// Free-for-all Oddball: hold the neutral skull to score seconds.
+    Oddball,
+    /// Free-for-all moving hill: uncontested control scores seconds.
+    Koth,
 }
 
 #[derive(Args)]
@@ -81,6 +85,12 @@ pub struct WriteArgs {
     /// Simulation ticks per second (the CTF reset counts ticks).
     #[arg(long, default_value_t = 30)]
     pub tick_rate: u16,
+    /// KOTH: number of authored koth_hill_N markers (1..=8).
+    #[arg(long, default_value_t = 3)]
+    pub hills: u8,
+    /// KOTH: seconds before moving to the next hill.
+    #[arg(long, default_value_t = 60)]
+    pub hill_seconds: u16,
     /// A Megalo label the map's "hide unless megalo required" objects must
     /// carry to be placed (repeatable): an object filter on the label, which
     /// the script itself never uses. CE's vehicle sets per game type
@@ -204,10 +214,29 @@ pub const VEHICLE_SET_RANKS: u8 = 10;
 pub fn run(a: MegaloArgs) -> Result<()> {
     match a.command {
         MegaloCommand::Write(w) => {
+            anyhow::ensure!(
+                w.tick_rate > 0 && w.tick_rate <= 32767,
+                "--tick-rate must be 1..32767"
+            );
+            anyhow::ensure!((1..=8).contains(&w.hills), "--hills must be 1..8");
             let v = match w.mode {
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),
                 Mode::Slayer => Variant::slayer(w.score.unwrap_or(25)),
                 Mode::Tick => Variant::tick(w.score.unwrap_or(25)),
+                Mode::Oddball => Variant::oddball(
+                    w.score.unwrap_or(120),
+                    w.flag_type,
+                    w.tick_rate as i16,
+                    i16::try_from(u32::from(w.reset_seconds) * u32::from(w.tick_rate))
+                        .context("oddball reset exceeds 32767 ticks")?,
+                ),
+                Mode::Koth => Variant::koth(
+                    w.score.unwrap_or(120),
+                    w.tick_rate as i16,
+                    i16::try_from(u32::from(w.hill_seconds) * u32::from(w.tick_rate))
+                        .context("hill duration exceeds 32767 ticks")?,
+                    w.hills,
+                ),
                 Mode::Ctf => Variant::ctf(blam_megalo::ctf::Ctf {
                     flag_type: w.flag_type,
                     score_to_win: w.score.unwrap_or(3),
@@ -220,7 +249,10 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 rounds: w.rounds,
                 ..v
             };
-            if matches!(w.mode, Mode::Slayer | Mode::Ctf) {
+            if matches!(
+                w.mode,
+                Mode::Slayer | Mode::Ctf | Mode::Oddball | Mode::Koth
+            ) {
                 v = v.with_time_limit();
             }
             w.base.apply(&mut v.base)?;

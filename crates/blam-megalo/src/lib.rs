@@ -10,6 +10,7 @@
 
 pub mod bits;
 pub mod ctf;
+pub mod objectives;
 pub mod powerups;
 pub(crate) mod script;
 pub mod variant;

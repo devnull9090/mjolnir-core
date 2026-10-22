@@ -55,6 +55,10 @@ $RunLogs = Join-Path $LogRoot ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'
 foreach ($Required in @($ToolExe, $WaterSource,
         (Join-Path $AddonRoot 'file_tag\tag_interface\tag_interface.py'),
         (Join-Path $SourceRoot 'build_scenario.py'),
+        (Join-Path $SourceRoot 'annotate_blend.py'),
+        (Join-Path $SourceRoot 'terrain_form.py'),
+        (Join-Path $SourceRoot 'perimeter_architecture.py'),
+        (Join-Path $SourceRoot 'perimeter_dressing.py'),
         (Join-Path $MapsRoot 'sounds.map'), (Join-Path $MapsRoot 'loc.map'), $BitmapMap)) {
     if (-not (Test-Path -LiteralPath $Required -PathType Leaf)) {
         throw "Required rebuild input is missing: $Required"
@@ -200,6 +204,13 @@ try {
             Invoke-RebuildStage -Name 'geometry' -Executable $BlenderExe -Arguments @(
                 '--background', '--factory-startup', '--python-exit-code', '1',
                 '--python', (Join-Path $SourceRoot 'build_geometry.py')) -ExpectedFile $SourceJms
+            # Annotation runs only after the clean JMS export. It adds
+            # inspection empties/camera and a source README to the .blend;
+            # placement JSON and the exported game geometry stay unchanged.
+            Invoke-RebuildStage -Name 'annotate' -Executable $BlenderExe -Arguments @(
+                '--background', '--factory-startup', '--python-exit-code', '1',
+                '--python', (Join-Path $SourceRoot 'annotate_blend.py')) `
+                -ExpectedFile (Join-Path $SourceRoot 'tst.blend')
         } finally {
             $env:HALO_BLENDER_ADDONS = $PreviousAddons
         }

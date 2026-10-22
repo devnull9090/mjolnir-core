@@ -2,7 +2,7 @@
 //!
 //! The level exporter places bounding-box proxies for shipped meshes and
 //! stores the UE object path in a custom property (docs/level_format.md). This
-//! command produces that library: every `SM_` package's object path and local
+//! command produces that library: every `SM_`/Megascans `S_` package's object path and local
 //! AABB. The bounds come from the classic vertex buffers (`ExtendedBounds` is
 //! zeroed in this cook, and the render-data bounds sit behind the undecoded
 //! Nanite blob), so a mesh whose every LOD was cooked out for Nanite is
@@ -37,7 +37,7 @@ pub enum MeshCommand {
 pub struct ExportArgs {
     #[command(flatten)]
     pub src: Source,
-    /// Substring of the mesh's content path (`SM_` or `SK_` name); the first
+    /// Substring of the mesh's content path (`SM_`, `S_` or `SK_` name); the first
     /// match is exported.
     #[arg(long)]
     pub asset: String,
@@ -76,6 +76,10 @@ type Sighting = (
     Option<(usize, ue_iostore::ChunkEntry)>,
 );
 
+fn mesh_package_name(leaf: &str, skeletal: bool) -> bool {
+    leaf.starts_with("SM_") || leaf.starts_with("S_") || (skeletal && leaf.starts_with("SK_"))
+}
+
 fn mesh_candidates(
     containers: &[ue_iostore::Container],
     skeletal: bool,
@@ -88,7 +92,7 @@ fn mesh_candidates(
                 continue;
             }
             let leaf = full.rsplit('/').next().unwrap_or("");
-            let is_mesh = leaf.starts_with("SM_") || (skeletal && leaf.starts_with("SK_"));
+            let is_mesh = mesh_package_name(leaf, skeletal);
             if !is_mesh {
                 continue;
             }
@@ -297,7 +301,7 @@ fn list(a: ListArgs) -> Result<()> {
                 continue;
             }
             let leaf = full.rsplit('/').next().unwrap_or("");
-            let is_mesh = leaf.starts_with("SM_") || (a.skeletal && leaf.starts_with("SK_"));
+            let is_mesh = mesh_package_name(leaf, a.skeletal);
             if !is_mesh {
                 continue;
             }
