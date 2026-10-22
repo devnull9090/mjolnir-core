@@ -32,6 +32,8 @@ import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TAG_MAP = os.path.join(ROOT, "defs", "level", "ce-tag-map.json")
+# Halo 2 stagings (mjolnir cache stage) name Halo 2 tag paths.
+H2_TAG_MAP = os.path.join(ROOT, "defs", "level", "h2-tag-map.json")
 PALETTE_MAP = os.path.join(ROOT, "defs", "level", "palette-map.json")
 
 # Per canvas: the blank level whose environment and clear list strip the
@@ -180,6 +182,33 @@ STOCK_TITLES = {
     "longest": "Longest", "prisoner": "Prisoner", "putput": "Chiron TL-34", "ratrace": "Rat Race",
     "sidewinder": "Sidewinder", "timberland": "Timberland", "wizard": "Wizard",
 }
+
+# The menu names of Halo 2's multiplayer maps, by scenario name: several
+# differ from the file (deltatap is Sanctuary), and beavercreek is Beaver
+# Creek here, not CE's Battle Creek.
+H2_TITLES = {
+    "ascension": "Ascension", "backwash": "Backwash", "beavercreek": "Beaver Creek",
+    "burial_mounds": "Burial Mounds", "coagulation": "Coagulation", "colossus": "Colossus",
+    "containment": "Containment", "cyclotron": "Ivory Tower", "deltatap": "Sanctuary",
+    "derelict": "Desolation", "dune": "Relic", "elongation": "Elongation", "foundation": "Foundation",
+    "gemini": "Gemini", "headlong": "Headlong", "highplains": "Tombstone", "lockout": "Lockout",
+    "midship": "Midship", "needle": "Uplift", "street_sweeper": "District", "triplicate": "Terminal",
+    "turf": "Turf", "warlock": "Warlock", "waterworks": "Waterworks", "zanzibar": "Zanzibar",
+}
+
+# The game a staging came from (its manifest's `source`): which tag map and
+# menu names apply, and what the description says.
+SOURCE_GAMES = {"halo_ce": "Halo: Combat Evolved", "halo2_mcc": "Halo 2"}
+
+
+def staging_source(staging):
+    """The staging's `source` (halo2ue writes `halo_ce`; a staging from
+    before the field existed is a CE one too)."""
+    path = os.path.join(staging, "manifest.json")
+    if not os.path.exists(path):
+        return "halo_ce"
+    return json.load(open(path, encoding="utf-8")).get("source", "halo_ce")
+
 
 # Maps whose CE water the loader draws as rolling, see-through water
 # (M_CE_Ocean, MJOLNIRLevelLoader `environment.water`) by default, by scenario
@@ -979,6 +1008,8 @@ def main():
     ap.add_argument("--code", help="the map's codename: its packages live under /Game/MJOLNIR/Maps/<CODE> "
                     "(docs/map_distribution.md); without it, the older /Game/MJOLNIR/Levels/<name>")
     ap.add_argument("--title")
+    ap.add_argument("--tag-map", help="the tag map (default: defs/level/ce-tag-map.json, or h2-tag-map.json "
+                    "for a Halo 2 staging)")
     ap.add_argument("--terrain", help="terrain decor entry (JSON object)")
     ap.add_argument("--foliage", help="scatter_foliage.py's out.json: the level's `foliage` (its file beside "
                                       "the level file)")
@@ -1016,7 +1047,8 @@ def main():
     from ce_seat import seat
     seat(placement, a.staging, log=lambda *_: None)
     t = json.load(open(a.transform))
-    tag_map = json.load(open(TAG_MAP))
+    source = staging_source(a.staging)
+    tag_map = json.load(open(a.tag_map or (H2_TAG_MAP if source == "halo2_mcc" else TAG_MAP)))
     # Every type the bake knows: it adds what the canvas palette lacks.
     palette = json.load(open(PALETTE_MAP))
     canvas = t["canvas"].upper()
@@ -1306,13 +1338,13 @@ def main():
     flares = flare_decor(placement, texture_root, to_ue)
     decor.extend(flares)
 
-    title =a.title or STOCK_TITLES.get(name, name)
+    title = a.title or (H2_TITLES if source == "halo2_mcc" else STOCK_TITLES).get(name, name)
     level = {
         "schema_version": 1,
         "name": name,
         "title": title,
         "description": (
-            f"{title}, from Halo: Combat Evolved: its own collision, spawns, vehicles, "
+            f"{title}, from {SOURCE_GAMES.get(source, 'Halo')}: its own collision, spawns, vehicles, "
             "weapons and teleporters."
             if t.get("own_bsp")
             else f"Classic CE {name}, Slayer: collision inside {canvas} BSP {t['bsp_index']} "

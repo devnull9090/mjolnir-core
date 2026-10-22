@@ -308,7 +308,11 @@ def main():
     open(os.path.join(out_dir, bin_name), "wb").write(blob)
     meta["bin"] = bin_name
     meta["counts"] = {name: len(arrays[name]) for name in order}
-    meta["scenery_surfaces"] = {"objects": objects, "surfaces": added,
+    # A staging may arrive with a tail of its own (Halo 2's instanced
+    # geometry, mjolnir cache stage): this script's surfaces follow it, so
+    # the tail grows rather than restarting. CE stagings carry none.
+    prior = meta.get("scenery_surfaces") or {}
+    meta["scenery_surfaces"] = {"objects": objects + prior.get("objects", 0), "surfaces": added + prior.get("surfaces", 0),
                                 "note": "standalone surfaces after the BSP's own; mjolnir level collision links them into the tree"}
     json.dump(meta, open(out, "w", encoding="utf-8"), indent=1)
     print(f"{objects} scenery placement(s), {len(skip)} replaced: {added} collision surface(s) added "

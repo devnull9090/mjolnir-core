@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Convert a classic Halo CE map into a standalone multiplayer map for Halo:
+# Convert a classic Halo CE map (or an MCC Halo 2 one) into a standalone map for Halo:
 # Campaign Evolved, in one command.
 #
 #   HCE_PAKS=".../Meteorite/Content/Paks" \
@@ -9,7 +9,7 @@
 #
 # Steps, each a tool of its own:
 #
-#   1. halo2ue-export (HalcyonRing/tools/halo2ue) stages the .map: collision,
+#   1. halo2ue-export (HalcyonRing/tools/halo2ue) stages a Halo 1 .map, `mjolnir cache stage` a Halo 2 one: collision,
 #      placements, netgame flags. Skipped when given a staging directory.
 #   2. mjolnir level collision --own-bsp builds the structure BSP from the CE
 #      collision alone (docs/ce_terrain_collision.md): the tree in the world
@@ -85,9 +85,32 @@ if [ -d "$src" ]; then
   staging="$src"
 else
   staging="$out/staging"
-  echo "== 1/6 staging $src"
-  "$exporter" --map "$src" --out "$staging"
+  # The game the map is from decides what stages it (mjolnir cache info,
+  # docs/h2_map_conversion.md): halo2ue for Halo 1's PC and Custom Edition
+  # builds, mjolnir cache stage for MCC's Halo 2. Other games are named and
+  # refused. A mjolnir that cannot tell keeps the old route.
+  stager="$("$mjolnir" cache info --field stager "$src" 2>/dev/null | tr -d '\r' || true)"
+  case "$stager" in
+    blam-cache)
+      echo "== 1/6 staging $src (Halo 2: mjolnir cache stage)"
+      "$mjolnir" cache stage "$src" --out "$staging" --replace
+      ;;
+    none)
+      "$mjolnir" cache info "$src" >&2
+      echo "no stager reads this map yet" >&2
+      exit 2
+      ;;
+    *)
+      echo "== 1/6 staging $src"
+      "$exporter" --map "$src" --out "$staging"
+      ;;
+  esac
 fi
+# The staging's game (halo2ue writes "halo_ce", mjolnir cache stage
+# "halo2_mcc"): the CE-only steps below (fog and sounds read the CE .map
+# itself, the lightmap solver is CE's radiosity, the foliage follows CE's
+# detail maps) run for Halo 1 only.
+source_game="$(python -c "import json,sys; print(json.load(open(sys.argv[1])).get('source', 'halo_ce'))" "$staging/manifest.json" | tr -d '\r')"
 name="$(basename "$(cd "$staging" && pwd)")"
 [ "$name" = "staging" ] && name="$(basename "$src" .map)"
 # Custom maps carry spaces and capitals ("Yoyorast Island V2.map"); the name
@@ -137,7 +160,10 @@ if [ "$cook" = "1" ]; then
   # LIGHTMAP_ARGS adds solver flags (e.g. "--cpu" to keep the rays off the
   # GPU, which the solver uses by default).
   lightmaps_args=()
-  lightmap_scale="${LIGHTMAP_SCALE:-auto}"
+  # Halo 2 keeps its own lightmap pages: the solver is CE's radiosity.
+  lightmap_default=auto
+  [ "$source_game" = halo2_mcc ] && lightmap_default=0
+  lightmap_scale="${LIGHTMAP_SCALE:-$lightmap_default}"
   read -r -a lightmap_extra <<< "${LIGHTMAP_ARGS:-}"
   if [ "$lightmap_scale" != "0" ]; then
     "$mjolnir" level lightmaps "$staging" "$out/scene.gltf" "$out/lightmaps" --scale "$lightmap_scale" "${lightmap_extra[@]}" \
@@ -165,12 +191,17 @@ if [ "$cook" = "1" ]; then
     # lightmap pages: Coldsnap's 76 pages at 2,048 made a 58.6 MB pack, over
     # the tag editor's 50 MiB upload (the hub takes 90 MiB in one request,
     # 400 MiB in parts).
-    read -r -a bake_extra <<< "${BAKE_ARGS:-}"
+    # Halo 2 lights a map with dozens of small pages (Lockout: 65 of 128
+    # texels), which the bake's default 16x would each take to 2,048: at most
+    # 4x keeps them within 512.
+    bake_default=""
+    [ "$source_game" = halo2_mcc ] && bake_default="--max-scale 4"
+    read -r -a bake_extra <<< "${BAKE_ARGS:-$bake_default}"
     "$examples/lightmap_bake" "$out/scene.gltf" "$size_page" "$out/bake" --ao-rays 64 "${sun_args[@]}" "${bake_extra[@]}" | sed 's/ -> .*//'
   fi
   # The map's planar fog (Damnation's shaft, the water), which halo2ue does
   # not stage: fog.json beside the staging, for the material spec.
-  [ -f "$src" ] && python "$here/ce_fog.py" "$src" "$staging"
+  [ -f "$src" ] && [ "$source_game" = halo_ce ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
   python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf"
@@ -192,8 +223,11 @@ if [ "$cook" = "1" ]; then
   # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
   # sea's height is the water mesh's, when the map has one. FOLIAGE=0 leaves
   # it out: it reads ground by CE's sand and grass detail, and covered
-  # Coldsnap's snow in 14 million blades of grass (2026-10-13).
-  if [ "${FOLIAGE:-1}" != "0" ]; then
+  # Coldsnap's snow in 14 million blades of grass (2026-10-13). Off by
+  # default for Halo 2, whose shaders have no CE detail maps to read.
+  foliage_default=1
+  [ "$source_game" = halo2_mcc ] && foliage_default=0
+  if [ "${FOLIAGE:-$foliage_default}" != "0" ]; then
   sea="$(python -c "import json,sys; w=[e for e in json.load(open(sys.argv[1])) if e['mesh'].split('.')[0].endswith('_Water')]; print(w[0]['pos'][2] if w else '')" "$out/terrain.json")"
   sea="${sea%%[[:space:]]}"
   sea_args=()
@@ -248,7 +282,7 @@ if [ "$cook" = "1" ]; then
   # The ambient sound (sound scenery and the BSP's background loops), from
   # the CE map and sounds.map beside it, imported beside the materials.
   sounds_map="${SOUNDS_MAP:-$(dirname "$src")/sounds.map}"
-  if [ -f "$src" ] && [ -f "$sounds_map" ]; then
+  if [ -f "$src" ] && [ "$source_game" = halo_ce ] && [ -f "$sounds_map" ]; then
     python "$here/ce_sounds.py" "$src" "$sounds_map" "$staging" "$out/sounds_out"
     # The sound root is an object path: kept out of Git Bash's rewriting of
     # "/"-led environment values into Windows paths (C:/Program Files/Git/Game/...).
