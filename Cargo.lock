@@ -232,6 +232,8 @@ dependencies = [
 name = "blam-megalo"
 version = "0.1.0"
 dependencies = [
+ "flate2",
+ "serde_json",
  "thiserror 2.0.19",
 ]
 

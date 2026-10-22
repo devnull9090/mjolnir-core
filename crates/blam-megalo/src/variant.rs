@@ -2090,10 +2090,12 @@ pub(crate) mod tests {
         trait.shields=1";
 
     fn fixture_variants() -> Vec<(&'static str, Variant)> {
+        // As released: red and blue flag types, a 30 s reset at 60 ticks.
         let ctf = Variant::ctf(crate::ctf::Ctf {
             flag_type: 18,
+            blue_flag_type: Some(20),
             score_to_win: 3,
-            reset_ticks: 900,
+            reset_ticks: 1800,
             debug: false,
         });
         vec![
@@ -2164,8 +2166,9 @@ pub(crate) mod tests {
             Variant::slayer(25).with_time_limit(),
             Variant::ctf(crate::ctf::Ctf {
                 flag_type: 18,
+                blue_flag_type: Some(20),
                 score_to_win: 3,
-                reset_ticks: 900,
+                reset_ticks: 1800,
                 debug: false,
             })
             .with_time_limit(),

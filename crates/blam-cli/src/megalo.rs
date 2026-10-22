@@ -22,6 +22,18 @@ pub enum MegaloCommand {
         /// The `.mglo` file.
         file: PathBuf,
     },
+    /// List everything a variant holds, through the simulation's grammar
+    /// (blam_megalo::raw): header, options, traits, teams, strings, and
+    /// the script as triggers with named conditions and actions. Reads a
+    /// `.mglo` stream or an MCC Halo Reach `.bin` (BLF; Megalo variants
+    /// only), and checks that it encodes back bit for bit.
+    Dump {
+        /// The `.mglo` or `.bin` file.
+        file: PathBuf,
+        /// Write the listing here instead of printing it.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -53,10 +65,25 @@ pub struct WriteArgs {
     /// (docs/multiplayer_postgame.md).
     #[arg(long, default_value_t = 31)]
     pub rounds: u8,
-    /// CTF: the flag's index in `multiplayer_object_type_list` (the entry
-    /// tools/level/build_ctf_flag.sh adds).
+    /// CTF: the red flag's index in `multiplayer_object_type_list` (entry
+    /// 18, which tools/level/build_ctf_flag.sh adds); with `--single-flag`,
+    /// both teams' flag.
     #[arg(long, default_value_t = 18)]
     pub flag_type: u16,
+    /// CTF: the blue flag's index in `multiplayer_object_type_list` (entry
+    /// 20, `flag_blue`, from the same script). Its tag's default model
+    /// variant is `blue`, which MJOLNIRLevelLoader reads off the actor to
+    /// colour the flag (docs/game_modes.md, 2.2).
+    #[arg(long, default_value_t = 20)]
+    pub blue_flag_type: u16,
+    /// CTF: one flag type for both teams (`--flag-type`), the script from
+    /// before the blue flag tag, for a CE runtime pack without
+    /// `pakchunk990-MJOLNIRFLAGB_P`: the simulation drops a variant whose
+    /// object types the installed list lacks, rules and all. With
+    /// `--tick-rate 30` as well (the old default) it writes the ctf.mglo
+    /// released before, byte for byte.
+    #[arg(long)]
+    pub single_flag: bool,
     /// CTF: seconds a dropped flag lies before it resets.
     #[arg(long, default_value_t = 30)]
     pub reset_seconds: u16,
@@ -78,8 +105,11 @@ pub struct WriteArgs {
     /// Leave health packs out.
     #[arg(long)]
     pub no_health_packs: bool,
-    /// Simulation ticks per second (the CTF reset counts ticks).
-    #[arg(long, default_value_t = 30)]
+    /// Simulation ticks per second, by which `--reset-seconds` and
+    /// `--health-respawn-seconds` become the tick counts the script counts
+    /// down. The simulation runs 60 (its game options' tick rate, 0x3c;
+    /// docs/game_modes.md, 1.2); at 30 both lasted half as long as asked.
+    #[arg(long, default_value_t = 60)]
     pub tick_rate: u16,
     /// A Megalo label the map's "hide unless megalo required" objects must
     /// carry to be placed (repeatable): an object filter on the label, which
@@ -204,12 +234,19 @@ pub const VEHICLE_SET_RANKS: u8 = 10;
 pub fn run(a: MegaloArgs) -> Result<()> {
     match a.command {
         MegaloCommand::Write(w) => {
+            if matches!(w.mode, Mode::Ctf) && !w.single_flag && w.blue_flag_type == w.flag_type {
+                anyhow::bail!(
+                    "--blue-flag-type is --flag-type ({}): one type for both teams is --single-flag",
+                    w.flag_type
+                );
+            }
             let v = match w.mode {
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),
                 Mode::Slayer => Variant::slayer(w.score.unwrap_or(25)),
                 Mode::Tick => Variant::tick(w.score.unwrap_or(25)),
                 Mode::Ctf => Variant::ctf(blam_megalo::ctf::Ctf {
                     flag_type: w.flag_type,
+                    blue_flag_type: (!w.single_flag).then_some(w.blue_flag_type),
                     score_to_win: w.score.unwrap_or(3),
                     reset_ticks: i16::try_from(u32::from(w.reset_seconds) * u32::from(w.tick_rate))
                         .context("--reset-seconds times --tick-rate is past 32767 ticks")?,
@@ -321,6 +358,15 @@ pub fn run(a: MegaloArgs) -> Result<()> {
             );
             Ok(())
         }
+        MegaloCommand::Dump { file, out } => {
+            let text = dump(&file)?;
+            match out {
+                Some(path) => std::fs::write(&path, text)
+                    .with_context(|| format!("writing {}", path.display()))?,
+                None => print!("{text}"),
+            }
+            Ok(())
+        }
         MegaloCommand::Read { file } => {
             let bytes =
                 std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
@@ -329,4 +375,57 @@ pub fn run(a: MegaloArgs) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// The `megalo dump` listing of a `.mglo` or BLF `.bin` file.
+fn dump(file: &std::path::Path) -> Result<String> {
+    use blam_megalo::{blf, raw};
+    let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let mut notes = vec![format!("file: {}", file.display())];
+    let (payload, start, prefix): (&[u8], usize, Vec<(u64, u32)>) = if blf::is_blf(&bytes) {
+        let v =
+            blf::game_variant(&bytes).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+        if v.engine != blf::ENGINE_MEGALO {
+            anyhow::bail!(
+                "{}: a {} variant (engine type {}); only Megalo variants (engine type {}) are dumped",
+                file.display(),
+                blf::engine_name(v.engine),
+                v.engine,
+                blf::ENGINE_MEGALO
+            );
+        }
+        notes.push(format!(
+            "container: BLF `{}` chunk {}.{}, {}-byte payload, engine type {} ({}), variant from bit 4",
+            String::from_utf8_lossy(&v.chunk),
+            v.major,
+            v.minor,
+            v.payload.len(),
+            v.engine,
+            blf::engine_name(v.engine)
+        ));
+        (v.payload, 4, vec![(u64::from(v.engine), 4)])
+    } else {
+        notes.push(format!(
+            "container: raw .mglo stream, {} bytes",
+            bytes.len()
+        ));
+        (&bytes, 0, Vec::new())
+    };
+    let tree =
+        raw::decode_at(payload, start).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+    if !tree.is_megalo() {
+        let v = tree.version().unwrap_or(-1);
+        anyhow::bail!(
+            "{}: encoding version {v:#x} is not a Megalo variant's (the simulation reads only 0x6a and 0x6b)",
+            file.display()
+        );
+    }
+    notes.push(match raw::round_trip(payload, start, &prefix) {
+        Ok(rt) => format!(
+            "round trip: encodes back bit for bit; {} bit(s) after the variant, {} of them set",
+            rt.trailing_bits, rt.trailing_ones
+        ),
+        Err(e) => format!("round trip: FAILS: {e}"),
+    });
+    blam_megalo::dump::dump(&tree, &notes).map_err(|e| anyhow::anyhow!("{e}"))
 }

@@ -12,6 +12,10 @@ fixed*).
 **Binary:** `HaloSimulation_tag_release.dll`, CU4 (build lock in
 [`../build_lock.md`](../build_lock.md)). Every address is an RVA into that
 build.
+**See also:** [reach_game_engine.md](reach_game_engine.md) (2026-10-21) maps
+how the engine runs a mode once it is on (the vtable, teams, objects,
+spawning, incidents, the host interface, fireteam clients) and lists the
+corrections to this page.
 
 This overturns the August conclusion in
 [`../multiplayer_ctf_plan.md`](../multiplayer_ctf_plan.md) that "the DLL has no

@@ -54,16 +54,20 @@ local CAMPAIGN_MODE = 0      -- E_CampaignMode: the campaign's scenario list and
 local DIFFICULTY_NORMAL = 1
 
 -- The game types, in menu order. A mode is offered for a map when the map
--- lists it and its variant file is installed. `slot` is the insertion point
--- a game of this type starts at: the host's travel carries the index to
--- every fireteam client, whose loader reads the game type from it (keep in
--- step with MJOLNIRLevelLoader's GAME_TYPE_SLOTS).
+-- lists it and its variant file is installed, and the container it `needs`
+-- is. `slot` is the insertion point a game of this type starts at: the
+-- host's travel carries the index to every fireteam client, whose loader
+-- reads the game type from it (keep in step with MJOLNIRLevelLoader's
+-- GAME_TYPE_SLOTS). CTF's blue flag is a tag of its own in the CE runtime
+-- pack, and on a PC without it the simulation wipes a CTF script that names
+-- it: a match with no flags (docs/game_modes.md 2.2).
 local MODES = {
     { id = "slayer", slot = 0, name = "SLAYER", description = "Free for all. Every kill scores a point; the first to the score limit wins." },
     { id = "team_slayer", slot = 2, name = "TEAM SLAYER", teams = true, description = "Red against Blue. Kills score for your team." },
     { id = "koth", slot = 3, name = "KING OF THE HILL", description = "Hold the hill to score. The hill moves." },
     { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
-    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base." },
+    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base.",
+        needs = "pakchunk990-MJOLNIRFLAGB_P" },
 }
 
 local function readFile(path)
@@ -115,16 +119,69 @@ local function installedMaps()
     return maps
 end
 
-local function modesFor(map)
+local modesFor
+do
+-- Whether this PC mounts a container, by name, asked once a session (the
+-- launcher puts containers in place before the game starts): its stub .pak
+-- in Paks under its own name (a manual install), or a hub mod enabled in the
+-- launcher's active profile that lists it. The hub copies each container
+-- into Paks under a load-order name (pakchunk9NN-MJOLNIRHUB-<slug>-<j>_P),
+-- so there the original name is only in hub_state.json. The same test as
+-- MJOLNIRLevelLoader's teams.lua (Teams.containerInstalled), tested in
+-- tools/tests/test_teams.lua.
+local mounted = {}
+
+local function hubMounts(stem)
+    local appdata = os.getenv("APPDATA")
+    local raw = appdata and readFile(appdata .. "\\com.devnull9090.mjolnir-launcher\\hub_state.json")
+    local ok, state = pcall(Json.decode, raw or "")
+    if not ok or type(state) ~= "table" or type(state.installed) ~= "table" then return false end
+    local enabled = {}
+    for _, p in ipairs(type(state.profiles) == "table" and state.profiles or {}) do
+        if type(p) == "table" and p.name == state.active and type(p.entries) == "table" then
+            for _, e in ipairs(p.entries) do
+                if type(e) == "table" and e.enabled == true and e.slug ~= nil then enabled[e.slug] = true end
+            end
+        end
+    end
+    for _, m in ipairs(state.installed) do
+        if type(m) == "table" and enabled[m.slug] and type(m.containers) == "table" then
+            for _, c in ipairs(m.containers) do
+                if c == stem then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function offered(mode)
+    local stem = mode.needs
+    if not stem then return true end
+    if mounted[stem] == nil then
+        -- <root>\Meteorite\Binaries\<Win64 or WinGDK>\ue4ss\Mods\<mod> ->
+        -- <root>\Meteorite\Content\Paks
+        local at = MOD_DIR:lower():find("\\binaries\\", 1, true)
+        local paks = at and MOD_DIR:sub(1, at - 1) .. "\\Content\\Paks"
+        mounted[stem] = (paks ~= nil and fileExists(paks .. "\\" .. stem .. ".pak")) or hubMounts(stem)
+        if not mounted[stem] then
+            log(mode.name .. " is not offered: " .. stem .. " is not installed (the CE runtime pack before its blue flag); "
+                .. "update the CE runtime pack in the MJOLNIR launcher")
+        end
+    end
+    return mounted[stem]
+end
+
+modesFor = function(map)
     local listed = {}
     for _, m in ipairs(type(map.modes) == "table" and map.modes or { "slayer" }) do listed[m] = true end
     local out = {}
     for _, mode in ipairs(MODES) do
-        if listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo") then
+        if listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo") and offered(mode) then
             out[#out + 1] = mode
         end
     end
     return out
+end
 end
 
 local function titleOf(map)

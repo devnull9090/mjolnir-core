@@ -125,7 +125,7 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 |---|---|
 | `pakchunk988-MJOLNIRMAT-Windows` | the CE material masters (`/Game/MJOLNIR/CE/M_CE_*`) and their shader library; the CTF flag's textures (`/Game/MJOLNIR/CE/CTF`); the announcer and event sounds (`/Game/MJOLNIR/Sounds/Events`) |
 | `pakchunk990-MJOLNIRCTFMESH_P` | the CE flag mesh (`/Game/MJOLNIR/CTF/SM_CE_Flag`) |
-| `pakchunk990-MJOLNIRFLAG_P`, `-STAND_P`, `-MOTL_P` | the CTF flag weapon, its stand, and the object-type-list override that adds the flag |
+| `pakchunk990-MJOLNIRFLAG_P`, `-FLAGB_P`, `-STAND_P`, `-MOTL_P` | the red and blue CTF flag weapons (model variants `default` and `blue`, which the loader colours them by), their stand, and the object-type-list override that adds them as entries 18 and 20 |
 | `pakchunk994-MJOLNIRSPAWN_P`, `993-MJOLNIRTELES_P`, `992-MJOLNIRTELER_P`, `991-MJOLNIRTELE2_P` | the spawn point and the teleporter sender, receiver and 2-way |
 | `pakchunk990-MJOLNIRHPACK_P`, `-HPSPOT_P`, `-HPMESH_P` | the health pack, its spawn spot and its mesh |
 | `pakchunk990-MJOLNIRSPARTAN_P` | the Spartan model with its body material on the body damage section (shipped on the head section, every bullet hit was a headshot) |
@@ -146,6 +146,16 @@ Its containers are content containers, so they install like any content
 mod. Its version moves when a shared piece changes; maps depend on a
 compatible range. `mjolnir map runtime <out dir> --version X --sign`
 packages the builder's output as the `mjolnir-ce-runtime` content mod.
+
+The CTF variant the loader ships names the object types it creates, and
+the simulation wipes a variant naming one the installed object type list
+lacks (`0x409c40` -> `0x40a310`): CTF then has no rules at all. So the
+runtime release that adds `-FLAGB_P` and the list's entry 20 goes out
+before, or with, the mods release whose `ctf.mglo` creates the blue flag
+(type 20). The lobby offers CTF only when the blue flag's container is
+installed, and `mjolnir megalo write --mode ctf --single-flag` still
+writes the one-type script for a list without entry 20
+([game_modes.md](game_modes.md), 2.2).
 
 ## Installing
 

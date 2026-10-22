@@ -16,9 +16,14 @@
 #                                    (Scripts/build_mjolnir_ui.py, same cook,
 #                                    chunk 984; docs/custom_ui.md)
 #   pakchunk990-MJOLNIRCTFMESH_P     the CE flag mesh (/Game/MJOLNIR/CTF)
-#   pakchunk990-MJOLNIRFLAG_P, -STAND_P, -MOTL_P   the CTF flag, its stand,
-#                                    and the object type list that adds it
-#                                    (build_ctf_flag.sh)
+#   pakchunk990-MJOLNIRFLAG_P, -FLAGB_P, -STAND_P, -MOTL_P
+#                                    the red and blue CTF flags, their stand,
+#                                    and the object type list that adds them
+#                                    (entries 18 and 20; build_ctf_flag.sh).
+#                                    Release this pack before, or with, the
+#                                    mods release whose ctf.mglo creates type
+#                                    20: the simulation wipes a variant naming
+#                                    a type the installed list lacks
 #   pakchunk994-MJOLNIRSPAWN_P, 993-MJOLNIRTELES_P, 992-MJOLNIRTELER_P,
 #   991-MJOLNIRTELE2_P               spawn point and teleporter scenery
 #                                    (build_spawn_point.sh)
