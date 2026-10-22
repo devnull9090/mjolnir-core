@@ -55,8 +55,8 @@ pub enum LevelCommand {
     /// into a canvas structure BSP the simulation walks on, and write the
     /// transform that places everything else on it.
     Collision(crate::level_collision::CollisionArgs),
-    /// Re-solve a classic map's lightmaps (tool.exe's radiosity on every
-    /// core) at a multiple of the shipped pages' size, for
+    /// Re-solve a classic map's lightmaps (tool.exe's radiosity, on the GPU
+    /// unless `--cpu`) at a multiple of the shipped pages' size, for
     /// `ce_material_spec.py --lightmaps`.
     Lightmaps(crate::level_lightmaps::LightmapsArgs),
     /// Rebuild the registration container and the multiplayer menu's map list

@@ -1,7 +1,8 @@
 //! `mjolnir level lightmaps` — re-solve a classic map's lightmaps with
 //! [`blam_radiosity`]: tool.exe's radiosity (the sky's sun and fill, the
-//! shaders' emission and reflectance, the cluster sets) on every core,
-//! drawn at any multiple of the shipped pages' size. The pages replace the
+//! shaders' emission and reflectance, the cluster sets) with its rays on the
+//! GPU, or on every core with `--cpu`, drawn at any multiple of the shipped
+//! pages' size. The pages replace the
 //! shipped ones in `ce_material_spec.py --lightmaps`, so a conversion keeps
 //! CE's light with shadow edges the shipped 1x pages could not hold.
 
@@ -48,7 +49,7 @@ pub struct LightmapsArgs {
     #[arg(long, default_value_t = 0.001)]
     pub stop: f32,
     /// Shooters per parallel batch. Each batch costs a pass over every
-    /// element whatever its size, so with `--gpu` (where the rays are cheap)
+    /// element whatever its size, so on the GPU (where the rays are cheap)
     /// 256 solves several times faster; single texels move (the brightest
     /// shoot together rather than in turn).
     #[arg(long, default_value_t = 64)]
@@ -56,7 +57,8 @@ pub struct LightmapsArgs {
     /// Draw at this multiple and box-filter down (tool.exe: 3).
     #[arg(long, default_value_t = 3)]
     pub supersample: usize,
-    /// Leave the placed scenery out of the shadow rays.
+    /// Leave the placed objects' drawn meshes out of the shadow rays. Their
+    /// collision models (`scene_occluders.gltf`) still block them.
     #[arg(long)]
     pub no_objects: bool,
     /// Light the pages with the placed lights too (`scene_lights.json`
