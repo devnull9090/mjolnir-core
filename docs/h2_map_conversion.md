@@ -87,6 +87,14 @@ units and axes, so every later step reads them unchanged:
   blended; the plasma shaders (the grav lifts) two scrolling noise maps
   through a mask, added, in the plasma's colour. All of these draw in the
   translucent mesh.
+  Opaque `env` templates (the `tex_bump_env` family) reflect their cube map
+  as Halo 2's lightmap pass does: the cube along the reflected eye vector,
+  times a colour and a brightness each between the glancing and the facing
+  value, masked by the albedo's alpha and dimmed with the light, added to
+  the lit surface. The cube is whichever of the shader's bitmaps is one;
+  the template's black placeholder cube reflects nothing. 22 of the 24 maps
+  have such surfaces (Lockout only its grav pads; Ascension its Forerunner
+  windows and panels).
 - **Sky.** The sky's lights (yaw, pitch, colour, power, diameter, whether
   the lightmaps used them), outdoor ambient and atmospheric fog go to the
   placement as halo2ue puts a CE sky's, so the level's sun, sky light and
@@ -137,9 +145,13 @@ units and axes, so every later step reads them unchanged:
 - Only BSP 0 is converted (every multiplayer map has one).
 - Placed object models take each region's first permutation at its most
   detailed level.
-- Specular and environment reflections on opaque shaders (Halo 2's
-  `tex_bump_env` family, the frozen panels' sheen) are not drawn; their
-  albedo is.
+- Opaque shaders' specular from dynamic lights is not drawn. In the static
+  scene, Halo 2's `tex_bump` (Lockout's frozen panels) has none either: its
+  lightmap pass is diffuse only and its specular pass has no
+  implementation, so the panels' look is their albedo and light.
+- An env reflection's colour is one hue (the mean of the facing and
+  glancing colours) baked into a copy of the cube, and its facing-to-glancing
+  blend uses CE's squared view term rather than Halo 2's linear one.
 - The plasma shaders' three-colour banding is approximated by noise x noise
   x mask in the plasma's middle colour.
 - Sounds are not extracted.

@@ -835,6 +835,11 @@ def main():
                 # A flat cube map, or a bumped type without a usable bump map.
                 flat = refl.get("type") == 1 or not maps["Bump"] or flags & 2
                 sc["ReflectFlat"] = 1.0 if flat else 0.0
+                # Halo 2's reflections dim with the light (a staging's own
+                # scale; CE's comes through environment_tag).
+                lbs = refl.get("lightmap_brightness_scale")
+                if lbs is not None and 0.0 <= lbs < 1.0:
+                    sc["LightmapReflScale"] = lbs
             if cls == "soso":
                 model_shader(entry, s, texture)
             environment_tag(entry, s, cls)

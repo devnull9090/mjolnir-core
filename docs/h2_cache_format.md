@@ -191,6 +191,16 @@ environment tint x specular mask, both scaled by a facing/glancing tint
 facing, 1 glancing), premultiplied blend; "two plus two" = the product of
 its three maps, colour and alpha, alpha blended, two-sided; plasma = two
 noise maps banded against each other through the mask's alpha, additive.
+The opaque templates draw an albedo pass (base x detail x 2, alpha base.a
+x detail.a; `tex_bump_detail_blend` blends its two details by the base's
+alpha, the second where it is high) and a lightmap pass: 2 x light x
+albedo, the light bent by the bump against the incident direction. The
+`env` templates' lightmap pass adds cube(reflection) x lerp(glancing,
+facing colour, N.V) x lerp(glancing, facing brightness, N.V) x albedo alpha
+x min(1, 0.753 (r + g + b) of the light); the two colours sit just before
+the first pair of pixel constants holding only alpha (the brightnesses).
+The cube's bitmap slot differs by template. `tex_bump`'s lightmap pass has
+no specular term, and its specular-sphere pass has no implementation.
 
 **sky**: render model 0x00, flags 0x10 (bit 0 fixed in world space, bit 2
 casts light from below, bit 5 use clear colour), render model scale 0x14,

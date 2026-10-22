@@ -146,7 +146,7 @@ fn is_placeholder(path: &str) -> bool {
 #[derive(Default)]
 struct Textures {
     done: BTreeMap<(usize, u32, u32, String), Option<String>>,
-    cubes: BTreeMap<(usize, u32), Option<Vec<String>>>,
+    cubes: BTreeMap<(usize, u32, String), Option<Vec<String>>>,
     names: BTreeMap<String, usize>,
 }
 
@@ -228,9 +228,12 @@ impl Textures {
 
     /// Stage a cube map's six faces as `<stem>__face<k>.png` in D3D order
     /// (what tools/level/ce_material_spec.py's `cube()` assembles into a
-    /// TextureCube); the six names, or `None` with a note.
-    fn stage_cube(&mut self, cache: &Cache, tag: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Option<Vec<String>> {
-        let key = (tag.file as *const CacheFile as usize, tag.entry.datum);
+    /// TextureCube), each channel scaled by `gain` (a tinted copy is
+    /// `<stem>__t<rrggbb>__face<k>.png`); the six names, or `None` with a
+    /// note.
+    fn stage_cube(&mut self, cache: &Cache, tag: &Tag<'_>, dir: &Path, notes: &mut Vec<String>, gain: [f32; 3]) -> Option<Vec<String>> {
+        let suffix = tint_suffix(gain);
+        let key = (tag.file as *const CacheFile as usize, tag.entry.datum, suffix.clone());
         if let Some(done) = self.cubes.get(&key) {
             return done.clone();
         }
@@ -239,8 +242,15 @@ impl Textures {
             let infos = bitmap::infos(tag);
             let info = infos.first().ok_or_else(|| Error::Format("no bitmap".into()))?;
             let data = bitmap::read_entry(textures, info.offset, info.size)?;
-            let faces = bitmap::decode_cube(info, &data)?;
-            let stem = sanitize(tag.name());
+            let mut faces = bitmap::decode_cube(info, &data)?;
+            for face in &mut faces {
+                for px in face.rgba.chunks_exact_mut(4) {
+                    for (c, g) in px[..3].iter_mut().zip(gain) {
+                        *c = (*c as f32 * g).round().min(255.0) as u8;
+                    }
+                }
+            }
+            let stem = format!("{}{suffix}", sanitize(tag.name()));
             let mut names = Vec::new();
             for (k, face) in faces.iter().enumerate() {
                 let name = format!("{stem}__face{k}.png");
@@ -315,7 +325,7 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                 continue;
             }
             if role == "env" {
-                cube_faces = tex.stage_cube(cache, &t, dir, notes);
+                cube_faces = tex.stage_cube(cache, &t, dir, notes, [1.0; 3]);
                 continue;
             }
             roles.insert(role, tex.stage(cache, &t, b.u32(4).max(0), dir, notes));
@@ -459,9 +469,75 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "self_illum": {"map": role("self_illum"), "map_scale": 1.0, "on_color": [1.0, 1.0, 1.0]},
             "specular": {"flags": 0, "brightness": 0.0},
         });
+        let mut s = s;
+        if template_name.contains("env") {
+            if let Some(r) = env_reflection(cache, &shader, post, &pixel, dir, tex, notes) {
+                s["reflection"] = r;
+            }
+        }
         ("shad", if tpl.alpha_tested { "MASK" } else { "OPAQUE" }, false, base, s)
     };
     Shader { key, class, alpha_mode, double_sided, base, base_scale, unlit, summary }
+}
+
+/// An opaque `env` template's reflection (the tex_bump_env family's
+/// lightmap pass, read back from its compiled shader): the cube map along
+/// the reflected eye vector, times a colour and a brightness each between
+/// the glancing and the facing value by N.V, masked by the albedo's alpha
+/// (base x detail) and the light level, added to the lit albedo. The cube is
+/// whichever of the shader's bitmaps is one (its slot differs by template);
+/// the colours and brightnesses are the two pixel constants before the
+/// first pair holding only alpha (facing then glancing colour; facing then
+/// glancing brightness in that pair's alpha), which every env template has.
+///
+/// As CE's environment reflection (tools/level/ce_material_spec.py): its
+/// tint mixes the cube toward its own eighth power, so the colour goes into
+/// a tinted copy of the cube (the mean of the two colours over its
+/// luminance) and the brightnesses carry the luminance; the reflection
+/// dims with the lightmap as Halo 2's does. `None` without a cube, or when
+/// it is the template's black placeholder or both brightnesses are 0.
+fn env_reflection(
+    cache: &Cache,
+    shader: &Tag<'_>,
+    post: Option<Struct<'_>>,
+    pixel: &[[f32; 4]],
+    dir: &Path,
+    tex: &mut Textures,
+    notes: &mut Vec<String>,
+) -> Option<Value> {
+    let p = post?;
+    let cube = p.block(0x04, 0x0C).iter().find_map(|b| {
+        let t = cache.tag(shader.file, b.u32(0))?;
+        let cube = bitmap::infos(&t).first().is_some_and(|i| i.kind == 2);
+        (cube && !is_placeholder(t.name())).then_some(t)
+    })?;
+    let (facing, glancing, b_facing, b_glancing) = env_constants(pixel)?;
+    let lum = |c: [f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let mean = [(facing[0] + glancing[0]) / 2.0, (facing[1] + glancing[1]) / 2.0, (facing[2] + glancing[2]) / 2.0, 0.0];
+    let hue = match lum(mean) {
+        l if l > 1e-3 => [mean[0] / l, mean[1] / l, mean[2] / l],
+        _ => return None,
+    };
+    let peak = hue.iter().fold(1.0f32, |a, &b| a.max(b));
+    let gain = [hue[0] / peak, hue[1] / peak, hue[2] / peak];
+    let faces = tex.stage_cube(cache, &cube, dir, notes, gain)?;
+    let (perp, para) = (b_facing * lum(facing) * peak, b_glancing * lum(glancing) * peak);
+    (perp > 0.0 || para > 0.0).then(|| {
+        json!({
+            "cube_map": faces, "type": 1,
+            "perp_brightness": perp, "para_brightness": para,
+            "lightmap_brightness_scale": 0.0,
+        })
+    })
+}
+
+/// An env template's reflection constants among its pixel constants:
+/// (facing colour, glancing colour, facing brightness, glancing
+/// brightness), the two colours before the first pair holding only alpha.
+fn env_constants(pixel: &[[f32; 4]]) -> Option<([f32; 4], [f32; 4], f32, f32)> {
+    let alpha_only = |c: &[f32; 4]| c[0] == 0.0 && c[1] == 0.0 && c[2] == 0.0 && c[3] > 0.0;
+    let k = (2..pixel.len().saturating_sub(1)).find(|&k| alpha_only(&pixel[k]) && alpha_only(&pixel[k + 1]))?;
+    Some((pixel[k - 2], pixel[k - 1], pixel[k][3], pixel[k + 1][3]))
 }
 
 /// A map's scrolling: per axis, (period in seconds, repeats per period).
@@ -1212,6 +1288,21 @@ mod tests {
         let rows = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [8.0, 0.0, 0.0, 0.0], [0.0, 3.0, 0.0, 0.0], [6.0, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 1.0]];
         assert_eq!(two_plus_two_rows(&rows, 2), [6.0, 2.0, 0.0, 1.0]);
         assert_eq!(two_plus_two_rows(&rows, 7), [1.0, 1.0, 0.0, 0.0]);
+    }
+
+    /// The env templates' constants: tex_bump_env (the Chief's visor) has an
+    /// albedo tint first, the _combined ones (Lockout's generic_grey) do not;
+    /// the colours always sit before the alpha-only brightness pair.
+    #[test]
+    fn env_constants_find_the_colours_before_the_brightnesses() {
+        let c = |r: u8, g: u8, b: u8, a: u8| [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, a as f32 / 255.0];
+        let visor = [c(255, 255, 255, 0), c(255, 186, 89, 0), c(219, 219, 166, 0), c(0, 0, 0, 229), c(0, 0, 0, 255), c(255, 232, 186, 0)];
+        let (f, g, bf, bg) = env_constants(&visor).unwrap();
+        assert_eq!((f, g), (visor[1], visor[2]));
+        assert_eq!((bf, bg), (229.0 / 255.0, 1.0));
+        let grey = [c(255, 255, 255, 0), c(139, 139, 139, 0), c(0, 0, 0, 255), c(0, 0, 0, 255), c(255, 255, 255, 0)];
+        assert_eq!(env_constants(&grey).unwrap().1, grey[1]);
+        assert!(env_constants(&[c(255, 255, 255, 0), c(180, 179, 189, 0)]).is_none());
     }
 
     /// Halo (x, y, z) is glTF (x, z, -y): a rotation, so winding survives.
