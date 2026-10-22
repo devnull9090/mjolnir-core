@@ -5,9 +5,10 @@
 **Artifacts:** `defs/hce/scripting.json`
 **Date:** 2026-08-03
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** this note is stamped CU2; the installed build is CU4 (see
+> [`build_lock.md`](build_lock.md)). `defs/hce/scripting.json` was regenerated and stamped
+> CU4 on 2026-08-18, and the `--verify` and `--recompile` tables below were re-measured on
+> CU4 on 2026-09-29.
 
 ## Summary
 
@@ -20,7 +21,7 @@ Two findings make it unusually tractable:
    recovered to read the campaign's scripting — it is sitting in the tag.
 2. **The compiled expression tree ships too**, so the two can be checked against each
    other. Across the thirteen campaign scenarios: **215,775 live expression nodes,
-   6,827 scripts, 1,801 globals**.
+   6,827 scripts, 1,801 globals** (6,829 scripts on CU4).
 
 The opcode table is Halo Campaign Evolved's own — of the 483 opcodes the campaign
 calls, 24 agree with Halo Reach's table and 7 with Halo 4's — but it did **not** need
@@ -351,7 +352,7 @@ comes out dense and the string blob interned.
 ### What a rebuild loses
 
 A rebuild produces only the scripts the source declares, and 150 scripts across the
-campaign have no source block — 9 in `a15`, 12 in `a30`. Those disappear. Since task
+campaign have no source block (151 on CU4) — 9 in `a15`, 12 in `a30`. Those disappear. Since task
 fragments call scripts by name, a missing one can break behaviour far from the file being
 edited, so the editor reports the exact list before an edit is applied rather than letting
 the count quietly drop.
@@ -361,7 +362,8 @@ not add it there.
 
 ## In the tag editor
 
-A `scenario` tag gets a third view alongside Form and Tree. It shows the shipped source
+A `scenario` tag gets a Script view alongside Form and Tree (and, since tag editor 0.10.0,
+a World view). The Script view shows the shipped source
 files with HSC highlighting, an outline of every script and global that jumps to its
 declaration, and export to `.hsc`. When a scenario carries no source — a stripped or
 hand-built mod — it shows decompiled output instead and says so.
@@ -381,5 +383,5 @@ round-trip directions hit exactly this one class. It is the only thing standing 
 them and 100%.
 
 **Preserving source-less scripts through a rebuild.** They could be decompiled and
-appended, but the decompiler is at 92% and injecting output that might be subtly wrong is
+appended, but the decompiler is at 94.6% and injecting output that might be subtly wrong is
 worse than reporting the loss.

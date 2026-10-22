@@ -37,8 +37,8 @@ from a runtime mod reading your level file. One `.level.json` describes both.
 | What | How |
 |---|---|
 | `mjolnir` CLI | `cargo build --release -p blam-cli` (or a release build) |
-| Blender 4.0+ addon | install `tools/blender/mjolnir_level` ([its README](../tools/blender/mjolnir_level/README.md)) |
-| `MJOLNIRLevelLoader` mod | `scripts\install-bridge.ps1 -Mods MJOLNIRLevelLoader` |
+| Blender 4.0+ addon | `scripts\install-blender-tools.ps1` (installs and enables it, plus blender-mcp), or install `tools/blender/mjolnir_level` by hand ([its README](../tools/blender/mjolnir_level/README.md)) |
+| `MJOLNIRLevelLoader` mod | the launcher installs it, with its native DLL, when it installs multiplayer or a map. `scripts\install-bridge.ps1 -Mods MJOLNIRLevelLoader` copies the repository's Lua instead and replaces the whole folder, removing the installed `levels/`, `registry/`, `variants/` and native DLL (build the DLL first with `native\map_registry\build.ps1` to keep it) |
 | Mesh catalog (for the decor library) | `mjolnir mesh list --paks <Paks> --out mesh-catalog.json` (~3 min) |
 
 `<Paks>` is `<game>\Meteorite\Content\Paks`; set `HCE_PAKS` once and drop the
@@ -93,7 +93,8 @@ mjolnir level bake examples/levels/bloodgulch.level.json --standalone BGL     --
 ```
 
 `--world <bare.umap>` gives the map an Unreal world of its own (the MapKit's
-empty world, renamed under the codename) instead of running on the canvas
+empty world, kept as `defs/level/empty_world.umap`, renamed under the
+codename) instead of running on the canvas
 mission's. That needs the MJOLNIRLevelLoader mod **with its native half**,
 `native/mjolnir_map_registry.dll` (built by `native/map_registry/build.ps1`,
 shipped by the mods release): the engine resolves a mission's world by its
@@ -103,10 +104,16 @@ the DLL answers for worlds found in the installed containers
 Without it the launch bounces back to the menu; without `--world` the map
 runs on the canvas world and needs nothing native.
 
-Undo is deleting the six `pakchunk996-MJOLNIRREG-<CODE>_P.*` and
-`pakchunk997-MJOLNIRMAP-<CODE>_P.*` files. Two standalone maps installed at
-once each ship their own `DT_Scenarios` override, so only one registers; a
-merged registration container is the open item.
+Every installed map shares one registration container,
+`pakchunk996-MJOLNIRREG_P.*`. The bake builds it from this map plus every map
+recorded in the loader's `registry/` directory, so two standalone maps
+register side by side. To undo one map, delete its three
+`pakchunk997-MJOLNIRMAP-<CODE>_P.*` files and the loader's
+`registry/<CODE>.json`, `levels/<CODE>.level.json` and `maps.json` (the
+bake's menu list, which still names the map), then run
+`mjolnir level register`: it rebuilds the shared container and the
+multiplayer menu's map list (`ue4ss/MJOLNIRMaps/maps.json`) from the maps
+that remain, and removes the container when none do. Deleting the shared container unregisters every map.
 
 `bake` clones shipped placements and re-points them (position, palette entry,
 a fresh unique id — never a novel string id, which the native parser rejects),
@@ -121,7 +128,9 @@ To iterate on **decor only**, edit the level file in place and run
 changes (starts, vehicles, weapons, structures) need a re-bake and a game
 restart.
 
-To uninstall: delete the three `pakchunk998-MJOLNIRLEVEL-*` files.
+To uninstall: delete the three `pakchunk998-MJOLNIRLEVEL-*` files and the
+loader's `levels/<CANVAS>.level.json`, or the shipped mission keeps the
+level's decor.
 
 ## 3 — Play
 
@@ -142,17 +151,27 @@ spawns at your second player start.
 
 ## Limits (v1, honest)
 
-- **The canvas mission still runs underneath** — its AI, objectives and music.
-  `blam.clear` can empty squads/bipeds/weapons/vehicles, but the mission's
-  scripts still reference them; script stubbing is the next planned piece.
-  Until then, build away from the mission's hot spots or embrace the chaos.
-- Vehicle/weapon/equipment types must already be in the canvas scenario's
-  palette (structures grow their palettes automatically; cross-map palette
-  grafts are untested — the referenced BP assets may not be streamed for that
-  map).
+- **The canvas mission still runs underneath unless cleared** — its AI,
+  objectives and music. The Blender export already clears the mission's
+  vehicles, weapons, equipment and placed bipeds (`blam.clear`). Add
+  `"squads": true` to remove its AI, and `"scripts": true` to replace its
+  script with one startup script that fades in and hands the player control;
+  `blocks` empties any other root block by name.
+  `examples/levels/blank_b40.level.json` strips B40 to bare geometry this way
+  ([level_format.md](level_format.md)).
+- Vehicle, weapon and equipment types the canvas palette lacks get a palette
+  entry of their own, cloned and re-pointed, the same way structures do; the
+  converted CE maps get the shotgun and fuel rod, which B40 lacks, this way.
+  `scenario_palettes` in `defs/level/palette-map.json` lists what each canvas
+  carries already.
 - Rotation conventions beyond yaw are provisional until verified in-game.
-- New *worlds* (own BSP, own lighting) need Blam collision generation —
-  tracked separately; this pipeline's map variants don't attempt it.
+- This addon's map variants keep the canvas map's BSP. A level with its own
+  BSP and lighting goes through the CE route instead: build it as a classic
+  CE map (Blender to JMS, then the classic HEK), and
+  `tools/level/convert_ce_map.sh` generates its Blam collision
+  (`mjolnir level collision --own-bsp`) and, when the Unreal cook is on,
+  re-solves its lightmaps (`mjolnir level lightmaps`). `levels/test/tst/` is
+  a worked example ([pipeline_test_map.md](pipeline_test_map.md)).
 
 ## How it hangs together
 

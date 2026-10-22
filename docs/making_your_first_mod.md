@@ -13,11 +13,13 @@ tools; you do not need any of that here.
 
 A mod is a **recipe**: which tags change, which fields, and what they become. The Tag
 Editor keeps that recipe in a folder you choose — the *mod project* — as two small JSON
-files you can read, diff and put in git:
+files you can read, diff and put in git, plus any images and scripts it replaces:
 
 ```
 mod.json       what the mod is: name, slug, version, summary
 edits.json     what it changes: one entry per edited field
+textures/      replacement images, one PNG per swapped texture
+scripts/       replacement scenario scripts, as .hsc files
 README.md      yours to write; it ships with the mod
 build/         baked containers and the .mjolnir archive (generated)
 ```
@@ -47,14 +49,21 @@ anything with a fixed-width value edits cleanly and works in game.
 Every accepted edit lands in the mod panel's **Changes** list, shown as
 `shipped value → your value` with a revert button per line. That list *is* your mod.
 
+**Textures** go in a mod too: open one, click **Replace…** and pick a PNG. The swap lands in
+the change list and ships with the mod (see [the texture swapping guide](texture_swapping.md);
+BC7 and BC6H textures cannot be written yet). To add a tag rather than change one, right-click
+a tag and choose **New Tag From This…**, which copies it into the mod under a new path.
+
 Two things to know:
 
 - **Stick to values the game already knows.** Numbers are always safe, and so are tag
   references that point at other shipped tags — even ones that change the payload's length
   (that path is verified in game; ask the assault rifle that fires needler shards). The
   exception is **string id** fields: text the game has never seen makes it reject the whole
-  tag, and the object simply vanishes in game. The editor warns you when a mod edits one —
-  always test in game before sharing.
+  tag, and the object simply vanishes in game. The editor carries the game's string-id
+  registry and refuses a name outside it; ticking **allow unregistered string ids** in the mod
+  panel lets a test or an export through anyway, but never a publish. A registered name still
+  earns a warning, so always test in game before sharing.
 - If a game update removes a tag or field you edited, the change list flags it **missing**
   and export refuses until you revert it. Your mod never silently ships half its recipe.
 
@@ -79,9 +88,11 @@ running game as well as into your mod, taking effect immediately.
 
 It changes nothing on disk and is gone at the next launch — your mod project stays the record of
 what the edit is, so this is for *finding* the number, not for shipping it. Fixed-width fields
-only (a `string id` or tag reference resizes the payload and still needs a bake), the tag has to
-be loaded, and the first edit to a given tag takes a few minutes while the editor locates it in
-memory. Every edit after that is instant. See
+go live, and so do a `string id` the running game has registered and a tag reference to another
+loaded tag; anything else that resizes the payload (a string, a block element) still needs a
+bake. The tag has to be loaded. The editor finds it through the game's own tag table, so even
+the first edit is instant; where that table cannot be read, the first edit to a tag sweeps memory
+for it (about fifteen seconds) and every edit after that is instant. See
 [the tag editing guide](tag_editing_guide.md#part-3-changing-a-value-in-the-running-game).
 
 ## 4. Share it
@@ -127,9 +138,6 @@ make your changes, publish again. Players see the update in their launcher.
 
 ## Where this is going
 
-- **Texture swaps** work today on the command line — see
-  [the texture swapping guide](texture_swapping.md). Folding them into the editor's mod
-  recipe, so a repaint ships as part of a mod project, is the next step.
 - **Recipe distribution**: because mods are authored as recipes, the hub will eventually
   ship the recipe itself and let each player's launcher bake it locally against their own
   installation — smaller downloads, cleaner updates, and no game bytes in the archive.

@@ -1,5 +1,12 @@
 # Loading a brand-new scenario (2026-09-03)
 
+**Status:** solved. A brand-new scenario starts from a cooked `DT_Scenarios`
+row and `ScenarioList` handle (2026-09-11), on its own Unreal world through
+`mjolnir_map_registry.dll` (the same night), and since 2026-10-09 a map
+installed while the game runs is registered in memory (PR #165,
+`docs/live_map_install.md`). The 2026-09-03 sections are the turns that led
+there.
+
 How Halo: Campaign Evolved decides whether a scenario name can launch, what a
 new scenario package needs, and how far a new one (`PG1`) gets today. Every
 claim below was checked in the running game (CU4, host exe PE timestamp
@@ -98,6 +105,9 @@ as an eleventh mission (with the cloned row's title) and launches it through
 the game's own flow.
 
 ## What still blocks
+
+*Superseded by "2026-09-11: the door is open" below: PG1 started once its row
+was registered at boot, with no change to the loading pipeline.*
 
 The simulation does not start for PG1: the pawn stays at the origin and the
 frame is black, while shipped missions started through the same menu run. The
@@ -207,6 +217,14 @@ section holding one script:
 ```
 
 That is enough: the map fades in, the player owns the camera and walks.
+**Update 2026-10-21:** it was not. That script left the player able to look
+around but not move, shoot or switch weapons, a cutscene lock with no
+cutscene. This engine's missions enter gameplay through
+`f_insertion_fade_to_gameplay`, so `clear.scripts` now writes what it does:
+a bounded wait for `game_all_players_active`, `player_control_fade_in_all_input`,
+the HUD and screen faded back, `player_disable_movement false`, the gaze
+unlocked and the weapon raised (`stub_scripts` in
+`crates/blam-cli/src/level.rs`, commit 54ccee93, 2026-09-10).
 `examples/levels/blank_b40.level.json` is the worked example — B40 with every
 placement, every AI, every trigger and the whole mission script gone, plus a
 sky and four landmark shapes spawned by the runtime loader.
@@ -256,6 +274,16 @@ stubs pointing at the same no-op handlers). So a row injected at runtime
 satisfied `StartScenario`, which reads the table then, but the registry the
 simulation had already built did not know the codename — and a *shipped*
 codename in a new row worked because the registry knew that one.
+**Update 2026-10-21:** the gate was one layer up. The simulation's own
+levels arrays are empty on CU4; what boot builds and a late row lacked is
+the exe's frontend levels cache:
+`UBlamFrontendLevelsEngineGlueSubsystem::BuildRuntimeCachesFromBuiltInMapInfoDataAsset`
+(`0x7B7D180`) passes each `DT_Scenarios` row to a per-map insert
+(`0x7BAC140`). Called for a row added at runtime, that insert lets a new
+codename start without a restart: `mjolnir_scenario_add` in
+`native/map_registry` does it for maps installed while the game runs
+(commit a404f288, 2026-10-09, PR #165, mods-v0.20.0; `docs/live_map_install.md`). A map
+present at boot still gets the cooked row.
 
 `blam-pack --example scenario_register <CODE>` cooks the row: it clones the
 donor's `DT_Scenarios` row under the new name with `ScenarioName = CODE`
@@ -299,7 +327,10 @@ BSP's cooked wrapper carries beyond what `tagwrap` models, the map load needs
 it, so BSPs are cloned, not rebuilt.
 
 What is still B40's: the world (`UnrealLevel`) and the other 17 BSPs the
-scenario references, all read-only shipped tags.
+scenario references, all read-only shipped tags. (**Update 2026-10-21:** not
+for a converted map: it ships its own world (below), and `blam.single_bsp`
+makes its own BSP the scenario's only one, at index 0, with the canvas's
+other BSPs dropped; fbc9bfa1, 2026-10-01, `tools/level/convert_ce_map.sh`.)
 
 ### The map's own Unreal world: not yet (later still; resolved in the next section)
 
@@ -382,7 +413,9 @@ fallback. That is why `blam_pack::build_addition` names files UE-style
 manifest. `mjolnir_level_rescan` re-reads the containers after installing a
 map while the game runs. Log: `native/map_registry.log`. CU4-only by RVA;
 another build is refused with a log line and standalone worlds simply fall
-back to bouncing.
+back to bouncing. **Update 2026-10-21:** the exe's addresses are now per
+build (`exe_profiles`, keyed by the PE timestamp): Steam's CU4 and the Xbox
+app's CU4 (`docs/game_pass.md`, PR #179, 2026-10-10). Any other build is still refused.
 
 **The data-only alternative, not yet built.** The same boot loader
 (`FUN_144608f90`) then iterates the plugin manager's enabled content plugins
@@ -398,6 +431,16 @@ and a check that a loose `.uplugin` is discovered in this shipping build
 install as data alone.
 
 ### What the map's own world may still need — and how not to test it
+
+**Update 2026-10-21:** settled: the bare world is the product. One thing it
+did need: `level bake --world` turns its plain `WorldSettings` into a
+`BlamWorldSettings` whose `DefaultScenario` is set, because the game creates
+some world subsystems only for a Blam world (without them bullet impacts,
+tracers and surface-dependent footsteps were missing; `blam_world_settings` in
+`crates/blam-cli/src/level.rs`, d17b0a7d, 2026-10-01). `tools/level/convert_ce_map.sh`
+gives every converted map `defs/level/empty_world.umap` renamed to its
+codename; `WORLD=<.umap>` picks another. The synthesized minimal world was
+not built.
 
 With the resolver in place BGL loads on the MapKit's bare world renamed to
 `/Game/Levels/Halo1/Solo/BGL/BGL`: Blood Gulch terrain textured and lit,
@@ -415,7 +458,10 @@ because of two traps that ate most of a night:
   not see `SendInput` keys or mouse motion; Slate menus do, which is why the
   `game_input` tool drives menus fine. `IsInputKeyDown(W)` is true while the
   unit ignores it — on the shipped B40 too. Movement has to be tried by a
-  person at the keyboard.
+  person at the keyboard. **Update 2026-10-21:** the explanation does not
+  hold. Match chat found that the simulation takes its keys from the game
+  viewport, and emptying GameInput's keyboard readings did not stop them
+  (`mods/MJOLNIRHud/Scripts/chat.lua`, PR #200, 2026-10-17).
 - **`BP_MeteoritePawn_C` is not the unit.** Its location is the same
   constant (19230.9, 1971.8, 13930.8) on B40, on BGL's bare world and on the
   donor world below; the camera sits 189 cm above it. It says nothing about
@@ -468,3 +514,10 @@ Two launch routes that do not work, for the record:
 
 CAMPAIGN > NEW GAME > MISSION SELECT > RALLY POINT > SKULLS > START is the
 route that starts the simulation.
+
+**Update 2026-10-21:** the same route can be driven from script, which is how
+MJOLNIRLobby starts every map: set the co-op lobby's mission, difficulty and
+insertion point through `BPFL_CampaignMenuHelpers`, then `StartCountdown`;
+when it ends, the game's `LaunchCampaign` builds the options a bare
+`SetAndBeginCampaign` lacks (`startGame` in
+`mods/MJOLNIRLobby/Scripts/main.lua`, since PR #106, 2026-10-01).

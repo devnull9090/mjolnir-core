@@ -5,9 +5,11 @@
 **Tool:** `crates/blam-cli` (`mjolnir`)
 **Date:** 2026-07-26
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** this note is stamped CU2; the installed build is CU4
+> (`config/hce-build.lock.json`). The CU4 tag definitions are identical to CU2's: regenerating
+> `defs/hce/tag-definitions.json` on CU4 changed only its build string (`0b02b919`). See
+> [`build_lock.md`](build_lock.md) for what has been re-verified against CU4 and which notes are
+> still CU3-or-earlier-measured.
 
 ## Summary
 
@@ -30,7 +32,7 @@ Reproduction:
 
 ```
 $env:HCE_PAKS = "<install>\Meteorite\Content\Paks"
-$env:OODLE    = "<UE>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"
+$env:OODLE    = "<UE>\Engine\Binaries\DotNET\AutomationTool\oo2core_9_win64.dll"   # optional since 2026-08-02: without it the built-in decoder is used
 
 cargo run --release -p blam-cli -- groups
 cargo run --release -p blam-cli -- layout --group camera_track --tables
@@ -50,6 +52,10 @@ The Rust reader in `crates/blam-tag` parses **101/101 groups** across all **12,2
 payloads, recovers a complete field list for **101/101**, and decodes the field *values* of
 **12,281 / 12,290** payloads byte for byte. Every one of those decodes back to its original
 bytes exactly, which is the precondition for editing tags rather than only reading them.
+
+**Update 2026-10-21:** the last nine decode too since `4ac928bb` (2026-08-01): that commit took
+the data walk from 9 failures to none, with the round-trip still byte-identical. See *Resolved*
+below.
 
 ## Section Layout
 
@@ -389,7 +395,8 @@ group's root.
 ### What each field type writes
 
 **Verified** against every shipped tag: with these rules the walk consumes **12,281 / 12,290**
-payloads byte for byte, and the 9 that fail all fail on one field slot (see *Open* below).
+payloads byte for byte, and the 9 that fail all fail on one field slot (see *Resolved* below;
+they walk since `4ac928bb`).
 
 | Field type | Writes |
 |---|---|
@@ -463,7 +470,8 @@ result to be identical:
 | Bytes reproduced | 5,767,589,556 |
 
 The nine tags absent from that total are the `effect scenery` cases that do not read; a tag that
-cannot be read is not offered to the writer.
+cannot be read is not offered to the writer. (Since `4ac928bb` they read, and they round-trip
+byte for byte with the rest.)
 
 This identity is the precondition for editing. A writer that cannot reproduce an untouched tag
 cannot be trusted with a modified one, and the failure mode is silent corruption of somebody's
@@ -675,7 +683,16 @@ root.[0].render geometry.compression info constant buffers:
   expected a tgbl section at offset 134436 of 134468, found "<none>" [63 00 67 74 ...]
 ```
 
-**Open — one field slot, 9 tags.** Every remaining failure is the same one:
+**Update 2026-10-21:** the failure below was fixed in `4ac928bb` (2026-08-01), and the cause was
+not the third `custom`. The empty `tgst` is a phantom: the cooker pruned the block's
+type-specific struct from the field table, but the writer still emitted its empty section. When
+the strict walk of a struct wrapper fails or leaves bytes unread, the walk now retries it with its
+sections aligned to the declared writing fields, and allows a surplus section only when it is an
+empty `tgst`. That section is kept as `Value::Phantom` and written back as an empty `tgst`
+(`crates/blam-tag/src/data.rs`). The data walk went from 9 failures to none and the round-trip
+stayed byte-identical. The analysis below is kept as history.
+
+**Resolved 2026-08-01 (formerly Open) — one field slot, 9 tags.** Every remaining failure is the same one:
 `root.[0].effect scenery.[0]` in 9 of the 13 `scenario` tags, which reads 104 of the 164 bytes the
 element's `tgst` declares. The evidence is narrow and specific:
 
@@ -725,15 +742,18 @@ format version.
    per-group parsers and no hardcoded offsets.
 4. Values, not just schema, are now readable: 99.9% of shipped payloads decode into a byte-exact
    value tree, which is what an editor needs in order to show a field's current setting.
+   **Update 2026-10-21:** the remaining nine decode too since `4ac928bb` (see *Resolved* above).
 5. Those trees re-serialise to identical bytes, so an editor can write a tag back having changed
    only what the user changed. Without that identity, saving is corruption.
 
 ## Next Checks
 
-1. Identify what distinguishes the `custom` field that occupies a struct slot in
+1. ~~Identify what distinguishes the `custom` field that occupies a struct slot in
    `scenario_effect_scenery_block` from the `custom` fields that write nothing. Start by comparing
    the three entries' `gras` records directly, including their distinct `name_offset` values. This
-   is the only remaining data-walk failure, at 9 of 12,290 tags.
+   is the only remaining data-walk failure, at 9 of 12,290 tags.~~ **Done 2026-08-01**
+   (`4ac928bb`): no `custom` writes; the empty `tgst` is a phantom of a pruned struct. See
+   *Resolved* above.
 2. Interpret `csbn`, `dtnm`, `rcv2` and `]==[`. Their record widths are now known (4, 4, 12 and 24
    bytes) and the groups that populate them are named above, which is where to look.
 3. Identify the two `blay` preamble words at body `0x20`–`0x28`, and the per-group value at
@@ -741,8 +761,13 @@ format version.
 4. Confirm what the third character of the `pageable resource` magic (`tg?c`) selects. Only `r`
    and NUL have been seen, in three groups.
 5. ~~Package a modified tag so the game loads it.~~ **Done.** `ue_iostore::pack` emits an override
-   container and the game uses it, verified in mission A30. One constraint remains: the payload has
-   to keep its length, so fixed-width fields only. See
+   container and the game uses it, verified in mission A30. ~~One constraint remains: the payload has
+   to keep its length, so fixed-width fields only.~~ **Update 2026-10-21:** the length constraint
+   went on 2026-08-02 (`d5dfb31e`), once the packer's perfect-hash fix (`32614c42`) let one
+   container serve two chunks. When an edit resizes the payload, `blam-pack` rewrites the
+   package header's `BinaryBlobSize` and packs that header beside the payload
+   (`crates/blam-pack/src/lib.rs`), so `string id` and `tag reference` edits ship too, as do block
+   elements added with `mjolnir pack --duplicate`. See
    [`iostore_packaging.md`](iostore_packaging.md).
 6. Test the container-header `0x34` group-version hypothesis against a known Reach or Halo 4 tag
    definition set.
@@ -759,5 +784,6 @@ Only **schema** is published — field names, type names, byte offsets, and enum
 
 ## Non-Goals
 
-No game content is written to disk by any of these tools; payloads are read into memory only.
-Extracted tag data remains local and uncommitted per the repository policy.
+No game content is written to disk unless asked: `mjolnir set --out` writes the patched tag,
+`mjolnir pack` an override container and `mjolnir extract` tag files, each where it is told.
+Extracted and edited tag data remains local and uncommitted per the repository policy.

@@ -28,7 +28,8 @@ with nothing else attached. It is the better tool for trying something quickly
 or for scripting a batch. That is the walkthrough in sections 1–5 below.
 
 Both routes run the same encoder and the same safety checks — the editor calls
-straight into the crate the CLI uses.
+straight into the crate the CLI uses. The one difference is a classic mip chain,
+which only the command line can swap; see [What can be swapped](#what-can-be-swapped).
 
 ---
 
@@ -166,9 +167,9 @@ by hand.
    somewhere, so *Replace…* stays greyed out until a project is open — the
    button's tooltip says which of the two reasons is stopping it.
 2. **Open the texture**, from the TEXTURES list or by walking to it in FILES.
-3. **Export PNG…** to get the shipped atlas, and paint it exactly as in
-   [section 3](#3-paint-it) — same rules, same atlas, same warning about moving
-   things around.
+3. **Export…** and save as PNG, the dialog's default, to get the shipped atlas,
+   and paint it exactly as in [section 3](#3-paint-it) — same rules, same atlas,
+   same warning about moving things around.
 4. **Replace…** and pick your PNG. The editor re-encodes every mip, checks the
    payload came out the same length, and decodes it back to compare against
    what you handed it. On a large virtual texture this takes a few seconds.
@@ -199,9 +200,11 @@ not a cooked blob.
 | `PF_BC4`, `PF_BC5` | yes |
 | `PF_B8G8R8A8`, `PF_G8`, `PF_A8` | yes |
 | `PF_BC7`, `PF_BC6H` | **not yet** — needs a BPTC encoder |
+| `PF_R16F`, `PF_FloatRGBA`, `PF_A32B32G32R32F` | **not yet** |
 
-Both virtual textures and classic mip chains are supported. `PF_BC7` is a real gap:
-it is the second most common format in the game (1209 textures, against DXT1's 1867),
+Virtual textures swap by either route; classic mip chains only from the command line.
+`PF_BC7` is a real gap: it is the second most common format in the game (1209 textures,
+against DXT1's 1867),
 and it covers most `_ORME` and `_Masks` maps. Albedo maps are usually DXT1 or DXT5,
 which is why repaints work today.
 
@@ -215,15 +218,17 @@ Refused rather than approximated, in both cases:
 - A classic texture that keeps **every** mip inline in its export has no bulk chunk to
   replace; the encoder handles it, but neither the command nor the editor can pack it
   yet. A classic chain whose *tail* mips are inline — the usual case, everything below
-  128x128 — is fine: the command rewrites the export body too and packs the `.uasset`
-  beside the `.ubulk`, both at their shipped lengths.
+  128x128 — is fine on the command line: `texture swap` rewrites the export body too and
+  packs the `.uasset` beside the `.ubulk`, both at their shipped lengths. The editor does
+  not do this yet, since it bakes only the `.ubulk`, so it refuses a classic chain.
 
 Several textures can go into one container: `--pair ASSET=IMAGE` repeats, with
 `flat-normal` in place of an image writing a flat (128,128) normal map — the way to
 quiet a host material's bump map when its colour map has been repainted.
 
 In the editor, an unsupported format is visible before you pick a file: *Replace…*
-is greyed out and the reason sits under the texture's path.
+is greyed out and the reason sits under the texture's path. A classic mip chain is
+the exception: *Replace…* stays enabled, and the refusal comes after the PNG is picked.
 
 ## Troubleshooting
 

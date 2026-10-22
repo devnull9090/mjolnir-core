@@ -1,5 +1,16 @@
 # Handoff: build a pipeline test map ("TST")
 
+**Status (2026-10-21):** done; [pipeline_test_map.md](../pipeline_test_map.md) is the current
+record. TST was built on `work/foliage-bake-a63bc3` itself and merged with PR #208 (0d20304c,
+2026-10-20): its sources are in `levels/test/tst/` (built with the Halo Asset Blender
+Development Toolset Release 425) and its entry, chunk 969, is in `ce_upgrade_maps.json`. The
+tree-twig bug below got a recipe fix in 8a4da432, after which TST's three trees were found
+clean. A new local map installs with `--stages install --local-install`, not plain
+`--stages install`, and B30 loads through the campaign menu: on CU4 `mjolnir_mission` from the
+main menu never starts the mission. The worktree, branch, open PR and free-chunk notes below are as of
+2026-10-19; the brief is kept as written, apart from the rules line that named a private
+account.
+
 Paste everything below the line into the agent.
 
 ---
@@ -139,7 +150,8 @@ Check each in game and report it with a screenshot or a log line.
   branch. Never push to `main`.
 - **No release tags and no hub publishes.** The owner tests in game first,
   every time.
-- Never write the name "wreiske" in commits, PRs, docs or changelogs.
+- Never write the owner's private account name in commits, PRs, docs or
+  changelogs (say "HalcyonRing").
 - Never edit a script while it is running (a bash script re-reads itself as
   it runs).
 - Never `rm -rf` a path built from shell variables.

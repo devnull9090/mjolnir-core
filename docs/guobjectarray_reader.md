@@ -10,6 +10,10 @@ It works, end to end, verified against the shipped build
 `crates/blam-live`: `objects.rs` (the object table), `names.rs` (the name
 pool), and module-base lookup in `sys.rs`.
 
+**Update 2026-10-21:** the build lock had read `…Meteorite-2607-CU4` since
+2026-08-18 (commit 0b02b919), so the CU3 label above is probably carried
+forward; see `build_lock.md`.
+
 ## The chain, all signature-resolved
 
 1. **Module base** — `Process::module("HaloCampaignEvolved.exe")` via a Toolhelp
@@ -90,6 +94,15 @@ direction (scattered per-tag records, no dense table).
 
 ## Where this meets the census — now wired (tag editor 0.16.0)
 
+**Update 2026-10-21:** superseded for pokes. Since tag editor 0.18.0 (first
+tagged in 0.20.0, PR #95) the census reads the simulation's own tag table, which
+gives every loaded tag's root exactly and skips the sweep; the sweep stays only
+for a build that neither a measured profile nor the code anchors describe. The
+"different and larger hunt" below did find a tag-cache root, the loader's
+`FPackageId` map (`blam_live::cache`), but it holds only about a tenth of the
+resident buffers and now runs only when the table cannot be read; the table is a
+separate structure, found 2026-09-05. See `tag_table_and_string_ids.md`.
+
 `apps/tag-editor/src-tauri/src/present.rs` puts the reader in front of the
 census. Arming live mode calls `live_probe` (reader only): the level and the
 present count land in about a second with no sweep. The census runs the reader
@@ -126,4 +139,6 @@ Combining them was the prize, with one hypothesis eliminated along the way:
 
 The reader ships as `#[ignore]`d live tests documenting each layer
 (`objects::tests::walk_live_object_table`, `names::tests::discover_name_pool`);
-they need the game running and `MJOLNIR_EXE` set.
+they need the game running and `MJOLNIR_EXE` set, and the name-pool test also
+`MJOLNIR_NAMES` (bridge-supplied `<hex addr>\t<name>` lines it checks the
+resolved names against).

@@ -128,7 +128,7 @@ ACTIONS (store o+0x930c, 20 B each; u11 count <= 1024; decoder 0x39cf20; executo
     21 end round    : (no params)   -> 0x2afa70, engine globals +0x845c = 2
     29 get killer   : PLAYER victim ; PLAYER out  (finds victim in this tick's death records, writes killer)
     30, 31, 99      : TRIGGER-BLOCK (u9 u10 u10 u11) nested/inline block
-  Full per-type decoder: scratch/megalo/d_39cf20.c
+  Full per-type decoder: 0x39cf20 (scratch/megalo/d_39cf20.c, cited here before, is not in the repository)
 
 TRIGGERS (store o+0x63fc, 12 B each)
   u9 count (<=320); each:

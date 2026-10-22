@@ -69,12 +69,9 @@ alongside it. Either way, check it landed:
 mjolnir --version
 ```
 
-<details>
-<summary>Or build it from source</summary>
-
-You need this only if you are changing the tool itself, or if you want a build
-of something that has not been tagged yet. It needs a
-[Rust toolchain](https://rustup.rs).
+**Or build it from source.** You need this only if you are changing the tool
+itself, or if you want a build of something that has not been tagged yet. It
+needs a [Rust toolchain](https://rustup.rs).
 
 ```bash
 git clone https://github.com/devnull9090/mjolnir-core
@@ -85,9 +82,8 @@ cargo build --release -p blam-cli
 That gives you `target/release/mjolnir`. The rest of this guide writes `mjolnir`;
 if you built it, that means `target/release/mjolnir`.
 
-</details>
-
-Optional but recommended, since it turns a twenty-minute manual test loop into a two-minute one:
+Optional but recommended, since it turns a twenty-minute manual test loop into a two-minute one.
+It needs UE4SS, which the MJOLNIR launcher installs, and a clone of the repository to run it from:
 
 ```powershell
 .\scripts\install-bridge.ps1
@@ -95,7 +91,7 @@ Optional but recommended, since it turns a twenty-minute manual test loop into a
 
 That installs a UE4SS mod letting tools drive the running game — launch it, start a mission, read
 values out of live objects, take screenshots. See [`game_automation.md`](game_automation.md).
-It is Windows-only.
+It is Windows-only, and expects a Steam install (the `Win64` build).
 
 ### Where the game is
 
@@ -117,6 +113,9 @@ If Steam keeps your games on another drive, look for the library in
 `~/.steam/steam/steamapps/libraryfolders.vdf`. A Flatpak Steam puts everything
 under `~/.var/app/com.valvesoftware.Steam/`.
 
+The `mjolnir` commands in this guide read `HCE_PAKS` when they are not given
+`--paks`, which is why the ones below leave it out.
+
 > **On macOS the tool runs, the game does not.** Halo Campaign Evolved is a
 > Windows title with no macOS build, so there is no local install to point at.
 > The macOS binary is for reading and editing container files you copied from a
@@ -131,13 +130,13 @@ under `~/.var/app/com.valvesoftware.Steam/`.
 Tags are grouped by type. List the groups:
 
 ```bash
-mjolnir groups --paks "<install>/Meteorite/Content/Paks"
+mjolnir groups
 ```
 
 then list the tags in one:
 
 ```bash
-mjolnir list --paks "$PAKS" --group weapon
+mjolnir list --group weapon
 ```
 
 Weapons live under `objects/weapons/`, so the assault rifle is
@@ -147,19 +146,19 @@ Weapons live under `objects/weapons/`, so the assault rifle is
 > statically so it ships no `oo2core_*_win64.dll`. You do not need one: a decoder is built in, and
 > it is what runs by default. If you happen to have a DLL — any UE5 install has one under
 > `Engine/Binaries/DotNET/AutomationTool`, most UE4-era games under
-> `Engine/Binaries/ThirdParty/Oodle/Win64` — pass `--oodle <path>` and decoding runs about four
-> times faster. The bytes are identical either way.
+> `Engine/Binaries/ThirdParty/Oodle/Win64` — pass `--oodle <path>` (or set `OODLE` to it) and
+> decoding runs about four times faster. The bytes are identical either way.
 
 To see a tag's fields and current values:
 
 ```bash
-mjolnir values --paks "$PAKS" --group weapon --tag assault_rifle-weapon --depth 3
+mjolnir values --group weapon --tag assault_rifle-weapon --depth 3
 ```
 
 Field paths are what you saw printed, so `magazines[0].rounds loaded maximum` is a magazine's
 capacity. Two ways to browse instead of reading a wall of text: the
-[tag browser on the hub](https://mjolnircore.com/docs/tags), or `apps/tag-editor`, the local
-Guerilla-style GUI.
+[tag browser on the hub](https://mjolnircore.com/docs/tags), or the MJOLNIR Tag Editor, the
+Guerilla-style GUI the launcher installs from its Tools page.
 
 ---
 
@@ -202,17 +201,18 @@ So change these together:
 
 ### With the GUI
 
-`apps/tag-editor` is a Guerilla-style browser: open a group, pick a tag, navigate to
+The MJOLNIR Tag Editor is a Guerilla-style browser: open a group, pick a tag, navigate to
 `magazines → [0]`, change the values, and export the patched tag. Good for exploring, since you can
-see field names and types without knowing the path in advance.
+see field names and types without knowing the path in advance. Make the edit inside a mod project
+and the mod panel's **Test in game** bakes the container and installs it for you; see
+[`making_your_first_mod.md`](making_your_first_mod.md).
 
 ### With the CLI
 
 One field per invocation, chaining the output of each into the next:
 
 ```bash
-mjolnir set --paks "$PAKS" --oodle "$OODLE" \
-  --group weapon --tag assault_rifle-weapon \
+mjolnir set --group weapon --tag assault_rifle-weapon \
   --field "magazines[0].rounds loaded maximum" --value 99 \
   --out ar-1.tag
 ```
@@ -253,9 +253,10 @@ are enough.
 **The single most important rule in this guide.**
 
 The UE5 package header records the payload's length, and the two have to agree. Fixed-width fields
-— integers, reals, enums, flags — edit **in place** and the length never changes. Strings and block
-elements **resize** it, and then you also have to rewrite the package header chunk, which means a
-two-chunk container and a lot more that can go wrong.
+— integers, reals, enums, flags — edit **in place** and the length never changes. Strings, tag
+references and block elements **resize** it. `pack` copes by rewriting the package header chunk to
+match and shipping it beside the payload, but that makes a two-chunk container with more that can
+go wrong.
 
 Every field in step 3 is a `short integer`, so the payload stays 32,620 bytes and you need exactly
 one chunk. Confirm before continuing:
@@ -272,8 +273,7 @@ back.
 ## Step 6 — Build the override container
 
 ```bash
-mjolnir pack --paks "$PAKS" --oodle "$OODLE" \
-  --group weapon --tag "assault_rifle-weapon" \
+mjolnir pack --group weapon --tag "assault_rifle-weapon" \
   --set "magazines[0].rounds loaded maximum=99" \
   --set "magazines[0].rounds reloaded=99" \
   --set "magazines[0].runtime rounds inventory maximum=900" \

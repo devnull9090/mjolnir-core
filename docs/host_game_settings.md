@@ -3,7 +3,11 @@
 Plan for a host-only GAME SETTINGS screen in the multiplayer lobby: what
 classic Halo CE let a host change, what our runtime can change, and how a
 choice gets from the lobby to every machine's simulation. Researched
-2026-10-04; nothing here is built yet.
+2026-10-04; nothing here was built then. **Update 2026-10-21:** GAME
+SETTINGS shipped in mods-v0.16.0 (PR #146), the hub listing carries it
+since PR #147 (migration 0015), and per-team vehicle sets since mods-v0.19.0
+(be16ef4a). What each setting does today is in the table under "What our
+runtime can change".
 
 Sources, marked on each fact:
 - **V**: read from CE's own tags. Custom Edition `ui.map` (814 widgets, 168
@@ -109,10 +113,13 @@ Team Slayer, Team Oddball, Team King, Team Race.
 ## What our runtime can change
 
 Our game types are Megalo variants (`.mglo`), built once in CI
-(`.github/workflows/release-mods.yml:96-97`, Slayer and CTF only) by
-`mjolnir megalo write`. Everything except the mode, score to win, rounds,
-CTF flag reset and health packs is a fixed value in `write_base`
-(`crates/blam-megalo/src/variant.rs:633`). The base options sit at the same
+(`.github/workflows/release-mods.yml:109-110`, Slayer and CTF only) by
+`mjolnir megalo write`. When this was researched, everything except the
+mode, score to win, rounds, CTF flag reset and health packs was a fixed
+value in `write_base`. Since fd0e1ca0 (mods-v0.16.0), the base options a
+host can change are a `BaseOptions` (`crates/blam-megalo/src/variant.rs:448`)
+that `write_base` writes and `mjolnir megalo write` can set; its defaults
+keep the bytes of the variant proven in game. The base options sit at the same
 bit offsets in every file we write, so a host's choice can be patched into a
 copy of the file before it is staged.
 
@@ -151,8 +158,8 @@ Megalo script or user options; **data** = new tag data in the runtime pack;
 
 One cooked screen, `WBP_MJOLNIRGameSettings`, generic so new settings never
 need a re-cook:
-- left: five page buttons (GAME, PLAYERS, ITEMS used so far), RESET (every
-  setting back to its default) and DONE;
+- left: five page buttons (GAME, PLAYERS, ITEMS, RED VEHICLES, BLUE
+  VEHICLES), RESET (every setting back to its default) and DONE;
 - middle: twelve rows of `<   LABEL   value   >`; clicking the row steps it
   forward, `<` and `>` step either way; Lua names each row, fills it and
   hides the rest; a value away from its default is drawn in the accent;
@@ -175,8 +182,8 @@ for the settings they need.
 2. The host writes it to `MJOLNIRLevelLoader\variant_settings.txt` as it
    starts a game; fireteam clients get it as the third field of the `lobby`
    message and write the same file. A host from before settings sends no
-   third field, which clears it. A join from FIND GAMES clears it too (or
-   takes the listing's `settings`, once the hub carries one).
+   third field, which clears it. A join from FIND GAMES writes the listing's
+   `settings` instead, or clears the file when the listing has none (below).
 3. On every machine the level loader patches the line into its copy of
    `variants/<mode>.mglo` (`variant_settings.lua`, keeping only that game
    type's score) and stages the result.
@@ -208,6 +215,14 @@ fireteam client by the host, which sends its count every 30 s.
 
 ## Phases
 
+**Update 2026-10-21:** phase 1 shipped in part (mods-v0.16.0, PR #146):
+score, time limit, respawn time, suicide penalty, shields, invisible
+players, and grenades and powerups on the map. Lives, betrayal penalty,
+friendly fire, maximum health, radar and friend indicators are not offered.
+From phase 3, vehicle sets per team shipped in mods-v0.19.0 (be16ef4a),
+through Megalo labels and object filters rather than a remap. Weapon sets
+and phase 2 are not built.
+
 1. **Patch-only settings.** Score, time limit, lives, respawn time, suicide
    and betrayal penalties, friendly fire, shields, maximum health,
    invisibility, radar, friend indicators, grenades and powerups on the map.
@@ -224,7 +239,9 @@ fireteam client by the host, which sends its count every 30 s.
 
 1. When does the sim decode the staged variant relative to creating placed
    objects (the one-match lag)?
-2. Does the time limit end a round by itself, and does elimination (lives)?
+2. ~~Does the time limit end a round by itself~~ (no: the engine counts it
+   down but never ends the round; the `with_time_limit` trigger does,
+   verified in game in fd0e1ca0), and does elimination (lives)?
 3. Is friendly fire off in team games today?
 4. Do Unreal's radar, waypoints and camo follow the sim's traits?
 5. Does a client's variant affect play, or only the host's?

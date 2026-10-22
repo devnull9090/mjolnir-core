@@ -62,9 +62,9 @@ what a participant cites to claim its seat.
 MJOLNIRLobby's `matches.lua` reads `match_outbox.txt` every 15 seconds and
 sends one file at a time through the native hub call public games use
 (`mjolnir_hub_call`, the launcher's key). A file is deleted once the hub has it
-(200/201) or refuses it for good (400, 409, 413, 422). No connection, a 429 or
-a 5xx retry in a minute; 401/403 (an old launcher sign-in) and 404 (a hub
-without these routes) in ten. Lua has no directory listing, hence the outbox.
+(200/201) or refuses it for good (400, 409, 413, 422). No connection or a 5xx
+retry in a minute, a 429 in five; 401/403 (an old launcher sign-in) and 404 (a
+hub without these routes) in ten. Lua has no directory listing, hence the outbox.
 The HUD only appends to it; the Lobby rewrites it to the entries whose files
 remain. Both run on the game thread, so they never interleave.
 

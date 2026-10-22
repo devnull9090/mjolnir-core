@@ -140,6 +140,7 @@ at the start of A30 read 0: they are the dead crew.
 | `+0x28` | controlled unit handle: what `player_get` (RVA `0x1b21e0`) returns |
 | `+0x34` | the same handle again in A30. Meaning not established |
 | `+0x38` | a position near the unit's |
+| `+0xAD` | team, i8: 0 red, 1 blue … 8 neutral, -1 none. A player with no team never spawns (CU4 `0x2ae6f0`). Read since 2026-10-01 |
 
 The gamertag is not in the datum.
 
@@ -147,7 +148,7 @@ The gamertag is not in the datum.
 
 ```
 mjolnir live arrays                       every data array, offset, fill, size
-mjolnir live players                      each player, its unit and position
+mjolnir live players                      each player, its team, unit and position
 mjolnir live objects [--group bipd] [--filter marine] [--tsv out.tsv]
 mjolnir live status                       now also names the simulation thread
 ```

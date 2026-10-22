@@ -64,13 +64,17 @@ again for the next match.
   `player_get <n>` is the player with absolute index `n` is proven only for
   the host's own seat; the two-PC test must check it before `/slay` or a
   teleport is trusted.
-- Six suggestions show at a time (the host has nine commands); typing more
+- Six suggestions show at a time (the host has ten commands); typing more
   narrows them.
 
 ## Chat
 
 `Scripts/chat.lua`. **T** opens all chat, **Y** team chat (all chat in free
-for all), **Home** all chat. **Enter** sends, **Esc** cancels. Lines show for
+for all), **Home** all chat. **Enter** sends, **Esc** cancels. The first
+time, the box shows the chat rules instead (chat is recorded, public matches
+post their chat, keep it civil): I AGREE or Enter opens chat and is
+remembered in `chat_rules.txt` beside the mod; NOT NOW or Esc leaves it
+shut. A new version of the rules asks again. Lines show for
 nine seconds, then fade; while the box is open the last ten show on a dark
 panel. A line is at most 160 bytes. Each line shows the sender's hub avatar,
 round, as the feed and the scoreboard do; MJOLNIRLobby may cache the
@@ -102,8 +106,10 @@ for its first 15 seconds.
   and at the end of the match names it in `match_outbox.txt`. MJOLNIRLobby
   sends it to `POST /matches/chat`. Private matches are recorded too, because
   a player report cites the match id whether the game was listed or not.
-  Moderators read the log beside each report on `/moderation`; it is never
-  public (`GET /moderation/match-chat/{host_match_id}`).
+  A public match's chat shows on its match page on the hub
+  (`GET /matches/{id}`), as the chat rules tell players. Otherwise only
+  moderators read it, beside each report on `/moderation`
+  (`GET /moderation/match-chat/{host_match_id}`).
 
 ## The kill feed
 
@@ -151,8 +157,10 @@ a name, and what happened.
   Invincible) become feed lines after the kill that earned them (they arrive
   before it in the same tick). The local player's own also come up in the
   middle of the screen with their glyph; a burst queues up to three. On a
-  fireteam client the multi-kills and sprees come from the host's relay
-  (MJOLNIRLevelLoader relays incidents that have a sound); `first_blood` does
+  fireteam client they come from the host: the HUD's own relay carries the
+  multi-kills, sprees and `first_blood` (see
+  [On fireteam clients](#on-fireteam-clients)), and MJOLNIRLevelLoader's
+  sound relay carries the ones that have a sound, which `first_blood` has
   not.
 - **Text** uses the game's own fonts, set from Lua over the cooked Roboto:
   Normative Pro for names, Oxanium (the menus' face) for numbers and
@@ -302,8 +310,11 @@ See [custom_ui.md](custom_ui.md) for the build and cook commands.
 The HUD's glyphs are PNGs in `unreal/MJOLNIRMaterials/Art/HudIcons`; change
 one in `tools/ue/draw_hud_icons.py` (`--sheet preview.png` draws them all
 over grey and sky blue), re-run it, then build and cook the UI. The Lua
-modules `feed.lua`, `anim.lua`, `hudicons.lua`, `relay.lua` and `demo.lua` ship with
-`main.lua`.
+modules `scoreboard.lua`, `variant.lua`, `buildline.lua`, `matchlog.lua`,
+`hubnames.lua`, `feed.lua`, `anim.lua`, `hudicons.lua`, `relay.lua`,
+`hitches.lua`, `bench.lua`, `chat.lua`, `commands.lua` and `demo.lua` ship with
+`main.lua`. The HUD also adds the console commands `mjolnir_hitches` (the
+hitch log) and `mjolnir_bench` ([performance.md](performance.md)).
 
 `tools/tests/test_multiplayer_ui.lua` exercises grouping, a full and uneven
 roster, sorting, CTF captures, Team Slayer kills, delayed assignment,
@@ -323,8 +334,8 @@ python -c "from lupa import LuaRuntime; LuaRuntime().execute(open('tools/tests/t
 
 - Split screen: the widgets go on the whole viewport, not on each player's
   half.
-- The scoreboard's own fonts (only the feed, callouts and score bars use the
-  game's).
+- The scoreboard's own fonts (only the feed, callouts, score bars and chat
+  use the game's).
 - Medals for kinds the simulation does not raise as incidents (sniper and
   vehicle medals arrive as `*_kill` incidents and are not shown yet).
 

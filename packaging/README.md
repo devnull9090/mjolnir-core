@@ -180,9 +180,9 @@ Without `-Push` it only builds the `.nupkg` and prints where it went.
 
 `cargo install --git https://github.com/devnull9090/mjolnir-core blam-cli`
 works today and always has. It is not on crates.io: publishing there would mean
-publishing the seven workspace libraries under names nobody would recognise, and
-keeping every one of their versions in step for the sake of one binary that
-already ships prebuilt.
+publishing the twelve workspace libraries it depends on under names nobody would
+recognise, and keeping every one of their versions in step for the sake of one
+binary that already ships prebuilt.
 
 ---
 
