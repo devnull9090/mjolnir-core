@@ -236,6 +236,9 @@ local Current = {
     -- level.decor[].motion): { actor, rest, pivot, period, keys }, turned
     -- by the "turning machines" loop.
     turning = {},
+    -- The simulation's machine actors a turning mesh rides, by full name:
+    -- one mesh each.
+    claimed = {},
     -- Level sounds that follow the game's volume sliders (spawnSounds):
     -- { comp, gain, category, volume }, kept in step by syncVolumes.
     volumed = {},
@@ -277,6 +280,7 @@ local function resetState()
     Current.pulses = {}
     Current.movingSounds = {}
     Current.turning = {}
+    Current.claimed = {}
     Current.volumed = {}
     Current.sunMids = {}
     Current.scalarMids = {}
@@ -318,6 +322,7 @@ local function clearActors()
     Current.scalarMids = {}
     Current.movingSounds = {}
     Current.turning = {}
+    Current.claimed = {}
     Current.volumed = {}
     Current.spawned = 0
     Current.failed = 0
@@ -1792,8 +1797,10 @@ local function spawnSounds(world)
             -- A CE music loop (class music) follows the music slider.
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            -- `pitch`: Halo 2's pitched loops (the humming lights, 5
+            -- semitones down).
             local ok, comp = pcall(function()
-                return gs:SpawnSound2D(world, wave, gain * volume, 1.0, 0.0, nil, false, false)
+                return gs:SpawnSound2D(world, wave, gain * volume, s.pitch or 1.0, 0.0, nil, false, false)
             end)
             keep("__bg" .. i, ok and comp, s.fade_in, gain, category, volume)
         else
@@ -1831,7 +1838,7 @@ local function spawnSounds(world)
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, 1.0, 0.0, att, nil, false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, nil, false)
             end)
             keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
             -- On a machine's moving part (Infinity's beams): moved with it
@@ -5254,16 +5261,45 @@ local function spawnDecor(world)
                 Current.spawned = Current.spawned + 1
                 -- A turning machine: turned from its rest by the "turning
                 -- machines" loop (motion: pivot_cm from the actor, period
-                -- in seconds, keys { seconds, yaw degrees }).
+                -- in seconds, keys { seconds, yaw degrees }), which also
+                -- plays the sounds its turn raises (events: { t seconds,
+                -- wave, gain, inner, falloff cm }) at its pivot.
                 local mo = item.motion
                 if type(mo) == "table" and type(mo.keys) == "table" and #mo.keys >= 2
                     and type(mo.pivot_cm) == "table" and (tonumber(mo.period) or 0) > 0 then
                     local l = actor:K2_GetActorLocation()
-                    Current.turning[#Current.turning + 1] = {
+                    local m = {
                         actor = actor, rest = { l.X, l.Y, l.Z }, period = mo.period, keys = mo.keys,
                         pivot = { l.X + mo.pivot_cm[1], l.Y + mo.pivot_cm[2], l.Z + mo.pivot_cm[3] },
-                        loc = { X = 0, Y = 0, Z = 0 }, rot = { Pitch = 0, Yaw = 0, Roll = 0 },
+                        loc = { X = 0, Y = 0, Z = 0 }, rot = { Pitch = 0, Yaw = 0, Roll = 0 }, events = {},
                     }
+                    -- Paths, not waves or attenuation objects: nothing in the
+                    -- engine holds what Lua alone made or loaded, and the
+                    -- garbage collector freed them under the next play (a
+                    -- null access 41 s into Ascension). Each is made as it
+                    -- plays, and the sound holds it.
+                    for _, e in ipairs(type(mo.events) == "table" and mo.events or {}) do
+                        if type(e.wave) == "string" and type(e.t) == "number" and resolveMesh(e.wave) then
+                            m.events[#m.events + 1] = { t = e.t, wave = e.wave, gain = e.gain or 1.0,
+                                inner = e.inner or 150.0, falloff = e.falloff or 600.0 }
+                        end
+                    end
+                    m.at = { X = m.pivot[1], Y = m.pivot[2], Z = m.pivot[3] }
+                    -- A turn about another axis than +Z (Zanzibar's wheels):
+                    -- its unit vector, the keys' degrees about it.
+                    if type(mo.axis) == "table" and #mo.axis == 3 then
+                        m.axis = { X = mo.axis[1], Y = mo.axis[2], Z = mo.axis[3] }
+                    end
+                    -- A machine of the simulation's own turns its collision
+                    -- (follow: the Blueprint class the game draws it with,
+                    -- its position from the canvas origin): the mesh rides
+                    -- on that actor's turning part instead of the clock.
+                    local f = mo.follow
+                    if type(f) == "table" and type(f.class) == "string" and type(f.pos) == "table" then
+                        m.follow = { class = f.class, pos = { origin[1] + f.pos[1], origin[2] + f.pos[2], origin[3] + f.pos[3] } }
+                        m.entry = mo.entry
+                    end
+                    Current.turning[#Current.turning + 1] = m
                 end
             else
                 Current.failed = Current.failed + 1
@@ -5542,9 +5578,116 @@ local function watch()
         if not (world and world:IsValid()) then return end
         KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
         local now = KismetSystem:GetGameTimeInSeconds(world)
+        local gs, scans = nil, nil
         for _, m in ipairs(Current.turning) do
+            -- A machine of the simulation's own turns the part's collision
+            -- (follow): its Unreal actor is found (a FindAllOf every 2 s
+            -- until it is; the mesh turns by the clock meanwhile), the mesh
+            -- posed at the machine's present angle and attached to the part
+            -- that turns, whose own mesh is hidden. The angle about the
+            -- axis comes from a vector of the actor's frame and the same of
+            -- the part's; the turn's phase, for the sounds, is fitted to
+            -- what the part does, as the simulation runs its gears from its
+            -- own clock.
+            local function partAngle()
+                local k = m.axis or { X = 0, Y = 0, Z = 1 }
+                local a, b = m.base:GetActorForwardVector(), m.part:GetForwardVector()
+                if math.abs(a.X * k.X + a.Y * k.Y + a.Z * k.Z) > 0.9 then
+                    a, b = m.base:GetActorUpVector(), m.part:GetUpVector()
+                end
+                local ak, bk = a.X * k.X + a.Y * k.Y + a.Z * k.Z, b.X * k.X + b.Y * k.Y + b.Z * k.Z
+                local cross = k.X * (a.Y * b.Z - a.Z * b.Y) + k.Y * (a.Z * b.X - a.X * b.Z) + k.Z * (a.X * b.Y - a.Y * b.X)
+                return math.deg(math.atan(cross, a.X * b.X + a.Y * b.Y + a.Z * b.Z - ak * bk))
+            end
+            if m.actor:IsValid() and m.follow and not m.attached then
+                if not m.seek or now - m.seek > 2 then
+                    m.seek = now
+                    -- One actor a part: parts placed together (Zanzibar's
+                    -- wheel and its blades) each claim their own, and a
+                    -- part's meshes (its opaque and translucent ones, by
+                    -- their staging entry) share it.
+                    -- One scan a class a run, shared: each is ~20 ms.
+                    Current.claimed = Current.claimed or {}
+                    scans = scans or {}
+                    scans[m.follow.class] = scans[m.follow.class] or FindAllOf(m.follow.class) or {}
+                    pcall(function()
+                        for _, a in ipairs(scans[m.follow.class]) do
+                            local l = a:K2_GetActorLocation()
+                            local d = math.abs(l.X - m.follow.pos[1]) + math.abs(l.Y - m.follow.pos[2]) + math.abs(l.Z - m.follow.pos[3])
+                            local key = a:GetFullName()
+                            local owner = Current.claimed[key]
+                            if d < 30 and (not owner or (m.entry ~= nil and owner == m.entry)) then
+                                Current.claimed[key] = m.entry or true
+                                m.base = a
+                                m.part = a:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.StaticMeshComponent"))[1]:get()
+                                m.pose = partAngle()
+                                break
+                            end
+                        end
+                    end)
+                end
+            elseif m.actor:IsValid() and m.attached and not m.offset and m.part:IsValid() then
+                local h = m.hist
+                local rel = partAngle()
+                h[#h + 1] = { now, rel }
+                local lo, hi = rel, rel
+                for _, sm in ipairs(h) do lo, hi = math.min(lo, sm[2]), math.max(hi, sm[2]) end
+                if now - h[1][1] > 8 and hi - lo > 5 then
+                    local function at(t)
+                        local keys = m.keys
+                        for k = 2, #keys do
+                            if t <= keys[k][1] then
+                                local a, b = keys[k - 1], keys[k]
+                                return b[1] > a[1] and (a[2] + (b[2] - a[2]) * (t - a[1]) / (b[1] - a[1])) or b[2]
+                            end
+                        end
+                        return keys[#keys][2]
+                    end
+                    local best, bestCost = 0, math.huge
+                    for o = 0, m.period, 0.1 do
+                        local cost = 0
+                        for i = 1, #h, 3 do
+                            local e = (at((h[i][1] - o) % m.period) - h[i][2] + 540) % 360 - 180
+                            cost = cost + e * e
+                        end
+                        if cost < bestCost then best, bestCost = o, cost end
+                    end
+                    m.offset, m.hist = best, nil
+                    Log(string.format("turning machine phase: %.1f s from the world clock", best))
+                elseif #h > 600 then
+                    table.remove(h, 1)
+                end
+            end
             if m.actor:IsValid() then
-                local t = now % m.period
+                local t = (now - (m.offset or 0)) % m.period
+                -- Its sounds whose time the turn passed since the last
+                -- run (across the wrap too); none on the first.
+                local last = m.last
+                m.last = t
+                for _, e in ipairs(last and (not m.follow or m.offset) and m.events or {}) do
+                    if (last < t and e.t > last and e.t <= t) or (t < last and (e.t > last or e.t <= t)) then
+                        gs = gs or findObject("/Script/Engine.Default__GameplayStatics")
+                        pcall(function()
+                            local wave = resolveMesh(e.wave)
+                            if not wave then return end
+                            -- The class is native and never collected; a
+                            -- StaticFindObject a play would be ~20 ms.
+                            Current.attClass = Current.attClass or findObject("/Script/Engine.SoundAttenuation")
+                            Current.machineSounds = (Current.machineSounds or 0) + 1
+                            local att = StaticConstructObject(Current.attClass, world,
+                                FName("MJOLNIR_MachAtt_" .. Current.machineSounds))
+                            local a = att.Attenuation
+                            a.bAttenuate = true
+                            a.bSpatialize = true
+                            a.DistanceAlgorithm = 0
+                            a.AttenuationShape = 0
+                            a.AttenuationShapeExtents = { X = e.inner, Y = 0, Z = 0 }
+                            a.FalloffDistance = e.falloff
+                            gs:SpawnSoundAtLocation(world, wave, m.at, m.rot, e.gain * gameVolume("ambient"),
+                                1.0, 0.0, att, nil, true)
+                        end)
+                    end
+                end
                 local keys, yaw = m.keys, m.keys[#m.keys][2]
                 for k = 2, #keys do
                     if t <= keys[k][1] then
@@ -5554,7 +5697,30 @@ local function watch()
                         break
                     end
                 end
-                if yaw ~= m.yaw then
+                -- A ridden mesh moves with the machine, not here; one just
+                -- found is posed at the machine's angle first.
+                if m.attached then
+                    yaw = m.yaw
+                elseif m.pose then
+                    yaw, m.yaw = m.pose, nil
+                end
+                if yaw ~= m.yaw and m.axis then
+                    -- About its axis k: the rest offset turned by Rodrigues'
+                    -- formula, the actor's rotation from the axis and angle.
+                    m.yaw = yaw
+                    local r = math.rad(yaw)
+                    local c, sn = math.cos(r), math.sin(r)
+                    local k = m.axis
+                    local vx, vy, vz = m.rest[1] - m.pivot[1], m.rest[2] - m.pivot[2], m.rest[3] - m.pivot[3]
+                    local kv = (k.X * vx + k.Y * vy + k.Z * vz) * (1 - c)
+                    m.loc.X = m.pivot[1] + vx * c + (k.Y * vz - k.Z * vy) * sn + k.X * kv
+                    m.loc.Y = m.pivot[2] + vy * c + (k.Z * vx - k.X * vz) * sn + k.Y * kv
+                    m.loc.Z = m.pivot[3] + vz * c + (k.X * vy - k.Y * vx) * sn + k.Z * kv
+                    Current.mathLib = Current.mathLib or StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
+                    local ro = Current.mathLib:RotatorFromAxisAndAngle(k, yaw)
+                    m.rot.Pitch, m.rot.Yaw, m.rot.Roll = ro.Pitch, ro.Yaw, ro.Roll
+                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
+                elseif yaw ~= m.yaw then
                     m.yaw = yaw
                     local r = math.rad(yaw)
                     local c, sn = math.cos(r), math.sin(r)
@@ -5564,6 +5730,17 @@ local function watch()
                     m.loc.Z = m.rest[3]
                     m.rot.Yaw = yaw
                     m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
+                end
+                if m.pose and m.part and m.part:IsValid() then
+                    pcall(function()
+                        m.actor:K2_AttachToComponent(m.part, FName("None"), 1, 1, 1, true)
+                        m.part:SetVisibility(false, false)
+                    end)
+                    m.attached, m.pose, m.hist = true, nil, {}
+                    -- No sounds, nothing to fit the phase for (a wheel that
+                    -- turns evenly has no landmark to fit it to anyway).
+                    if #m.events == 0 then m.offset, m.hist = 0, nil end
+                    Log(string.format("turning machine rides the simulation's %s", m.follow.class))
                 end
             end
         end

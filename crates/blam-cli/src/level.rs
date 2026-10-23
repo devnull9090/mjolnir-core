@@ -55,6 +55,10 @@ pub enum LevelCommand {
     /// into a canvas structure BSP the simulation walks on, and write the
     /// transform that places everything else on it.
     Collision(crate::level_collision::CollisionArgs),
+    /// Write a staged collision BSP (a machine part's, in its own space)
+    /// into a collision model cloned from a shipped one: the collision a
+    /// biped meets on a machine the simulation turns.
+    MachineCollision(crate::level_collision::MachineCollisionArgs),
     /// Re-solve a classic map's lightmaps (tool.exe's radiosity, on the GPU
     /// unless `--cpu`) at a multiple of the shipped pages' size, for
     /// `ce_material_spec.py --lightmaps`.
@@ -171,6 +175,7 @@ pub fn run(a: LevelArgs) -> Result<()> {
         LevelCommand::Bake(a) => bake(a),
         LevelCommand::Export(a) => export(a),
         LevelCommand::Collision(a) => crate::level_collision::run(a),
+        LevelCommand::MachineCollision(a) => crate::level_collision::run_machine(a),
         LevelCommand::Lightmaps(a) => crate::level_lightmaps::run(a),
         LevelCommand::Register(a) => register(a),
     }
@@ -435,9 +440,9 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
         }
     }
     for o in &level.blam.objects {
-        if o.group != "scenery" && o.group != "crates" {
+        if !matches!(o.group.as_str(), "scenery" | "crates" | "machines") {
             bail!(
-                "objects[].group must be \"scenery\" or \"crates\", got {:?}",
+                "objects[].group must be \"scenery\", \"crates\" or \"machines\", got {:?}",
                 o.group
             );
         }
@@ -1318,10 +1323,13 @@ impl Baker {
         Ok(())
     }
 
-    /// The structures lane: scenery/crate placements, growing the palette when
-    /// the tag is not in it yet (clone entry 0, re-point its reference).
+    /// The structures lane: scenery/crate/machine placements, growing the
+    /// palette when the tag is not in it yet (clone entry 0, re-point its
+    /// reference). A machine (a Halo 2 gear whose collision turns with it)
+    /// is cloned from the canvas's own and cut loose from its device
+    /// groups, which the clear empties.
     fn objects(&mut self, items: &[ObjectPlacement]) -> Result<()> {
-        for group in ["scenery", "crates"] {
+        for group in ["scenery", "crates", "machines"] {
             let of_group: Vec<&ObjectPlacement> =
                 items.iter().filter(|o| o.group == group).collect();
             if of_group.is_empty() {
@@ -1329,6 +1337,7 @@ impl Baker {
             }
             let (block, palette, ref_group) = match group {
                 "scenery" => ("scenery", "scenery palette", "scen"),
+                "machines" => ("machines", "machine palette", "mach"),
                 _ => ("crates", "crate palette", "bloc"),
             };
             let before = block_count(&self.file, block)?;
@@ -1402,6 +1411,11 @@ impl Baker {
                     &p("object data.object id.unique id"),
                     &format!("{uid}"),
                 )?;
+                if group == "machines" {
+                    for field in ["device data.power group", "device data.position group"] {
+                        apply_set(&mut self.file, &p(field), "none")?;
+                    }
+                }
                 for (field, value) in &o.set {
                     apply_set(&mut self.file, &p(field), value)
                         .with_context(|| format!("{block}[{i}].{field} = {value:?}"))?;

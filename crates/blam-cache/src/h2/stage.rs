@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 
 use crate::h2::collision::{self, Collision, ARRAY_ORDER, CE_SIZES, TWO_SIDED};
 use crate::h2::render::Renderer;
+use crate::h2::sound::Sounds;
 use crate::h2::{Cache, Group, Struct, Tag};
 use crate::Error;
 
@@ -282,6 +283,45 @@ fn write_collision(dir: &Path, sbsp: &Tag<'_>, col: &Collision, materials: Vec<V
     }))
 }
 
+/// A turning machine's collision BSP as it is, in its node's space, in the
+/// layout `bsp/collision_0` has (`collision/<name>.bsp.json` and `.bin`), for
+/// `mjolnir level machine-collision`: the collision model the simulation
+/// turns with the part. `None` (with a note) unless the model has exactly
+/// one BSP on its first node (Ascension's antennas, Zanzibar's wheels,
+/// Foundation's fans).
+fn machine_bsp(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Result<Option<String>, Error> {
+    let Some(model) = follow(cache, object.root, 0x34, notes) else { return Ok(None) };
+    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else { return Ok(None) };
+    let bsps: Vec<Struct<'_>> = coll
+        .root
+        .block(0x1C, 0x0C)
+        .iter()
+        .filter_map(|region| region.block(0x04, 0x14).get(0))
+        .flat_map(|perm| perm.block(0x04, 0x44).iter().collect::<Vec<_>>())
+        .collect();
+    if bsps.len() != 1 || bsps[0].i16(0) > 0 {
+        notes.push(format!("{}: {} collision BSP(s); its collision stays at rest", object.name(), bsps.len()));
+        return Ok(None);
+    }
+    let col = collision::read(bsps[0].at(0x04));
+    let stem = format!("collision/{}.bsp", sanitize(object.name()));
+    let bin = dir.join(format!("{stem}.bin"));
+    std::fs::write(&bin, col.to_bin()).map_err(|e| Error::Io(bin.clone(), e))?;
+    let (lo, hi) = col.bounds().unwrap_or(([0.0; 3], [0.0; 3]));
+    let counts: serde_json::Map<String, Value> =
+        ARRAY_ORDER.iter().zip(col.counts()).map(|(n, c)| (n.to_string(), json!(c))).collect();
+    write_json(
+        &dir.join(format!("{stem}.json")),
+        &json!({
+            "layout": "ce_pc_v7", "source_layout": "h2_mcc", "coordinate_space": "halo_wu_node_local",
+            "tag_path": coll.name(), "bin": format!("{stem}.bin"),
+            "array_order": ARRAY_ORDER, "counts": counts,
+            "world_bounds": {"min": lo, "max": hi},
+        }),
+    )?;
+    Ok(Some(format!("{stem}.json")))
+}
+
 fn summary_materials(meta: &Value) -> usize {
     meta["materials"].as_array().map(|a| a.len()).unwrap_or(0)
 }
@@ -302,6 +342,7 @@ fn placements<'c>(
     dir: &Path,
     summary: &mut Summary,
     render: &mut Renderer<'c>,
+    sounds: &mut Sounds<'c>,
 ) -> Result<Value, Error> {
     let root = scnr.root;
     let mut entries = Vec::new();
@@ -399,15 +440,12 @@ fn placements<'c>(
             let Some(object) = palette.get(i as usize).and_then(|p| follow(cache, p, 0x00, &mut notes)) else { continue };
             // Scenery for some game types only (+0x5A, bit 1 Slayer): the
             // CTF and territory flag bases, which the level generator's own
-            // CTF stands replace. Teleporter scenery is skipped as well: the
-            // generator puts working pads on the teleporter flags.
+            // CTF stands replace. Teleporter scenery is placed like any other:
+            // the generator's working pads on the teleporter flags draw
+            // nothing, so the base and its glow are Halo 2's own.
             let games = if group == "scen" { e.u16(0x5A) } else { 0 };
             if games != 0 && games & 2 == 0 {
                 *skipped.entry(format!("{} (game-type prop, flags {games:#x})", object.name())).or_default() += 1;
-                continue;
-            }
-            if object.name().contains("teleporter") {
-                *skipped.entry(format!("{} (the level's own teleporters replace it)", object.name())).or_default() += 1;
                 continue;
             }
             let turn = match group {
@@ -445,7 +483,20 @@ fn placements<'c>(
             }
             if let Some(turn) = &turn {
                 entry["h2_motion"] = turn.to_json();
+                if let Some(bsp) = machine_bsp(cache, &object, dir, &mut notes)? {
+                    entry["h2_motion"]["bsp"] = json!(bsp);
+                }
+                // The sounds its turn raises (the antennas' starts and
+                // stops), as one-shots.
+                let events: Vec<Value> = crate::h2::animation::gear_events(cache, &object, turn.period)
+                    .iter()
+                    .filter_map(|ev| sounds.sound(&ev.sound, false).map(|s| json!([(ev.t * 1000.0).round() / 1000.0, s])))
+                    .collect();
+                if !events.is_empty() {
+                    entry["h2_motion"]["events"] = json!(events);
+                }
             }
+            sounds.object(&object, e.vec3(0x08), e.vec3(0x14));
             entries.push(entry);
             count(summary, match group { "scen" => "scenery", "bloc" => "crate", _ => "machine" });
         }
@@ -507,6 +558,33 @@ fn placements<'c>(
             v
         })
         .collect();
+    // Decals (+0x138, 0x10: i16 palette index, i8 yaw, i8 pitch, position
+    // 0x04) from the palette (+0x140: `deca` references). A `deca`: u16
+    // flags, u16 type (0 scratch .. 3 painted sign), u16 layer at 0x04 (0
+    // lit alpha blend prelight, 1 lit alpha blend, 2 double multiply, 3
+    // multiply, 4 max, 5 add), radius 0x10 (world units), bitmap 0x88. Zanzibar's caution and safety signs;
+    // tools/level/gen_ce_level.py lays each on the nearest surface.
+    let decal_palette = root.block(0x140, 0x08);
+    let mut decals = Vec::new();
+    for d in root.block(0x138, 0x10).iter() {
+        let Some(deca) = decal_palette.get(d.i16(0x00).max(0) as usize).and_then(|p| follow(cache, p, 0x00, &mut notes)) else {
+            continue;
+        };
+        let Some(bitm) = deca.root.tagref(0x88).and_then(|r| cache.follow(r)) else { continue };
+        let layer = deca.root.u16(0x04);
+        let Some((texture, w, h)) = render.stage_decal(&bitm, layer) else { continue };
+        decals.push(json!({
+            "pos": d.vec3(0x04), "radius": deca.root.f32(0x10), "texture": texture,
+            "aspect": h as f32 / w.max(1) as f32, "layer": layer, "tag_path": deca.name(),
+            "yaw": d.u8(0x02) as i8, "pitch": d.u8(0x03) as i8,
+            // CE's framebuffer blend: max (4) and add (5) as add, the rest
+            // (the multiplies baked) alpha blended.
+            "blend_function": if matches!(layer, 4 | 5) { 3 } else { 0 },
+        }));
+    }
+    if !decals.is_empty() {
+        notes.push(format!("{} decal(s)", decals.len()));
+    }
     summary.notes.extend(notes);
     Ok(json!({
         "world_unit_meters": 3.048,
@@ -514,7 +592,7 @@ fn placements<'c>(
         "entries": entries,
         "player_starts": player_starts,
         "netgame_flags": netgame_flags,
-        "decals": [],
+        "decals": decals,
     }))
 }
 
@@ -738,7 +816,14 @@ pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
 
     let mut renderer = Renderer::new(cache, dir);
     let render = renderer.bsp(&sbsp, first)?;
-    let placement = placements(cache, &scnr, dir, &mut summary, &mut renderer)?;
+    let mut sounds = Sounds::new(cache, &dir.join("sounds_out"));
+    let placement = placements(cache, &scnr, dir, &mut summary, &mut renderer, &mut sounds)?;
+    sounds.scenario(&scnr, &sbsp);
+    let (staged, notes) = sounds.finish()?;
+    summary.notes.extend(notes);
+    if staged > 0 {
+        summary.notes.push(format!("{staged} sound(s) -> sounds_out/sounds.json"));
+    }
     write_json(&dir.join("placement.json"), &placement)?;
     let fog = planar_fog(cache, &scnr, &sbsp, &mut summary.notes);
     if let Some(fog) = fog {
@@ -780,7 +865,7 @@ pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
             "counts": counts,
             "player_starts": placement["player_starts"].as_array().map(|a| a.len()).unwrap_or(0),
             "netgame_flags": placement["netgame_flags"].as_array().map(|a| a.len()).unwrap_or(0),
-            "decals": 0,
+            "decals": placement["decals"].as_array().map(|a| a.len()).unwrap_or(0),
         },
         "notes": summary.notes,
     });

@@ -435,6 +435,108 @@ def flare_decor(placement, texture_root, to_ue):
     return out
 
 
+DECAL_QUAD = "/Engine/BasicShapes/Plane.Plane"  # 100 cm square, facing +Z
+DECAL_MATERIAL = "/Game/MJOLNIR/CE/M_CE_TransparentAlphaTwoSided.M_CE_TransparentAlphaTwoSided"
+DECAL_ADD_MATERIAL = "/Game/MJOLNIR/CE/M_CE_TransparentAddTwoSided.M_CE_TransparentAddTwoSided"
+DECAL_LIFT = 1.0  # cm off the surface
+
+
+def closest_on_triangles(p, a, b, c):
+    """The closest point to p on each triangle (a, b, c: (n, 3)), as (n, 3)
+    (Ericson, Real-Time Collision Detection 5.1.5, vectorised)."""
+    import numpy as np
+    ab, ac, ap = b - a, c - a, p - a
+    d1, d2 = (ab * ap).sum(1), (ac * ap).sum(1)
+    bp, cp = p - b, p - c
+    d3, d4 = (ab * bp).sum(1), (ac * bp).sum(1)
+    d5, d6 = (ab * cp).sum(1), (ac * cp).sum(1)
+    va, vb, vc = d3 * d6 - d5 * d4, d5 * d2 - d1 * d6, d1 * d4 - d3 * d2
+    den = va + vb + vc
+    den = np.where(np.abs(den) > 1e-12, den, 1e-12)
+    out = a + ab * (vb / den)[:, None] + ac * (vc / den)[:, None]
+    safe = lambda x, y: x / np.where(np.abs(y) > 1e-12, y, 1e-12)
+    cases = [
+        ((d4 - d3 >= 0) & (d5 - d6 >= 0) & (va <= 0), b + (c - b) * safe(d4 - d3, (d4 - d3) + (d5 - d6))[:, None]),
+        ((vb <= 0) & (d2 >= 0) & (d6 <= 0), a + ac * safe(d2, d2 - d6)[:, None]),
+        ((d6 >= 0) & (d5 <= d6), c),
+        ((vc <= 0) & (d1 >= 0) & (d3 <= 0), a + ab * safe(d1, d1 - d3)[:, None]),
+        ((d3 >= 0) & (d4 <= d3), b),
+        ((d1 <= 0) & (d2 <= 0), a),
+    ]
+    for mask, point in cases:
+        out = np.where(mask[:, None], point, out)
+    return out
+
+
+def decal_decor(placement, scene_gltf, texture_root, delta):
+    """Halo 2's decals (placement `decals`, every one lit alpha blend) as
+    decor: a quad each on the surface nearest the decal within 3 m, facing
+    its open side, its texture upright on walls, its longer side twice the
+    decal's radius and its other side by the bitmap's aspect, drawn with
+    the transparent alpha master over the cooked bitmap. Candidates are the
+    triangles whose bounds come within 3 m and the nearest is by true
+    distance: a wall's big triangles have their centres far off (taken by
+    centre and by plane distance, Zanzibar's flywheel sign went onto a
+    slanted face nearby, tilted and half buried)."""
+    decals = placement.get("decals") or []
+    if not decals or not scene_gltf or not os.path.exists(scene_gltf):
+        return []
+    import numpy as np
+    from ce_material_spec import asset_name
+    from upgrade_ce_map import ray_room, scene_triangles
+    tris = scene_triangles({"scene": os.path.dirname(scene_gltf)})
+    lo, hi = tris.min(axis=1), tris.max(axis=1)
+    nrm = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
+    nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
+    unit = 3.048
+    out = []
+    for i, d in enumerate(decals):
+        if not d.get("texture"):
+            continue
+        p = [d["pos"][k] + delta[k] for k in range(3)]
+        g = np.array([p[0], p[2], -p[1]]) * unit
+        gap = np.maximum(np.maximum(lo - g, g - hi), 0.0)
+        near = np.where(np.linalg.norm(gap, axis=1) < 3.0)[0]
+        if not len(near):
+            continue
+        q = closest_on_triangles(g, tris[near, 0], tris[near, 1], tris[near, 2])
+        j = int(np.argmin(np.linalg.norm(q - g, axis=1)))
+        ng = nrm[near[j]]
+        v0, e1, e2 = tris[near, 0], tris[near, 1] - tris[near, 0], tris[near, 2] - tris[near, 0]
+        if ray_room(v0, e1, e2, g, -ng, 0.02) > ray_room(v0, e1, e2, g, ng, 0.02):
+            ng = -ng
+        g = q[j]
+        n = np.array([ng[0], ng[2], ng[1]])  # Unreal axes = glTF (x, z, y)
+        pos = np.array([g[0], g[2], g[1]]) * 100.0 + n * DECAL_LIFT
+        if abs(n[2]) < 0.9:
+            x = np.cross(n, [0.0, 0.0, 1.0])
+            x /= np.linalg.norm(x)
+        else:
+            x = np.array([1.0, 0.0, 0.0]) - n * n[0]
+            x /= np.linalg.norm(x)
+        y = np.cross(n, x)
+        pitch = math.degrees(math.asin(max(-1.0, min(1.0, x[2]))))
+        yaw = math.degrees(math.atan2(x[1], x[0]))
+        roll = math.degrees(math.atan2(-y[2], n[2]))
+        size = float(d.get("radius") or 0.5) * 2 * unit
+        aspect = float(d.get("aspect") or 1.0)
+        sx, sy = (size, size * aspect) if aspect <= 1.0 else (size / aspect, size)
+        t = asset_name("T_", os.path.splitext(d["texture"])[0])
+        # Max and add layers add; multiplies come baked for alpha blending.
+        blend = 3 if int(d.get("blend_function") or 0) == 3 else 0
+        out.append({"id": f"h2_decal_{i}", "mesh": DECAL_QUAD,
+                    "pos": [round(float(v), 1) for v in pos], "rot": [round(pitch, 2), round(yaw, 2), round(roll, 2)],
+                    "scale": [round(sx, 3), round(sy, 3), 1.0], "cast_shadow": False,
+                    "materials": [{"parent": DECAL_ADD_MATERIAL if blend == 3 else DECAL_MATERIAL,
+                                   "textures": {"Map0": f"{texture_root}/{t}.{t}"},
+                                   "scalars": {"StageCount": 1, "ChicagoFlags": 0.0, "BlendFunction": float(blend),
+                                               "FadeMode": 0.0},
+                                   "vectors": {"Stage0Xform": [1.0, 1.0, 0.0, 0.0],
+                                               "StageColorFunctions": [0, 0.0, 0.0, 0.0],
+                                               "StageAlphaFunctions": [0, 0.0, 0.0, 0.0]}}]})
+    return out
+
+
 def spawn_seconds(e):
     """A CE pickup's respawn time: the placement's own, else its item
     collection's (halo2ue's `collection_spawn_time`), else None for the
@@ -844,8 +946,12 @@ def sky_and_weather(placement, staging, to_ue=None):
         cefog = {}
     sky = next((e for e in placement.get("entries", []) if e.get("kind") == "sky"), None)
     fog = (sky or {}).get("outdoor_fog") or {}
-    if (sky and not sky.get("model") and cefog.get("sky_clusters", 0) > 0
-            and fog.get("max_density", 0) > 0 and fog.get("color")):
+    # Halo 2's atmospheric fog covers its sky too: at full density
+    # (Backwash's swamp, opaque at 20 world units) everything past the
+    # opaque distance is the fog's colour, the black sky dome included.
+    halo2_opaque = staging_source(staging) == "halo2_mcc" and fog.get("max_density", 0) >= 0.99
+    if (sky and fog.get("color") and fog.get("max_density", 0) > 0
+            and (halo2_opaque or (not sky.get("model") and cefog.get("sky_clusters", 0) > 0))):
         out["sky_fog"] = {"color": [round(srgb_to_linear(c), 6) for c in fog["color"]],
                           "start": round(fog.get("opaque_distance", 0.0) * WU_CM, 1)}
     try:
@@ -984,16 +1090,27 @@ def ambient_sounds(sounds_dir, root, to_ue):
                 out.append((track, snd))
         return out
 
+    halo2 = manifest.get("source") == "halo2_mcc"
+
     def category(snd):
         """The loader scales a sound by the game's Master slider and one more:
         ambient unless the CE sound is music (classes music and
         cinematic_music), which follows the music slider."""
-        return {"category": "music"} if snd.get("class") in CE_MUSIC_CLASSES else {}
+        return {"category": "music"} if not halo2 and snd.get("class") in CE_MUSIC_CLASSES else {}
+
+    def tuned(track, snd):
+        """The track's gain times the sound's own (Halo 2's playback gain;
+        CE's sounds carry none), and its pitch when it is not 1 (Halo 2's
+        random pitch bounds, as a multiplier)."""
+        out = {"gain": round(track["gain"] * snd.get("gain", 1.0), 3)}
+        if abs(snd.get("pitch", 1.0) - 1.0) > 1e-3:
+            out["pitch"] = round(snd["pitch"], 3)
+        return out
 
     background, emitters = [], []
     for lsnd in manifest["background"]:
         for track, snd in loops(lsnd):
-            background.append({"wave": wave(snd["loop"]), "gain": round(track["gain"], 3),
+            background.append({"wave": wave(snd["loop"]), **tuned(track, snd),
                                "fade_in": round(track["fade_in"], 2), "source": lsnd,
                                **category(snd)})
     origin = to_ue([0.0, 0.0, 0.0])
@@ -1004,11 +1121,19 @@ def ambient_sounds(sounds_dir, root, to_ue):
         return [round(u[k] - origin[k], 1) for k in range(3)]
 
     for e in manifest["emitters"]:
+        # Distance bounds: the placement's override (Halo 2's sound
+        # scenery), else the looping sound's own (Halo 2's lsnd; its loops'
+        # samples mostly carry none), else the sample's (CE).
+        lsnd = manifest["loops"].get(e["sound"], {})
+        lo, hi = e.get("distance") or ((lsnd["min_distance"], lsnd["max_distance"]) if "min_distance" in lsnd else
+                                       (None, None))
         for track, snd in loops(e["sound"]):
+            near = snd["min_distance"] if lo is None else lo
+            far = snd["max_distance"] if hi is None else hi
             emitter = {"pos": to_ue(e["pos"]), "wave": wave(snd["loop"]),
-                       "gain": round(track["gain"], 3), "fade_in": round(track["fade_in"], 2),
-                       "inner": round(snd["min_distance"] * WU_CM, 1),
-                       "falloff": round(max(snd["max_distance"] - snd["min_distance"], 0.1) * WU_CM, 1),
+                       **tuned(track, snd), "fade_in": round(track["fade_in"], 2),
+                       "inner": round(near * WU_CM, 1),
+                       "falloff": round(max(far - near, 0.1) * WU_CM, 1),
                        "source": e["sound"], **category(snd)}
             m = e.get("motion")
             if m:
@@ -1020,6 +1145,29 @@ def ambient_sounds(sounds_dir, root, to_ue):
                                      "position": m["position"]}
             emitters.append(emitter)
     return {"background": background, "emitters": emitters}
+
+
+def machine_sounds(decor, sounds_dir, root):
+    """The one-shots a turning machine's animation raises (stage's
+    `h2_motion.events`, [seconds, sound] through merge_ce_scene.py and
+    build_terrain_meshes.py), as the waves build_ce_sounds.py imports, each
+    falling off over its sound's distance bounds: the loader plays one as
+    the machine's turn passes its time. A sound not staged is dropped."""
+    manifest = json.load(open(os.path.join(sounds_dir, "sounds.json"), encoding="utf-8"))
+    for item in decor:
+        events = (item.get("motion") or {}).get("events")
+        if not events:
+            continue
+        out = []
+        for t, path in events:
+            snd = manifest["sounds"].get(path)
+            if not snd or not snd.get("files"):
+                continue
+            stem = os.path.splitext(snd["files"][0])[0]
+            near, far = snd["min_distance"], snd["max_distance"]
+            out.append({"t": t, "wave": f"{root}/{stem}.{stem}", "gain": round(snd.get("gain", 1.0), 3),
+                        "inner": round(near * WU_CM, 1), "falloff": round(max(far - near, 0.1) * WU_CM, 1)})
+        item["motion"]["events"] = out
 
 
 def norm(asset):
@@ -1045,6 +1193,9 @@ def main():
                                       "the level file)")
     ap.add_argument("--sounds", help="tools/level/ce_sounds.py's output directory (its sounds.json): "
                                      "the map's ambient sound, imported under <root>/Sounds")
+    ap.add_argument("--machines", help="tools/level/h2_machines.py's machines.json: Halo 2's turning parts as "
+                                       "machines of the simulation's own, placed where the parts are, each "
+                                       "part's mesh riding its machine (motion.follow)")
     ap.add_argument("--scene", help="the merged scene glTF, for the sun's direction "
                                     "(default: scene.gltf beside --terrain)")
     ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
@@ -1356,6 +1507,22 @@ def main():
         else:
             dropped[f"netgame flag {f['type']}"] += 1
 
+    # Halo 2's turning parts as the simulation's own machines (h2_machines.py),
+    # at the parts' places and full rotation (Zanzibar's flywheels are
+    # tilted). The mesh merge_ce_scene.py wrote for each part names its
+    # staging entry; it rides that machine's Unreal actor.
+    machines = json.load(open(a.machines, encoding="utf-8")) if a.machines else {}
+    sim_machines, follow = [], {}
+    for n, e in enumerate(placement["entries"]):
+        m = machines.get(e.get("asset")) if e.get("h2_motion") else None
+        if not m:
+            continue
+        rot = e.get("rot") or [0.0, 0.0, 0.0]
+        sim_machines.append({"tag": m["tag"], "group": "machines", "pos": to_ue(e["pos"]),
+                             "rot": [0, yaw_ue(rot), 0],
+                             "set": {"object data.rotation": "({}, {}, {})".format(*rot)}})
+        follow[n] = {"class": m["class"], "pos": to_ue(e["pos"])}
+
     decor = []
     if a.terrain:
         terrain = json.load(open(a.terrain))
@@ -1363,10 +1530,15 @@ def main():
         # sections, which are a mesh of their own).
         for i, item in enumerate(terrain if isinstance(terrain, list) else [terrain]):
             item.setdefault("id", f"{name}_terrain" + (f"_{i}" if i else ""))
+            motion = item.get("motion")
+            if motion and motion.get("entry") in follow:
+                motion["follow"] = follow[motion["entry"]]
             decor.append(item)
     texture_root = (f"/Game/MJOLNIR/Maps/{a.code.upper()}" if a.code else f"/Game/MJOLNIR/Levels/{name}") + "/Textures"
     flares = flare_decor(placement, texture_root, to_ue)
     decor.extend(flares)
+    decals = decal_decor(placement, scene, texture_root, delta) if source == "halo2_mcc" else []
+    decor.extend(decals)
 
     title = a.title or (H2_TITLES if source == "halo2_mcc" else STOCK_TITLES).get(name, name)
     level = {
@@ -1412,7 +1584,8 @@ def main():
             "vehicles": vehicles,
             "weapons": weapons,
             "equipment": equipment,
-            "objects": ([] if a.no_spawn_points else spawns) + teleporters + flag_stands + health_spots,
+            "objects": ([] if a.no_spawn_points else spawns) + teleporters + flag_stands + health_spots
+                       + sim_machines,
             "world_bounds": [world_bounds],
             # A CE multiplayer map is a multiplayer scenario. The type does not
             # gate a launch (a multiplayer-typed map still starts under the
@@ -1452,6 +1625,7 @@ def main():
     if a.sounds:
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)
+        machine_sounds(decor, a.sounds, sound_root)
     with open(a.out, "w") as f:
         json.dump(level, f, indent=2)
         f.write("\n")

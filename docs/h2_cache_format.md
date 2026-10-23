@@ -113,7 +113,11 @@ collection reference 0x58), structure BSPs 0x210 (0x44: sbsp reference
 0x10, ltmp 0x18), crates 0x328 / palette 0x330. Placements share a 0x34-byte
 header (palette index, name index, flags, position 0x08, yaw/pitch/roll 0x14,
 scale 0x20, 0 meaning 1). Scenery +0x5A is the multiplayer game types it
-appears in (bit 1 Slayer; 0 all).
+appears in (bit 1 Slayer; 0 all). Decals 0x138 (0x10: i16 palette index, i8
+yaw, i8 pitch, position 0x04) / palette 0x140 (`deca` references); a
+`deca`: u16 flags, u16 type (0 scratch, 1 splatter, 2 burn, 3 painted
+sign), u16 layer 0x04 (1 lit alpha blend: every decal on Zanzibar), radius
+0x10 (world units), bitmap 0x88.
 
 Netgame flag types: 0 CTF flag spawn, 1 CTF flag return, 2 assault bomb
 spawn, 3 assault bomb return, 4 oddball, 5 unused, 6 race checkpoint, 7
@@ -133,7 +137,8 @@ block info 0x28, bounding sphere 0x60, collision BSP 0x70), instances 0x140
 
 **Collision BSP** (sbsp, instanced geometry, `coll`): eight blocks. 3D nodes
 8 bytes (u16 plane, u24 back, u24 front; bit 23 leaf, 0xFFFFFF none); planes
-16; leaves 4 (u8 flags, u8 2D reference count, u16 first); 2D references 4
+16; leaves 4 (u8 flags, u8 2D reference count, u16 first, 0xFFFF none:
+Zanzibar has such leaves); 2D references 4
 (i16 plane, sign = flipped; i16 node, sign = surface); 2D nodes 16 (line,
 i16 left, i16 right); surfaces 8 (u16 plane, 0x8000 = flipped; u16 first
 edge; u8 flags; u8 breakable, 255 none; u16 material, 65535 none); edges 12
@@ -201,6 +206,22 @@ x min(1, 0.753 (r + g + b) of the light); the two colours sit just before
 the first pair of pixel constants holding only alpha (the brightnesses).
 The cube's bitmap slot differs by template. `tex_bump`'s lightmap pass has
 no specular term, and its specular-sphere pass has no implementation.
+The alpha-test templates' `lightmap_tex_detail_alpha_test` pass discards
+where an alpha rounds to 0: the base map's for `tex_bump_alpha_test`, the
+bump map's for the `single_pass` variants (Zanzibar's foliage, whose
+colour maps are solid). `plasma_one_channel_self_illumination`
+(`tex_bump_plasma_one_channel_illum`, bitmap 3) adds red x band(alpha) x
+pixel constant 5 + green x 3 + blue x 4, the band peaking at pixel
+constant 2's alpha and sharpened twice by (2x - 1)^2. `overlay` draws 2 x
+base x detail x pixel constant 0 with D3D blend DESTCOLOR, SRCCOLOR (a
+double multiply; alpha unused) and a depth bias. `water_edge_blend` writes
+bitmap 0's alpha with colour writes masked to alpha
+(D3DRS_COLORWRITEENABLE 0x8): no colour. `water_pool` writes opaque
+lerp(frame copy at the screen position, reflection map (bitmap 1, a cube in
+`water_pool_cube`), fresnel), both offset by the ripple map's (bitmap 0) du/dv
+through vertex constant 0. `waves` (alpha blend) is min(1, bitmap 0 x (bitmap
+1 + bitmap 2)) x bitmap 3 x vertex colour, alpha the same sum's x vertex
+alpha x pixel constant 0's alpha.
 
 **sky**: render model 0x00, flags 0x10 (bit 0 fixed in world space, bit 2
 casts light from below, bit 5 use clear colour), render model scale 0x14,
@@ -265,8 +286,56 @@ rotating nodes' frame info from 0x30 (count in the low 12 bits, first key
 in the high 20); a rotation key is i16 (i, j, k, w) / 32767, the node's
 turn from its default pose; a translation key three floats in world
 units. Ascension's antenna (codec 6, 21 frames over 40 s) turns about +Z:
-0, +20 (held 6-10 s), -30 (22-26 s), +5 (32-36 s), 0. Codec 3 (Zanzibar's
-wheels, Foundation's fan) is not read.
+0, +20 (held 6-10 s), -30 (22-26 s), +5 (32-36 s), 0. Codec 3 stores every
+frame (halo2.dll's codec table, 0xe12f60): a 0x20-byte header (u8 codec,
+u8 rotating / sliding / scaling node counts, error and rate floats,
+translation and scale data offsets 0x0C / 0x10, per-node strides 0x14 /
+0x18 / 0x1C), then each rotating node's frames as i16 (i, j, k, w) / 32767
+from 0x20. Zanzibar's big wheel and blades (30 s) and flywheels (5 s) turn
+a full circle about +Y in five frames, 90 degrees each; Foundation's fans
+(30 s) about -Z. The engine lerps the four components between frames and
+renormalizes (81.6 to 94.9 degrees a frame between 90-degree keys). A
+sound event fires as the animation passes its frame, at frame / (frames -
+1) of the transition time: the antenna's 12 (0 slow_move2, 2 antenna1, 3
+antenna1_stop, 5 slow_move, 6 antenna2, ...) are 2 s apart.
+
+**Sound** (samples outside the maps, in `sounds_neutral.dat`,
+`sounds_remastered.dat` and `sounds_<language>.dat` beside them, headerless).
+`snd!` (0x1C): flags u16 0x00 (0x0800 remastered only), class u8 0x02, codec
+index i8 0x03, playback index i16 0x06, first pitch range i16 0x08, pitch
+range count i8 0x0A, maximum play time i32 0x10 (ms). Its indices are into
+the `ugh!` (sound gestalt) of the cache file holding the `snd!`: codecs
+0x00 (3 bytes: rate 0 22050, 1 44100, 2 32000, 3 48000; encoding 0 mono,
+1 stereo, 3 quad; compression 0 big-endian PCM, 1 Xbox ADPCM, 3
+little-endian PCM, 4 WMA (the menu music only), 5 Opus), playback 0x08
+(0x38: minimum and maximum distance 0x00 / 0x04 in world units, gain dB
+0x10, random pitch bounds i16 x 2 in cents 0x18), pitch ranges 0x28 (0x0C:
+first permutation i16 0x08, count 0x0A), permutations 0x30 (0x10: name,
+skip, gain, then per language at 0x08 {u32 PCM bytes, i16 first chunk, i16
+chunk count}), permutation chunks 0x60 (one block per language; 0x10 each:
+i32 offset in the .dat, u32 size in the low 24 bits, i32 PCM bytes). A
+remastered-only sound is in `sounds_remastered.dat`, one of a class the
+sound classes tag marks multilingual (`sound\sound_classes`, 0x78 each,
+internal flag bit 7 at 0x08: classes 19, 44-48, 53) in
+`sounds_<language>.dat`, the rest in `sounds_neutral.dat`; that held for
+every chunk of shared, Ascension and Lockout. An Opus chunk is `[i16
+length][packet]` repeated, the last length negative; the packets are CELT
+fullband 5 ms (0xE8 mono, 0xEC stereo), and a permutation's chunks are one
+stream, its first packet 240 samples of silence the tag counts. Xbox ADPCM
+is CE's 36-byte block a channel, 65 samples. Every Opus decode of the
+two maps' 677 looping permutations matched its tag's byte count.
+`lsnd` (0x34): distance bounds 0x14, tracks 0x24 (0x58: gain dB 0x08, fade
+in / out 0x0C / 0x10, in / loop / out / alternate loop / alternate out
+references 0x14 / 0x1C / 0x24 / 0x2C / 0x34, output effect i16 0x3C, 1
+front speakers, 2 rear), detail sounds 0x2C (0x34: sound 0x04, random period
+0x0C, yaw / pitch / distance bounds 0x1C / 0x24 / 0x2C). Sound scenery: scnr
+0xD8 (0x50: palette index 0x00, position 0x08, rotation 0x14, distance
+override 0x3C, cone override 0x44), palette 0xE0 (0x28, `ssce` at 0x00). An
+object's attachments (+0x94 on every object tag, 0x18: reference 0x00,
+marker 0x08, primary scale function 0x10) carry its loops. The BSP's
+background sound: sbsp clusters 0x9C (0xB0: background sound i16 0x72,
+sound environment i16 0x74) into the palettes at 0xD4 (0x64, `lsnd` 0x20)
+and 0xDC (0x48, `snde` 0x20).
 
 **Cube maps** (`bitm` type 2) are stored mip-major, the six faces of each
 level together in the order +X, +Y, -X, -Y, +Z, -Z on Halo's axes, no face

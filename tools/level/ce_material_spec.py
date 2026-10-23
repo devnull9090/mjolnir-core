@@ -362,6 +362,30 @@ def water(entry, s, texture, cube, halo):
             tex[f"RippleMap{k}"] = rt
 
 
+# Halo 2's plasma_alpha as its compiled shader draws it (the translucent
+# mesh; unreal/MJOLNIRMaterials/Scripts/build_h2_materials.py's master, chunk 981 beside the runtime pack).
+H2_PLASMA_ALPHA = "/Game/MJOLNIR/H2/M_H2_PlasmaAlpha.M_H2_PlasmaAlpha"
+
+
+def h2_plasma(entry, p, texture):
+    """An M_H2_PlasmaAlpha instance from a Halo 2 staging's `h2_plasma`: the
+    noise and mask maps with their transforms and scrolls, the colours and
+    the fade weight."""
+    entry["parent"] = H2_PLASMA_ALPHA
+    for key, (tex, xform, scroll) in {"noise_a": ("NoiseA", "XformA", "ScrollA"),
+                                      "noise_b": ("NoiseB", "XformB", "ScrollB"),
+                                      "mask": ("Mask", "XformM", "ScrollM")}.items():
+        m = p.get(key) or {}
+        t = texture(m.get("file"))
+        if t:
+            entry["textures"][tex] = t
+        entry["vectors"][xform] = list(m.get("xform") or [1.0, 1.0, 0.0, 0.0])
+        entry["vectors"][scroll] = list(m.get("scroll") or [0.0, 0.0]) + [0.0, 0.0]
+    for key, name in (("color0", "Color0"), ("color1", "Color1"), ("color3", "Color3")):
+        entry["vectors"][name] = list(p.get(key) or [0.0, 0.0, 0.0]) + [1.0]
+    entry["scalars"]["Fade"] = float(p.get("fade") or 0.0)
+
+
 def chicago(entry, s, texture, cube):
     """shader_transparent_chicago(_extended) on the transparent masters, every
     field of the tag (halo2ue's `tag`, docs/ce_map_conversion.md,
@@ -694,6 +718,10 @@ def main():
 
     lightmap_png = {}
 
+    def staging_source_is_halo2(placement_path):
+        manifest = os.path.join(os.path.dirname(placement_path), "manifest.json")
+        return os.path.exists(manifest) and json.load(open(manifest, encoding="utf-8")).get("source") == "halo2_mcc"
+
     def texture(png, lightmap=False):
         """The asset name a bitmap imports as, or None if it was not staged."""
         if not png:
@@ -748,7 +776,9 @@ def main():
         mi = asset_name("", mat["name"])
         cls = s["shader_class"]
         entry = {"name": mi, "scalars": {}, "vectors": {}, "textures": {}}
-        if cls in ("schi", "scex"):
+        if cls == "schi" and s.get("h2_plasma"):
+            h2_plasma(entry, s["h2_plasma"], texture)
+        elif cls in ("schi", "scex"):
             # MCC's original where the PC port left a chicago stand-in.
             if not generic(entry, mat_info.get("tag_path") or s.get("tag_path"), texture, textures_dir):
                 chicago(entry, s, texture, cube)
@@ -880,6 +910,11 @@ def main():
             for light in e.get("lights", []):
                 for r in (light.get("lens_flare") or {}).get("reflections", []):
                     texture(r.get("bitmap"))
+        # Halo 2's decals (placement `decals`): gen_ce_level.py draws each on
+        # a quad with the transparent alpha master over its bitmap.
+        if staging_source_is_halo2(placement_path):
+            for d in json.load(open(placement_path, encoding="utf-8")).get("decals", []):
+                texture(d.get("texture"))
 
     # lightmap_bake's sun mask (<page 0>_sunmask.png): cooked with the map,
     # read by M_CE_SunLight through the level's environment.sun_mask

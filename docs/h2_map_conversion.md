@@ -79,14 +79,86 @@ units and axes, so every later step reads them unchanged:
   become environment-master summaries (base, detail, second detail blended
   by the base's alpha where it is high, the reverse of CE's, bump,
   self-illumination; alpha tested on the base map for the alpha-test
-  templates). Glass (`one_alpha_env`) becomes CE's glass shader: the base
+  templates, except the single-pass ones, whose compiled lightmap pass
+  discards where the bump map's alpha rounds to 0: Zanzibar's palm fronds,
+  beach bushes and tree foliage keep their outline only there, so their
+  base map is staged with the bump map's alpha as `<stem>__cut.png`).
+  `tex_bump_plasma_one_channel_illum` (Zanzibar's fusion coil cores) is a
+  lit base and detail plus the plasma pass's glow from bitmap 3: red times
+  a band of its alpha around pixel constant 2's, plus green and blue each
+  times a pink pixel constant. It becomes CE's three-channel
+  self-illumination (`<stem>__glow.png`: green, blue, and red x the band
+  baked at the shader's level, tinted by pixel constants 3, 4 and 5; a
+  colour image in one channel drew white). Read as a detail map, its
+  magenta channels drew a pink and black grid. `overlay` (Zanzibar's Camp Froman sign, the
+  military crates' stencils) is 2 x base x tint, drawn as a double
+  multiply. On Zanzibar the multiply master draws nothing in the after-DOF
+  translucency pass (a black multiply on the sign stayed invisible, and
+  appeared with `r.SeparateTranslucency 0`; the same black multiply draws
+  on Chill Out's glass, cause not found), so the multiply is baked into an
+  alpha-blended copy,
+  `<stem>__overlay.png`: black at 1 - m where the overlay darkens the
+  frame by m (exact), its hue at (m - 1) / 2 where it brightens, clear at
+  neutral grey. `water_edge_blend` (Zanzibar's flat plane at sea level)
+  writes its map's alpha into the frame's alpha only, a mask the water
+  fades by; its geometry is left out (drawn opaque without a map, it was a
+  big white patch on the beach). Water (`water_pool`, `water_pool_cube`:
+  Beaver Creek's creek, Coagulation's cave pool, Sanctuary's streams) mixes
+  the rippled frame behind with its reflection map by a fresnel term; it
+  goes in as the reflection, CE's first-map cube along the reflected eye
+  vector (a 2D reflection map on all six faces), alpha blended and faded
+  towards the normal (`framebuffer_fade_mode` 1). Waterfalls (`waves`) are
+  min(1, mask x A + mask x B) x C, each scrolling: CE's four-stage chain
+  as (A + B) x mask x C. `tex_bump_illum_3_channel` (Backwash's blue lights)
+  has a grey detail before its base, and its glow map's channels tinted by
+  pixel constants 4, 6 and 7 as CE's three self-illumination colours. An
+  alpha-tested template that cuts out on its bump map keeps a placeholder
+  base (Backwash's canopy, color_black), taken to the bump map's size.
+  `tex_detail_blend` (Sanctuary's ground, the Mombasa trees) is a base and
+  two details blended by its alpha, the details' scales in vertex constants
+  2 and 3; `tex_illum` and `tex_illum_bloom` (Backwash's fungus,
+  Triplicate's lights) a base, a detail and a glow map; `decal_simple`
+  (Street Sweeper's road stripes, Headlong's signs) its one map alpha
+  blended. A template with no slot layout falls back to the shader's
+  runtime diffuse map, drawn opaque, which is how these lost their details,
+  glow and cut-outs.
+  Halo 2 tiles each map by a u and a v scale, and many are uneven (the palm
+  bark's detail and bump 2 x 12, the beach's sand 128 x 64); CE's
+  environment shader takes one scale per map. The base map's tiling is in
+  the UVs; a detail or bump map tiled unevenly relative to it is staged as
+  a copy repeated to the ratio (`<stem>__x<nu>y<nv>.png`, at most 16 a
+  side) and drawn at the smaller scale. Read as u alone, the palm's detail
+  was stretched six times along the trunk.
+- **Decals.** The scenario's decals (Zanzibar's 40 caution, safety and
+  warning signs, the CAUTION over the beach gate) go to the placement's
+  `decals` with their bitmap, radius and the bitmap's aspect.
+  tools/level/gen_ce_level.py lays each as a quad on the nearest surface
+  within 3 m, by true distance over every triangle whose bounds come that
+  close (by centre, the flywheel room's sign missed its big wall triangle
+  and went onto a slanted face, tilted and half buried), its longer side twice the
+  radius, drawn with the transparent alpha master over the cooked bitmap;
+  tools/level/ce_material_spec.py cooks the bitmaps with the map's. By
+  layer: lit alpha blend (0, 1) as it is; multiply (3) and double multiply
+  (2: bullet holes, scorches, Desolation's and Warlock's team emblems) with
+  the multiply baked into an alpha-blended copy (`<stem>__mul<gain>.png`,
+  as the overlays, times the bitmap's alpha); max (4) and add (5) on the
+  additive master. Drawn as plain alpha, the rust decals were orange blobs
+  and the emblems solid bars. Glass (`one_alpha_env`) becomes CE's glass shader: the base
   map tinted by the albedo and facing tints, blended by its alpha, unlit, and
   the environment cube map reflected through the specular mask with the
   environment tint; the cube's six faces are staged in D3D order. The "two
   plus two" shaders (the sky's cloud banks, the containment gas) are mask x
   layer x layer, tiled and scrolling as the shader animates them, alpha
-  blended; the plasma shaders (the grav lifts) two scrolling noise maps
-  through a mask, added, in the plasma's colour. All of these draw in the
+  blended; the plasma shaders (`plasma_alpha`: Zanzibar's flywheel
+  lightning, the teleporter beams, Lockout's grav lifts) draw with
+  `M_H2_PlasmaAlpha` (`unreal/MJOLNIRMaterials/Scripts/build_h2_materials.py`,
+  `/Game/MJOLNIR/H2`, chunk 981 beside the runtime pack), the compiled
+  shader as it is: noise A's blue and noise B's red, each scrolling, banded
+  into a sharp ridge where they meet and twice more inside it, coloured
+  between pixel constants 1 and 0 by the second band plus 3 on the
+  innermost, faded by the mask's alpha, added. The staging keeps a chicago
+  approximation beside it (`h2_plasma` in the shader summary; without the
+  master, noise x noise x mask in the bands' mean colour drew soft clouds). All of these draw in the
   translucent mesh.
   Opaque `env` templates (the `tex_bump_env` family) reflect their cube map
   as Halo 2's lightmap pass does: the cube along the reflected eye vector,
@@ -102,7 +174,36 @@ units and axes, so every later step reads them unchanged:
   times a cover mask, colour and alpha, alpha blended) and the sun shafts
   (`sky_one_add_illum_detail`: a mask's colour times its alpha, times a
   scrolling detail, tinted, added). Drawn as one map each, the cloud map
-  covered the whole dome in flat grey and the shafts were white wedges. A
+  covered the whole dome in flat grey and the shafts were white wedges.
+  Additive clouds (`two_add_clouds`, `sky_two_add_clouds`: Tombstone's sky
+  dome, Gemini's sky, the recharge stations' glow) are min(1, 2 x bitmap 0
+  x bitmap 1), faded by pixel constant 0's alpha: CE's double multiply, or
+  bitmap 0 alone where bitmap 1 is default_multiplicative (50% grey).
+  The Covenant holo panels (`two_add_detail_masked`: Midship, Desolation,
+  Gemini) compile to the same product of the panel map and a static map,
+  plus a readout tiled 4 x through the panel's alpha; they go in as the
+  clouds do, without the readout. Drawn from the static alone, they were
+  solid white blocks.
+  Lightning (Colossus, Triplicate) has that alpha at 0 and flashes by an
+  animation the conversion doesn't carry, so it isn't drawn. The fusion
+  coils' bloom (`two_add_env_illum`) is bitmap 3 tinted by pixel constant
+  3, added; the storm layers and horizon gradients
+  (`sky_one_alpha_env_clamped`, Colossus, Containment) take
+  `one_alpha_env`'s slots. Read with the catch-all additive slots (bitmap
+  1), these drew nothing or only their mask. `add_illum_detail` (Gemini's
+  hologram halo: a ring map through scrolling scanlines) and
+  `one_add_illum_detail` (the light volumes of Gemini, Containment and
+  Waterworks) are the sun shafts' template outside the sky, drawn the same
+  way; the facing colour's alpha (vertex constant 6.w: 1 on the sun shafts,
+  0.15 on Gemini's white volumes) scales the tint, and `add_illum_detail`,
+  whose five constants are only the maps' transforms, has no facing colour.
+  Drawn from bitmap 1 alone, the halo was a solid grey ring of scanlines.
+  These and the holo template fade by view angle: the vertex colour's
+  alpha runs from a glancing alpha to a facing one by N.V (constants 7.w
+  and 6.w; the holo template's 11.w and 10.w), so where the facing alpha is
+  higher a volume seen edge-on vanishes. That goes in as CE's
+  `framebuffer_fade_mode` 2 (|N.V|); without it Desolation's light shafts
+  (a holo-template volume with a white mask) were solid white slabs. A
   transparent template's textures, transforms and scrolls are read the way
   halo2.dll reads them: a constant's descriptor names its texture slot
   (bits 10-12) and row (bits 5-9: 14 and 15, the 2D affine rows), the
@@ -117,7 +218,12 @@ units and axes, so every later step reads them unchanged:
   at CE's usual power, 0.2 (at 1, Ascension's lit the player and weapons
   3.8 times too bright). Lockout's light lit nothing (its radiosity flags are
   clear; the sky model lit the lightmaps), so its sun comes from the
-  lightmaps' incident directions, as for a CE map without one.
+  lightmaps' incident directions, as for a CE map without one. Halo 2's
+  atmospheric fog covers the sky as well: one at full density (Backwash's
+  swamp, opaque at 20 world units) also gives the level `sky_fog`, so
+  everything past the opaque distance, the black sky dome included, is the
+  fog's colour (gen_ce_level.py `sky_and_weather`; Backwash's sky drew
+  black above the fog).
 - **Placements.** Halo 2 spawns every multiplayer pickup and vehicle through
   netgame equipment (item and vehicle collections): each becomes halo2ue's
   `netgame_equipment` or `vehicle` entry naming the collection's item.
@@ -153,23 +259,84 @@ units and axes, so every later step reads them unchanged:
   (`gen_ce_level.h2_fog_fill`, `environment.haze`). The plane names its fog through the scenario's
   planar fog palette; Beaver Creek's names an entry the scenario does not
   have and gets none.
-- **Machines.** A gear whose device animation turns its one node about its
-  own vertical axis (Ascension's three antennas, the big arms that swing
-  around the central pillar every 40 s) is placed like scenery, with its
-  turn: the keys of its `device:position` animation as (seconds, degrees)
-  over its position transition time, read by `crate::h2::animation`.
+- **Machines.** A gear whose device animation turns its one node about one
+  fixed axis is placed like scenery, with its turn: the axis and the keys
+  of its `device:position` animation as (seconds, degrees) over its
+  position transition time, read by `crate::h2::animation` (the keyframe
+  codecs 4-7, and codec 3, which stores every frame). That covers
+  Ascension's three antennas (the big arms that swing around the central
+  pillar every 40 s, about +Z), Zanzibar's big wheel, its blades and three
+  flywheels (+Y; two flywheels are placed tilted) and Foundation's two fans.
   `merge_ce_scene.py --machines` writes each such placement as a mesh of
-  its own (`scene_machine_<k>.gltf`, built as `SM_<code>_Machine<k>`) with
-  its pivot and keys beside it (`.motion.json`); the level's decor entry
-  carries them as `motion`, and MJOLNIRLevelLoader swings the actor about
-  the pivot on the world's clock from the level's load, as the game runs a
-  gear from the map's. Its collision stays at rest: the simulation cannot
-  move it. Every other machine (doors, lifts, Triplicate's train,
-  Zanzibar's wheel, which uses a codec not read yet) is left out as
-  before, listed in staging's notes: still, a closed gate or a parked train
-  would block a way Halo 2 opens. The antennas' sounds (12 cues at fixed
-  frames of the animation) are not played: Halo 2's sounds are not
-  extracted yet.
+  its own (`scene_machine_<k>.gltf`, built as `SM_<code>_Machine<k>`; its
+  transparent parts, such as the flywheels' lightning, as
+  `scene_machine_<k>t.gltf`, since a rewritten mesh enters the translucency
+  pass by its slot 0) with its pivot, keys and, when the axis is not the
+  world's +Z, the axis in
+  Unreal's axes beside it (`.motion.json`); the level's decor entry carries
+  them as `motion`, and MJOLNIRLevelLoader turns the actor about the pivot.
+  Every other machine (doors, lifts, Triplicate's train, Backwash's
+  monitor) is left out as before, listed in staging's notes: still, a
+  closed gate or a parked train would block a way Halo 2 opens.
+- **Moving collision.** The simulation does all collision, never reads
+  Unreal geometry, and its structure BSP cannot move: an arm's collision
+  baked at rest stood where the arm only sometimes is. Rewriting a live
+  object's transform moves the object but not its Havok body; a device
+  machine moves its collision with its animation. So each turning part
+  becomes a machine of the simulation's own (`tools/level/h2_machines.py`,
+  run by `convert_ce_map.sh`), five tags cloned from B40's elevator, whose
+  nodes and Havok layouts agree, each a container
+  `pakchunk986-MJOLNIRMACH-<CODE>-<k><g>` under `objects\mjolnir\<code>\`:
+  - an animation graph whose one resource member turns the root by the
+    part's keys, every frame with codec 3 (the shipped turning props' own;
+    its header is Halo 2's), beside the static pose, node flags, an
+    uncompressed copy and object-space frames the resource carries;
+  - a collision model holding the part's own Halo 2 collision BSP, which
+    staging writes as `collision/<part>.bsp.json` and `mjolnir level
+    machine-collision` packs with its Havok MOPP. Bipeds meet a machine's
+    collision model, not its physics model's shapes: a player dropped on an
+    arm built of physics boxes alone fell through it;
+  - a physics model of boxes over the part's triangles, for what moves
+    through Havok (the elevator's lift phantom goes with it);
+  - a model, and a gear machine whose "position transition time" is the
+    rate 1 / period (the engine reads it as a rate: 40 ran the antennas 40
+    times a second, aliased into a seven-second wobble). The engine shows a
+    gear at frame position x N, held at the last frame (Halo 2 used N - 1),
+    so frame f is the angle at f / N of the turn, one every 0.1 s: with
+    Halo 2's five frames Zanzibar's wheel turned a full circle in 24 s of
+    its 30 and stood still for 6.
+
+  The generator places each machine where its part is, with its full
+  rotation (`blam.objects`, group `machines`), and gives the part's mesh
+  `motion.follow`; the merge leaves the part's collision out of the BSP
+  (`merge_ce_collision.py --sim-machines`). The machine draws through the
+  elevator's Blueprint, whose turning part follows the root; the loader
+  hides that part's mesh, attaches the Halo 2 mesh to it, and fits the
+  turn's phase (the simulation starts its gears about 25 s off the world
+  clock) for the sounds. Checked on Ascension: a player dropped on an arm
+  stands on it and is carried round as it turns.
+- **Teleporters.** Halo 2's teleporter scenery (Ascension's
+  `2way_teleporter` bases) is placed like any other prop: the generator's
+  working pads on the teleporter flags draw nothing. Its beam is a
+  `plasma_alpha` shader, its glow a `one_add_illum` (the base map times
+  pixel constant 0, added). The bases have no collision model.
+- **Sound.** Halo 2's samples are not in the maps but in headerless
+  `sounds_*.dat` files beside them (Opus and Xbox ADPCM;
+  `docs/h2_cache_format.md`, "Sound"). `crate::h2::sound` stages them as
+  `ce_sounds.py` stages a CE map's, `staging/sounds_out` (`sounds.json` and
+  its files), which `convert_ce_map.sh` imports with `build_ce_sounds.py`
+  and the generator plays: the BSP clusters' background loops (2D), the
+  sound scenery and the loops placed objects carry (3D, at the object's
+  origin), and the one-shots a turning machine's animation raises
+  (Ascension's 12 antenna cues, at their frames). Opus packets go into an
+  Ogg Opus file as they are, which the editor imports (Ascension's
+  `antenna1` came in at its tag's 2.240 s); ADPCM is decoded to WAV. A
+  sound's playback gain (dB) and random pitch bounds (cents) become the
+  entry's `gain` and `pitch` (Ascension's humming light plays 5 semitones
+  down); a loop's distance bounds come from its `lsnd` (most loop samples
+  carry none) unless the sound scenery overrides them. An attachment scaled
+  by an object function (the jump pads' launch loop, `phantom_power`) is
+  left out: it sounds only while the object drives it.
 - **Lightmaps.** Halo 2 keeps its pages at half their light and doubles
   them in the shader; the CE masters take a page as it is, so the pages are
   staged doubled (clamped). Without that Lockout's interiors were nearly
@@ -212,9 +379,16 @@ units and axes, so every later step reads them unchanged:
 - An env reflection's colour is one hue (the mean of the facing and
   glancing colours) baked into a copy of the cube, and its facing-to-glancing
   blend uses CE's squared view term rather than Halo 2's linear one.
-- The plasma shaders' three-colour banding is approximated by noise x noise
-  x mask in the plasma's middle colour.
-- Sounds are not extracted.
+- `plasma_alpha`'s fade comes from its vertex shader
+  (`transparent_generic_reflection`), not read back: M_H2_PlasmaAlpha takes
+  it as the facing term |N.V|, weighted by pixel constant 2's alpha as the
+  pixel shader weights it. The level needs chunk 981
+  (`pakchunk981-MJOLNIRH2-Windows`) installed: without it the level
+  loader finds no parent for the plasma's slots ("parent material not
+  found").
+- The loops' detail sounds (Ascension's thunder and wind gusts, at random
+  periods and directions) are staged in `sounds.json` but not played; a
+  loop attached to a marker plays at the object's origin.
 - On maps other than Lockout, CTF sides and vehicle teams come from the
   nearer CTF flag and vehicle game types from Halo 2's; Lockout and
   Ascension have been started, Ascension only by a test camera.
@@ -222,5 +396,5 @@ units and axes, so every later step reads them unchanged:
   and the map's 985/986 containers): `--install` also copies this project's
   material cook over chunk 988, which on a box with the hub's runtime
   replaces the runtime's masters.
-- All 24 multiplayer maps stage; Lockout and Ascension have been converted
-  end to end and started.
+- All 24 multiplayer maps stage; Lockout, Ascension and Zanzibar have been
+  converted end to end and started.

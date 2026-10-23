@@ -12,6 +12,7 @@ pub mod animation;
 pub mod bitmap;
 pub mod geometry;
 pub mod render;
+pub mod sound;
 pub mod stage;
 
 use std::path::{Path, PathBuf};

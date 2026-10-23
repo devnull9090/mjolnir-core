@@ -35,7 +35,9 @@ if eal.does_directory_exist(root):
 
 tasks = []
 for name in sorted(wanted):
-    for ext in (".wav", ".ogg"):
+    # .opus: Halo 2's Opus packets in an Ogg container as they are
+    # (crates/blam-cache h2::sound), which the editor's factory decodes.
+    for ext in (".wav", ".ogg", ".opus"):
         f = os.path.join(src, "sounds", name + ext)
         if os.path.exists(f):
             break

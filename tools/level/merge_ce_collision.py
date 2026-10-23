@@ -209,6 +209,14 @@ def main():
     if "--extra" in sys.argv:
         extra = json.load(open(sys.argv[sys.argv.index("--extra") + 1], encoding="utf-8"))
     skip = set(extra.get("skip_entries", [])) if extra else set()
+    # --sim-machines <machines.json>: Halo 2's turning parts made machines of
+    # the simulation's own (tools/level/h2_machines.py), whose collision
+    # turns with them; at rest in the BSP it would stand where the part only
+    # sometimes is.
+    if "--sim-machines" in sys.argv:
+        machines = json.load(open(sys.argv[sys.argv.index("--sim-machines") + 1], encoding="utf-8"))
+        placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
+        skip |= {n for n, e in enumerate(placement["entries"]) if e.get("h2_motion") and e.get("asset") in machines}
     src_json = os.path.join(staging, "bsp", "collision_0.json")
     meta = json.load(open(src_json, encoding="utf-8"))
     order = meta.get("array_order") or ORDER_DEFAULT

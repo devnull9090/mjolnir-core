@@ -464,7 +464,7 @@ def main():
     devices = 0
     # A turning machine's opaque primitives, per placement, and its turn.
     machines = []
-    for e in placement["entries"]:
+    for index, e in enumerate(placement["entries"]):
         # Machines too (Infinity's beam emitters, whose model is the beam):
         # a part their device animation moves draws with a material of its
         # own that moves it (device_motion); the rest in their rest pose.
@@ -519,15 +519,20 @@ def main():
             peak = np.clip(np.max(np.concatenate(lit), axis=0) if prims else np.ones(3), 1e-3, 1.0)
             turn = e.get("h2_motion") if a.machines else None
             if turn:
-                machines.append({"prims": [], "pivot": t, "turn": turn})
+                machines.append({"prims": [], "clear": [], "pivot": t, "turn": turn, "rot": r, "entry": index})
             for q, colour in zip(prims, lit):
                 share = np.clip((colour @ LUMA) / float(peak @ LUMA), 0.0, 1.0)[:, None]
                 q["inc"] = share * q["nrm"] + np.sqrt(1.0 - share * share) * q["tan"][:, :3]
                 q["block"] = len(object_texels)
                 opaque = q["extras"]["halo"].get("shader_class") not in TRANSPARENT
-                # A transparent part of a turning machine stays still in the
-                # translucent mesh (none on Ascension's antennas).
-                (machines[-1]["prims"] if turn and opaque else out).append(q)
+                # A turning machine's transparent parts turn too, as a mesh
+                # of their own (a rewritten mesh enters the translucency
+                # pass by its slot 0): Zanzibar's flywheel lightning, which
+                # stood still beside the wheels in the translucent mesh.
+                if turn:
+                    machines[-1]["prims" if opaque else "clear"].append(q)
+                else:
+                    out.append(q)
             object_texels.append([peak, lighting[2]] + change_colors(e))
             object_prims += prims
             placed += 1
@@ -577,20 +582,42 @@ def main():
     out = with_passes(out, shaders)
     out = with_decal_offset(out, shaders)
 
+    meshes = []
     for k, m in enumerate(machines):
+        if m["prims"]:
+            meshes.append((f"{a.machines}_{k}", m["prims"], m))
+        if m["clear"]:
+            meshes.append((f"{a.machines}_{k}t", with_passes(m["clear"], shaders), m))
+    for base, prims, m in meshes:
         # Spawned at its box centre (as the sky mesh is); the turn's pivot
         # from there in Unreal cm (glTF metres, Y up -> X, Z, Y), and its
         # keys as Unreal yaw: Halo's counter-clockwise about +Z is a
         # negative yaw once y is mirrored.
-        allpos = np.concatenate([p["pos"] for p in m["prims"]])
+        allpos = np.concatenate([p["pos"] for p in prims])
         d = m["pivot"] - (allpos.max(0) + allpos.min(0)) / 2
-        base = f"{a.machines}_{k}"
-        write_gltf(m["prims"], base + ".gltf")
+        write_gltf(prims, base + ".gltf")
+        motion = {"pivot_cm": [float(d[0]) * 100, float(d[2]) * 100, float(d[1]) * 100],
+                  "period": m["turn"]["period"],
+                  "keys": [[t, -angle] for t, angle in m["turn"]["keys"]],
+                  # Its staging entry, by which the level generator finds
+                  # the machine of the simulation's own it rides.
+                  "entry": m["entry"]}
+        axis = m["turn"].get("axis")
+        if isinstance(axis, list):
+            # The turn's axis in the world, in Unreal's axes (glTF x, z, y):
+            # the keys turn about it, negated as about +Z, since y is
+            # mirrored. Unreal's +Z (the antennas) stays a yaw.
+            g = m["rot"] @ np.array([axis[0], axis[2], -axis[1]], float)
+            ue = np.array([g[0], g[2], g[1]]) / max(np.linalg.norm(g), 1e-9)
+            if not (abs(ue[0]) < 1e-4 and abs(ue[1]) < 1e-4 and ue[2] > 0):
+                motion["axis"] = [round(float(c), 6) for c in ue]
+        if m["turn"].get("events"):
+            # The sounds its turn raises, [seconds, sound tag]: the level
+            # generator resolves them to waves (gen_ce_level.py machine_sounds).
+            motion["events"] = m["turn"]["events"]
         with open(base + ".motion.json", "w") as f:
-            json.dump({"pivot_cm": [float(d[0]) * 100, float(d[2]) * 100, float(d[1]) * 100],
-                       "period": m["turn"]["period"],
-                       "keys": [[t, -angle] for t, angle in m["turn"]["keys"]]}, f)
-        print(f"  turning machine {k}: {len(m['prims'])} primitive(s), {m['turn']['period']:g} s -> {base}.gltf")
+            json.dump(motion, f)
+        print(f"  turning machine {os.path.basename(base)}: {len(prims)} primitive(s), {m['turn']['period']:g} s -> {base}.gltf")
 
     if a.translucent:
         # A mesh enters Unreal's translucency pass only if its own material

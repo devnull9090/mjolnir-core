@@ -553,6 +553,76 @@ pub fn transplant_definition(
     ))
 }
 
+/// A collision model's one BSP (`regions[0].permutations[0].bsps[0]`) and
+/// the Havok shape over it, rebuilt from a staged collision BSP in the
+/// part's own space: a machine's part the simulation turns (Halo 2's
+/// gears). A biped meets a machine's collision model, not its physics
+/// model's shapes: a player dropped onto a turning arm built of boxes alone
+/// fell through it (Ascension, 2026-10-22).
+///
+/// As [`transplant_definition`] does for terrain: the tables fan-split and
+/// packed, one pass-through kd supernode, the MOPP compiled over the
+/// surfaces into `mopp_codes[0]`, and the shape's own copies of the local
+/// box and the tree's quantisation and length (`bsp_physics[0]`), which the
+/// Havok query reads instead of the tables'.
+pub fn collision_model(donor: &[u8], mut collision: Collision) -> Result<Vec<u8>, Error> {
+    const PERM: &str = "regions[0].permutations[0]";
+    let base = format!("{PERM}.bsps[0].bsp");
+    split::fan_split_fit(&mut collision, 4);
+    collision.fits_16bit()?;
+    let b = collision
+        .bounds()
+        .ok_or_else(|| Error::Staging("the collision BSP has no vertices".into()))?;
+    let packed = pack16::pack(&collision, &material_map(false))?;
+    let mut edits = transplant::tables_at(&base, &packed);
+    let supernode = transplant::donor_element(donor, &format!("{base}.bsp3d supernodes"), 0)
+        .map(|(e, _)| passthrough_from(&e))
+        .map_err(|e| Error::Other(format!("the donor collision model has no supernode: {e}")))?;
+    edits.push(NestedReplace {
+        path: format!("{base}.bsp3d supernodes"),
+        count: 1,
+        elements: supernode,
+        wrappers: None,
+    });
+    let mut file = replace_nested(donor, &edits)?;
+
+    let q = mopp::Quant::fit(b.min, b.max);
+    let prims: Vec<(u32, mopp::Aabb)> = (0..collision.surfaces.len())
+        .map(|s| (s as u32, q.box_of(&unpack16::polygon(&collision, s))))
+        .collect();
+    let code = build_checked(&prims, "collision model")?;
+    let (mut element, _) = transplant::donor_element(&file, &format!("{PERM}.mopp_codes"), 0)
+        .map_err(|e| Error::Other(format!("the donor collision model has no mopp: {e}")))?;
+    mopp::patch_element(&mut element, q, code.len());
+    file = replace_nested(
+        &file,
+        &[NestedReplace {
+            path: format!("{PERM}.mopp_codes"),
+            count: 1,
+            elements: element,
+            wrappers: Some(vec![mopp::wrapper(&code)]),
+        }],
+    )?;
+    let v3 = |v: [f32; 3]| format!("({}, {}, {})", v[0], v[1], v[2]);
+    let half = |k: usize| (b.max[k] - b.min[k]) / 2.0;
+    let mid = |k: usize| (b.max[k] + b.min[k]) / 2.0;
+    let shape = format!("{PERM}.bsp_physics[0].collision bsp shape");
+    let tree = format!("{PERM}.bsp_physics[0].mopp bv tree shap");
+    let sets: Vec<(String, String)> = vec![
+        (format!("{shape}.center"), v3([mid(0), mid(1), mid(2)])),
+        (format!("{shape}.half extent"), v3([half(0), half(1), half(2)])),
+        (format!("{shape}.scale"), "1.0".into()),
+        (format!("{tree}.code info copy"), v3(q.offset)),
+        (format!("{tree}.havok w code info copy"), format!("{}", q.scale)),
+        (format!("{tree}.mopp data size"), format!("{}", code.len())),
+    ];
+    for (path, value) in &sets {
+        file = set_scalar(&file, path, value)?;
+    }
+    check_walks(&file)?;
+    Ok(file)
+}
+
 /// Set one instance group's broadphase sphere.
 pub fn set_group_sphere(
     file: &[u8],

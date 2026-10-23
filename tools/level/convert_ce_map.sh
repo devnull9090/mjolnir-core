@@ -123,10 +123,19 @@ if [ -e "$staging/bsp/collision_1.json" ]; then
 fi
 
 echo "== 2/6 collision"
+# Halo 2's turning parts (antennas, wheels, fans) as machines of the
+# simulation's own, whose collision turns with them
+# (tools/level/h2_machines.py, containers pakchunk986-MJOLNIRMACH-<CODE>-*):
+# their collision stays out of the BSP.
+machine_args=()
+if [ "$source_game" = halo2_mcc ]; then
+  MJOLNIR="$mjolnir" python "$here/h2_machines.py" "$staging" "$code" "$out/machines" --mjolnir "$mjolnir"
+  machine_args=(--sim-machines "$out/machines/machines.json")
+fi
 # The scenery's collision models (rocks, trees), as surfaces the Havok MOPP
 # covers, and the surface materials: grass split from sand and dirt, a
 # material for each piece of scenery (tools/level/merge_ce_collision.py).
-python "$here/merge_ce_collision.py" "$staging" "$out/collision_scene.json"
+python "$here/merge_ce_collision.py" "$staging" "$out/collision_scene.json" "${machine_args[@]}"
 collision="$out/collision_scene.json"
 # DELTA="dx dy dz" moves the whole map (CE world units), for a map whose own
 # coordinates fall outside the canvas's space.
@@ -300,6 +309,12 @@ if [ "$cook" = "1" ]; then
     # The sound root is an object path: kept out of Git Bash's rewriting of
     # "/"-led environment values into Windows paths (C:/Program Files/Git/Game/...).
     MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/sounds_out")" MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Maps/$code/Sounds"       powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_sounds.py | grep -E "editor exit|MJOLNIR CE sounds"
+  elif [ "$source_game" = halo2_mcc ] && [ -f "$staging/sounds_out/sounds.json" ]; then
+    # Halo 2's, staged by mjolnir cache stage from the sounds_*.dat beside
+    # the map (crates/blam-cache h2::sound), in the same shape.
+    mkdir -p "$out/sounds_out"
+    cp -rf "$staging/sounds_out/." "$out/sounds_out/"
+    MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/sounds_out")" MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Maps/$code/Sounds"       powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_sounds.py | grep -E "editor exit|MJOLNIR CE sounds"
   fi
   cook_out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")")"
   printf '%s\n' "$cook_out"
@@ -327,6 +342,7 @@ fi
 echo "== 4/6 level file"
 sound_args=()
 [ -f "$out/sounds_out/sounds.json" ] && sound_args=(--sounds "$out/sounds_out")
+[ -f "$out/machines/machines.json" ] && sound_args+=(--machines "$out/machines/machines.json")
 # TITLE="Yoyorast Island" names a custom map in the menus (stock maps have
 # theirs in gen_ce_level.py).
 title_args=()
@@ -364,6 +380,13 @@ if [ "$install" = "--install" ]; then
   for c in "pakchunk986-MJOLNIRMESH-${code}_P" "pakchunk985-MJOLNIRCOOK-${code}_P" pakchunk989-MJOLNIRMESH-Windows_P; do
     [ -e "$out/$c.utoc" ] || continue
     cp -f "$out/$c.utoc" "$out/$c.ucas" "$HCE_PAKS"/
+    cp -f "$stub" "$HCE_PAKS/$c.pak"
+  done
+  # Halo 2's machines (h2_machines.py), each tag a container of its own.
+  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc; do
+    [ -e "$f" ] || continue
+    c="$(basename "$f" .utoc)"
+    cp -f "$out/machines/$c.utoc" "$out/machines/$c.ucas" "$HCE_PAKS"/
     cp -f "$stub" "$HCE_PAKS/$c.pak"
   done
   if [ "$cook" = "1" ]; then

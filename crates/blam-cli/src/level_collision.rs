@@ -139,6 +139,43 @@ struct HostOut {
     group: usize,
 }
 
+#[derive(Args)]
+pub struct MachineCollisionArgs {
+    /// The staged collision BSP (`mjolnir cache stage`'s
+    /// `collision/<part>.bsp.json`, its `.bin` beside it), in the part's own
+    /// space.
+    pub collision: PathBuf,
+    #[command(flatten)]
+    pub src: Source,
+    /// Substring of the shipped collision model to clone (its regions,
+    /// nodes and Havok shape layout).
+    #[arg(long, default_value = "elevator_a/elevator_a_b40")]
+    pub donor: String,
+    /// Where to write the tag payload, for `mjolnir new-tag --payload`.
+    #[arg(long)]
+    pub out: PathBuf,
+}
+
+/// `level machine-collision`: a machine part's collision model.
+pub fn run_machine(a: MachineCollisionArgs) -> Result<()> {
+    let staged = blam_sbsp::ce::load(&a.collision)
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .with_context(|| format!("reading {}", a.collision.display()))?;
+    let idx = index::build(&a.src.paks)?;
+    let by_group = idx.by_group();
+    let entry = by_group
+        .get("collision_model")
+        .and_then(|es| es.iter().find(|e| e.path.contains(&a.donor)))
+        .copied()
+        .with_context(|| format!("no collision model matching {:?}", a.donor))?;
+    let donor = idx.read(entry, None, &a.src.oodle_roots())?;
+    let surfaces = staged.collision.surfaces.len();
+    let out = convert::collision_model(&donor, staged.collision).map_err(|e| anyhow::anyhow!("{e}"))?;
+    std::fs::write(&a.out, &out).with_context(|| format!("writing {}", a.out.display()))?;
+    println!("{surfaces} surface(s) -> {} ({} bytes, walks exactly)", a.out.display(), out.len());
+    Ok(())
+}
+
 pub fn run(a: CollisionArgs) -> Result<()> {
     let canvas = CANVASES
         .iter()

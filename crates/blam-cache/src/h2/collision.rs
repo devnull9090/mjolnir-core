@@ -96,7 +96,8 @@ pub fn read(bsp: Struct<'_>) -> Collision {
         c.planes.push([e.f32(0), e.f32(4), e.f32(8), e.f32(12)]);
     }
     for e in bsp.block(0x10, 4).iter() {
-        c.leaves.push((e.u8(0) as u16, e.u8(1) as i16, e.u16(2) as i32));
+        // A leaf with no 2D references names none (0xFFFF; Zanzibar has some).
+        c.leaves.push((e.u8(0) as u16, e.u8(1) as i16, index16(e.u16(2))));
     }
     for e in bsp.block(0x18, 4).iter() {
         c.bsp2d_references.push([signed16(e.i16(0)), signed16(e.i16(2))]);

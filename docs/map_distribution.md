@@ -131,6 +131,7 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 | `pakchunk990-MJOLNIRSPARTAN_P` | the Spartan model with its body material on the body damage section (shipped on the head section, every bullet hit was a headshot) |
 | `pakchunk990-MJOLNIRFLUX_P` | Fluid Flux's infinite sea (`NS_InfiniteSurfaceMesh`) with fixed bounds 10 km tall: the shipped ones are 50 m round Z 0, and a sea far below it (Yoyorast's, -256 m) was culled whole when the top of the view was level. Byte offsets, so it is rebuilt for every game update |
 | `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
+| `pakchunk981-MJOLNIRH2-Windows` | the Halo 2 masters (`/Game/MJOLNIR/H2`, `Scripts/build_h2_materials.py`): `M_H2_PlasmaAlpha`, which converted Halo 2 maps' plasma draws with ([h2_map_conversion.md](h2_map_conversion.md)) |
 | `pakchunk985-MJOLNIRMENU_P` | the main menu with its own MULTIPLAYER button ([multiplayer_menu.md](multiplayer_menu.md)). It replaces the shipped menu, so it is rebuilt for every game update |
 | `pakchunk983-MJOLNIRCETRIAL-Windows` | the trial masters the remastered maps draw with (`/Game/MJOLNIR/CETrial`, `Scripts/build_ce_materials.py`) and their tessellated cliffs (`Scripts/build_ce_cliffs.py`). `tools/level/upgrade_ce_map.py` cooks it, not `build_ce_runtime.sh`, and looks it up among the installed runtime's containers |
 
