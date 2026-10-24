@@ -449,3 +449,8 @@ The TST beta also bakes an ambient cubemap into its world (`MJ_AMBIENT_CUBEMAP` 
 `build_ce_landscape.py`). This supplies stable indirect fill with the published loader,
 whose realtime sky capture is disabled in the game. The beta disables the runtime
 skylight contribution to avoid double lighting; the original CE sky remains visible.
+
+For the enclosed TST pond, the single Adjust source covers the whole water domain
+(scale 6, a 60 m footprint). A small source in the middle leaves a visible circular
+boundary; removing the source lets the simulated pond drain. Keep its target elevation
+at -18 cm so the bank shape controls the shoreline.

@@ -29,7 +29,7 @@
   "rivers": {"textures": ["levels_b30_bitmaps_water_mask"], "parent": "M_CE_Water", "flux_only": true,
              "scene": "scene_translucent_water.gltf", "item": "_terrain_3",
              "spec": {"scalars": {"WaveAmplitude": 0.0, "Clarity": 0.9}, "vectors": {"WaterColor": [0.03, 0.08, 0.07, 1]}}},
-  "flux": {"feeds": [{"pos": [3600, 2300, -18], "scale": 0.75, "volume": 1, "mode": 2}],
+  "flux": {"feeds": [{"pos": [3600, 2300, -18], "scale": 6.0, "volume": 1, "mode": 2}],
            "cell": 20, "grid": 300, "margin": 200, "height": 2000, "level_scale": 0.5,
            "hold": false, "level_mode": 2, "outlet": false, "bed": true,
            "color_preset": "/Game/FluidFlux/Surface/Templates/Color/CP_OceanBlue_01.CP_OceanBlue_01",
