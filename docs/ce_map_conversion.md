@@ -713,31 +713,51 @@ there is no variant, no flag object and no flag mesh, so each piece is ours.
 
 - **The rules** are a Megalo variant, `variants/ctf.mglo`
   (`mjolnir megalo write --mode ctf`, `crates/blam-megalo/src/ctf.rs`). The
-  script makes each team's flag on its stand, scores a capture when the
-  carrier stands in their own stand's boundary while their own flag is home,
-  returns a dropped flag when its own team touches it or after 30 s, and ends
-  the round at 3 captures. The flag incidents (`flag_grabbed` 110,
-  `flag_dropped` 112, `flag_scored` 116, `flag_reset` 118, `flag_recovered`
-  119) carry the flag's team as their value (Unreal's `CustomValue`), so
-  the loader plays CE's team lines ("Red team has the flag", "Blue team
-  score", "Red team flag returned"). The action and condition encodings
-  match ReachVariantTool's opcode list; they are checked against the CU4
-  decoder in [re/megalo_variant_format.md](re/megalo_variant_format.md).
+  script makes each team's flag on its stand (red's object type on a stand
+  owned by red, blue's on blue's), scores a capture when the carrier stands
+  in their own stand's boundary while their own flag is home, returns a
+  dropped flag when its own team touches it or after 30 s, and ends the
+  round at 3 captures. The reset, like the health pack's respawn, is counted
+  in ticks at the simulation's 60 a second (`--tick-rate`; at the old
+  default of 30 both lasted half as long). The flag incidents
+  (`flag_grabbed` 110, `flag_dropped` 112, `flag_scored` 116, `flag_reset`
+  118, `flag_recovered` 119) carry the flag's team as their value (Unreal's
+  `CustomValue`), so the loader plays CE's team lines ("Red team has the
+  flag", "Blue team score", "Red team flag returned"). The action and
+  condition encodings match ReachVariantTool's opcode list; they are checked
+  against the CU4 decoder in
+  [re/megalo_variant_format.md](re/megalo_variant_format.md).
 - **Teams.** Each CE start is labelled `ctf_spawn_red`, `ctf_spawn_blue` or
   `ctf_spawn_none` and placed neutral. The variant gives the red and blue
   spawn points their teams, and parks the rest on a team no player is on.
   It waits 2 s before the first spawn (the loadout camera time), so the
   first tick has set the teams up; a spawn on tick 0 used them neutral.
-- **The flag** (`tools/level/build_ctf_flag.sh`) is a weapon cloned from the
-  assault bomb, which ships whole and is carried the same way. It is entry
-  18 of the multiplayer object type list, which the script needs before it
-  can create one. The bomb binds no Unreal actor, so the flag borrows the
-  oddball's `BP_SkullActor`. MJOLNIRLevelLoader hides the skull, removes its
-  fire effect and whispering audio, and attaches CE's own flag mesh in its
-  team's colours. The mesh is exported by halo2ue and rewritten into
-  `/Game/MJOLNIR/CTF/SM_CE_Flag`; its textures come from
-  `tools/level/ce_flag_textures.py`. The stand needs no mesh: CE's own flag
-  base scenery sits at each flag and comes in with the map.
+- **The flags** (`tools/level/build_ctf_flag.sh`) are two weapons cloned
+  from the assault bomb, which ships whole and is carried the same way:
+  `objects\weapons\multiplayer\flag\flag` for red and `flag_blue` for blue,
+  entries 18 and 20 of the multiplayer object type list, which the script
+  needs before it can create them. They differ only in their default model
+  variant, `default` and `blue`, both variants of the bomb's model. The
+  bomb binds no Unreal actor, so the flags borrow the oddball's
+  `BP_SkullActor`. MJOLNIRLevelLoader hides the skull, removes its fire
+  effect and whispering audio, and attaches CE's own flag mesh in its
+  team's colours. The team is the actor's own: the simulation computes a
+  flag's team colour but never hands it to Unreal, while an object's model
+  variant does reach the actor (`GetVariantName()` on its mesh
+  synchronization component) on every machine, because a tag's default
+  comes with the tag ([game_modes.md](game_modes.md), 2.2). The mesh is
+  exported by halo2ue and rewritten into `/Game/MJOLNIR/CTF/SM_CE_Flag`;
+  its textures come from `tools/level/ce_flag_textures.py`. The stand needs
+  no mesh: CE's own flag base scenery sits at each flag and comes in with
+  the map.
+- **Release order.** The variant names every object type it creates, and
+  the simulation wipes a variant naming one the installed list lacks: no
+  rules at all, not a colour bug. The CE runtime pack with
+  `pakchunk990-MJOLNIRFLAGB_P` and the list's entry 20 ships before, or
+  with, the mods release whose `ctf.mglo` creates type 20. The lobby offers
+  CTF only when that container is installed, and `mjolnir megalo write
+  --mode ctf --single-flag` writes the one-type script (entry 18 for both
+  teams) for a pack without it.
 - **Armour colours.** In a team game the loader puts every Spartan in the
   classic Mk V armour, whatever the player picked: only its material takes a
   colour. The others (Chief's default, MkIV, Blamite, Lone Wolf, the

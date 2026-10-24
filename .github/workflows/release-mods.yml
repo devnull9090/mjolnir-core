@@ -98,7 +98,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Write slayer.mglo and ctf.mglo
+      - name: Write slayer.mglo, team_slayer.mglo and ctf.mglo
         run: |
           set -euo pipefail
           cargo build --release -q -p blam-cli
@@ -107,6 +107,7 @@ jobs:
           # layout.json, from which MJOLNIRLevelLoader adds a map's vehicle
           # filters (docs/ce_map_conversion.md, "Vehicle sets").
           ./target/release/mjolnir megalo write --mode slayer --vehicle-label-pool --out variants/slayer.mglo
+          ./target/release/mjolnir megalo write --mode team-slayer --vehicle-label-pool --out variants/team_slayer.mglo
           ./target/release/mjolnir megalo write --mode ctf --vehicle-label-pool --out variants/ctf.mglo
           for f in variants/*.mglo; do
             ./target/release/mjolnir megalo read "$f" | grep -E "score_to_win|rounds"
@@ -168,7 +169,8 @@ jobs:
             sha256sum "$dll"
           done
           for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo \
-                      mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json; do
+                      mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/team_slayer.mglo mods/MJOLNIRLevelLoader/variants/team_slayer.layout.json; do
             test -s "$mglo" || { echo "::error::$(basename "$mglo") did not arrive from build-game-types"; exit 1; }
             sha256sum "$mglo"
           done

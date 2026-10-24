@@ -2,14 +2,19 @@
 # Build what Capture the Flag needs that the game does not ship
 # (docs/ce_map_conversion.md, "Capture the Flag"):
 #
-# - the flag, objects\weapons\multiplayer\flag\flag: a weapon cloned from the
-#   assault bomb, which ships whole (model, physics, carry animations) and is
-#   carried the same way, but drawn by the oddball's actor with CE's flag
-#   mesh put on it at runtime;
-# - an entry for it in the multiplayer object type list
+# - the flags, objects\weapons\multiplayer\flag\flag (red) and flag_blue:
+#   weapons cloned from the assault bomb, which ships whole (model, physics,
+#   carry animations) and is carried the same way, but drawn by the
+#   oddball's actor with CE's flag mesh put on it at runtime. The two differ
+#   only in their default model variant, `default` and `blue` (the bomb's
+#   model has both): the simulation hands Unreal an object's model variant
+#   and not its team, so MJOLNIRLevelLoader colours each flag by the variant
+#   name its actor reads (docs/game_modes.md, 2.2);
+# - entries for them in the multiplayer object type list
 #   (multiplayer\globals): a Megalo script can only create an object of a
-#   listed type, and the list ships with 18 weapons and no flag. The flag is
-#   entry 18, the `--flag-type` `mjolnir megalo write --mode ctf` defaults to;
+#   listed type, and the list ships with 18 weapons and no flag. The red
+#   flag is entry 18 and the blue one entry 20, the `--flag-type` and
+#   `--blue-flag-type` `mjolnir megalo write --mode ctf` defaults to;
 # - the flag stand, objects\multi\ctf\flag_stand: invisible scenery with
 #   multiplayer properties, as the spawn point is built
 #   (build_spawn_point.sh). A level places one per team, labelled
@@ -24,13 +29,18 @@
 #   scenery as the flag stand is, placed where CE put a health pack and
 #   labelled `ce_health_pack`.
 #
+# Ship the list and the blue flag before, or with, a CTF variant that names
+# entry 20: a variant naming an object type the installed list lacks is
+# wiped by the simulation, and CTF then has no rules at all. `megalo write
+# --single-flag` writes the old one-type script for a list without it.
+#
 #   HCE_PAKS=".../Meteorite/Content/Paks" tools/level/build_ctf_flag.sh [out dir]
 #
-# Writes pakchunk990-MJOLNIRFLAG_P, -STAND_P, -HPACK_P, -HPSPOT_P and
-# pakchunk990-MJOLNIRMOTL_P. The object type list names the flag and the pack
-# by path, so their containers are installed (a stub .pak beside each) before
-# the list is packed; with no out dir, everything goes straight into the Paks
-# folder.
+# Writes pakchunk990-MJOLNIRFLAG_P, -FLAGB_P, -STAND_P, -HPACK_P, -HPSPOT_P
+# and pakchunk990-MJOLNIRMOTL_P. The object type list names the flags and the
+# pack by path, so their containers are installed (a stub .pak beside each)
+# before the list is packed; with no out dir, everything goes straight into
+# the Paks folder.
 set -euo pipefail
 out="${1:-$HCE_PAKS}"
 mjolnir="${MJOLNIR:-target/release/mjolnir}"
@@ -46,13 +56,24 @@ stub_for() {
 # The bomb binds no Unreal asset (nothing ships for it), so the flag borrows
 # the oddball's actor: that gives every flag an actor which follows it, and
 # MJOLNIRLevelLoader puts CE's flag mesh on it (build_ce_flag_mesh.sh).
+# The red flag's variant is set although an empty one also resolves to
+# `default`, so its actor reads a name whichever of the two it is given.
 # (Git Bash would rewrite the /Game path into a Windows one.)
 MSYS2_ARG_CONV_EXCL="/Game" "$mjolnir" new-tag --group weapon --from 'multiplayer/assault_bomb/assault_bomb-weapon' \
   --to 'objects\weapons\multiplayer\flag\flag' \
   --asset-reference /Game/Weapons/Melee/Skull/Blueprints/BP_SkullActor \
   --set 'item.pickup message=' \
+  --set 'item.object.default model variant=default' \
   --out-dir "$out" --name pakchunk990-MJOLNIRFLAG
 stub_for pakchunk990-MJOLNIRFLAG
+
+MSYS2_ARG_CONV_EXCL="/Game" "$mjolnir" new-tag --group weapon --from 'multiplayer/assault_bomb/assault_bomb-weapon' \
+  --to 'objects\weapons\multiplayer\flag\flag_blue' \
+  --asset-reference /Game/Weapons/Melee/Skull/Blueprints/BP_SkullActor \
+  --set 'item.pickup message=' \
+  --set 'item.object.default model variant=blue' \
+  --out-dir "$out" --name pakchunk990-MJOLNIRFLAGB
+stub_for pakchunk990-MJOLNIRFLAGB
 
 "$mjolnir" new-tag --group scenery --from cinematic_anchor \
   --to 'objects\multi\ctf\flag_stand' \
@@ -84,5 +105,8 @@ stub_for pakchunk990-MJOLNIRHPSPOT
   --set 'object types[18].object=weap:objects\weapons\multiplayer\flag\flag' \
   --set 'object types[19].name=health_pack' \
   --set 'object types[19].object=eqip:objects\multi\powerups\health_pack' \
+  --duplicate 'object types[19]' \
+  --set 'object types[20].name=flag_blue' \
+  --set 'object types[20].object=weap:objects\weapons\multiplayer\flag\flag_blue' \
   --out-dir "$out" --name pakchunk990-MJOLNIRMOTL_P
 stub_for pakchunk990-MJOLNIRMOTL

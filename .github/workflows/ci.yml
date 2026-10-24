@@ -31,6 +31,9 @@ jobs:
           lua5.4 tools/tests/test_game_settings.lua
           lua5.4 tools/tests/test_vehicle_sets.lua
 
+      - name: Test team colours (CTF flags and team armour)
+        run: lua5.4 tools/tests/test_teams.lua
+
       - name: Lint Lua scripts
         run: |
           if command -v luacheck &> /dev/null; then

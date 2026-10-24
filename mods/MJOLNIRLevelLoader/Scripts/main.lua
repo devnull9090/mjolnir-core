@@ -71,6 +71,9 @@ local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local VariantSettings = dofile(MOD_DIR .. "\\Scripts\\variant_settings.lua")
 local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
+-- CTF flags and team armour in their team's colours (Teams.init in
+-- initialize, once main.lua's helpers exist).
+local Teams = dofile(MOD_DIR .. "\\Scripts\\teams.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -216,10 +219,6 @@ local Current = {
     -- level with no decor spawns nothing, and furnishing again every tick
     -- re-spawned the environment and re-sent fade_in every 1.5 s.
     furnished = false,
-    -- CTF flag actors already dressed, by full name (dressFlags).
-    flags = {},
-    -- Bipeds already given their team colour, by full name.
-    tinted = {},
     -- Set once fade_in has been asked for; it waits for the player, while the
     -- terrain and sky go in as soon as the world is known.
     faded = false,
@@ -273,9 +272,7 @@ local function resetState()
     Current.furnished = false
     Current.faded = false
     Current.announced = false
-    Current.flags = {}
     Current.packDressed = false
-    Current.tinted = {}
     Current.fileMissing = false
     Current.pulses = {}
     Current.movingSounds = {}
@@ -300,11 +297,8 @@ local function resetState()
         end)
         Current.cvars = nil
     end
-    -- Flag state is per match: the first drop of a match took the last
-    -- match's team.
-    Current.lastFlagTeam = nil
-    Current.carriedTeam = nil
-    Current.flagSerial = 0
+    -- The flags and Spartans of the last world (teams.lua).
+    Teams.reset()
 end
 
 local function clearActors()
@@ -1861,283 +1855,10 @@ local function spawnSounds(world)
         #Current.movingSounds > 0 and (", " .. #Current.movingSounds .. " on moving parts") or ""))
 end
 
---- The skull's ghostly fire (BP_SkullEffect) and its whispering, which is
---- the actor's own audio component (HaloAudioTracking): removing the effect
---- alone left the whisper playing. The game makes the effect again as the
---- flag is picked up and dropped, so it is removed again then, from the
---- first-person actor too.
-local SKULL_PARTS = { "BP_SkullEffect", "HaloAudioTracking" }
-
---- The flag mesh the loader put on each flag actor, by actor full name;
---- every other mesh on the actor is the skull's.
-local FlagMeshes = {}
-
---- Hide the skull's own meshes. The game shows them again (the skull came
---- back at the foot of the flag after it was dressed), so this runs whenever
---- the skull's parts are removed.
-local function hideSkull(actor)
-    local mine = FlagMeshes[actor:GetFullName()]
-    for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.PrimitiveComponent")) or {}) do
-        pcall(function()
-            if type(c) == "userdata" and c.get then c = c:get() end
-            if mine and mine:IsValid() and c:GetFullName() == mine:GetFullName() then return end
-            c:SetHiddenInGame(true, false)
-            c:SetVisibility(false, false)
-        end)
-    end
-end
-
-local function quenchSkull(actor)
-    hideSkull(actor)
-    for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.ActorComponent")) or {}) do
-        pcall(function()
-            if type(c) == "userdata" and c.get then c = c:get() end
-            local name = c:GetFullName()
-            for _, part in ipairs(SKULL_PARTS) do
-                if name:find(part, 1, true) then
-                    c:Deactivate()
-                    c:K2_DestroyComponent(c)
-                end
-            end
-        end)
-    end
-end
-
---- Capture the Flag flags (the level's `ctf`). The flag object borrows the
---- oddball's actor, since nothing ships for it (tools/level/build_ctf_flag.sh),
---- so each flag that turns up is a skull: it gets CE's flag mesh in its
---- team's colours instead, the team from the stand it is made on. A new flag
---- is a new actor (a captured or reset flag is deleted and made again).
-local FLAG_ACTOR_CLASS = "BP_SkullActor_C"
-local FP_FLAG_ACTOR_CLASS = "BP_FP_SkullActor_C"
-local TEAM_NAMES = { [0] = "red", [1] = "blue" }
--- Within this of a stand, a new flag actor is that stand's flag.
-local FLAG_AT_STAND_CM = 400
-
---- Put CE's flag mesh on a skull actor, at `pos` (cm), `rot` (pitch, yaw,
---- roll) and `scale` relative to it, in team `name`'s colours.
-local function attachFlagMesh(world, actor, ctf, name, pos, rot, scale)
-    local flag = ctf.flag
-    local mesh = resolveMesh(flag.mesh)
-    if not mesh then error("mesh not found: " .. tostring(flag.mesh)) end
-    -- The skull's own meshes go (quenchSkull hides them, now and whenever
-    -- the game shows them again); the actor, which follows the flag, stays.
-    local comp = actor:AddComponentByClass(findObject("/Script/Engine.StaticMeshComponent"), false, {
-        Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-        Translation = { X = 0, Y = 0, Z = 0 },
-        Scale3D = { X = 1, Y = 1, Z = 1 },
-    }, false)
-    if not (comp and comp:IsValid()) then error("no mesh component") end
-    comp.Mobility = MOBILITY_MOVABLE
-    comp:SetStaticMesh(mesh)
-    comp:SetCollisionEnabled(COLLISION_NONE)
-    comp:K2_SetRelativeLocationAndRotation({ X = pos[1], Y = pos[2], Z = pos[3] },
-        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, Current.hit, false)
-    comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
-    FlagMeshes[actor:GetFullName()] = comp
-    hideSkull(actor)
-    local materials = type(flag.materials) == "table" and flag.materials[name]
-    local applied, failed = applyMaterials(comp, materials, world, "flag_" .. name)
-    Log(string.format("CTF: %s flag dressed%s (%d material(s), %d failed)", name,
-        actor:GetClass():GetFName():ToString() == FLAG_ACTOR_CLASS and "" or " in first person", applied, failed))
-    return comp
-end
-
---- Flags at home, pinned to their stands, by team name.
-local HomeFlags = {}
-
---- A flag at home is drawn exactly on its stand, facing the stand's way: the
---- flag object (a weapon) settles a little off the stand and turned, which
---- showed on Gephyrophobia. Picked up, it follows the flag again
---- (unpinFlag).
-local function pinFlag(comp, flag, stand, name, actor)
-    local p, yaw = flag.pos or { 0, 0, 0 }, math.rad(stand.yaw or 0)
-    comp:SetAbsolute(true, true, false)
-    comp:K2_SetWorldLocationAndRotation({
-        X = stand.pos[1] + p[1] * math.cos(yaw) - p[2] * math.sin(yaw),
-        Y = stand.pos[2] + p[1] * math.sin(yaw) + p[2] * math.cos(yaw),
-        Z = stand.pos[3] + p[3],
-    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, Current.hit, false)
-    HomeFlags[name] = { comp = comp, flag = flag, actor = actor }
-end
-
-local function unpinFlag(name)
-    local home = HomeFlags[name]
-    HomeFlags[name] = nil
-    if not (home and home.comp:IsValid()) then return end
-    local p = home.flag.pos or { 0, 0, 0 }
-    home.comp:SetAbsolute(false, false, false)
-    home.comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
-end
-
-local function teamName(team)
-    return type(team) == "string" and team or TEAM_NAMES[team] or nil
-end
-
---- Whether team `name`'s flag is at home already, as an actor other than
---- `actor`.
-local function flagHome(name, actor)
-    local home = HomeFlags[name]
-    if not (home and home.actor and home.actor:IsValid() and home.comp:IsValid()) then return false end
-    local ok, other = pcall(function() return home.actor:GetFullName() ~= actor:GetFullName() end)
-    return ok and other
-end
-
---- Dress a world flag in its team's colours. `serial` is the flag incident
---- count when the actor appeared (nil from a sweep: no wait).
-local function dressFlag(world, actor, ctf, serial, tries)
-    if not actor:IsValid() then return end
-    local at = actor:K2_GetActorLocation()
-    local team, best, home = nil, math.huge, nil
-    for _, s in ipairs(type(ctf.stands) == "table" and ctf.stands or {}) do
-        local dx, dy, dz = at.X - s.pos[1], at.Y - s.pos[2], at.Z - s.pos[3]
-        local d = dx * dx + dy * dy + dz * dz
-        if d < best then team, best, home = s.team, d, s end
-    end
-    -- A flag made on a stand is that stand's, unless that team's flag is
-    -- home already: a carrier killed beside their own stand drops the
-    -- enemy's flag there, and it was dressed in the stand's colour and
-    -- pinned over the stand (playtest, 2026-10-03).
-    local atStand = best <= FLAG_AT_STAND_CM * FLAG_AT_STAND_CM and not flagHome(teamName(team), actor)
-    if not atStand then
-        -- A flag picked up or dropped is a new actor away from both stands;
-        -- its team is the one the flag incident about it names
-        -- (CustomValue). That incident comes after the actor, a drain or a
-        -- relay later, so wait for one newer than the actor (up to 1.5 s)
-        -- rather than take the last incident of either flag.
-        if serial and (Current.flagSerial or 0) == serial and (tries or 0) < 15 then
-            ExecuteInGameThreadWithDelay(100, function()
-                local ok, err = pcall(dressFlag, world, actor, ctf, serial, (tries or 0) + 1)
-                if not ok then Log("CTF flag: " .. tostring(err)) end
-            end)
-            return
-        end
-        if Current.lastFlagTeam then team = Current.lastFlagTeam end
-    end
-    local name = teamName(team) or "red"
-    local flag = ctf.flag
-    local comp = attachFlagMesh(world, actor, ctf, name, flag.pos or { 0, 0, 0 }, { 0, 0, 0 }, flag.scale or 1.0)
-    if atStand then pinFlag(comp, flag, home, name, actor) end
-end
-
---- The flag in first person: the carrier's own copy of the skull actor
---- (BP_FP_SkullActor_C), whose origin is the camera. Its skull is drawn by
---- the first-person renderer, which a mesh of ours does not take part in, so
---- the flag is held as an ordinary mesh at a fixed place before the camera:
---- low on the right, its pole leaning up and to the left, as in CE. Relative
---- to the actor, X is forward, Y up and Z left. Found by hand, holding the
---- flag (2026-10-01).
-local FP_FLAG = { pos = { 65, -42, -28 }, rot = { -10, -20, 60 }, scale = 0.7 }
-
---- The team is the local player's own grab's (Current.carriedTeam), which
---- arrives after the actor: waited for up to 1.5 s, then the last flag
---- incident's.
-local function dressFirstPersonFlag(world, actor, ctf, tries)
-    if not actor:IsValid() then return end
-    if not Current.carriedTeam and (tries or 0) < 15 then
-        ExecuteInGameThreadWithDelay(100, function()
-            local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf, (tries or 0) + 1)
-            if not ok then Log("CTF first-person flag: " .. tostring(err)) end
-        end)
-        return
-    end
-    local name = TEAM_NAMES[Current.carriedTeam] or TEAM_NAMES[Current.lastFlagTeam] or "red"
-    attachFlagMesh(world, actor, ctf, name, FP_FLAG.pos, FP_FLAG.rot, FP_FLAG.scale)
-end
-
-
---- Quench a skull actor, and dress it if it is a world flag (not the
---- first-person one, a subclass) not yet dressed. `serial`: the flag
---- incident count when the actor appeared.
-local function handleSkull(world, actor, ctf, serial)
-    if not actor:IsValid() then return end
-    pcall(quenchSkull, actor)
-    local class = actor:GetClass():GetFName():ToString()
-    local key = actor:GetFullName()
-    if Current.flags[key] then return end
-    Current.flags[key] = actor
-    if class == FP_FLAG_ACTOR_CLASS then
-        local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf)
-        if not ok then Log("CTF first-person flag: " .. tostring(err)) end
-        return
-    end
-    if class ~= FLAG_ACTOR_CLASS then return end
-    local ok, err = pcall(dressFlag, world, actor, ctf, serial)
-    if not ok then Log("CTF flag: " .. tostring(err)) end
-end
-
-local function ctfLevel()
-    local ctf = Current.level and Current.level.ctf
-    if type(ctf) == "table" and type(ctf.flag) == "table" then return ctf end
-end
-
---- Every skull actor the watch has seen (and the ones there before it).
-local Skulls = {}
-
---- A pass over every known skull actor, for any the watch's own handling
---- missed (MJOLNIRLevelLoader's slow tick). It was a FindAllOf: at 0.3 s,
---- twice a pass, the game stuttered, and at 3 s it still cost a 20 ms frame
---- on a converted map.
-local function dressFlags(world)
-    local ctf = ctfLevel()
-    if not ctf then return end
-    for _, actor in ipairs(liveIn(Skulls)) do
-        handleSkull(world, actor, ctf)
-    end
-end
-
-local SKULL_ACTOR_CLASS_PATH = "/Game/Weapons/Melee/Skull/Blueprints/BP_SkullActor.BP_SkullActor_C"
-local skullsWatched = false
-
---- Every skull actor the game makes from now on (a flag picked up, dropped
---- or made anew, and the first-person one) is handled as it appears, once
---- its components exist.
-local function watchSkulls()
-    if skullsWatched or not mayArm("skulls") then return end
-    skullsWatched = pcall(NotifyOnNewObject, SKULL_ACTOR_CLASS_PATH, function(actor)
-        track(Skulls, actor)
-        local serial = Current.flagSerial or 0
-        ExecuteInGameThreadWithDelay(50, function()
-            local ctf, world = ctfLevel(), getWorld()
-            if ctf and world then handleSkull(world, actor, ctf, serial) end
-        end)
-        -- The effect and its sound start a little after the actor.
-        for _, ms in ipairs({ 500, 2000 }) do
-            ExecuteInGameThreadWithDelay(ms, function()
-                if ctfLevel() and actor:IsValid() then pcall(quenchSkull, actor) end
-            end)
-        end
-    end)
-    if skullsWatched then
-        for _, actor in ipairs(FindAllOf(FLAG_ACTOR_CLASS) or {}) do track(Skulls, actor) end
-        Log("CTF: watching for flag actors")
-    end
-end
-
---- The skull's effect comes back as a flag changes hands; a flag incident is
---- the cue to put it out again on the flags the loader knows.
-local function quenchFlags()
-    ExecuteInGameThreadWithDelay(200, function()
-        local ctf, world = ctfLevel(), getWorld()
-        -- Only the local player's own grab recolours their first-person
-        -- flag: any flag's incident did, so carrying blue while red was
-        -- dropped turned the flag in hand red (playtest, 2026-10-03).
-        local name = TEAM_NAMES[Current.carriedTeam]
-        for key, actor in pairs(Current.flags) do
-            if type(actor) == "userdata" and actor:IsValid() then
-                pcall(quenchSkull, actor)
-                -- The first-person actor may carry over to the next flag
-                -- grabbed, of the other team: recolour it to this one.
-                local comp = FlagMeshes[key]
-                if ctf and world and name and comp and comp:IsValid()
-                    and actor:GetClass():GetFName():ToString() == FP_FLAG_ACTOR_CLASS then
-                    pcall(applyMaterials, comp, ctf.flag.materials[name], world, "flag_fp_" .. name)
-                end
-            end
-        end
-    end)
-end
+--- Capture the Flag flags and team armour are teams.lua's (Teams.flagTick,
+--- Teams.armorTick, Teams.onIncident): CE's flag mesh on each flag actor in
+--- the colours of its tag's team, and Mk V Classic tinted on the game's
+--- own events.
 
 --- Health packs (the level's `health_pack`). Nothing in the game heals on
 --- contact, so the Megalo variants make and take the packs
@@ -2155,12 +1876,17 @@ local function healthPackLevel()
     if type(hp) == "table" and hp.mesh then return hp end
 end
 
---- Hide every primitive of `actor` but `mine`.
+--- Hide every primitive of `actor` but `mine` (a pack's mesh here; a flag's
+--- mesh and cloth, as a list, in teams.lua).
 local function hideAllBut(actor, mine)
+    local keep = {}
+    for _, m in ipairs(type(mine) == "table" and mine or { mine }) do
+        if m and m:IsValid() then keep[m:GetFullName()] = true end
+    end
     for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.PrimitiveComponent")) or {}) do
         pcall(function()
             if type(c) == "userdata" and c.get then c = c:get() end
-            if mine and mine:IsValid() and c:GetFullName() == mine:GetFullName() then return end
+            if keep[c:GetFullName()] then return end
             c:SetHiddenInGame(true, false)
             c:SetVisibility(false, false)
         end)
@@ -2347,9 +2073,6 @@ local function preloadEventSounds()
     Log(string.format("event sounds: %d wave(s) loaded, %d failed", n, failed))
 end
 
---- Re-tint team armour after a spawn (set below, beside tintBiped).
-local retintSoon = function() end
-
 --- Each incident's first occurrence per level is logged (with or without a
 --- sound), so what a game type raises, and for whom, shows up.
 local SilentIncidents = {}
@@ -2363,24 +2086,9 @@ local function isLocal(cause, effect)
 end
 
 local function playEvent(name, cause, value, effect)
-    -- The CTF variant's flag incidents carry the flag's team (dressFlag).
-    if name:find("^flag_") then
-        if value == 0 or value == 1 then
-            Current.lastFlagTeam = value
-            -- A flag actor made away from both stands waits for the
-            -- incident after it (dressFlag), not the last one before it.
-            Current.flagSerial = (Current.flagSerial or 0) + 1
-            -- The flag in the local player's hands, for the first-person
-            -- flag: only their own grab says which it is.
-            -- Any other flag incident of theirs (a drop, a capture) ends it,
-            -- so their next flag waits for its own grab.
-            if cause == LOCAL_PLAYER then
-                Current.carriedTeam = name == "flag_grabbed" and value or nil
-            end
-        end
-        if name == "flag_grabbed" and TEAM_NAMES[value] then unpinFlag(TEAM_NAMES[value]) end
-        quenchFlags()
-    end
+    -- A flag's incident moves flags on and off their stands, and a new
+    -- round resets them (teams.lua). No flag takes its colour from one.
+    Teams.onIncident(name, value)
     if not SilentIncidents[name] then
         SilentIncidents[name] = true
         local heard = EventWaves[name] or (value and EventWaves[name .. ":" .. tostring(value)])
@@ -2391,9 +2099,6 @@ local function playEvent(name, cause, value, effect)
     if START_EVENT_SET[name] then
         if Current.announced then return end
         Current.announced = true
-    end
-    if name == "player_spawn" or name == "respawn_final_tick" then
-        retintSoon()
     end
     if name == "player_spawn" then
         if cause ~= LOCAL_PLAYER or Current.announced then return end
@@ -2432,9 +2137,10 @@ local function isHostWorld()
 end
 
 --- Whether a client has a use for an incident: one with a sound, or a flag's
---- (its team colours the flags). Relaying every incident sent six reliable
---- messages for one sniper headshot, most of them silent, and each one
---- queued behind the last (playtest, 2026-10-03).
+--- (a grab takes the flag off its stand at once, and any flag incident puts
+--- the skull's effect out again; teams.lua). Relaying every incident sent
+--- six reliable messages for one sniper headshot, most of them silent, and
+--- each one queued behind the last (playtest, 2026-10-03).
 local function relayed(e)
     local name = e[1]
     if name == "player_spawn" or e.relayed then return false end
@@ -2546,9 +2252,9 @@ local function hookIncidents()
                 local i = incident:get()
                 return i.Name:ToString(), i.CausePlayerAbsoluteIndex, i.CustomValue, i.EffectPlayerAbsoluteIndex
             end)
-            -- Flag incidents count without sounds too: they colour the flags,
-            -- and with no wave loaded every dropped flag came out red.
-            if not (okI and name) or not (next(EventWaves) or name:find("^flag_")) then return end
+            -- Flag incidents and the end of a round count without sounds
+            -- too: they place the flags and reset them (teams.lua).
+            if not (okI and name) or not (next(EventWaves) or name:find("^flag_") or name == "round_over") then return end
             if #EventQueue < 32 then
                 NativeIncidents[name] = true
                 EventQueue[#EventQueue + 1] = { name, cause, value, effect }
@@ -2557,168 +2263,6 @@ local function hookIncidents()
         end)
     end)
     if incidentHooked then Log("event sounds: incident hook armed") end
-end
-
---- Team colours. The Spartan's armour material has one colour (`Armor
---- Color`, Master Chief's olive), whatever team the simulation puts the
---- player on, though the biped's team component knows it
---- (`EBlamMultiplayerTeam::Red`). In a team game each Spartan gets its own
---- instance of the armour material in its team's colour, as a new biped
---- appears (every spawn is a new actor), and again a moment later for armour
---- pieces attached after it.
-local TEAM_GAMES = { ctf = true, team_slayer = true }
-local TEAM_ARMOR = {
-    Red = { R = 1.0, G = 0.0, B = 0.0, A = 1 },
-    Blue = { R = 0.03, G = 0.15, B = 1.0, A = 1 },
-}
--- The colour the armour shows is `Armor Color` at global association with
--- parameter index 0, which only the by-info setter reaches: the plain setter
--- writes index -1, which this (layered) material never reads, and changed
--- nothing on screen. Found by giving each association and index its own
--- colour (2026-10-01).
-local ARMOR_COLOR = { Name = FName("Armor Color"), Association = 0, Index = 0 }
-local SPARTAN_CLASS_PATH = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C"
-local bipedsWatched = false
-
-local function teamGame()
-    return Current.level and Current.level.multiplayer == true
-        and TEAM_GAMES[string.lower(tostring(RunningVariant))] == true
-end
-
---- True once the armour has its team colour; false while the biped has no
---- team yet (a new biped is on none until the simulation spawns its player).
-local function setArmorColor(mid, color)
-    mid:SetVectorParameterValueByInfo(ARMOR_COLOR, color)
-end
-
-local function bipedTeam(actor)
-    return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
-end
-
---- In a team game every Spartan wears the classic Mk V armour. It is the one
---- armour whose material takes a colour (`Armor Color`): the others a player
---- can pick (Chief's default, MkIV, Blamite, Lone Wolf, the coatings) bake
---- their colours into textures, so a player in one stayed olive on Blue
---- (2026-10-02, CTF over two PCs). Each mesh component's class names its
---- role, the same whatever armour was picked, and the role names the Mk V
---- mesh; `armor` roles also get the team-coloured material. The shields keep
---- their own material (an empty or camo shell, the same for every armour).
-local MKV = "/Game/Characters/Spartans/MkV_Classic/"
-local MKV_FP = "/Game/Characters/SpartansFP/MkV_Classic/"
-local MKV_ARMOR = MKV .. "Materials/MI_Spartans_MkV_Classic.MI_Spartans_MkV_Classic"
-local BIPED_ROLES = {
-    BPC_SkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic.SK_Spartans_MkV_Classic", armor = true },
-    BPC_TranslucentSkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_Shield.SK_Spartans_MkV_Classic_Shield" },
-}
--- The local player's own view: first-person arms and their shield, the legs
--- seen looking down and their shield, and the body that casts its shadow.
-local PAWN_ROLES = {
-    BPC_FP_SkeletalMesh_C = { mesh = MKV_FP .. "Mesh/SK_SpartansFP_MkV_Classic.SK_SpartansFP_MkV_Classic", armor = true },
-    BPC_FP_TranslucentSkeletalMesh_C = { mesh = MKV_FP .. "Mesh/SK_SpartansFP_MkV_Classic_Shield.SK_SpartansFP_MkV_Classic_Shield" },
-    BPC_PAWN_SkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_Legs.SK_Spartans_MkV_Classic_Legs", armor = true },
-    BPC_FP_ShadowSkeletalMesh_C = {
-        mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_NonNanite_Shadow.SK_Spartans_MkV_Classic_NonNanite_Shadow",
-        armor = true,
-    },
-    BPC_TranslucentSkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_ShieldLegs.SK_Spartans_MkV_Classic_ShieldLegs" },
-}
-
---- Put every Spartan mesh on `actor` in the Mk V armour and give its armour
---- the team colour. Meshes already in Mk V are left in place.
-local function dressMeshes(actor, roles, color)
-    local tinted = false
-    local skel = findObject("/Script/Engine.SkeletalMeshComponent")
-    for _, c in ipairs(actor:K2_GetComponentsByClass(skel) or {}) do
-        if type(c) == "userdata" and c.get then c = c:get() end
-        local role = roles[c:GetClass():GetFName():ToString()]
-        local mesh = role and resolveMesh(role.mesh)
-        if mesh then
-            local current = c.SkeletalMesh
-            if not (current and current:IsValid() and current:GetFullName() == mesh:GetFullName()) then
-                c:SetSkeletalMeshAsset(mesh)
-            end
-            if role.armor then
-                local mat = c:GetMaterial(0)
-                local name = mat and mat:IsValid() and mat:GetFName():ToString() or ""
-                if name:find("^MJ_TeamArmor") then
-                    setArmorColor(mat, color)
-                    tinted = true
-                else
-                    local armor = resolveMesh(MKV_ARMOR)
-                    if armor then
-                        setArmorColor(c:CreateDynamicMaterialInstance(0, armor, FName("MJ_TeamArmor")), color)
-                        tinted = true
-                    end
-                end
-            end
-        end
-    end
-    return tinted
-end
-
-local function tintBiped(actor)
-    if not (actor and actor:IsValid() and teamGame()) then return false end
-    local team = bipedTeam(actor)
-    local color = team and TEAM_ARMOR[team]
-    if not color then return false end
-    return dressMeshes(actor, BIPED_ROLES, color)
-end
-
---- Every Spartan biped the watch has seen (and the ones there before it).
-local Bipeds = {}
-
-local function watchBipeds()
-    if bipedsWatched or not mayArm("bipeds") then return end
-    bipedsWatched = pcall(NotifyOnNewObject, SPARTAN_CLASS_PATH, function(actor)
-        track(Bipeds, actor)
-        for _, ms in ipairs({ 300, 2000 }) do
-            ExecuteInGameThreadWithDelay(ms, function()
-                local ok, err = pcall(tintBiped, actor)
-                if not ok then Log("team colour: " .. tostring(err)) end
-            end)
-        end
-    end)
-    if bipedsWatched then
-        for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do track(Bipeds, actor) end
-    end
-end
-
---- The Spartans in the world. A respawn reuses the actor, so the set holds
---- each for the match; arming the watch is the one FindAllOf.
-local function knownBipeds()
-    watchBipeds()
-    return liveIn(Bipeds)
-end
-
---- The local player's first-person arms, legs and shadow are meshes of the
---- pawn, which has no team; it takes the team of the Spartan nearest the
---- camera, its own body.
-local function tintLocalPawn()
-    if not teamGame() then return end
-    local pawn = getPawn()
-    local pc = getPlayerController()
-    if not (pawn and pc) then return end
-    local cam = pc.PlayerCameraManager:GetCameraLocation()
-    local team, best = nil, math.huge
-    for _, actor in ipairs(knownBipeds()) do
-        local l = actor:K2_GetActorLocation()
-        local d = (l.X - cam.X) ^ 2 + (l.Y - cam.Y) ^ 2 + (l.Z - cam.Z) ^ 2
-        if d < best then team, best = bipedTeam(actor), d end
-    end
-    local color = team and TEAM_ARMOR[team]
-    if color then dressMeshes(pawn, PAWN_ROLES, color) end
-end
-
-retintSoon = function()
-    for _, ms in ipairs({ 300, 1500, 4000 }) do
-        ExecuteInGameThreadWithDelay(ms, function()
-            if not teamGame() then return end
-            for _, actor in ipairs(knownBipeds()) do
-                pcall(tintBiped, actor)
-            end
-            pcall(tintLocalPawn)
-        end)
-    end
 end
 
 local function fadeIn()
@@ -5361,7 +4905,6 @@ local function tick()
         EventQueue = {}
         NativeIncidents = {}
         Resolved, Unresolved = {}, {}
-        HomeFlags, FlagMeshes = {}, {}
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
@@ -5513,27 +5056,15 @@ local function watch()
     every(100, "dry zones", Effects.dryTick)
     -- A slider moved in the pause menu is heard within half a second.
     every(500, "sound volume", syncVolumes)
-    -- A flag picked up or dropped is a new actor, drawn as a skull until it
-    -- is dressed, so CTF levels look for new ones often.
-    -- CTF flags: new skull actors are reported as they are made
-    -- (watchSkulls); a slow sweep catches any that were not.
-    local sweeps = 0
-    every(1500, "CTF flags", function()
-        if not (Current.furnished and ctfLevel()) then return end
-        watchSkulls()
-        watchBipeds()
-        sweeps = sweeps + 1
-        if sweeps % 2 == 1 then
-            local world = getWorld()
-            if world then dressFlags(world) end
-            -- A respawn reuses the actor and puts the stock armour back, so
-            -- every pass re-tints (cheap: a few Spartans, a parameter each).
-            for _, actor in ipairs(teamGame() and knownBipeds() or {}) do
-                pcall(tintBiped, actor)
-            end
-            pcall(tintLocalPawn)
-        end
-    end)
+    -- CTF flags: new flag actors are dressed as they are made, and a slow
+    -- sweep (every other pass) takes in any the watch missed and reads each
+    -- flag's team again. Team armour is tinted on the game's own events; a
+    -- pass checks the Spartans for a tint undone. Both in teams.lua, which
+    -- checks for a CTF level or a team game itself.
+    every(1500, "CTF flags", Teams.flagTick)
+    -- The flags' cloth waves, and trails behind a carrier.
+    every(33, "flag cloth", Teams.clothTick)
+    every(1500, "team armour", Teams.armorTick)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so
     -- the pass that arms it sweeps for them too, once: a FindAllOf is a
@@ -5774,6 +5305,7 @@ local function status()
         if Current.water then
             Log("water: " .. Current.water.style .. (Current.water.slots and string.format(" (%d slot(s))", Current.water.slots) or ""))
         end
+        pcall(Teams.status)
     else
         Log("no level loaded")
     end
@@ -6164,6 +5696,27 @@ local function loadMegaloSwitch()
         Log("multiplayer switch: not in this build of the native DLL")
         return
     end
+    -- Team armour: in a team game the native half makes the simulation
+    -- choose Mk V Classic for every Spartan (the one armour whose material
+    -- takes a team colour; teams.lua tints it), on every machine, as each
+    -- simulation works out every player's armour itself. Off, each player
+    -- wears their own choice. An older DLL has no switch, and teams.lua
+    -- swaps the armour to Mk V itself.
+    local armorOn = package.loadlib(dll, "mjolnir_team_armor_on")
+    local armorOff = package.loadlib(dll, "mjolnir_team_armor_off")
+    Teams.native = (armorOn and armorOff) and "off" or "missing"
+    if Teams.native == "missing" then
+        Log("team armour: no switch in this build of the native DLL; in team games the Lua swaps each Spartan to Mk V Classic")
+    end
+    local function teamArmor(wanted)
+        if not (armorOn and armorOff) then return end
+        local ok, err = pcall(wanted and armorOn or armorOff)
+        if ok then
+            Teams.native = wanted and "on" or "off"
+        else
+            Log("team armour: " .. tostring(err))
+        end
+    end
     --- Switch for the map about to load: the host's campaign flow names it
     --- (SetAndBeginCampaign), a client in the host's fireteam learns it from
     --- the travel the host sends (ClientTravel, `...?ScenarioName=BGL...`).
@@ -6181,12 +5734,16 @@ local function loadMegaloSwitch()
             -- Leave the patches alone. Restoring them under a running Megalo
             -- game froze every fireteam client on its way back to the menu
             -- (two PCs, 2026-10-02); the next map start names its scenario
-            -- and switches either way.
+            -- and switches either way. Team armour is only a flag the
+            -- native hook reads, safe to clear: the menu shows each player's
+            -- own armour.
             switched.code = nil
+            teamArmor(false)
             return
         end
         if not level then
             off()
+            teamArmor(false)
             switched.code = nil
             return
         end
@@ -6198,6 +5755,7 @@ local function loadMegaloSwitch()
         -- travel yet).
         local chosen = pending or level.variant
         RunningVariant = chosen
+        teamArmor(Teams.TEAM_GAMES[string.lower(tostring(chosen))] == true)
         local running = io.open(MOD_DIR .. "\\running.txt", "w")
         if running then
             running:write(tostring(code), "\t", tostring(chosen or ""), "\t",
@@ -6254,6 +5812,15 @@ local function loadMegaloSwitch()
                 staged:close()
                 variant()
                 Log("multiplayer switch: variant " .. name .. " (see native\\map_registry.log)")
+                -- CTF makes each team's flag of its own type, and the blue
+                -- one ships in the CE runtime pack: without it the
+                -- simulation wipes the whole script (docs/game_modes.md
+                -- 2.2), a match with no flags and nothing to say why.
+                if name == "ctf" and not Teams.blueFlagInstalled() then
+                    Log("CTF needs the CE runtime with the blue flag (" .. Teams.BLUE_FLAG_CONTAINER .. "), and this PC "
+                        .. "does not have it: a CTF variant that names the blue flag runs with no flags and no captures "
+                        .. "here. Update the MJOLNIR CE runtime pack in the launcher.")
+                end
             else
                 Log("multiplayer switch: no variants\\" .. name .. ".mglo; the default variant runs")
             end
@@ -6317,6 +5884,13 @@ local function loadMegaloSwitch()
 end
 
 local function initialize()
+    Teams.init({
+        Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
+        hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,
+        mayArm = mayArm, Current = Current, modDir = MOD_DIR, decode = Json.decode,
+        -- The running game type changes with each map (switchFor).
+        variant = function() return RunningVariant end,
+    })
     loadMapRegistry()
     loadMegaloSwitch()
     loadEventSounds()
