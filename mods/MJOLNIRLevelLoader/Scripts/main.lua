@@ -5062,6 +5062,8 @@ local function watch()
     -- pass checks the Spartans for a tint undone. Both in teams.lua, which
     -- checks for a CTF level or a team game itself.
     every(1500, "CTF flags", Teams.flagTick)
+    -- The flags' cloth waves, and trails behind a carrier.
+    every(33, "flag cloth", Teams.clothTick)
     every(1500, "team armour", Teams.armorTick)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so

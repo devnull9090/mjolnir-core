@@ -344,21 +344,38 @@ end
 --- The flag's cloth. CE draws it from the flag tag (`weapons\flag\flag`), not
 --- the weapon's model, which is only the pole and its finial: a 16 x 13-cell
 --- sheet of 0.025 wu cells (1.22 x 0.99 m) hung from the pole's `flag top`
---- marker, in the team's shader (`flag_red`, `flags_blue` bitmaps). Here it
---- is a still, two-sided plane in the same place, on CE's environment master,
---- its texture a PNG under the loader's folder (`textures`, tools/level/
---- ce_flag_cloth.py writes them from the player's own CE maps); without one
---- the flag has no cloth. Relative to the flag mesh, which is scaled 3.0743:
---- the plane (100 cm square, in XY) stood up along the pole and out along +Y,
---- its top just under the finial. Found by eye on Blood Gulch (2026-10-24).
+--- marker, in the team's shader (`flag_red`, `flags_blue` bitmaps), and
+--- simulates it as cloth. Here it is `strips` two-sided planes on CE's
+--- environment master, each showing its slice of the texture (the master's
+--- BaseXform: u scale and offset), chained edge to edge out from the pole so
+--- the flag can bend (Teams.clothTick waves it). The texture is a PNG under
+--- the loader's folder (`textures`; tools/level/ce_flag_cloth.py writes them
+--- from the player's own CE maps); without one the flag has no cloth.
+--- Lengths are in the flag mesh's own units (it is scaled 3.0743): `width`
+--- and `height` 1.22 x 0.99 m, the attached edge at `edge` on the pole, its
+--- vertical centre at `z`, just under the finial. Found by eye on Blood
+--- Gulch (2026-10-24).
 local CLOTH = {
     mesh = "/Engine/BasicShapes/Plane.Plane",
-    pos = { 0, 18.8, 21.6 },
-    rot = { 0, 90, 90 },
-    scale = { 0.397, 0.322, 1 },
+    strips = 8,
+    width = 39.7,
+    height = 32.2,
+    edge = { 0, -1.05 },
+    z = 21.6,
     textures = "ctf\\flag_cloth_%s.png",
     master = "/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided",
 }
+
+--- How the cloth moves. At rest it streams out from the pole with a slow
+--- ripple (`idle` radians at the free edge, `idle_rate` rad/s); carried, it
+--- swings round to trail behind its motion (`swing` per second towards
+--- there) and ripples harder and faster with speed, up to `run` radians and
+--- `run_rate` at `fast` cm/s. A crest travels `phase` radians a strip.
+--- Flags further than `near` cm from the local player are left as they
+--- are: a pass costs ~2 ms of the game thread (16 component moves), and the
+--- ripple cannot be made out from across the map.
+local WAVE = { idle = 0.32, idle_rate = 3.2, run = 0.6, run_rate = 9.0, fast = 700, swing = 4.0, phase = 0.85,
+    near = 5000 }
 
 --- The cloth's material spec for `team`, or nil when its PNG is not there.
 local function clothMaterial(team)
@@ -378,13 +395,29 @@ end
 local function hideSkull(actor, mine)
     if not mine then
         local entry = Flags.known[actor:GetFullName()]
-        mine = entry and { entry.comp, entry.cloth }
+        mine = { entry and entry.comp }
+        for _, s in ipairs(entry and entry.cloth or {}) do mine[#mine + 1] = s end
     end
     env.hideAllBut(actor, mine)
 end
 
+--- Lay `entry`'s cloth strips out along the pole's bend: strip k turned
+--- `angles[k]` radians about the pole from straight out, each starting
+--- where the last ends, so the sheet stays whole.
+local function layCloth(entry, angles)
+    local w = CLOTH.width / CLOTH.strips
+    local x, y = CLOTH.edge[1], CLOTH.edge[2]
+    for k, strip in ipairs(entry.cloth) do
+        local a = angles[k] or 0
+        local dx, dy = -math.sin(a), math.cos(a)
+        strip:K2_SetRelativeLocationAndRotation({ X = x + dx * w / 2, Y = y + dy * w / 2, Z = CLOTH.z },
+            { Pitch = 0, Yaw = 90 + math.deg(a), Roll = 90 }, false, env.Current.hit, false)
+        x, y = x + dx * w, y + dy * w
+    end
+end
+
 --- Hang the cloth on `comp` (an entry's flag mesh) in `team`'s colours, or
---- recolour the one already there. Returns the cloth, or nil without its
+--- recolour the one already there. Returns the strips, or nil without the
 --- texture (said once).
 local function attachCloth(world, entry, comp, team)
     local material = clothMaterial(team)
@@ -393,31 +426,93 @@ local function attachCloth(world, entry, comp, team)
             .. " in the loader's folder: flags have no cloth (tools/level/ce_flag_cloth.py)")
         return nil
     end
-    local cloth = entry.cloth
-    if not (cloth and cloth:IsValid()) then
+    local strips = entry.cloth
+    if not (strips and strips[1] and strips[1]:IsValid()) then
         local plane = env.resolveMesh(CLOTH.mesh)
         if not plane then return nil end
-        cloth = entry.actor:AddComponentByClass(classOf(STATIC), false, {
-            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-            Translation = { X = 0, Y = 0, Z = 0 },
-            Scale3D = { X = 1, Y = 1, Z = 1 },
-        }, false)
-        if not (cloth and cloth:IsValid()) then return nil end
-        cloth.Mobility = MOBILITY_MOVABLE
-        cloth:SetStaticMesh(plane)
-        cloth:SetCollisionEnabled(COLLISION_NONE)
-        cloth:SetCastShadow(false)
-        cloth:K2_AttachToComponent(comp, FName("None"), 0, 0, 0, false)
-        local p, r, s = CLOTH.pos, CLOTH.rot, CLOTH.scale
-        cloth:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-            { Pitch = r[1], Yaw = r[2], Roll = r[3] }, false, env.Current.hit, false)
-        cloth:SetRelativeScale3D({ X = s[1], Y = s[2], Z = s[3] })
-        entry.cloth = cloth
+        strips = {}
+        for _ = 1, CLOTH.strips do
+            local s = entry.actor:AddComponentByClass(classOf(STATIC), false, {
+                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                Translation = { X = 0, Y = 0, Z = 0 },
+                Scale3D = { X = 1, Y = 1, Z = 1 },
+            }, false)
+            if not (s and s:IsValid()) then return nil end
+            s.Mobility = MOBILITY_MOVABLE
+            s:SetStaticMesh(plane)
+            s:SetCollisionEnabled(COLLISION_NONE)
+            s:SetCastShadow(false)
+            s:K2_AttachToComponent(comp, FName("None"), 0, 0, 0, false)
+            -- The plane is 100 units square: one strip's width, the height.
+            s:SetRelativeScale3D({ X = CLOTH.width / CLOTH.strips / 100, Y = CLOTH.height / 100, Z = 1 })
+            strips[#strips + 1] = s
+        end
+        entry.cloth = strips
+        entry.wave = { t = 0, swing = 0 }
+        layCloth(entry, {})
     end
-    env.applyMaterials(cloth, { material }, world, "flag_cloth_" .. team)
-    cloth:SetHiddenInGame(false, false)
-    cloth:SetVisibility(true, false)
-    return cloth
+    for k, s in ipairs(strips) do
+        env.applyMaterials(s, { material }, world, "flag_cloth_" .. team)
+        pcall(function()
+            s:GetMaterial(0):SetVectorParameterValue(FName("BaseXform"),
+                { R = 1 / CLOTH.strips, G = 1, B = (k - 1) / CLOTH.strips, A = 0 })
+        end)
+        s:SetHiddenInGame(false, false)
+        s:SetVisibility(true, false)
+    end
+    return strips
+end
+
+--- The shortest turn from angle `a` to `b`, in radians.
+local function turn(a, b)
+    return (b - a + math.pi) % (2 * math.pi) - math.pi
+end
+
+--- Wave every dressed flag's cloth (MJOLNIRLevelLoader's 33 ms loop on a
+--- CTF level). Each flag's speed comes from its actor's travel since the
+--- last pass, turned into the flag mesh's own frame, so a carried flag
+--- streams out behind its carrier whichever way they face.
+function Teams.clothTick()
+    if not (env and Teams.ctfLevel()) then return end
+    local now = os.clock()
+    local pawn = env.getPawn()
+    local me = pawn and pawn:IsValid() and pawn:K2_GetActorLocation()
+    for _, entry in pairs(Flags.known) do
+        local strips, comp = entry.cloth, entry.comp
+        local at = strips and strips[1] and comp and entry.actor:IsValid() and comp:IsValid() and strips[1]:IsValid()
+            and entry.actor:K2_GetActorLocation()
+        local near = at and (entry.fp or not me
+            or (at.X - me.X) ^ 2 + (at.Y - me.Y) ^ 2 + (at.Z - me.Z) ^ 2 < WAVE.near * WAVE.near)
+        if near then
+            local wave = entry.wave
+            local dt = math.min(0.1, math.max(0.001, now - (wave.at or now - 0.033)))
+            wave.at = now
+            local vx, vy = 0, 0
+            if wave.x then vx, vy = (at.X - wave.x) / dt, (at.Y - wave.y) / dt end
+            wave.x, wave.y = at.X, at.Y
+            local speed = math.sqrt(vx * vx + vy * vy)
+            local f = math.min(1, speed / WAVE.fast)
+            if speed > 60 then
+                -- The way the flag trails, in the mesh's frame, where 0 is
+                -- straight out along +Y.
+                local yaw = math.rad(comp:K2_GetComponentRotation().Yaw)
+                local lx = -vx * math.cos(yaw) - vy * math.sin(yaw)
+                local ly = vx * math.sin(yaw) - vy * math.cos(yaw)
+                local want = math.atan(-lx, ly)
+                wave.swing = wave.swing + turn(wave.swing, want) * math.min(1, dt * WAVE.swing)
+            end
+            local amp = WAVE.idle + (WAVE.run - WAVE.idle) * f
+            wave.t = wave.t + dt * (WAVE.idle_rate + (WAVE.run_rate - WAVE.idle_rate) * f)
+            local angles, n = {}, CLOTH.strips
+            for k = 1, n do
+                angles[k] = wave.swing + amp * (k / n) * math.sin(wave.t - k * WAVE.phase)
+            end
+            layCloth(entry, angles)
+        elseif entry.wave then
+            -- Out of sight: start its speed afresh when it comes back.
+            entry.wave.x = nil
+        end
+    end
 end
 
 local function quenchSkull(actor)
@@ -456,8 +551,9 @@ local function attachFlagMesh(world, entry, ctf, team, pos, rot, scale)
         { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, env.Current.hit, false)
     comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
     entry.cloth = nil
-    local cloth = attachCloth(world, entry, comp, team)
-    hideSkull(actor, { comp, cloth })
+    local keep = { comp }
+    for _, s in ipairs(attachCloth(world, entry, comp, team) or {}) do keep[#keep + 1] = s end
+    hideSkull(actor, keep)
     local materials = type(flag.materials) == "table" and flag.materials[team]
     local applied, failed = env.applyMaterials(comp, materials, world, "flag_" .. team)
     Log(string.format("CTF: %s flag dressed%s (%d material(s), %d failed)", team,
