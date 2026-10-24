@@ -21,6 +21,9 @@
 --   N          duplicate: copy the target at the cursor (needs a palette entry)
 --   Delete     delete: the target (what you hold, else what you aim at)
 --   Page Down / Page Up   nearer / farther: pull a held object in, or push it out
+--   Insert     place: a new object from the palette, at the cursor, held
+--   Left / Right   the palette's previous / next category
+--   Up / Down      the previous / next object in the category
 --
 -- The Monitor moves with the game's own controls. A key typed into match
 -- chat is ignored here, and the DLL drops a command the simulation did not
@@ -38,6 +41,7 @@ end
 local MOD = modDirectory()
 local DLL = MOD .. "native\\mjolnir_forge.dll"
 local STATE = MOD .. "native\\forge_state.txt"
+local PALETTE = MOD .. "native\\forge_palette.txt"
 local STATUS = MOD .. "native\\status.txt"
 local KEYS_FILE = MOD .. "keys.txt"
 
@@ -53,6 +57,11 @@ local DEFAULT_KEYS = {
     delete = "DEL",
     nearer = "PAGE_DOWN",
     farther = "PAGE_UP",
+    place = "INS",
+    prev_category = "LEFT_ARROW",
+    next_category = "RIGHT_ARROW",
+    prev_item = "UP_ARROW",
+    next_item = "DOWN_ARROW",
 }
 
 local LABELS = {
@@ -62,9 +71,15 @@ local LABELS = {
     delete = "delete",
     nearer = "nearer",
     farther = "farther",
+    place = "place",
+    prev_category = "category",
+    next_category = "category",
+    prev_item = "object",
+    next_item = "object",
 }
 
-local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther" }
+local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther", "place",
+    "prev_category", "next_category", "prev_item", "next_item" }
 
 local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
@@ -91,7 +106,9 @@ local function loadNative()
         return false
     end
     local loaded = {}
-    for _, name in ipairs({ "open", "pump", "toggle", "grab", "duplicate", "delete", "nearer", "farther" }) do
+    local names = { "open", "pump" }
+    for _, action in ipairs(ORDER) do names[#names + 1] = action end
+    for _, name in ipairs(names) do
         local f, err = package.loadlib(DLL, "mjolnir_forge_" .. name)
         if not f then
             log("cannot load " .. DLL .. ": " .. tostring(err))
@@ -228,12 +245,33 @@ local function parseState(text)
     return s
 end
 
-local function describe(s, keys)
+-- forge_palette.txt: one row per palette entry, in the DLL's order.
+local function parsePalette(text)
+    local rows = {}
+    for line in (text or ""):gmatch("[^\r\n]+") do
+        local p, e, group, tag, ok = line:match("^(%d+)\t(%d+)\t([^\t]*)\t([^\t]*)\t(%d)$")
+        if p then
+            rows[#rows + 1] = { palette = tonumber(p), entry = tonumber(e), group = group, tag = tag,
+                placeable = ok == "1" }
+        end
+    end
+    return rows
+end
+
+-- The selected row of `palette` (rows from parsePalette) for state `s`.
+local function selectedRow(s, palette)
+    local i = tonumber(s.selected or "")
+    return i and palette[i + 1] or nil
+end
+
+local function describe(s, keys, palette)
     if s.forge ~= "1" or s.player == "-1" then return nil end
     local hint = {}
     if s.editing == "1" then
         for _, action in ipairs(ORDER) do
-            hint[#hint + 1] = string.format("[%s] %s", keys[action], action == "toggle" and "Spartan" or LABELS[action])
+            if not action:find("^prev_") and not action:find("^next_") then
+                hint[#hint + 1] = string.format("[%s] %s", keys[action], action == "toggle" and "Spartan" or LABELS[action])
+            end
         end
     else
         hint[1] = string.format("[%s] %s", keys.toggle, LABELS.toggle)
@@ -246,6 +284,12 @@ local function describe(s, keys)
             lines[#lines + 1] = "Aiming at: " .. (s.cursor_tag ~= "" and s.cursor_tag or "object")
         else
             lines[#lines + 1] = "Aiming at: nothing"
+        end
+        local row = selectedRow(s, palette)
+        if row then
+            lines[#lines + 1] = string.format("Palette: %s%s  [%s/%s] object  [%s/%s] category",
+                row.tag, row.placeable and "" or " (cannot place)", keys.prev_item, keys.next_item,
+                keys.prev_category, keys.next_category)
         end
     end
     if s.last and s.last ~= "" then lines[#lines + 1] = s.last end
@@ -282,16 +326,18 @@ local function mapTitle()
 end
 
 -- Game thread only.
-local function render(s, title)
-    if Hud.render(s, keys, title) then
+local function render(s, title, palette)
+    if Hud.render(s, keys, title, palette, selectedRow(s, palette)) then
         showPanel(nil)
     else
-        showPanel(describe(s, keys))
+        showPanel(describe(s, keys, palette))
     end
 end
 
 local lastStatus = nil
 local lastState = false
+local palette = {}
+local paletteVersion = nil
 ExecuteInGameThreadWithDelay(5000, function()
     if not loadNative() then return end
     pcall(native.open)
@@ -309,7 +355,12 @@ ExecuteInGameThreadWithDelay(5000, function()
             lastState = raw
             local s = parseState(raw)
             local title = s.forge == "1" and mapTitle() or ""
-            ExecuteInGameThread(function() render(s, title) end)
+            if s.palette_version and s.palette_version ~= paletteVersion then
+                paletteVersion = s.palette_version
+                palette = parsePalette(readFile(PALETTE))
+            end
+            local rows = palette
+            ExecuteInGameThread(function() render(s, title, rows) end)
         end
         return false
     end)

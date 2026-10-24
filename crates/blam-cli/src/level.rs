@@ -407,6 +407,10 @@ fn palette_map() -> Result<PaletteMap> {
     serde_json::from_str(PALETTE_MAP).context("parsing the built-in palette map")
 }
 
+/// Palette-map kinds left out of a map's Forge palettes: campaign-only
+/// vehicles with no multiplayer data, which the sandbox cannot create.
+const FORGE_UNPLACEABLE: [&str; 3] = ["pelican", "space_banshee", "seraph"];
+
 const SCENARIOS: [&str; 13] = [
     "A15", "A30", "A50", "B30", "B40", "C10", "C20", "C45", "D20", "D40", "E10", "E20", "E30",
 ];
@@ -741,41 +745,44 @@ impl Baker {
         Ok(block_count_at(&self.file, path)? - 1)
     }
 
-    /// One `map variant palettes` element whose entries name `tags`
-    /// (`(group:path, model variant)`, how many are placed), one variant each.
-    /// A model variant ("rocket" for the rocket Warthog) gets an entry of its
-    /// own, or the map variant builds the tag's default.
-    fn map_variant_palette(&mut self, tags: &[((String, String), usize)]) -> Result<()> {
-        if tags.is_empty() {
-            return Ok(());
+    /// The Forge palettes: one `map variant palettes` element per category,
+    /// whose entries name its tags (`(group:path, model variant)`, how many
+    /// the level places), one variant each. A model variant ("rocket" for the
+    /// rocket Warthog) gets an entry of its own, or the map variant builds the
+    /// tag's default. No entry sets `maximum allowed`: 0 is no quota, so
+    /// Forge can place and duplicate as many as the map variant holds.
+    fn map_variant_palettes(&mut self, palettes: &[(&str, Vec<((String, String), usize)>)]) -> Result<()> {
+        let flat: usize = palettes.iter().map(|(_, tags)| tags.len()).sum();
+        if flat > 255 {
+            bail!("{flat} map variant palette entries; a map variant counts at most 255");
         }
-        let p = self.add_element("map variant palettes")?;
-        for ((tag, variant), placed) in tags {
-            let entries = format!("map variant palettes[{p}].entries");
-            let e = self.add_element(&entries)?;
-            let variants = format!("{entries}[{e}].variants");
-            let v = self.add_element(&variants)?;
-            apply_set(&mut self.file, &format!("{variants}[{v}].object"), tag)
-                .with_context(|| format!("{variants}[{v}].object = {tag}"))?;
-            if !variant.is_empty() {
-                apply_set(
-                    &mut self.file,
-                    &format!("{variants}[{v}].variant name"),
-                    variant,
-                )
-                .with_context(|| format!("{variants}[{v}].variant name = {variant}"))?;
+        for (category, tags) in palettes {
+            if tags.is_empty() {
+                continue;
             }
-            apply_set(
-                &mut self.file,
-                &format!("{entries}[{e}].maximum allowed"),
-                &format!("{}", (*placed).max(1)),
-            )?;
-            let shown = if variant.is_empty() {
-                String::new()
-            } else {
-                format!(" variant {variant:?}")
-            };
-            println!("  mapvar  palette[{p}] entry {e}: {tag}{shown} (max {placed})");
+            let p = self.add_element("map variant palettes")?;
+            for ((tag, variant), placed) in tags {
+                let entries = format!("map variant palettes[{p}].entries");
+                let e = self.add_element(&entries)?;
+                let variants = format!("{entries}[{e}].variants");
+                let v = self.add_element(&variants)?;
+                apply_set(&mut self.file, &format!("{variants}[{v}].object"), tag)
+                    .with_context(|| format!("{variants}[{v}].object = {tag}"))?;
+                if !variant.is_empty() {
+                    apply_set(
+                        &mut self.file,
+                        &format!("{variants}[{v}].variant name"),
+                        variant,
+                    )
+                    .with_context(|| format!("{variants}[{v}].variant name = {variant}"))?;
+                }
+                let shown = if variant.is_empty() {
+                    String::new()
+                } else {
+                    format!(" variant {variant:?}")
+                };
+                println!("  mapvar  palette[{p}] {category} entry {e}: {tag}{shown} ({placed} placed)");
+            }
         }
         Ok(())
     }
@@ -1605,15 +1612,19 @@ fn bake(a: BakeArgs) -> Result<()> {
     baker.objects(&level.blam.objects)?;
     baker.clears(&level.blam.clear)?;
     if level.blam.map_variant {
-        let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
         // Equipment too: grenades, the overshield and camouflage are created
         // only through the map variant as well (they never appeared on Blood
-        // Gulch while the palette listed vehicles and weapons alone).
-        for (items, table, group) in [
-            (&level.blam.vehicles, &map.vehicles, "vehi"),
-            (&level.blam.weapons, &map.weapons, "weap"),
-            (&level.blam.equipment, &map.equipment, "eqip"),
+        // Gulch while the palette listed vehicles and weapons alone). Every
+        // kind the palette map knows is listed, placed or not, so Forge can
+        // place the whole arsenal; the campaign-only flyers have no
+        // multiplayer data, so the sandbox could never create them.
+        let mut palettes = Vec::new();
+        for (category, items, table, group) in [
+            ("weapons", &level.blam.weapons, &map.weapons, "weap"),
+            ("vehicles", &level.blam.vehicles, &map.vehicles, "vehi"),
+            ("equipment", &level.blam.equipment, &map.equipment, "eqip"),
         ] {
+            let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
             for item in items {
                 if let Some(path) = table.get(&item.kind) {
                     let variant = item
@@ -1626,15 +1637,23 @@ fn bake(a: BakeArgs) -> Result<()> {
                         .or_default() += 1;
                 }
             }
+            for (kind, path) in table.iter() {
+                if !FORGE_UNPLACEABLE.contains(&kind.as_str()) {
+                    tags.entry((format!("{group}:{path}"), String::new()))
+                        .or_default();
+                }
+            }
+            palettes.push((category, tags.into_iter().collect()));
         }
+        let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
         for o in &level.blam.objects {
             let group = if o.group == "scenery" { "scen" } else { "bloc" };
             *tags
                 .entry((format!("{group}:{}", o.tag), String::new()))
                 .or_default() += 1;
         }
-        let tags: Vec<((String, String), usize)> = tags.into_iter().collect();
-        baker.map_variant_palette(&tags)?;
+        palettes.push(("scenery", tags.into_iter().collect()));
+        baker.map_variant_palettes(&palettes)?;
     }
     if !level.blam.active_bsps.is_empty() {
         baker.active_bsps(&level.blam.active_bsps)?;

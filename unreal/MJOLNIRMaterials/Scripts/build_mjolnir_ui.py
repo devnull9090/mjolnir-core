@@ -1823,6 +1823,8 @@ FORGE_ICON_ROOT = f"{FORGE_ROOT}/Icons"
 FORGE_CARD_HINTS = 3
 FORGE_CONTROLS = 6
 FORGE_DISTANCE_TRACK = (280, 6)
+FORGE_PALETTE_WIDTH = 380
+FORGE_PALETTE_ROWS = 7
 FORGE_FILL = (0.008, 0.024, 0.038, 0.78)
 KEYCAP_FILL = (0.85, 0.95, 1.0, 0.14)
 
@@ -1930,6 +1932,56 @@ def build_forge_hud(icons):
     bar.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
     rounded(widget(bp, unreal.Border, "DistanceInk", bar.get_name()), 3, ACCENT)
     fill(widget(bp, unreal.Spacer, "DistanceRest", lane.get_name()), 1)
+
+    # The palette: what Insert places. A category (the scenario's palette, or
+    # one tag group of it) between its keys, the selected object with its
+    # picture, and a window of the category's list around it.
+    shelf = sized(bp, "PaletteSize", "Root", width=FORGE_PALETTE_WIDTH)
+    place(shelf, (0.985, 0.5), (1.0, 0.5))
+    shelf.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    board = rounded(widget(bp, unreal.Border, "PalettePanel", shelf.get_name()), 10, FORGE_FILL)
+    board.set_editor_property("padding", unreal.Margin(20, 14, 20, 16))
+    column = widget(bp, unreal.VerticalBox, "PaletteStack", board.get_name())
+    head = widget(bp, unreal.HorizontalBox, "PaletteHead", column.get_name())
+    heading = widget(bp, unreal.TextBlock, "PaletteTitle", head.get_name())
+    text_style(heading, "PALETTE", 15, ACCENT, "Bold")
+    middle(heading)
+    fill(widget(bp, unreal.Spacer, "PaletteHeadSpace", head.get_name()), 1)
+    count = widget(bp, unreal.TextBlock, "PaletteCount", head.get_name())
+    text_style(count, "", 14, GREY, "Bold")
+    middle(count)
+    gap(rule(bp, "PaletteRule", column.get_name(), color=LINE, height=2), top=8)
+    tabs = widget(bp, unreal.HorizontalBox, "PaletteTabs", column.get_name())
+    gap(tabs, top=10)
+    keycap(bp, "PalettePrev", tabs.get_name(), "<", "", key_size=15, action_size=1)
+    shelf_name = widget(bp, unreal.TextBlock, "PaletteGroup", tabs.get_name())
+    text_style(shelf_name, "WEAPONS", 19, WHITE, "Bold")
+    shelf_name.set_editor_property("justification", unreal.TextJustify.CENTER)
+    fill(shelf_name, 1)
+    middle(shelf_name)
+    shadowed(shelf_name)
+    keycap(bp, "PaletteNext", tabs.get_name(), ">", "", key_size=15, action_size=1)
+    chosen = widget(bp, unreal.HorizontalBox, "PaletteChosen", column.get_name())
+    gap(chosen, top=12)
+    picture = icon_box(bp, "PaletteIcon", chosen.get_name(), 120, 40)
+    picture.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+    named = widget(bp, unreal.TextBlock, "PaletteName", chosen.get_name())
+    text_style(named, "", 26, WHITE, "Bold")
+    middle(named)
+    shadowed(named)
+    listing = widget(bp, unreal.VerticalBox, "PaletteList", column.get_name())
+    gap(listing, top=10)
+    for i in range(FORGE_PALETTE_ROWS):
+        line = rounded(widget(bp, unreal.Border, f"PaletteRow{i}", listing.get_name()), 5, (0, 0, 0, 0))
+        line.set_editor_property("padding", unreal.Margin(12, 4, 12, 5))
+        gap(line, top=2)
+        label = widget(bp, unreal.TextBlock, f"PaletteRow{i}Name", line.get_name())
+        text_style(label, "", 17, GREY, "Bold")
+    hints = widget(bp, unreal.HorizontalBox, "PaletteHints", column.get_name())
+    gap(hints, top=12)
+    for i, (key, action) in enumerate((("^ / v", "OBJECT"), ("INS", "PLACE"))):
+        hint = keycap(bp, f"PaletteHint{i}", hints.get_name(), key, action, key_size=15, action_size=14)
+        hint.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 18, 0))
 
     # The toast: what the last key did.
     toast = rounded(widget(bp, unreal.Border, "Toast", "Root"), 8, FORGE_FILL)

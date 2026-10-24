@@ -229,10 +229,14 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
   the designs, soft ceilings, seams, other insertion points and their player
   starts go; and every placement's origin BSP becomes 0. The BSP tag must be
   built for index 0 (`level collision --own-bsp --bsp-index 0`).
-- `map_variant`: `true` adds a `map variant palettes` entry for every weapon,
-  vehicle and scenery tag the level places. Under a multiplayer (Megalo)
-  engine, objects whose tags carry multiplayer data exist only through the map
-  variant, which the simulation builds from the palette-listed placements.
+- `map_variant`: `true` adds the `map variant palettes`: one per category
+  (weapons, vehicles, equipment, scenery), listing every tag the level places
+  and every kind `defs/level/palette-map.json` knows (not the pelican, space
+  banshee or seraph), with no quota. Under a multiplayer (Megalo) engine,
+  objects whose tags carry multiplayer data exist only through the map
+  variant, which the simulation builds from the palette-listed placements; in
+  Forge the palettes are what the Monitor places from
+  ([forge.md](forge.md)).
 - `cutscene_flags`: `[{ "pos": [x, y, z], "yaw": 0 }]` moves the canvas's first
   cutscene flags to these points, so their names stay valid for
   `player_teleport` / `object_teleport` from the Blam console.
