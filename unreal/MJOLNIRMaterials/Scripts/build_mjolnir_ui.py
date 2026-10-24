@@ -15,6 +15,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
                          players, START GAME
   WBP_MJOLNIRMapSelect   the map list, a map's details and its game types
+  WBP_MJOLNIRGameTypeSelect  the current map's supported modes, with icons,
+                         descriptions and an explicit SELECT / BACK choice
   WBP_MJOLNIRFindGames   public games from the hub: filter chips, a sortable
                          server table, a game's details, JOIN, QUICK JOIN
   WBP_MJOLNIRPostGame    after a match: the final standings and the vote on
@@ -538,6 +540,7 @@ RED = (1.0, 0.32, 0.28, 1.0)
 BLUE = (0.3, 0.65, 1.0, 1.0)
 MAP_BUTTONS = 80
 MODE_BUTTONS = 5
+GAME_TYPE_BUTTONS = 6     # five competitive modes plus Forge
 ROSTER_ROWS = 16
 ROSTER_AVATAR = 32
 GAME_ROWS = 40
@@ -725,10 +728,25 @@ def build_lobby():
     wrapped(description)
     gap(description, top=20, bottom=32)
     gap(rule(bp, "ModeRule", "CardStack"), bottom=26)
-    text_style(widget(bp, unreal.TextBlock, "ModeKicker", "CardStack"), "GAME TYPE", 18, ACCENT)
-    mode = widget(bp, unreal.TextBlock, "ModeTitle", "CardStack")
+    mode_head = widget(bp, unreal.HorizontalBox, "ModeHead", "CardStack")
+    gap(mode_head, bottom=16)
+    # The same glyph as the picker. Lua shows the whole emblem only after
+    # its texture loads, leaving the text layout intact on older installs.
+    mode_icon_box = sized(bp, "ModeIconBox", mode_head.get_name(), width=100, height=100)
+    middle(mode_icon_box)
+    mode_icon_box.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 24, 0))
+    mode_icon_box.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    emblem = rounded(widget(bp, unreal.Border, "ModeEmblem", mode_icon_box.get_name()), 50,
+                     (0.06, 0.16, 0.22, 0.60), padding=14)
+    icon = widget(bp, unreal.Image, "ModeIcon", emblem.get_name())
+    icon.set_visibility(unreal.SlateVisibility.HIDDEN)
+    mode_words = widget(bp, unreal.VerticalBox, "ModeWords", mode_head.get_name())
+    fill(mode_words, 1)
+    middle(mode_words)
+    text_style(widget(bp, unreal.TextBlock, "ModeKicker", mode_words.get_name()), "GAME TYPE", 18, ACCENT)
+    mode = widget(bp, unreal.TextBlock, "ModeTitle", mode_words.get_name())
     text_style(mode, "SLAYER", 34, WHITE)
-    gap(mode, top=12, bottom=16)
+    gap(mode, top=12)
     wrapped(mode)
     mode_description = widget(bp, unreal.TextBlock, "ModeDescription", "CardStack")
     text_style(mode_description, "", 24, GREY)
@@ -889,6 +907,129 @@ def build_map_select():
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 20, 0))
         events.append((key, "OnClicked", key.lower()))
     text_style(footer(bp), "CHOOSE A MAP AND GAME TYPE   /   SELECT TO CONFIRM", 22, GREY)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish_screen(bp, name)
+
+
+def build_game_type_select(icons):
+    """The current map's available game types. Clicking a row makes a pending
+    choice; SELECT applies it and BACK leaves the lobby unchanged. Lua uses
+    modesFor(map) to fill the six rows, including Forge when installed.
+    Icons are assigned at runtime, so the widget remains usable without an
+    icon and the menu never depends on extracted assets from another game.
+    """
+    name = "WBP_MJOLNIRGameTypeSelect"
+    bp = fresh_widget(name, unreal.CommonActivatableWidget)
+    screen_canvas(bp)
+    screen_header(bp, "SELECT GAME TYPE", "CUSTOM GAME")
+    events = []
+    # Hard references keep every glyph in the cook and load them with this
+    # screen; Lua finds the textures by path and assigns the available rows.
+    palette = widget(bp, unreal.HorizontalBox, "IconPalette", "Root")
+    place(palette, (0.0, 0.0), (0.0, 0.0))
+    palette.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for icon_name, texture in icons.items():
+        image = widget(bp, unreal.Image, "Palette" + icon_name, palette.get_name())
+        image.set_brush_from_texture(texture, False)
+
+    count = widget(bp, unreal.TextBlock, "ListCount", "Root")
+    place(count, (0.06, 0.225), (0.0, 0.0))
+    text_style(count, "AVAILABLE FOR THIS MAP", 21, ACCENT)
+
+    list_panel = panel(bp, "ListPanel", "Root", padding=(16, 16, 16, 16))
+    place(list_panel, (0.06, 0.265), (0.0, 0.0))
+    sized(bp, "ListSize", "ListPanel", width=740, height=708)
+    widget(bp, unreal.VerticalBox, "ModeList", "ListSize")
+    gap(rule(bp, "ListRule", "ModeList", ACCENT, 2), bottom=14)
+    for i in range(GAME_TYPE_BUTTONS):
+        key = f"Mode{i}"
+        button = widget(bp, unreal.Button, key, "ModeList")
+        flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
+                   (0.20, 0.48, 0.60, 0.95), padding=(22, 16, 22, 16))
+        gap(button, bottom=8)
+        row_size = sized(bp, key + "Size", key, height=70)
+        unpadded(row_size)
+        row_size.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        row = widget(bp, unreal.HorizontalBox, key + "Row", row_size.get_name())
+        icon_size = sized(bp, key + "IconSize", row.get_name(), width=56, height=56)
+        middle(icon_size)
+        icon_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 22, 0))
+        # Keep the row aligned while a texture loads, without a white square.
+        image = widget(bp, unreal.Image, key + "Icon", icon_size.get_name())
+        image.set_visibility(unreal.SlateVisibility.HIDDEN)
+        words = widget(bp, unreal.VerticalBox, key + "Words", row.get_name())
+        fill(words, 1)
+        middle(words)
+        label = widget(bp, unreal.TextBlock, key + "Label", words.get_name())
+        text_style(label, "", 27, WHITE)
+        label.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        format_line = widget(bp, unreal.TextBlock, key + "Format", words.get_name())
+        text_style(format_line, "", 17, GREY)
+        gap(format_line, top=6)
+        current = widget(bp, unreal.TextBlock, key + "Current", row.get_name())
+        text_style(current, "", 15, GOLD)
+        middle(current)
+        current.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 0, 0))
+        events += [(key, "OnClicked", f"mode:{i}"), (key, "OnHovered", f"hover:{i}"),
+                   (key, "OnUnhovered", f"unhover:{i}")]
+
+    details = panel(bp, "Details", "Root", padding=(36, 30, 36, 30))
+    place(details, (0.39, 0.265), (0.0, 0.0))
+    sized(bp, "DetailsSize", "Details", width=1336, height=680)
+    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
+    gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=34)
+    hero = widget(bp, unreal.HorizontalBox, "ModeHero", "DetailsStack")
+    emblem_size = sized(bp, "EmblemSize", hero.get_name(), width=300, height=300)
+    emblem_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 36, 0))
+    emblem = rounded(widget(bp, unreal.Border, "Emblem", emblem_size.get_name()), 150,
+                     (0.06, 0.16, 0.22, 0.60), padding=20)
+    icon = widget(bp, unreal.Image, "ModeIcon", emblem.get_name())
+    icon.set_visibility(unreal.SlateVisibility.HIDDEN)
+    words = widget(bp, unreal.VerticalBox, "ModeWords", hero.get_name())
+    fill(words, 1)
+    middle(words)
+    kicker = widget(bp, unreal.TextBlock, "ModeKicker", words.get_name())
+    text_style(kicker, "GAME TYPE", 18, ACCENT)
+    title = widget(bp, unreal.TextBlock, "ModeTitle", words.get_name())
+    text_style(title, "", 50, WHITE)
+    wrapped(title)
+    gap(title, top=12, bottom=20)
+    description = widget(bp, unreal.TextBlock, "ModeDescription", words.get_name())
+    text_style(description, "", 28, WHITE)
+    wrapped(description)
+    format_line = widget(bp, unreal.TextBlock, "MatchFormat", words.get_name())
+    text_style(format_line, "", 20, ACCENT)
+    gap(format_line, top=24)
+    wrapped(format_line)
+
+    gap(rule(bp, "MapRule", "DetailsStack"), top=36, bottom=30)
+    map_row = widget(bp, unreal.HorizontalBox, "MapRow", "DetailsStack")
+    shot = map_image(bp, "MapImage", map_row.get_name(), 320, 180)
+    shot.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 28, 0))
+    map_words = widget(bp, unreal.VerticalBox, "MapWords", map_row.get_name())
+    fill(map_words, 1)
+    middle(map_words)
+    text_style(widget(bp, unreal.TextBlock, "MapKicker", map_words.get_name()), "CURRENT MAP", 18, ACCENT)
+    map_title = widget(bp, unreal.TextBlock, "MapTitle", map_words.get_name())
+    text_style(map_title, "", 34, WHITE)
+    wrapped(map_title)
+    gap(map_title, top=12, bottom=14)
+    hint = widget(bp, unreal.TextBlock, "MapHint", map_words.get_name())
+    text_style(hint, "Game types shown are available for this map.", 21, GREY)
+    wrapped(hint)
+
+    actions = widget(bp, unreal.HorizontalBox, "Actions", "Root")
+    place(actions, (0.39, 0.80), (0.0, 0.0))
+    for key, label in (("Select", "SELECT"), ("Back", "BACK")):
+        button = menu_button(bp, key, label, actions.get_name())
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 20, 0))
+        events.append((key, "OnClicked", key.lower()))
+    text_style(footer(bp), "CHOOSE A GAME TYPE   /   SELECT TO CONFIRM", 22, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -2041,6 +2182,7 @@ build_kill_feed(import_hud_icons())
 build_scoreboard()
 build_lobby()
 build_map_select()
+build_game_type_select(import_hud_icons("GameTypeIcons", f"{ROOT}/ModeIcons", "T_MJMode_"))
 build_find_games()
 build_post_game()
 build_map_download()

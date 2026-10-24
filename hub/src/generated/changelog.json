@@ -138,6 +138,36 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.35.0",
+      "tag": "mods-v0.35.0",
+      "title": "Choose game types from their own screen",
+      "date": "2026-10-24",
+      "summary": "Browse your map's supported game types with icons and descriptions, see the chosen icon in the lobby, and place objects from Forge's palette.",
+      "body": "### Added\n\n- **Game type picker** (MJOLNIRLobby 0.16.0). GAME TYPE opens a dedicated\n  screen showing the modes available for your map, with matching icons,\n  descriptions and team formats. Preview a mode, then SELECT to apply it.\n  BACK, Escape or controller B keeps your current choice.\n- **Game type icons in the lobby.** The selected mode's icon appears beside\n  its name and changes with your selection.\n- **Forge palette** (MJOLNIRForge 0.2.0). Use the arrow keys to browse the\n  map's weapons, vehicles, equipment and scenery; Insert places the selected\n  object at the cursor, ready to move. N duplicates the target. The Forge\n  HUD shows the category and available objects. Older maps offer the kinds\n  already in their palettes; newly baked maps can include the full arsenal.\n\n### Needs\n\n- Update the **CE runtime to 1.15.0** for the game type screen, lobby icons\n  and Forge palette panel. With an older runtime, GAME TYPE opens the map\n  picker and Forge names the selected palette object in a text note.\n- Forge remains solo, and edits last until the game ends.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Game type picker (MJOLNIRLobby 0.16.0). GAME TYPE opens a dedicated screen showing the modes available for your map, with matching icons, descriptions and team formats. Preview a mode, then SELECT to apply it. BACK, Escape or controller B keeps your current choice.",
+            "Game type icons in the lobby. The selected mode's icon appears beside its name and changes with your selection.",
+            "Forge palette (MJOLNIRForge 0.2.0). Use the arrow keys to browse the map's weapons, vehicles, equipment and scenery; Insert places the selected object at the cursor, ready to move. N duplicates the target. The Forge HUD shows the category and available objects. Older maps offer the kinds already in their palettes; newly baked maps can include the full arsenal."
+          ]
+        },
+        {
+          "heading": "Needs",
+          "items": [
+            "Update the CE runtime to 1.15.0 for the game type screen, lobby icons and Forge palette panel. With an older runtime, GAME TYPE opens the map picker and Forge names the selected palette object in a text note.",
+            "Forge remains solo, and edits last until the game ends."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.35.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.35.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.35.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.34.0",
       "tag": "mods-v0.34.0",
       "title": "Forge",
