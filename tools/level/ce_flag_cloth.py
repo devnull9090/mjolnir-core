@@ -9,9 +9,11 @@ converted flag mesh has no cloth. The cloth's two bitmaps,
 `weapons\\flag\\bitmaps\\flag_red` and `weapons\\flag\\bitmaps\\flags_blue`,
 are read from bloodgulch.map's tag index and their pixels from bitmaps.map
 (MCC's Halo CE folder, `halo1\\maps`), and written as `flag_cloth_red.png` and
-`flag_cloth_blue.png`. Copy them to `MJOLNIRLevelLoader\\ctf\\` and the loader
-hangs the cloth on each flag (teams.lua, CLOTH). They are Bungie's art, read
-from the player's own game: nothing here ships them.
+`flag_cloth_blue.png`. build_ce_runtime.sh cooks them into the CE runtime
+pack (chunk 981); for a local test, copy them to `MJOLNIRLevelLoader\\ctf\\`
+instead. Either way the loader hangs the cloth on each flag (teams.lua,
+CLOTH). They are Bungie's art, read from the user's own game: the repository
+never holds them.
 """
 import io
 import os

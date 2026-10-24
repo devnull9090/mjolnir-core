@@ -348,9 +348,11 @@ end
 --- simulates it as cloth. Here it is `strips` two-sided planes on CE's
 --- environment master, each showing its slice of the texture (the master's
 --- BaseXform: u scale and offset), chained edge to edge out from the pole so
---- the flag can bend (Teams.clothTick waves it). The texture is a PNG under
---- the loader's folder (`textures`; tools/level/ce_flag_cloth.py writes them
---- from the player's own CE maps); without one the flag has no cloth.
+--- the flag can bend (Teams.clothTick waves it). The texture is the CE
+--- runtime pack's (`cooked`, chunk 981, from tools/level/build_ce_runtime.sh),
+--- else a PNG under the loader's folder (`textures`; tools/level/
+--- ce_flag_cloth.py writes them from the player's own CE maps); without
+--- either the flag has no cloth.
 --- Lengths are in the flag mesh's own units (it is scaled 3.0743): `width`
 --- and `height` 1.22 x 0.99 m, the attached edge at `edge` on the pole, its
 --- vertical centre at `z`, just under the finial. Found by eye on Blood
@@ -363,6 +365,7 @@ local CLOTH = {
     edge = { 0, -1.05 },
     z = 21.6,
     textures = "ctf\\flag_cloth_%s.png",
+    cooked = "/Game/MJOLNIR/H2/T_flag_cloth_%s.T_flag_cloth_%s",
     master = "/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided",
 }
 
@@ -377,13 +380,16 @@ local CLOTH = {
 local WAVE = { idle = 0.32, idle_rate = 3.2, run = 0.6, run_rate = 9.0, fast = 700, swing = 4.0, phase = 0.85,
     near = 5000 }
 
---- The cloth's material spec for `team`, or nil when its PNG is not there.
+--- The cloth's material spec for `team`, or nil with neither texture.
 local function clothMaterial(team)
-    local rel = string.format(CLOTH.textures, team)
-    local f = env.modDir and io.open(env.modDir .. "\\" .. rel, "rb")
-    if not f then return nil end
-    f:close()
-    return { parent = CLOTH.master, textures = { Base = rel },
+    local base = string.format(CLOTH.cooked, team, team)
+    if not env.resolveMesh(base) then
+        base = string.format(CLOTH.textures, team)
+        local f = env.modDir and io.open(env.modDir .. "\\" .. base, "rb")
+        if not f then return nil end
+        f:close()
+    end
+    return { parent = CLOTH.master, textures = { Base = base },
         scalars = { HasLightmap = 0.0, HasPrimary = 0.0, HasSecondary = 0.0, HasMicro = 0.0, HasBump = 0.0,
             HasSelfIllum = 0.0 } }
 end

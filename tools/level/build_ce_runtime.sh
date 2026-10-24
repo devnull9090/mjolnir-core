@@ -14,7 +14,9 @@
 #                                    unreal/MJOLNIRMaterials, chunk 988)
 #   pakchunk981-MJOLNIRH2-Windows    the Halo 2 masters (M_H2_PlasmaAlpha:
 #                                    Scripts/build_h2_materials.py, same cook,
-#                                    chunk 981)
+#                                    chunk 981) and the CTF flag's cloth
+#                                    textures (ce_flag_cloth.py, from MCC's
+#                                    Halo CE maps: MJ_MCC_HALO1_MAPS)
 #   pakchunk984-MJOLNIRUI-Windows    the multiplayer screens and HUD widgets
 #                                    (Scripts/build_mjolnir_ui.py, same cook,
 #                                    chunk 984; docs/custom_ui.md)
@@ -62,6 +64,11 @@ echo "== 1/5 the CTF flag model and textures"
 staging="$out/flag_staging"
 [ -d "$staging/models" ] || "$exporter" --map "$maps/bloodgulch.map" --out "$staging" --no-collision > "$out/flag_staging.log"
 python "$here/ce_flag_textures.py" "$staging" "$out/ctf_textures"
+# The flag's cloth (MJOLNIRLevelLoader teams.lua CLOTH), from MCC's Halo CE
+# maps (the flag tag's bitmaps are not the model's, so halo2ue does not stage
+# them); cooked under /Game/MJOLNIR/H2, so into chunk 981.
+mcc_h1="${MJ_MCC_HALO1_MAPS:-C:/Program Files (x86)/Steam/steamapps/common/Halo The Master Chief Collection/halo1/maps}"
+python "$here/ce_flag_cloth.py" "$mcc_h1" "$out/cloth_textures"
 
 echo "== 2/5 the event sounds"
 python "$here/ce_sounds.py" --events "$maps/sounds.map" "$out/events"
@@ -73,6 +80,8 @@ python "$here/mcc_tags.py" --plasma-noise "$out/T_CE_PlasmaNoise.png"
 MJ_PLASMA_NOISE="$(cygpath -w "$out/T_CE_PlasmaNoise.png")" run Scripts/build_ce_materials.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/ctf_textures")" \
   MJ_CE_TEXTURE_ROOT="/Game/MJOLNIR/CE/CTF" run Scripts/build_ce_textures.py
+MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/cloth_textures")" \
+  MJ_CE_TEXTURE_ROOT="/Game/MJOLNIR/H2" run Scripts/build_ce_textures.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")" \
   MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Sounds/Events" run Scripts/build_ce_sounds.py
 run Scripts/build_mjolnir_ui.py
