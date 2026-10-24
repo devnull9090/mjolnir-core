@@ -98,6 +98,18 @@ impl<'a> BitReader<'a> {
         self.at
     }
 
+    /// Move to bit `at` (at most the end).
+    pub fn seek(&mut self, at: usize) -> Result<(), Error> {
+        if at > self.bytes.len() * 8 {
+            return Err(Error::Truncated {
+                at: self.bytes.len() * 8,
+                want: (at - self.bytes.len() * 8) as u32,
+            });
+        }
+        self.at = at;
+        Ok(())
+    }
+
     pub fn remaining(&self) -> usize {
         self.bytes.len() * 8 - self.at
     }
