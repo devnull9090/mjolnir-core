@@ -30,7 +30,9 @@
 // Megalo engine instead of the campaign, drop the map-variant requirement the
 // campaign flow cannot meet, keep the map variant across the start-up zone
 // switch, and let the variant file loader read a file at all
-// (mjolnir_megalo_variant installs the game mode it reads). A seventh, kept
+// (mjolnir_megalo_variant installs the game mode it reads). mjolnir_forge_on
+// makes the same switch start the sandbox engine instead, for a Forge game
+// (docs/re/forge_engine.md). A seventh, kept
 // even when the switch goes off, lets the game quit from inside a
 // multiplayer match. Each site is checked for the exact shipped or patched bytes first,
 // so a different build is refused rather than corrupted. In team games it
@@ -1237,7 +1239,24 @@ static const code_patch_t MEGALO[] = {
 // Sites from this index on stay patched when the switch goes off.
 #define MEGALO_KEEP 6
 
-static int set_megalo(int on) {
+// MEGALO[0] is `mov r8d, <engine>`; its immediate is byte 2 of the site.
+#define ENGINE_IMMEDIATE 2
+
+// Site 0 as it reads now, for any engine the switch can have set.
+static int engine_site_ok(const code_patch_t *p, const uint8_t *at) {
+    for (uint8_t engine = 1; engine <= 3; engine++) {
+        uint8_t bytes[16];
+        memcpy(bytes, p->shipped, p->len);
+        bytes[ENGINE_IMMEDIATE] = engine;
+        if (memcmp(at, bytes, p->len) == 0) return 1;
+    }
+    return 0;
+}
+
+// `engine` 0 puts the shipped bytes back (campaign); 2 starts the next map
+// under Megalo, 1 under the sandbox engine, Forge (docs/re/forge_engine.md).
+// Forge needs every other site Megalo does: the same multiplayer launch.
+static int set_engine(int engine) {
     ensure_init();
     uint8_t *sim = (uint8_t *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) {
@@ -1248,7 +1267,9 @@ static int set_megalo(int on) {
     for (size_t i = 0; i < n; i++) {
         const code_patch_t *p = &MEGALO[i];
         uint8_t *at = sim + p->rva;
-        if (memcmp(at, p->shipped, p->len) != 0 && memcmp(at, p->patched, p->len) != 0) {
+        int ok = i == 0 ? engine_site_ok(p, at)
+                        : memcmp(at, p->shipped, p->len) == 0 || memcmp(at, p->patched, p->len) == 0;
+        if (!ok) {
             Log("megalo: refused, +%x holds neither the CU4 bytes nor the patch (%s)", p->rva, p->what);
             return 0;
         }
@@ -1256,7 +1277,13 @@ static int set_megalo(int on) {
     for (size_t i = 0; i < n; i++) {
         const code_patch_t *p = &MEGALO[i];
         uint8_t *at = sim + p->rva;
-        const uint8_t *want = (on || i >= MEGALO_KEEP) ? p->patched : p->shipped;
+        uint8_t engine_site[16];
+        const uint8_t *want = (engine || i >= MEGALO_KEEP) ? p->patched : p->shipped;
+        if (i == 0 && engine) {
+            memcpy(engine_site, p->shipped, p->len);
+            engine_site[ENGINE_IMMEDIATE] = (uint8_t)engine;
+            want = engine_site;
+        }
         if (memcmp(at, want, p->len) == 0) continue;
         DWORD old;
         if (!VirtualProtect(at, p->len, PAGE_EXECUTE_READWRITE, &old)) {
@@ -1267,7 +1294,11 @@ static int set_megalo(int on) {
         VirtualProtect(at, p->len, old, &old);
         FlushInstructionCache(GetCurrentProcess(), at, p->len);
     }
-    Log("megalo: %s (%zu sites)", on ? "ON: the next map load starts the Megalo engine" : "off: shipped bytes", n);
+    Log("megalo: %s (%zu sites)",
+        engine == 2   ? "ON: the next map load starts the Megalo engine"
+        : engine == 1 ? "FORGE: the next map load starts the sandbox engine"
+                      : "off: shipped bytes",
+        n);
     return 1;
 }
 
@@ -1316,7 +1347,15 @@ static int mglo_dir(uint8_t *sim, char *dir, size_t cap) {
 // event reads the first patch).
 __declspec(dllexport) int mjolnir_megalo_on(void *L) {
     (void)L;
-    set_megalo(1);
+    set_engine(2);
+    return 0;
+}
+
+// The same switch for a Forge game: the sandbox engine (engine 1), whose
+// default variant the load builds itself, so nothing is staged.
+__declspec(dllexport) int mjolnir_forge_on(void *L) {
+    (void)L;
+    set_engine(1);
     return 0;
 }
 
@@ -1385,7 +1424,7 @@ __declspec(dllexport) int mjolnir_megalo_variant(void *L) {
 
 __declspec(dllexport) int mjolnir_megalo_off(void *L) {
     (void)L;
-    set_megalo(0);
+    set_engine(0);
     return 0;
 }
 

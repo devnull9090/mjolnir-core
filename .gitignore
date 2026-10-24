@@ -77,6 +77,10 @@ native/lobby/obj/
 mods/MJOLNIRHud/native/*.dll
 mods/MJOLNIRHud/native/*.txt
 native/frame_times/obj/
+# Built by native/forge/build.ps1; never committed
+mods/MJOLNIRForge/native/*.dll
+mods/MJOLNIRForge/native/*.txt
+native/forge/obj/
 
 # Match history files the HUD and Lobby write at runtime (docs/match_stats.md).
 mods/MJOLNIRHud/match_*.json

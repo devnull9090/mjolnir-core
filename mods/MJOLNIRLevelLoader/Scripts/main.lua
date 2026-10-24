@@ -5692,6 +5692,9 @@ local function loadMegaloSwitch()
     -- the native half installs it where the simulation's loader reads it at
     -- the next round reset (docs/ce_map_conversion.md).
     local variant = package.loadlib(dll, "mjolnir_megalo_variant")
+    -- A FORGE game (MJOLNIRLobby) runs the sandbox engine instead, whose
+    -- default variant the load builds itself (docs/re/forge_engine.md).
+    local forgeOn = package.loadlib(dll, "mjolnir_forge_on")
     if not (on and off) then
         Log("multiplayer switch: not in this build of the native DLL")
         return
@@ -5747,13 +5750,31 @@ local function loadMegaloSwitch()
             switched.code = nil
             return
         end
-        on()
-        switched.code, switched.at = code, os.clock()
-        Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine (" .. how .. ")")
         -- The game type: the host's choice from the multiplayer menu; a
         -- client has only the map's default (the host's choice does not
         -- travel yet).
         local chosen = pending or level.variant
+        switched.code, switched.at = code, os.clock()
+        if chosen == "forge" then
+            if not forgeOn then
+                Log("multiplayer switch: FORGE needs a newer mjolnir_map_registry.dll; " .. tostring(code)
+                    .. " starts as Slayer")
+                chosen = "slayer"
+            else
+                forgeOn()
+                RunningVariant = chosen
+                teamArmor(false)
+                local running = io.open(MOD_DIR .. "\\running.txt", "w")
+                if running then
+                    running:write(tostring(code), "\tforge\t", tostring(level.title or level.name or code), "\n")
+                    running:close()
+                end
+                Log("multiplayer switch: " .. tostring(code) .. " starts under the sandbox engine, FORGE (" .. how .. ")")
+                return
+            end
+        end
+        on()
+        Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine (" .. how .. ")")
         RunningVariant = chosen
         teamArmor(Teams.TEAM_GAMES[string.lower(tostring(chosen))] == true)
         local running = io.open(MOD_DIR .. "\\running.txt", "w")

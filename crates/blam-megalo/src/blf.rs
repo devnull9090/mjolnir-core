@@ -112,6 +112,49 @@ pub struct GameVariant<'a> {
     pub payload: &'a [u8],
 }
 
+/// A map variant from an `mvar` chunk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapVariant<'a> {
+    /// The chunk's version (31.1 in every MCC Reach file).
+    pub major: u16,
+    pub minor: u16,
+    /// The 20-byte hash at the start of the body.
+    pub hash: [u8; 20],
+    /// The payload (`length` bytes): the map variant's bitstream from bit 0,
+    /// as the simulation's map-variant decoder (`0x32d810`) reads it.
+    pub payload: &'a [u8],
+}
+
+/// The map variant of a BLF file (`haloreach/map_variants/*.mvar`): a body
+/// of a 20-byte hash, a big-endian u32 payload length and the payload.
+pub fn map_variant(bytes: &[u8]) -> Result<MapVariant<'_>, Error> {
+    let chunks = chunks(bytes)?;
+    let c = chunks
+        .iter()
+        .find(|c| &c.signature == b"mvar")
+        .ok_or_else(|| Error::Blf("no `mvar` chunk".into()))?;
+    let hash: [u8; 20] = c
+        .body
+        .get(..20)
+        .and_then(|h| h.try_into().ok())
+        .ok_or_else(|| Error::Blf("`mvar` shorter than its hash".into()))?;
+    let len = c
+        .body
+        .get(20..24)
+        .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
+        .ok_or_else(|| Error::Blf("`mvar` without a payload length".into()))?;
+    let payload = c
+        .body
+        .get(24..24 + len)
+        .ok_or_else(|| Error::Blf(format!("`mvar` payload of {len} bytes runs past the chunk")))?;
+    Ok(MapVariant {
+        major: c.major,
+        minor: c.minor,
+        hash,
+        payload,
+    })
+}
+
 /// The game variant of a BLF file.
 pub fn game_variant(bytes: &[u8]) -> Result<GameVariant<'_>, Error> {
     let chunks = chunks(bytes)?;
