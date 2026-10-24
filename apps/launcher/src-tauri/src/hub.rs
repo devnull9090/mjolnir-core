@@ -899,6 +899,7 @@ fn install_one_as(
         }
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        check_mglo(&path, &data)?;
         if path == mjolnir_sign::SIGNATURE_MEMBER {
             envelope = Some(data);
         } else {
@@ -2295,6 +2296,22 @@ fn code_mods_dir() -> Result<PathBuf, String> {
 /// manifest fetch rather than one per mod: `code_mods_status` re-downloads and
 /// re-verifies the whole set, and can pull entire zips to judge integrity, so
 /// looping over the single-mod entry point would multiply all of that by N.
+/// Refuse to install a `.mglo` the simulation could not decode safely. The
+/// file loader runs the simulation's unbounded variant decoder, so a crafted
+/// variant in distributed content would overrun it; it is validated here
+/// against the simulation's own grammar and store bounds before it ever reaches
+/// disk (docs/re/variant_network_safety.md).
+fn check_mglo(path: &str, data: &[u8]) -> Result<(), String> {
+    let is_mglo = std::path::Path::new(path)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("mglo"));
+    if is_mglo {
+        blam_megalo::Variant::validate(data)
+            .map_err(|e| format!("Refusing to install: {path} is not a safe variant: {e}"))?;
+    }
+    Ok(())
+}
+
 fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
     let id = &entry.id;
     let resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
@@ -2329,6 +2346,7 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
         }
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        check_mglo(&name, &data)?;
         fs::write(&dest, &data).map_err(|e| e.to_string())?;
         crate::transfer::wrote(data.len() as u64);
     }
@@ -2440,18 +2458,65 @@ pub struct MultiplayerInstall {
     pub state: HubState,
 }
 
-/// Install every official map (the classic CE set) with what they need: the
+/// Which game an official map comes from: the hub's `game` field on a map
+/// listing, and its `game=` filter on `GET /maps`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapGame {
+    Halo1,
+    Halo2,
+}
+
+impl MapGame {
+    fn param(self) -> &'static str {
+        match self {
+            MapGame::Halo1 => "halo1",
+            MapGame::Halo2 => "halo2",
+        }
+    }
+
+    /// Whether a listing is this game's. A listing without `game` predates
+    /// the field and is a CE map. Checked here as well as asked of the hub,
+    /// so a hub that ignores `game=` cannot put Halo 2 maps in the CE run.
+    fn lists(self, map: &serde_json::Value) -> bool {
+        match map["game"].as_str() {
+            None => self == MapGame::Halo1,
+            Some(game) => game == self.param(),
+        }
+    }
+}
+
+/// Install every official CE map (the classic set) with what they need: the
 /// CE runtime pack, the multiplayer code mods, the registration. Maps already
 /// at their newest release are skipped, so running it again is an update.
 /// `progress` hears each step and how far along the run is (0 to 1).
 pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerInstall, String> {
+    install_official_maps(MapGame::Halo1, progress)
+}
+
+/// The optional Halo 2 pack: every official Halo 2 map, the same way
+/// `install_multiplayer` installs the CE ones.
+pub fn install_halo2_maps(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerInstall, String> {
+    install_official_maps(MapGame::Halo2, progress)
+}
+
+fn install_official_maps(
+    game: MapGame,
+    progress: &dyn Fn(&str, f32),
+) -> Result<MultiplayerInstall, String> {
     progress("Checking the multiplayer mods", 0.0);
     ensure_code_mods(MAP_CODE_MODS)?;
 
-    let listing = get_json(&format!("{}/maps?official=1", hub_api()))?;
-    let maps = listing["maps"].as_array().cloned().unwrap_or_default();
+    let url = format!("{}/maps?official=1&game={}", hub_api(), game.param());
+    let listing = get_json(&url)?;
+    let maps: Vec<serde_json::Value> = listing["maps"]
+        .as_array()
+        .map(|maps| maps.iter().filter(|m| game.lists(m)).cloned().collect())
+        .unwrap_or_default();
     if maps.is_empty() {
-        return Err("The hub lists no official maps yet.".into());
+        return Err(match game {
+            MapGame::Halo1 => "The hub lists no official maps yet.".into(),
+            MapGame::Halo2 => "The hub lists no official Halo 2 maps yet.".into(),
+        });
     }
 
     let mut result = MultiplayerInstall {
@@ -2605,6 +2670,20 @@ mod tests {
         assert!(!root.join("native/pending_join.txt.tmp").exists());
         assert_eq!(pending_join_text("x", 5), "lobby=x\nat=5\n");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn each_install_takes_only_its_own_games_maps() {
+        let ce = serde_json::json!({ "slug": "bloodgulch" });
+        let ce_null = serde_json::json!({ "slug": "sidewinder", "game": null });
+        let ce_tagged = serde_json::json!({ "slug": "hangemhigh", "game": "halo1" });
+        let h2 = serde_json::json!({ "slug": "lockout", "game": "halo2" });
+        let other = serde_json::json!({ "slug": "x", "game": "halo3" });
+        for m in [&ce, &ce_null, &ce_tagged] {
+            assert!(MapGame::Halo1.lists(m) && !MapGame::Halo2.lists(m));
+        }
+        assert!(MapGame::Halo2.lists(&h2) && !MapGame::Halo1.lists(&h2));
+        assert!(!MapGame::Halo1.lists(&other) && !MapGame::Halo2.lists(&other));
     }
 
     #[test]

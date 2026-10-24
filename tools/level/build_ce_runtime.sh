@@ -12,6 +12,9 @@
 #                                    library, the cooked CTF flag textures, the
 #                                    event sounds (one cook of
 #                                    unreal/MJOLNIRMaterials, chunk 988)
+#   pakchunk981-MJOLNIRH2-Windows    the Halo 2 masters (M_H2_PlasmaAlpha:
+#                                    Scripts/build_h2_materials.py, same cook,
+#                                    chunk 981)
 #   pakchunk984-MJOLNIRUI-Windows    the multiplayer screens and HUD widgets
 #                                    (Scripts/build_mjolnir_ui.py, same cook,
 #                                    chunk 984; docs/custom_ui.md)
@@ -73,11 +76,13 @@ MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/ctf_
 MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")" \
   MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Sounds/Events" run Scripts/build_ce_sounds.py
 run Scripts/build_mjolnir_ui.py
+run Scripts/build_h2_materials.py
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")"
 staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
 for e in utoc ucas; do
   cp -f "$staged/pakchunk988-Windows.$e" "$out/pakchunk988-MJOLNIRMAT-Windows.$e"
   cp -f "$staged/pakchunk984-Windows.$e" "$out/pakchunk984-MJOLNIRUI-Windows.$e"
+  cp -f "$staged/pakchunk981-Windows.$e" "$out/pakchunk981-MJOLNIRH2-Windows.$e"
 done
 
 echo "== 4/5 the flag mesh"

@@ -281,6 +281,7 @@ export class HubClient {
         size: query.size,
         vehicles: flag(query.vehicles),
         origin: query.origin,
+        game: query.game,
         players: query.players,
         sort: query.sort,
         limit: query.limit,

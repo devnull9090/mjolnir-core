@@ -356,7 +356,7 @@ local FIND_CLASS = UI_ROOT .. "WBP_MJOLNIRFindGames.WBP_MJOLNIRFindGames_C"
 local SETTINGS_CLASS = UI_ROOT .. "WBP_MJOLNIRGameSettings.WBP_MJOLNIRGameSettings_C"
 local SETTINGS_PAGES = 5    -- page buttons in the cooked screen
 local SETTINGS_ROWS = 12    -- option rows in the cooked screen
-local MAP_BUTTONS = 32
+local MAP_BUTTONS = 80
 local MODE_BUTTONS = 5
 local ROSTER_ROWS = 16
 local GAME_ROWS = 40
@@ -379,6 +379,57 @@ local Find = nil                         -- FIND GAMES, while it is up
 local Found = { all = {}, games = {}, maps = {}, matching = 0, chosen = nil, loading = false }
 local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
+
+-- The map select's rows: the installed maps, then the hub's maps this PC
+-- does not have (`missing`), which SELECT downloads first (Live.prompt).
+-- The chips filter them by game (the hub's `game`), source (official or
+-- community) and whether they are installed. A map neither the hub nor its
+-- level file places has no game, and only GAME ALL shows it; one the hub
+-- does not list has no source, and only SOURCE ALL shows it.
+Pick.filters = { game = nil, source = nil, installedOnly = false }
+Pick.GAMES = { "halo1", "halo2" }
+Pick.GAME_NAMES = { halo1 = "HALO CE", halo2 = "HALO 2" }
+Pick.SOURCES = { "official", "community" }
+
+--- A chip's next value: nil (ALL), then each choice, then ALL again.
+function Pick.cycle(choices, current)
+    if current == nil then return choices[1] end
+    for i, v in ipairs(choices) do
+        if v == current then return choices[i + 1] end
+    end
+    return nil
+end
+
+function Pick.list()
+    local f = Pick.filters
+    -- The game: the installed map's own record, else the hub's listing; a
+    -- listing without one is a Halo CE map (the hub listed only those
+    -- before it had the field).
+    local function keep(listing, map)
+        local game = (map and map.game) or (listing and (listing.game or "halo1"))
+        if f.game and game ~= f.game then return false end
+        if f.source and not (listing and (listing.official == true) == (f.source == "official")) then return false end
+        return true
+    end
+    local out, have = {}, {}
+    for _, map in ipairs(installedMaps()) do
+        have[map.code] = true
+        if keep(MapLive.cached(map.code), map) then out[#out + 1] = map end
+    end
+    if not f.installedOnly then
+        local missing = {}
+        for _, listing in ipairs(MapLive.listings()) do
+            if not have[listing.code] and keep(listing) then
+                missing[#missing + 1] = { code = listing.code, title = listing.title, description = listing.summary,
+                    modes = listing.modes, missing = true }
+            end
+        end
+        table.sort(missing, function(a, b) return titleOf(a) < titleOf(b) end)
+        for _, map in ipairs(missing) do out[#out + 1] = map end
+    end
+    Pick.shown = out
+    return out
+end
 -- A fireteam client's view of the host's lobby (After a match, below).
 local clientLobby = { dismissed = false, at = nil }
 -- A fireteam client's copy of the host's game settings line (the lobby
@@ -1047,7 +1098,8 @@ end
 local function showDetails(map)
     if not (UI.valid(Select) and map) then return end
     setText(Select.MapTitle, titleOf(map))
-    setText(Select.MapDescription, map.description)
+    setText(Select.MapDescription, map.missing and ("NOT INSTALLED: SELECT DOWNLOADS IT.  " .. (map.description or ""))
+        or map.description)
     Live.showCover(Select, map.code)
     setText(Select.MapMeta, Live.metaLine(map.code))
     local modes = modesFor(map)
@@ -1067,20 +1119,33 @@ end
 local function drawSelect()
     if not UI.valid(Select) then return end
     pcall(function() Select.Select:SetIsEnabled(Pick.map ~= nil and Pick.mode ~= nil) end)
-    local maps = installedMaps()
+    local maps = Pick.list()
+    local missing = 0
+    for _, map in ipairs(maps) do if map.missing then missing = missing + 1 end end
     for i = 0, MAP_BUTTONS - 1 do
         local map, button = maps[i + 1], Select["Map" .. i]
         setShown(button, map ~= nil)
         if map then
             local label = Select["Map" .. i .. "Label"]
-            setText(label, titleOf(map))
+            setText(label, titleOf(map) .. (map.missing and "   /   DOWNLOAD" or ""))
             local chosen = Pick.map and Pick.map.code == map.code
+            local colour = chosen and ACCENT or (map.missing and { R = 0.6, G = 0.66, B = 0.72, A = 1 } or WHITE)
             pcall(function()
                 button:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
-                label:SetColorAndOpacity({ SpecifiedColor = chosen and ACCENT or WHITE, ColorUseRule = 0 })
+                label:SetColorAndOpacity({ SpecifiedColor = colour, ColorUseRule = 0 })
             end)
         end
     end
+    -- The chips (a runtime pack from before them has none: these do nothing).
+    local f = Pick.filters
+    setText(Select.FilterGameValue, f.game and Pick.GAME_NAMES[f.game] or "ALL")
+    setText(Select.FilterSourceValue, f.source and string.upper(f.source) or "ALL")
+    setText(Select.FilterInstalledValue, f.installedOnly and "INSTALLED" or "ALL")
+    for key, on in pairs({ Game = f.game ~= nil, Source = f.source ~= nil, Installed = f.installedOnly }) do
+        pcall(function() Select["Filter" .. key]:SetBackgroundColor(on and SELECTED_BACKGROUND or NORMAL_BACKGROUND) end)
+    end
+    setText(Select.ListCount, string.format("MAPS   /   %d", #maps)
+        .. (missing > 0 and string.format("   /   %d TO DOWNLOAD", missing) or ""))
     showDetails(Pick.map)
 end
 
@@ -1102,6 +1167,8 @@ local function openMapSelect()
         return
     end
     drawSelect()
+    -- The hub's maps, for the rows of maps this PC does not have.
+    MapLive.refresh(function() if UI.valid(Select) then drawSelect() end end)
     pcall(function() Select.Select:SetFocus() end)
 end
 
@@ -2012,6 +2079,28 @@ local LOBBY_EVENTS = {
 
 local SELECT_EVENTS = {
     select = function()
+        if Pick.map and Pick.map.missing then
+            -- Download it first, then come back to it here, installed.
+            local code, modeId = Pick.map.code, Pick.mode and Pick.mode.id
+            Live.prompt(code, {
+                reason = "To host " .. titleOf(Pick.map) .. ".",
+                action = "DOWNLOAD",
+                readyText = "Installed.",
+                onReady = function()
+                    for _, map in ipairs(installedMaps()) do
+                        if map.code == code then
+                            Pick.map, Pick.mode = map, nil
+                            for _, m in ipairs(modesFor(map)) do
+                                if m.id == modeId then Pick.mode = m end
+                            end
+                            Pick.mode = Pick.mode or modesFor(map)[1]
+                        end
+                    end
+                    drawSelect()
+                end,
+            })
+            return
+        end
         if Pick.map and Pick.mode then
             Game.map, Game.mode = Pick.map, Pick.mode
             saveGame()
@@ -2021,6 +2110,18 @@ local SELECT_EVENTS = {
         drawLobby()
     end,
     back = function() pcall(function() Select:DeactivateWidget() end) end,
+    ["filter:game"] = function()
+        Pick.filters.game = Pick.cycle(Pick.GAMES, Pick.filters.game)
+        drawSelect()
+    end,
+    ["filter:source"] = function()
+        Pick.filters.source = Pick.cycle(Pick.SOURCES, Pick.filters.source)
+        drawSelect()
+    end,
+    ["filter:installed"] = function()
+        Pick.filters.installedOnly = not Pick.filters.installedOnly
+        drawSelect()
+    end,
 }
 
 -------------------------------------------------------------------------------
@@ -2127,9 +2228,9 @@ local function onScreenEvent(isLobby, event)
     if verb then
         local i = tonumber(index) + 1
         if verb == "map" then
-            pickMap(installedMaps()[i])
+            pickMap((Pick.shown or installedMaps())[i])
         elseif verb == "hover" then
-            showDetails(installedMaps()[i])
+            showDetails((Pick.shown or installedMaps())[i])
         elseif verb == "mode" and Pick.map then
             local mode = modesFor(Pick.map)[i]
             if mode then

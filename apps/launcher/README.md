@@ -23,9 +23,10 @@ other, and "update available" lived in four unrelated corners of the UI.
 
 Multiplayer, Tools and Settings sit outside that loop. **Multiplayer** lists the
 classic maps and has the one button that installs everything they need: every
-official map pack, the CE runtime pack they share, and the code mods that put
-MULTIPLAYER on the main menu (`hub::install_multiplayer`). Running it again
-updates what moved on. Community maps install one at a time from Browse Hub's
+official CE map pack, the CE runtime pack they share, and the code mods that
+put MULTIPLAYER on the main menu (`hub::install_multiplayer`). Running it again
+updates what moved on. The official Halo 2 maps are a separate, optional pack
+with their own button (`hub::install_halo2_maps`). Community maps install one at a time from Browse Hub's
 Maps tab, or in game when a lobby needs one; a `mjolnir://join/<lobby>` link
 opens this view to join. **Tools** installs companion apps such as the tag
 editor. **Settings** holds the game location, the launch method, the UE4SS

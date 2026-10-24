@@ -209,6 +209,14 @@ def main():
     if "--extra" in sys.argv:
         extra = json.load(open(sys.argv[sys.argv.index("--extra") + 1], encoding="utf-8"))
     skip = set(extra.get("skip_entries", [])) if extra else set()
+    # --sim-machines <machines.json>: Halo 2's turning parts made machines of
+    # the simulation's own (tools/level/h2_machines.py), whose collision
+    # turns with them; at rest in the BSP it would stand where the part only
+    # sometimes is.
+    if "--sim-machines" in sys.argv:
+        machines = json.load(open(sys.argv[sys.argv.index("--sim-machines") + 1], encoding="utf-8"))
+        placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
+        skip |= {n for n, e in enumerate(placement["entries"]) if e.get("h2_motion") and e.get("asset") in machines}
     src_json = os.path.join(staging, "bsp", "collision_0.json")
     meta = json.load(open(src_json, encoding="utf-8"))
     order = meta.get("array_order") or ORDER_DEFAULT
@@ -308,7 +316,11 @@ def main():
     open(os.path.join(out_dir, bin_name), "wb").write(blob)
     meta["bin"] = bin_name
     meta["counts"] = {name: len(arrays[name]) for name in order}
-    meta["scenery_surfaces"] = {"objects": objects, "surfaces": added,
+    # A staging may arrive with a tail of its own (Halo 2's instanced
+    # geometry, mjolnir cache stage): this script's surfaces follow it, so
+    # the tail grows rather than restarting. CE stagings carry none.
+    prior = meta.get("scenery_surfaces") or {}
+    meta["scenery_surfaces"] = {"objects": objects + prior.get("objects", 0), "surfaces": added + prior.get("surfaces", 0),
                                 "note": "standalone surfaces after the BSP's own; mjolnir level collision links them into the tree"}
     json.dump(meta, open(out, "w", encoding="utf-8"), indent=1)
     print(f"{objects} scenery placement(s), {len(skip)} replaced: {added} collision surface(s) added "

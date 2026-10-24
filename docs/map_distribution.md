@@ -89,7 +89,8 @@ The manifest's map block:
     "modes": ["slayer", "ctf"],
     "size": "large",
     "players": { "min": 4, "max": 16 },
-    "vehicles": true
+    "vehicles": true,
+    "game": "halo1"
   },
   "compat": { "min_build": "2026.06.26.1097863.1" },
   "deps": [{ "slug": "mjolnir-ce-runtime", "range": "^1.0.0" }]
@@ -100,11 +101,12 @@ The manifest's map block:
   hub, which rejects a second map claiming a code someone else's map holds.
 - `modes` lists the game types the multiplayer menu offers. Each one must be
   a variant the loader ships (`slayer`, `ctf`, ...).
-- `size`, `players`, `vehicles` and `origin` are optional catalog metadata,
+- `size`, `players`, `vehicles`, `origin` and `game` are optional catalog metadata,
   what players filter the hub's map list by ([below](#the-catalog)). A
   release that leaves one out keeps the value the listing already has.
   `origin` is `custom_edition` or `original`; `classic` is set by
-  moderators only. Field rules are in [mjolnir_format.md](mjolnir_format.md#map-archives).
+  moderators only. `game` is the game the map comes from, `halo1` (Halo CE)
+  or `halo2` (Halo 2). Field rules are in [mjolnir_format.md](mjolnir_format.md#map-archives).
 - The registration record is what `mjolnir level bake --standalone` writes
   beside its output as `<CODE>.registration.json`: the codename, the canvas
   scenario it was cloned from, the title, the description and the world
@@ -131,6 +133,7 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 | `pakchunk990-MJOLNIRSPARTAN_P` | the Spartan model with its body material on the body damage section (shipped on the head section, every bullet hit was a headshot) |
 | `pakchunk990-MJOLNIRFLUX_P` | Fluid Flux's infinite sea (`NS_InfiniteSurfaceMesh`) with fixed bounds 10 km tall: the shipped ones are 50 m round Z 0, and a sea far below it (Yoyorast's, -256 m) was culled whole when the top of the view was level. Byte offsets, so it is rebuilt for every game update |
 | `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
+| `pakchunk981-MJOLNIRH2-Windows` | the Halo 2 masters (`/Game/MJOLNIR/H2`, `Scripts/build_h2_materials.py`): `M_H2_PlasmaAlpha`, which converted Halo 2 maps' plasma draws with ([h2_map_conversion.md](h2_map_conversion.md)) |
 | `pakchunk985-MJOLNIRMENU_P` | the main menu with its own MULTIPLAYER button ([multiplayer_menu.md](multiplayer_menu.md)). It replaces the shipped menu, so it is rebuilt for every game update |
 | `pakchunk983-MJOLNIRCETRIAL-Windows` | the trial masters the remastered maps draw with (`/Game/MJOLNIR/CETrial`, `Scripts/build_ce_materials.py`) and their tessellated cliffs (`Scripts/build_ce_cliffs.py`). `tools/level/upgrade_ce_map.py` cooks it, not `build_ce_runtime.sh`, and looks it up among the installed runtime's containers |
 
@@ -306,23 +309,28 @@ image, and metadata:
 | `size` | `small`, `medium`, `large`, or null |
 | `players_min`, `players_max` | 1 to 16, or null |
 | `vehicles` | true, false, or null |
-| `origin` | `classic` (the 19 converted stock maps), `custom_edition`, `original`, or null |
+| `origin` | `classic` (the converted stock maps), `custom_edition`, `original`, or null |
+| `game` | `halo1` (Halo CE), `halo2` (Halo 2), or null |
 
-Migration 0017 fills these for the 19 classics. Authors set them in the
+Migration 0017 fills these for the 19 Halo CE classics, and migration 0023
+sets `game` to `halo1` on every map published before it. Authors set them in the
 manifest, and the mod's owner, its authors and moderators change them with
 `PATCH /api/v1/maps/{code}` (only moderators may set or change `classic`).
 
-With no parameters, `/maps` returns every map (up to 500) in one list: the
-official classics first, then by title. The launcher's **Install
-multiplayer** (`/maps?official=1`) and the game's map list rely on that
-form, so filters and paging are opt-in:
+With no parameters, `/maps` returns every map (up to 500), from every
+game, in one list: the official classics first, then by title. The game's
+map list relies on that form, so filters and paging are opt-in. The
+launcher's **Install multiplayer** asks for `/maps?official=1&game=halo1`,
+the official Halo CE maps, and its optional **Install Halo 2 maps** for
+`/maps?official=1&game=halo2`. An older launcher asks for
+`/maps?official=1`, which lists the official maps of both games.
 
 | Parameter | Effect |
 |---|---|
 | `official` | `1` official maps only, `0` community maps only |
 | `mode` | maps offering this game type |
 | `q` | title, code or summary contains this (up to 80 characters) |
-| `size`, `vehicles`, `origin` | exact match; a map that never declared the field is left out |
+| `size`, `vehicles`, `origin`, `game` | exact match; a map that never declared the field is left out |
 | `players` | maps whose player range includes this count; a map with no range is kept |
 | `sort` | `newest`, `downloads`, `rating` or `title`; absent keeps official first, then title |
 | `limit`, `cursor` | page size 1 to 100, and the `next_cursor` of the previous page |

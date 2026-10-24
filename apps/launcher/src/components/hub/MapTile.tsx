@@ -29,6 +29,26 @@ export function mapStatus(
   return "installed";
 }
 
+/** Which game a map comes from, as the hub's `game` field says. */
+export type MapGame = "halo1" | "halo2";
+
+const GAME_NAMES: Record<MapGame, string> = { halo1: "Halo CE", halo2: "Halo 2" };
+
+/**
+ * The listing's `game`, or null where it has none: hubs from before the
+ * field send nothing, and those listings are CE maps.
+ */
+export function mapGame(listing: MapListing): MapGame | null {
+  const game: string | null | undefined = listing.game;
+  return game === "halo1" || game === "halo2" ? game : null;
+}
+
+/** A CE map: tagged `halo1`, or untagged (listed before the field). */
+export function isHaloCeMap(listing: MapListing): boolean {
+  const game: string | null | undefined = listing.game;
+  return game == null || game === "halo1";
+}
+
 const BADGE: Record<MapStatus, { label: string; className: string }> = {
   installed: { label: "Installed", className: "bg-emerald-500/15 text-emerald-400" },
   update: { label: "Update", className: "bg-mjolnir-gold/15 text-mjolnir-gold" },
@@ -53,9 +73,11 @@ function versionTitle(
   }
 }
 
-/** "Large · 8–16 players · Vehicles", from whatever the listing knows. */
+/** "Halo 2 · Large · 8–16 players · Vehicles", from whatever the listing knows. */
 function facts(m: MapListing): string[] {
   const out: string[] = [];
+  const game = mapGame(m);
+  if (game) out.push(GAME_NAMES[game]);
   if (m.size) out.push(m.size[0].toUpperCase() + m.size.slice(1));
   if (m.players_min && m.players_max) {
     out.push(

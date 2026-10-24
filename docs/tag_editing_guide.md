@@ -484,6 +484,10 @@ a new tag, because the game never loads one that nothing names. Testing or expor
 new tag into a package of its own, in an addition container the game registers by name — the
 path `mjolnir new-tag` proved in game; see
 [`iostore_packaging.md`](iostore_packaging.md#new-packages-register-and-resolve-by-name).
+From the command line, `new-tag` also takes a whole body written by another tool
+(`--payload`, e.g. an animation graph with a resource of its own), resizes root blocks
+(`--resize BLOCK=N`, copies of the last element) and reads `--set`s from a file
+(`--set-file`); `tools/level/h2_machines.py` builds Halo 2's machines that way.
 
 ### Textures
 

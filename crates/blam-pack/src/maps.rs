@@ -139,7 +139,8 @@ pub fn installed(layout: &Layout) -> Result<Vec<Installed>, String> {
 }
 
 /// The menu's list: each map's code, title, description and game types (the
-/// level's `modes`, else its `variant`, else Slayer).
+/// level's `modes`, else its `variant`, else Slayer), and the game it comes
+/// from when the level says.
 pub fn menu_list(maps: &[Installed]) -> serde_json::Value {
     serde_json::Value::Array(
         maps.iter()
@@ -153,12 +154,18 @@ pub fn menu_list(maps: &[Installed]) -> serde_json::Value {
                             .map(|v| serde_json::json!([v]))
                     })
                     .unwrap_or_else(|| serde_json::json!(["slayer"]));
-                serde_json::json!({
+                let mut entry = serde_json::json!({
                     "code": m.registration.code,
                     "title": m.registration.title,
                     "description": m.registration.description,
                     "modes": modes,
-                })
+                });
+                // The game it comes from, when its level file says (the map
+                // select's game filter).
+                if let Some(game) = level.and_then(|l| l.get("game")).and_then(|g| g.as_str()) {
+                    entry["game"] = serde_json::json!(game);
+                }
+                entry
             })
             .collect(),
     )

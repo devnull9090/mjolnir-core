@@ -34,6 +34,14 @@ pub enum MegaloCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Check a `.mglo` is one the simulation can decode safely, within its
+    /// store capacities — the guard to run on distributed variant content
+    /// before the simulation's file loader decodes it. Exits non-zero if the
+    /// file is malformed or out of bounds (docs/re/variant_network_safety.md).
+    Validate {
+        /// The `.mglo` file.
+        file: PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -342,8 +350,9 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 std::fs::write(&path, serde_json::to_string_pretty(&layout)?)
                     .with_context(|| format!("writing {}", path.display()))?;
             }
-            // Read back through the decoder's grammar before anything ships.
-            Variant::read(&bytes).map_err(|e| anyhow::anyhow!("reads back wrong: {e}"))?;
+            // Read back through the decoder's grammar and the simulation's
+            // capacity bounds before anything ships.
+            Variant::validate(&bytes).map_err(|e| anyhow::anyhow!("reads back wrong: {e}"))?;
             std::fs::write(&w.out, &bytes)
                 .with_context(|| format!("writing {}", w.out.display()))?;
             println!(
@@ -372,6 +381,14 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
             let v = Variant::read(&bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
             println!("{v:#?}");
+            Ok(())
+        }
+        MegaloCommand::Validate { file } => {
+            let bytes =
+                std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
+            Variant::validate(&bytes)
+                .map_err(|e| anyhow::anyhow!("{}: rejected: {e}", file.display()))?;
+            println!("{}: ok ({} bytes)", file.display(), bytes.len());
             Ok(())
         }
     }

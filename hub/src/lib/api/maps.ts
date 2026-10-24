@@ -1,12 +1,13 @@
 /**
- * The maps catalog: the official classic Halo CE maps and community maps,
+ * The maps catalog: the official classic Halo CE and Halo 2 maps and community maps,
  * each with its latest published release (docs/multiplayer_release_plan.md,
  * item 4). A map is a content mod with a map_listings row
  * (migrations/0012_maps_and_lobbies.sql); the launcher installs it like any
  * content mod and then registers it with the game.
  *
  * The listing is also what players search and filter community maps by
- * (migrations/0017_map_metadata.sql). Its unfiltered form is a contract:
+ * (migrations/0017_map_metadata.sql, and the game it comes from:
+ * migrations/0023_map_game.sql). Its unfiltered form is a contract:
  * launcher 0.12 and the game's MULTIPLAYER menu ask for `/maps` or
  * `/maps?official=1` and expect every map, official first, then by title.
  */
@@ -17,7 +18,7 @@ import type { ApiEnv } from "./bindings";
 import { requireScoped } from "./auth";
 import { requireModerator } from "./account";
 import { audit } from "./moderation";
-import { MAP_ORIGINS, MAP_SIZES } from "./manifest";
+import { MAP_GAMES, MAP_ORIGINS, MAP_SIZES } from "./manifest";
 import { ErrorSchema, avatarUrl, mediaUrl } from "./schemas";
 
 const MapSchema = z
@@ -44,6 +45,9 @@ const MapSchema = z
       description:
         "`classic` for the converted stock Halo CE maps, `custom_edition` for a converted " +
         "Halo Custom Edition map, `original` for a map made for Campaign Evolved.",
+    }),
+    game: z.enum(MAP_GAMES).nullable().openapi({
+      description: "The game the map comes from: `halo1` (Halo CE) or `halo2` (Halo 2); null if never declared.",
     }),
     /** When the map's mod was created, for "newest". */
     created_at: z.string(),
@@ -88,6 +92,7 @@ function toMap(r: MapRow): MapListing {
     players_max: (r.players_max as number) ?? null,
     vehicles: r.vehicles === null || r.vehicles === undefined ? null : r.vehicles === 1,
     origin: (r.origin as MapListing["origin"]) ?? null,
+    game: (r.game as MapListing["game"]) ?? null,
     created_at: r.created_at as string,
     release: r.release_id
       ? {
@@ -104,7 +109,7 @@ function toMap(r: MapRow): MapListing {
 /** Published maps, each joined to its newest published release. */
 const MAP_SELECT = `
   SELECT ml.code, ml.title, ml.modes, ml.official, ml.size, ml.players_min, ml.players_max,
-         ml.vehicles, ml.origin, m.slug, m.summary, m.download_count, m.rating_count,
+         ml.vehicles, ml.origin, ml.game, m.slug, m.summary, m.download_count, m.rating_count,
          m.rating_mean, m.created_at, COALESCE(u.display_name, u.discord_username) AS owner,
          u.discord_id AS owner_discord_id, u.discord_avatar AS owner_discord_avatar,
          r.id AS release_id, r.version AS release_version, r.file_size AS release_size,
@@ -144,6 +149,8 @@ export interface MapListQuery {
   size?: (typeof MAP_SIZES)[number];
   vehicles?: boolean;
   origin?: (typeof MAP_ORIGINS)[number];
+  /** Which game the map comes from. */
+  game?: (typeof MAP_GAMES)[number];
   /** Suits this many players: inside the map's range, or the range unknown. */
   players?: number;
   sort?: keyof typeof MAP_SORTS;
@@ -195,6 +202,10 @@ export async function searchMaps(
     binds.push(query.origin);
     clauses.push(`ml.origin = ?${binds.length}`);
   }
+  if (query.game) {
+    binds.push(query.game);
+    clauses.push(`ml.game = ?${binds.length}`);
+  }
   if (query.players !== undefined) {
     // A map that never said how many it suits is not hidden by the filter.
     binds.push(query.players);
@@ -235,6 +246,7 @@ const MapMetadataSchema = z
     players_max: z.number().int().nullable(),
     vehicles: z.boolean().nullable(),
     origin: z.enum(MAP_ORIGINS).nullable(),
+    game: z.enum(MAP_GAMES).nullable(),
   })
   .openapi("MapMetadata");
 
@@ -245,12 +257,13 @@ const MapMetadataPatchSchema = z
     players_max: z.number().int().min(1).max(16).nullable().optional(),
     vehicles: z.boolean().nullable().optional(),
     origin: z.enum(MAP_ORIGINS).nullable().optional(),
+    game: z.enum(MAP_GAMES).nullable().optional(),
   })
   .openapi("MapMetadataPatch", {
     description: "Fields to change; an absent field is kept and null clears one.",
   });
 
-const PATCH_FIELDS = ["size", "players_min", "players_max", "vehicles", "origin"] as const;
+const PATCH_FIELDS = ["size", "players_min", "players_max", "vehicles", "origin", "game"] as const;
 
 const BOOL = z.enum(["0", "1"]);
 
@@ -265,7 +278,8 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
         "With no `sort` or `limit`, every published map (up to 500), the official classics " +
         "first and then by title; the launcher and the game's menu rely on that form. " +
         "Filters narrow it, and a map that never declared a filtered field passes the " +
-        "players filter but not the others.",
+        "players filter but not the others. `game` (`halo1` or `halo2`) narrows it to one " +
+        "game's maps; absent, maps from every game are listed.",
       request: {
         query: z.object({
           official: BOOL.optional(),
@@ -276,6 +290,9 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
           size: z.enum(MAP_SIZES).optional(),
           vehicles: BOOL.optional(),
           origin: z.enum(MAP_ORIGINS).optional(),
+          game: z.enum(MAP_GAMES).optional().openapi({
+            description: "Only maps from this game: `halo1` (Halo CE) or `halo2` (Halo 2).",
+          }),
           players: z.coerce.number().int().min(1).max(16).optional().openapi({
             description:
               "Maps that suit this many players: within the map's range, or with no range declared.",
@@ -318,6 +335,7 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
         size: query.size,
         vehicles: query.vehicles === undefined ? undefined : query.vehicles === "1",
         origin: query.origin,
+        game: query.game,
         players: query.players,
         sort: query.sort,
         limit: query.limit,
@@ -370,7 +388,7 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
       tags: ["maps"],
       summary: "Set a map's catalog metadata (its authors, or moderators)",
       description:
-        "Size, player range, vehicles and origin, as the catalog filters by them. The " +
+        "Size, player range, vehicles, origin and game, as the catalog filters by them. The " +
         "mod's owner and authors may set them; only moderators may set or change " +
         "`origin: classic`, which marks the converted stock maps.",
       request: {
@@ -396,7 +414,7 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
 
       const row = await c.env.DB.prepare(
         `SELECT ml.mod_id, ml.size, ml.players_min, ml.players_max, ml.vehicles, ml.origin,
-                m.owner_id,
+                ml.game, m.owner_id,
                 EXISTS (SELECT 1 FROM mod_authors a
                         WHERE a.mod_id = ml.mod_id AND a.user_id = ?2
                           AND a.role IN ('owner', 'author')) AS is_author
@@ -410,6 +428,7 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
           players_max: number | null;
           vehicles: number | null;
           origin: string | null;
+          game: string | null;
           owner_id: string;
           is_author: number;
         }>();
@@ -465,6 +484,7 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
           players_max: (merged.players_max as number | null) ?? null,
           vehicles: merged.vehicles === null ? null : merged.vehicles === 1,
           origin: (merged.origin as z.infer<typeof MapMetadataSchema>["origin"]) ?? null,
+          game: (merged.game as z.infer<typeof MapMetadataSchema>["game"]) ?? null,
         },
         200,
       );

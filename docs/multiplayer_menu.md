@@ -112,14 +112,20 @@ hides the main menu beneath, and Back (Escape, B) pops them
   - That screen also shows START CAMPAIGN, which starts the campaign, not
     the lobby's map. The last game hosted is remembered in
   `MJOLNIRLobby\last_game.txt`.
-- **The map select:** every installed map in a scrolling list. Hovering a
-  map previews its details and game types; clicking picks it. A game type
-  button picks the mode, and SELECT returns to the lobby with both.
+- **The map select:** up to 80 maps in a scrolling list: every installed
+  map, then the hub's maps this PC does not have, marked DOWNLOAD
+  (`MapLive.listings`, the cached `GET /maps`). Chips above it narrow the
+  list by game (the hub's `game`: Halo CE or Halo 2), by source (official
+  or community) and to installed maps; a map the hub does not list passes
+  only the ALL choices. Hovering a map previews its details and game types;
+  clicking picks it. A game type button picks the mode, and SELECT returns
+  to the lobby with both, or, for a map not installed, opens the download
+  screen and picks the map once it is in.
 
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
 `invite`, `changemap`, `gametype`, `gamesettings`, `listing`, `maxdown`,
 `maxup`, `maxplayers`, `findgames`, `back`, `select`, `map:<i>`,
-`hover:<i>`, `mode:<i>` (FIND GAMES and GAME SETTINGS send their own, such
+`hover:<i>`, `mode:<i>`, `filter:game`, `filter:source`, `filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
 as `game:<i>`, `sort:<column>` and `reset`). Lua hooks it and handles the
 event off the click, in `ExecuteInGameThread`. No native delegate binding is involved. Only the
 injected fallback MULTIPLAYER button still needs it (next section).

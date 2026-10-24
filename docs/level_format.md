@@ -180,12 +180,15 @@ experimental.
 
 ### `blam.objects` — the structures lane
 
-Each entry becomes a `scenery` or `crates` placement in the scnr (palette entry appended as
-needed, element cloned from a donor and re-pointed). Object tags bring their own collision and
-render models, so this is how ramps, walls, bases, and cover are built. Block capacity is
-generous (scenery 2000, crates 1536, palettes 256 each). Restrictions v1: groups `scenery` and
-`crates` only (machines/controls need device-group wiring); tag paths must exist in the shipped
-tag set (`mjolnir list --paks ... --group scenery`, or `--group crate` for crates).
+Each entry becomes a `scenery`, `crates` or `machines` placement in the scnr (palette entry
+appended as needed, element cloned from a donor and re-pointed). Object tags bring their own
+collision and render models, so this is how ramps, walls, bases, and cover are built. Block
+capacity is generous (scenery 2000, crates 1536, palettes 256 each). A machine is cut loose
+from the donor's device groups (power and position group `none`), so it runs on its own: a
+gear turns from the map's start. Controls need device-group wiring and are not supported. Tag
+paths must exist in the shipped tag set (`mjolnir list --paks ... --group scenery`, or `--group
+crate` for crates) or in a container installed beside the map (Halo 2's machines,
+`tools/level/h2_machines.py`).
 
 ### `blam.clear`
 
@@ -263,9 +266,10 @@ and the loader's comments beside each are the reference.
   `waterfalls`.
 - Under `environment`, beside the keys above: `haze` (Unreal's height fog as distance haze),
   `clouds` (volumetric clouds), `water` (CE water drawn as rolling, reflecting water),
-  `sun_mask` (a cooked mask of where the sun reaches the terrain), `sounds` (CE's background
-  sound and sound scenery) and `fade_in` (`false` opts out of the fade-in the loader asks the
-  Blam console for).
+  `sun_mask` (a cooked mask of where the sun reaches the terrain), `sounds` (CE's or Halo 2's
+  background sound and sound scenery; an entry's optional `pitch` is a playback rate
+  multiplier) and `fade_in` (`false` opts out of the fade-in the loader asks the Blam console
+  for).
 
 ### `decor`
 
@@ -289,8 +293,17 @@ decor entry with three. `mesh_rewrite --material` prints the list to paste here.
 A converted map's decor also uses `cast_shadow` (false on level geometry whose shadows are
 baked), `sort_priority` (translucent sort order, for the sky), `pulse` (one runtime-material
 scalar driven by a CE periodic function), `scalars` (values on the mesh's own materials),
-`static` (no world-position offset) and `capture_only` (seen by the Fluid Flux ground capture,
-then hidden); see the loader's `spawnDecorItem`.
+`static` (no world-position offset), `capture_only` (seen by the Fluid Flux ground capture,
+then hidden) and `motion` (a Halo 2 gear that turns: `pivot_cm` from the actor, `period` in
+seconds, `keys` as `[seconds, yaw degrees]`, linear between them; with `axis`, a unit vector,
+the keys are degrees about it instead of yaw; `events`, `{t, wave, gain, inner, falloff}`,
+are one-shots played at the pivot as the turn passes `t`; `follow`, `{class, pos}`, names a
+machine of the simulation's own (its Unreal Blueprint class and position, from the canvas
+origin) whose collision turns with the part: the loader attaches the mesh to that actor's
+turning part once it finds it, and fits the turn's phase, for the sounds, to what the part
+does; meshes with the same `entry` (a part's opaque and translucent ones) share that actor,
+and each other part claims its own; until then, and without `follow`, the loader turns the actor about the pivot on the
+world's clock); see the loader's `spawnDecorItem`.
 
 ### `markers`
 
