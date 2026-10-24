@@ -1122,7 +1122,14 @@ fn install_one_as(
             });
         }
     }
-    save_state(&state)
+    save_state(&state)?;
+    // The files just written are the ones whose hashes were checked: the
+    // launch check's quick pass starts from here.
+    if let Some(inst) = state.installed.iter().find(|m| m.slug == slug) {
+        let files: Vec<String> = inst.container_hashes.keys().cloned().collect();
+        record_stamps(&inst.release_id, &files);
+    }
+    Ok(())
 }
 
 // ─── Live install: a map for the running game ──────────────────────────
@@ -1503,18 +1510,26 @@ pub fn verify_installed() -> Vec<VerifiedMod> {
     load_state().installed.iter().map(verify_one).collect()
 }
 
-/// One installed mod's cache against the hashes recorded at install.
+/// One installed mod's cache against the hashes recorded at install: every
+/// byte read. Files that pass get fresh stamps, so the launch check's quick
+/// pass (`verify_quick`) starts from what this proved.
 pub fn verify_one(inst: &InstalledHubMod) -> VerifiedMod {
     let dir = cache_dir().join(&inst.release_id);
     let mut tampered = Vec::new();
     let mut missing = Vec::new();
+    let mut good = Vec::new();
     for (file, expected) in &inst.container_hashes {
         match fs::read(dir.join(file)) {
-            Ok(bytes) if sha256_hex(&bytes) == *expected => {}
+            Ok(bytes) if sha256_hex(&bytes) == *expected => good.push(file.clone()),
             Ok(_) => tampered.push(file.clone()),
             Err(_) => missing.push(file.clone()),
         }
     }
+    record_stamps(&inst.release_id, &good);
+    verified(inst, tampered, missing)
+}
+
+fn verified(inst: &InstalledHubMod, tampered: Vec<String>, missing: Vec<String>) -> VerifiedMod {
     VerifiedMod {
         slug: inst.slug.clone(),
         name: inst.name.clone(),
@@ -1524,6 +1539,129 @@ pub fn verify_one(inst: &InstalledHubMod) -> VerifiedMod {
         missing,
         signature_verified: inst.signature_verified,
     }
+}
+
+// ─── Quick integrity: stamps ────────────────────────────────────────────
+//
+// Hashing every map's containers on every launch reads gigabytes, which is
+// minutes on a slow disk. A file's size and modification time change when
+// anything writes it, so the launch check keeps both for every cache file
+// whose hash was last known good, and reads a file only when they moved —
+// the way git tells changed files from untouched ones. The Library's
+// Re-check still reads every byte (`verify_one`).
+
+/// What a cache file looked like when its hash was last known good.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Stamp {
+    size: u64,
+    /// Modification time, nanoseconds since the Unix epoch.
+    modified: u128,
+}
+
+/// `<release id>/<file>` → its stamp.
+type Stamps = std::collections::BTreeMap<String, Stamp>;
+
+fn stamps_path() -> PathBuf {
+    config_dir().join("verify_stamps.json")
+}
+
+fn load_stamps() -> Stamps {
+    fs::read_to_string(stamps_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Saved with the stamps of releases no longer installed dropped.
+fn save_stamps(stamps: &mut Stamps) {
+    let releases: BTreeSet<String> = load_state().installed.into_iter().map(|m| m.release_id).collect();
+    stamps.retain(|key, _| key.split('/').next().is_some_and(|id| releases.contains(id)));
+    if let Ok(text) = serde_json::to_string(&*stamps) {
+        let tmp = stamps_path().with_extension("json.tmp");
+        if fs::write(&tmp, text).is_ok() {
+            let _ = fs::rename(&tmp, stamps_path());
+        }
+    }
+}
+
+fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some(Stamp { size: meta.len(), modified })
+}
+
+/// Stamp files of a release whose hashes were just proved (written by an
+/// install, or read whole by `verify_one`).
+fn record_stamps(release_id: &str, files: &[String]) {
+    let dir = cache_dir().join(release_id);
+    let mut stamps = load_stamps();
+    for file in files {
+        if let Some(stamp) = stamp_of(&dir.join(file)) {
+            stamps.insert(format!("{release_id}/{file}"), stamp);
+        }
+    }
+    save_stamps(&mut stamps);
+}
+
+/// How the quick check judged one file.
+#[derive(Debug, PartialEq, Eq)]
+enum Quick {
+    /// Size and time as stamped: not read.
+    Unchanged,
+    /// Never stamped: taken as it stands and stamped now. The download was
+    /// hash-checked; this only starts watching it.
+    Baseline,
+    /// Read because its stamp moved: still the right bytes.
+    Rehashed,
+    Tampered,
+    Missing,
+}
+
+fn judge(path: &Path, expected: &str, stamp: Option<&Stamp>) -> (Quick, Option<Stamp>) {
+    let Some(now) = stamp_of(path) else {
+        return (Quick::Missing, None);
+    };
+    match stamp {
+        Some(s) if *s == now => (Quick::Unchanged, Some(now)),
+        None => (Quick::Baseline, Some(now)),
+        Some(_) => match fs::read(path) {
+            Ok(bytes) if sha256_hex(&bytes) == expected => (Quick::Rehashed, Some(now)),
+            Ok(_) => (Quick::Tampered, None),
+            Err(_) => (Quick::Missing, None),
+        },
+    }
+}
+
+/// The launch check's integrity pass over one installed mod: each cache
+/// file stat'ed, and read only when its size or time changed since it was
+/// last known good. Also returns how many files it had to read.
+pub fn verify_quick(inst: &InstalledHubMod) -> (VerifiedMod, usize) {
+    let dir = cache_dir().join(&inst.release_id);
+    let mut stamps = load_stamps();
+    let mut tampered = Vec::new();
+    let mut missing = Vec::new();
+    let mut read = 0;
+    for (file, expected) in &inst.container_hashes {
+        let key = format!("{}/{file}", inst.release_id);
+        let (judged, stamp) = judge(&dir.join(file), expected, stamps.get(&key));
+        match judged {
+            Quick::Tampered => tampered.push(file.clone()),
+            Quick::Missing => missing.push(file.clone()),
+            Quick::Rehashed => read += 1,
+            Quick::Unchanged | Quick::Baseline => {}
+        }
+        match stamp {
+            Some(s) => stamps.insert(key, s),
+            None => stamps.remove(&key),
+        };
+    }
+    save_stamps(&mut stamps);
+    (verified(inst, tampered, missing), read)
 }
 
 pub fn uninstall(slug: String) -> Result<HubState, String> {
@@ -2787,6 +2925,35 @@ pub fn write_pending_join(lobby_dir: &Path, lobby: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quick_check_reads_a_file_only_when_its_stamp_moved() {
+        let dir = std::env::temp_dir().join("mjolnir-quick-verify");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.ucas");
+        fs::write(&file, b"good").unwrap();
+        let good = sha256_hex(b"good");
+
+        // First sight: taken as it stands, and stamped.
+        let (q, stamp) = judge(&file, &good, None);
+        assert_eq!(q, Quick::Baseline);
+        let stamp = stamp.unwrap();
+        // Untouched: not read, even against a wrong hash (proof it is not read).
+        assert_eq!(judge(&file, "not-the-hash", Some(&stamp)).0, Quick::Unchanged);
+
+        // Written again with the same bytes: read, and still good.
+        let moved = Stamp { modified: stamp.modified - 1, ..stamp.clone() };
+        assert_eq!(judge(&file, &good, Some(&moved)).0, Quick::Rehashed);
+        // Other bytes behind a moved stamp: caught.
+        fs::write(&file, b"evil").unwrap();
+        let (q, cleared) = judge(&file, &good, Some(&moved));
+        assert_eq!(q, Quick::Tampered);
+        assert!(cleared.is_none(), "a bad file keeps no stamp, so it is read again next time");
+        // Gone.
+        fs::remove_file(&file).unwrap();
+        assert_eq!(judge(&file, &good, Some(&stamp)).0, Quick::Missing);
+    }
 
     #[test]
     fn a_mods_own_state_files_are_not_changes_but_edits_are() {

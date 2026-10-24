@@ -322,9 +322,14 @@ pub fn verify(report: Report) -> Vec<Problem> {
     for inst in &hub_mods {
         let key = format!("files:{}", inst.slug);
         step(report, "files", &key, &inst.name, "running", None);
-        let m = crate::hub::verify_one(inst);
+        // Read only the files whose size or time moved (`hub::verify_quick`):
+        // hashing every map's containers each launch took minutes on a slow
+        // disk.
+        let (m, read) = crate::hub::verify_quick(inst);
         if m.ok {
-            step(report, "files", &key, &inst.name, "ok", Some(plural(inst.container_hashes.len(), "file")));
+            let n = plural(inst.container_hashes.len(), "file");
+            let detail = if read == 0 { n } else { format!("{n}, {read} changed and rechecked") };
+            step(report, "files", &key, &inst.name, "ok", Some(detail));
             continue;
         }
         let mut parts = Vec::new();

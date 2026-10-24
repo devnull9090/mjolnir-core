@@ -48,8 +48,8 @@ export function ProgressBar({ fraction }: { fraction: number }) {
 export default function Checklist({ steps }: { steps: CheckStep[] }) {
   const done = steps.filter(finished).length;
   const running = steps.filter((s) => s.state === "running");
-  // The slow rows (hashing a map's files) sit below the fold: keep the one
-  // being worked on in view.
+  // A long map list runs below the fold: keep the row being worked on in
+  // view.
   const list = useRef<HTMLDivElement>(null);
   const current = running[running.length - 1]?.key;
   useEffect(() => {

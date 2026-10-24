@@ -37,10 +37,25 @@ picks up skips it, since nothing can change under a running game.
    `preflight_verify` needs no network:
    - **runtime bundle:** each file against the cached manifest
      (`verify_install`). The player's own config files are skipped.
-   - **hub mods:** each cached container against the `container_hashes`
-     recorded at install (`hub::verify_installed`).
+   - **hub mods (maps, the CE runtime pack):** a quick pass,
+     `hub::verify_quick`. Hashing every map's containers on every launch
+     read gigabytes, and it took minutes on a slow disk. The launcher keeps
+     each cache file's size and modification time from when its hash was
+     last known good (`verify_stamps.json`, written by every install and by
+     the Library's full Re-check). A launch only looks those up, and reads a
+     file only when either changed: it is re-hashed against
+     `container_hashes`, and a mismatch is reported.
+     - A file never stamped (installed before launcher 0.17.0) is stamped
+       as it stands on first sight. Its download was hash-checked; from
+       then on it is watched.
+     - Missing files are always caught.
+     - On this PC (25 hub mods, 248 cache files): 0.4 s, against 29 s for
+       the full hash.
+
+     The Library's **Re-check** still reads every byte
+     (`hub::verify_installed`).
    - **code mods:** each file the release shipped against the hash recorded
-     when this launcher installed it (`hub::code_mods_modified`, the
+     when this launcher installed it (`hub::code_mods_verify`, the
      record's `shipped` list). Files a mod writes into its own folder while
      the game runs (MJOLNIRBlamConsole's `native\status.txt`) are not looked
      at, so a mod that has been used does not read as damaged. Mods
@@ -67,8 +82,8 @@ checklist under one progress bar (`launch/Checklist.tsx`): the core, each
 code mod, each hub mod's update, each hub mod's files, and the unsupported
 mods scan. The backend reports each item as it is queued, started and
 finished (`preflight-progress` events, `preflight::Step`). Hub mods are asked
-about four at a time; the active row stays scrolled into view, since the
-slow part is hashing each map's files.
+about four at a time, and the active row stays scrolled into view. With the
+quick file pass, the slowest part is waiting on the hub's answers.
 
 Being offline never blocks a launch. A source that can't be reached is
 listed, and Launch still works.
