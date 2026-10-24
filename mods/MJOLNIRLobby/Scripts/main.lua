@@ -44,6 +44,7 @@ local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MapLive = dofile(MOD_DIR .. "\\Scripts\\maplive.lua")
 local Identity = dofile(MOD_DIR .. "\\Scripts\\identity.lua")
+local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -3400,6 +3401,10 @@ local function watchMainMenu()
             if entry.signedIn then
                 local picked, why = pcall(pickUpJoin, hookScreenEvents)
                 if not picked then log("join link: " .. tostring(why)) end
+                -- Out of date, or mods MJOLNIR did not install: said over
+                -- the main menu (Scripts/outdated.lua).
+                local checked, err = pcall(Outdated.tick, menu)
+                if not checked then log("update check: " .. tostring(err)) end
             end
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
@@ -4046,6 +4051,7 @@ local function initialize()
         end
     end
     ExecuteInGameThreadWithDelay(2000, function() registerInstalled(0) end)
+    Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\" })
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

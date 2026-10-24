@@ -4155,6 +4155,116 @@ __declspec(dllexport) int mjolnir_map_install_status(void *L) {
     return 0;
 }
 
+/* --- Asking the launcher: updates ---------------------------------------- */
+
+/* The out-of-date prompt (Scripts/outdated.lua, docs/update_check.md) asks the
+   MJOLNIR launcher, as a map install does: the launcher has the signed sets
+   and the hub's answers, and this game gains no network client for it.
+
+   native\launcher_request.txt: one word.
+     check    `--check-updates --out <native\update_check.json>`, no window;
+              the launcher writes the JSON whole when it is done.
+     update   `mjolnir://update`: the launcher opens (or the open one is
+              handed the link), waits for the game to close, updates and
+              starts the game again.
+   native\launcher_reply.txt: "ok" or "error <why>". A launcher that does not
+   list the feature in launcher_features.txt (one word a line, beside
+   launcher_exe.txt) is never started for it: one from before would open its
+   window instead. */
+static HANDLE check_process;
+
+static int launcher_record(const char *name, char *text, size_t size) {
+    const char *appdata = getenv("APPDATA");
+    if (!appdata) return 0;
+    char record[MAX_PATH];
+    snprintf(record, sizeof record, "%s\\com.devnull9090.mjolnir-launcher\\%s", appdata, name);
+    FILE *r = fopen(record, "rb");
+    if (!r) return 0;
+    size_t n = fread(text, 1, size - 1, r);
+    text[n] = 0;
+    fclose(r);
+    return 1;
+}
+
+static int launcher_has(const char *feature) {
+    char text[512] = "";
+    if (!launcher_record("launcher_features.txt", text, sizeof text)) return 0;
+    size_t want = strlen(feature);
+    for (const char *line = text; *line;) {
+        size_t len = strcspn(line, "\r\n");
+        if (len == want && strncmp(line, feature, want) == 0) return 1;
+        line += len;
+        while (*line == '\r' || *line == '\n') line++;
+    }
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_launcher(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH], verb[16] = "";
+    snprintf(path, sizeof path, "%slauncher_request.txt", dir);
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        if (fscanf(f, "%15s", verb) < 1) verb[0] = 0;
+        fclose(f);
+    }
+    int check = strcmp(verb, "check") == 0, update = strcmp(verb, "update") == 0;
+    const char *problem = NULL;
+    if (!check && !update) problem = "not a request";
+    if (!problem && check && check_process && WaitForSingleObject(check_process, 0) == WAIT_TIMEOUT)
+        problem = "a check is still running";
+    if (!problem && !launcher_has(check ? "check-updates" : "update-link"))
+        problem = "the MJOLNIR launcher is too old for this; update it and open it once";
+    wchar_t exe[MAX_PATH] = L"";
+    if (!problem) {
+        char text[MAX_PATH * 3] = "";
+        launcher_record("launcher_exe.txt", text, sizeof text);
+        size_t len = strlen(text);
+        while (len && (text[len - 1] == '\n' || text[len - 1] == '\r')) text[--len] = 0;
+        if (!text[0] || !MultiByteToWideChar(CP_UTF8, 0, text, -1, exe, MAX_PATH) ||
+            GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES)
+            problem = "the MJOLNIR launcher was not found; open it once";
+    }
+    if (!problem) {
+        wchar_t command[MAX_PATH * 3];
+        if (check) {
+            char out[MAX_PATH];
+            snprintf(out, sizeof out, "%supdate_check.json", dir);
+            remove(out);
+            wchar_t wout[MAX_PATH];
+            MultiByteToWideChar(CP_UTF8, 0, out, -1, wout, MAX_PATH);
+            _snwprintf(command, MAX_PATH * 3, L"\"%s\" --check-updates --out \"%s\"", exe, wout);
+        } else {
+            _snwprintf(command, MAX_PATH * 3, L"\"%s\" mjolnir://update", exe);
+        }
+        command[MAX_PATH * 3 - 1] = 0;
+        STARTUPINFOW si;
+        PROCESS_INFORMATION pi;
+        memset(&si, 0, sizeof si);
+        si.cb = sizeof si;
+        DWORD flags = check ? CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS : 0;
+        if (CreateProcessW(exe, command, NULL, NULL, FALSE, flags, NULL, NULL, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            if (check) {
+                if (check_process) CloseHandle(check_process);
+                check_process = pi.hProcess;
+            } else {
+                /* The launcher outlives this game; nothing to wait on. */
+                CloseHandle(pi.hProcess);
+            }
+            fireteam_log("launcher: %s started (pid %lu)", verb, pi.dwProcessId);
+        } else {
+            problem = "could not start the MJOLNIR launcher";
+        }
+    }
+    char reply[160];
+    if (problem) snprintf(reply, sizeof reply, "error %s\n", problem);
+    else snprintf(reply, sizeof reply, "ok\n");
+    write_reply("launcher_reply.txt", reply, strlen(reply));
+    return 0;
+}
+
 __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     (void)L;
     if (!dir[0]) find_dir();

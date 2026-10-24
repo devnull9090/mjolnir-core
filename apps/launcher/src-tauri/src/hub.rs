@@ -1122,7 +1122,14 @@ fn install_one_as(
             });
         }
     }
-    save_state(&state)
+    save_state(&state)?;
+    // The files just written are the ones whose hashes were checked: the
+    // launch check's quick pass starts from here.
+    if let Some(inst) = state.installed.iter().find(|m| m.slug == slug) {
+        let files: Vec<String> = inst.container_hashes.keys().cloned().collect();
+        record_stamps(&inst.release_id, &files);
+    }
+    Ok(())
 }
 
 // ─── Live install: a map for the running game ──────────────────────────
@@ -1336,6 +1343,11 @@ pub fn record_exe_path() {
     if let Ok(exe) = std::env::current_exe() {
         let _ = fs::create_dir_all(config_dir());
         let _ = fs::write(config_dir().join("launcher_exe.txt"), exe.to_string_lossy().as_bytes());
+        // What this launcher understands beyond `--install-map`, one word a
+        // line, for the game to check before it asks: a launcher from before
+        // a feature would otherwise just open its window. A separate file
+        // because an older game reads launcher_exe.txt whole as the path.
+        let _ = fs::write(config_dir().join("launcher_features.txt"), "check-updates\nupdate-link\n");
     }
 }
 
@@ -1411,60 +1423,66 @@ pub struct UpdateInfo {
 /// reaches, and it keeps the answer honest — the hub decides what "newest"
 /// means for a mod, not a cached listing.
 pub fn check_updates() -> Result<Vec<UpdateInfo>, String> {
-    let state = load_state();
-    let mut out = Vec::new();
-    for inst in &state.installed {
-        let releases = match fetch_releases(&inst.slug) {
-            Ok(r) => r,
-            // One unreachable or deleted mod must not hide every other
-            // update; skip it and report the rest.
-            Err(_) => continue,
-        };
-        let Some(latest) = newest_release(&releases) else {
-            continue;
-        };
-        if is_newer(&latest.version, &inst.version) {
-            let detail = get_json(&format!("{}/releases/{}", hub_api(), latest.id)).ok();
-            out.push(UpdateInfo {
-                slug: inst.slug.clone(),
-                name: inst.name.clone(),
-                installed_version: inst.version.clone(),
-                latest_version: latest.version.clone(),
-                latest_release_id: latest.id.clone(),
-                channel: latest.channel.clone(),
-                changelog: detail
-                    .as_ref()
-                    .and_then(|d| d["changelog_md"].as_str())
-                    .map(str::to_string),
-                repair: None,
-            });
-            continue;
-        }
-        let gaps = map_gaps(inst);
-        if gaps.is_empty() {
-            continue;
-        }
-        // The release that is installed, or one of the same version the hub
-        // lists in its place; never an older one.
-        let Some(again) = releases
-            .iter()
-            .find(|r| r.id == inst.release_id)
-            .or_else(|| (latest.version == inst.version).then_some(latest))
-        else {
-            continue;
-        };
-        out.push(UpdateInfo {
+    // One unreachable or deleted mod must not hide every other update; it
+    // is skipped and the rest reported.
+    Ok(load_state()
+        .installed
+        .iter()
+        .filter_map(|inst| check_update_one(inst).ok().flatten())
+        .collect())
+}
+
+/// Every installed hub mod, as the state file records it.
+pub fn installed_mods() -> Vec<InstalledHubMod> {
+    load_state().installed
+}
+
+/// One installed mod against the hub: a newer release, the same release
+/// again for a map missing files, or None when it is current.
+pub fn check_update_one(inst: &InstalledHubMod) -> Result<Option<UpdateInfo>, String> {
+    let releases = fetch_releases(&inst.slug)?;
+    let Some(latest) = newest_release(&releases) else {
+        return Ok(None);
+    };
+    if is_newer(&latest.version, &inst.version) {
+        let detail = get_json(&format!("{}/releases/{}", hub_api(), latest.id)).ok();
+        return Ok(Some(UpdateInfo {
             slug: inst.slug.clone(),
             name: inst.name.clone(),
             installed_version: inst.version.clone(),
-            latest_version: again.version.clone(),
-            latest_release_id: again.id.clone(),
-            channel: again.channel.clone(),
-            changelog: None,
-            repair: Some(gaps_note(&gaps, &again.version)),
-        });
+            latest_version: latest.version.clone(),
+            latest_release_id: latest.id.clone(),
+            channel: latest.channel.clone(),
+            changelog: detail
+                .as_ref()
+                .and_then(|d| d["changelog_md"].as_str())
+                .map(str::to_string),
+            repair: None,
+        }));
     }
-    Ok(out)
+    let gaps = map_gaps(inst);
+    if gaps.is_empty() {
+        return Ok(None);
+    }
+    // The release that is installed, or one of the same version the hub
+    // lists in its place; never an older one.
+    let Some(again) = releases
+        .iter()
+        .find(|r| r.id == inst.release_id)
+        .or_else(|| (latest.version == inst.version).then_some(latest))
+    else {
+        return Ok(None);
+    };
+    Ok(Some(UpdateInfo {
+        slug: inst.slug.clone(),
+        name: inst.name.clone(),
+        installed_version: inst.version.clone(),
+        latest_version: again.version.clone(),
+        latest_release_id: again.id.clone(),
+        channel: again.channel.clone(),
+        changelog: None,
+        repair: Some(gaps_note(&gaps, &again.version)),
+    }))
 }
 
 // ─── Integrity of what is on disk ───────────────────────────────────────
@@ -1472,6 +1490,9 @@ pub fn check_updates() -> Result<Vec<UpdateInfo>, String> {
 #[derive(Debug, Serialize)]
 pub struct VerifiedMod {
     pub slug: String,
+    pub name: String,
+    /// The installed release: what a repair downloads again.
+    pub release_id: String,
     pub ok: bool,
     /// Cache files whose bytes no longer hash to what was installed.
     pub tampered: Vec<String>,
@@ -1486,30 +1507,161 @@ pub struct VerifiedMod {
 /// half-finished write, a disk fault, another program — shows up here
 /// rather than as a game that crashes for no visible reason.
 pub fn verify_installed() -> Vec<VerifiedMod> {
-    let state = load_state();
-    state
-        .installed
-        .iter()
-        .map(|inst| {
-            let dir = cache_dir().join(&inst.release_id);
-            let mut tampered = Vec::new();
-            let mut missing = Vec::new();
-            for (file, expected) in &inst.container_hashes {
-                match fs::read(dir.join(file)) {
-                    Ok(bytes) if sha256_hex(&bytes) == *expected => {}
-                    Ok(_) => tampered.push(file.clone()),
-                    Err(_) => missing.push(file.clone()),
-                }
-            }
-            VerifiedMod {
-                slug: inst.slug.clone(),
-                ok: tampered.is_empty() && missing.is_empty(),
-                tampered,
-                missing,
-                signature_verified: inst.signature_verified,
-            }
-        })
-        .collect()
+    load_state().installed.iter().map(verify_one).collect()
+}
+
+/// One installed mod's cache against the hashes recorded at install: every
+/// byte read. Files that pass get fresh stamps, so the launch check's quick
+/// pass (`verify_quick`) starts from what this proved.
+pub fn verify_one(inst: &InstalledHubMod) -> VerifiedMod {
+    let dir = cache_dir().join(&inst.release_id);
+    let mut tampered = Vec::new();
+    let mut missing = Vec::new();
+    let mut good = Vec::new();
+    for (file, expected) in &inst.container_hashes {
+        match fs::read(dir.join(file)) {
+            Ok(bytes) if sha256_hex(&bytes) == *expected => good.push(file.clone()),
+            Ok(_) => tampered.push(file.clone()),
+            Err(_) => missing.push(file.clone()),
+        }
+    }
+    record_stamps(&inst.release_id, &good);
+    verified(inst, tampered, missing)
+}
+
+fn verified(inst: &InstalledHubMod, tampered: Vec<String>, missing: Vec<String>) -> VerifiedMod {
+    VerifiedMod {
+        slug: inst.slug.clone(),
+        name: inst.name.clone(),
+        release_id: inst.release_id.clone(),
+        ok: tampered.is_empty() && missing.is_empty(),
+        tampered,
+        missing,
+        signature_verified: inst.signature_verified,
+    }
+}
+
+// ─── Quick integrity: stamps ────────────────────────────────────────────
+//
+// Hashing every map's containers on every launch reads gigabytes, which is
+// minutes on a slow disk. A file's size and modification time change when
+// anything writes it, so the launch check keeps both for every cache file
+// whose hash was last known good, and reads a file only when they moved —
+// the way git tells changed files from untouched ones. The Library's
+// Re-check still reads every byte (`verify_one`).
+
+/// What a cache file looked like when its hash was last known good.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Stamp {
+    size: u64,
+    /// Modification time, nanoseconds since the Unix epoch.
+    modified: u128,
+}
+
+/// `<release id>/<file>` → its stamp.
+type Stamps = std::collections::BTreeMap<String, Stamp>;
+
+fn stamps_path() -> PathBuf {
+    config_dir().join("verify_stamps.json")
+}
+
+fn load_stamps() -> Stamps {
+    fs::read_to_string(stamps_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Saved with the stamps of releases no longer installed dropped.
+fn save_stamps(stamps: &mut Stamps) {
+    let releases: BTreeSet<String> = load_state().installed.into_iter().map(|m| m.release_id).collect();
+    stamps.retain(|key, _| key.split('/').next().is_some_and(|id| releases.contains(id)));
+    if let Ok(text) = serde_json::to_string(&*stamps) {
+        let tmp = stamps_path().with_extension("json.tmp");
+        if fs::write(&tmp, text).is_ok() {
+            let _ = fs::rename(&tmp, stamps_path());
+        }
+    }
+}
+
+fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some(Stamp { size: meta.len(), modified })
+}
+
+/// Stamp files of a release whose hashes were just proved (written by an
+/// install, or read whole by `verify_one`).
+fn record_stamps(release_id: &str, files: &[String]) {
+    let dir = cache_dir().join(release_id);
+    let mut stamps = load_stamps();
+    for file in files {
+        if let Some(stamp) = stamp_of(&dir.join(file)) {
+            stamps.insert(format!("{release_id}/{file}"), stamp);
+        }
+    }
+    save_stamps(&mut stamps);
+}
+
+/// How the quick check judged one file.
+#[derive(Debug, PartialEq, Eq)]
+enum Quick {
+    /// Size and time as stamped: not read.
+    Unchanged,
+    /// Never stamped: taken as it stands and stamped now. The download was
+    /// hash-checked; this only starts watching it.
+    Baseline,
+    /// Read because its stamp moved: still the right bytes.
+    Rehashed,
+    Tampered,
+    Missing,
+}
+
+fn judge(path: &Path, expected: &str, stamp: Option<&Stamp>) -> (Quick, Option<Stamp>) {
+    let Some(now) = stamp_of(path) else {
+        return (Quick::Missing, None);
+    };
+    match stamp {
+        Some(s) if *s == now => (Quick::Unchanged, Some(now)),
+        None => (Quick::Baseline, Some(now)),
+        Some(_) => match fs::read(path) {
+            Ok(bytes) if sha256_hex(&bytes) == expected => (Quick::Rehashed, Some(now)),
+            Ok(_) => (Quick::Tampered, None),
+            Err(_) => (Quick::Missing, None),
+        },
+    }
+}
+
+/// The launch check's integrity pass over one installed mod: each cache
+/// file stat'ed, and read only when its size or time changed since it was
+/// last known good. Also returns how many files it had to read.
+pub fn verify_quick(inst: &InstalledHubMod) -> (VerifiedMod, usize) {
+    let dir = cache_dir().join(&inst.release_id);
+    let mut stamps = load_stamps();
+    let mut tampered = Vec::new();
+    let mut missing = Vec::new();
+    let mut read = 0;
+    for (file, expected) in &inst.container_hashes {
+        let key = format!("{}/{file}", inst.release_id);
+        let (judged, stamp) = judge(&dir.join(file), expected, stamps.get(&key));
+        match judged {
+            Quick::Tampered => tampered.push(file.clone()),
+            Quick::Missing => missing.push(file.clone()),
+            Quick::Rehashed => read += 1,
+            Quick::Unchanged | Quick::Baseline => {}
+        }
+        match stamp {
+            Some(s) => stamps.insert(key, s),
+            None => stamps.remove(&key),
+        };
+    }
+    save_stamps(&mut stamps);
+    (verified(inst, tampered, missing), read)
 }
 
 pub fn uninstall(slug: String) -> Result<HubState, String> {
@@ -1961,6 +2113,14 @@ pub struct InstallRecord {
     /// Empty for records written before content verification existed.
     #[serde(default)]
     pub tree_sha256: String,
+    /// Each file the release shipped (path below the mod folder) and its
+    /// SHA-256, as installed. The tree digest also covers files a mod writes
+    /// into its own folder while the game runs (MJOLNIRBlamConsole's
+    /// `native/status.txt`), so it stops matching after one game; this
+    /// tells an edited mod from a used one (`code_mods_verify`). Empty for
+    /// records written before launcher 0.17.0.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub shipped: std::collections::BTreeMap<String, String>,
 }
 
 /// Records used to be a bare version string. Read both shapes so upgrading
@@ -1977,7 +2137,7 @@ impl From<RawRecord> for InstallRecord {
         match raw {
             RawRecord::Legacy(version) => InstallRecord {
                 version,
-                tree_sha256: String::new(),
+                ..InstallRecord::default()
             },
             RawRecord::Full(rec) => rec,
         }
@@ -1994,13 +2154,32 @@ fn load_installed_versions() -> std::collections::HashMap<String, InstallRecord>
         .collect()
 }
 
-fn save_installed_version(id: &str, version: &str, tree_sha256: &str) -> Result<(), String> {
+/// The code mods this launcher has installed, by id.
+pub(crate) fn installed_code_mod_ids() -> Vec<String> {
+    load_installed_versions().into_keys().collect()
+}
+
+/// `shipped`: the release's files, when known; None keeps what the record
+/// already holds for the same version.
+fn save_installed_version(
+    id: &str,
+    version: &str,
+    tree_sha256: &str,
+    shipped: Option<std::collections::BTreeMap<String, String>>,
+) -> Result<(), String> {
     let mut map = load_installed_versions();
+    let shipped = shipped.unwrap_or_else(|| {
+        map.get(id)
+            .filter(|r| r.version == version)
+            .map(|r| r.shipped.clone())
+            .unwrap_or_default()
+    });
     map.insert(
         id.to_string(),
         InstallRecord {
             version: version.to_string(),
             tree_sha256: tree_sha256.to_string(),
+            shipped,
         },
     );
     fs::create_dir_all(config_dir()).map_err(|e| e.to_string())?;
@@ -2171,9 +2350,9 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Fetch the latest signed manifest, verify its signature, and report which
-/// mods from it are present in the game's UE4SS Mods directory.
-pub fn code_mods_status() -> Result<CodeModsStatus, String> {
+/// The latest signed code-mod manifest, and whether its signature verifies
+/// against the compiled-in key.
+fn fetch_code_mods_manifest() -> Result<(CodeModsManifest, bool), String> {
     let client = http()?;
     let manifest_bytes = client
         .get(format!("{CODE_MODS_BASE}/latest/manifest.json"))
@@ -2193,6 +2372,13 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
 
+    Ok((manifest, verified))
+}
+
+/// Fetch the latest signed manifest, verify its signature, and report which
+/// mods from it are present in the game's UE4SS Mods directory.
+pub fn code_mods_status() -> Result<CodeModsStatus, String> {
+    let (manifest, verified) = fetch_code_mods_manifest()?;
     let mods_dir = crate::find_game_install().map(|(p, _)| crate::mods_dir(&p));
     let versions = load_installed_versions();
     let mods = manifest
@@ -2241,7 +2427,7 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
                         (Ok(actual), Ok(expected)) if actual == expected => {
                             // Cache it, so this costs one download per mod
                             // ever rather than one per status call.
-                            let _ = save_installed_version(&entry.id, &entry.version, &actual);
+                            let _ = save_installed_version(&entry.id, &entry.version, &actual, None);
                             Integrity::Verified
                         }
                         (Ok(_), Ok(_)) => Integrity::Modified,
@@ -2265,6 +2451,95 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
         signature_verified: verified,
         mods,
     })
+}
+
+/// The version a code mod's own `mod.json` gives, which is what is on disk
+/// whatever installed it (this launcher, a script, a hand copy).
+fn disk_version(dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(dir.join("mod.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value["version"].as_str().map(str::to_string)
+}
+
+/// A code mod in the game that is in the signed set: what is on disk
+/// against the set's release.
+#[derive(Debug, Serialize, Clone)]
+pub struct CodeModOutdated {
+    pub id: String,
+    /// Empty when the mod says no version: it cannot be shown current.
+    pub installed: String,
+    pub latest: String,
+    /// The set's release is newer, or the mod says no version.
+    pub outdated: bool,
+}
+
+/// Every installed code mod in the signed set, and whether the set has a
+/// newer release of it (`outdated`). Judged
+/// from each mod's `mod.json` rather than this launcher's install record, so
+/// a mod copied in by other means is judged by what it is; a newer version
+/// on disk (a development build) is not out of date. Only mods that are in
+/// the game count: the set's others are the Updates screen's to offer.
+pub fn code_mods_outdated() -> Result<Vec<CodeModOutdated>, String> {
+    let (manifest, verified) = fetch_code_mods_manifest()?;
+    if !verified {
+        return Err("the signed code-mod set does not verify".into());
+    }
+    let (install, _) = crate::find_game_install().ok_or("Game not found")?;
+    let mods_dir = crate::mods_dir(&install);
+    let records = load_installed_versions();
+    Ok(manifest
+        .mods
+        .into_iter()
+        .filter(|e| mods_dir.join(&e.id).is_dir())
+        .map(|e| {
+            let installed = disk_version(&mods_dir.join(&e.id))
+                .or_else(|| records.get(&e.id).map(|r| r.version.clone()))
+                .unwrap_or_default();
+            CodeModOutdated {
+                outdated: installed.is_empty() || is_newer(&e.version, &installed),
+                id: e.id,
+                installed,
+                latest: e.version,
+            }
+        })
+        .collect())
+}
+
+/// The files of `shipped` (path below `dir` → SHA-256) that are missing
+/// from `dir` or hold other bytes. Files the release did not ship (state a
+/// mod writes while the game runs) are not looked at.
+fn shipped_changes(dir: &Path, shipped: &std::collections::BTreeMap<String, String>) -> Vec<String> {
+    shipped
+        .iter()
+        .filter(|(rel, sha)| fs::read(dir.join(rel)).map(|b| sha256_hex(&b) != **sha).unwrap_or(true))
+        .map(|(rel, _)| rel.clone())
+        .collect()
+}
+
+/// Each installed code mod that can be checked without the network, with
+/// its shipped files that changed (empty when intact): mods whose record
+/// lists those files (installed by launcher 0.17.0 or later) and whose
+/// `mod.json` still names the recorded version (a mod updated by other means
+/// has nothing on record to compare with).
+pub fn code_mods_verify() -> Vec<(String, Vec<String>)> {
+    let Some((install, _)) = crate::find_game_install() else {
+        return Vec::new();
+    };
+    let mods_dir = crate::mods_dir(&install);
+    let mut out: Vec<(String, Vec<String>)> = load_installed_versions()
+        .into_iter()
+        .filter(|(_, r)| !r.shipped.is_empty())
+        .filter(|(id, r)| {
+            let dir = mods_dir.join(id);
+            dir.is_dir() && disk_version(&dir).is_none_or(|v| v == r.version)
+        })
+        .map(|(id, r)| {
+            let changes = shipped_changes(&mods_dir.join(&id), &r.shipped);
+            (id, changes)
+        })
+        .collect();
+    out.sort();
+    out
 }
 
 /// An unsigned set does not get to name hashes, so nothing installs from one.
@@ -2330,6 +2605,7 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
 
     // The zip roots at "<ModName>/…"; extract only that subtree.
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut shipped = std::collections::BTreeMap::new();
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
         let name = file.name().to_string();
@@ -2348,6 +2624,7 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
         check_mglo(&name, &data)?;
         fs::write(&dest, &data).map_err(|e| e.to_string())?;
+        shipped.insert(name[id.len() + 1..].to_string(), sha256_hex(&data));
         crate::transfer::wrote(data.len() as u64);
     }
 
@@ -2372,7 +2649,7 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
     // covers the directory rather than the zip, which means leftovers from
     // an earlier modpack are part of what gets verified.
     let tree = tree_digest(&mods_dir.join(id))?;
-    save_installed_version(id, &entry.version, &tree)?;
+    save_installed_version(id, &entry.version, &tree, Some(shipped))?;
     Ok(())
 }
 
@@ -2648,6 +2925,53 @@ pub fn write_pending_join(lobby_dir: &Path, lobby: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quick_check_reads_a_file_only_when_its_stamp_moved() {
+        let dir = std::env::temp_dir().join("mjolnir-quick-verify");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.ucas");
+        fs::write(&file, b"good").unwrap();
+        let good = sha256_hex(b"good");
+
+        // First sight: taken as it stands, and stamped.
+        let (q, stamp) = judge(&file, &good, None);
+        assert_eq!(q, Quick::Baseline);
+        let stamp = stamp.unwrap();
+        // Untouched: not read, even against a wrong hash (proof it is not read).
+        assert_eq!(judge(&file, "not-the-hash", Some(&stamp)).0, Quick::Unchanged);
+
+        // Written again with the same bytes: read, and still good.
+        let moved = Stamp { modified: stamp.modified - 1, ..stamp.clone() };
+        assert_eq!(judge(&file, &good, Some(&moved)).0, Quick::Rehashed);
+        // Other bytes behind a moved stamp: caught.
+        fs::write(&file, b"evil").unwrap();
+        let (q, cleared) = judge(&file, &good, Some(&moved));
+        assert_eq!(q, Quick::Tampered);
+        assert!(cleared.is_none(), "a bad file keeps no stamp, so it is read again next time");
+        // Gone.
+        fs::remove_file(&file).unwrap();
+        assert_eq!(judge(&file, &good, Some(&stamp)).0, Quick::Missing);
+    }
+
+    #[test]
+    fn a_mods_own_state_files_are_not_changes_but_edits_are() {
+        let dir = std::env::temp_dir().join("mjolnir-shipped-changes");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("Scripts")).unwrap();
+        fs::create_dir_all(dir.join("native")).unwrap();
+        fs::write(dir.join("Scripts/main.lua"), b"print(1)").unwrap();
+        let shipped: std::collections::BTreeMap<String, String> =
+            [("Scripts/main.lua".to_string(), sha256_hex(b"print(1)"))].into();
+        // What the game writes while it runs.
+        fs::write(dir.join("native/status.txt"), b"ok").unwrap();
+        assert!(shipped_changes(&dir, &shipped).is_empty());
+        fs::write(dir.join("Scripts/main.lua"), b"print(2)").unwrap();
+        assert_eq!(shipped_changes(&dir, &shipped), ["Scripts/main.lua"]);
+        fs::remove_file(dir.join("Scripts/main.lua")).unwrap();
+        assert_eq!(shipped_changes(&dir, &shipped), ["Scripts/main.lua"]);
+    }
 
     #[test]
     fn a_pending_join_is_written_whole_where_the_lobby_reads_it() {
