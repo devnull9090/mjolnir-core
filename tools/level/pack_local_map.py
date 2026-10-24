@@ -4,6 +4,7 @@ Uses the conversion and upgrade outputs, never the installed game's containers.
 The staging folder is retained beside the archive so authors can inspect it.
 """
 import argparse
+from cooked_map_container import cooked_map_container
 import json
 import os
 from pathlib import Path
@@ -30,7 +31,7 @@ def prepare(code, config, work, staging):
     copies = [(level_path, f"{code.lower()}.level.json"),
               (registration, f"{code}.registration.json")]
     containers = [
-        (conv / f"pakchunk985-MJOLNIRCOOK-{code}_P", None),
+        (cooked_map_container(conv, code), None),
         (Path(config.get("mesh_container", conv / f"pakchunk986-MJOLNIRMESH-{code}_P")),
          f"pakchunk986-MJOLNIRMESH-{code}_P"),
         (bake / f"pakchunk997-MJOLNIRMAP-{code}_P", None),
@@ -38,6 +39,8 @@ def prepare(code, config, work, staging):
     if not config.get("indoor"):
         containers.append((bake / f"pakchunk{config['chunk']}-MJOLNIRLAND-Windows",
                            f"pakchunk{config['chunk']}-MJOLNIRLAND-{code}_P"))
+    if config.get("native_rock_materials"):
+        containers.append((bake / f"pakchunk970-MJOLNIRROCK-{code}_P", None))
     for source, rename in containers:
         for extension in ("utoc", "ucas"):
             copies.append((Path(f"{source}.{extension}"), f"{rename or source.name}.{extension}"))

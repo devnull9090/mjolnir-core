@@ -99,6 +99,16 @@ class LocalInstallTest(unittest.TestCase):
             for ext in ("utoc", "ucas", "pak"):
                 self.assertTrue((self.paks / f"{stem}.{ext}").is_file())
 
+    def test_authored_local_install_keeps_shader_library_number(self):
+        conv = Path(self.paths["conv"])
+        self.write(conv / "materials.spec.json", {"chunk": 48621, "authored_surfaces": {"armor": {}}})
+        for ext in ("utoc", "ucas"):
+            self.write(conv / f"pakchunk48621-MJOLNIRCOOK-TST_P.{ext}")
+        files, _ = upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
+        targets = [Path(dst).name for _, dst in files]
+        self.assertIn("pakchunk48621-MJOLNIRCOOK-TST_P.utoc", targets)
+        self.assertNotIn("pakchunk985-MJOLNIRCOOK-TST_P.utoc", targets)
+
     def test_beta_local_install_keeps_published_runtime_unchanged(self):
         self.map["environment"] = {"light_scale": 8192, "sun": {"atmosphere_sun": True},
                                    "skylight": {"physical": True}, "post": {}}

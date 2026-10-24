@@ -35,6 +35,7 @@ then rebuilds the shared registration and menu with `mjolnir level register`.
 Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
+from cooked_map_container import cooked_map_container
 import glob
 import json
 import math
@@ -655,6 +656,8 @@ def stage_editor(code, m, p):
         print(f"  {code}: indoor, no landscape world")
         return
     env = {"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"], "MJ_LANDSCAPE_CHUNK": str(m["chunk"])}
+    if m.get("ambient_cubemap"):
+        env["MJ_AMBIENT_CUBEMAP"] = json.dumps(m["ambient_cubemap"])
     # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
     # in the world here (tools/level/foliage_bake.py) instead of by the
     # loader at runtime; assemble then marks the level file's foliage `baked`.
@@ -839,6 +842,25 @@ def stage_bake(code, m, p):
     if not os.path.exists(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.utoc")):
         sys.exit(f"{code}: no map container baked:\n{out[-2000:]}")
     print(f"  {code}: map container baked")
+    if m.get("native_rock_materials"):
+        # Editor stand-ins cannot supply the native layered material's cached
+        # shader data. Replace only map-owned MICs with full native clones.
+        spec = json.load(open(os.path.join(p["work"], "foliage_bake", "spec.json"), encoding="utf-8"))
+        entries = []
+        for decor in spec["decor"]:
+            material = decor.get("material")
+            if material:
+                entries.append({"source": material["parent"].split(".")[0],
+                    "target": f"/Game/MJOLNIR/Landscape/{m['landscape']}/MI_{m['landscape']}_{decor['id']}",
+                    "scalars": material.get("scalars", {}), "vectors": material.get("vectors", {})})
+        manifest = os.path.join(p["work"], "native_materials.json")
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump(entries, f, indent=1)
+        clone = os.path.join(tool_env["EXAMPLES"], "native_material_clone.exe")
+        if not os.path.isfile(clone):
+            sys.exit("Build native_material_clone first: cargo build -p blam-pack --example native_material_clone")
+        print("  " + run([clone, PAKS, manifest, p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"]).strip())
+
 
 
 def scene_reach(p):
@@ -2068,9 +2090,11 @@ def local_install_plan(code, m, p, *, shared=True):
     containers = [(os.path.join(source, f"pakchunk997-MJOLNIRMAP-{code}_P"), None),
                   (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
                    f"pakchunk986-MJOLNIRMESH-{code}_P"),
-                  (os.path.join(p["conv"], f"pakchunk985-MJOLNIRCOOK-{code}_P"), None)]
+                  (str(cooked_map_container(p["conv"], code)), None)]
     if not m.get("indoor"):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), None))
+    if m.get("native_rock_materials"):
+        containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), None))
     for base, name in containers:
         dest = os.path.join(PAKS, name or os.path.basename(base))
         files += [(f"{base}.{e}", f"{dest}.{e}") for e in ("utoc", "ucas")]
@@ -2195,12 +2219,15 @@ def main():
         # path, without requiring an unreleased Lua script on players' PCs.
         m = maps["TST"]
         m["sky_mesh"] = True
+        # Stable ambient fill: published loader realtime sky capture is disabled.
+        m["ambient_cubemap"] = {"asset": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water",
+                                "intensity": 0.65, "tint": [1.0, 0.9, 0.7, 1.0]}
         env = m["environment"]
         env["atmosphere"] = False
         env["sun"].pop("atmosphere_sun", None)
         env["skylight"].pop("physical", None)
-        env["skylight"]["intensity"] = 16.0 / env["light_scale"]
-        env["skylight"]["color"] = [1.0, 1.0, 1.0]
+        env["skylight"]["intensity"] = 0.0
+        env["skylight"]["color"] = [0.98, 0.99, 1.0]
         env["post"]["exposure_bias"] = -0.4
     ps = {c: paths(c, m, a.work) for c, m in maps.items()}
     for p in ps.values():

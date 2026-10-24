@@ -171,6 +171,12 @@ writes the one-type script for a list without entry 20
 | The map list | `ue4ss/MJOLNIRMaps/maps.json`, generated |
 | The registration container | `Paks/pakchunk996-MJOLNIRREG_P.{utoc,ucas,pak}`, generated |
 
+Map-owned authored PBR masters also carry a shader library. Their conversion
+container therefore keeps `cook_chunk(CODE)` (TST: `pakchunk48621-MJOLNIRCOOK-TST_P`)
+instead of the legacy texture-only `pakchunk985` name. Local installation and
+archive staging read `materials.spec.json` and reject missing correctly named
+outputs; a stale 985 container cannot substitute for the authored cook.
+
 A container that carries a shader library keeps its own chunk number in
 the name the launcher gives it (`pakchunk988-MJOLNIRHUB-…`), not a load
 order number. UE opens a mounted pak's shader library by the number it

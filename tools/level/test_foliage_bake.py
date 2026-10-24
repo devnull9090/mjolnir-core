@@ -50,7 +50,11 @@ class RockMaterialTest(unittest.TestCase):
         self.assertEqual(bake.runtime_decor(desert, .65), desert)
         for item in source[:-1]:
             spec = bake.decor_spec(item, [0, 0, 0], .65, "coastal")
-            self.assertIn("vectors", spec["material"])
+            if item in desert:
+                self.assertIn("vectors", spec["material"])
+                self.assertNotIn("Color Tint#0", spec["material"]["vectors"])
+            else:
+                self.assertNotIn("vectors", spec["material"])
             self.assertTrue(spec["material"]["parent"].startswith("/Game/Env/Bio/Rock/"))
 
     def test_zero_is_valid_and_invalid_values_fail(self):

@@ -344,10 +344,20 @@ PY_SURFACE_CHECK
   chunk="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json")"
   chunk="${chunk%%[[:space:]]}"
   staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
+  # Authored masters carry shaders: UE opens their library by the chunk
+  # number in the mounted filename. Texture-only legacy cooks may use 985.
+  cook_stem="$(python - "$here" "$out" "$code" <<'PY_COOK_STEM'
+import sys
+sys.path.insert(0, sys.argv[1])
+from cooked_map_container import cooked_map_container
+print(cooked_map_container(sys.argv[2], sys.argv[3]).name)
+PY_COOK_STEM
+)"
+  cook_stem="${cook_stem%%[[:space:]]}"
   for e in utoc ucas; do
-    cp -f "$staged/pakchunk${chunk}-Windows.$e" "$out/pakchunk985-MJOLNIRCOOK-${code}_P.$e"
+    cp -f "$staged/pakchunk${chunk}-Windows.$e" "$out/$cook_stem.$e"
   done
-  echo "  cooked   pakchunk${chunk} -> pakchunk985-MJOLNIRCOOK-${code}_P"
+  echo "  cooked   pakchunk${chunk} -> $cook_stem"
 fi
 
 echo "== 4/6 level file"
@@ -388,7 +398,7 @@ if [ "$install" = "--install" ]; then
   # The terrain meshes: with the cooked materials, the map's own packages
   # (986, one container per map, so maps install side by side); without,
   # an override of the shipped cylinder (989).
-  for c in "pakchunk986-MJOLNIRMESH-${code}_P" "pakchunk985-MJOLNIRCOOK-${code}_P" pakchunk989-MJOLNIRMESH-Windows_P; do
+  for c in "pakchunk986-MJOLNIRMESH-${code}_P" "${cook_stem:-pakchunk985-MJOLNIRCOOK-${code}_P}" pakchunk989-MJOLNIRMESH-Windows_P; do
     [ -e "$out/$c.utoc" ] || continue
     cp -f "$out/$c.utoc" "$out/$c.ucas" "$HCE_PAKS"/
     cp -f "$stub" "$HCE_PAKS/$c.pak"

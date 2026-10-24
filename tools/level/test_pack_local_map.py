@@ -52,6 +52,27 @@ class LocalPackTests(unittest.TestCase):
             self.stage()
         self.assertFalse((self.root / "staging").exists())
 
+    def test_authored_shader_library_keeps_cook_chunk(self):
+        (self.conv / "materials.spec.json").write_text(json.dumps({
+            "chunk": 48621, "authored_surfaces": {"armor": {}}}))
+        # A stale legacy container must never mask the missing correct cook.
+        with self.assertRaises(FileNotFoundError):
+            self.stage()
+        for ext in ("utoc", "ucas"):
+            (self.conv / f"pakchunk48621-MJOLNIRCOOK-TST_P.{ext}").write_bytes(b"shaders")
+        stage = self.stage()
+        self.assertEqual((stage / "pakchunk48621-MJOLNIRCOOK-TST_P.ucas").read_bytes(), b"shaders")
+        self.assertFalse((stage / "pakchunk985-MJOLNIRCOOK-TST_P.ucas").exists())
+
+    def test_native_material_clones_are_required_and_packaged(self):
+        self.config["native_rock_materials"] = True
+        with self.assertRaises(FileNotFoundError):
+            self.stage()
+        for ext in ("utoc", "ucas"):
+            (self.bake / f"pakchunk970-MJOLNIRROCK-TST_P.{ext}").write_bytes(b"native layers")
+        stage = self.stage()
+        self.assertEqual((stage / "pakchunk970-MJOLNIRROCK-TST_P.ucas").read_bytes(), b"native layers")
+
     def test_auxiliary_path_cannot_escape_map(self):
         self.level["foliage"]["file"] = "../../outside.bin"
         with self.assertRaises(ValueError):

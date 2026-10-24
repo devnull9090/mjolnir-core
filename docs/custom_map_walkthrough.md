@@ -430,3 +430,22 @@ Publish a new version for fixes so players can identify the build they have.
 | Foliage is washed out under atmospheric sky | Physical sky captures already include sun radiance; do not amplify the capture twice. |
 | Objectives appear but do not score | Matching labels, required variant files, code-mod version and active game type. |
 | Upload completed but map is not public | Read scan/review status and resolve the reported findings. |
+
+
+### Native rock material variants
+
+TST's `native_rock_materials` build option preserves the shipped native material
+instance, including its compiled layer data, then applies the map's roughness and
+coastal color parameters. Build the helper with
+`cargo build -p blam-pack --example native_material_clone` before the upgrade bake.
+The bake emits `pakchunk970-MJOLNIRROCK-TST_P`; the local installer and packer
+require it when that option is enabled. Plain editor-created children of the
+placeholder native materials lost the real layer data and rendered black or
+white in game; a successful editor cook alone did not catch that failure.
+Native game assets remain an installed build dependency, not editable source
+files redistributed in this repository.
+
+The TST beta also bakes an ambient cubemap into its world (`MJ_AMBIENT_CUBEMAP` in
+`build_ce_landscape.py`). This supplies stable indirect fill with the published loader,
+whose realtime sky capture is disabled in the game. The beta disables the runtime
+skylight contribution to avoid double lighting; the original CE sky remains visible.

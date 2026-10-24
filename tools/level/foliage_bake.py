@@ -28,6 +28,7 @@ clusters, mirrored as B30 places them, 64 four custom floats an instance in
 <bin>.xc<group>: each cluster's tree pivot and size); `standins`.
 """
 import argparse
+from pathlib import Path
 import json
 import math
 import os
@@ -69,20 +70,17 @@ def rock_material(mesh, roughness, palette=None):
     if parent:
         material = {"parent": parent, "scalars": {f"Roughness Remap {end}#{layer}": float(value)
                     for layer in (0, 1) for end, value in (("Low", roughness), ("High", 1.0))}}
-        if palette == "coastal":
-            material["vectors"] = {"Color Adjustment#0": [2.4, 2.4, 2.25, 1.0]}
         return material
+    # Preserve the native layer-to-layer variation: these colors are neutral
+    # luminance remaps of the shipped Top/Mid/Bottom values. Do not guess at
+    # Color Adjustment/Color Tint semantics or flatten every layer to one color.
     if palette == "coastal" and mesh:
         for variant in ("A", "C"):
             name = f"Rock_Desert_Cliff_{variant}"
             if mesh == f"/Game/Env/Bio/Rock/Desert/{name}/SM_{name}.SM_{name}":
                 return {"parent": f"/Game/Env/Bio/Rock/Desert/{name}/Materials/MI_{name}.MI_{name}",
-                        "scalars": {}, "vectors": {
-                            **{f"Color {band}#{layer}": color for layer in (0, 1, 2, 4, 5)
-                               for band, color in (("Top", [0.48, 0.49, 0.46, 1]),
-                                                   ("Mid", [0.28, 0.30, 0.28, 1]),
-                                                   ("Bottom", [0.11, 0.12, 0.11, 1]))},
-                            "Color Tint#0": [0.85, 0.87, 0.84, 1]}}
+                        "scalars": {}, "vectors": json.loads(
+                            Path(__file__).with_name("coastal_rock_colors.json").read_text())[variant]}
     return None
 
 

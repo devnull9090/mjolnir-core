@@ -8,14 +8,16 @@ with flat landings onto their roofs.
 ## Play
 
 Install **TST Proving Ground** from the MJOLNIR hub/launcher, together with its CE runtime
-dependency (**1.13.0 or newer compatible 1.x**). Use MJOLNIR multiplayer mods **0.32.0 or newer**.
+dependency (**1.14.0 or newer compatible 1.x**). Use MJOLNIR multiplayer mods **0.34.0 or newer**.
 Host map **TST** with **Slayer, Team Slayer, or Capture the Flag**. The intended starting point is
 2–8 players, with 4v4 as the layout target. Balance and performance feedback are welcome.
 
 This is a beta. Oddball and King of the Hill remain source experiments and are not included in
-this release's supported mode list. The Blender material/lighting studies are design references;
-the beta uses the published game's material pipeline and CE sky. Do not treat preview renders
-as screenshots of the downloadable game map.
+this release's supported mode list. Blender and the native game export share the eight
+architectural surface roles, albedo images, roughness maps, and UVs in `surfaces.json`.
+Renderer lighting still differs; preview renders are not screenshots of the downloadable map.
+The game uses the original CE sky with a map-owned ambient probe for consistent shaded areas.
+Native rock layers and textures are retained in the map-owned material variants.
 
 ## Learn and build
 
