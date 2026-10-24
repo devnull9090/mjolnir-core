@@ -92,6 +92,9 @@ def main():
     parser.add_argument("--name", required=True)
     parser.add_argument("--summary", default="")
     parser.add_argument("--readme", type=Path)
+    parser.add_argument("--size", choices=("small", "medium", "large"))
+    parser.add_argument("--players", help="Catalog player range, e.g. 2-8")
+    parser.add_argument("--vehicles", choices=("true", "false"))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cli", default=os.environ.get("MJOLNIR", str(REPO / "target/release/mjolnir.exe")))
     parser.add_argument("--sign", action="store_true")
@@ -108,6 +111,9 @@ def main():
                "--name", args.name, "--summary", args.summary, "--out", str(args.out.resolve())]
     if args.readme:
         command += ["--readme", str(args.readme.resolve())]
+    for option in ("size", "players", "vehicles"):
+        if getattr(args, option) is not None:
+            command += ["--" + option, getattr(args, option)]
     if args.sign:
         command.append("--sign")
     print(f"Inspectable staging: {staging}", flush=True)

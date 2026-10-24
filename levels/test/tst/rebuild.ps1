@@ -228,6 +228,17 @@ try {
     # A uniquely named local copy keeps B30's unchanged bitmap references.
     Copy-Item -LiteralPath $CliffSource -Destination $CliffTarget -Force
 
+    # Distinct authored slots survive the CE intermediate. Classic CE uses
+    # these stock fallback tags; the native build binds surfaces.json's PBR art.
+    $Surfaces = Get-Content -LiteralPath (Join-Path $SourceRoot 'surfaces.json') -Raw | ConvertFrom-Json
+    foreach ($Property in $Surfaces.surfaces.PSObject.Properties) {
+        $Surface = $Property.Value
+        $Fallback = Join-Path $TagsRoot ("levels\b30\shaders\" + $Surface.fallback + '.shader_environment')
+        $Target = Join-Path $TagsRoot ($Surface.tag + '.shader_environment')
+        if (-not (Test-Path -LiteralPath $Fallback)) { throw "Missing stock metal shader: $Fallback" }
+        Copy-Item -LiteralPath $Fallback -Destination $Target -Force
+    }
+
     Invoke-RebuildStage -Name 'structure' -Executable $ToolExe -WorkingDirectory $HekRoot `
         -Arguments @('structure', 'levels\test\tst', 'tst') -ExpectedFile $BspFile -HekStage
     Invoke-RebuildStage -Name 'scenario' -Executable $PythonExe -Arguments @(

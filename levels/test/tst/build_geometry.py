@@ -116,6 +116,9 @@ def uv_project(obj):
     uv = mesh.uv_layers.get("UVMap") or mesh.uv_layers.new(name="UVMap")
     for poly in mesh.polygons:
         mat = mesh.materials[poly.material_index]
+        if mat.get('tst_surface_role'):
+            project_surface_uv(obj, poly, uv, mat['tst_surface_role'])
+            continue
         if mat.get('tst_detail_material'):
             mat=bpy.data.materials[mat['tst_detail_material']]
         dominant = max(range(3), key=lambda k: abs(poly.normal[k]))
@@ -539,6 +542,9 @@ for obj in list(scene.objects):
         for collection in list(obj.users_collection): collection.objects.unlink(obj)
         detail_collection.objects.link(obj)
 
+from architecture_surfaces import assign as assign_surfaces, project_uv as project_surface_uv
+assign_surfaces(scene)
+
 # Keep readable, individually editable source meshes in a hidden collection.
 # The exported result is the single merged air boundary, while a community
 # member can unhide these construction sources to study each component.
@@ -572,7 +578,7 @@ bmesh.ops.reverse_faces(bm, faces=list(bm.faces))
 # Exact Boolean intersections against the terrain grid can leave millimetre
 # slivers which compile structurally but have near-zero lightmap UV area.
 # Weld below four centimetres, then retriangulate coplanar patches as a whole.
-# HEK also rejects 1–2 cm slivers whose world-space area looks reasonable but
+# HEK also rejects 1â€“2 cm slivers whose world-space area looks reasonable but
 # whose UV area is tiny under the map-wide 150 m beach projection.
 # Material delimiters retain floor/wall and cliff/ground boundaries.
 bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.012)
@@ -696,6 +702,10 @@ for face in terrain.data.polygons:
 # Save the authored source, then export only frame-parented BSP meshes.
 bpy.context.view_layer.objects.active = terrain
 bpy.context.view_layer.update()
+# Keep authored images portable beside the source, including --out-dir runs.
+for image in bpy.data.images:
+    if image.source == 'FILE' and image.filepath:
+        image.filepath = '//' + os.path.relpath(bpy.path.abspath(image.filepath), OUTPUT).replace('\\', '/')
 bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "tst.blend"))
 print("TST_GEOMETRY_SAVED", OUTPUT / "tst.blend")
 sys.path.insert(0, str(ROOT.parents[2] / "tools" / "blender"))

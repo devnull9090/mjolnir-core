@@ -123,6 +123,17 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
             original = slot.material
             if not original:
                 continue
+            if original.get('tst_surface_role'):
+                # Shared authored material and UVMap travel through the game build.
+                manifest.setdefault('exported_surface_roles', [])
+                if original['tst_surface_role'] not in manifest['exported_surface_roles']:
+                    manifest['exported_surface_roles'].append(original['tst_surface_role'])
+                    surface = json.loads((ROOT/'surfaces.json').read_text())['surfaces'][original['tst_surface_role']]
+                    for key in ('albedo', 'roughness_map'):
+                        path = str((ROOT/surface[key]).resolve())
+                        if path not in manifest['texture_references']:
+                            manifest['texture_references'].append(path)
+                continue
             if original.get('tst_detail_material'):
                 original=bpy.data.materials[original['tst_detail_material']]
             if original.name not in replacements:
@@ -312,7 +323,7 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
     # Structural cores use the same stock CE floor shader at export. In the
     # material study, wall-facing polygons use calm alloy rather than tiled
     # floor plates. This is a documented preview graph, not a new game tag.
-    if alloy_albedo:
+    if alloy_albedo and "metal panels generic ext" in replacements:
         armor=replacements.get("metal panels generic ext")
         dark=armor.copy(); dark.name="PREVIEW - dark structural titanium"
         for node in dark.node_tree.nodes:

@@ -7,13 +7,19 @@ authored geometry; the CE BSP supplies gameplay collision; the Unreal cook
 supplies runtime visuals. Players need the launcher and dependencies, not the
 authoring tools.
 
-**Status: development walkthrough, October 20, 2026.** Earlier expanded revisions
-passed Blender export, HEK structure/lightmaps/cache and conversion; the first
-expanded revision also loaded locally in game. The current Blender detail pass
-is newer than those exported outputs and still requires milestone export and
-game verification. Visual refinement, second-client playtests and a clean-machine rebuild
-remain release gates. This branch adds candidate Oddball/KOTH rules and HUD
-support; a map archive alone cannot add those to an older code-mod installation.
+**Status: public-beta preparation, October 24, 2026.** The current Blender detail
+pass has been exported and rebuilt through HEK structure, lightmaps, cache,
+conversion and Unreal cooking. The source traversal check passed all 206 samples.
+The release notes record the in-game checks for the downloadable beta. Full-match
+balance testing and a clean-machine authoring rebuild remain follow-up work.
+This branch also includes candidate Oddball/KOTH rules; a map archive alone
+cannot add those to an older code-mod installation.
+
+For the public TST beta, see [the player/release notes](../levels/test/tst/BETA.md).
+Use `prepare_runtime.py --release-beta` and `upgrade_ce_map.py TST --release-beta`
+to advertise only Slayer, Team Slayer and CTF and use sky controls supported by
+the published loader. Candidate Oddball/KOTH experiments below are for source
+development, not requirements for installing that beta.
 
 ## 1. Set up your source and tools
 
@@ -277,13 +283,14 @@ export EXAMPLES="$TST_REPO/target/debug/examples"
 export HALO2UE_EXPORT="C:/your-tools/halo2ue-export.exe"
 export PYTHONUTF8=1
 export CE_COOK=1
+export CE_SURFACE_LIBRARY="$TST_REPO/levels/test/tst/surfaces.json"
 export LIGHTMAP_ARGS="--placed-lights"
 export CE_START_LIFT=0.1
 export TITLE="TST Proving Ground"
 
 bash tools/level/convert_ce_map.sh C:/haloce/hek/maps/tst.map TST C:/haloce/ce_conversions/community/TST
-python levels/test/tst/prepare_runtime.py
-python tools/level/upgrade_ce_map.py TST --work C:/haloce/ce_conversions/community-upgrade
+python levels/test/tst/prepare_runtime.py --release-beta
+python tools/level/upgrade_ce_map.py TST --release-beta --work C:/haloce/ce_conversions/community-upgrade
 ```
 
 Change the TST conversion path in `ce_upgrade_maps.json` when using another
@@ -291,7 +298,16 @@ output directory, and pass `prepare_runtime.py --level` accordingly. Run one
 editor/cook at a time and do not edit a running build script. The 0.1-CE-unit
 spawn lift adds 30.48 cm; check ceiling clearance when changing it.
 
-Conversion produces the collision/scenario, CE materials and meshes. Upgrade
+`CE_SURFACE_LIBRARY` is required for TST's authored architectural finish.
+`surfaces.json` supplies the same albedo, roughness, tint and metal values to
+Blender and the native cook. `architecture_surfaces.py` assigns real export
+slots and writes fitted plate coordinates into UVMap. Omitting the library
+uses the stock CE fallback tags and loses the material separation. The cook
+owns these shaders under `/Game/MJOLNIR/Maps/TST/SurfaceMaterials`; it does not
+require a private replacement for the shared CE runtime. Classic CE uses the
+stock fallback materials; the authored PBR finish is a MJOLNIR build feature.
+
+Conversion produces the collision/scenario, materials and meshes. Upgrade
 adds the Landscape, scenery, swapped-object collision, foliage, water and world.
 Keep all outputs from the same source build together. Watch for missing texture
 or shader errors; a successful process exit alone is insufficient.
@@ -301,15 +317,17 @@ or shader errors; a successful process exit alone is insufficient.
 Close the game, then use the same tool environment:
 
 ```bash
-python tools/level/upgrade_ce_map.py TST --stages install --local-install \
+python tools/level/upgrade_ce_map.py TST --release-beta --stages install --local-install \
   --work C:/haloce/ce_conversions/community-upgrade
 ```
 
-For this development branch, install its matching HUD scripts and the compiled
-`.dream-loop/variants/oddball.*` and `koth.*` files in the loader's `variants/`
-folder with the game closed. Keep backups. The upgrade installer copies the
-LevelLoader, but not the HUD. Production users should receive these files through
-a tested code-mod release dependency instead of manual copying.
+For the supported-mode beta, `--release-beta --local-install` preserves the
+published loader and CE runtime. Install those dependencies from the launcher
+first; testing with private copies of shared materials or scripts can hide
+compatibility errors. Back up any prior local map before replacing it.
+
+Candidate Oddball/KOTH development requires matching HUD scripts and compiled
+variant files. Those experiments are separate from the supported-mode beta.
 
 Launch through Steam, reach the main menu and host privately:
 
@@ -317,7 +335,8 @@ Launch through Steam, reach the main menu and host privately:
 mjolnir_auto host TST slayer private
 ```
 
-Return to the menu before testing `ctf`, `oddball`, and `koth`. Use
+Return to the menu before testing `team_slayer` and `ctf`. Test `oddball` and
+`koth` only in a development build with their matching code mods. Use
 [game automation](game_automation.md) for repeatable captures. Record the game
 build, source revision, runtime/code-mod versions and hardware with your results.
 
@@ -342,11 +361,12 @@ use `pack_local_map.py`, which reads conversion/upgrade outputs without a hub ca
 ```powershell
 python tools/level/pack_local_map.py TST `
   --work C:/haloce/ce_conversions/community-upgrade `
-  --version 0.2.0 --runtime '^1.11.0' `
+  --version 0.1.0-beta.1 --runtime '^1.13.0' `
   --slug tst-proving-ground --name 'TST Proving Ground' `
   --summary 'An editable community custom-map example.' `
-  --readme docs/custom_map_walkthrough.md `
-  --out C:/haloce/ce_conversions/packages/tst-proving-ground-0.2.0.mjolnir
+  --readme levels/test/tst/BETA.md --size medium --players 2-8 --vehicles true `
+  --out C:/haloce/ce_conversions/packages/tst-proving-ground-0.1.0-beta.1.mjolnir `
+  --sign
 ```
 
 The version/range are examples: use versions actually tested. `--cli` selects
@@ -354,12 +374,19 @@ your executable. A fresh staging folder is retained beside the archive, and
 existing archives are not overwritten. Inspect the world, landscape, meshes,
 textures, registration, level file, foliage, decals and referenced water state.
 
-TST's `map_mesh_chunk: true` assigns its generated cliff, river, capture bed and
-shadow meshes to its own map chunk. Verify their paths in the packaged containers:
-they must not exist only in an author's shared runtime cook. The candidate new
-objective modes also require a published multiplayer-code version containing
-their rules, loader and HUD. Until that dependency is released and tested, this
-branch's archive is a local development candidate.
+TST's `map_mesh_chunk: true` puts generated cliff, river, capture-bed and shadow
+meshes under `/Game/MJOLNIR/Maps/TST/Generated` in its own map chunk. Their unique
+package paths prevent an older shared runtime mesh from overriding them. Verify
+these paths in the packaged containers, not just the editor scene.
+
+Before packaging water, host the map, wait for `flux: river filled`, then run
+`mjolnir_flux_bake`. Close the game and rerun `--release-beta --stages assemble`
+with the same work directory. This copies the settled state into the build.
+Reinstall and verify that the river starts full. Rebake after changing the bed;
+matching domain dimensions alone do not prove an old water state is still valid.
+
+The beta advertises only Slayer, Team Slayer and CTF. Additional objective modes
+need published, tested rules, loader and HUD support before advertising them.
 
 The hub requires an author signature. Register a device key through the supported
 publishing/signing workflow, then add `--sign` to the final packaging command.

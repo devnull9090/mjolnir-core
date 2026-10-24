@@ -224,7 +224,9 @@ if [ "$cook" = "1" ]; then
   # not stage: fog.json beside the staging, for the material spec.
   [ -f "$src" ] && [ "$source_game" = halo_ce ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
-  python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
+  surface_args=()
+  [ -z "${CE_SURFACE_LIBRARY:-}" ] || surface_args+=(--surface-library "$CE_SURFACE_LIBRARY")
+  python "$here/ce_material_spec.py" "${surface_args[@]}" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf" "${machine_gltfs[@]}"
   # The meshes, packages of the map's own beside its materials
   # (<root>/SM_<map>_Terrain, _Translucent and _Sky, and _Water when the
@@ -301,6 +303,15 @@ if [ "$cook" = "1" ]; then
   ue="$repo/tools/ue"
   powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_materials.py | head -1
   MJ_CE_SPEC="$(cygpath -w "$out/materials.spec.json")" powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_level.py | grep -E "editor exit|MJOLNIR CE level"
+  # editor_cmd reports its log without propagating Python failures. Refuse
+  # stale materials, especially when importing an authored surface library.
+  python - "$repo/unreal/MJOLNIRMaterials/Saved_build_ce_level.log" <<'PY_SURFACE_CHECK'
+import sys
+from pathlib import Path
+log = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+if "MJOLNIR CE level:" not in log or "Traceback" in log or "LogPython: Error" in log:
+    raise SystemExit("CE level material import failed; inspect " + sys.argv[1])
+PY_SURFACE_CHECK
   # The ambient sound (sound scenery and the BSP's background loops), from
   # the CE map and sounds.map beside it, imported beside the materials.
   sounds_map="${SOUNDS_MAP:-$(dirname "$src")/sounds.map}"

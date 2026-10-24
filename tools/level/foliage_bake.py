@@ -50,39 +50,57 @@ ROCK_MATERIALS = {
 }
 
 
-def rock_material(mesh, roughness):
+def rock_material(mesh, roughness, palette=None):
     """Optional dry-rock MIC, cooked on the component, never made through UE4SS.
 
     Uluwatu's native base layer remaps roughness from -2 to 1. Outside B30
     that glossy surface catches blue sky reflections across the boulders.
     Keep its native textures/layers, with a map-specific roughness floor.
     """
-    if roughness is None:
+    if roughness is None and palette is None:
         return None
+    if palette not in (None, "coastal"):
+        raise SystemExit("unknown rock palette")
+    if roughness is None:
+        roughness = 0.65
     if isinstance(roughness, bool) or not isinstance(roughness, (int, float)) or not 0 <= roughness <= 1:
         raise SystemExit("rock_roughness must be a number between 0 and 1")
     parent = ROCK_MATERIALS.get(mesh)
-    if parent is None:
-        return None
-    return {"parent": parent, "scalars": {f"Roughness Remap {end}#{layer}": float(value)
-            for layer in (0, 1) for end, value in (("Low", roughness), ("High", 1.0))}}
+    if parent:
+        material = {"parent": parent, "scalars": {f"Roughness Remap {end}#{layer}": float(value)
+                    for layer in (0, 1) for end, value in (("Low", roughness), ("High", 1.0))}}
+        if palette == "coastal":
+            material["vectors"] = {"Color Adjustment#0": [2.4, 2.4, 2.25, 1.0]}
+        return material
+    if palette == "coastal" and mesh:
+        for variant in ("A", "C"):
+            name = f"Rock_Desert_Cliff_{variant}"
+            if mesh == f"/Game/Env/Bio/Rock/Desert/{name}/SM_{name}.SM_{name}":
+                return {"parent": f"/Game/Env/Bio/Rock/Desert/{name}/Materials/MI_{name}.MI_{name}",
+                        "scalars": {}, "vectors": {
+                            **{f"Color {band}#{layer}": color for layer in (0, 1, 2, 4, 5)
+                               for band, color in (("Top", [0.48, 0.49, 0.46, 1]),
+                                                   ("Mid", [0.28, 0.30, 0.28, 1]),
+                                                   ("Bottom", [0.11, 0.12, 0.11, 1]))},
+                            "Color Tint#0": [0.85, 0.87, 0.84, 1]}}
+    return None
 
 
-def decor_spec(d, origin, roughness=None):
+def decor_spec(d, origin, roughness=None, palette=None):
     rot = list(d.get("rot") or [0, 0, 0]) + [0, 0, 0]
     scale = d.get("scale") if isinstance(d.get("scale"), list) and len(d["scale"]) >= 3 else [1, 1, 1]
     entry = {"id": d["id"], "mesh": d["mesh"], "loc": [origin[i] + d["pos"][i] for i in range(3)],
              "rot": rot[:3], "scale": scale[:3], "flags": 2 if still(d) else 0}
-    material = rock_material(d["mesh"], roughness)
+    material = rock_material(d["mesh"], roughness, palette)
     if material:
         entry["material"] = material
     return entry
 
 
-def runtime_decor(decor, roughness=None):
+def runtime_decor(decor, roughness=None, palette=None):
     """Leave completed baked MICs alone: no runtime baked-component reads."""
     rock_material(None, roughness)
-    return [d for d in decor if not (bakeable(d) and rock_material(d["mesh"], roughness))]
+    return [d for d in decor if not (bakeable(d) and rock_material(d["mesh"], roughness, palette))]
 
 
 def bakeable(d):
@@ -191,6 +209,7 @@ def main():
     ap.add_argument("--mjolnir", default=os.environ.get("MJOLNIR", "mjolnir"))
     ap.add_argument("--origin", default="0,0,0", help="the level's canvas origin (cm), which decor sits on")
     ap.add_argument("--rock-roughness", type=float, help="bake native Uluwatu MICs with this roughness floor (0..1)")
+    ap.add_argument("--rock-palette", choices=("coastal",), help="map-owned neutral coastal rock materials")
     a = ap.parse_args()
     rock_material(None, a.rock_roughness)  # Validate before writing output.
     origin = [float(v) for v in a.origin.split(",")]
@@ -238,7 +257,7 @@ def main():
     spec_decor = []
     for d in decor:
         meshes[d["mesh"]] = None
-        spec_decor.append(decor_spec(d, origin, a.rock_roughness))
+        spec_decor.append(decor_spec(d, origin, a.rock_roughness, a.rock_palette))
     # The game meshes' bounds, kept between runs: one `ue get` a mesh.
     cache_path = os.path.join(out_dir, "mesh_info.json")
     cache = json.load(open(cache_path, encoding="utf-8")) if os.path.exists(cache_path) else {}

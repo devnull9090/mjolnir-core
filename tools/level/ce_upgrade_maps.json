@@ -10,7 +10,7 @@
   "shaders": ["levels_b30_shaders_beach"], "cliff_shaders": ["levels_test_tst_shaders_tst_cliffs"],
   "landscape": "LTT", "chunk": 969, "components": 4,
   "sky_mesh": false, "map_mesh_chunk": true,
-  "bake_foliage": true, "tree_variant": "Lrg_A", "rocks": "beach", "rock_roughness": 0.65,
+  "bake_foliage": true, "tree_variant": "Lrg_A", "rocks": "beach", "rock_roughness": 0.65, "rock_palette": "coastal",
   "horizon": {"z": -250, "reach": 300000, "continuous": true,
               "material": {"parent": "/Game/MJOLNIR/CE/M_CE_WaterSky.M_CE_WaterSky",
                            "textures": {"ReflectionCube": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water.TC_levels_b30_bitmaps_reflection_water"},
@@ -30,7 +30,7 @@
              "spec": {"scalars": {"WaveAmplitude": 0.0, "Clarity": 0.9}, "vectors": {"WaterColor": [0.03, 0.08, 0.07, 1]}}},
   "flux": {"feeds": [{"pos": [3600, 2300, -18], "scale": 0.75, "volume": 1, "mode": 2}],
            "cell": 20, "grid": 300, "margin": 200, "height": 2000, "level_scale": 0.5,
-           "hold": true, "level_mode": 2, "outlet": false, "bed": true,
+           "hold": false, "level_mode": 2, "outlet": false, "bed": true,
            "color_preset": "/Game/FluidFlux/Surface/Templates/Color/CP_OceanBlue_01.CP_OceanBlue_01",
            "surface_vectors": {"SurfaceScattering0": [0.06, 0.28, 0.34, 0.003],
                                "SurfaceAbsorption0": [80, 240, 300, 0.7], "ColorBehind0": [0.7, 0.9, 1, 1]}}

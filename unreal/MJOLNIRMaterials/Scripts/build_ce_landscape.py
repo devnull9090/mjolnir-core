@@ -197,6 +197,14 @@ def decor_material(entry):
     # ByInfo includes the layer index; SetMaterialInstanceScalarParameterValue
     # only takes an association, so cannot address both native rock layers.
     mi.set_editor_property("scalar_parameter_values", values)
+    vectors = []
+    for key, value in sorted(material.get("vectors", {}).items()):
+        name, layer = key.rsplit("#", 1)
+        info = unreal.MaterialParameterInfo(name=unreal.Name(name),
+                    association=unreal.MaterialParameterAssociation.LAYER_PARAMETER, index=int(layer))
+        vectors.append(unreal.VectorParameterValue(parameter_info=info,
+                       parameter_value=unreal.LinearColor(*value)))
+    mi.set_editor_property("vector_parameter_values", vectors)
     if not eal.save_loaded_asset(mi):
         raise RuntimeError(f"could not save baked decor material: {entry['id']}")
     return mi

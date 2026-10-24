@@ -33,7 +33,7 @@ ramps, walls, sloped supports and stepped roof silhouette. Use believable
 weathered pale graphite alloy and light grey stone-metal armor, layered wall
 plates, recessed seams, restrained worn edges, red team identifiers, warm
 lintel/interior lights and roof panels modelable with a few dozen intentional
-pieces. Add bevels and 5–15 cm inset strips with clear assembly hierarchy.
+pieces. Add bevels and 5â€“15 cm inset strips with clear assembly hierarchy.
 No clutter, crates, blocked openings/roofs/ramps, extra wings, grain, clipped
 highlights or text labels. Preserve terrain silhouette. Favor physical
 construction and consistent scale over decorative noise.
@@ -145,3 +145,21 @@ The October 20 Forerunner TLC pass adds a fixed-camera balcony target and
 fine titanium albedo. Research, exact built-in imagegen prompts and the
 distinction between source armor geometry and preview materials are recorded
 in [forerunner-pass.md](forerunner-pass.md).
+
+## Exported architectural palette — 24 October 2026
+
+The previous entries document the original preview studies. The selected
+`forerunner_titanium_albedo.png`, `forerunner_floor_albedo.png`,
+`forerunner_fitted_plate_albedo.png` and `forerunner_titanium_roughness.png`
+now feed the shared `../surfaces.json` palette. Source geometry assigns eight
+exported finishes: armor, structure, recess, floor, fitted pale/inset/charcoal
+and narrow exposed edges. Fitted panels use exported UVMap coordinates;
+side returns use tiled metal to avoid stretched edge wear.
+
+The native conversion must receive `CE_SURFACE_LIBRARY` as documented in the
+walkthrough. It imports albedo as sRGB and roughness as linear data, builds
+map-owned PBR masters and verifies every declared role has exported shader
+slots. The Blender preview retains these source materials. Lighting, water
+and native landscape preview shading still differ between renderers. The
+old Blender-only bevel shader, random per-object tints and estimated bump
+are not exported promises; the actual mesh bevels are preserved.

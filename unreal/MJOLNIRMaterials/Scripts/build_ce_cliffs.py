@@ -22,7 +22,15 @@ import os
 import unreal
 
 ROOT = "/Game/MJOLNIR/CETrial"
+OWNED = json.loads(os.environ.get("MJ_MAP_MESH_CHUNKS", "{}"))
 eal = unreal.EditorAssetLibrary
+
+def mesh_root(name):
+    for code in OWNED:
+        if name.startswith(f"SM_{code}_"):
+            return f"/Game/MJOLNIR/Maps/{code}/Generated"
+    return ROOT
+
 
 
 def log(msg):
@@ -32,10 +40,11 @@ def log(msg):
 def build(code, spec_path):
     spec = json.load(open(spec_path, encoding="utf-8"))
     name = code if code.startswith("SM_") else f"SM_{code}_CliffTess"
-    path = f"{ROOT}/{name}"
+    root = mesh_root(name)
+    path = f"{root}/{name}"
     if eal.does_asset_exist(path):
         eal.delete_asset(path)
-    mesh = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, ROOT, unreal.StaticMesh, None)
+    mesh = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, root, unreal.StaticMesh, None)
     v = unreal.Vector
     ok = unreal.MjolnirUIBuilderLibrary.build_static_mesh(
         mesh,
@@ -70,11 +79,11 @@ for item in filter(None, os.environ.get("MJ_CLIFF_MESHES", "").split(";")):
 # Original community maps must carry their own generated geometry. Assign
 # only these meshes at higher priority than the shared CETrial directory;
 # dependencies (the shared material masters) stay in the runtime package.
-for code, chunk in json.loads(os.environ.get("MJ_MAP_MESH_CHUNKS", "{}")).items():
+for code, chunk in OWNED.items():
     names = [item.split("=", 1)[0] for item in os.environ["MJ_CLIFF_MESHES"].split(";")]
     names = [f"SM_{name}_CliffTess" if name == code else name for name in names
              if name == code or name.startswith(f"SM_{code}_")]
-    meshes = [unreal.load_asset(f"{ROOT}/{name}") for name in names]
+    meshes = [unreal.load_asset(f"{mesh_root(name)}/{name}") for name in names]
     if not meshes or any(mesh is None for mesh in meshes):
         raise RuntimeError(f"{code}: missing map-owned meshes")
     label_name = f"PAL_MJOLNIR_{code}_Meshes"

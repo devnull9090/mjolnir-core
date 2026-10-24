@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parents[2]
 
 
-def apply(level, placements):
+def apply(level, placements, *, release_beta=False):
     markers = placements["objective_markers"]
     objects = level["blam"]["objects"]
     objects[:] = [item for item in objects if not str(item.get("set", {}).get(
@@ -48,10 +48,13 @@ def apply(level, placements):
                     "multiplayer data.boundary positive height": "1.5",
                     "multiplayer data.boundary negative height": "0.5"}})
 
-    marker(markers["oddball"]["position_m"], "oddball_spawn")
-    for index, position in enumerate(markers["king"]["positions_m"]):
-        marker(position, f"koth_hill_{index}", 2)
-    level["modes"] = ["slayer", "ctf", "oddball", "koth"]
+    if not release_beta:
+        marker(markers["oddball"]["position_m"], "oddball_spawn")
+        for index, position in enumerate(markers["king"]["positions_m"]):
+            marker(position, f"koth_hill_{index}", 2)
+    level["modes"] = ["slayer", "team_slayer", "ctf"]
+    if not release_beta:
+        level["modes"] += ["oddball", "koth"]
     level["title"] = "TST Proving Ground"
     level["description"] = "An original coastal Forerunner arena and editable community source example."
     return level
@@ -63,17 +66,20 @@ def main():
     parser.add_argument("--placements", type=Path, default=ROOT / "placements.json")
     parser.add_argument("--cli", type=Path, default=REPO / "target/release/mjolnir.exe")
     parser.add_argument("--rules-out", type=Path, default=REPO / ".dream-loop/variants")
+    parser.add_argument("--release-beta", action="store_true",
+                        help="Ship only published Slayer, Team Slayer and CTF rules; omit candidate objectives")
     args = parser.parse_args()
     placements = json.loads(args.placements.read_text())
-    level = apply(json.loads(args.level.read_text()), placements)
-    args.rules_out.mkdir(parents=True, exist_ok=True)
-    for mode in ("oddball", "koth"):
+    level = apply(json.loads(args.level.read_text()), placements, release_beta=args.release_beta)
+    if not args.release_beta:
+        args.rules_out.mkdir(parents=True, exist_ok=True)
+    for mode in (() if args.release_beta else ("oddball", "koth")):
         subprocess.run([str(args.cli), "megalo", "write", "--mode", mode,
             "--hills", str(len(placements["objective_markers"]["king"]["positions_m"])),
             "--vehicle-label-pool", "--tick-rate", "60",
             "--out", str(args.rules_out / f"{mode}.mglo")], check=True)
     args.level.write_text(json.dumps(level, indent=2) + "\n")
-    print(f"TST objectives authored into {args.level}; rules in {args.rules_out}")
+    print(f"TST prepared: {args.level}; modes: {level['modes']}")
 
 
 if __name__ == "__main__":
