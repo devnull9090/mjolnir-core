@@ -158,3 +158,56 @@ fn bungie_reach_variants_round_trip() {
     assert!(total > 0, "no Megalo variants under {root}");
     assert!(failures.is_empty(), "{} of {total} failed", failures.len());
 }
+
+/// Every map variant MCC ships for Reach, bit for bit.
+#[test]
+fn bungie_reach_map_variants_round_trip() {
+    let Ok(root) = std::env::var("MCC_REACH") else {
+        eprintln!("MCC_REACH not set: Bungie's map variants not checked");
+        return;
+    };
+    let mut total = 0;
+    let mut failures = Vec::new();
+    for sub in ["map_variants", "hopper_map_variants"] {
+        let dir = Path::new(&root).join(sub);
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "mvar"))
+            .collect();
+        files.sort();
+        for f in files {
+            let name = format!("{sub}/{}", f.file_name().unwrap().to_string_lossy());
+            let bytes = std::fs::read(&f).unwrap();
+            total += 1;
+            let mv = match blf::map_variant(&bytes) {
+                Ok(v) => v,
+                Err(e) => {
+                    failures.push(format!("{name}: {e}"));
+                    continue;
+                }
+            };
+            match raw::round_trip_map_variant(mv.payload) {
+                Ok(rt) if rt.trailing_ones != 0 => failures.push(format!(
+                    "{name}: {} set bit(s) in the {} after the map variant",
+                    rt.trailing_ones, rt.trailing_bits
+                )),
+                Ok(rt) if rt.trailing_bits >= 8 => failures.push(format!(
+                    "{name}: {} bits left after the map variant",
+                    rt.trailing_bits
+                )),
+                Ok(_) => {}
+                Err(e) => failures.push(format!("{name}: {e}")),
+            }
+        }
+    }
+    assert!(total > 0, "no .mvar files under {root}");
+    assert!(
+        failures.is_empty(),
+        "{} of {total} map variants failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    eprintln!("{total} map variants round-trip");
+}

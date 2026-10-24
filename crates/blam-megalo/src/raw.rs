@@ -5,8 +5,11 @@
 //!
 //! The grammar is data (`grammar/megalo_cu4.json`, see its `_meta`): field
 //! kinds `u`, `s`, `bool`, `opt`, `u64`, `f32`, `bytes`, `zstring`, `ref`,
-//! `array`, `repeat` and `if`, struct and tagged-union types, and the
-//! condition and action lists. [`decode`] walks it over a bitstream and
+//! `array`, `repeat`, `if` and `position`, struct and tagged-union types, and
+//! the condition and action lists. It also describes the map variant
+//! (`map_variant`, the simulation's `0x32d810`), which
+//! [`decode_map_variant`] and [`round_trip_map_variant`] use with the same
+//! types. [`decode`] walks it over a bitstream and
 //! [`encode`] walks it over a tree, so a grammar fix changes both at once,
 //! and a tree that no longer matches its grammar (a list count past its
 //! width, a union case with the wrong fields) is refused rather than written.
@@ -43,6 +46,9 @@ pub fn grammar() -> Result<&'static Grammar, Error> {
 pub struct Grammar {
     types: HashMap<String, TypeDef>,
     top: Vec<FieldDef>,
+    /// The map variant's field list (`map_variant`; empty when the grammar
+    /// has none). It shares the types with the game variant.
+    map_variant: Vec<FieldDef>,
     /// Condition types by id (the `CONDITION` union's cases).
     pub conditions: Vec<OpDef>,
     /// Action types by id (the `ACTION` union's cases).
@@ -149,6 +155,15 @@ pub enum Kind {
     Repeat {
         count: Count,
         of: Vec<FieldDef>,
+    },
+    /// A map-variant position (`0x50e990` with world bounds): a bit, then
+    /// x, y and z, each as wide as [`position_widths`] makes it from
+    /// `precision` and the six `bounds` fields (x min, x max, y min, y max,
+    /// z min, z max; `f32`s decoded earlier, in this struct or an enclosing
+    /// one).
+    Position {
+        precision: u32,
+        bounds: Vec<String>,
     },
     /// Fields read only when a test of an earlier field holds; their nodes
     /// sit in the enclosing struct.
@@ -328,6 +343,25 @@ impl FieldDef {
                 count: count_of(j, &ctx)?,
                 of: fields("of")?,
             },
+            "position" => {
+                let bounds: Vec<String> = j
+                    .get("bounds")
+                    .and_then(Json::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Json::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if bounds.len() != 6 {
+                    return Err(gerr(format!("{ctx}: a position names six bounds")));
+                }
+                Kind::Position {
+                    precision: get_u32(j, "precision", &ctx)?,
+                    bounds,
+                }
+            }
             "if" => Kind::If {
                 cond: Cond::parse(
                     j.get("when")
@@ -499,6 +533,14 @@ impl Grammar {
             .iter()
             .map(|f| FieldDef::from_json(f, "top"))
             .collect::<Result<Vec<_>, _>>()?;
+        let map_variant = match j.get("map_variant") {
+            None | Some(Json::Null) => Vec::new(),
+            Some(Json::Array(a)) => a
+                .iter()
+                .map(|f| FieldDef::from_json(f, "map_variant"))
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err(gerr("`map_variant` is not a list")),
+        };
         let mut reach_names = HashMap::new();
         if let Some(Json::Object(r)) = j.get("reach_names") {
             for (k, v) in r {
@@ -508,6 +550,7 @@ impl Grammar {
         let g = Grammar {
             types,
             top,
+            map_variant,
             conditions,
             actions,
             reach_names,
@@ -537,6 +580,7 @@ impl Grammar {
             Ok(())
         }
         walk(self, &self.top, "top")?;
+        walk(self, &self.map_variant, "map_variant")?;
         for (name, t) in &self.types {
             match t {
                 TypeDef::Struct(fs) => walk(self, fs, name)?,
@@ -553,6 +597,11 @@ impl Grammar {
     /// A named type.
     pub fn type_def(&self, name: &str) -> Option<&TypeDef> {
         self.types.get(name)
+    }
+
+    /// The map variant's fields, in read order (empty without one).
+    pub fn map_variant_fields(&self) -> &[FieldDef] {
+        &self.map_variant
     }
 
     /// The top-level fields, in read order.
@@ -701,6 +750,63 @@ impl Scope<'_> {
     fn lookup(&self, name: &str) -> Option<i64> {
         int(self.fields, name).or_else(|| self.parent.and_then(|p| p.lookup(name)))
     }
+
+    fn lookup_f32(&self, name: &str) -> Option<f32> {
+        match field(self.fields, name).map(|n| &n.value) {
+            Some(Value::F32(bits)) => Some(f32::from_bits(*bits)),
+            _ => self.parent.and_then(|p| p.lookup_f32(name)),
+        }
+    }
+}
+
+/// The bit widths of a map-variant position's x, y and z (`0x512fc0`):
+/// each axis is cut into steps of 1/60 world unit, finer by a factor of two
+/// per `precision` bit past 16, and gets enough bits to count the steps
+/// across its bounds (rounded up), at most 26.
+pub fn position_widths(precision: u32, bounds: [f32; 6]) -> [u32; 3] {
+    let (fine, step) = if precision < 17 {
+        let f = (1u32 << (16 - precision)) as f32;
+        (f * 0.008_333_334, f * 0.016_666_668)
+    } else {
+        let f = (1u32 << (precision - 16)) as f32;
+        (0.008_333_334 / f, 0.016_666_668 / f)
+    };
+    if fine < 0.0001 {
+        return [26; 3];
+    }
+    let axis = |lo: f32, hi: f32| -> u32 {
+        let steps = ((hi - lo) / step).ceil() as i64;
+        let n = steps.min(0x80_0000) as u32;
+        if n == 0 {
+            return 0;
+        }
+        let high = 31 - n.leading_zeros();
+        (high + u32::from(n & ((1 << high) - 1) != 0)).min(26)
+    };
+    [
+        axis(bounds[0], bounds[1]),
+        axis(bounds[2], bounds[3]),
+        axis(bounds[4], bounds[5]),
+    ]
+}
+
+/// The widths of a `position` field from the bounds in scope.
+fn scope_widths(
+    precision: u32,
+    bounds: &[String],
+    fields: &[Node],
+    parent: Option<&Scope>,
+    path: &str,
+) -> Result<[u32; 3], Error> {
+    let s = Scope { fields, parent };
+    let mut b = [0f32; 6];
+    for (slot, name) in b.iter_mut().zip(bounds) {
+        *slot = s.lookup_f32(name).ok_or_else(|| Error::Mismatch {
+            path: path.to_string(),
+            msg: format!("bound `{name}` not decoded before it"),
+        })?;
+    }
+    Ok(position_widths(precision, b))
 }
 
 fn scope_value(fields: &[Node], parent: Option<&Scope>, name: &str) -> Option<i64> {
@@ -870,6 +976,26 @@ impl Decoder<'_, '_> {
                 Value::Text { chars, terminated }
             }
             Kind::Ref(t) => self.typed(t)?,
+            Kind::Position { precision, bounds } => {
+                let widths = scope_widths(*precision, bounds, out, parent, &self.path())?;
+                let mut nodes = Vec::with_capacity(4);
+                for (name, bits) in [
+                    ("flag", 1),
+                    ("x", widths[0]),
+                    ("y", widths[1]),
+                    ("z", widths[2]),
+                ] {
+                    let at = self.r.position();
+                    let value = self.read(bits)? as i64;
+                    nodes.push(Node {
+                        name: name.to_string(),
+                        at,
+                        len: bits as usize,
+                        value: Value::Int { bits, value },
+                    });
+                }
+                Value::Struct(nodes)
+            }
             Kind::Array { count_bits, of } => {
                 let n = self.read(*count_bits)? as usize;
                 Value::List(self.list(n, of, parent, out)?)
@@ -935,9 +1061,36 @@ pub fn decode_at(bytes: &[u8], start: usize) -> Result<Tree, Error> {
     grammar()?.decode_at(bytes, start)
 }
 
+/// Decode a map variant (an `mvar` payload) with the crate's grammar.
+pub fn decode_map_variant(bytes: &[u8]) -> Result<Tree, Error> {
+    grammar()?.decode_map_variant_at(bytes, 0)
+}
+
 impl Grammar {
     /// Decode a variant that begins `start` bits into `bytes`.
     pub fn decode_at(&self, bytes: &[u8], start: usize) -> Result<Tree, Error> {
+        self.decode_fields_at(&self.top, bytes, start)
+    }
+
+    /// Decode a map variant that begins `start` bits into `bytes`.
+    pub fn decode_map_variant_at(&self, bytes: &[u8], start: usize) -> Result<Tree, Error> {
+        if self.map_variant.is_empty() {
+            return Err(gerr("this grammar has no `map_variant`"));
+        }
+        self.decode_fields_at(&self.map_variant, bytes, start)
+    }
+
+    /// Encode a map-variant tree.
+    pub fn encode_map_variant_into(&self, tree: &Tree, w: &mut BitWriter) -> Result<(), Error> {
+        self.encode_fields_into(&self.map_variant, tree, w)
+    }
+
+    fn decode_fields_at(
+        &self,
+        top: &[FieldDef],
+        bytes: &[u8],
+        start: usize,
+    ) -> Result<Tree, Error> {
         let mut r = BitReader::new(bytes);
         r.seek(start)?;
         let mut d = Decoder {
@@ -946,7 +1099,7 @@ impl Grammar {
             path: Vec::new(),
         };
         let mut fields = Vec::new();
-        d.fields(&self.top, None, &mut fields)?;
+        d.fields(top, None, &mut fields)?;
         Ok(Tree {
             fields,
             start,
@@ -956,13 +1109,22 @@ impl Grammar {
 
     /// Encode a tree; `w` may already hold a prefix (a BLF engine type).
     pub fn encode_into(&self, tree: &Tree, w: &mut BitWriter) -> Result<(), Error> {
+        self.encode_fields_into(&self.top, tree, w)
+    }
+
+    fn encode_fields_into(
+        &self,
+        top: &[FieldDef],
+        tree: &Tree,
+        w: &mut BitWriter,
+    ) -> Result<(), Error> {
         let mut e = Encoder {
             g: self,
             w,
             path: Vec::new(),
         };
         let mut i = 0;
-        e.fields(&self.top, &tree.fields, &mut i, None)?;
+        e.fields(top, &tree.fields, &mut i, None)?;
         if i != tree.fields.len() {
             return Err(Error::Mismatch {
                 path: tree.fields[i].name.clone(),
@@ -1128,6 +1290,22 @@ impl Encoder<'_, '_> {
                 Ok(())
             }
             (Kind::Ref(t), v) => self.typed(t, v),
+            (Kind::Position { precision, bounds }, Value::Struct(nodes)) => {
+                let widths =
+                    scope_widths(*precision, bounds, before, parent, &self.path.join("."))?;
+                let want = [1, widths[0], widths[1], widths[2]];
+                if nodes.len() != 4 {
+                    return Err(self.mismatch(format!("{} position fields", nodes.len())));
+                }
+                for (n, bits) in nodes.iter().zip(want) {
+                    let v = n.value.as_i64().ok_or_else(|| wrong(self))?;
+                    if v < 0 {
+                        return Err(wrong(self));
+                    }
+                    self.put(v as u64, bits)?;
+                }
+                Ok(())
+            }
             (Kind::Array { count_bits, of }, Value::List(items)) => {
                 self.put(items.len() as u64, *count_bits)?;
                 self.list(of, items, before, parent)
@@ -1214,7 +1392,26 @@ pub struct RoundTrip {
 /// the field holding it.
 pub fn round_trip(bytes: &[u8], start: usize, prefix: &[(u64, u32)]) -> Result<RoundTrip, Error> {
     let g = grammar()?;
-    let tree = g.decode_at(bytes, start)?;
+    round_trip_fields(g, &g.top, bytes, start, prefix)
+}
+
+/// [`round_trip`] for a map variant (an `mvar` payload, from bit 0).
+pub fn round_trip_map_variant(bytes: &[u8]) -> Result<RoundTrip, Error> {
+    let g = grammar()?;
+    if g.map_variant.is_empty() {
+        return Err(gerr("this grammar has no `map_variant`"));
+    }
+    round_trip_fields(g, &g.map_variant, bytes, 0, &[])
+}
+
+fn round_trip_fields(
+    g: &Grammar,
+    top: &[FieldDef],
+    bytes: &[u8],
+    start: usize,
+    prefix: &[(u64, u32)],
+) -> Result<RoundTrip, Error> {
+    let tree = g.decode_fields_at(top, bytes, start)?;
     let mut w = BitWriter::new();
     for &(v, bits) in prefix {
         w.write(v, bits)?;
@@ -1225,7 +1422,7 @@ pub fn round_trip(bytes: &[u8], start: usize, prefix: &[(u64, u32)]) -> Result<R
             msg: format!("a {}-bit prefix for a stream at bit {start}", w.len()),
         });
     }
-    g.encode_into(&tree, &mut w)?;
+    g.encode_fields_into(top, &tree, &mut w)?;
     let written = w.len();
     let out = w.finish();
     if written != tree.end {
@@ -1276,6 +1473,58 @@ pub fn locate(fields: &[Node], at: usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Forge World's bounds, from Bungie's map variants: 20, 21 and 19 bits.
+    #[test]
+    fn position_widths_follow_the_bounds() {
+        let forge_world = [
+            -203.600_31,
+            277.661_93,
+            -360.830_08,
+            324.920_9,
+            -25.010_01,
+            117.791_7,
+        ];
+        assert_eq!(position_widths(21, forge_world), [20, 21, 19]);
+        assert_eq!(position_widths(21, [0.0; 6]), [0, 0, 0]);
+        assert_eq!(position_widths(40, forge_world), [26, 26, 26]);
+    }
+
+    /// A position's widths come from bounds decoded earlier, and it encodes
+    /// back to the same bits.
+    #[test]
+    fn position_round_trips_against_its_bounds() {
+        let g = Grammar::from_json(
+            r#"{
+              "types": {},
+              "top_level": [],
+              "map_variant": [
+                {"name": "lo", "kind": "f32"}, {"name": "hi", "kind": "f32"},
+                {"name": "items", "kind": "repeat", "count": 2, "of": [
+                  {"name": "p", "kind": "position", "precision": 21,
+                   "bounds": ["lo", "hi", "lo", "hi", "lo", "hi"]}
+                ]}
+              ]
+            }"#,
+        )
+        .unwrap();
+        let mut w = BitWriter::new();
+        w.write(u64::from(0f32.to_bits()), 32).unwrap();
+        w.write(u64::from(1f32.to_bits()), 32).unwrap();
+        // 1 unit at 1/1920 per step: 1920 steps, 11 bits an axis.
+        for v in [(1, 5, 1919, 0), (0, 7, 8, 9)] {
+            w.write(v.0, 1).unwrap();
+            for a in [v.1, v.2, v.3] {
+                w.write(a, 11).unwrap();
+            }
+        }
+        let bytes = w.finish();
+        let tree = g.decode_map_variant_at(&bytes, 0).unwrap();
+        assert_eq!(tree.end, 64 + 2 * 34);
+        let mut out = BitWriter::new();
+        g.encode_map_variant_into(&tree, &mut out).unwrap();
+        assert_eq!(out.finish(), bytes);
+    }
 
     const MINI: &str = r#"{
       "types": {

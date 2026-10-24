@@ -377,5 +377,8 @@ game content and was not committed.
    client, `+0x11 == 4`), then release (type 4), and look for what hung.
 5. Place: needs a sandbox palette on the scenario (`blam.map_variant` work in
    [megalo_engine.md](megalo_engine.md)).
-6. UI: a Forge menu of our own (palette list, properties) that issues
+6. Save and share layouts: the map-variant format, codec and the
+   simulation's own encoder and decoder are in
+   [map_variant_format.md](map_variant_format.md).
+7. UI: a Forge menu of our own (palette list, properties) that issues
    requests 6, 10, 5, 8.
