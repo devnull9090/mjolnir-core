@@ -208,6 +208,29 @@ def telefrag(d):
     ring(d, 0.62, 0.5, 0.25, 0.09)
 
 
+def forge_reticle(d):
+    """Forge's cursor: a thin ring, four ticks outside it and a centre dot.
+    MJOLNIRForge tints it per state (idle, on an object, holding one)."""
+    ring(d, 0.5, 0.5, 0.27, 0.035)
+    for a, b in (((0.5, 0.06), (0.5, 0.17)), ((0.5, 0.83), (0.5, 0.94)),
+                 ((0.06, 0.5), (0.17, 0.5)), ((0.83, 0.5), (0.94, 0.5))):
+        line(d, a, b, 0.045)
+    circle(d, 0.5, 0.5, 0.035)
+
+
+def forge_mark(d):
+    """The Forge badge: the Monitor, an eye in a ring with a fin either side."""
+    ring(d, 0.5, 0.5, 0.27, 0.07)
+    circle(d, 0.5, 0.5, 0.11)
+    poly(d, [(0.05, 0.40), (0.19, 0.44), (0.19, 0.56), (0.05, 0.60)])
+    poly(d, [(0.95, 0.40), (0.81, 0.44), (0.81, 0.56), (0.95, 0.60)])
+
+
+# Forge's own glyphs: written to Art/ForgeIcons and imported as T_MJForge_<Name>
+# into /Game/MJOLNIR/ForgeUI/Icons, cooked with WBP_MJOLNIRForge (chunk 980).
+FORGE_GLYPHS = {"Reticle": forge_reticle, "Mark": forge_mark}
+FORGE_OUT = os.path.join(os.path.dirname(OUT), "ForgeIcons")
+
 GLYPHS = {
     "Headshot": headshot, "Melee": melee, "Assassination": assassination, "Explosion": explosion,
     "Splatter": splatter, "Stuck": stuck, "Fall": fall, "Guardians": guardians, "Skull": skull,
@@ -239,6 +262,11 @@ def main():
         images[name] = render(fn)
         images[name].save(os.path.join(OUT, name + ".png"))
     print(f"{len(images)} icons -> {os.path.normpath(OUT)}")
+    os.makedirs(FORGE_OUT, exist_ok=True)
+    for name, fn in FORGE_GLYPHS.items():
+        images["Forge" + name] = render(fn)
+        images["Forge" + name].save(os.path.join(FORGE_OUT, name + ".png"))
+    print(f"{len(FORGE_GLYPHS)} Forge icons -> {os.path.normpath(FORGE_OUT)}")
     if args.sheet:
         cols = 9
         rows = math.ceil(len(images) / cols)

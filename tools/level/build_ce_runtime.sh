@@ -36,6 +36,10 @@
 #                                    the body damage section (it ships on the
 #                                    head section, so every bullet hit was a
 #                                    headshot: docs/playtest_2026-10-03.md, 6)
+#   pakchunk980-MJOLNIRFORGEUI-Windows  the Forge HUD, WBP_MJOLNIRForge and its
+#                                    glyphs (build_mjolnir_ui.py, same cook,
+#                                    chunk 980); MJOLNIRForge shows its text
+#                                    panel without it
 #   pakchunk990-MJOLNIRFORGEMON_P    Forge's monitor: the editor model on one
 #                                    skeleton, so the simulation can create
 #                                    it (docs/re/forge_engine.md). MJOLNIRLobby
@@ -96,6 +100,7 @@ for e in utoc ucas; do
   cp -f "$staged/pakchunk988-Windows.$e" "$out/pakchunk988-MJOLNIRMAT-Windows.$e"
   cp -f "$staged/pakchunk984-Windows.$e" "$out/pakchunk984-MJOLNIRUI-Windows.$e"
   cp -f "$staged/pakchunk981-Windows.$e" "$out/pakchunk981-MJOLNIRH2-Windows.$e"
+  cp -f "$staged/pakchunk980-Windows.$e" "$out/pakchunk980-MJOLNIRFORGEUI-Windows.$e"
 done
 
 echo "== 4/5 the flag mesh"

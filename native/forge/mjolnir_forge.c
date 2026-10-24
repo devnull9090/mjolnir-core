@@ -124,6 +124,8 @@ typedef struct {
     uint32_t held, cursor;
     float distance;
     char held_tag[160], cursor_tag[160];
+    char held_group[5], cursor_group[5];
+    unsigned last_id; // counts commands acted on, so the same result twice still shows
     char last[160];  // what the last command did
 } snapshot_t;
 
@@ -131,6 +133,7 @@ static CRITICAL_SECTION g_lock;
 static snapshot_t g_snap;
 static unsigned g_published_tick = ~0u;
 static char g_last[160];
+static unsigned g_last_id;
 
 static char g_dir[MAX_PATH];
 static char g_state_path[MAX_PATH];
@@ -172,12 +175,15 @@ static void note(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(g_last, sizeof g_last, fmt, ap);
+    g_last_id++;
     va_end(ap);
 }
 
-// The last component of an object's tag path ("shotgun"), or "".
-static void object_tag_name(uint8_t *tls, uint32_t handle, char *out, size_t size) {
+// The last component of an object's tag path ("shotgun"), or "", and its
+// tag group as four characters ("weap"), or "".
+static void object_tag_name(uint8_t *tls, uint32_t handle, char *out, size_t size, char group[5]) {
     out[0] = '\0';
+    group[0] = '\0';
     if (handle == 0xffffffffu) return;
     uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
     uint8_t *data = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
@@ -186,8 +192,15 @@ static void object_tag_name(uint8_t *tls, uint32_t handle, char *out, size_t siz
     uint32_t tag = *(uint32_t *)object;
     uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
     uint8_t *entries = table ? *(uint8_t **)(table + ARRAY_DATA) : NULL;
-    const char *path = entries ? *(const char **)(entries + (size_t)(tag & 0xffff) * TAG_ENTRY_STRIDE + 0x10) : NULL;
+    uint8_t *entry = entries ? entries + (size_t)(tag & 0xffff) * TAG_ENTRY_STRIDE : NULL;
+    const char *path = entry ? *(const char **)(entry + 0x10) : NULL;
     if (!path) return;
+    // +0x04: the group four-CC as a little-endian u32 ('weap' reads "paew").
+    for (int i = 0; i < 4; i++) {
+        char c = (char)entry[4 + 3 - i];
+        group[i] = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '!' ? c : '?';
+    }
+    group[4] = '\0';
     const char *leaf = strrchr(path, '\\');
     strncpy_s(out, size, leaf ? leaf + 1 : path, _TRUNCATE);
 }
@@ -292,12 +305,13 @@ static void snapshot(uint8_t *tls, int player) {
         s.held = *(uint32_t *)(state + EDITOR_HELD);
         s.cursor = *(uint32_t *)(state + EDITOR_CURSOR);
         s.distance = *(float *)(state + EDITOR_DISTANCE);
-        object_tag_name(tls, s.held, s.held_tag, sizeof s.held_tag);
-        object_tag_name(tls, s.cursor, s.cursor_tag, sizeof s.cursor_tag);
+        object_tag_name(tls, s.held, s.held_tag, sizeof s.held_tag, s.held_group);
+        object_tag_name(tls, s.cursor, s.cursor_tag, sizeof s.cursor_tag, s.cursor_group);
     }
     EnterCriticalSection(&g_lock);
     s.tick = g_snap.tick + 1;
     memcpy(s.last, g_last, sizeof s.last);
+    s.last_id = g_last_id;
     g_snap = s;
     LeaveCriticalSection(&g_lock);
 }
@@ -404,8 +418,10 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     g_published_tick = s.tick;
     char text[1024];
     snprintf(text, sizeof text,
-             "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\ncursor=%08x\ncursor_tag=%s\ndistance=%.1f\nlast=%s\n",
-             live, s.player, s.editing, s.held, s.held_tag, s.cursor, s.cursor_tag, s.distance, s.last);
+             "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
+             "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\n",
+             live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
+             s.distance, s.last, s.last_id);
     write_file(g_state_path, text);
     return 0;
 }

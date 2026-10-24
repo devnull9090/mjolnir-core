@@ -8,7 +8,7 @@ released yet: it needs the CE runtime pack with the monitor fix
 Halo Reach's Forge is still inside Halo: Campaign Evolved's simulation.
 MJOLNIR switches it on: you turn into the Monitor, fly around the map, and
 pick up, move, drop and delete its objects. The game's own Forge engine does
-the work; MJOLNIR gives it keys and a small panel.
+the work; MJOLNIR gives it keys and a HUD.
 
 ## Starting a Forge game
 
@@ -19,6 +19,25 @@ the work; MJOLNIR gives it keys and a small panel.
 
 For scripts and tests: `mjolnir_auto host <CODE> forge private` at the
 console.
+
+## The HUD
+
+![Holding an assault rifle as the Monitor: the target card with the weapon's silhouette, the distance bar and the control bar](images/forge-hud-holding.jpg)
+
+- **Top left:** FORGE, whether you are the Monitor or your Spartan, and the
+  map.
+- **Centre:** the Monitor's cursor. Blue when it rests on nothing, white
+  on an object, green while you hold one.
+- **Beside the cursor:** what you aim at or hold. It shows the kind of object,
+  its name, the game's own picture for a weapon, and what the keys do to it.
+  While you hold something, a bar shows how far out it is (1 to 60 m).
+- **Bottom:** every key, dimmed when it does nothing right now, and a short
+  note of what the last key did ("DELETED Shotgun").
+
+![Aiming at a shotgun: WEAPON, Shotgun, and the keys that act on it](images/forge-hud-aiming.jpg)
+
+The HUD ships in the CE runtime pack (`pakchunk980-MJOLNIRFORGEUI-Windows`).
+Without it, a plain text panel shows the same things.
 
 ## Keys
 
@@ -31,8 +50,7 @@ console.
 | **N** | Duplicate the target at the cursor |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
-flies up. The panel shows what you are holding or aiming at, and what the
-last key did.
+flies up.
 
 To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
 lines like `grab=F7` (actions `toggle`, `grab`, `duplicate`, `delete`,

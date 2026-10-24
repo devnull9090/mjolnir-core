@@ -262,8 +262,36 @@ for _, action in ipairs(ORDER) do
     if bind(action, keys[action]) then bound = bound + 1 end
 end
 
+-- The HUD (Scripts/hud.lua, WBP_MJOLNIRForge), with the text panel above as
+-- its stand-in when the HUD's container is not installed.
+local Hud = dofile(MOD .. "Scripts\\hud.lua")
+Hud.init({
+    log = log,
+    pc = function()
+        local ok, pc = pcall(function() return require("UEHelpers").GetPlayerController() end)
+        return (ok and pc and pc:IsValid()) and pc or nil
+    end,
+})
+
+-- The map's title, from MJOLNIRLevelLoader's running.txt ("CODE\tforge\tTitle").
+local function mapTitle()
+    local raw = readFile(MOD .. "..\\MJOLNIRLevelLoader\\running.txt")
+    local code, title = (raw or ""):match("^([^\t]*)\t[^\t]*\t([^\r\n]*)")
+    if not code then return "" end
+    return string.upper(title ~= "" and title or code)
+end
+
+-- Game thread only.
+local function render(s, title)
+    if Hud.render(s, keys, title) then
+        showPanel(nil)
+    else
+        showPanel(describe(s, keys))
+    end
+end
+
 local lastStatus = nil
-local lastText = false
+local lastState = false
 ExecuteInGameThreadWithDelay(5000, function()
     if not loadNative() then return end
     pcall(native.open)
@@ -274,12 +302,14 @@ ExecuteInGameThreadWithDelay(5000, function()
             lastStatus = status
             log("native: " .. status)
         end
-        -- The panel changes only when the editor's state does; the game
+        -- The HUD changes only when the editor's state does; the game
         -- thread hears about it only then.
-        local text = describe(parseState(readFile(STATE)), keys)
-        if text ~= lastText then
-            lastText = text
-            ExecuteInGameThread(function() showPanel(text) end)
+        local raw = readFile(STATE) or ""
+        if raw ~= lastState then
+            lastState = raw
+            local s = parseState(raw)
+            local title = s.forge == "1" and mapTitle() or ""
+            ExecuteInGameThread(function() render(s, title) end)
         end
         return false
     end)

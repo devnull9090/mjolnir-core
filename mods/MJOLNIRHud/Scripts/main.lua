@@ -810,6 +810,11 @@ end
 
 local function drawScoreStrip()
     if not (Feed and Feed:IsValid()) then return end
+    -- A FORGE game (MJOLNIRForge) keeps no score: no strip.
+    if Match.variant == "forge" then
+        setVisible(Feed.MatchScore, false)
+        return
+    end
     local summary = Scoreboard.summary(Match, LOCAL_PLAYER)
     setText(Feed.ScoreLeftLabel, summary.leftLabel)
     setText(Feed.ScoreRightLabel, summary.rightLabel)
@@ -1435,7 +1440,7 @@ local function tick()
         boardShown = held
         if held then boardDirty = true end
         setVisible(Board, held and not HudHidden)
-        if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held) end
+        if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held and Match.variant ~= "forge") end
     end
     -- The game's HUD hidden (MJOLNIRFlyCam's F7): ours goes with it, and
     -- comes back as it was.

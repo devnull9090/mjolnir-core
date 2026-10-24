@@ -405,7 +405,9 @@ the one under the cursor):
 ## What ships
 
 - **CE runtime pack:** `pakchunk990-MJOLNIRFORGEMON_P`, the monitor model
-  fix (`tools/level/build_ce_runtime.sh`).
+  fix, and `pakchunk980-MJOLNIRFORGEUI-Windows`, the Forge HUD
+  (`WBP_MJOLNIRForge`, [../custom_ui.md](../custom_ui.md))
+  (`tools/level/build_ce_runtime.sh`).
 - **`mjolnir_map_registry.dll`:** `mjolnir_forge_on`, the Megalo switch with
   engine 1 in the load-map handler's `mov r8d` (all seven sites as for
   Megalo). Site 0 accepts engines 1, 2 and 3, so switching between Megalo and
@@ -426,13 +428,24 @@ the one under the cursor):
   last result) goes to `forge_state.txt`, which the mod's panel shows. Keys
   default to B, V, N, Delete, Page Down and Page Up: free in the Blam
   keyboard preset (`BlamInputMapper:GetKeyForAction`; G and C throw
-  grenades, Z and X zoom). A key typed into match chat is ignored.
+  grenades, Z and X zoom). A key typed into match chat is ignored. The DLL
+  also reports each object's tag group (the tag table entry's `+0x04`, a
+  little-endian four-CC: `weap` reads "paew") and counts its results, so the
+  HUD (`Scripts/hud.lua`) can show a category and one note per action.
+- **MJOLNIRHud 0.11.5:** no score strip in a FORGE game.
 
 Verified in game 2026-10-24 (BGL, solo): the lobby started FORGE in one load
 (engine 1), the panel showed, B became the monitor and back, V dropped and
 then grabbed a rifle through request types 4 and 3, Page Up pushed it from
 2 to 6 m, N reported the missing palette, Delete removed the rifle. Moving
 the monitor works with the game's own controls.
+
+The HUD, verified in game the same day (BGL, solo, test containers installed
+by hand): the badge in both modes, the reticle's three tints, the target card
+aiming at a shotgun and holding an assault rifle (category, name, the game's
+silhouette, key hints, the distance bar), the control bar dimming, and the
+notes for the Monitor, a drop and a delete. Screenshots in
+[../forge.md](../forge.md).
 
 Known limits: host only (a fireteam client reads slot 0 as Slayer);
 duplicate needs a sandbox palette, which converted maps lack; the cursor
