@@ -25,6 +25,9 @@ jobs:
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 
+      - name: Test the out-of-date prompt at the main menu
+        run: lua5.4 tools/tests/test_outdated.lua
+
       - name: Test host game settings against the variant writer
         run: |
           lua5.4 tools/tests/test_variant_settings.lua
@@ -55,13 +58,13 @@ jobs:
             echo "⚠️ luacheck not available, skipping lint"
           fi
 
-  # Four mods have a native half (native/blam_console, native/map_registry,
-  # native/lobby, native/frame_times),
+  # Five mods have a native half (native/blam_console, native/map_registry,
+  # native/lobby, native/frame_times, native/forge),
   # built on every pull request so a change that does not compile is caught
   # here and not at the release gate. The artifacts are what a reviewer
   # installs to test; the release workflow builds its own from the tag.
   build-native:
-    name: Build native (Blam console + map registry + lobby + frame times DLLs)
+    name: Build native (Blam console + map registry + lobby + frame times + forge DLLs)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +89,10 @@ jobs:
         shell: pwsh
         run: .\native\frame_times\build.ps1
 
+      - name: Build mjolnir_forge.dll
+        shell: pwsh
+        run: .\native\forge\build.ps1
+
       - uses: actions/upload-artifact@v4
         with:
           name: mjolnir_blam_console
@@ -108,6 +115,12 @@ jobs:
         with:
           name: mjolnir_frame_times
           path: mods/MJOLNIRHud/native/mjolnir_frame_times.dll
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_forge
+          path: mods/MJOLNIRForge/native/mjolnir_forge.dll
           if-no-files-found: error
 
   validate-structure:

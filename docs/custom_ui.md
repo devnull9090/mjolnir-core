@@ -109,6 +109,12 @@ powershell -File tools/ue/cook.ps1     # also writes pakchunk984-Windows
 `PAL_MJOLNIR_UI` puts `/Game/MJOLNIR/UI` in chunk 984. Install the staged
 `pakchunk984-Windows.{utoc,ucas,pak}` as `pakchunk984-MJOLNIRUI-Windows.*`.
 
+The Forge HUD (`WBP_MJOLNIRForge`, [forge.md](forge.md)) is built by the same
+script but lives in `/Game/MJOLNIR/ForgeUI` with its own glyphs
+(`Art/ForgeIcons`, `T_MJForge_*`) and its own label, `PAL_MJOLNIR_ForgeUI`,
+which puts it in chunk 980. It ships as `pakchunk980-MJOLNIRFORGEUI-Windows`
+beside the CE runtime's monitor fix, without touching chunk 984.
+
 Before installing, list the container:
 `find_files <StagedBuilds Paks dir> MJOLNIR/UI EngineFonts`. It must hold our
 widgets only. The engine assets a widget imports (Roboto) cook into chunk 0,

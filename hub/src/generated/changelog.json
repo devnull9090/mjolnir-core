@@ -74,6 +74,36 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.17.0",
+      "tag": "launcher-v0.17.0",
+      "title": "Checks before every launch, and moves other mods aside while you play",
+      "date": "2026-10-24",
+      "summary": "Launch now checks for updates, checks your installed files and offers to move unsupported mods aside, showing every item as it goes.",
+      "body": "### Added\n\n- **A check before every launch.** Launch looks at the MJOLNIR core, each\n  code mod, the CE runtime pack and every installed map. It lists anything\n  out of date and any installed files that no longer match what was\n  installed. **Update and launch** fixes them first; **Launch without\n  updating** goes straight in. Every item shows as it is checked, under one\n  progress bar, and each download shows its progress. What was installed is\n  checked again before the game starts. Maps are not re-read every time:\n  the launcher remembers each file's size and time and reads a file only\n  when it changed, so the check takes under a second instead of minutes on a\n  slow disk. The Library's Re-check still reads everything.\n- **Unsupported mods moved aside.** Pak mods in the game's Paks folder and\n  UE4SS mods that MJOLNIR did not install can break multiplayer for the whole\n  fireteam. Launch lists them and offers to move them into a\n  `MJOLNIR-set-aside` folder in the game folder while you play. They move\n  back when the game closes, or the next time the launcher starts. Nothing is\n  deleted, and every move is logged.\n- **Update from inside the game.** When the game says it is out of date and\n  you choose UPDATE AND RESTART, the launcher opens, waits for the game to\n  close, updates, and starts it again (`mjolnir://update`).\n- A join from a website link that has to start the game runs the same\n  check first.\n\n### Fixed\n\n- A code mod that writes files into its own folder while the game runs no\n  longer reads as changed: the check compares only the files its release\n  shipped.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A check before every launch. Launch looks at the MJOLNIR core, each code mod, the CE runtime pack and every installed map. It lists anything out of date and any installed files that no longer match what was installed. Update and launch fixes them first; Launch without updating goes straight in. Every item shows as it is checked, under one progress bar, and each download shows its progress. What was installed is checked again before the game starts. Maps are not re-read every time: the launcher remembers each file's size and time and reads a file only when it changed, so the check takes under a second instead of minutes on a slow disk. The Library's Re-check still reads everything.",
+            "Unsupported mods moved aside. Pak mods in the game's Paks folder and UE4SS mods that MJOLNIR did not install can break multiplayer for the whole fireteam. Launch lists them and offers to move them into a MJOLNIR-set-aside folder in the game folder while you play. They move back when the game closes, or the next time the launcher starts. Nothing is deleted, and every move is logged.",
+            "Update from inside the game. When the game says it is out of date and you choose UPDATE AND RESTART, the launcher opens, waits for the game to close, updates, and starts it again (mjolnir://update).",
+            "A join from a website link that has to start the game runs the same check first."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A code mod that writes files into its own folder while the game runs no longer reads as changed: the check compares only the files its release shipped."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.17.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.17.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.17.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.16.0",
       "tag": "launcher-v0.16.0",
       "title": "Installs the Halo 2 maps as an optional pack, apart from the CE maps",
@@ -104,6 +134,69 @@
       "path": "/changelog/launcher/0.16.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.16.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.16.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.34.0",
+      "tag": "mods-v0.34.0",
+      "title": "Forge",
+      "date": "2026-10-24",
+      "summary": "FORGE is a new game type: become the Monitor and pick up, move and delete a map's objects, with Halo Reach's own Forge engine and a HUD of its own.",
+      "body": "### Added\n\n- **Forge** (MJOLNIRForge 0.1.0, new). Halo Reach's Forge engine is still\n  inside the game, and MJOLNIR now switches it on. Host a map from\n  MULTIPLAYER and pick **FORGE** as the game type. Press **B** to become the\n  Monitor and fly around the map. **V** picks up what the cursor is on and\n  drops it again, **Page Up** and **Page Down** push a held object out or\n  pull it in, and **Delete** removes it. Every edit goes through the game's\n  own Forge engine. A HUD shows what you aim at or hold (with the game's own\n  picture for weapons), how far out it is, and every key, dimmed when it\n  does nothing right now. The keys are ones the game leaves free, and a\n  `keys.txt` in the mod's folder changes them. See `docs/forge.md`.\n- **FORGE in the lobby** (MJOLNIRLobby 0.15.1). The game type is offered on\n  every map once MJOLNIRForge and CE runtime 1.14.0 are installed. For now it\n  is for the host alone: it does not start with fireteam members in the\n  lobby, and it is never listed publicly.\n\n### Changed\n\n- **MJOLNIRLevelLoader 0.9.1** starts a FORGE game under the Forge engine.\n- **MJOLNIRHud 0.11.5** hides the score bar in a FORGE game, which keeps no\n  score.\n\n### Needs\n\n- CE runtime 1.14.0 (the Monitor fix and the Forge HUD), published on the\n  hub with this release.\n\n### Not yet\n\n- Placing new objects: duplicate (N) needs a Forge palette, which the\n  converted maps do not have yet.\n- Saving a layout, and Forge with your fireteam.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge (MJOLNIRForge 0.1.0, new). Halo Reach's Forge engine is still inside the game, and MJOLNIR now switches it on. Host a map from MULTIPLAYER and pick FORGE as the game type. Press B to become the Monitor and fly around the map. V picks up what the cursor is on and drops it again, Page Up and Page Down push a held object out or pull it in, and Delete removes it. Every edit goes through the game's own Forge engine. A HUD shows what you aim at or hold (with the game's own picture for weapons), how far out it is, and every key, dimmed when it does nothing right now. The keys are ones the game leaves free, and a keys.txt in the mod's folder changes them. See docs/forge.md.",
+            "FORGE in the lobby (MJOLNIRLobby 0.15.1). The game type is offered on every map once MJOLNIRForge and CE runtime 1.14.0 are installed. For now it is for the host alone: it does not start with fireteam members in the lobby, and it is never listed publicly."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLevelLoader 0.9.1 starts a FORGE game under the Forge engine.",
+            "MJOLNIRHud 0.11.5 hides the score bar in a FORGE game, which keeps no score."
+          ]
+        },
+        {
+          "heading": "Needs",
+          "items": [
+            "CE runtime 1.14.0 (the Monitor fix and the Forge HUD), published on the hub with this release."
+          ]
+        },
+        {
+          "heading": "Not yet",
+          "items": [
+            "Placing new objects: duplicate (N) needs a Forge palette, which the converted maps do not have yet.",
+            "Saving a layout, and Forge with your fireteam."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.34.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.34.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.34.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.33.0",
+      "tag": "mods-v0.33.0",
+      "title": "The game tells you when MJOLNIR is out of date",
+      "date": "2026-10-24",
+      "summary": "At the main menu, the game says when MJOLNIR, the CE runtime or your maps are out of date, and UPDATE AND RESTART updates through the launcher.",
+      "body": "### Added\n\n- **Out-of-date prompt** (MJOLNIRLobby 0.15.0). When the game reaches its\n  main menu, at start and after each match, it asks the MJOLNIR launcher what\n  is out of date: code mods, the CE runtime pack and installed maps. It also\n  asks about mods MJOLNIR did not install. If anything turns up, a screen\n  lists it. **UPDATE AND RESTART** opens the launcher, closes the game, and\n  the launcher updates and starts it again. **NOT NOW** puts it away until\n  the next visit to the main menu. It needs launcher 0.17.0; an older\n  launcher is never started for it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Out-of-date prompt (MJOLNIRLobby 0.15.0). When the game reaches its main menu, at start and after each match, it asks the MJOLNIR launcher what is out of date: code mods, the CE runtime pack and installed maps. It also asks about mods MJOLNIR did not install. If anything turns up, a screen lists it. UPDATE AND RESTART opens the launcher, closes the game, and the launcher updates and starts it again. NOT NOW puts it away until the next visit to the main menu. It needs launcher 0.17.0; an older launcher is never started for it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.33.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.33.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.33.0"
     },
     {
       "product": "mods",

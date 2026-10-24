@@ -42,7 +42,8 @@
   ],
   "maintenance": "First built 2026-10-21 by merging the two research files (CONDITION and ACTION unions from the condition and action lists, actions 107..127 and conditions 18..31 filled in, hint, string_ref and trait weapon names added). Edit this file directly from now on: crates/blam-megalo/tests/roundtrip.rs is the judge (MCC_REACH=<MCC haloreach folder> round-trips every Bungie Megalo variant bit for bit).",
   "verified_by": "bit-identical round trip of all 417 Megalo variants in MCC haloreach/game_variants and hopper_game_variants (each decodes to within the last byte of its payload, trailing bits zero), the output of MJOLNIR builders and tools/tests/fixtures",
-  "corrections": []
+  "corrections": [],
+  "map_variant_decoder": "0x32d810 (c_map_variant decode, after the content header 0x38f5d0); m = map variant object; the objects and quotas are read only when quota_count <= 256"
  },
  "types": {
   "NUMBER": {
@@ -4884,6 +4885,183 @@
    },
    "cases_from": "actions",
    "decoder": "0x39cf20 (jump table 0x39deb8)"
+  },
+  "FORGE_SHAPE": {
+   "decoder": "0x686520",
+   "store": "properties +0x0 (dimensions, 0.0977 units per step after 1; 0x7ff = 200), +0x10 type",
+   "fields": [
+    {
+     "name": "shape",
+     "kind": "u",
+     "bits": 2,
+     "enum": {
+      "0": "none",
+      "1": "sphere",
+      "2": "cylinder",
+      "3": "box"
+     }
+    },
+    {
+     "kind": "if",
+     "when": "shape == 1",
+     "then": [
+      {
+       "name": "radius",
+       "kind": "u",
+       "bits": 11
+      }
+     ]
+    },
+    {
+     "kind": "if",
+     "when": "shape == 2",
+     "then": [
+      {
+       "name": "radius",
+       "kind": "u",
+       "bits": 11
+      },
+      {
+       "name": "top",
+       "kind": "u",
+       "bits": 11
+      },
+      {
+       "name": "bottom",
+       "kind": "u",
+       "bits": 11
+      }
+     ]
+    },
+    {
+     "kind": "if",
+     "when": "shape == 3",
+     "then": [
+      {
+       "name": "width",
+       "kind": "u",
+       "bits": 11
+      },
+      {
+       "name": "length",
+       "kind": "u",
+       "bits": 11
+      },
+      {
+       "name": "top",
+       "kind": "u",
+       "bits": 11
+      },
+      {
+       "name": "bottom",
+       "kind": "u",
+       "bits": 11
+      }
+     ]
+    }
+   ]
+  },
+  "FORGE_PROPERTIES": {
+   "decoder": "0x330230",
+   "store": "map-variant object +0x30 (0x1c bytes)",
+   "note": "names after Halo Reach's Forge; widths and order are CU4's",
+   "fields": [
+    {
+     "name": "shape",
+     "kind": "ref",
+     "type": "FORGE_SHAPE"
+    },
+    {
+     "name": "spawn_sequence",
+     "kind": "s",
+     "bits": 8,
+     "store": "+0x11"
+    },
+    {
+     "name": "respawn_time",
+     "kind": "u",
+     "bits": 8,
+     "store": "+0x12",
+     "note": "seconds"
+    },
+    {
+     "name": "object_type",
+     "kind": "u",
+     "bits": 5,
+     "store": "+0x13",
+     "note": "multiplayer object type; picks the extra fields below"
+    },
+    {
+     "name": "label",
+     "kind": "opt",
+     "bits": 8,
+     "store": "+0x14",
+     "note": "Megalo label index; absent = none"
+    },
+    {
+     "name": "flags",
+     "kind": "u",
+     "bits": 8,
+     "store": "+0x16"
+    },
+    {
+     "name": "team",
+     "kind": "u",
+     "bits": 4,
+     "minus1": true,
+     "store": "+0x17",
+     "note": "-1 none; Reach: 8 = neutral"
+    },
+    {
+     "name": "color",
+     "kind": "opt",
+     "bits": 3,
+     "store": "+0x1a"
+    },
+    {
+     "kind": "if",
+     "when": "object_type == 1",
+     "then": [
+      {
+       "name": "spare_clips",
+       "kind": "u",
+       "bits": 8,
+       "store": "+0x18"
+      }
+     ]
+    },
+    {
+     "kind": "if",
+     "when": "object_type in 12,13,14",
+     "then": [
+      {
+       "name": "teleporter_channel",
+       "kind": "u",
+       "bits": 5,
+       "store": "+0x18"
+      },
+      {
+       "name": "teleporter_passability",
+       "kind": "u",
+       "bits": 5,
+       "store": "+0x19"
+      }
+     ]
+    },
+    {
+     "kind": "if",
+     "when": "object_type == 19",
+     "then": [
+      {
+       "name": "location_name",
+       "kind": "u",
+       "bits": 8,
+       "minus1": true,
+       "store": "+0x18"
+      }
+     ]
+    }
+   ]
   }
  },
  "enums": {
@@ -9081,6 +9259,302 @@
        "name": "tu1",
        "kind": "ref",
        "type": "TU1"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "map_variant": [
+  {
+   "name": "header",
+   "kind": "ref",
+   "type": "CONTENT_HEADER",
+   "note": "content type 5 (map variant)"
+  },
+  {
+   "name": "encoding_version",
+   "kind": "u",
+   "bits": 8,
+   "store": "m+0x2b0",
+   "note": "below 31 the decoder returns at once"
+  },
+  {
+   "kind": "if",
+   "when": "encoding_version >= 31",
+   "then": [
+    {
+     "name": "unk2ec",
+     "kind": "u",
+     "bits": 32,
+     "store": "m+0x2ec"
+    },
+    {
+     "name": "unk2f0",
+     "kind": "u",
+     "bits": 32,
+     "store": "m+0x2f0"
+    },
+    {
+     "name": "quota_count",
+     "kind": "u",
+     "bits": 9,
+     "store": "m+0x2b2",
+     "note": "palette quotas below; the rest is read only when this is at most 256"
+    },
+    {
+     "name": "map_id",
+     "kind": "u",
+     "bits": 32,
+     "store": "m+0x2b4"
+    },
+    {
+     "name": "built_in",
+     "kind": "bool",
+     "store": "m+0x2e9"
+    },
+    {
+     "name": "unk2ea",
+     "kind": "bool",
+     "store": "m+0x2ea"
+    },
+    {
+     "name": "x_min",
+     "kind": "f32",
+     "store": "m+0x2c8"
+    },
+    {
+     "name": "x_max",
+     "kind": "f32",
+     "store": "m+0x2cc"
+    },
+    {
+     "name": "y_min",
+     "kind": "f32",
+     "store": "m+0x2d0"
+    },
+    {
+     "name": "y_max",
+     "kind": "f32",
+     "store": "m+0x2d4"
+    },
+    {
+     "name": "z_min",
+     "kind": "f32",
+     "store": "m+0x2d8"
+    },
+    {
+     "name": "z_max",
+     "kind": "f32",
+     "store": "m+0x2dc"
+    },
+    {
+     "name": "unk2e0",
+     "kind": "f32",
+     "store": "m+0x2e0"
+    },
+    {
+     "name": "unk2e4",
+     "kind": "u",
+     "bits": 32,
+     "store": "m+0x2e4"
+    },
+    {
+     "name": "label_count",
+     "kind": "u",
+     "bits": 9,
+     "store": "m+0x14f8"
+    },
+    {
+     "name": "labels",
+     "kind": "repeat",
+     "count": "label_count",
+     "store": "m+0x12f8 (256 x u16)",
+     "of": [
+      {
+       "name": "string",
+       "kind": "opt",
+       "bits": 12,
+       "present_if": 1,
+       "note": "index into the label strings; absent = 0xffff"
+      }
+     ]
+    },
+    {
+     "kind": "if",
+     "when": "label_count > 0",
+     "then": [
+      {
+       "name": "strings_size",
+       "kind": "u",
+       "bits": 13,
+       "store": "m+0x2f4+0x1000",
+       "note": "0x331200"
+      },
+      {
+       "name": "strings_compressed",
+       "kind": "bool"
+      },
+      {
+       "kind": "if",
+       "when": "strings_compressed == 1",
+       "then": [
+        {
+         "name": "strings_compressed_size",
+         "kind": "u",
+         "bits": 13
+        },
+        {
+         "name": "strings_data",
+         "kind": "bytes",
+         "count": "strings_compressed_size"
+        }
+       ],
+       "else": [
+        {
+         "name": "strings_data",
+         "kind": "bytes",
+         "count": "strings_size"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "kind": "if",
+     "when": "quota_count <= 256",
+     "then": [
+      {
+       "kind": "if",
+       "when": "encoding_version > 31",
+       "then": [
+        {
+         "name": "unk2b8",
+         "kind": "u",
+         "bits": 32,
+         "store": "m+0x2b8",
+         "note": "stored byte-swapped; with unk2bc, unk2be and unk2c0 all zero the decoder stops here and fails"
+        },
+        {
+         "name": "unk2bc",
+         "kind": "u",
+         "bits": 16,
+         "store": "m+0x2bc"
+        },
+        {
+         "name": "unk2be",
+         "kind": "u",
+         "bits": 16,
+         "store": "m+0x2be"
+        },
+        {
+         "name": "unk2c0",
+         "kind": "u64",
+         "store": "m+0x2c0"
+        }
+       ]
+      },
+      {
+       "name": "objects",
+       "kind": "repeat",
+       "count": 651,
+       "store": "m+0x14fc (651 x 0x4c)",
+       "of": [
+        {
+         "name": "present",
+         "kind": "bool"
+        },
+        {
+         "kind": "if",
+         "when": "present == 1",
+         "then": [
+          {
+           "name": "flags",
+           "kind": "u",
+           "bits": 2,
+           "store": "+0x0"
+          },
+          {
+           "name": "palette_entry",
+           "kind": "opt",
+           "bits": 8,
+           "store": "+0x2",
+           "note": "index into the scenario's sandbox palette"
+          },
+          {
+           "name": "variant",
+           "kind": "opt",
+           "bits": 5,
+           "store": "+0x2e"
+          },
+          {
+           "name": "position",
+           "kind": "position",
+           "precision": 21,
+           "bounds": [
+            "x_min",
+            "x_max",
+            "y_min",
+            "y_max",
+            "z_min",
+            "z_max"
+           ],
+           "store": "+0x8",
+           "note": "0x50e990(stream, out, 21, 0, 1, bounds): a bit, then x, y, z at widths from the bounds (0x512fc0)"
+          },
+          {
+           "name": "up",
+           "kind": "opt",
+           "bits": 20,
+           "store": "+0x20",
+           "note": "absent = straight up (0,0,1); else a 20-bit unit vector (0x3f57d0)"
+          },
+          {
+           "name": "yaw",
+           "kind": "u",
+           "bits": 14,
+           "store": "+0x14",
+           "note": "angle = raw * 0.000383495 - 3.141401 (0x2ab000)"
+          },
+          {
+           "name": "parent",
+           "kind": "u",
+           "bits": 10,
+           "minus1": true,
+           "store": "+0x2c",
+           "note": "spawn-relative object index; -1 none"
+          },
+          {
+           "name": "properties",
+           "kind": "ref",
+           "type": "FORGE_PROPERTIES"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "quotas",
+       "kind": "repeat",
+       "count": "quota_count",
+       "store": "m+0xd640 (256 x 3 bytes)",
+       "of": [
+        {
+         "name": "minimum",
+         "kind": "u",
+         "bits": 8
+        },
+        {
+         "name": "maximum",
+         "kind": "u",
+         "bits": 8
+        },
+        {
+         "name": "placed",
+         "kind": "u",
+         "bits": 8
+        }
+       ]
       }
      ]
     }

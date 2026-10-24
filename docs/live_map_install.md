@@ -255,7 +255,9 @@ compares once the host's lobby message arrives, which the two-PC test used.
 A website links a listed game as `mjolnir://join/<lobby id>` (the hub's
 lobby id). The launcher registers the `mjolnir` scheme (its `src/links.rs`
 also takes `mjolnir://mod/<slug>` and `mjolnir://map/<CODE>`, which only
-open the launcher's pages).
+open the launcher's pages, and `mjolnir://update`, the game's out-of-date
+prompt, [update_check.md](update_check.md)). A join that has to start the
+game runs the launcher's launch check first, as Launch does.
 
 - **The launcher** (`hub_join_lobby`) checks multiplayer is installed: the
   four map code mods present and on, and the CE runtime pack installed and

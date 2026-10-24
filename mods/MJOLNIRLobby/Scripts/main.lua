@@ -44,6 +44,7 @@ local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MapLive = dofile(MOD_DIR .. "\\Scripts\\maplive.lua")
 local Identity = dofile(MOD_DIR .. "\\Scripts\\identity.lua")
+local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
@@ -68,6 +69,14 @@ local MODES = {
     { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
     { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base.",
         needs = "pakchunk990-MJOLNIRFLAGB_P" },
+    -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
+    -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
+    -- on every map once MJOLNIRForge's native half and the CE runtime's
+    -- monitor fix are installed. Host only for now: a fireteam client reads
+    -- the game type from slot 0 and would start Slayer.
+    { id = "forge", slot = 0, name = "FORGE", forge = true,
+        description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
+        needs = "pakchunk990-MJOLNIRFORGEMON_P" },
 }
 
 local function readFile(path)
@@ -164,7 +173,7 @@ local function offered(mode)
         local paks = at and MOD_DIR:sub(1, at - 1) .. "\\Content\\Paks"
         mounted[stem] = (paks ~= nil and fileExists(paks .. "\\" .. stem .. ".pak")) or hubMounts(stem)
         if not mounted[stem] then
-            log(mode.name .. " is not offered: " .. stem .. " is not installed (the CE runtime pack before its blue flag); "
+            log(mode.name .. " is not offered: " .. stem .. " is not installed (an older CE runtime pack); "
                 .. "update the CE runtime pack in the MJOLNIR launcher")
         end
     end
@@ -179,7 +188,13 @@ modesFor = function(map)
     if listed.slayer then listed.team_slayer = true end
     local out = {}
     for _, mode in ipairs(MODES) do
-        if listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo") and offered(mode) then
+        local installed
+        if mode.forge then
+            installed = fileExists(MODS_DIR .. "\\MJOLNIRForge\\native\\mjolnir_forge.dll")
+        else
+            installed = listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo")
+        end
+        if installed and offered(mode) then
             out[#out + 1] = mode
         end
     end
@@ -220,6 +235,19 @@ local function startGame(map, mode)
     local table_ = StaticFindObject(SCENARIOS)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
+    end
+    -- Forge runs on the host alone for now: a fireteam client reads the game
+    -- type from insertion slot 0 and would start Slayer under the Megalo
+    -- engine against the host's sandbox engine. So no guests, and never a
+    -- public listing strangers could join.
+    if mode.forge then
+        local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
+        local members = 1
+        if UI.valid(squad) then pcall(function() members = squad:GetNumSquadMembers() end) end
+        if members > 1 then
+            return false, "FORGE is host only for now: start it without fireteam members"
+        end
+        Games.setPublic(false)
     end
     -- A map installed after the game started (in game, or by the launcher
     -- with no relaunch since) is in no cooked registration: its scenario
@@ -3373,6 +3401,10 @@ local function watchMainMenu()
             if entry.signedIn then
                 local picked, why = pcall(pickUpJoin, hookScreenEvents)
                 if not picked then log("join link: " .. tostring(why)) end
+                -- Out of date, or mods MJOLNIR did not install: said over
+                -- the main menu (Scripts/outdated.lua).
+                local checked, err = pcall(Outdated.tick, menu)
+                if not checked then log("update check: " .. tostring(err)) end
             end
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
@@ -4019,6 +4051,7 @@ local function initialize()
         end
     end
     ExecuteInGameThreadWithDelay(2000, function() registerInstalled(0) end)
+    Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\" })
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

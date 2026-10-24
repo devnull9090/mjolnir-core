@@ -21,6 +21,8 @@ import { hubClient } from "./hub/client";
 import { useHubLibrary } from "./hub/library";
 import { useUpdates } from "./updates/useUpdates";
 import { useWhatsNew } from "./updates/useWhatsNew";
+import { PreflightProvider } from "./launch/PreflightProvider";
+import { usePreflight } from "./launch/preflight";
 
 /**
  * Three views answer three different questions, and nothing answers two:
@@ -30,13 +32,32 @@ import { useWhatsNew } from "./updates/useWhatsNew";
 export type View = "mods" | "multiplayer" | "tools" | "browse" | "updates" | "settings";
 
 /**
- * A `mjolnir://` link from the website, as the Rust side parsed it
- * (src-tauri/src/links.rs): a mod's page, a map's page, or a lobby to join.
+ * A `mjolnir://` link, as the Rust side parsed it (src-tauri/src/links.rs):
+ * a mod's page, a map's page, a lobby to join, or the game's out-of-date
+ * prompt asking for an update and a restart.
  */
 type HubLink =
   | { kind: "mod"; slug: string }
   | { kind: "map"; code: string }
-  | { kind: "join"; lobby: string };
+  | { kind: "join"; lobby: string }
+  | { kind: "update" };
+
+/**
+ * Runs the update a `mjolnir://update` link asked for, each time `request`
+ * changes: wait for the game to close, update, start it again
+ * (launch/PreflightProvider.tsx). Rendered inside the provider so it can
+ * reach it.
+ */
+function UpdateLinkRunner({ request }: { request: number }) {
+  const preflight = usePreflight();
+  useEffect(() => {
+    if (request === 0) return;
+    preflight.run({ update: true, launch: () => invoke("launch_game") }).catch(console.error);
+    // Only a new request starts a run; `preflight` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
+  return null;
+}
 
 function App() {
   const updater = useUpdater();
@@ -67,6 +88,7 @@ function AppBody({
   const [openMod, setOpenMod] = useState<string | null>(null);
   const [browseTab, setBrowseTab] = useState<BrowseTab>("content");
   const [joinLobby, setJoinLobby] = useState<string | null>(null);
+  const [updateRequest, setUpdateRequest] = useState(0);
   // Both the library and the update manager read this; keeping one instance
   // means one set of hub calls and no disagreement about what is installed.
   const library = useHubLibrary();
@@ -86,6 +108,12 @@ function AppBody({
     [announceWhatsNew, refreshLibrary, checkLibraryUpdates],
   );
   const updates = useUpdates(updater, announce);
+  // A launch's own updates (launch/PreflightProvider.tsx) install outside
+  // the update manager: the same refreshes it would make.
+  const announceInstalled = () => {
+    void updates.refresh();
+    void refreshLibrary().then(checkLibraryUpdates);
+  };
 
   // A profile opens over whatever is already there, so Back from it reveals
   // the mod you clicked the author on rather than dumping you at a list.
@@ -128,6 +156,11 @@ function AppBody({
         setActiveView("multiplayer");
         setJoinLobby(link.lobby);
         break;
+      case "update":
+        setOpenMod(null);
+        setActiveView("updates");
+        setUpdateRequest((n) => n + 1);
+        break;
     }
   };
   useEffect(() => {
@@ -146,6 +179,8 @@ function AppBody({
   }, []);
 
   return (
+    <PreflightProvider onApplied={() => announceInstalled()}>
+    <UpdateLinkRunner request={updateRequest} />
     <div className="flex h-screen w-screen bg-surface-primary">
       <Sidebar
         activeView={activeView}
@@ -214,6 +249,7 @@ function AppBody({
         onOpenLink={(url) => void openUrl(url)}
       />
     </div>
+    </PreflightProvider>
   );
 }
 
