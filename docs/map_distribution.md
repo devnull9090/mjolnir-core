@@ -381,3 +381,7 @@ scheme, which launcher 0.13.0 and newer register:
    collections ("CE classics"). Map previews landed another way: the game
    and the launcher show each map's hub cover image (`cover_url`; PR #165
    and #166), and nothing reads a `map/preview.png`.
+
+TST reserves shader chunk **968** for published-launcher compatibility. Older launchers
+classify only `pakchunk9NN-MJOLNIR...` as supported; other map texture-only cooks may
+retain the legacy 985 name, but an authored shader cook must preserve its actual chunk.

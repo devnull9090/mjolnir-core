@@ -150,6 +150,10 @@ def asset_name(prefix, stem):
 def cook_chunk(code):
     """The cook chunk of a map's own packages: one per code, never 988 (the
     masters and their shader library) or a shipped chunk."""
+    # TST has authored shaders. Published launchers recognize 9xx MJOLNIR
+    # containers, so reserve an unused chunk until general chunk IDs are supported.
+    if code.upper() == "TST":
+        return 968
     return 10000 + int(code, 36)
 
 
