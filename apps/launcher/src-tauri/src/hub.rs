@@ -899,6 +899,7 @@ fn install_one_as(
         }
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        check_mglo(&path, &data)?;
         if path == mjolnir_sign::SIGNATURE_MEMBER {
             envelope = Some(data);
         } else {
@@ -2295,6 +2296,22 @@ fn code_mods_dir() -> Result<PathBuf, String> {
 /// manifest fetch rather than one per mod: `code_mods_status` re-downloads and
 /// re-verifies the whole set, and can pull entire zips to judge integrity, so
 /// looping over the single-mod entry point would multiply all of that by N.
+/// Refuse to install a `.mglo` the simulation could not decode safely. The
+/// file loader runs the simulation's unbounded variant decoder, so a crafted
+/// variant in distributed content would overrun it; it is validated here
+/// against the simulation's own grammar and store bounds before it ever reaches
+/// disk (docs/re/variant_network_safety.md).
+fn check_mglo(path: &str, data: &[u8]) -> Result<(), String> {
+    let is_mglo = std::path::Path::new(path)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("mglo"));
+    if is_mglo {
+        blam_megalo::Variant::validate(data)
+            .map_err(|e| format!("Refusing to install: {path} is not a safe variant: {e}"))?;
+    }
+    Ok(())
+}
+
 fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
     let id = &entry.id;
     let resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
@@ -2329,6 +2346,7 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
         }
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        check_mglo(&name, &data)?;
         fs::write(&dest, &data).map_err(|e| e.to_string())?;
         crate::transfer::wrote(data.len() as u64);
     }

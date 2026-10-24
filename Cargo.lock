@@ -955,6 +955,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mjolnir-mglo-cabi"
+version = "0.1.0"
+dependencies = [
+ "blam-megalo",
+]
+
+[[package]]
 name = "mjolnir-sign"
 version = "0.1.0"
 dependencies = [
