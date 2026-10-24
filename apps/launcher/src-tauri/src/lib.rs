@@ -11,8 +11,10 @@ mod hub;
 mod links;
 mod maps;
 mod minidump;
+mod preflight;
 mod tools;
 mod transfer;
+mod unsupported;
 
 // ─── Runtime bundle ─────────────────────────────────────────────────────
 //
@@ -509,7 +511,7 @@ fn sha256_file(path: &Path) -> io::Result<String> {
 }
 
 /// Load cached manifest from disk
-fn load_cached_manifest() -> Option<ModpackManifest> {
+pub(crate) fn load_cached_manifest() -> Option<ModpackManifest> {
     let path = cached_manifest_path();
     if let Ok(content) = fs::read_to_string(&path) {
         serde_json::from_str(&content).ok()
@@ -1033,6 +1035,12 @@ fn launch_game() -> Result<(), String> {
         eprintln!("ue4ss settings: {e}");
     }
 
+    // Mods moved aside for this session (unsupported.rs) go back when the
+    // game exits.
+    if !unsupported::status().is_empty() {
+        unsupported::restore_after_game();
+    }
+
     match settings.launch_method.as_str() {
         "exe" => {
             if let Some(exe_path) = &settings.custom_exe_path {
@@ -1138,7 +1146,7 @@ fn tasklist_lists(output: &str, names: &[String]) -> bool {
 /// Whether the game is running, from one `tasklist` (hidden: no console
 /// flashes up over the launcher). False when it cannot tell, which starts
 /// the game: a second start of a running Steam game only focuses it.
-fn game_running() -> bool {
+pub(crate) fn game_running() -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1192,6 +1200,58 @@ async fn hub_join_lobby(lobby: String) -> Result<JoinStart, String> {
     })
     .await
     .map_err(|e| format!("Task join error: {e}"))?
+}
+
+// ─── Before a launch (preflight.rs, unsupported.rs) ──────────────────────
+
+/// Everything out of date, unreachable sources, and unsupported mods.
+#[tauri::command]
+async fn preflight_check() -> Result<preflight::UpdateCheck, String> {
+    tauri::async_runtime::spawn_blocking(preflight::check)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+/// Installed files that no longer match what was installed.
+#[tauri::command]
+async fn preflight_verify() -> Result<Vec<preflight::Problem>, String> {
+    tauri::async_runtime::spawn_blocking(preflight::verify)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
+async fn unsupported_mods() -> Result<Vec<unsupported::UnsupportedMod>, String> {
+    tauri::async_runtime::spawn_blocking(unsupported::scan)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// Move every unsupported mod aside until the game exits.
+#[tauri::command]
+async fn unsupported_set_aside() -> Result<unsupported::SetAsideResult, String> {
+    tauri::async_runtime::spawn_blocking(unsupported::set_aside)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn unsupported_restore() -> Result<unsupported::RestoreResult, String> {
+    tauri::async_runtime::spawn_blocking(unsupported::restore)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
+fn set_aside_status() -> Vec<unsupported::Moved> {
+    unsupported::status()
+}
+
+#[tauri::command]
+async fn game_is_running() -> bool {
+    tauri::async_runtime::spawn_blocking(game_running)
+        .await
+        .unwrap_or(false)
 }
 
 // ─── New commands: Install lifecycle ────────────────────────────────────
@@ -1264,7 +1324,14 @@ pub struct ModpackUpdate {
 /// one call that reaches the network, and the update manager owns it.
 #[tauri::command]
 async fn check_modpack_update() -> Result<ModpackUpdate, String> {
-    tauri::async_runtime::spawn_blocking(|| {
+    tauri::async_runtime::spawn_blocking(modpack_update)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// `check_modpack_update`'s work, for the pre-launch check too.
+pub(crate) fn modpack_update() -> Result<ModpackUpdate, String> {
+    {
         let installed = load_cached_manifest();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -1295,9 +1362,7 @@ async fn check_modpack_update() -> Result<ModpackUpdate, String> {
             update_available,
             file_count: latest.files.len(),
         })
-    })
-    .await
-    .map_err(|e| format!("Task join error: {e}"))?
+    }
 }
 
 #[tauri::command]
@@ -1956,6 +2021,19 @@ pub fn run() {
             .cloned();
         std::process::exit(hub::run_live_install(&code, release.as_deref(), &progress));
     }
+    // The game asking what is out of date (preflight::run_check): no window,
+    // for the same reason as above.
+    if args.iter().any(|a| a == "--check-updates") {
+        let out = args
+            .iter()
+            .position(|a| a == "--out")
+            .and_then(|j| args.get(j + 1))
+            .map(PathBuf::from);
+        let Some(out) = out else {
+            std::process::exit(2);
+        };
+        std::process::exit(preflight::run_check(&out));
+    }
     hub::record_exe_path();
     tauri::Builder::default()
         // First, as the deep-link plugin requires: a second launcher (a
@@ -2005,6 +2083,14 @@ pub fn run() {
                 }
             }
 
+            // Mods a launch moved aside whose game has ended, by an exit
+            // this launcher did not see (it was closed, or crashed).
+            std::thread::spawn(|| {
+                if !unsupported::status().is_empty() && !game_running() {
+                    unsupported::restore();
+                }
+            });
+
             // Game crashes, however the game was started (crash.rs).
             crash::watch(app.handle().clone());
             Ok(())
@@ -2022,6 +2108,13 @@ pub fn run() {
             check_install_path,
             set_install_path,
             check_modpack_update,
+            preflight_check,
+            preflight_verify,
+            unsupported_mods,
+            unsupported_set_aside,
+            unsupported_restore,
+            set_aside_status,
+            game_is_running,
             verify_install,
             install_modpack,
             set_modpack_enabled,

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { GAME_TYPE_NAMES, type Lobby, type MapListing } from "@mjolnir/hub-kit";
 import { hubClient } from "../hub/client";
+import { usePreflight } from "../launch/preflight";
 import type { Library } from "../hub/library";
 import { MapTile, isHaloCeMap, mapGame, mapStatus, type MapStatus } from "./hub/MapTile";
 
@@ -337,11 +338,25 @@ function JoinPanel({
   // (React runs effects twice in development, and the lookup may rerun).
   const handedOver = useRef<string | null>(null);
 
+  const preflight = usePreflight();
   const join = useCallback(async () => {
     setPhase({ kind: "joining" });
     try {
-      const r = await invoke<JoinStart>("hub_join_lobby", { lobby });
-      setPhase({ kind: "started", launched: r.launched });
+      // A join that starts the game runs a launch's checks first
+      // (launch/PreflightProvider.tsx); one the running game picks up
+      // cannot change anything under it.
+      const running = await invoke<boolean>("game_is_running").catch(() => false);
+      let started: JoinStart | null = null;
+      const hand = async () => {
+        started = await invoke<JoinStart>("hub_join_lobby", { lobby });
+      };
+      if (running) await hand();
+      else if (!(await preflight.run({ launch: hand }))) {
+        setPhase({ kind: "error", message: "Cancelled before the game started." });
+        return;
+      }
+      const r = started as JoinStart | null;
+      setPhase({ kind: "started", launched: r?.launched ?? !running });
     } catch (e) {
       const message = String(e);
       setPhase(
@@ -350,7 +365,7 @@ function JoinPanel({
           : { kind: "error", message },
       );
     }
-  }, [lobby]);
+  }, [lobby, preflight]);
 
   // Look the game up first: a link can outlive its lobby, and starting the
   // game for one that has already ended only to be told so in game is worse

@@ -25,6 +25,9 @@ jobs:
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 
+      - name: Test the out-of-date prompt at the main menu
+        run: lua5.4 tools/tests/test_outdated.lua
+
       - name: Test host game settings against the variant writer
         run: |
           lua5.4 tools/tests/test_variant_settings.lua

@@ -1336,6 +1336,11 @@ pub fn record_exe_path() {
     if let Ok(exe) = std::env::current_exe() {
         let _ = fs::create_dir_all(config_dir());
         let _ = fs::write(config_dir().join("launcher_exe.txt"), exe.to_string_lossy().as_bytes());
+        // What this launcher understands beyond `--install-map`, one word a
+        // line, for the game to check before it asks: a launcher from before
+        // a feature would otherwise just open its window. A separate file
+        // because an older game reads launcher_exe.txt whole as the path.
+        let _ = fs::write(config_dir().join("launcher_features.txt"), "check-updates\nupdate-link\n");
     }
 }
 
@@ -1472,6 +1477,9 @@ pub fn check_updates() -> Result<Vec<UpdateInfo>, String> {
 #[derive(Debug, Serialize)]
 pub struct VerifiedMod {
     pub slug: String,
+    pub name: String,
+    /// The installed release: what a repair downloads again.
+    pub release_id: String,
     pub ok: bool,
     /// Cache files whose bytes no longer hash to what was installed.
     pub tampered: Vec<String>,
@@ -1503,6 +1511,8 @@ pub fn verify_installed() -> Vec<VerifiedMod> {
             }
             VerifiedMod {
                 slug: inst.slug.clone(),
+                name: inst.name.clone(),
+                release_id: inst.release_id.clone(),
                 ok: tampered.is_empty() && missing.is_empty(),
                 tampered,
                 missing,
@@ -1994,6 +2004,11 @@ fn load_installed_versions() -> std::collections::HashMap<String, InstallRecord>
         .collect()
 }
 
+/// The code mods this launcher has installed, by id.
+pub(crate) fn installed_code_mod_ids() -> Vec<String> {
+    load_installed_versions().into_keys().collect()
+}
+
 fn save_installed_version(id: &str, version: &str, tree_sha256: &str) -> Result<(), String> {
     let mut map = load_installed_versions();
     map.insert(
@@ -2171,9 +2186,9 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Fetch the latest signed manifest, verify its signature, and report which
-/// mods from it are present in the game's UE4SS Mods directory.
-pub fn code_mods_status() -> Result<CodeModsStatus, String> {
+/// The latest signed code-mod manifest, and whether its signature verifies
+/// against the compiled-in key.
+fn fetch_code_mods_manifest() -> Result<(CodeModsManifest, bool), String> {
     let client = http()?;
     let manifest_bytes = client
         .get(format!("{CODE_MODS_BASE}/latest/manifest.json"))
@@ -2193,6 +2208,13 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
     let manifest: CodeModsManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|e| format!("Bad manifest: {e}"))?;
 
+    Ok((manifest, verified))
+}
+
+/// Fetch the latest signed manifest, verify its signature, and report which
+/// mods from it are present in the game's UE4SS Mods directory.
+pub fn code_mods_status() -> Result<CodeModsStatus, String> {
+    let (manifest, verified) = fetch_code_mods_manifest()?;
     let mods_dir = crate::find_game_install().map(|(p, _)| crate::mods_dir(&p));
     let versions = load_installed_versions();
     let mods = manifest
@@ -2265,6 +2287,77 @@ pub fn code_mods_status() -> Result<CodeModsStatus, String> {
         signature_verified: verified,
         mods,
     })
+}
+
+/// The version a code mod's own `mod.json` gives, which is what is on disk
+/// whatever installed it (this launcher, a script, a hand copy).
+fn disk_version(dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(dir.join("mod.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value["version"].as_str().map(str::to_string)
+}
+
+/// A code mod in the game whose signed release is newer than what is on disk.
+#[derive(Debug, Serialize, Clone)]
+pub struct CodeModOutdated {
+    pub id: String,
+    /// Empty when the mod says no version: it cannot be shown current.
+    pub installed: String,
+    pub latest: String,
+}
+
+/// The installed code mods the signed set has a newer release of. Judged
+/// from each mod's `mod.json` rather than this launcher's install record, so
+/// a mod copied in by other means is judged by what it is; a newer version
+/// on disk (a development build) is not out of date. Only mods that are in
+/// the game count: the set's others are the Updates screen's to offer.
+pub fn code_mods_outdated() -> Result<Vec<CodeModOutdated>, String> {
+    let (manifest, verified) = fetch_code_mods_manifest()?;
+    if !verified {
+        return Err("the signed code-mod set does not verify".into());
+    }
+    let (install, _) = crate::find_game_install().ok_or("Game not found")?;
+    let mods_dir = crate::mods_dir(&install);
+    let records = load_installed_versions();
+    Ok(manifest
+        .mods
+        .into_iter()
+        .filter(|e| mods_dir.join(&e.id).is_dir())
+        .filter_map(|e| {
+            let installed = disk_version(&mods_dir.join(&e.id))
+                .or_else(|| records.get(&e.id).map(|r| r.version.clone()))
+                .unwrap_or_default();
+            (installed.is_empty() || is_newer(&e.version, &installed)).then(|| CodeModOutdated {
+                id: e.id,
+                installed,
+                latest: e.version,
+            })
+        })
+        .collect())
+}
+
+/// Installed code mods whose files no longer hash to what this launcher
+/// installed, without the network: only mods with a recorded tree digest
+/// whose `mod.json` still names the recorded version (a mod updated by other
+/// means has nothing on record to compare with).
+pub fn code_mods_modified() -> Vec<String> {
+    let Some((install, _)) = crate::find_game_install() else {
+        return Vec::new();
+    };
+    let mods_dir = crate::mods_dir(&install);
+    let mut out: Vec<String> = load_installed_versions()
+        .into_iter()
+        .filter(|(_, r)| !r.tree_sha256.is_empty())
+        .filter(|(id, r)| {
+            let dir = mods_dir.join(id);
+            dir.is_dir()
+                && disk_version(&dir).is_none_or(|v| v == r.version)
+                && tree_digest(&dir).is_ok_and(|d| d != r.tree_sha256)
+        })
+        .map(|(id, _)| id)
+        .collect();
+    out.sort();
+    out
 }
 
 /// An unsigned set does not get to name hashes, so nothing installs from one.

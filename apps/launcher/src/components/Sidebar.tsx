@@ -2,6 +2,7 @@ import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { View } from "../App";
 import type { UpdateState } from "./UpdaterBanner";
+import { usePreflight } from "../launch/preflight";
 
 const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
   {
@@ -70,6 +71,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeView, onNavigate, updater, updateCount }: SidebarProps) {
+  const preflight = usePreflight();
   const showUpdateBadge = updater.status === "dismissed" || updater.status === "available" || updater.status === "error";
 
   return (
@@ -135,7 +137,11 @@ export default function Sidebar({ activeView, onNavigate, updater, updateCount }
       {/* Launch Button */}
       <div className="p-4 border-t border-border-subtle">
         <button
-          onClick={() => invoke("launch_game").catch(console.error)}
+          onClick={() =>
+            // Updates, a file check and unsupported mods first
+            // (launch/PreflightProvider.tsx), then the game.
+            preflight.run({ launch: () => invoke("launch_game") }).catch(console.error)
+          }
           className="w-full py-3 rounded-lg font-bold text-sm tracking-wide uppercase
             bg-gradient-to-r from-mjolnir-gold to-mjolnir-gold-dim
             text-surface-primary
