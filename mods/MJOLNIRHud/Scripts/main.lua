@@ -446,6 +446,23 @@ end
 HANDLERS["30_seconds_remaining"] = function(inc) clockFrom(30, inc.at) end
 HANDLERS["10_seconds_remaining"] = function(inc) clockFrom(10, inc.at) end
 
+-- Timed objectives send the simulation's absolute total each scoring second.
+-- Repeated or delayed relay snapshots cannot award points twice.
+HANDLERS.ball_taken = function(inc)
+    if Match.variant ~= "oddball" or type(inc.cause) ~= "number" or inc.cause < 0
+        or type(inc.value) ~= "number" or inc.value <= 0 then return end
+    local p = stats(inc.cause)
+    p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
+    boardDirty = true
+end
+HANDLERS.hill_controlled = function(inc)
+    if Match.variant ~= "koth" or type(inc.cause) ~= "number" or inc.cause < 0
+        or type(inc.value) ~= "number" or inc.value <= 0 then return end
+    local p = stats(inc.cause)
+    p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
+    boardDirty = true
+end
+
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end
     if inc.cause == LOCAL_PLAYER and not Match.clockEnd then

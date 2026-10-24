@@ -21,6 +21,12 @@ def chicago(flags, blend, base_map="shield.png"):
                        "chicago_stages": [{"map": base_map}] if base_map else []}}
 
 
+class CookChunkTest(unittest.TestCase):
+    def test_tst_shader_chunk_is_compatible_with_published_launcher(self):
+        self.assertEqual(ce_material_spec.cook_chunk("TST"), 968)
+        self.assertEqual(ce_material_spec.cook_chunk("BGL"), 10000 + int("BGL", 36))
+
+
 class TransparentMasterTest(unittest.TestCase):
     def spec(self, shaders):
         """Run the spec over one staging whose glTF has a material per shader;

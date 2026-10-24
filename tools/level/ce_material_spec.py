@@ -150,6 +150,10 @@ def asset_name(prefix, stem):
 def cook_chunk(code):
     """The cook chunk of a map's own packages: one per code, never 988 (the
     masters and their shader library) or a shipped chunk."""
+    # TST has authored shaders. Published launchers recognize 9xx MJOLNIR
+    # containers, so reserve an unused chunk until general chunk IDs are supported.
+    if code.upper() == "TST":
+        return 968
     return 10000 + int(code, 36)
 
 
@@ -652,6 +656,11 @@ def gltf_boxes(scene):
 
 def main():
     args = sys.argv[1:]
+    surface_library = None
+    if "--surface-library" in args:
+        i = args.index("--surface-library")
+        surface_library = args[i + 1]
+        del args[i:i + 2]
     code = None
     if "--code" in args:
         i = args.index("--code")
@@ -923,7 +932,12 @@ def main():
         t = os.path.splitext(os.path.basename(png))[0]
         textures.setdefault(t, {"file": os.path.abspath(png), "name": t, "sunmask": True})
 
+    authored = {}
+    if surface_library:
+        from authored_surfaces import apply_library
+        authored = apply_library(surface_library, root, materials, slots, gltf["materials"], textures)
     json.dump({"root": root, "chunk": cook_chunk(code) if code else None,
+               "authored_surfaces": authored,
                "textures": list(textures.values()), "materials": materials, "slots": slots},
               open(dest, "w", encoding="utf-8"), indent=1)
     print(f"{name}: {len(textures)} texture(s), {len(materials)} material(s) -> {dest}")

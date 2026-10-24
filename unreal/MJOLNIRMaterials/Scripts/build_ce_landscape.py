@@ -197,6 +197,14 @@ def decor_material(entry):
     # ByInfo includes the layer index; SetMaterialInstanceScalarParameterValue
     # only takes an association, so cannot address both native rock layers.
     mi.set_editor_property("scalar_parameter_values", values)
+    vectors = []
+    for key, value in sorted(material.get("vectors", {}).items()):
+        name, layer = key.rsplit("#", 1)
+        info = unreal.MaterialParameterInfo(name=unreal.Name(name),
+                    association=unreal.MaterialParameterAssociation.LAYER_PARAMETER, index=int(layer))
+        vectors.append(unreal.VectorParameterValue(parameter_info=info,
+                       parameter_value=unreal.LinearColor(*value)))
+    mi.set_editor_property("vector_parameter_values", vectors)
     if not eal.save_loaded_asset(mi):
         raise RuntimeError(f"could not save baked decor material: {entry['id']}")
     return mi
@@ -246,6 +254,26 @@ if FOLIAGE:
             unreal.log(f"MJOLNIR baked decor materials: {material_count} cooked MIC(s)")
     unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
                f"{len(fspec['standins'])} stand-in(s)")
+# A map-owned ambient probe avoids dependence on runtime sky recapture.
+ambient = os.environ.get("MJ_AMBIENT_CUBEMAP")
+if ambient:
+    settings = json.loads(ambient)
+    cube = unreal.load_asset(settings["asset"])
+    if not isinstance(cube, unreal.TextureCube):
+        raise RuntimeError(f"Ambient cubemap missing: {settings['asset']}")
+    volume = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).spawn_actor_from_class(
+        unreal.PostProcessVolume, unreal.Vector(0, 0, 0))
+    volume.set_actor_label("MJOLNIR Map Ambient")
+    volume.set_editor_property("unbound", True)
+    volume.set_editor_property("priority", 100.0)
+    post = volume.get_editor_property("settings")
+    post.set_editor_property("ambient_cubemap", cube)
+    post.set_editor_property("override_ambient_cubemap_intensity", True)
+    post.set_editor_property("ambient_cubemap_intensity", settings["intensity"])
+    post.set_editor_property("override_ambient_cubemap_tint", True)
+    post.set_editor_property("ambient_cubemap_tint", unreal.LinearColor(*settings["tint"]))
+    volume.set_editor_property("settings", post)
+    unreal.log("MJOLNIR map ambient cubemap built")
 if not les.save_current_level():
     raise RuntimeError("save_current_level failed")
 

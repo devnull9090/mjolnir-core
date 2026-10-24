@@ -1,0 +1,6 @@
+Generated with the built-in imagegen tool on 2026-10-20.
+Asset: textures/weathered_megastructure_albedo.png
+Purpose: Blender wall material study. Not yet converted to CE bitmap/shader.
+Only albedo is authored; preview bump is an estimate from luminance.
+
+Use case: photorealistic-natural. Asset type: seamless physically based game albedo texture, square 2048x2048. Generate a flat orthographic base-color scan of ancient pale grey titanium/concrete composite Forerunner architecture, representing a 12 metre-wide wall panel. Cool neutral light-gray main tone with subtle warmer mineral stains, fine weathered aggregate and small pitting, gentle uneven darker vertical rain runoff streaks, occasional fine hairline erosion marks. Strong realistic medium-scale mottling, aged outdoor coastal surface. Entire image is the material, consistent flat diffuse illumination, NO lighting baked in, NO cast shadows, NO perspective, NO bevels, NO panel divisions, NO border, NO text, NO bolts, NO recognizable symbols, NO large cracks, NO metallic highlights, no dramatic grunge or black damage. Must tile, restrained and believable AAA environmental material, recognizable weathering at distance without visual noise.

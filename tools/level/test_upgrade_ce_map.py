@@ -99,6 +99,43 @@ class LocalInstallTest(unittest.TestCase):
             for ext in ("utoc", "ucas", "pak"):
                 self.assertTrue((self.paks / f"{stem}.{ext}").is_file())
 
+    def test_authored_local_install_keeps_shader_library_number(self):
+        conv = Path(self.paths["conv"])
+        self.write(conv / "materials.spec.json", {"chunk": 48621, "authored_surfaces": {"armor": {}}})
+        for ext in ("utoc", "ucas"):
+            self.write(conv / f"pakchunk48621-MJOLNIRCOOK-TST_P.{ext}")
+        files, _ = upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
+        targets = [Path(dst).name for _, dst in files]
+        self.assertIn("pakchunk48621-MJOLNIRCOOK-TST_P.utoc", targets)
+        self.assertNotIn("pakchunk985-MJOLNIRCOOK-TST_P.utoc", targets)
+
+    def test_beta_local_install_keeps_published_runtime_unchanged(self):
+        self.map["environment"] = {"light_scale": 8192, "sun": {"atmosphere_sun": True},
+                                   "skylight": {"physical": True}, "post": {}}
+        self.write(self.config, {"TST": self.map})
+        for ext in ("utoc", "ucas"):
+            (self.staged / f"pakchunk983-Windows.{ext}").unlink()
+        with patch.object(upgrade, "run", return_value=""), patch.object(upgrade, "install_shared") as shared:
+            self.main("--local-install", "--release-beta")
+        shared.assert_not_called()
+        self.assertTrue((self.ue4ss / "MJOLNIRMaps/TST/level.json").exists())
+
+    def test_local_install_preserves_baked_water_and_rejects_missing_state(self):
+        level_path = Path(self.paths["out_level"])
+        level = json.loads(level_path.read_text())
+        level["flux"]["state"] = {"resolution": [192, 160]}
+        self.write(level_path, level)
+        with self.assertRaisesRegex(SystemExit, "local install is incomplete"):
+            upgrade.local_install_plan("TST", self.map, self.paths)
+        water = Path(self.paths["work"]) / "flux_state"
+        self.write(water / "state.json", {})
+        self.write(water / "height.exr", b"height")
+        self.write(water / "velocity.exr", b"velocity")
+        upgrade.install_local("TST", upgrade.local_install_plan("TST", self.map, self.paths))
+        dest = self.ue4ss / "MJOLNIRMaps/TST/flux_state"
+        self.assertEqual((dest / "height.exr").read_bytes(), b"height")
+        self.assertEqual((dest / "velocity.exr").read_bytes(), b"velocity")
+
     def test_missing_output_stops_before_shared_or_game_writes(self):
         (Path(self.paths["conv"]) / "pakchunk985-MJOLNIRCOOK-TST_P.ucas").unlink()
         with patch.object(upgrade, "run", return_value=""), patch.object(upgrade, "install_shared") as shared:
@@ -150,6 +187,17 @@ class LocalInstallTest(unittest.TestCase):
             self.assertEqual(cmd[cmd.index("--tree-variant") + 1], "Lrg_A")
 
 
+class GeneratedMeshTest(unittest.TestCase):
+    def test_original_maps_use_package_ids_distinct_from_shared_runtime(self):
+        for suffix in ("CliffTess", "River", "FluxBed", "ShadowShell"):
+            name = f"SM_TST_{suffix}"
+            owned = upgrade.generated_mesh("TST", {"map_mesh_chunk": True}, suffix)
+            shared = upgrade.generated_mesh("TST", {}, suffix)
+            self.assertEqual(owned, f"/Game/MJOLNIR/Maps/TST/Generated/{name}.{name}")
+            self.assertEqual(shared, f"/Game/MJOLNIR/CETrial/{name}.{name}")
+            self.assertNotEqual(owned, shared)
+
+
 class ShadowShellTest(unittest.TestCase):
     def test_rerun_uses_current_material_order_cut_and_swap_with_base_level_override(self):
         import shadow_shell
@@ -164,6 +212,8 @@ class ShadowShellTest(unittest.TestCase):
                     Path(paths[key]).mkdir(parents=True, exist_ok=True)
                 material = lambda name: {"parent": "M_CE_Environment", "textures": {"Base": name}}
                 ground, trim, trunk, rock = map(material, ("ground", "trim", "trunk", "rock"))
+                if explicit_base:
+                    trim = {"parent": "/Game/MJOLNIR/Maps/TST/SurfaceMaterials/M_Authored_armor.M_Authored_armor"}
                 fresh = {"decor": [{"id": "tst_terrain", "materials": [None, ground, trim, trunk, rock]}],
                          "landscape": {"cut": {"slots": [2]}, "pbr": {"keep": True}}}
                 stale = {"decor": [{"id": "tst_terrain", "materials": [None, ground, upgrade.HIDDEN, material("teleporter")]}],
@@ -294,6 +344,17 @@ class HorizonTest(unittest.TestCase):
 
 
 class FluxSpecTest(unittest.TestCase):
+    def test_tst_keeps_only_one_permanent_water_modifier(self):
+        config = json.loads((Path(__file__).with_name("ce_upgrade_maps.json")).read_text())["TST"]["flux"]
+        river = {"positions": [[3200, 1900, -18], [4100, 1900, -18], [4100, 2800, -18], [3200, 2800, -18]],
+                 "indices": [0, 1, 2, 0, 2, 3]}
+        spec = upgrade.flux_spec("TST", config, river, {})
+        permanent = [s for s in spec["sources"] if not s.get("prime")]
+        self.assertEqual(len(permanent), 1)
+        self.assertEqual(permanent[0]["pos"], [3600, 2300, -18])
+        self.assertEqual(permanent[0]["mode"], 2)
+        self.assertGreater(len(spec["sources"]), 3)
+
     def test_surface_color_is_opt_in_and_does_not_change_simulation(self):
         river = {"positions": [[0, 0, -18], [100, 0, -18], [0, 100, -18]], "indices": [0, 1, 2]}
         options = {"outlet": False}

@@ -224,7 +224,9 @@ if [ "$cook" = "1" ]; then
   # not stage: fog.json beside the staging, for the material spec.
   [ -f "$src" ] && [ "$source_game" = halo_ce ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
-  python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
+  surface_args=()
+  [ -z "${CE_SURFACE_LIBRARY:-}" ] || surface_args+=(--surface-library "$CE_SURFACE_LIBRARY")
+  python "$here/ce_material_spec.py" "${surface_args[@]}" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf" "${machine_gltfs[@]}"
   # The meshes, packages of the map's own beside its materials
   # (<root>/SM_<map>_Terrain, _Translucent and _Sky, and _Water when the
@@ -301,6 +303,15 @@ if [ "$cook" = "1" ]; then
   ue="$repo/tools/ue"
   powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_materials.py | head -1
   MJ_CE_SPEC="$(cygpath -w "$out/materials.spec.json")" powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_level.py | grep -E "editor exit|MJOLNIR CE level"
+  # editor_cmd reports its log without propagating Python failures. Refuse
+  # stale materials, especially when importing an authored surface library.
+  python - "$repo/unreal/MJOLNIRMaterials/Saved_build_ce_level.log" <<'PY_SURFACE_CHECK'
+import sys
+from pathlib import Path
+log = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+if "MJOLNIR CE level:" not in log or "Traceback" in log or "LogPython: Error" in log:
+    raise SystemExit("CE level material import failed; inspect " + sys.argv[1])
+PY_SURFACE_CHECK
   # The ambient sound (sound scenery and the BSP's background loops), from
   # the CE map and sounds.map beside it, imported beside the materials.
   sounds_map="${SOUNDS_MAP:-$(dirname "$src")/sounds.map}"
@@ -333,10 +344,20 @@ if [ "$cook" = "1" ]; then
   chunk="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json")"
   chunk="${chunk%%[[:space:]]}"
   staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
+  # Authored masters carry shaders: UE opens their library by the chunk
+  # number in the mounted filename. Texture-only legacy cooks may use 985.
+  cook_stem="$(python - "$here" "$out" "$code" <<'PY_COOK_STEM'
+import sys
+sys.path.insert(0, sys.argv[1])
+from cooked_map_container import cooked_map_container
+print(cooked_map_container(sys.argv[2], sys.argv[3]).name)
+PY_COOK_STEM
+)"
+  cook_stem="${cook_stem%%[[:space:]]}"
   for e in utoc ucas; do
-    cp -f "$staged/pakchunk${chunk}-Windows.$e" "$out/pakchunk985-MJOLNIRCOOK-${code}_P.$e"
+    cp -f "$staged/pakchunk${chunk}-Windows.$e" "$out/$cook_stem.$e"
   done
-  echo "  cooked   pakchunk${chunk} -> pakchunk985-MJOLNIRCOOK-${code}_P"
+  echo "  cooked   pakchunk${chunk} -> $cook_stem"
 fi
 
 echo "== 4/6 level file"
@@ -377,7 +398,7 @@ if [ "$install" = "--install" ]; then
   # The terrain meshes: with the cooked materials, the map's own packages
   # (986, one container per map, so maps install side by side); without,
   # an override of the shipped cylinder (989).
-  for c in "pakchunk986-MJOLNIRMESH-${code}_P" "pakchunk985-MJOLNIRCOOK-${code}_P" pakchunk989-MJOLNIRMESH-Windows_P; do
+  for c in "pakchunk986-MJOLNIRMESH-${code}_P" "${cook_stem:-pakchunk985-MJOLNIRCOOK-${code}_P}" pakchunk989-MJOLNIRMESH-Windows_P; do
     [ -e "$out/$c.utoc" ] || continue
     cp -f "$out/$c.utoc" "$out/$c.ucas" "$HCE_PAKS"/
     cp -f "$stub" "$HCE_PAKS/$c.pak"

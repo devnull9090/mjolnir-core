@@ -94,3 +94,5 @@ mods/MJOLNIRLobby/listing.txt
 
 # Local visual target and iteration evidence
 /.dream-loop/
+# Locally extracted Blender reference geometry/textures; never redistribute.
+**/.mjolnir-cache/

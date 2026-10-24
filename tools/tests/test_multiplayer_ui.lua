@@ -239,6 +239,18 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         end }
 end
 
+-- Timed objectives display simulation totals, ignoring duplicate/older snapshots.
+for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled" }) do
+    local timed = runHUD(mode)
+    timed.incident(event, 1, -1, 7)
+    eq(timed.feed.ScoreLeftValue.text, "7", mode .. " score")
+    timed.incident(event, 1, -1, 7)
+    timed.incident(event, 1, -1, 6)
+    eq(timed.feed.ScoreLeftValue.text, "7", mode .. " duplicate/old snapshot")
+    timed.incident(event, 1, -1, 8)
+    eq(timed.feed.ScoreLeftValue.text, "8", mode .. " next second")
+end
+
 local ctf = runHUD("ctf")
 eq(ctf.board.Name0.text, "RED TEAM  /  0")
 eq(ctf.board.Name2.text, "AWAITING ASSIGNMENT  /  3")

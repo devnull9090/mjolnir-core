@@ -55,6 +55,10 @@ $RunLogs = Join-Path $LogRoot ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'
 foreach ($Required in @($ToolExe, $WaterSource,
         (Join-Path $AddonRoot 'file_tag\tag_interface\tag_interface.py'),
         (Join-Path $SourceRoot 'build_scenario.py'),
+        (Join-Path $SourceRoot 'annotate_blend.py'),
+        (Join-Path $SourceRoot 'terrain_form.py'),
+        (Join-Path $SourceRoot 'perimeter_architecture.py'),
+        (Join-Path $SourceRoot 'perimeter_dressing.py'),
         (Join-Path $MapsRoot 'sounds.map'), (Join-Path $MapsRoot 'loc.map'), $BitmapMap)) {
     if (-not (Test-Path -LiteralPath $Required -PathType Leaf)) {
         throw "Required rebuild input is missing: $Required"
@@ -200,6 +204,13 @@ try {
             Invoke-RebuildStage -Name 'geometry' -Executable $BlenderExe -Arguments @(
                 '--background', '--factory-startup', '--python-exit-code', '1',
                 '--python', (Join-Path $SourceRoot 'build_geometry.py')) -ExpectedFile $SourceJms
+            # Annotation runs only after the clean JMS export. It adds
+            # inspection empties/camera and a source README to the .blend;
+            # placement JSON and the exported game geometry stay unchanged.
+            Invoke-RebuildStage -Name 'annotate' -Executable $BlenderExe -Arguments @(
+                '--background', '--factory-startup', '--python-exit-code', '1',
+                '--python', (Join-Path $SourceRoot 'annotate_blend.py')) `
+                -ExpectedFile (Join-Path $SourceRoot 'tst.blend')
         } finally {
             $env:HALO_BLENDER_ADDONS = $PreviousAddons
         }
@@ -216,6 +227,17 @@ try {
     # HEK resolves a bare "cliffs" material to levels/test/mirror/cliffs.
     # A uniquely named local copy keeps B30's unchanged bitmap references.
     Copy-Item -LiteralPath $CliffSource -Destination $CliffTarget -Force
+
+    # Distinct authored slots survive the CE intermediate. Classic CE uses
+    # these stock fallback tags; the native build binds surfaces.json's PBR art.
+    $Surfaces = Get-Content -LiteralPath (Join-Path $SourceRoot 'surfaces.json') -Raw | ConvertFrom-Json
+    foreach ($Property in $Surfaces.surfaces.PSObject.Properties) {
+        $Surface = $Property.Value
+        $Fallback = Join-Path $TagsRoot ("levels\b30\shaders\" + $Surface.fallback + '.shader_environment')
+        $Target = Join-Path $TagsRoot ($Surface.tag + '.shader_environment')
+        if (-not (Test-Path -LiteralPath $Fallback)) { throw "Missing stock metal shader: $Fallback" }
+        Copy-Item -LiteralPath $Fallback -Destination $Target -Force
+    }
 
     Invoke-RebuildStage -Name 'structure' -Executable $ToolExe -WorkingDirectory $HekRoot `
         -Arguments @('structure', 'levels\test\tst', 'tst') -ExpectedFile $BspFile -HekStage
