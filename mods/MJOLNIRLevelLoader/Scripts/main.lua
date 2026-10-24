@@ -1876,13 +1876,17 @@ local function healthPackLevel()
     if type(hp) == "table" and hp.mesh then return hp end
 end
 
---- Hide every primitive of `actor` but `mine` (a pack's mesh here, a flag's
---- in teams.lua).
+--- Hide every primitive of `actor` but `mine` (a pack's mesh here; a flag's
+--- mesh and cloth, as a list, in teams.lua).
 local function hideAllBut(actor, mine)
+    local keep = {}
+    for _, m in ipairs(type(mine) == "table" and mine or { mine }) do
+        if m and m:IsValid() then keep[m:GetFullName()] = true end
+    end
     for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.PrimitiveComponent")) or {}) do
         pcall(function()
             if type(c) == "userdata" and c.get then c = c:get() end
-            if mine and mine:IsValid() and c:GetFullName() == mine:GetFullName() then return end
+            if keep[c:GetFullName()] then return end
             c:SetHiddenInGame(true, false)
             c:SetVisibility(false, false)
         end)

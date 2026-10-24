@@ -341,15 +341,83 @@ function Teams.ctfLevel()
     return ctf
 end
 
---- Hide the skull's own meshes, all but ours (`mine`). The game shows them
---- again (the skull came back at the foot of the flag after it was dressed),
---- so this runs whenever the skull's parts are removed.
+--- The flag's cloth. CE draws it from the flag tag (`weapons\flag\flag`), not
+--- the weapon's model, which is only the pole and its finial: a 16 x 13-cell
+--- sheet of 0.025 wu cells (1.22 x 0.99 m) hung from the pole's `flag top`
+--- marker, in the team's shader (`flag_red`, `flags_blue` bitmaps). Here it
+--- is a still, two-sided plane in the same place, on CE's environment master,
+--- its texture a PNG under the loader's folder (`textures`, tools/level/
+--- ce_flag_cloth.py writes them from the player's own CE maps); without one
+--- the flag has no cloth. Relative to the flag mesh, which is scaled 3.0743:
+--- the plane (100 cm square, in XY) stood up along the pole and out along +Y,
+--- its top just under the finial. Found by eye on Blood Gulch (2026-10-24).
+local CLOTH = {
+    mesh = "/Engine/BasicShapes/Plane.Plane",
+    pos = { 0, 18.8, 21.6 },
+    rot = { 0, 90, 90 },
+    scale = { 0.397, 0.322, 1 },
+    textures = "ctf\\flag_cloth_%s.png",
+    master = "/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided",
+}
+
+--- The cloth's material spec for `team`, or nil when its PNG is not there.
+local function clothMaterial(team)
+    local rel = string.format(CLOTH.textures, team)
+    local f = env.modDir and io.open(env.modDir .. "\\" .. rel, "rb")
+    if not f then return nil end
+    f:close()
+    return { parent = CLOTH.master, textures = { Base = rel },
+        scalars = { HasLightmap = 0.0, HasPrimary = 0.0, HasSecondary = 0.0, HasMicro = 0.0, HasBump = 0.0,
+            HasSelfIllum = 0.0 } }
+end
+
+--- Hide the skull's own meshes, all but ours (`mine`: the flag mesh, and its
+--- cloth). The game shows them again (the skull came back at the foot of the
+--- flag after it was dressed), so this runs whenever the skull's parts are
+--- removed.
 local function hideSkull(actor, mine)
     if not mine then
         local entry = Flags.known[actor:GetFullName()]
-        mine = entry and entry.comp
+        mine = entry and { entry.comp, entry.cloth }
     end
     env.hideAllBut(actor, mine)
+end
+
+--- Hang the cloth on `comp` (an entry's flag mesh) in `team`'s colours, or
+--- recolour the one already there. Returns the cloth, or nil without its
+--- texture (said once).
+local function attachCloth(world, entry, comp, team)
+    local material = clothMaterial(team)
+    if not material then
+        sayOnce("nocloth", "CTF: no " .. string.format(CLOTH.textures, team)
+            .. " in the loader's folder: flags have no cloth (tools/level/ce_flag_cloth.py)")
+        return nil
+    end
+    local cloth = entry.cloth
+    if not (cloth and cloth:IsValid()) then
+        local plane = env.resolveMesh(CLOTH.mesh)
+        if not plane then return nil end
+        cloth = entry.actor:AddComponentByClass(classOf(STATIC), false, {
+            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+            Translation = { X = 0, Y = 0, Z = 0 },
+            Scale3D = { X = 1, Y = 1, Z = 1 },
+        }, false)
+        if not (cloth and cloth:IsValid()) then return nil end
+        cloth.Mobility = MOBILITY_MOVABLE
+        cloth:SetStaticMesh(plane)
+        cloth:SetCollisionEnabled(COLLISION_NONE)
+        cloth:SetCastShadow(false)
+        cloth:K2_AttachToComponent(comp, FName("None"), 0, 0, 0, false)
+        local p, r, s = CLOTH.pos, CLOTH.rot, CLOTH.scale
+        cloth:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
+            { Pitch = r[1], Yaw = r[2], Roll = r[3] }, false, env.Current.hit, false)
+        cloth:SetRelativeScale3D({ X = s[1], Y = s[2], Z = s[3] })
+        entry.cloth = cloth
+    end
+    env.applyMaterials(cloth, { material }, world, "flag_cloth_" .. team)
+    cloth:SetHiddenInGame(false, false)
+    cloth:SetVisibility(true, false)
+    return cloth
 end
 
 local function quenchSkull(actor)
@@ -387,7 +455,9 @@ local function attachFlagMesh(world, entry, ctf, team, pos, rot, scale)
     comp:K2_SetRelativeLocationAndRotation({ X = pos[1], Y = pos[2], Z = pos[3] },
         { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, env.Current.hit, false)
     comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
-    hideSkull(actor, comp)
+    entry.cloth = nil
+    local cloth = attachCloth(world, entry, comp, team)
+    hideSkull(actor, { comp, cloth })
     local materials = type(flag.materials) == "table" and flag.materials[team]
     local applied, failed = env.applyMaterials(comp, materials, world, "flag_" .. team)
     Log(string.format("CTF: %s flag dressed%s (%d material(s), %d failed)", team,
@@ -532,6 +602,7 @@ local function dress(entry, tries)
     elseif entry.team ~= team then
         env.applyMaterials(comp, type(ctf.flag.materials) == "table" and ctf.flag.materials[team], world,
             "flag_" .. team)
+        attachCloth(world, entry, comp, team)
         Log(describe(entry, team, read) .. " (was " .. tostring(entry.team) .. ": recoloured)")
         release(entry)
         entry.team = team
