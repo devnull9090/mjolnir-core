@@ -138,6 +138,48 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.34.0",
+      "tag": "mods-v0.34.0",
+      "title": "Forge",
+      "date": "2026-10-24",
+      "summary": "FORGE is a new game type: become the Monitor and pick up, move and delete a map's objects, with Halo Reach's own Forge engine and a HUD of its own.",
+      "body": "### Added\n\n- **Forge** (MJOLNIRForge 0.1.0, new). Halo Reach's Forge engine is still\n  inside the game, and MJOLNIR now switches it on. Host a map from\n  MULTIPLAYER and pick **FORGE** as the game type. Press **B** to become the\n  Monitor and fly around the map. **V** picks up what the cursor is on and\n  drops it again, **Page Up** and **Page Down** push a held object out or\n  pull it in, and **Delete** removes it. Every edit goes through the game's\n  own Forge engine. A HUD shows what you aim at or hold (with the game's own\n  picture for weapons), how far out it is, and every key, dimmed when it\n  does nothing right now. The keys are ones the game leaves free, and a\n  `keys.txt` in the mod's folder changes them. See `docs/forge.md`.\n- **FORGE in the lobby** (MJOLNIRLobby 0.15.1). The game type is offered on\n  every map once MJOLNIRForge and CE runtime 1.14.0 are installed. For now it\n  is for the host alone: it does not start with fireteam members in the\n  lobby, and it is never listed publicly.\n\n### Changed\n\n- **MJOLNIRLevelLoader 0.9.1** starts a FORGE game under the Forge engine.\n- **MJOLNIRHud 0.11.5** hides the score bar in a FORGE game, which keeps no\n  score.\n\n### Needs\n\n- CE runtime 1.14.0 (the Monitor fix and the Forge HUD), published on the\n  hub with this release.\n\n### Not yet\n\n- Placing new objects: duplicate (N) needs a Forge palette, which the\n  converted maps do not have yet.\n- Saving a layout, and Forge with your fireteam.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge (MJOLNIRForge 0.1.0, new). Halo Reach's Forge engine is still inside the game, and MJOLNIR now switches it on. Host a map from MULTIPLAYER and pick FORGE as the game type. Press B to become the Monitor and fly around the map. V picks up what the cursor is on and drops it again, Page Up and Page Down push a held object out or pull it in, and Delete removes it. Every edit goes through the game's own Forge engine. A HUD shows what you aim at or hold (with the game's own picture for weapons), how far out it is, and every key, dimmed when it does nothing right now. The keys are ones the game leaves free, and a keys.txt in the mod's folder changes them. See docs/forge.md.",
+            "FORGE in the lobby (MJOLNIRLobby 0.15.1). The game type is offered on every map once MJOLNIRForge and CE runtime 1.14.0 are installed. For now it is for the host alone: it does not start with fireteam members in the lobby, and it is never listed publicly."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLevelLoader 0.9.1 starts a FORGE game under the Forge engine.",
+            "MJOLNIRHud 0.11.5 hides the score bar in a FORGE game, which keeps no score."
+          ]
+        },
+        {
+          "heading": "Needs",
+          "items": [
+            "CE runtime 1.14.0 (the Monitor fix and the Forge HUD), published on the hub with this release."
+          ]
+        },
+        {
+          "heading": "Not yet",
+          "items": [
+            "Placing new objects: duplicate (N) needs a Forge palette, which the converted maps do not have yet.",
+            "Saving a layout, and Forge with your fireteam."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.34.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.34.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.34.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.33.0",
       "tag": "mods-v0.33.0",
       "title": "The game tells you when MJOLNIR is out of date",
