@@ -365,6 +365,22 @@ fn write_archive(
     signing: &Signing,
     out: &Path,
 ) -> Result<()> {
+    // Never package a `.mglo` the simulation could not decode safely: the file
+    // loader runs its unbounded decoder, so a crafted variant distributed in a
+    // map or runtime pack would overrun it on every client that installs it
+    // (docs/re/variant_network_safety.md). Validated here, before the archive
+    // that gets uploaded even exists.
+    for (path, bytes) in &members {
+        if Path::new(path)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("mglo"))
+        {
+            blam_megalo::Variant::validate(bytes).with_context(|| {
+                format!("{path} is not a variant the simulation can decode safely; refusing to package it")
+            })?;
+        }
+    }
+
     let signer = if signing.sign {
         Some(crate::signkey::device_identity()?)
     } else if let Some(seed) = &signing.sign_seed {

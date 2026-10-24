@@ -1318,6 +1318,31 @@ __declspec(dllexport) int mjolnir_megalo_on(void *L) {
     return 0;
 }
 
+// Validate a `.mglo` against the simulation's grammar and store bounds before
+// it is staged for the file loader to decode. Implemented in Rust by
+// crates/mjolnir-mglo-cabi over blam-megalo (the single grammar source), linked
+// as a static library. 0 = safe, non-zero = refuse (docs/re/variant_network_safety.md).
+extern int mjolnir_mglo_validate(const unsigned char *data, size_t len);
+
+// Read the staged file and ask the validator whether the simulation can decode
+// it safely. A last line of defense for a `.mglo` that reached disk past the
+// launcher's install-time check (a sideloaded map, say). A file larger than the
+// buffer is already past the simulation's 0x5000-byte bound, so it is refused.
+static int mglo_file_ok(const char *path) {
+    FILE *f = NULL;
+    if (fopen_s(&f, path, "rb") != 0 || !f) {
+        return 0;
+    }
+    static unsigned char buf[0x8000];
+    size_t n = fread(buf, 1, sizeof buf, f);
+    int more = fgetc(f) != EOF;
+    fclose(f);
+    if (more) {
+        return 0;
+    }
+    return mjolnir_mglo_validate(buf, n) == 0;
+}
+
 // Install `native\variant.mglo` (staged next to this DLL by MJOLNIRLevelLoader
 // from its `variants\` folder) as `mjolnir.mglo` in the loader's directory, and
 // ask the simulation to read it at the next round reset.
@@ -1331,6 +1356,11 @@ __declspec(dllexport) int mjolnir_megalo_variant(void *L) {
     char *slash = strrchr(staged, '\\');
     if (slash) *(slash + 1) = 0;
     strcat_s(staged, sizeof staged, "variant.mglo");
+    if (!mglo_file_ok(staged)) {
+        Log("megalo: %s failed variant validation; refusing to stage it (the default variant runs)",
+            staged);
+        return 0;
+    }
     if (!mglo_dir(sim, dir, sizeof dir)) {
         Log("megalo: no variant directory (LOCALAPPDATA unset); the default variant runs");
         return 0;

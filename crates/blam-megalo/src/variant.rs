@@ -20,6 +20,37 @@ use crate::Error;
 /// MCC-era tuning values this crate does not model, so it writes `0x6a`.
 pub const VERSION: u32 = 0x6a;
 
+// --- Safety bounds -----------------------------------------------------------
+//
+// The simulation's variant decoder (`HaloSimulation 0x392a40`) trusts the
+// stream: past the version gate it reads counts as raw bit-fields and writes
+// each record at a fixed offset in a fixed-size object, with no check against
+// that object's size. A `.mglo` whose counts or string table exceed the
+// simulation's capacities overruns the decode buffer with attacker-chosen
+// bytes (docs/re/variant_network_safety.md). These are the limits a staged
+// `.mglo` must stay within; [`Variant::validate`] enforces them, and
+// [`Variant::read`] enforces the per-field ones (string size, HUD widgets)
+// where it meets them.
+
+/// The simulation reads a staged variant through a 0x5000-byte buffer
+/// (`mjolnir_map_registry`'s sixth switch patch bounds the decoder there), so a
+/// longer file is truncated and misread.
+pub const MAX_BYTES: usize = 0x5000;
+/// The main string table is written into a fixed 0x4c00-byte buffer at the
+/// variant object's `+0x11b8`; a larger uncompressed size overruns it.
+pub const MAX_STRING_DATA: u64 = 0x4c00;
+/// At most four HUD widgets fit; a fifth overruns player 0's state.
+pub const MAX_WIDGETS: u64 = 4;
+/// Store capacities in the 0xf860-byte Megalo variant object: conditions at
+/// `+0x7304` (0x10 B each), actions at `+0x930c` (0x14 B each, the u11 count —
+/// up to 2047 — is the overrun that matters most), triggers at `+0x63fc`
+/// (0x0c B each).
+pub const MAX_CONDITIONS: usize = (0xf860 - 0x7304) / 0x10;
+pub const MAX_ACTIONS: usize = (0xf860 - 0x930c) / 0x14;
+pub const MAX_TRIGGERS: usize = (0xf860 - 0x63fc) / 0x0c;
+/// Object filters the simulation holds.
+pub const MAX_FILTERS: usize = 16;
+
 /// A player reference (`u5`, HaloSimulation `0x441380`).
 pub mod player {
     /// No player.
@@ -1371,6 +1402,11 @@ fn read_strings(r: &mut BitReader, cw: u32, ow: u32, sw: u32) -> Result<Vec<Stri
         return Ok(Vec::new());
     }
     let size = get(r, sw)?;
+    if size > MAX_STRING_DATA {
+        return Err(Error::Unsupported(format!(
+            "string table {size:#x} bytes; the simulation's buffer holds {MAX_STRING_DATA:#x}"
+        )));
+    }
     if r.bool()? {
         return Err(Error::Unsupported("a compressed string table".into()));
     }
@@ -1839,6 +1875,37 @@ fn expect_none(r: &mut BitReader, bits: u32, what: &str) -> Result<(), Error> {
 impl Variant {
     /// Read a variant the way the simulation's decoder does, and check every
     /// bit was accounted for.
+    /// Check a staged `.mglo` byte stream is one the simulation can decode
+    /// safely: the grammar [`Variant::read`] accepts (which already refuses
+    /// player traits, user options, compressed string tables and the variable
+    /// kinds this crate does not model), within the simulation's fixed store
+    /// capacities and buffer size. Returns `Err` for the malformed streams that
+    /// would overrun the decoder — the guard a client runs before the
+    /// simulation's file loader decodes distributed content
+    /// (docs/re/variant_network_safety.md).
+    pub fn validate(bytes: &[u8]) -> Result<(), Error> {
+        if bytes.len() > MAX_BYTES {
+            return Err(Error::Unsupported(format!(
+                "{} bytes; the simulation reads at most {MAX_BYTES:#x}",
+                bytes.len()
+            )));
+        }
+        let v = Variant::read(bytes)?;
+        for (n, max, what) in [
+            (v.conditions.len(), MAX_CONDITIONS, "conditions"),
+            (v.actions.len(), MAX_ACTIONS, "actions"),
+            (v.triggers.len(), MAX_TRIGGERS, "triggers"),
+            (v.filters.len(), MAX_FILTERS, "object filters"),
+        ] {
+            if n > max {
+                return Err(Error::Unsupported(format!(
+                    "{n} {what}; the simulation's store holds at most {max}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn read(bytes: &[u8]) -> Result<Variant, Error> {
         let mut r = BitReader::new(bytes);
         let version = get(&mut r, 32)?;
@@ -1918,6 +1985,11 @@ impl Variant {
             expect_none(&mut r, bits, what)?;
         }
         let widgets = get(&mut r, 3)?;
+        if widgets > MAX_WIDGETS {
+            return Err(Error::Unsupported(format!(
+                "{widgets} HUD widgets; the simulation holds at most {MAX_WIDGETS}"
+            )));
+        }
         for _ in 0..widgets {
             r.read(4)?;
         }
@@ -2003,6 +2075,31 @@ impl Variant {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn validate_accepts_a_normal_variant() {
+        Variant::validate(&Variant::slayer(25).write().unwrap()).unwrap();
+        Variant::validate(&Variant::empty(25).write().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn validate_refuses_an_oversize_file() {
+        let err = Variant::validate(&vec![0u8; MAX_BYTES + 1]).unwrap_err();
+        assert!(matches!(err, Error::Unsupported(ref m) if m.contains("at most")), "{err:?}");
+    }
+
+    #[test]
+    fn validate_refuses_an_over_capacity_action_count() {
+        // One more action than the 0xf860 variant object's store holds: the
+        // decoder would write past it. The u11 count field permits up to 2047,
+        // so the stream is well-formed — only the capacity bound catches it.
+        let mut v = Variant::empty(25);
+        v.actions = vec![Action::EndRound; MAX_ACTIONS + 1];
+        let bytes = v.write().unwrap();
+        assert!(bytes.len() <= MAX_BYTES, "crafted stream is {} bytes", bytes.len());
+        let err = Variant::validate(&bytes).unwrap_err();
+        assert!(matches!(err, Error::Unsupported(ref m) if m.contains("actions")), "{err:?}");
+    }
 
     #[test]
     fn an_empty_variant_reads_back_exactly() {

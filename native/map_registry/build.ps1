@@ -36,8 +36,20 @@ New-Item -ItemType Directory -Force $objDir | Out-Null
 $src = Join-Path $here "mjolnir_map_registry.c"
 $dll = Join-Path $outDir "mjolnir_map_registry.dll"
 
+# The .mglo validator (crates/mjolnir-mglo-cabi, over blam-megalo — the one
+# grammar source) linked into the staging guard. Built here so a single
+# `.\build.ps1` produces the whole DLL; needs the Rust toolchain on PATH.
+Write-Host "building the mjolnir-mglo-cabi validator staticlib"
+Push-Location $repo
+try { & cargo build -p mjolnir-mglo-cabi --release } finally { Pop-Location }
+if ($LASTEXITCODE -ne 0) { throw "cargo build of mjolnir-mglo-cabi failed ($LASTEXITCODE)" }
+$mgloLib = Join-Path $repo "target\release\mjolnir_mglo_cabi.lib"
+if (-not (Test-Path $mgloLib)) { throw "validator staticlib not found at $mgloLib" }
+
 # /MD: share the process's ucrtbase, the same CRT the simulation DLL uses.
-$compile = "cl /nologo /O2 /W4 /WX /MD /LD `"$src`" /Fo`"$objDir\\`" /Fe:`"$dll`" /link /NOLOGO /Brepro /IMPLIB:`"$objDir\mjolnir_map_registry.lib`""
+# The validator staticlib needs these system libraries (rustc --print
+# native-static-libs); kernel32 and the CRT already come from /MD.
+$compile = "cl /nologo /O2 /W4 /WX /MD /LD `"$src`" /Fo`"$objDir\\`" /Fe:`"$dll`" /link /NOLOGO /Brepro /IMPLIB:`"$objDir\mjolnir_map_registry.lib`" `"$mgloLib`" ntdll.lib userenv.lib ws2_32.lib dbghelp.lib"
 
 if (-not $VcVars -and (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     Write-Host "using cl from PATH: $((Get-Command cl.exe).Source)"
