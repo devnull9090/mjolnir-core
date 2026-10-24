@@ -33,6 +33,38 @@ export interface UpdateCheck {
   unsupported: UnsupportedMod[];
 }
 
+/** One line of the live checklist (`preflight-progress`, preflight.rs `Step`). */
+export interface CheckStep {
+  group: "updates" | "files" | "mods";
+  key: string;
+  label: string;
+  state: "pending" | "running" | "ok" | "warn" | "fail";
+  detail: string | null;
+  /** Set here, not by the backend: the row this one sits under. */
+  parent?: string;
+}
+
+/**
+ * Fold one reported step into the list: a known key is replaced where it
+ * stands, a new one goes in after its parent's rows when it has one (the
+ * signed set's mods under "Code mods") and at the end otherwise.
+ */
+export function foldStep(list: CheckStep[], step: CheckStep): CheckStep[] {
+  const at = list.findIndex((s) => s.key === step.key);
+  if (at >= 0) {
+    const next = list.slice();
+    next[at] = { ...step, parent: list[at].parent };
+    return next;
+  }
+  const cut = step.key.lastIndexOf(":");
+  const parent = cut > 0 ? step.key.slice(0, cut) : "";
+  const parentAt = list.findIndex((s) => s.key === parent);
+  if (parentAt < 0) return [...list, step];
+  let end = parentAt + 1;
+  while (end < list.length && list[end].parent === parent) end++;
+  return [...list.slice(0, end), { ...step, parent }, ...list.slice(end)];
+}
+
 export interface Problem {
   kind: "core" | "code" | "content";
   id: string;

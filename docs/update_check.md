@@ -39,9 +39,13 @@ picks up skips it, since nothing can change under a running game.
      (`verify_install`). The player's own config files are skipped.
    - **hub mods:** each cached container against the `container_hashes`
      recorded at install (`hub::verify_installed`).
-   - **code mods:** each mod's file tree against the digest recorded when
-     this launcher installed it (`hub::code_mods_modified`). A mod whose
-     `mod.json` names a different version than the record is skipped.
+   - **code mods:** each file the release shipped against the hash recorded
+     when this launcher installed it (`hub::code_mods_modified`, the
+     record's `shipped` list). Files a mod writes into its own folder while
+     the game runs (MJOLNIRBlamConsole's `native\status.txt`) are not looked
+     at, so a mod that has been used does not read as damaged. Mods
+     installed by a launcher before 0.17.0 have no list and are skipped, as
+     is a mod whose `mod.json` names another version than the record.
 3. When nothing is found, it launches. Otherwise a dialog lists:
    - the updates;
    - the damaged installs (a repair reinstalls the same release);
@@ -51,8 +55,20 @@ picks up skips it, since nothing can change under a running game.
 
    The buttons are **Update and launch**, **Launch without updating** and
    **Cancel**.
-4. The steps run one at a time, since they write to the same game folder.
-   A failure stops the launch and offers **Launch anyway**.
+4. The steps run one at a time, since they write to the same game folder,
+   each with its download's bytes as they arrive. A failure stops the launch
+   and offers **Launch anyway**.
+5. When anything was installed, the installed files are checked again, item
+   by item, before the game starts. A file that still differs offers
+   **Launch anyway** too.
+
+While it checks, the dialog shows every item it looks at as a live
+checklist under one progress bar (`launch/Checklist.tsx`): the core, each
+code mod, each hub mod's update, each hub mod's files, and the unsupported
+mods scan. The backend reports each item as it is queued, started and
+finished (`preflight-progress` events, `preflight::Step`). Hub mods are asked
+about four at a time; the active row stays scrolled into view, since the
+slow part is hashing each map's files.
 
 Being offline never blocks a launch. A source that can't be reached is
 listed, and Launch still works.

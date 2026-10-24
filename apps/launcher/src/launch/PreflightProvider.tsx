@@ -4,7 +4,11 @@
  *   checking → (nothing found) → launch
  *            → review: updates, damaged installs, unsupported mods
  *                → Update and launch / Launch without updating / Cancel
- *            → applying, one step at a time → launch (or the failures)
+ *            → applying, one step at a time → rechecking the files → launch
+ *              (or the failures)
+ *
+ * Checking shows every item as it is looked at (Checklist.tsx), and applying
+ * shows each download's bytes, so a long map list never reads as one spinner.
  *
  * Offline is not a reason to stay home: a source that cannot be reached is
  * said, and Launch still works. The game's own out-of-date prompt starts the
@@ -13,11 +17,16 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ActionButton, ErrorNote, Spinner } from "@mjolnir/hub-kit";
 
+import { formatBytes, useTransfers, type TaskTransfer } from "../updates/useTransfers";
+import Checklist, { ProgressBar, StateIcon } from "./Checklist";
 import {
   PreflightContext,
+  foldStep,
   formatSize,
+  type CheckStep,
   repairStep,
   repairsNotCovered,
   setAsideStep,
@@ -35,6 +44,9 @@ type Phase =
   | { kind: "checking" }
   | { kind: "review"; check: UpdateCheck; problems: Problem[] }
   | { kind: "applying"; steps: Step[]; status: Record<string, StepStatus>; errors: Record<string, string> }
+  /** After an apply run installed something: its files checked again. */
+  | { kind: "rechecking" }
+  | { kind: "recheck-failed"; problems: Problem[] }
   | { kind: "launching" }
   | { kind: "error"; message: string };
 
@@ -63,6 +75,15 @@ export function PreflightProvider({
   appliedRef.current = onApplied;
   // Bumped by Cancel, so a run still awaiting a check stops where it is.
   const generation = useRef(0);
+  // The live checklist, cleared at the start of each pass.
+  const [checks, setChecks] = useState<CheckStep[]>([]);
+  useEffect(() => {
+    const stop = listen<CheckStep>("preflight-progress", (e) => setChecks((list) => foldStep(list, e.payload)));
+    return () => {
+      void stop.then((unlisten) => unlisten());
+    };
+  }, []);
+  const transfers = useTransfers(phase?.kind === "applying");
 
   const finish = useCallback((launched: boolean) => {
     pending.current?.resolve(launched);
@@ -110,7 +131,16 @@ export function PreflightProvider({
         show();
       }
       if (installed) appliedRef.current();
-      if (Object.keys(errors).length === 0) return launch();
+      if (Object.keys(errors).length > 0) return;
+      if (installed) {
+        // What was just installed is checked like everything else before
+        // the game gets it.
+        setChecks([]);
+        setPhase({ kind: "rechecking" });
+        const left = await invoke<Problem[]>("preflight_verify").catch((): Problem[] => []);
+        if (left.length > 0) return setPhase({ kind: "recheck-failed", problems: left });
+      }
+      return launch();
     },
     [launch],
   );
@@ -131,6 +161,7 @@ export function PreflightProvider({
         return launch();
       }
       if (!live()) return;
+      setChecks([]);
       setPhase({ kind: "checking" });
       // Mods a previous session moved aside come back first, so the check
       // sees them and nothing moves them back under the game about to start.
@@ -188,8 +219,11 @@ export function PreflightProvider({
     <PreflightContext.Provider value={api}>
       {children}
       {phase && (
+        // Above the What's new dialog (z-[100]), which a launcher started
+        // by the game's update link opens at the same moment: the player is
+        // waiting on this one.
         <div
-          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6"
+          className="fixed inset-0 z-[110] bg-black/60 flex items-center justify-center p-6"
           role="dialog"
           aria-modal="true"
           aria-label="Before you play"
@@ -197,6 +231,8 @@ export function PreflightProvider({
           <div className="w-full max-w-lg max-h-full overflow-y-auto rounded-xl border border-border-subtle bg-surface-secondary p-6 space-y-4">
             <Body
               phase={phase}
+              checks={checks}
+              transfers={transfers.tasks}
               setAside={setAside}
               onSetAside={setSetAside}
               onCancel={cancel}
@@ -220,6 +256,8 @@ export function PreflightProvider({
 
 function Body({
   phase,
+  checks,
+  transfers,
   setAside,
   onSetAside,
   onCancel,
@@ -227,6 +265,8 @@ function Body({
   onLaunchAnyway,
 }: {
   phase: Phase;
+  checks: CheckStep[];
+  transfers: Record<string, TaskTransfer>;
   setAside: boolean;
   onSetAside: (v: boolean) => void;
   onCancel: () => void;
@@ -252,14 +292,33 @@ function Body({
       return (
         <>
           <h2 className="text-lg font-bold">Getting ready</h2>
-          <p className="flex items-center gap-2 text-sm text-text-secondary">
-            <Spinner className="w-4 h-4" />
-            Checking for updates, checking your installed files, and looking for mods MJOLNIR does
-            not support…
-          </p>
+          <Checklist steps={checks} />
           <ActionButton tone="neutral" size="sm" onClick={onCancel}>
             Cancel
           </ActionButton>
+        </>
+      );
+    case "rechecking":
+      return (
+        <>
+          <h2 className="text-lg font-bold">Checking what was installed</h2>
+          <Checklist steps={checks} />
+        </>
+      );
+    case "recheck-failed":
+      return (
+        <>
+          <h2 className="text-lg font-bold">Some files still differ</h2>
+          <Checklist steps={checks} />
+          <p className="text-sm text-text-secondary">
+            {phase.problems.map((p) => `${p.name}: ${p.detail}`).join("; ")}
+          </p>
+          <div className="flex gap-2">
+            <ActionButton onClick={onLaunchAnyway}>Launch anyway</ActionButton>
+            <ActionButton tone="neutral" onClick={onCancel}>
+              Close
+            </ActionButton>
+          </div>
         </>
       );
     case "launching":
@@ -280,32 +339,47 @@ function Body({
       );
     case "applying": {
       const failed = phase.steps.filter((s) => phase.status[s.key] === "failed");
-      const done = phase.steps.every((s) => phase.status[s.key] === "done" || phase.status[s.key] === "failed");
+      const finishedSteps = phase.steps.filter(
+        (s) => phase.status[s.key] === "done" || phase.status[s.key] === "failed",
+      ).length;
+      const done = finishedSteps === phase.steps.length;
       return (
         <>
           <h2 className="text-lg font-bold">{done ? "Some steps failed" : "Updating"}</h2>
-          <ul className="space-y-1.5 text-sm">
-            {phase.steps.map((s) => (
-              <li key={s.key} className="flex items-start gap-2">
-                <span className="w-4 shrink-0 pt-0.5">
-                  {phase.status[s.key] === "running" ? (
-                    <Spinner className="w-3.5 h-3.5" />
-                  ) : phase.status[s.key] === "done" ? (
-                    <span className="text-accent-green">✓</span>
-                  ) : phase.status[s.key] === "failed" ? (
-                    <span className="text-red-400">✕</span>
-                  ) : (
-                    <span className="text-text-secondary">·</span>
-                  )}
-                </span>
-                <span className="flex-1">
-                  {s.label}
-                  {phase.errors[s.key] && (
-                    <span className="block text-xs text-red-400/90 break-words">{phase.errors[s.key]}</span>
-                  )}
-                </span>
-              </li>
-            ))}
+          <div className="space-y-1">
+            <ProgressBar fraction={finishedSteps / phase.steps.length} />
+            <p className="text-xs text-text-secondary">
+              {finishedSteps} of {phase.steps.length} done
+            </p>
+          </div>
+          <ul className="space-y-1.5 text-sm max-h-72 overflow-y-auto pr-1">
+            {phase.steps.map((s) => {
+              const t = transfers[s.key];
+              const running = phase.status[s.key] === "running";
+              return (
+                <li key={s.key} className="flex items-start gap-2">
+                  <span className="w-4 shrink-0 pt-0.5 text-center">
+                    <StateIcon state={phase.status[s.key]} />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    {s.label}
+                    {running && t && t.received > 0 && (
+                      <span className="block space-y-0.5 pt-1">
+                        {t.total ? <ProgressBar fraction={t.received / t.total} /> : null}
+                        <span className="block text-xs text-text-secondary">
+                          {formatBytes(t.received)}
+                          {t.total ? ` of ${formatBytes(t.total)}` : ""}
+                          {t.written > 0 ? ` · ${formatBytes(t.written)} written` : ""}
+                        </span>
+                      </span>
+                    )}
+                    {phase.errors[s.key] && (
+                      <span className="block text-xs text-red-400/90 break-words">{phase.errors[s.key]}</span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
           {done && failed.length > 0 && (
             <div className="flex gap-2">

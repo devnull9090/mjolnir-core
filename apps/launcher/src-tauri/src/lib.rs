@@ -1205,19 +1205,29 @@ async fn hub_join_lobby(lobby: String) -> Result<JoinStart, String> {
 // ─── Before a launch (preflight.rs, unsupported.rs) ──────────────────────
 
 /// Everything out of date, unreachable sources, and unsupported mods.
+/// Each item is announced as `preflight-progress` as it is checked.
 #[tauri::command]
-async fn preflight_check() -> Result<preflight::UpdateCheck, String> {
-    tauri::async_runtime::spawn_blocking(preflight::check)
-        .await
-        .map_err(|e| format!("Task join error: {e}"))
+async fn preflight_check(app: AppHandle) -> Result<preflight::UpdateCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        preflight::check(&|s| {
+            let _ = app.emit("preflight-progress", s);
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))
 }
 
-/// Installed files that no longer match what was installed.
+/// Installed files that no longer match what was installed, each item
+/// announced as `preflight-progress`.
 #[tauri::command]
-async fn preflight_verify() -> Result<Vec<preflight::Problem>, String> {
-    tauri::async_runtime::spawn_blocking(preflight::verify)
-        .await
-        .map_err(|e| format!("Task join error: {e}"))
+async fn preflight_verify(app: AppHandle) -> Result<Vec<preflight::Problem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        preflight::verify(&|s| {
+            let _ = app.emit("preflight-progress", s);
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))
 }
 
 #[tauri::command]
