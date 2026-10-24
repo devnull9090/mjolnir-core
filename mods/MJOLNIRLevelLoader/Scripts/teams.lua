@@ -404,14 +404,21 @@ end
 --- Lay `entry`'s cloth strips out along the pole's bend: strip k turned
 --- `angles[k]` radians about the pole from straight out, each starting
 --- where the last ends, so the sheet stays whole.
+--- The location and rotation layCloth hands each strip, filled in afresh
+--- every time: a new pair of tables per strip, 30 times a second, made the
+--- collector stop the cloth loop for 8-15 ms every 20-40 s (2026-10-24).
+local STRIP_AT = { X = 0, Y = 0, Z = 0 }
+local STRIP_ROT = { Pitch = 0, Yaw = 0, Roll = 90 }
+
 local function layCloth(entry, angles)
     local w = CLOTH.width / CLOTH.strips
     local x, y = CLOTH.edge[1], CLOTH.edge[2]
     for k, strip in ipairs(entry.cloth) do
         local a = angles[k] or 0
         local dx, dy = -math.sin(a), math.cos(a)
-        strip:K2_SetRelativeLocationAndRotation({ X = x + dx * w / 2, Y = y + dy * w / 2, Z = CLOTH.z },
-            { Pitch = 0, Yaw = 90 + math.deg(a), Roll = 90 }, false, env.Current.hit, false)
+        STRIP_AT.X, STRIP_AT.Y, STRIP_AT.Z = x + dx * w / 2, y + dy * w / 2, CLOTH.z
+        STRIP_ROT.Yaw = 90 + math.deg(a)
+        strip:K2_SetRelativeLocationAndRotation(STRIP_AT, STRIP_ROT, false, env.Current.hit, false)
         x, y = x + dx * w, y + dy * w
     end
 end
@@ -503,7 +510,8 @@ function Teams.clothTick()
             end
             local amp = WAVE.idle + (WAVE.run - WAVE.idle) * f
             wave.t = wave.t + dt * (WAVE.idle_rate + (WAVE.run_rate - WAVE.idle_rate) * f)
-            local angles, n = {}, CLOTH.strips
+            wave.angles = wave.angles or {}
+            local angles, n = wave.angles, CLOTH.strips
             for k = 1, n do
                 angles[k] = wave.swing + amp * (k / n) * math.sin(wave.t - k * WAVE.phase)
             end
