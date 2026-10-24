@@ -68,6 +68,14 @@ local MODES = {
     { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
     { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base.",
         needs = "pakchunk990-MJOLNIRFLAGB_P" },
+    -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
+    -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
+    -- on every map once MJOLNIRForge's native half and the CE runtime's
+    -- monitor fix are installed. Host only for now: a fireteam client reads
+    -- the game type from slot 0 and would start Slayer.
+    { id = "forge", slot = 0, name = "FORGE", forge = true,
+        description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
+        needs = "pakchunk990-MJOLNIRFORGEMON_P" },
 }
 
 local function readFile(path)
@@ -179,7 +187,13 @@ modesFor = function(map)
     if listed.slayer then listed.team_slayer = true end
     local out = {}
     for _, mode in ipairs(MODES) do
-        if listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo") and offered(mode) then
+        local installed
+        if mode.forge then
+            installed = fileExists(MODS_DIR .. "\\MJOLNIRForge\\native\\mjolnir_forge.dll")
+        else
+            installed = listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo")
+        end
+        if installed and offered(mode) then
             out[#out + 1] = mode
         end
     end

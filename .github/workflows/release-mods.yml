@@ -16,7 +16,7 @@ on:
 jobs:
   # The native mods. Their DLLs are never committed (docs/contributing_code_mods.md:
   # no prebuilt binaries in the tree), so they are built here from the C in
-  # native/blam_console, native/map_registry, native/lobby and native/frame_times, on the same runner image
+  # native/blam_console, native/map_registry, native/lobby, native/frame_times and native/forge, on the same runner image
   # every time, with a reproducible link — a reviewer can rebuild one and get
   # the same hash the job prints. The release job below takes the artifacts
   # from this job, not from anywhere else.
@@ -47,10 +47,14 @@ jobs:
         shell: pwsh
         run: .\native\frame_times\build.ps1
 
+      - name: Build mjolnir_forge.dll
+        shell: pwsh
+        run: .\native\forge\build.ps1
+
       - name: Record the hashes
         shell: pwsh
         run: |
-          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll", "mods\MJOLNIRLobby\native\mjolnir_lobby.dll", "mods\MJOLNIRHud\native\mjolnir_frame_times.dll")) {
+          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll", "mods\MJOLNIRLobby\native\mjolnir_lobby.dll", "mods\MJOLNIRHud\native\mjolnir_frame_times.dll", "mods\MJOLNIRForge\native\mjolnir_forge.dll")) {
             $hash = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
             "$(Split-Path -Leaf $dll) sha256 $hash" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
           }
@@ -77,6 +81,12 @@ jobs:
         with:
           name: mjolnir_frame_times
           path: mods/MJOLNIRHud/native/mjolnir_frame_times.dll
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_forge
+          path: mods/MJOLNIRForge/native/mjolnir_forge.dll
           if-no-files-found: error
 
   # The game types MJOLNIRLevelLoader hands the simulation (variants/*.mglo):
@@ -156,6 +166,11 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          name: mjolnir_forge
+          path: mods/MJOLNIRForge/native
+
+      - uses: actions/download-artifact@v4
+        with:
           name: game_types
           path: mods/MJOLNIRLevelLoader/variants
 
@@ -164,7 +179,8 @@ jobs:
           for dll in mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
                      mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll \
                      mods/MJOLNIRLobby/native/mjolnir_lobby.dll \
-                     mods/MJOLNIRHud/native/mjolnir_frame_times.dll; do
+                     mods/MJOLNIRHud/native/mjolnir_frame_times.dll \
+                     mods/MJOLNIRForge/native/mjolnir_forge.dll; do
             test -s "$dll" || { echo "::error::$(basename "$dll") did not arrive from build-native"; exit 1; }
             sha256sum "$dll"
           done

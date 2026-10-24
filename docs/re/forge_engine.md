@@ -1,11 +1,15 @@
 # Forge is still in the simulation (CU4)
 
-**Status:** 2026-10-24. Static RE done. Two live runs the same day: the
-sandbox engine runs Blood Gulch, and the editor cursor and grab work (*Live
-run, 2026-10-24*; that session ended in a game hang). The stock
-`monitor_editor` biped cannot be created because its model mixes two
-skeletons. With a one-field tag fix, **a player becomes the flying Forge
-monitor and back** (*Retest with the fixed model*).
+**Status:** 2026-10-24. Playable on the host: MJOLNIRLobby offers a FORGE
+game type, MJOLNIRLevelLoader starts the map under the sandbox engine, and
+MJOLNIRForge binds keys that send the engine's own editor requests (*What
+ships*). Verified in game on Blood Gulch: turn into the Monitor and back,
+grab, move, drop, push out and delete objects, all through the simulation's
+request path. Not yet: placing new objects (converted maps have no sandbox
+palette), saving a layout, fireteam clients. The history below covers the
+first live run (*Live run, 2026-10-24*, which ended in a hang), the model
+fix (*Retest with the fixed model*) and the request path (*The request path
+on the host*).
 **Binary:** `HaloSimulation_tag_release.dll`, CU4 (md5
 `e42f3f342ca816ca3a24aa0deda5581e`, build lock in
 [`../build_lock.md`](../build_lock.md)). Every address is an RVA into that
@@ -364,21 +368,86 @@ game content and was not committed.
 - Leaving the match and quitting were clean. There was no hang and no crash
   report, and the control-gate NOP of the first run was not used.
 
+## The request path on the host, 2026-10-24
+
+Third live run, same map, with the fixed model installed and no NOP:
+
+- **The toggle gate passes.** On the simulation thread `0x4891e0` (is a UI
+  holding this user's input) returned 0, `0x2af760` (round state) returned
+  1, and the options byte at `+0x1da` read 0. So the first run's refusal was
+  transient, not a gate that always shuts under the Unreal host. VERIFIED.
+- **One tick on control entry `0x4d` toggles through the request path.**
+  The press queued a type-2 request, the applier ran it, and player 0 became
+  `monitor_editor`. The entry must be down for exactly one tick: held for six
+  ticks (0.1 s) it toggled off and on again, because the latch does not hold
+  across ticks. VERIFIED.
+- **A held object follows the cursor on the host.** With a shotgun held,
+  moving the monitor moved the cursor, and the shotgun tracked it about
+  0.25 m behind and settled on it. So slot 29's client-only loop is the
+  clients' interpolation, not the only mover. VERIFIED.
+- **Release through the grab button (`0x52`)** dropped the shotgun where it
+  was held, about 3 m from its spawn. No hang, so the first run's hang
+  belongs to that run's NOP or editor-biped stand-in. VERIFIED.
+
+Slot 30's controls map onto request types (target = the held object, else
+the one under the cursor):
+
+| Request | Sent when | Applier | Status |
+|---|---|---|---|
+| 2 toggle | toggle button | `0x300240` | VERIFIED |
+| 3 grab | grab button, nothing held, cursor on an object | `0x306d30` | VERIFIED |
+| 4 release | grab button while holding | `0x3070e0` | VERIFIED |
+| 1 delete | action `0x2c` (a hold on the gamepad) | `0x306730`: clears every player's hold on it, removes it from the map variant (`0x32e580`), deletes it (`0x5a2c30`) | VERIFIED |
+| 10 duplicate | default action, target valid and `0x306550` finds its palette entry; payload target + cursor point | `0x3060ca` | VERIFIED refusal without a palette |
+| 11 transform reset | action `0x2f` with the held object targeted | `0x305f6a` | not tried |
+| 14 mode flip | entry `0x5a` | per-player `+0x38` | not tried |
+
+## What ships
+
+- **CE runtime pack:** `pakchunk990-MJOLNIRFORGEMON_P`, the monitor model
+  fix (`tools/level/build_ce_runtime.sh`).
+- **`mjolnir_map_registry.dll`:** `mjolnir_forge_on`, the Megalo switch with
+  engine 1 in the load-map handler's `mov r8d` (all seven sites as for
+  Megalo). Site 0 accepts engines 1, 2 and 3, so switching between Megalo and
+  Forge needs no reset first.
+- **MJOLNIRLevelLoader:** a pending game type `forge` calls
+  `mjolnir_forge_on`, stages no variant, writes `running.txt` with game type
+  `forge`, and falls back to Slayer with an older DLL.
+- **MJOLNIRLobby:** a FORGE mode on insertion slot 0, offered on every map
+  once `MJOLNIRForge\native\mjolnir_forge.dll` and the runtime's monitor fix
+  are installed. `mjolnir_auto host <CODE> forge private` starts one.
+- **MJOLNIRForge + `native/forge`:** the DLL swaps sandbox vtable slot 113
+  (runs every tick, in Forge games only) and, on that tick, builds the
+  requests above from Lua's commands: toggle (2), grab or release (3/4),
+  delete (1) and duplicate (10, after `0x306550`). It adjusts the grab
+  distance (`+0xc`, 1 to 60 m) directly. Commands older than 0.75 s are
+  dropped, so a key pressed in the pause menu does not act on resume. Its
+  state (editing, held and targeted objects with tag names, distance, the
+  last result) goes to `forge_state.txt`, which the mod's panel shows. Keys
+  default to B, V, N, Delete, Page Down and Page Up: free in the Blam
+  keyboard preset (`BlamInputMapper:GetKeyForAction`; G and C throw
+  grenades, Z and X zoom). A key typed into match chat is ignored.
+
+Verified in game 2026-10-24 (BGL, solo): the lobby started FORGE in one load
+(engine 1), the panel showed, B became the monitor and back, V dropped and
+then grabbed a rifle through request types 4 and 3, Page Up pushed it from
+2 to 6 m, N reported the missing palette, Delete removed the rifle. Moving
+the monitor works with the game's own controls.
+
+Known limits: host only (a fireteam client reads slot 0 as Slayer);
+duplicate needs a sandbox palette, which converted maps lack; the cursor
+needs line of sight (it hits walls and the ground first); the monitor flies
+through some walls.
+
 ## Next steps
 
-1. Ship the model fix: the `pakchunk999-MJOLNIRDEV-forge-monitor_P` edit as
-   part of the CE runtime pack (or the level loader's), not by hand.
-2. Find which of the three conditions at `0x30236f` refuses, and feed
-   control entry `0x4d` from a key (or call `0x300240` from the native
-   runtime on the sim thread), so no NOP is needed.
-3. Find why the type-2 request from slot 30 never reached the applier
-   (`0x4074c0` → event kind `0xb` → `0x4feac0`/`0x4cd900` → `0x305a90`).
-4. Held-object motion on the host (slot 29 moves held objects only on a
-   client, `+0x11 == 4`), then release (type 4), and look for what hung.
-5. Place: needs a sandbox palette on the scenario (`blam.map_variant` work in
-   [megalo_engine.md](megalo_engine.md)).
-6. Save and share layouts: the map-variant format, codec and the
+1. Place: give converted scenarios a sandbox palette (`blam.map_variant`
+   work in [megalo_engine.md](megalo_engine.md)); then duplicate works and a
+   palette menu can send type 10 for new objects.
+2. Save and load layouts: the map-variant format, codec and the
    simulation's own encoder and decoder are in
    [map_variant_format.md](map_variant_format.md).
-7. UI: a Forge menu of our own (palette list, properties) that issues
-   requests 6, 10, 5, 8.
+3. Fireteam Forge: a game-type slot of its own (or another way for the
+   game type to travel), so clients start the sandbox engine too.
+4. UI: cooked palette and properties screens (requests 10 and 5), rotation
+   (type 11 and the rotate state at `+0xc8`).
