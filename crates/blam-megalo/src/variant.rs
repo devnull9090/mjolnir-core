@@ -662,6 +662,69 @@ impl Variant {
         }
     }
 
+    /// Team Slayer: Slayer with teams on. A kill of an enemy scores 1 for
+    /// the killer and a kill of a teammate costs the killer 1; a team's
+    /// score is its players' sum (team scoring 0, sim `0x2b0180`), and the
+    /// engine ends the round when a team reaches the score to win (sim
+    /// `0x2b1170`, reason 5), so the script has no end trigger.
+    ///
+    /// With teams on, the death record (sim slot 62, `0x3fea10`) types a
+    /// teammate's kill as a betrayal (3) and an enemy's as a kill (2), so
+    /// Slayer's kill trigger already scores only enemies; a second trigger
+    /// takes the point back for a betrayal.
+    pub fn team_slayer(score_to_win: u16) -> Variant {
+        let current = Player(player::CURRENT);
+        let killer = Player(player::global(0));
+        let mut v = Variant::slayer(score_to_win);
+        v.teams = true;
+        // Slayer's end trigger is a player's own score; a team's is the
+        // engine's.
+        v.conditions.truncate(2);
+        v.actions.truncate(2);
+        v.triggers.truncate(1);
+        v.conditions.extend([
+            Condition {
+                kind: ConditionKind::KillerTypeIs {
+                    player: current,
+                    flags: DEATH_BETRAYAL,
+                },
+                negate: false,
+                or_sequence: 0,
+                action_offset: 0,
+            },
+            Condition {
+                kind: ConditionKind::Compare {
+                    a: Var::Player(killer),
+                    b: Var::Player(current),
+                    op: Compare::NotEqual,
+                },
+                negate: false,
+                or_sequence: 1,
+                action_offset: 1,
+            },
+        ]);
+        v.actions.extend([
+            Action::GetKiller {
+                victim: current,
+                out: killer,
+            },
+            Action::ModifyScore {
+                target: ScoreTarget::Player(killer),
+                op: Op::Subtract,
+                value: Number::Constant(1),
+            },
+        ]);
+        v.triggers.push(Trigger {
+            kind: TriggerKind::EachPlayer,
+            attribute: ATTR_NORMAL,
+            first_condition: 2,
+            condition_count: 2,
+            first_action: 2,
+            action_count: 2,
+        });
+        v
+    }
+
     /// A smoke test for the interpreter: every tick, every player scores one,
     /// and the round ends at the score to win. Nothing about it needs a
     /// second player, so a lone player's score climbing proves the script
@@ -706,6 +769,9 @@ impl Variant {
 /// decoder's condition 3 tests against the death record; guardians 0,
 /// suicide 1, kill 2, betrayal 3, quit 4). Inferred, not yet seen live.
 pub const DEATH_KILL: u8 = 1 << 2;
+/// Death-type bit for a kill by a teammate (type 3, written by sim slot 62
+/// `0x3fea10` in a team game).
+pub const DEATH_BETRAYAL: u8 = 1 << 3;
 
 // ----------------------------------------------------------------- writing
 
@@ -2085,7 +2151,10 @@ pub(crate) mod tests {
     #[test]
     fn validate_refuses_an_oversize_file() {
         let err = Variant::validate(&vec![0u8; MAX_BYTES + 1]).unwrap_err();
-        assert!(matches!(err, Error::Unsupported(ref m) if m.contains("at most")), "{err:?}");
+        assert!(
+            matches!(err, Error::Unsupported(ref m) if m.contains("at most")),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -2096,9 +2165,16 @@ pub(crate) mod tests {
         let mut v = Variant::empty(25);
         v.actions = vec![Action::EndRound; MAX_ACTIONS + 1];
         let bytes = v.write().unwrap();
-        assert!(bytes.len() <= MAX_BYTES, "crafted stream is {} bytes", bytes.len());
+        assert!(
+            bytes.len() <= MAX_BYTES,
+            "crafted stream is {} bytes",
+            bytes.len()
+        );
         let err = Variant::validate(&bytes).unwrap_err();
-        assert!(matches!(err, Error::Unsupported(ref m) if m.contains("actions")), "{err:?}");
+        assert!(
+            matches!(err, Error::Unsupported(ref m) if m.contains("actions")),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -2116,6 +2192,31 @@ pub(crate) mod tests {
     #[test]
     fn slayer_reads_back_exactly() {
         let v = Variant::slayer(25);
+        let bytes = v.write().unwrap();
+        assert_eq!(Variant::read(&bytes).unwrap(), v);
+    }
+
+    /// Team Slayer: teams on, the kill trigger kept, Slayer's per-player end
+    /// trigger replaced by a betrayal trigger that takes the point back.
+    #[test]
+    fn team_slayer_reads_back_exactly() {
+        let v = Variant::team_slayer(50);
+        assert!(v.teams);
+        assert_eq!(v.triggers.len(), 2);
+        assert!(matches!(
+            v.conditions[2].kind,
+            ConditionKind::KillerTypeIs {
+                flags: DEATH_BETRAYAL,
+                ..
+            }
+        ));
+        assert!(matches!(
+            v.actions[3],
+            Action::ModifyScore {
+                op: Op::Subtract,
+                ..
+            }
+        ));
         let bytes = v.write().unwrap();
         assert_eq!(Variant::read(&bytes).unwrap(), v);
     }

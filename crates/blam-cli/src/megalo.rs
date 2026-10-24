@@ -50,6 +50,9 @@ pub enum Mode {
     Empty,
     /// Free-for-all Slayer: a kill scores 1; the round ends at the score to win.
     Slayer,
+    /// Team Slayer, Red against Blue: a kill of an enemy scores 1, a kill of
+    /// a teammate costs 1, and a team wins at the score to win.
+    TeamSlayer,
     /// Interpreter smoke test: every player scores 1 every tick.
     Tick,
     /// Capture the Flag (CE rules): flags on the map's `ctf_flag_return`
@@ -61,7 +64,7 @@ pub enum Mode {
 pub struct WriteArgs {
     #[arg(long, value_enum, default_value = "slayer")]
     pub mode: Mode,
-    /// Score to win (default 25; 3 captures for CTF).
+    /// Score to win (default 25; 50 for Team Slayer; 3 captures for CTF).
     #[arg(long)]
     pub score: Option<u16>,
     /// Rounds in a game (1..=31). An end of round before the last resets
@@ -251,6 +254,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
             let v = match w.mode {
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),
                 Mode::Slayer => Variant::slayer(w.score.unwrap_or(25)),
+                Mode::TeamSlayer => Variant::team_slayer(w.score.unwrap_or(50)),
                 Mode::Tick => Variant::tick(w.score.unwrap_or(25)),
                 Mode::Ctf => Variant::ctf(blam_megalo::ctf::Ctf {
                     flag_type: w.flag_type,
@@ -265,7 +269,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 rounds: w.rounds,
                 ..v
             };
-            if matches!(w.mode, Mode::Slayer | Mode::Ctf) {
+            if matches!(w.mode, Mode::Slayer | Mode::TeamSlayer | Mode::Ctf) {
                 v = v.with_time_limit();
             }
             w.base.apply(&mut v.base)?;

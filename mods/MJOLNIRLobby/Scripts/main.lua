@@ -174,6 +174,9 @@ end
 modesFor = function(map)
     local listed = {}
     for _, m in ipairs(type(map.modes) == "table" and map.modes or { "slayer" }) do listed[m] = true end
+    -- Team Slayer needs nothing a map has to place: it runs wherever Slayer
+    -- does, and the released maps' lists predate it.
+    if listed.slayer then listed.team_slayer = true end
     local out = {}
     for _, mode in ipairs(MODES) do
         if listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo") and offered(mode) then
