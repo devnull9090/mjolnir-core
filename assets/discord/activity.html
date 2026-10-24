@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Editable artwork using the same gold/charcoal palette and diagonal map
+     panels as blog/featured/*.html. Render with render.mjs. No remote assets. -->
+<html lang="en">
+<meta charset="utf-8">
+<title>MJOLNIR Core — Discord Activity Assets</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1024px; height: 576px; overflow: hidden; background: #080c14; }
+  body { font-family: "Bahnschrift", "Segoe UI", sans-serif; }
+  .canvas { position: relative; width: 1024px; height: 576px; overflow: hidden; isolation: isolate; }
+  .landscape { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .gulch { object-position: 50% 48%; }
+  .snow { clip-path: polygon(77% 0, 100% 0, 100% 100%, 64% 100%); object-position: 72% 45%; }
+  .snow-wrap { position: absolute; inset: 0; }
+  .snow-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .seam { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .grade { position: absolute; inset: 0; background: linear-gradient(180deg, #080c1410 0%, #080c1422 30%, #080c14d9 65%, #080c14 100%); }
+  .vignette { position: absolute; inset: 0; box-shadow: inset 0 0 100px 20px #05080c80; }
+  .brand { position: absolute; left: 42px; right: 42px; bottom: 38px; display: flex; align-items: center; gap: 28px; }
+  .logo { width: 258px; height: 258px; object-fit: contain; flex: none; filter: drop-shadow(0 8px 18px #000c); }
+  .copy { padding-top: 12px; }
+  .kicker { color: #e5c470; font-size: 13px; font-weight: 600; letter-spacing: .22em; margin-bottom: 14px; }
+  h1 { margin: 0; font-size: 81px; line-height: .94; font-weight: 700; letter-spacing: -.025em; color: #f4f5f7; text-shadow: 0 3px 16px #0008; }
+  h1 span { color: #e3bd59; }
+  .features { margin-top: 23px; color: #d8dde4; font-size: 15px; font-weight: 500; letter-spacing: .16em; }
+  .features b { color: #d4a843; padding: 0 12px; font-weight: 400; }
+  .frame { position: absolute; inset: 0; box-shadow: inset 0 0 0 1px #d4a84345; }
+  .background .brand, .background .seam { display: none; }
+  .background .gulch { opacity: .68; mask-image: linear-gradient(90deg, black, #000a 14%, transparent 43%); object-position: 22% 50%; }
+  .background .snow { clip-path: none; opacity: .57; mask-image: linear-gradient(90deg, transparent 56%, #0009 78%, black); }
+  .background .grade { background: linear-gradient(180deg, #080c140a, #080c1422 46%, #080c14d6), radial-gradient(ellipse at center, #080c1480, transparent 70%); }
+  .background .vignette { box-shadow: inset 0 0 100px 4px #05080c55; }
+  .background .frame { box-shadow: inset 0 0 0 1px #d4a84320; }
+</style>
+<main class="canvas" id="art">
+  <img class="landscape gulch" src="../../hub/public/blog-images/ce-maps-remastered/blood-gulch-overview.jpg" alt="Blood Gulch">
+  <div class="snow-wrap snow"><img src="../../hub/public/blog-images/ce-maps-remastered/sidewinder-ring.jpg" alt="Sidewinder"></div>
+  <svg class="seam" viewBox="0 0 1024 576" aria-hidden="true"><path d="M788.5 0L655.4 576" stroke="#d4a843" stroke-width="2"/></svg>
+  <div class="grade"></div><div class="vignette"></div>
+  <div class="brand">
+    <img class="logo" src="../../hub/public/logo-transparent.png" alt="MJOLNIR Core crest">
+    <div class="copy">
+      <div class="kicker">HALO CAMPAIGN EVOLVED</div>
+      <h1>MJOLNIR <span>CORE</span></h1>
+      <div class="features">MULTIPLAYER<b>·</b>FORGE<b>·</b>MODS</div>
+    </div>
+  </div>
+  <div class="frame"></div>
+</main>
+<script>
+  if (new URLSearchParams(location.search).get("variant") === "background") {
+    document.getElementById("art").classList.add("background");
+  }
+</script>
+</html>

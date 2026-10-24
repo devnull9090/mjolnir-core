@@ -89,6 +89,12 @@ mods/MJOLNIRHud/match_outbox.txt
 mods/MJOLNIRHud/match_current.txt
 mods/MJOLNIRLobby/listing.txt
 
+# Local Discord activity, preferences and cross-mod snapshots.
+mods/MJOLNIRLobby/native/discord_activity.json
+mods/MJOLNIRLobby/native/discord_assets.json
+mods/MJOLNIRLobby/native/pending_join.discord.tmp
+mods/MJOLNIRHud/discord_match.txt
+
 # The classic Halo Editing Kit (Gearbox 2004) and its tags, installed beside the repo for lightmap work
 /hek*/
 

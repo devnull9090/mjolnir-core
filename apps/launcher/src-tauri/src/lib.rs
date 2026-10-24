@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 mod changelog;
 mod crash;
+mod discord_launch;
 mod hub;
 mod links;
 mod maps;
@@ -1202,6 +1203,26 @@ async fn hub_join_lobby(lobby: String) -> Result<JoinStart, String> {
     .map_err(|e| format!("Task join error: {e}"))?
 }
 
+/// Discord only asks us to start the game. The running game's IPC callback
+/// receives and validates the join secret, then uses the usual lobby queue.
+/// Check again after preflight: a second invite or a Steam launch may have
+/// started the game while the launcher was checking the installation.
+#[tauri::command]
+async fn discord_launch_game() -> Result<JoinStart, String> {
+    static START: std::sync::Mutex<discord_launch::LaunchGuard> =
+        std::sync::Mutex::new(discord_launch::LaunchGuard::new());
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut guard = START.lock().unwrap_or_else(|e| e.into_inner());
+        let launched = guard.start(std::time::Instant::now, game_running, || {
+            hub::multiplayer_ready().map_err(|e| format!("Multiplayer is not ready: {e}"))?;
+            launch_game()
+        })?;
+        Ok(JoinStart { launched })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
 // ─── Before a launch (preflight.rs, unsupported.rs) ──────────────────────
 
 /// Everything out of date, unreachable sources, and unsupported mods.
@@ -2067,16 +2088,19 @@ pub fn run() {
                 eprintln!("ue4ss settings: {e}");
             }
 
-            // mjolnir:// links. The installer registers the scheme; this
-            // registers it for a dev build and for installs from before it
-            // (HKCU, so no elevation), and points it back at this exe when
-            // it has moved.
+            // Website links and Discord's cold-start protocol. Register for
+            // dev builds and older installs too (HKCU, no elevation), and
+            // update the quoted executable command if the launcher moved.
+            // The deep-link plugin owns the same discord-<app-id> Windows
+            // protocol registration used by Discord_Register.
             use tauri_plugin_deep_link::DeepLinkExt;
             let deep_link = app.deep_link();
             #[cfg(windows)]
-            if !deep_link.is_registered(links::SCHEME).unwrap_or(false) {
-                if let Err(e) = deep_link.register(links::SCHEME) {
-                    eprintln!("links: registering {}://: {e}", links::SCHEME);
+            for scheme in [links::SCHEME, links::DISCORD_SCHEME] {
+                if !deep_link.is_registered(scheme).unwrap_or(false) {
+                    if let Err(e) = deep_link.register(scheme) {
+                        eprintln!("links: registering {scheme}://: {e}");
+                    }
                 }
             }
             let handle = app.handle().clone();
@@ -2138,6 +2162,7 @@ pub fn run() {
             hub_install_multiplayer,
             hub_install_halo2_maps,
             hub_join_lobby,
+            discord_launch_game,
             links::take_pending_link,
             hub_uninstall,
             hub_state,

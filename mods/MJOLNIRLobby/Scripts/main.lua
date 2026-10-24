@@ -40,6 +40,7 @@ local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
+local Presence = dofile(MOD_DIR .. "\\Scripts\\presence.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MapLive = dofile(MOD_DIR .. "\\Scripts\\maplive.lua")
@@ -48,6 +49,7 @@ local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
+Presence.init({ modDir = MOD_DIR, json = Json, log = log })
 
 local HELPERS = "/Game/UI/Frontend/CampaignMenu/Data/BPFL_CampaignMenuHelpers.Default__BPFL_CampaignMenuHelpers_C"
 local SCENARIOS = "/Game/Blueprints/Campaign/DT_Scenarios.DT_Scenarios"
@@ -662,6 +664,7 @@ end)
 --- player's view model (the one that can). BlamCampaignFlowGameSubsystem's
 --- LeaveGame only leaves a match. true when a leave was asked for.
 function Live.leaveFireteam()
+    Games.leavePresence()
     for _, vm in ipairs(FindAllOf("MeteoritePlayerViewModel") or {}) do
         local ok, can = pcall(function() return vm:CanLeaveFireteam() end)
         if ok and can then
@@ -3988,6 +3991,10 @@ local function initialize()
         net = Net,
         log = log,
         version = LOBBY_VERSION,
+        world = function()
+            local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+            return ok and tostring(address) or nil
+        end,
         -- The game a public listing shows: the lobby's choice, which a start
         -- (from the lobby or the post-game vote) also sets.
         info = function()
@@ -3997,6 +4004,7 @@ local function initialize()
             return {
                 name = name and (name .. "'s game") or "MJOLNIR game",
                 map_code = Game.map.code,
+                world = tostring(UI.playerController():GetWorld():GetAddress()),
                 map_release_id = release.id,
                 map_version = release.version,
                 game_type = Game.mode.id,
@@ -4006,6 +4014,21 @@ local function initialize()
             }
         end,
     })
+    Presence.context(function()
+        local pc = UI.playerController()
+        local worldCode
+        pcall(function()
+            worldCode = pc:GetWorld():GetFullName():match("%.([%w_]+)$")
+            worldCode = worldCode and worldCode:upper()
+        end)
+        return {
+            frontend = inFrontend(), world_code = worldCode,
+            lobby = alive(Lobby) or (Post and alive(Post.screen)),
+            postgame = Post and alive(Post.screen),
+            map_title = Game.map and (Game.map.title or Game.map.code),
+            mode = Game.mode and Game.mode.id,
+        }, Games.presence()
+    end)
     -- Public match history: MJOLNIRHud's records and seat claims, to the hub.
     Matches.init({ modDir = MOD_DIR, games = Games, log = log })
     -- Hub accounts in place of in-game names, proven to the host by tickets

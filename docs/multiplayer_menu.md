@@ -313,8 +313,9 @@ and on the Xbox app to the GDK session's invite handler (mods-v0.23.0 and
 v0.23.1, PR #179 and #181). FIND GAMES lists the hub's games, not Steam
 lobbies. The session join was verified on two PCs on 2026-10-01 (03fae037).
 Match chat shipped in the match HUD, not the lobby service (mods-v0.27.0,
-PR #200). Still not built: join codes (JOIN PRIVATE), Steam lobbies, Discord
-rich presence.
+PR #200). Discord Rich Presence and public-session Join Game are implemented
+through local IPC ([discord_presence.md](discord_presence.md)). Still not
+built: join codes (JOIN PRIVATE) and Steam lobbies.
 
 - **A lobby service of our own** (Cloudflare, beside the hub), since Game Pass
   and Store players have no Steam. Planned shape: a game list, join codes, the
@@ -328,5 +329,6 @@ rich presence.
   - JOIN PRIVATE: friends-only and invite lobbies.
   - The friends list's Join Game: `GameLobbyJoinRequested`, `+connect_lobby`.
   - Bringing lobby members into the host's fireteam session.
-- **Discord** rich presence over its local IPC pipe.
+- **Discord** rich presence over its local IPC pipe is implemented; see
+  [setup and verification](discord_presence.md).
 - Two-player verification of the session join and of Megalo kill scoring.

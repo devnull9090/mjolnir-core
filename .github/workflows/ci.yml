@@ -25,6 +25,9 @@ jobs:
       - name: Test the game type picker
         run: lua5.4 tools/tests/test_gametype_picker.lua
 
+      - name: Test Discord presence and public-session joins
+        run: lua5.4 tools/tests/test_discord_presence.lua
+
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 
@@ -87,6 +90,10 @@ jobs:
       - name: Build mjolnir_lobby.dll
         shell: pwsh
         run: .\native\lobby\build.ps1
+
+      - name: Test Discord RPC with an isolated named pipe
+        shell: pwsh
+        run: .\native\lobby\test-discord.ps1
 
       - name: Build mjolnir_frame_times.dll
         shell: pwsh
