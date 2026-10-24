@@ -1,15 +1,15 @@
 {
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Inspect and edit the Blam tag data inside an installed copy of Halo Campaign Evolved.",
   "homepage": "https://mjolnircore.com",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.3.0/mjolnir-0.3.0-windows-x64.zip",
-      "hash": "fb770e7ffd603bac4990e713cf4a788a8dee3704c111512c28a490667cbb8928"
+      "url": "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.5.0/mjolnir-0.5.0-windows-x64.zip",
+      "hash": "95cb4cc68fc9ec58f04e833abd5a94a377abdfce35a1996df6740261eff0369a"
     }
   },
-  "extract_dir": "mjolnir-0.3.0-windows-x64",
+  "extract_dir": "mjolnir-0.5.0-windows-x64",
   "bin": "mjolnir.exe",
   "checkver": {
     "github": "https://github.com/devnull9090/mjolnir-core",
