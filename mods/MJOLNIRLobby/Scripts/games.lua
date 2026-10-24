@@ -24,11 +24,16 @@ local HEARTBEAT_SECONDS = 30
 local REPLY_TIMEOUT = 20      -- seconds before a hub call counts as failed
 local MAX_PLAYERS = 16        -- the hub's ceiling, and the fireteam's
 
-local nativeDir, listingFile, Json, Net, log
+local nativeDir, listingFile, Json, Net, log, Session, guest
+local publicPresence, presenceCheckedAt, lastWorld, nextPresenceBroadcast = nil, nil, nil, 0
+local connectionChecked, online = 0, false
 local sequence = 0
 
 local Host = {
     public = false,   -- the host's choice; private until switched
+    generation = 0,   -- invalidates asynchronous responses after a session change
+    confirmed = nil, -- last successful registration/heartbeat
+    world = nil,     -- current world identity, also on clients
     id = nil,         -- the hub's listing, while listed
     token = nil,
     busy = false,     -- a register or heartbeat in flight
@@ -285,6 +290,8 @@ local function noteListing(id)
 end
 
 local function unlist(why)
+    Host.generation = Host.generation + 1
+    Host.confirmed, Host.busy, publicPresence = nil, false, nil
     if Host.id then
         local id, token = Host.id, Host.token
         hub("DELETE", "/lobbies/" .. id, { token = token }, function(status)
@@ -315,6 +322,7 @@ local function beat()
     local state = info.in_game and "in_game" or "open"
     if players >= Host.maxPlayers then state = "full" end
     Host.busy = true
+    local generation = Host.generation
     if not Host.id then
         hub("POST", "/lobbies", {
             name = (info.name or "MJOLNIR"):sub(1, 60),
@@ -334,6 +342,14 @@ local function beat()
             map_release_id = info.map_release_id,
             map_version = info.map_version,
         }, function(status, data)
+            if generation ~= Host.generation then
+                -- The host became private or joined another session while
+                -- registration was in flight. Remove only the orphaned row.
+                if status == 201 and data and data.id and data.token then
+                    hub("DELETE", "/lobbies/" .. data.id, { token = data.token }, function() end)
+                end
+                return
+            end
             Host.busy = false
             if status == 201 and data and data.id then
                 if not Host.public then
@@ -343,6 +359,7 @@ local function beat()
                     return
                 end
                 Host.id, Host.token = data.id, data.token
+                Host.confirmed = os.time()
                 noteListing(data.id)
                 Host.nextBeat = os.time() + HEARTBEAT_SECONDS
                 setStatus("PUBLIC: listed in FIND GAMES")
@@ -367,7 +384,9 @@ local function beat()
         map_release_id = info.map_release_id,
         map_version = info.map_version,
     }, function(status, data)
+        if generation ~= Host.generation then return end
         Host.busy = false
+        Host.confirmed = status == 200 and os.time() or nil
         Host.nextBeat = os.time() + HEARTBEAT_SECONDS
         if status == 404 then
             -- Swept, or replaced by a listing from another session: list again.
@@ -406,7 +425,9 @@ Games.call = hub
 Games.explain = explain
 
 function Games.setPublic(on)
+    local wasPublic = Host.public
     Host.public = on and true or false
+    if wasPublic and not Host.public then unlist("private") end
     Host.nextBeat = 0
     keepLobby(Host.public)
     if Host.public then
@@ -463,6 +484,13 @@ end
 --- Join a listed game: done(true) once the join is under way, or
 --- done(false, why).
 function Games.join(lobby, done)
+    guest:joining(lobby.id, os.time())
+    publicPresence = nil
+    local finish = done
+    done = function(ok, why)
+        if not ok then guest:leave() end
+        finish(ok, why)
+    end
     hub("GET", "/lobbies/" .. lobby.id .. "/join", nil, function(status, data)
         if status ~= 200 or not (data and data.connection_string) then
             done(false, explain(status, data))
@@ -516,17 +544,89 @@ function Games.join(lobby, done)
     end)
 end
 
---- deps: { modDir, json, net, log, version, info }.
+-- Public identity is sent on the game's existing host -> client channel.
+-- Messages alone are insufficient: a guest also checks the hub's public list.
+local function presenceTick()
+    local now = os.time()
+    local world = Host.world and Host.world()
+    if world ~= lastWorld then
+        lastWorld = world
+        guest:worldChanged(world)
+        Host.generation = Host.generation + 1
+        Host.confirmed, Host.busy = nil, false
+        Host.nextBeat = 0
+        connectionChecked = 0
+    end
+    publicPresence = nil
+    if not world then guest:clear(); return end
+    if Net.isHost() then
+        if guest.id then guest:clear() end
+        if now >= connectionChecked then
+            connectionChecked = now + 5
+            online = connectionString() ~= nil
+        end
+        local info = Host.info and Host.info()
+        local jip = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
+        publicPresence = Session.host(Host, info, now, online, jip)
+        if now >= nextPresenceBroadcast then
+            nextPresenceBroadcast = now + 5
+            local p = publicPresence
+            Net.toClients("publicsession", p and p.id or "", p and p.joinable and "1" or "0",
+                p and p.players or 0, p and p.maxPlayers or 0)
+        end
+    else
+        guest:check(now, function(done)
+            -- Do not use lobbies_sample.json: test browser rows must never
+            -- advertise a Discord join target.
+            hub("GET", "/lobbies", nil, function(status, data)
+                done(status == 200 and data and data.lobbies or nil, os.time())
+            end)
+        end)
+        publicPresence = guest:guest(now)
+    end
+end
+
+function Games.presence()
+    -- The publisher has its own loop. If the session producer stalls or
+    -- stops, it must not keep refreshing a previously joinable activity.
+    local age = presenceCheckedAt and os.time() - presenceCheckedAt
+    if not age or age < 0 or age > 3 then return nil end
+    return publicPresence
+end
+function Games.leavePresence()
+    publicPresence = nil
+    if guest then guest:leave() end
+end
+
+--- deps: { modDir, json, net, log, version, info, world }.
+
 function Games.init(deps)
     nativeDir = deps.modDir .. "\\native\\"
     listingFile = deps.modDir .. "\\listing.txt"
     Json, Net, log = deps.json, deps.net, deps.log
+    Session = dofile(deps.modDir .. "\\Scripts\\publicsession.lua")
+    guest = Session.new()
+    Host.world = deps.world
+    Net.on("publicsession", function(fields, sender)
+        if sender ~= nil or Net.isHost() then return end
+        local world = Host.world and Host.world()
+        if not world then return end
+        guest:worldChanged(world)
+        guest:receive(fields, os.time())
+    end)
     -- Left by a session that ended while listed: that listing is gone.
     noteListing(nil)
     Host.version = deps.version or ""
     Host.info = deps.info
     keepLobby(false)
     local function loop()
+        local okPresence, errPresence = pcall(presenceTick)
+        if okPresence then
+            presenceCheckedAt = os.time()
+        else
+            publicPresence, presenceCheckedAt = nil, nil
+            log("Discord session: " .. tostring(errPresence))
+        end
         local ok, err = pcall(tick)
         if not ok then log("games: " .. tostring(err)) end
         jipTick()

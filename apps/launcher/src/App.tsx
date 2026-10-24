@@ -34,13 +34,15 @@ export type View = "mods" | "multiplayer" | "tools" | "browse" | "updates" | "se
 /**
  * A `mjolnir://` link, as the Rust side parsed it (src-tauri/src/links.rs):
  * a mod's page, a map's page, a lobby to join, or the game's out-of-date
- * prompt asking for an update and a restart.
+ * prompt asking for an update and a restart. Discord's separate launch
+ * protocol starts the game; the game receives the join over Discord IPC.
  */
 type HubLink =
   | { kind: "mod"; slug: string }
   | { kind: "map"; code: string }
   | { kind: "join"; lobby: string }
-  | { kind: "update" };
+  | { kind: "update" }
+  | { kind: "discordlaunch" };
 
 /**
  * Runs the update a `mjolnir://update` link asked for, each time `request`
@@ -54,6 +56,20 @@ function UpdateLinkRunner({ request }: { request: number }) {
     if (request === 0) return;
     preflight.run({ update: true, launch: () => invoke("launch_game") }).catch(console.error);
     // Only a new request starts a run; `preflight` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
+  return null;
+}
+
+/** Start the game for Discord, keeping the normal installation checks.
+ * The command rechecks whether the game started while preflight was open.
+ */
+function DiscordLinkRunner({ request }: { request: number }) {
+  const preflight = usePreflight();
+  useEffect(() => {
+    if (request === 0) return;
+    preflight.run({ launch: () => invoke("discord_launch_game") }).catch(console.error);
+    // Only a new Discord launch request starts a run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request]);
   return null;
@@ -89,6 +105,7 @@ function AppBody({
   const [browseTab, setBrowseTab] = useState<BrowseTab>("content");
   const [joinLobby, setJoinLobby] = useState<string | null>(null);
   const [updateRequest, setUpdateRequest] = useState(0);
+  const [discordRequest, setDiscordRequest] = useState(0);
   // Both the library and the update manager read this; keeping one instance
   // means one set of hub calls and no disagreement about what is installed.
   const library = useHubLibrary();
@@ -161,6 +178,11 @@ function AppBody({
         setActiveView("updates");
         setUpdateRequest((n) => n + 1);
         break;
+      case "discordlaunch":
+        setOpenMod(null);
+        setActiveView("multiplayer");
+        setDiscordRequest((n) => n + 1);
+        break;
     }
   };
   useEffect(() => {
@@ -181,6 +203,7 @@ function AppBody({
   return (
     <PreflightProvider onApplied={() => announceInstalled()}>
     <UpdateLinkRunner request={updateRequest} />
+    <DiscordLinkRunner request={discordRequest} />
     <div className="flex h-screen w-screen bg-surface-primary">
       <Sidebar
         activeView={activeView}

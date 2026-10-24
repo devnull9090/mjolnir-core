@@ -45,7 +45,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["mjolnir"]
+        "schemes": ["mjolnir", "discord-1533237469259104458"]
       }
     },
     "updater": {

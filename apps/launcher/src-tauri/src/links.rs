@@ -1,6 +1,6 @@
 //! `mjolnir://` links: what a website hands the launcher.
 //!
-//! Four forms, and nothing else:
+//! Four website forms, and Discord's fixed launch protocol:
 //!
 //!   mjolnir://mod/<slug>      that mod's page in Browse Hub
 //!   mjolnir://map/<CODE>      that map in Browse Hub's Maps tab
@@ -8,6 +8,10 @@
 //!   mjolnir://update          update everything, then start the game again:
 //!                             what the game's out-of-date prompt opens
 //!                             (docs/update_check.md)
+//!   discord-1533237469259104458://  start the game for a pending Discord join
+//!
+//! Discord delivers the actual join secret to the game's IPC client. Its
+//! launch URL never contains a lobby id, credential, or executable argument.
 //!
 //! The scheme is registered for the launcher (tauri.conf.json, and again at
 //! startup), so Windows starts it with the link as its only argument. A link
@@ -27,13 +31,15 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const SCHEME: &str = "mjolnir";
+pub const DISCORD_SCHEME: &str = "discord-1533237469259104458";
 
 /// The event the webview listens for; its payload is the [`Link`].
 pub const EVENT: &str = "mjolnir-link";
 
 /// One understood link, as the webview receives it:
 /// `{ "kind": "mod", "slug": … }`, `{ "kind": "map", "code": … }` or
-/// `{ "kind": "join", "lobby": … }` or `{ "kind": "update" }`.
+/// `{ "kind": "join", "lobby": … }`, `{ "kind": "update" }`, or
+/// `{ "kind": "discordlaunch" }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Link {
@@ -41,6 +47,7 @@ pub enum Link {
     Map { code: String },
     Join { lobby: String },
     Update,
+    DiscordLaunch,
 }
 
 /// The latest link the webview has not taken yet. Only the latest: two links
@@ -65,13 +72,16 @@ pub(crate) fn valid_lobby(s: &str) -> bool {
     (1..=64).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
 }
 
-/// Read one link. `None` for anything that is not exactly one of the four
-/// forms. Tolerated: the scheme and kind in any case (Windows and browsers
+/// Read one link. Discord's protocol accepts only an empty path. Website
+/// links tolerate the scheme and kind in any case (Windows and browsers
 /// normalise them differently), one trailing slash (some browsers add it),
 /// and a query or fragment, which is ignored (a site's tracking tag).
 pub fn parse(raw: &str) -> Option<Link> {
     let raw = raw.trim();
     let (scheme, rest) = raw.split_once("://")?;
+    if scheme.eq_ignore_ascii_case(DISCORD_SCHEME) {
+        return matches!(rest, "" | "/").then_some(Link::DiscordLaunch);
+    }
     if !scheme.eq_ignore_ascii_case(SCHEME) {
         return None;
     }
@@ -160,6 +170,41 @@ mod tests {
     }
 
     #[test]
+    fn discord_only_opens_the_game_and_never_interprets_a_payload() {
+        for raw in [
+            "discord-1533237469259104458://",
+            "DISCORD-1533237469259104458:///",
+        ] {
+            assert_eq!(parse(raw), Some(Link::DiscordLaunch));
+            // The deep-link plugin parses URLs before delivering them.
+            let url = tauri::Url::parse(raw).unwrap();
+            assert_eq!(parse(url.as_str()), Some(Link::DiscordLaunch));
+        }
+        for raw in [
+            "discord-1533237469259104459://",
+            "discord-1533237469259104458://join/lobby-id",
+            "discord-1533237469259104458://?secret=abc",
+            "discord-1533237469259104458://#abc",
+            "discord-1533237469259104458://%2f",
+            "discord-1533237469259104458:// --install-map BGL",
+            "discord-1533237469259104458:launch",
+        ] {
+            assert_eq!(parse(raw), None, "{raw:?} must not parse");
+        }
+    }
+
+    #[test]
+    fn installer_registers_both_protocols() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let schemes = config["plugins"]["deep-link"]["desktop"]["schemes"]
+            .as_array()
+            .unwrap();
+        assert!(schemes.iter().any(|s| s == SCHEME));
+        assert!(schemes.iter().any(|s| s == DISCORD_SCHEME));
+    }
+
+    #[test]
     fn what_browsers_add_is_tolerated() {
         let want = Some(Link::Map { code: "D40".into() });
         assert_eq!(parse("mjolnir://map/D40/"), want);
@@ -218,5 +263,9 @@ mod tests {
             serde_json::json!({ "kind": "join", "lobby": "id-1" })
         );
         assert_eq!(json(Link::Update), serde_json::json!({ "kind": "update" }));
+        assert_eq!(
+            json(Link::DiscordLaunch),
+            serde_json::json!({ "kind": "discordlaunch" })
+        );
     }
 }
