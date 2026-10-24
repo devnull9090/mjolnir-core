@@ -178,10 +178,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "blam-cache"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "png",
+ "serde_json",
+ "texture2ddecoder",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blam-cli"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "blam-cache",
  "blam-defs",
  "blam-hsc",
  "blam-live",

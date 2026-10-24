@@ -674,13 +674,14 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         statements.push(
           c.env.DB.prepare(
             `INSERT INTO map_listings (mod_id, code, title, modes, size, players_min, players_max,
-                                       vehicles, origin)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                                       vehicles, origin, game)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
                size = COALESCE(excluded.size, size),
                players_min = COALESCE(excluded.players_min, players_min),
                players_max = COALESCE(excluded.players_max, players_max),
                vehicles = COALESCE(excluded.vehicles, vehicles),
+               game = COALESCE(excluded.game, game),
                origin = CASE WHEN origin = 'classic' THEN origin
                              ELSE COALESCE(excluded.origin, origin) END,
                updated_at = datetime('now')`,
@@ -694,6 +695,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
             map.players?.max ?? null,
             map.vehicles === undefined ? null : map.vehicles ? 1 : 0,
             map.origin ?? null,
+            map.game ?? null,
           ),
         );
       }

@@ -12,6 +12,7 @@ members = [
     "crates/blam-megalo",
     "crates/blam-live",
     "crates/blam-radiosity",
+    "crates/blam-cache",
     "crates/mjolnir-sign",
     "crates/blam-cli",
 ]

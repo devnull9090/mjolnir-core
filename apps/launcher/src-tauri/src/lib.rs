@@ -1431,7 +1431,7 @@ async fn hub_install(
         .map_err(|e| format!("Task join error: {e}"))?
 }
 
-/// Every official map, the CE runtime pack and the multiplayer mods, with
+/// Every official CE map, the CE runtime pack and the multiplayer mods, with
 /// progress on the same `install-progress` event the runtime install uses
 /// (stage `multiplayer`).
 #[tauri::command]
@@ -1439,6 +1439,19 @@ async fn hub_install_multiplayer(app: AppHandle) -> Result<hub::MultiplayerInsta
     tauri::async_runtime::spawn_blocking(move || {
         hub::install_multiplayer(&|message, fraction| {
             emit_progress(&app, "multiplayer", message, fraction * 100.0)
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// The optional Halo 2 map pack, as `hub_install_multiplayer` but stage
+/// `halo2-maps`.
+#[tauri::command]
+async fn hub_install_halo2_maps(app: AppHandle) -> Result<hub::MultiplayerInstall, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hub::install_halo2_maps(&|message, fraction| {
+            emit_progress(&app, "halo2-maps", message, fraction * 100.0)
         })
     })
     .await
@@ -2020,6 +2033,7 @@ pub fn run() {
             hub_api,
             hub_install,
             hub_install_multiplayer,
+            hub_install_halo2_maps,
             hub_join_lobby,
             links::take_pending_link,
             hub_uninstall,

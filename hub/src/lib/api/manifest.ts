@@ -12,6 +12,8 @@ export const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 /** What a map's catalog listing is filtered by (migrations/0017_map_metadata.sql). */
 export const MAP_SIZES = ["small", "medium", "large"] as const;
 export const MAP_ORIGINS = ["classic", "custom_edition", "original"] as const;
+/** Which game a map comes from (migrations/0023_map_game.sql). */
+export const MAP_GAMES = ["halo1", "halo2"] as const;
 
 export const ManifestSchema = z
   .object({
@@ -40,6 +42,8 @@ export const ManifestSchema = z
           .refine((p) => p.min <= p.max, { message: "min must not exceed max" })
           .optional(),
         vehicles: z.boolean().optional(),
+        // The game the map comes from: Halo CE or Halo 2.
+        game: z.enum(MAP_GAMES, { error: "halo1 or halo2" }).optional(),
         // `classic` marks the converted stock maps and is a moderator's to
         // give, so an author can only say where their own map came from.
         origin: z

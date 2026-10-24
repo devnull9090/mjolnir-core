@@ -166,6 +166,11 @@ def main():
                  # Its shadows are baked into the lightmaps; objects cast
                  # the real ones (MJOLNIRLevelLoader).
                  "cast_shadow": False}
+        motion = gltf[: -len(".gltf")] + ".motion.json"
+        if os.path.isfile(motion):
+            # A turning machine (merge_ce_scene.py --machines): the level
+            # loader turns it about its pivot by the keys.
+            entry["motion"] = json.load(open(motion, encoding="utf-8"))
         if leaf.endswith("_Sky"):
             # Drawn before every other translucent thing, as CE's sky is.
             entry["sort_priority"] = -100

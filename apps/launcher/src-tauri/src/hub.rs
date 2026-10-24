@@ -2440,18 +2440,65 @@ pub struct MultiplayerInstall {
     pub state: HubState,
 }
 
-/// Install every official map (the classic CE set) with what they need: the
+/// Which game an official map comes from: the hub's `game` field on a map
+/// listing, and its `game=` filter on `GET /maps`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapGame {
+    Halo1,
+    Halo2,
+}
+
+impl MapGame {
+    fn param(self) -> &'static str {
+        match self {
+            MapGame::Halo1 => "halo1",
+            MapGame::Halo2 => "halo2",
+        }
+    }
+
+    /// Whether a listing is this game's. A listing without `game` predates
+    /// the field and is a CE map. Checked here as well as asked of the hub,
+    /// so a hub that ignores `game=` cannot put Halo 2 maps in the CE run.
+    fn lists(self, map: &serde_json::Value) -> bool {
+        match map["game"].as_str() {
+            None => self == MapGame::Halo1,
+            Some(game) => game == self.param(),
+        }
+    }
+}
+
+/// Install every official CE map (the classic set) with what they need: the
 /// CE runtime pack, the multiplayer code mods, the registration. Maps already
 /// at their newest release are skipped, so running it again is an update.
 /// `progress` hears each step and how far along the run is (0 to 1).
 pub fn install_multiplayer(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerInstall, String> {
+    install_official_maps(MapGame::Halo1, progress)
+}
+
+/// The optional Halo 2 pack: every official Halo 2 map, the same way
+/// `install_multiplayer` installs the CE ones.
+pub fn install_halo2_maps(progress: &dyn Fn(&str, f32)) -> Result<MultiplayerInstall, String> {
+    install_official_maps(MapGame::Halo2, progress)
+}
+
+fn install_official_maps(
+    game: MapGame,
+    progress: &dyn Fn(&str, f32),
+) -> Result<MultiplayerInstall, String> {
     progress("Checking the multiplayer mods", 0.0);
     ensure_code_mods(MAP_CODE_MODS)?;
 
-    let listing = get_json(&format!("{}/maps?official=1", hub_api()))?;
-    let maps = listing["maps"].as_array().cloned().unwrap_or_default();
+    let url = format!("{}/maps?official=1&game={}", hub_api(), game.param());
+    let listing = get_json(&url)?;
+    let maps: Vec<serde_json::Value> = listing["maps"]
+        .as_array()
+        .map(|maps| maps.iter().filter(|m| game.lists(m)).cloned().collect())
+        .unwrap_or_default();
     if maps.is_empty() {
-        return Err("The hub lists no official maps yet.".into());
+        return Err(match game {
+            MapGame::Halo1 => "The hub lists no official maps yet.".into(),
+            MapGame::Halo2 => "The hub lists no official Halo 2 maps yet.".into(),
+        });
     }
 
     let mut result = MultiplayerInstall {
@@ -2605,6 +2652,20 @@ mod tests {
         assert!(!root.join("native/pending_join.txt.tmp").exists());
         assert_eq!(pending_join_text("x", 5), "lobby=x\nat=5\n");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn each_install_takes_only_its_own_games_maps() {
+        let ce = serde_json::json!({ "slug": "bloodgulch" });
+        let ce_null = serde_json::json!({ "slug": "sidewinder", "game": null });
+        let ce_tagged = serde_json::json!({ "slug": "hangemhigh", "game": "halo1" });
+        let h2 = serde_json::json!({ "slug": "lockout", "game": "halo2" });
+        let other = serde_json::json!({ "slug": "x", "game": "halo3" });
+        for m in [&ce, &ce_null, &ce_tagged] {
+            assert!(MapGame::Halo1.lists(m) && !MapGame::Halo2.lists(m));
+        }
+        assert!(MapGame::Halo2.lists(&h2) && !MapGame::Halo1.lists(&h2));
+        assert!(!MapGame::Halo1.lists(&other) && !MapGame::Halo2.lists(&other));
     }
 
     #[test]

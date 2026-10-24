@@ -532,7 +532,7 @@ GOLD = (1.0, 0.80, 0.35, 1.0)
 LINE = (0.24, 0.49, 0.63, 0.45)
 RED = (1.0, 0.32, 0.28, 1.0)
 BLUE = (0.3, 0.65, 1.0, 1.0)
-MAP_BUTTONS = 32
+MAP_BUTTONS = 80
 MODE_BUTTONS = 5
 ROSTER_ROWS = 16
 ROSTER_AVATAR = 32
@@ -800,23 +800,49 @@ def build_lobby():
 
 
 def build_map_select():
-    """Every installed map, its details and game types, and SELECT."""
+    """Every installed map and the hub's maps not installed (MJOLNIRLobby
+    marks those DOWNLOAD), filter chips for the game, the source and
+    installed maps, a map's details and game types, and SELECT."""
     name = "WBP_MJOLNIRMapSelect"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     screen_canvas(bp)
     screen_header(bp, "SELECT MAP", "CUSTOM GAME")
+    events = []
+
+    # Cycling chips (a caption and a value), as FIND GAMES' are; the count of
+    # rows beside them. Lua fills the values and colours the chips.
+    bar = widget(bp, unreal.HorizontalBox, "Filters", "Root")
+    place(bar, (0.06, 0.205), (0.0, 0.0))
+    for key, label in (("Game", "GAME"), ("Source", "SOURCE"), ("Installed", "SHOW")):
+        chip = widget(bp, unreal.Button, f"Filter{key}", "Filters")
+        flat_style(chip, (0.02, 0.05, 0.075, 0.55), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95),
+                   padding=(18, 11, 20, 11))
+        chip.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
+        inner = widget(bp, unreal.HorizontalBox, f"Filter{key}Row", chip.get_name())
+        unpadded(inner)
+        caption = widget(bp, unreal.TextBlock, f"Filter{key}Caption", inner.get_name())
+        text_style(caption, label, 17, ACCENT)
+        middle(caption)
+        value = widget(bp, unreal.TextBlock, f"Filter{key}Value", inner.get_name())
+        text_style(value, "ALL", 21, WHITE)
+        value.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 0, 0))
+        middle(value)
+        events.append((chip.get_name(), "OnClicked", f"filter:{key.lower()}"))
+    count = widget(bp, unreal.TextBlock, "ListCount", "Filters")
+    text_style(count, "MAPS", 18, GREY)
+    count.get_editor_property("slot").set_padding(unreal.Margin(20, 0, 0, 0))
+    middle(count)
 
     list_panel = panel(bp, "ListPanel", "Root", padding=(16, 16, 16, 16))
-    place(list_panel, (0.06, 0.22), (0.0, 0.0))
-    sized(bp, "ListSize", "ListPanel", width=520, height=790)
+    place(list_panel, (0.06, 0.265), (0.0, 0.0))
+    sized(bp, "ListSize", "ListPanel", width=520, height=740)
     widget(bp, unreal.ScrollBox, "MapList", "ListSize")
-    events = []
     for i in range(MAP_BUTTONS):
         gap(menu_button(bp, f"Map{i}", "", "MapList", size=25), bottom=5)
         events += [(f"Map{i}", "OnClicked", f"map:{i}"), (f"Map{i}", "OnHovered", f"hover:{i}")]
 
     details = panel(bp, "Details", "Root")
-    place(details, (0.32, 0.22), (0.0, 0.0))
+    place(details, (0.32, 0.265), (0.0, 0.0))
     sized(bp, "DetailsSize", "Details", width=1430)
     widget(bp, unreal.HorizontalBox, "DetailsColumns", "DetailsSize")
     sized(bp, "DetailsLeftSize", "DetailsColumns", width=780)
