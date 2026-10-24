@@ -132,6 +132,9 @@ export function PreflightProvider({
       }
       if (!live()) return;
       setPhase({ kind: "checking" });
+      // Mods a previous session moved aside come back first, so the check
+      // sees them and nothing moves them back under the game about to start.
+      await invoke("unsupported_restore").catch(() => undefined);
       const [check, problems] = await Promise.all([
         invoke<UpdateCheck>("preflight_check").catch(
           (e): UpdateCheck => ({ checked_at: 0, items: [], unreachable: [String(e)], unsupported: [] }),

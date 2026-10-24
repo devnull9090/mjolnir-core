@@ -141,6 +141,14 @@ fn log(line: &str) {
     eprintln!("set aside: {line}");
 }
 
+/// Held across a whole move aside or move back: the watcher a launch starts
+/// and the next launch's own restore can otherwise run at once.
+static MOVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn moving() -> std::sync::MutexGuard<'static, ()> {
+    MOVING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -337,6 +345,7 @@ pub fn scan() -> Result<Vec<UnsupportedMod>, String> {
 /// recording each move before the next. A file the game holds open stays
 /// put and is reported.
 pub fn set_aside_in(root: &Path, mods: &[UnsupportedMod]) -> SetAsideResult {
+    let _held = moving();
     let at = now();
     let mut dest_root = root.join(SET_ASIDE_DIR).join(at.to_string());
     let mut n = 1;
@@ -388,6 +397,7 @@ pub fn set_aside() -> Result<SetAsideResult, String> {
 /// original place is taken again stays set aside, and in the ledger, so a
 /// later restore can try again once the player has chosen.
 pub fn restore() -> RestoreResult {
+    let _held = moving();
     let mut ledger = load_ledger();
     let mut result = RestoreResult::default();
     if ledger.entries.is_empty() {

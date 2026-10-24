@@ -168,7 +168,9 @@ it has `enabled.txt`) is unsupported unless it is one of these:
   for it to go.
 - **On the next launcher start**, if the game is not running. This covers a
   launcher that was closed or crashed while the game ran.
-- **On demand**, with the `unsupported_restore` command.
+- **Before every launch check**, with the `unsupported_restore` command, so
+  the check sees the mods and no late watcher moves them back under the
+  next game. Moves aside and back hold one lock, so two never overlap.
 
 A move back that would land on a file of the same name (the player put the
 mod back by hand) keeps the set-aside copy and its ledger entry, and says
