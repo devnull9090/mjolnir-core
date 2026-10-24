@@ -1054,6 +1054,10 @@ local function drawLobby()
         "Install the classic maps from the MJOLNIR launcher's Multiplayer page, or a map pack from mjolnircore.com.")
     Live.showCover(Lobby, map and map.code)
     setText(Lobby.ModeTitle, mode and mode.name or "")
+    pcall(function()
+        local shown = Pick.gameType.showIcon(Lobby.ModeIcon, mode)
+        setShown(Lobby.ModeIconBox, shown)
+    end)
     setText(Lobby.ModeDescription, mode and mode.description or "")
     local roster = rosterPlayers()
     local teams = mode and mode.teams
@@ -1202,6 +1206,30 @@ local function openMapSelect()
     MapLive.refresh(function() if UI.valid(Select) then drawSelect() end end)
     pcall(function() Select.Select:SetFocus() end)
 end
+
+-- Keep the game type draft separate from the map picker and hosted game.
+-- Older runtime UI packs can still choose explicitly through CHANGE MAP.
+Pick.gameType = dofile(MOD_DIR .. "\\Scripts\\gametype.lua").new({
+    valid = UI.valid, alive = alive, loadClass = loadClass, pushScreen = pushScreen,
+    sameWidget = function(a, b) return UI.addressOf(a) == UI.addressOf(b) end,
+    current = function() return Game.map, Game.mode end,
+    modesFor = modesFor, isHost = Net.isHost, titleOf = titleOf,
+    showCover = Live.showCover,
+    commit = function(mode)
+        Game.mode = mode
+        saveGame()
+        Games.changed()
+        drawLobby()
+    end,
+    fallback = openMapSelect,
+    focusLobby = function()
+        if alive(Lobby) then
+            drawLobby()
+            pcall(function() Lobby.GameType:SetFocus() end)
+        end
+    end,
+    note = function(message) if alive(Lobby) then setText(Lobby.Status, message) end end,
+})
 
 --- The game's own Friends screen (Platform and Cross-Platform friends, each
 --- with + Invite), as the fireteam panel's INVITE + rows open it: their
@@ -2062,17 +2090,7 @@ local LOBBY_EVENTS = {
         if Net.isHost() then openMapSelect() end
     end,
     gametype = function()
-        if not (Game.map and Net.isHost()) then return end
-        local modes = modesFor(Game.map)
-        if #modes == 0 then return end
-        local next_ = 1
-        for i, m in ipairs(modes) do
-            if Game.mode and m.id == Game.mode.id then next_ = i % #modes + 1 end
-        end
-        Game.mode = modes[next_]
-        saveGame()
-        Games.changed()
-        drawLobby()
+        Pick.gameType.open()
     end,
     listing = function()
         if not Net.isHost() then return end
@@ -2252,7 +2270,8 @@ local function onSettingsEvent(event)
 end
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
-local function onScreenEvent(isLobby, event)
+local function onScreenEvent(isLobby, event, source)
+    if isLobby == "gametype" then return Pick.gameType.onEvent(event, source) end
     if isLobby == "find" then return onFindEvent(event) end
     if isLobby == "settings" then return onSettingsEvent(event) end
     local verb, index = event:match("^(%a+):(%d+)$")
@@ -2284,6 +2303,7 @@ local function hookScreenEvents()
     local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
     if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
     if hasGameSettings() then specs[#specs + 1] = { SETTINGS_CLASS, "settings" } end
+    if Pick.gameType.available() then specs[#specs + 1] = { Pick.gameType.class, "gametype" } end
     local all = true
     for _, spec in ipairs(specs) do
         if not screenEvents.hooked[spec[1]] then
@@ -2296,10 +2316,12 @@ local function hookScreenEvents()
                     local okS, screen = pcall(function() return self:get() end)
                     if okS and UI.valid(screen) then Lobby = screen end
                 end
+                local source
+                if spec[2] == "gametype" then pcall(function() source = self:get() end) end
                 -- Off the click: pushing and popping screens inside the
                 -- button's own handler is not safe.
                 ExecuteInGameThread(function()
-                    local okH, err = pcall(onScreenEvent, spec[2], event)
+                    local okH, err = pcall(onScreenEvent, spec[2], event, source)
                     if not okH then log("screen event " .. event .. ": " .. tostring(err)) end
                 end)
             end)
