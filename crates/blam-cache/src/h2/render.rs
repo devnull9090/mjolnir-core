@@ -309,9 +309,12 @@ fn plasma_map(m: &Value) -> ([f32; 4], [f32; 2]) {
 
 /// An overlay texel (its colour, 0..1), whose double multiply scales the
 /// frame by m = 2 x its luminance, as a colour and alpha to blend over it:
-/// black at 1 - m where it darkens (exactly the frame x m), its own hue at
-/// full brightness and (m - 1) / 2 where it brightens (the frame's grey
-/// unknown); 0.5 grey, which leaves the frame as it is, is clear.
+/// black at 1 - m where it darkens (exactly the frame x m), clear where it
+/// leaves the frame as it is (0.5 grey) or brightens it. Brightening has no
+/// blend that holds whatever the frame: drawn as the texel's hue at
+/// (m - 1) / 2, a crack map's grey (m 1.01) laid a pale sheet over
+/// Sanctuary's dark ceilings, a few percent of display white on a surface
+/// a few percent bright.
 fn overlay_texel(c: [f32; 3]) -> ([f32; 3], f32) {
     multiply_texel(c, 2.0)
 }
@@ -321,12 +324,7 @@ fn overlay_texel(c: [f32; 3]) -> ([f32; 3], f32) {
 /// blend over it (`overlay_texel`).
 fn multiply_texel(c: [f32; 3], gain: f32) -> ([f32; 3], f32) {
     let m = gain * (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]);
-    if m <= 1.0 {
-        ([0.0; 3], 1.0 - m)
-    } else {
-        let top = c[0].max(c[1]).max(c[2]).max(1e-6);
-        (c.map(|v| v / top), ((m - 1.0) / 2.0).min(1.0))
-    }
+    ([0.0; 3], (1.0 - m).max(0.0))
 }
 
 /// Whether a role was staged.
@@ -858,9 +856,35 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             s["tag"]["framebuffer_fade_mode"] = json!(fade_mode);
         }
         if template_name.starts_with("water_pool") {
-            s["tag"]["first_map_type"] = json!(1);
-            s["tag"]["framebuffer_fade_mode"] = json!(1);
-            s["fogged"] = json!(true);
+            // Water as CE's own (shader_transparent_water, M_CE_Water): the
+            // reflection along the rippled normal, added into the frame,
+            // weighted from the perpendicular brightness looking straight
+            // down to the parallel one at a grazing angle (flag 0, base map
+            // alpha modulates reflection, over the master's white base).
+            // Halo 2 mixes the frame behind with the reflection by its
+            // fresnel map's alpha, 0 straight down to 0.72 at the edge; the
+            // ripple map (bitmap 0) is a normal map as CE's ripples are.
+            // Drawn as a chicago cube blended over the frame, the creek was
+            // an unmoving glossy picture of the reflection map.
+            let ripples = [(0.6, 0.0, 0.04, 4), (0.4, 1.2, 0.06, 7)].map(|(c, angle, v, repeats)| {
+                json!({"contribution_factor": c, "animation_angle": angle, "animation_velocity": v,
+                       "map_repeats": repeats, "map_index": 0, "map_offset": [0.0, 0.0]})
+            });
+            let w = json!({
+                "tag_path": shader.name(), "shader_class": "swat", "h2_template": template_name,
+                "base_map": Value::Null, "fogged": true,
+                "tag": {
+                    "flags": 1,
+                    "reflection_map": cube_faces.as_ref().map(|f| json!({"faces": f})),
+                    "view_perpendicular_brightness": 0.0, "view_parallel_brightness": 0.72,
+                    "view_perpendicular_tint_color": [1.0, 1.0, 1.0], "view_parallel_tint_color": [1.0, 1.0, 1.0],
+                    "ripple_animation_angle": 0.0, "ripple_animation_velocity": 0.0, "ripple_scale": 1.0,
+                    "ripple_mipmap_levels": 1, "ripples": ripples,
+                    "ripple_map_files": {"0": {"file": role("ripple")}},
+                },
+            });
+            return Shader { key, class: "swat", alpha_mode: "BLEND", double_sided: true, base: None, base_scale,
+                            unlit, drawn: true, summary: w };
         }
         ("schi", "BLEND", two_sided, base, s)
     } else {
@@ -1927,16 +1951,15 @@ mod tests {
     }
 
     /// An overlay's neutral grey is clear, darker texels black over the
-    /// frame by how much they darken it.
+    /// frame by how much they darken it, brighter ones clear.
     #[test]
     fn overlays_bake_their_multiply_into_alpha() {
         assert!(overlay_texel([0.5; 3]).1.abs() < 1e-6);
         let (c, a) = overlay_texel([0.25; 3]);
         assert_eq!(c, [0.0; 3]);
         assert!((a - 0.5).abs() < 1e-6);
-        let (c, a) = overlay_texel([1.0, 0.5, 0.5]);
-        assert_eq!(c, [1.0, 0.5, 0.5]);
-        assert!(a > 0.0 && a < 0.5);
+        assert_eq!(overlay_texel([0.506, 0.502, 0.506]).1, 0.0);
+        assert_eq!(overlay_texel([1.0, 0.5, 0.5]).1, 0.0);
     }
 
     /// Uneven tiling becomes a repeated copy: the palm bark's 2 x 12 is six

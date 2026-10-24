@@ -6,13 +6,13 @@ import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
 import { LAUNCHER_LINK_TITLE } from "../components/JoinButton";
 import { listMaps } from "@/lib/api/maps";
-import { GAME_TYPE_NAMES, MAP_SIZES } from "@/kit/types";
-import type { MapListing, MapSize, MapSort } from "@/kit/types";
+import { GAME_TYPE_NAMES, MAP_GAME_NAMES, MAP_SIZES } from "@/kit/types";
+import type { MapGame, MapListing, MapSize, MapSort } from "@/kit/types";
 import { marketingMetadata } from "@/lib/marketing";
 
 export const metadata = marketingMetadata(
   "Halo Campaign Evolved Multiplayer Maps | MJOLNIR Core",
-  "Play all 19 original Halo CE multiplayer maps in Campaign Evolved with MJOLNIR. Browse Blood Gulch, Sidewinder, and community maps with supported game modes.",
+  "Play the classic Halo CE and Halo 2 multiplayer maps in Campaign Evolved with MJOLNIR. Browse Blood Gulch, Lockout, and community maps with supported game modes.",
   "/maps",
 );
 
@@ -22,6 +22,7 @@ const SHOWS = [
   { key: "classic", label: "Classic" },
   { key: "community", label: "Community" },
 ] as const;
+const GAMES = ["any", "halo1", "halo2"] as const;
 const SIZES = ["any", "small", "medium", "large"] as const;
 const VEHICLES = [
   { key: "any", label: "Vehicles or not" },
@@ -44,6 +45,7 @@ function sizeOf(bytes: number | null): string {
 /** "Large · 4–16 players · vehicles", from whatever the map declared. */
 function mapFacts(map: MapListing): string[] {
   const facts: string[] = [];
+  if (map.game) facts.push(MAP_GAME_NAMES[map.game]);
   if (map.size) facts.push(MAP_SIZES[map.size]);
   if (map.players_min !== null && map.players_max !== null) {
     facts.push(
@@ -133,6 +135,7 @@ export default async function MapsPage({
     q?: string;
     mode?: string;
     show?: string;
+    game?: string;
     size?: string;
     vehicles?: string;
     sort?: string;
@@ -142,6 +145,7 @@ export default async function MapsPage({
   const q = params.q?.trim().slice(0, 80) || undefined;
   const mode = MODES.find((m) => m === params.mode) ?? "all";
   const show = SHOWS.find((s) => s.key === params.show)?.key ?? "all";
+  const game = GAMES.find((g) => g === params.game) ?? "any";
   const size = SIZES.find((s) => s === params.size) ?? "any";
   const vehicles = VEHICLES.find((v) => v.key === params.vehicles)?.key ?? "any";
   const sort = SORTS.find((s) => s.key === params.sort)?.key ?? "default";
@@ -151,6 +155,7 @@ export default async function MapsPage({
     q,
     mode: mode === "all" ? undefined : mode,
     official: show === "all" ? undefined : show === "classic",
+    game: game === "any" ? undefined : (game as MapGame),
     size: size === "any" ? undefined : (size as MapSize),
     vehicles: vehicles === "any" ? undefined : vehicles === "1",
     sort: sort === "default" ? undefined : (sort as MapSort),
@@ -158,11 +163,12 @@ export default async function MapsPage({
   // The classic/community split reads well as the catalog's front page; a
   // search, a sort or a pick of one side is a single list of results.
   const sectioned = !q && sort === "default" && show === "all";
-  const filtered = !!q || mode !== "all" || show !== "all" || size !== "any" || vehicles !== "any";
+  const filtered =
+    !!q || mode !== "all" || show !== "all" || game !== "any" || size !== "any" || vehicles !== "any";
   const official = maps.filter((m) => m.official);
   const community = maps.filter((m) => !m.official);
 
-  const current = { q: q ?? "", mode, show, size, vehicles, sort };
+  const current = { q: q ?? "", mode, show, game, size, vehicles, sort };
   const qs = (over: Partial<Record<keyof typeof current, string>>) => {
     const merged = { ...current, ...over };
     const u = new URLSearchParams();
@@ -187,9 +193,9 @@ export default async function MapsPage({
             <p className="marketing-eyebrow mb-3">Classic battlegrounds. Community creations.</p>
             <h1 className="text-4xl font-black text-foreground mb-3">Campaign Evolved multiplayer maps</h1>
             <p className="text-text-muted text-lg max-w-2xl">
-              All 19 original Halo: Combat Evolved multiplayer maps, rebuilt for Campaign
-              Evolved, plus a home for custom maps from the community. The launcher installs
-              each map and everything it needs.
+              The original Halo: Combat Evolved and Halo 2 multiplayer maps, rebuilt for
+              Campaign Evolved, plus a home for custom maps from the community. The launcher
+              installs each map and everything it needs.
             </p>
             <Link href="/multiplayer#setup" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">New here? Set up Campaign Evolved multiplayer →</Link>
           </div>
@@ -217,6 +223,7 @@ export default async function MapsPage({
           </div>
           {mode !== "all" && <input type="hidden" name="mode" value={mode} />}
           {show !== "all" && <input type="hidden" name="show" value={show} />}
+          {game !== "any" && <input type="hidden" name="game" value={game} />}
           {size !== "any" && <input type="hidden" name="size" value={size} />}
           {vehicles !== "any" && <input type="hidden" name="vehicles" value={vehicles} />}
           {sort !== "default" && <input type="hidden" name="sort" value={sort} />}
@@ -233,6 +240,12 @@ export default async function MapsPage({
           {SHOWS.map((s) => (
             <Link key={s.key} href={qs({ show: s.key })} className={chip(show === s.key)}>
               {s.label}
+            </Link>
+          ))}
+          <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
+          {GAMES.map((g) => (
+            <Link key={g} href={qs({ game: g })} className={chip(game === g)}>
+              {g === "any" ? "Any game" : MAP_GAME_NAMES[g]}
             </Link>
           ))}
           <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />

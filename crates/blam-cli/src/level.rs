@@ -208,6 +208,11 @@ pub struct LevelFile {
     /// Opaque to the bake.
     #[serde(default)]
     pub variant: Option<String>,
+    /// The game the map comes from, `halo1` or `halo2`: listed in the
+    /// `maps.json` an install writes, for the map select's game filter;
+    /// otherwise opaque to the bake.
+    #[serde(default)]
+    pub game: Option<String>,
     /// The game types the multiplayer menu offers for the map (`["slayer"]`),
     /// each a variant MJOLNIRLevelLoader has installed. Listed in the
     /// `maps.json` an install writes; otherwise opaque to the bake.
@@ -2460,12 +2465,16 @@ fn write_maps_index(paks: &Path) -> Result<()> {
                     .map(|v| serde_json::json!([v]))
             })
             .unwrap_or_else(|| serde_json::json!(["slayer"]));
-        maps.push(serde_json::json!({
+        let mut entry = serde_json::json!({
             "code": reg.code,
             "title": reg.title,
             "description": reg.description,
             "modes": modes,
-        }));
+        });
+        if let Some(game) = level.as_ref().and_then(|l| l.get("game")).and_then(|g| g.as_str()) {
+            entry["game"] = serde_json::json!(game);
+        }
+        maps.push(entry);
     }
     let dest = levels.with_file_name("maps.json");
     std::fs::write(&dest, serde_json::to_vec_pretty(&maps)?)?;

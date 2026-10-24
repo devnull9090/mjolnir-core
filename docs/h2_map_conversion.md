@@ -98,16 +98,22 @@ units and axes, so every later step reads them unchanged:
   on Chill Out's glass, cause not found), so the multiply is baked into an
   alpha-blended copy,
   `<stem>__overlay.png`: black at 1 - m where the overlay darkens the
-  frame by m (exact), its hue at (m - 1) / 2 where it brightens, clear at
-  neutral grey. `water_edge_blend` (Zanzibar's flat plane at sea level)
+  frame by m (exact), clear at neutral grey and where it brightens: no
+  blend brightens whatever lies under it, and as its hue at (m - 1) / 2 a
+  crack map's near-grey laid a pale sheet over Sanctuary's dark ceilings. `water_edge_blend` (Zanzibar's flat plane at sea level)
   writes its map's alpha into the frame's alpha only, a mask the water
   fades by; its geometry is left out (drawn opaque without a map, it was a
   big white patch on the beach). Water (`water_pool`, `water_pool_cube`:
   Beaver Creek's creek, Coagulation's cave pool, Sanctuary's streams) mixes
-  the rippled frame behind with its reflection map by a fresnel term; it
-  goes in as the reflection, CE's first-map cube along the reflected eye
-  vector (a 2D reflection map on all six faces), alpha blended and faded
-  towards the normal (`framebuffer_fade_mode` 1). Waterfalls (`waves`) are
+  the rippled frame behind with its reflection map by a fresnel term (its
+  fresnel map's alpha: 0 looking straight down, 0.72 at a grazing angle).
+  It goes in as CE's own water (`swat`, M_CE_Water): the reflection (a cube,
+  or a 2D reflection map on all six faces) along the normal rippled by its
+  ripple map (bitmap 0, a normal map as CE's ripples are, in two scrolling
+  layers), added into the frame, weighted from 0 straight down to 0.72 at
+  the edge (flag 0 over the master's white base). Drawn as a chicago cube
+  blended over the frame, Beaver Creek's creek was an unmoving glossy
+  picture of its reflection map. Waterfalls (`waves`) are
   min(1, mask x A + mask x B) x C, each scrolling: CE's four-stage chain
   as (A + B) x mask x C. `tex_bump_illum_3_channel` (Backwash's blue lights)
   has a grey detail before its base, and its glow map's channels tinted by

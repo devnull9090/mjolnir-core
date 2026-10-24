@@ -1553,6 +1553,8 @@ def main():
             f"({t['bsp_tag']}) at Halo-wu offset ({delta[0]:.2f}, {delta[1]:.2f}, {delta[2]:.2f}); "
             "spawns, vehicles and weapons from the CE scenario."
         ),
+        # The game the map comes from (the menus' and the hub's game filter).
+        "game": "halo2" if source == "halo2_mcc" else "halo1",
         "canvas": {"scenario": canvas, "origin": [0, 0, 0]},
         # Started under the Megalo engine by MJOLNIRLevelLoader's native half.
         "multiplayer": True,

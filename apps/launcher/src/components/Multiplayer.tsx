@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { GAME_TYPE_NAMES, type Lobby, type MapListing } from "@mjolnir/hub-kit";
 import { hubClient } from "../hub/client";
 import type { Library } from "../hub/library";
-import { MapTile, mapStatus } from "./hub/MapTile";
+import { MapTile, isHaloCeMap, mapGame, mapStatus, type MapStatus } from "./hub/MapTile";
 
 interface InstallProgress {
   stage: string;
@@ -23,13 +23,57 @@ function humanSize(bytes: number): string {
 }
 
 /**
+ * One run of an install-everything command (`hub_install_multiplayer`, or
+ * `hub_install_halo2_maps` for the Halo 2 pack), its progress heard on
+ * `install-progress` under that command's stage.
+ */
+function usePackInstall(command: string, stage: string, after: () => Promise<void>) {
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<InstallProgress | null>(null);
+  const [result, setResult] = useState<MultiplayerInstall | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stop = listen<InstallProgress>("install-progress", (event) => {
+      if (event.payload.stage === stage) setProgress(event.payload);
+    });
+    return () => {
+      void stop.then((unlisten) => unlisten());
+    };
+  }, [stage]);
+
+  /** True when everything installed; the join panel waits on this. */
+  async function install(): Promise<boolean> {
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const done = await invoke<MultiplayerInstall>(command);
+      setResult(done);
+      return done.failed.length === 0;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    } finally {
+      setRunning(false);
+      setProgress(null);
+      await after();
+    }
+  }
+
+  return { running, progress, result, error, install };
+}
+
+/**
  * The classic maps, and the one button that installs everything they need:
- * every official map pack, the CE runtime pack they share, and the code mods
- * that put MULTIPLAYER on the main menu (hub::install_multiplayer). Running
- * it again updates what moved on and skips the rest.
+ * every official CE map pack, the CE runtime pack they share, and the code
+ * mods that put MULTIPLAYER on the main menu (hub::install_multiplayer).
+ * Running it again updates what moved on and skips the rest.
  *
- * Community maps are never part of that button: they install one at a time
- * from Browse Hub's Maps tab, or in game when a lobby needs one.
+ * The official Halo 2 maps are a second, optional pack with a button of its
+ * own (hub::install_halo2_maps); Install multiplayer never takes them.
+ * Community maps are never part of either: they install one at a time from
+ * Browse Hub's Maps tab, or in game when a lobby needs one.
  */
 export default function Multiplayer({
   library,
@@ -47,16 +91,12 @@ export default function Multiplayer({
   joinLobby?: string | null;
   onJoinDismiss?: () => void;
 }) {
-  const [maps, setMaps] = useState<MapListing[] | null>(null);
+  const [official, setOfficial] = useState<MapListing[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<InstallProgress | null>(null);
-  const [result, setResult] = useState<MultiplayerInstall | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setMaps(await hubClient.listMaps({ official: true }));
+      setOfficial(await hubClient.listMaps({ official: true }));
       setLoadError(null);
     } catch (e) {
       setLoadError(String(e));
@@ -67,14 +107,20 @@ export default function Multiplayer({
     void load();
   }, [load]);
 
-  useEffect(() => {
-    const stop = listen<InstallProgress>("install-progress", (event) => {
-      if (event.payload.stage === "multiplayer") setProgress(event.payload);
-    });
-    return () => {
-      void stop.then((unlisten) => unlisten());
-    };
-  }, []);
+  // One listing, split by game here the way the installs split theirs, so a
+  // hub that predates `game` lists everything as CE.
+  const maps = official && official.filter(isHaloCeMap);
+  const halo2 = official && official.filter((m) => mapGame(m) === "halo2");
+  const halo2Size = (halo2 ?? []).reduce((sum, m) => sum + (m.release?.file_size ?? 0), 0);
+
+  const after = async () => {
+    await library.refresh();
+    onInstalled?.();
+  };
+  const ce = usePackInstall("hub_install_multiplayer", "multiplayer", after);
+  const h2 = usePackInstall("hub_install_halo2_maps", "halo2-maps", after);
+  // Both write the same install state: one run at a time.
+  const busy = ce.running || h2.running;
 
   // The state file is a record of what was installed, not proof it is still
   // on disk: a map whose files were deleted reads as not installed, so the
@@ -90,28 +136,13 @@ export default function Multiplayer({
   const installedBySlug = new Map((library.state?.installed ?? []).map((m) => [m.slug, m]));
   const statusOf = (m: MapListing) =>
     mapStatus(m, installedBySlug.get(m.slug), missingFiles.has(m.slug));
-  const missing = (maps ?? []).filter((m) => statusOf(m) !== "installed");
-  const download = missing.reduce((sum, m) => sum + (m.release?.file_size ?? 0), 0);
-
-  /** True when everything installed; the join panel waits on this. */
-  async function installAll(): Promise<boolean> {
-    setRunning(true);
-    setError(null);
-    setResult(null);
-    try {
-      const done = await invoke<MultiplayerInstall>("hub_install_multiplayer");
-      setResult(done);
-      return done.failed.length === 0;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    } finally {
-      setRunning(false);
-      setProgress(null);
-      await library.refresh();
-      onInstalled?.();
-    }
-  }
+  const tiles = (list: MapListing[]) => (
+    <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+      {list.map((m) => (
+        <MapTile key={m.code} map={m} have={installedBySlug.get(m.slug)} status={statusOf(m)} />
+      ))}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -136,80 +167,135 @@ export default function Multiplayer({
       {joinLobby && (
         <JoinPanel
           lobby={joinLobby}
-          installing={running}
-          onInstallMultiplayer={installAll}
+          installing={busy}
+          onInstallMultiplayer={ce.install}
           onDismiss={() => onJoinDismiss?.()}
         />
       )}
 
-      <div className="bg-surface-secondary border border-border-subtle rounded-xl p-4">
-        <div className="flex items-center gap-4">
-          <div className="flex-1 min-w-0">
-            {maps === null ? (
-              <p className="text-sm text-text-secondary">
-                {loadError ? `Cannot reach the hub: ${loadError}` : "Checking the hub…"}
-              </p>
-            ) : missing.length === 0 ? (
-              <p className="text-sm">All {maps.length} maps are installed and up to date.</p>
-            ) : (
-              <p className="text-sm">
-                {missing.length} of {maps.length} maps to install or update
-                {download ? ` · about ${humanSize(download)}` : ""}. The launcher also installs
-                the shared CE runtime and the multiplayer mods.
-              </p>
-            )}
-            {progress && (
-              <div className="mt-2">
-                <div className="h-1.5 rounded bg-surface-hover overflow-hidden">
-                  <div
-                    className="h-full bg-mjolnir-gold transition-all"
-                    style={{ width: `${Math.round(progress.percent)}%` }}
-                  />
-                </div>
-                <p className="text-xs text-text-secondary mt-1">{progress.message}</p>
-              </div>
-            )}
-            {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
-            {result && (
-              <p className="text-xs text-text-secondary mt-1">
-                {result.installed.length} installed, {result.current.length} already current
-                {result.failed.length ? `, ${result.failed.length} failed` : ""}.
-              </p>
-            )}
-            {result?.failed.map((f) => (
-              <p key={f} className="text-xs text-red-400 mt-0.5">
-                {f}
-              </p>
-            ))}
-          </div>
-          <button
-            onClick={() => void installAll()}
-            disabled={running || maps === null || missing.length === 0}
-            className="px-4 py-2 rounded-lg text-sm font-semibold shrink-0
-              bg-gradient-to-r from-mjolnir-gold to-mjolnir-gold-dim text-surface-primary
-              hover:brightness-110 disabled:opacity-50 cursor-pointer transition-all"
-          >
-            {running
-              ? "Installing…"
-              : maps && missing.length < maps.length && missing.length > 0
-                ? "Update maps"
-                : "Install multiplayer"}
-          </button>
-        </div>
-      </div>
+      <PackPanel
+        maps={maps}
+        loadError={loadError}
+        statusOf={statusOf}
+        run={ce}
+        busy={busy}
+        installLabel="Install multiplayer"
+        updateLabel="Update maps"
+        missingNote="The launcher also installs the shared CE runtime and the multiplayer mods."
+      />
 
-      {maps && maps.length > 0 && (
-        <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
-          {maps.map((m) => (
-            <MapTile
-              key={m.code}
-              map={m}
-              have={installedBySlug.get(m.slug)}
-              status={statusOf(m)}
-            />
+      {maps && maps.length > 0 && tiles(maps)}
+
+      {halo2 && halo2.length > 0 && (
+        <>
+          <div className="pt-2">
+            <h3 className="text-lg font-bold">Halo 2 maps</h3>
+            <p className="text-sm text-text-secondary mt-0.5">
+              An optional pack of the {halo2.length} Halo 2 multiplayer maps
+              {halo2Size ? `, about ${humanSize(halo2Size)}` : ""}. Install multiplayer does not
+              include them.
+            </p>
+          </div>
+          <PackPanel
+            maps={halo2}
+            loadError={loadError}
+            statusOf={statusOf}
+            run={h2}
+            busy={busy}
+            installLabel="Install Halo 2 maps"
+            updateLabel="Update Halo 2 maps"
+          />
+          {tiles(halo2)}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where one pack of official maps stands, with its install button: how many
+ * maps are missing or out of date and how big they are, the run's progress
+ * and what it did.
+ */
+function PackPanel({
+  maps,
+  loadError,
+  statusOf,
+  run,
+  busy,
+  installLabel,
+  updateLabel,
+  missingNote,
+}: {
+  maps: MapListing[] | null;
+  loadError: string | null;
+  statusOf: (m: MapListing) => MapStatus;
+  run: ReturnType<typeof usePackInstall>;
+  /** Some pack is installing, so this button waits. */
+  busy: boolean;
+  installLabel: string;
+  updateLabel: string;
+  missingNote?: ReactNode;
+}) {
+  const missing = (maps ?? []).filter((m) => statusOf(m) !== "installed");
+  const download = missing.reduce((sum, m) => sum + (m.release?.file_size ?? 0), 0);
+  const { running, progress, result, error } = run;
+
+  return (
+    <div className="bg-surface-secondary border border-border-subtle rounded-xl p-4">
+      <div className="flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          {maps === null ? (
+            <p className="text-sm text-text-secondary">
+              {loadError ? `Cannot reach the hub: ${loadError}` : "Checking the hub…"}
+            </p>
+          ) : missing.length === 0 ? (
+            <p className="text-sm">All {maps.length} maps are installed and up to date.</p>
+          ) : (
+            <p className="text-sm">
+              {missing.length} of {maps.length} maps to install or update
+              {download ? ` · about ${humanSize(download)}` : ""}.
+              {missingNote ? <> {missingNote}</> : null}
+            </p>
+          )}
+          {progress && (
+            <div className="mt-2">
+              <div className="h-1.5 rounded bg-surface-hover overflow-hidden">
+                <div
+                  className="h-full bg-mjolnir-gold transition-all"
+                  style={{ width: `${Math.round(progress.percent)}%` }}
+                />
+              </div>
+              <p className="text-xs text-text-secondary mt-1">{progress.message}</p>
+            </div>
+          )}
+          {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+          {result && (
+            <p className="text-xs text-text-secondary mt-1">
+              {result.installed.length} installed, {result.current.length} already current
+              {result.failed.length ? `, ${result.failed.length} failed` : ""}.
+            </p>
+          )}
+          {result?.failed.map((f) => (
+            <p key={f} className="text-xs text-red-400 mt-0.5">
+              {f}
+            </p>
           ))}
         </div>
-      )}
+        <button
+          onClick={() => void run.install()}
+          disabled={busy || maps === null || missing.length === 0}
+          className="px-4 py-2 rounded-lg text-sm font-semibold shrink-0
+            bg-gradient-to-r from-mjolnir-gold to-mjolnir-gold-dim text-surface-primary
+            hover:brightness-110 disabled:opacity-50 cursor-pointer transition-all"
+        >
+          {running
+            ? "Installing…"
+            : maps && missing.length < maps.length && missing.length > 0
+              ? updateLabel
+              : installLabel}
+        </button>
+      </div>
     </div>
   );
 }

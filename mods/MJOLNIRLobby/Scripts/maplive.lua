@@ -116,6 +116,14 @@ function MapLive.cached(code)
     return code and catalog.byCode[code] or nil
 end
 
+--- Every listing in hand (empty until the first refresh answers), by code.
+function MapLive.listings()
+    local out = {}
+    for _, m in pairs(catalog.byCode) do out[#out + 1] = m end
+    table.sort(out, function(a, b) return a.code < b.code end)
+    return out
+end
+
 --- A map's listing: done(listing) or done(nil, why).
 function MapLive.info(code, done)
     local m = catalog.byCode[code]
