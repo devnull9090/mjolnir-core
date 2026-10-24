@@ -421,7 +421,9 @@ the one under the cursor):
 - **MJOLNIRForge + `native/forge`:** the DLL swaps sandbox vtable slot 113
   (runs every tick, in Forge games only) and, on that tick, builds the
   requests above from Lua's commands: toggle (2), grab or release (3/4),
-  delete (1) and duplicate (10, after `0x306550`). It adjusts the grab
+  delete (1), duplicate (10, after `0x306550`) and place (0, the palette
+  entry it keeps selected; see "Palettes" below, which also covers
+  `forge_palette.txt`). It adjusts the grab
   distance (`+0xc`, 1 to 60 m) directly. Commands older than 0.75 s are
   dropped, so a key pressed in the pause menu does not act on resume. Its
   state (editing, held and targeted objects with tag names, distance, the
@@ -447,20 +449,79 @@ silhouette, key hints, the distance bar), the control bar dimming, and the
 notes for the Monitor, a drop and a delete. Screenshots in
 [../forge.md](../forge.md).
 
-Known limits: host only (a fireteam client reads slot 0 as Slayer);
-duplicate needs a sandbox palette, which converted maps lack; the cursor
-needs line of sight (it hits walls and the ground first); the monitor flies
-through some walls.
+Known limits: host only (a fireteam client reads slot 0 as Slayer); the
+cursor needs line of sight (it hits walls and the ground first); the monitor
+flies through some walls.
+
+## Palettes
+
+The scenario's `map variant palettes` block (scenario `+0x214` count,
+`+0x218` block handle; at most 16) is what the engine places from. A block
+handle `h` is at `bases[h >> 28] + h * 4`, with the bases at `0x2c2ccc0`
+(the same arithmetic in `0x32f220`, `0x32cef0`, `0x32ce10`).
+
+| Element | Size | Fields |
+|---|---|---|
+| palette | 5 dwords | name (string id), flags, entries (count `+0x8`, handle `+0xc`), minimum thorage version |
+| entry | 7 dwords | name, variants (count `+0x4`, handle `+0x8`), `+0xc` ?, **maximum allowed `+0x10`**, **price per instance `+0x14`**, minimum thorage version |
+| variant | 6 dwords | object reference (tag index at `+0x10`), variant name (`+0x14`) |
+
+A palette entry's **flat index** counts every earlier palette's entries
+first (`0x32ce10(_, palette, entry)`); `0x32cef0(mv, flat)` turns it back
+into the entry. The map variant keeps a quota per flat index at
+`mv + 0xd640 + i * 3` (minimum, maximum, placed) and a budget at `mv + 0x2e0`
+with the spent amount at `+0x2e4`.
+
+**`0x3049e0(tag, out)`**, "may one more be created": the tag must have
+multiplayer object data (`tag_get(tag) + 0x124 > 0`) and a palette entry
+(`0x32cd50`). With `out` it also finds a spot (`0x2cf130`). Then
+`maximum allowed > 0 && placed >= maximum` refuses, and so does
+`price + spent > budget`. Maximum allowed 0 is no quota.
+
+**Placing, request type 0** (`0x305b40` → `0x306260`): payload palette,
+entry and variant as three u32s (4, 8 and 5 bits on the wire, `0x4078c0`),
+then the point as three floats at `+0xc`. `0x306260(player, palette, entry,
+variant, point*, ...)` returns at once while the player holds an object
+(editor state `+4`), checks `0x3049e0` on the entry's variant, creates the
+object (`0x32eff0`, `0x32f450`) and grabs it (`0x306d30`). A refusal shows
+message `0x680032`, a failed create `0x680031`.
+
+**Before 2026-10-24** MJOLNIR's level bake wrote one palette with an entry
+per placed tag and `maximum allowed` = how many the map places, so the quota
+was always full and duplicate never worked. The bake now writes a palette per
+category (weapons, vehicles, equipment, scenery) listing every kind
+`defs/level/palette-map.json` knows, placed or not, with no quota
+(`crates/blam-cli/src/level.rs`, `map_variant_palettes`). The campaign-only
+pelican, space banshee and seraph are left out (no multiplayer data).
+For maps baked the old way the Forge DLL lifts those quotas in memory: one
+palette whose every entry has a quota above 0 gets 0 in each.
+
+The DLL re-reads the palettes every 60 ticks on the simulation thread and,
+when the list changes, `pump` writes `forge_palette.txt`: one line per entry,
+`palette`, `entry`, tag group, tag name and whether `0x3049e0` allowed one
+more (tab-separated). The state's `selected` indexes that list. The arrow
+keys move the selection within a category (a run of one palette and one tag
+group, so an old single palette still browses by group) or between
+categories; Insert sends type 0 for it at the cursor, releasing a held
+object first.
+
+Verified in game 2026-10-24 (BGL, solo):
+
+- The published BGL (old bake): the DLL read 20 entries and lifted their
+  quotas; Insert placed an Active Camo and a Warthog from the palette at the
+  cursor, held; N duplicated the Warthog.
+- BGL rebaked: four palettes with 13 weapons, 6 vehicles, 8 equipment and 5
+  scenery entries, all placeable. A Wraith, which BGL never places, came
+  from the palette and drew.
 
 ## Next steps
 
-1. Place: give converted scenarios a sandbox palette (`blam.map_variant`
-   work in [megalo_engine.md](megalo_engine.md)); then duplicate works and a
-   palette menu can send type 10 for new objects.
-2. Save and load layouts: the map-variant format, codec and the
+1. Save and load layouts: the map-variant format, codec and the
    simulation's own encoder and decoder are in
    [map_variant_format.md](map_variant_format.md).
-3. Fireteam Forge: a game-type slot of its own (or another way for the
+2. Fireteam Forge: a game-type slot of its own (or another way for the
    game type to travel), so clients start the sandbox engine too.
-4. UI: cooked palette and properties screens (requests 10 and 5), rotation
-   (type 11 and the rotate state at `+0xc8`).
+3. UI: a properties screen (request 5), rotation (type 11 and the rotate
+   state at `+0xc8`).
+4. Republish the converted maps with the new palettes (the lift covers the
+   old ones meanwhile, for the kinds they already place).
