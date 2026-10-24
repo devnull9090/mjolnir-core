@@ -17,11 +17,14 @@ publishes names, counts and field values only.
 ## 1. Confirm the update and what it touched
 
 ```bash
-python tools/build_lock.py "<root>" --verify config/hce-build.lock.json --binaries-only
+python tools/build_lock.py "<root>" --binaries-only
 ```
 
-Nonzero exit with a `VERSION MISMATCH` line names the old and new builds. Then the full pass
-(minutes, 74 GiB) for the complete changed-file list:
+Seconds: it prints a binaries-only lock to stdout. A `version` or `host_sha256` that differs
+from `config/hce-build.lock.json` means the game updated. Then the full check (minutes, 74 GiB;
+`--verify` always hashes every file in the lock, `--binaries-only` does not apply to it) for the
+complete changed-file list. It prints `VERSION MISMATCH: lock <old>, install <new>` first and
+exits nonzero on any changed or missing file:
 
 ```bash
 python tools/build_lock.py "<root>" --verify config/hce-build.lock.json
@@ -77,7 +80,25 @@ In rough order of how often updates break things:
    scale — the frontend menu ignores keyboard Enter, and relative mouse moves are warped by
    pointer acceleration), then `mjolnir poke --locate-only` on a loaded tag to prove
    `blam-live` still finds payloads. In-mission tags only: nothing is locatable at the
-   frontend, not even `globals`.
+   frontend, not even `globals`. `not read: tag module <sha> has no profile; sweeping instead`
+   on the `table` line means the new tag DLL has no measured profile and the four anchors in
+   `crates/blam-live/src/tagtable.rs` no longer resolve it (`signatures/README.md`, "The tag
+   module's anchors"). Add the new build's profile to `PROFILES` and run the gated
+   `anchors_reproduce_the_measured_profile` test; it fails against the installed module
+   until all four anchors resolve again, whatever `PROFILES` holds.
+5. **Native mods**: they call the exe and the simulation DLL at per-build addresses and refuse
+   a build they do not know, so the stack is not verified until these are updated.
+   - `native/map_registry/mjolnir_map_registry.c` keeps one `exe_profiles` row per exe PE
+     timestamp, Steam's and the Xbox app's, and logs `refused: exe timestamp ... is no build we
+     have addresses for` otherwise. `native/signatures/port_rvas.py` finds the old row's
+     functions and globals in the new exe by their code (the old exe comes from the snapshot
+     store: `materialize <old-version> <dir> --only Meteorite/Binaries/Win64`). The Xbox
+     app's exe updates too and cannot be read on disk: `port_rvas.py --dump` reads a memory
+     image dumped from the running game instead (docs/game_pass.md has the recipe).
+   - `native/blam_console/mjolnir_blam_console.c` accepts two simulation-DLL timestamps (Steam's
+     and the Xbox app's); re-derive its RVAs per docs/blam_console.md, "After a game update".
+   - `python tools/pe/statunit_pattern.py "<root>/Meteorite/Binaries/Win64/HaloCampaignEvolved.exe"`
+     checks `native/frame_times`' DrawStat pattern and prints a new one if it no longer matches.
 
 ## 5. Update the record
 
@@ -88,10 +109,14 @@ In rough order of how often updates break things:
 
 ## 6. Draft the post
 
-Write `blog/<today>-<slug>.md` per `blog/README.md`. Shape that has worked: what the update is,
+Write `blog/<ship-date>-<slug>.md` per `blog/README.md`: the date is the day the update shipped
+on Steam (SteamDB's build history), not today. Shape that has worked: what the update is,
 the file-level picture, what the tag diff found (lead with gameplay-relevant field changes and
 anything anomalous — new content hiding in cinematic/tag paths is exactly what readers care
 about), what still works (the stack re-verification), one honest limitations paragraph. Run
-`node hub/scripts/sync-blog.mjs` to validate the format, and `pnpm typecheck` in `hub/` if any
-hub code changed. The post ships with the next hub deploy; it is public writing, so the user
+`pnpm sync` in `hub/`: it validates the post's format and regenerates the hub's snapshots of
+`blog/`, `docs/` and `defs/` (`build_lock.md` and `game_update_pipeline.md` are published
+notes). Commit what it regenerates under `hub/src/generated/` and `hub/public/` with the post;
+CI's `pnpm sync:check` fails on drift. Run `pnpm typecheck` in `hub/` too if any hub code
+changed. The post ships with the next hub deploy; it is public writing, so the user
 reviews it before merge.

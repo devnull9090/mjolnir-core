@@ -67,6 +67,9 @@ of the original, and still crashes). A same-size in-place edit is fine.
 
 ## What this means
 
+*Superseded by the live memory diff below: the resize relocates fine, every crash came from
+`def_clear`'s emptied blocks, and a transplant with a compiled MOPP holds the pawn (`b573cc05`).*
+
 The load-time relocation that turns on-disk `{count,0,0}` fields into resident
 arena refs is not tolerant of a count change under `raw_items`, even though the
 rewritten tag walks byte-exact through the ordinary reader and every tgbl/tgst
@@ -124,3 +127,11 @@ the scale: `2^24 / extent`), the top level compares `coord >> 16`.
 Next: a MOPP compiler in `blam-sbsp` (kd-tree over surface boxes, splits +
 rescales + terminals = surface indices), validated by an interpreter that
 mirrors the VM against the shipped 5,187-byte code of definition 159.
+
+**Update 2026-10-21:** done. `crates/blam-sbsp/src/mopp.rs` decodes (`3ffc2e28`)
+and compiles (`a5303b1e`) MOPP trees, gated by a simulator of the VM above.
+Against geometric ground truth over 400 probe boxes the compiled trees miss
+nothing; definition 159's is 2,697 bytes against the shipped 5,187, which
+misses five. With the element's third size word written (`b573cc05`,
+2026-09-09), the pawn and all 28 vehicles the scenario places rest on
+transplanted Blood Gulch. The conversion side is in `docs/ce_terrain_collision.md`.

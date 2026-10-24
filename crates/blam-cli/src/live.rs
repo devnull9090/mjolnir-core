@@ -311,6 +311,8 @@ mod engine_cu4 {
     pub const TLS_ENGINE_GLOBALS: u64 = 0x38;
     /// The running engine's index in the globals.
     pub const ENGINE_INDEX: u64 = 0x846c;
+    /// The score block: 16 players of 8 bytes, then 8 teams of 8 bytes.
+    pub const SCORES: u64 = 0x32c0;
     /// `game_engines[5]`: slot 0 empty, then one engine object per index.
     pub const ENGINE_TABLE: u64 = 0xbd5210;
     /// In the load-map handler (`0xf650`): `mov r8d, 3` feeding
@@ -478,6 +480,23 @@ fn engine(
         .find(|e| e.0 == index)
         .map_or("none", |e| e.1);
     println!("engine index {index}: {name}");
+    // Scores (docs/re/reach_game_engine.md): player i at +i*8, team t at
+    // +0x80+t*8, each three i16s; the first two are the round and game scores
+    // in some order, the third rounds won. Clients hold the host's copy.
+    let row = |at: u64| -> Result<[i16; 3]> {
+        let b = process.read(globals + at, 6)?;
+        Ok([0, 1, 2].map(|i| i16::from_le_bytes([b[2 * i], b[2 * i + 1]])))
+    };
+    for t in 0..2u64 {
+        let s = row(SCORES + 0x80 + t * 8)?;
+        println!("team {t} score {} / {}, rounds won {}", s[0], s[1], s[2]);
+    }
+    for p in 0..4u64 {
+        let s = row(SCORES + p * 8)?;
+        if s != [0, 0, 0] {
+            println!("player {p} score {} / {}, rounds won {}", s[0], s[1], s[2]);
+        }
+    }
     if let Some(m) = gs.array("megalo_objects") {
         let m = gs.fresh(process, &m.name).unwrap_or_else(|_| m.clone());
         println!(

@@ -39,6 +39,136 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.5.0",
+      "tag": "cli-v0.5.0",
+      "title": "Halo 2 maps, every Megalo game type readable, and game types checked before they ship",
+      "date": "2026-10-24",
+      "summary": "The CLI converts MCC Halo 2 multiplayer maps, reads and lists any Megalo game type, checks one is safe before it is packed, and writes Team Slayer.",
+      "body": "### Added\n\n- **`mjolnir cache info|tags|stage`** reads other Halo games' map files.\n  `cache info` names the game a `.map` comes from; `cache stage` stages an\n  MCC Halo 2 multiplayer map for conversion in the same layout the Halo CE\n  converter writes, so `tools/level/convert_ce_map.sh` converts Halo 2 maps\n  beside Halo CE ones.\n- **`mjolnir megalo dump <file>`** lists everything a Megalo game type holds:\n  its options, teams, traits, strings and the whole script as triggers with\n  named conditions and actions. It reads `.mglo` files and MCC Halo Reach\n  `.bin` game variants, and says whether the file encodes back bit for bit.\n- **`mjolnir megalo validate <file>`** checks a game type is one the game can\n  load safely. `megalo write` and `map pack` refuse to write one that is not.\n- **`mjolnir megalo write --mode team-slayer`**: Red against Blue, a kill of\n  an enemy scores 1, a teammate kill costs 1.\n- **`mjolnir map pack --game halo1|halo2`** tags a map pack with its game for\n  the hub's game filter.\n- **`mjolnir live engine`** prints the running match's team and player\n  scores.\n\n### Changed\n\n- **`mjolnir megalo write --mode ctf`** writes a CTF whose blue flag is its\n  own object type (20), so each flag's colour comes from the game itself;\n  `--single-flag` writes the old one-type script. It needs CE runtime 1.13.0\n  or later.\n- **`mjolnir megalo write --tick-rate`** defaults to 60, the game's own rate:\n  at 30, the dropped-flag reset and the health-pack respawn lasted half their\n  time.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir cache info|tags|stage reads other Halo games' map files. cache info names the game a .map comes from; cache stage stages an MCC Halo 2 multiplayer map for conversion in the same layout the Halo CE converter writes, so tools/level/convertcemap.sh converts Halo 2 maps beside Halo CE ones.",
+            "mjolnir megalo dump <file> lists everything a Megalo game type holds: its options, teams, traits, strings and the whole script as triggers with named conditions and actions. It reads .mglo files and MCC Halo Reach .bin game variants, and says whether the file encodes back bit for bit.",
+            "mjolnir megalo validate <file> checks a game type is one the game can load safely. megalo write and map pack refuse to write one that is not.",
+            "mjolnir megalo write --mode team-slayer: Red against Blue, a kill of an enemy scores 1, a teammate kill costs 1.",
+            "mjolnir map pack --game halo1|halo2 tags a map pack with its game for the hub's game filter.",
+            "mjolnir live engine prints the running match's team and player scores."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "mjolnir megalo write --mode ctf writes a CTF whose blue flag is its own object type (20), so each flag's colour comes from the game itself; --single-flag writes the old one-type script. It needs CE runtime 1.13.0 or later.",
+            "mjolnir megalo write --tick-rate defaults to 60, the game's own rate: at 30, the dropped-flag reset and the health-pack respawn lasted half their time."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.5.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.5.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.5.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.16.0",
+      "tag": "launcher-v0.16.0",
+      "title": "Installs the Halo 2 maps as an optional pack, apart from the CE maps",
+      "date": "2026-10-24",
+      "summary": "Install multiplayer now installs only the Halo CE maps. The Halo 2 maps are a separate, optional pack with their own button.",
+      "body": "### Added\n\n- **Install Halo 2 maps.** The Multiplayer page has a second section for the\n  official Halo 2 multiplayer maps, an optional pack of about 700 MB. Its\n  button installs them all with what they need, and running it again\n  updates the ones that moved on, the same way Install multiplayer does.\n- Map tiles, on the Multiplayer page and in Browse Hub's Maps tab, say which\n  game a map comes from (Halo CE or Halo 2) when the hub says.\n\n### Changed\n\n- **Install multiplayer takes only the Halo CE maps.** With the Halo 2 maps\n  on the hub as official maps too, it leaves them out, so the classic set is\n  no bigger to download than before.\n\n### Security\n\n- **Game types are checked before they install.** The launcher refuses a\n  map or mod whose Megalo game type the game could not load safely, rather\n  than install it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Install Halo 2 maps. The Multiplayer page has a second section for the official Halo 2 multiplayer maps, an optional pack of about 700 MB. Its button installs them all with what they need, and running it again updates the ones that moved on, the same way Install multiplayer does.",
+            "Map tiles, on the Multiplayer page and in Browse Hub's Maps tab, say which game a map comes from (Halo CE or Halo 2) when the hub says."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Install multiplayer takes only the Halo CE maps. With the Halo 2 maps on the hub as official maps too, it leaves them out, so the classic set is no bigger to download than before."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "Game types are checked before they install. The launcher refuses a map or mod whose Megalo game type the game could not load safely, rather than install it."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.16.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.16.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.16.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.32.0",
+      "tag": "mods-v0.32.0",
+      "title": "Team Slayer, CTF in team colours, and Halo 2 maps in the map list",
+      "date": "2026-10-24",
+      "summary": "Team Slayer, CTF flags and armour in team colours with CE's own waving flag cloth, and a map list with every hub map, Halo 2 included.",
+      "body": "### Added\n\n- **Every map in SELECT MAP** (MJOLNIRLobby 0.14.1). The host's map list\n  now holds up to 80 maps: the installed ones, then the hub's maps this PC\n  doesn't have, marked DOWNLOAD. Pick one and SELECT opens the download\n  screen; once it installs, it is picked and ready to host.\n- **Filters for the map list** (MJOLNIRLobby 0.14.1). Chips above the list\n  narrow it by game (Halo CE or Halo 2), by source (official or community)\n  and to installed maps only, with a count of the maps shown.\n- **Halo 2 maps' moving parts** (MJOLNIRLevelLoader 0.9.0). Turning parts\n  such as Zanzibar's wheel, Ascension's antennas and Foundation's fans ride\n  the simulation's own machines, so their collision turns with them; their\n  see-through parts follow the same machine, and their sounds play as they\n  turn.\n\n- **Team Slayer** (MJOLNIRLobby 0.14.1, MJOLNIRHud 0.11.4). Red against\n  Blue on every map that offers Slayer: an enemy kill scores 1 for your\n  team, a teammate kill takes 1 away and shows BETRAYAL, and the first team\n  to the kill limit wins.\n- **CE's own flag cloth** (MJOLNIRLevelLoader 0.9.0). CTF flags carry Halo\n  CE's red cobra and blue eagle banners, waving on the pole and streaming\n  out behind whoever carries them, instead of a bare pole.\n\n### Changed\n\n- **The lobby's no-maps hints** (MJOLNIRLobby 0.14.1) send you to the\n  launcher's Multiplayer page to install maps.\n- **Every Spartan wears Mk V in team games** (MJOLNIRLevelLoader 0.9.0). In\n  CTF and Team Slayer the game itself dresses every player in Mk V Classic,\n  whatever armour or coating they picked, so the team colour shows on all\n  of them; Slayer keeps everyone's own armour.\n- **CTF needs CE runtime 1.13.0** (MJOLNIRLobby 0.14.1). The lobby offers\n  CTF only when the runtime's blue flag is installed: install or update\n  multiplayer in the launcher.\n\n### Fixed\n\n- **CTF flags kept their colours** (MJOLNIRLevelLoader 0.9.0). A flag no\n  longer turns the other team's colour when it is dropped near a stand,\n  when both flags move at once, or on a client; each flag's colour now comes\n  from the game itself.\n- **Custom armour showed its own colours in team games**\n  (MJOLNIRLevelLoader 0.9.0): plates, helmets and coatings stayed on top of\n  the team colour.\n- **The dropped-flag reset and the health-pack respawn** took 15 seconds\n  instead of 30: game types are now written at the game's 60 ticks a\n  second.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Every map in SELECT MAP (MJOLNIRLobby 0.14.1). The host's map list now holds up to 80 maps: the installed ones, then the hub's maps this PC doesn't have, marked DOWNLOAD. Pick one and SELECT opens the download screen; once it installs, it is picked and ready to host.",
+            "Filters for the map list (MJOLNIRLobby 0.14.1). Chips above the list narrow it by game (Halo CE or Halo 2), by source (official or community) and to installed maps only, with a count of the maps shown.",
+            "Halo 2 maps' moving parts (MJOLNIRLevelLoader 0.9.0). Turning parts such as Zanzibar's wheel, Ascension's antennas and Foundation's fans ride the simulation's own machines, so their collision turns with them; their see-through parts follow the same machine, and their sounds play as they turn.",
+            "Team Slayer (MJOLNIRLobby 0.14.1, MJOLNIRHud 0.11.4). Red against Blue on every map that offers Slayer: an enemy kill scores 1 for your team, a teammate kill takes 1 away and shows BETRAYAL, and the first team to the kill limit wins.",
+            "CE's own flag cloth (MJOLNIRLevelLoader 0.9.0). CTF flags carry Halo CE's red cobra and blue eagle banners, waving on the pole and streaming out behind whoever carries them, instead of a bare pole."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The lobby's no-maps hints (MJOLNIRLobby 0.14.1) send you to the launcher's Multiplayer page to install maps.",
+            "Every Spartan wears Mk V in team games (MJOLNIRLevelLoader 0.9.0). In CTF and Team Slayer the game itself dresses every player in Mk V Classic, whatever armour or coating they picked, so the team colour shows on all of them; Slayer keeps everyone's own armour.",
+            "CTF needs CE runtime 1.13.0 (MJOLNIRLobby 0.14.1). The lobby offers CTF only when the runtime's blue flag is installed: install or update multiplayer in the launcher."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "CTF flags kept their colours (MJOLNIRLevelLoader 0.9.0). A flag no longer turns the other team's colour when it is dropped near a stand, when both flags move at once, or on a client; each flag's colour now comes from the game itself.",
+            "Custom armour showed its own colours in team games (MJOLNIRLevelLoader 0.9.0): plates, helmets and coatings stayed on top of the team colour.",
+            "The dropped-flag reset and the health-pack respawn took 15 seconds instead of 30: game types are now written at the game's 60 ticks a second."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.32.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.32.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.32.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.24.0",
+      "tag": "tag-editor-v0.24.0",
+      "title": "Clearer help text, and block indexes named for what they point at",
+      "date": "2026-10-24",
+      "summary": "The tag editor names what a block index points at and what a squad cell spawns, and its help and messages now match what it does.",
+      "body": "### Changed\n\n- **Block indexes say what they point at,** and a squad's cells say what\n  they spawn, instead of showing bare numbers.\n- **Help and messages** were rewritten to match what the editor does today.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Block indexes say what they point at, and a squad's cells say what they spawn, instead of showing bare numbers.",
+            "Help and messages were rewritten to match what the editor does today."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.24.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.24.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.24.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.31.1",
@@ -3080,7 +3210,7 @@
       "title": "Security: replaces the update signing key",
       "date": "2026-07-31",
       "summary": "Replaces the key that automatic updates are verified against, after the previous private key was found committed to the public repository.",
-      "body": "existing launcher cannot update itself to it, and until you replace it, it will\nkeep trusting a key anyone can read.\n\n### Security\n\n- The private key that signed launcher updates had been committed to this\n  public repository with an empty passphrase, so anyone could have produced an\n  update the launcher would accept and install. This build ships a new key and\n  stops new installs joining that pool.\n\n  It cannot rescue installs that already exist. Builds up to and including 0.3.1\n  carry the old public key, will reject anything signed with the new one, and\n  need one manual reinstall to recover — this release, downloaded and installed\n  by hand.\n\n### Changed\n\n- Internal version numbers that had drifted behind since 0.2.6 were brought\n  back into line. Shipped installers were always labelled correctly, so this is\n  tidying rather than a fix.",
+      "body": "**If you are on 0.3.1 or earlier, please install this build manually.** Your\nexisting launcher cannot update itself to it, and until you replace it, it will\nkeep trusting a key anyone can read.\n\n### Security\n\n- The private key that signed launcher updates had been committed to this\n  public repository with an empty passphrase, so anyone could have produced an\n  update the launcher would accept and install. This build ships a new key and\n  stops new installs joining that pool.\n\n  It cannot rescue installs that already exist. Builds up to and including 0.3.1\n  carry the old public key, will reject anything signed with the new one, and\n  need one manual reinstall to recover — this release, downloaded and installed\n  by hand.\n\n### Changed\n\n- Internal version numbers that had drifted behind since 0.2.6 were brought\n  back into line. Shipped installers were always labelled correctly, so this is\n  tidying rather than a fix.",
       "sections": [
         {
           "heading": "Security",

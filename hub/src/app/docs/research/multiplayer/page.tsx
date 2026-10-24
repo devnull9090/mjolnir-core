@@ -45,8 +45,12 @@ export default function MultiplayerResearchPage() {
             <h1 className="text-3xl font-black sm:text-4xl">Multiplayer investigation</h1>
             <p className="mt-4 max-w-3xl text-base leading-7 text-text-muted">
               Halo Campaign Evolved ships four-player campaign co-op and a large amount of dormant
-              competitive multiplayer machinery. The current goal is a minimal red-versus-blue CTF
+              competitive multiplayer machinery. The goal was a minimal red-versus-blue CTF
               session in an existing campaign world, then a custom world once the runtime path is known.
+              <strong className="text-foreground"> Update 2026-10-21:</strong> overtaken. Slayer and
+              CTF run on converted classic maps with their own worlds and structure BSPs. The
+              simulation&apos;s engine switch shipped in mods-v0.7.0 (PR #106), and the Slayer and CTF
+              variant files ship in every mods release since mods-v0.9.0.
             </p>
           </div>
         </div>
@@ -132,6 +136,11 @@ export default function MultiplayerResearchPage() {
               Infection, Juggernaut, Assault, Territories, Forge, team, respawn, and loadout
               identifiers. Presence does not yet prove that the shipping UE5 layer can activate them.
             </p>
+            <p className="mt-2 text-sm leading-6 text-text-muted">
+              <strong className="text-foreground">Update 2026-10-21:</strong> the Megalo engine now
+              starts for converted maps (native/map_registry, mods-v0.7.0), and Slayer and CTF ship
+              as variant files since mods-v0.9.0. No other mode ships a variant file.
+            </p>
           </div>
         </div>
       </section>
@@ -176,6 +185,14 @@ export default function MultiplayerResearchPage() {
             A second human tester is not currently available. The solo-versus-co-op differential,
             custom-travel session preservation, and competitive-mode activation remain unverified.
           </p>
+          <p className="mt-3 text-sm leading-6 text-text-muted">
+            <strong className="text-foreground">Update 2026-10-21:</strong> two of the three are
+            settled. Competitive modes run: the simulation starts its Megalo engine for converted
+            maps (mods-v0.7.0, PR #106). The session survives travel into a custom world: a joiner
+            leaves its fireteam, joins the host&apos;s, and follows it into its map
+            (mods/MJOLNIRLobby/Scripts/games.lua), and fireteams go past four players on separate PCs
+            (PR #120), up to 16.
+          </p>
         </div>
       </section>
 
@@ -186,6 +203,17 @@ export default function MultiplayerResearchPage() {
             Shortest prototype route
           </h2>
         </div>
+        <p className="mt-4 text-sm leading-6 text-text-muted">
+          <strong className="text-foreground">Update 2026-10-21:</strong> superseded by the route
+          that shipped: joins that go through the game&apos;s own join handler, as an accepted
+          invite does (MJOLNIRLobby), converted maps with their own worlds and structure BSPs, and
+          a patched constant in the
+          simulation&apos;s load-map handler that starts the Megalo engine (see{" "}
+          <Link href="/docs/research/halo-simulation" className="text-gold hover:underline">
+            HaloSimulation_tag_release.dll
+          </Link>
+          ). The plan is kept as written.
+        </p>
         <ol className="mt-5 space-y-5 text-sm leading-6 text-text-muted">
           <li>
             <span className="font-bold text-foreground">1. Reuse co-op transport.</span> Host and join
@@ -220,6 +248,16 @@ export default function MultiplayerResearchPage() {
           cooking a compatible UE5.5 world with the game&apos;s custom versions, script imports, and
           required Blam components. A tiny travel-only test world should precede a full CTF arena.
         </p>
+        <p className="mt-4 text-sm leading-6 text-text-muted">
+          <strong className="text-foreground">Update 2026-10-21:</strong> solved.{" "}
+          <span className="font-mono text-foreground">mjolnir level bake --standalone</span>, with{" "}
+          <span className="font-mono text-foreground">--world</span> and{" "}
+          <span className="font-mono text-foreground">--bsp</span>, registers a map with a cooked
+          world package of its own and its own structure BSPs, and
+          MJOLNIRLevelLoader&apos;s native half resolves that world by name at load
+          (native/map_registry). The converted classic maps ship this way
+          (tools/level/convert_ce_map.sh).
+        </p>
       </section>
 
       <section className="border-t border-border py-9" aria-labelledby="warning-heading">
@@ -233,6 +271,16 @@ export default function MultiplayerResearchPage() {
           MJOLNIRMultiplayer now uses the verified CU2 root-world paths and dispatches plain or
           listen-server travel through the live player controller. It still does not create or
           advertise a session, and travel has not yet been verified in HCE.
+        </p>
+        <p className="mt-4 text-sm leading-6 text-text-muted">
+          <strong className="text-foreground">Update 2026-10-21:</strong> superseded. MJOLNIRLobby
+          hosts games on the game&apos;s own co-op fireteam and advertises them: a host can set a
+          game to PUBLIC GAME, which lists it on the hub, and FIND GAMES joins it the way an
+          accepted invite does (PR #127, mods-v0.11.0).
+          A match&apos;s game type reaches every fireteam client through the host&apos;s travel into
+          the map. MJOLNIRMultiplayer keeps the travel commands below, plus mjolnir_mission,
+          mjolnir_debug_ui and mjolnir_kick; the scan, trace and dump commands are
+          MJOLNIRDiscovery&apos;s.
         </p>
         <pre className="mt-5 overflow-x-auto border border-border bg-surface p-4 text-xs leading-6 text-text-muted">
           <code>{`mjolnir_maps

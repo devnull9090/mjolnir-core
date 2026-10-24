@@ -20,9 +20,11 @@ It is written as a working log, oldest first, so the reasoning stays legible —
 conclusions that were wrong and how they were caught. If you only want the recipe, read
 [`getting_started.md`](getting_started.md) instead.
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** the early sections carry the CU2 stamp above. The installed build is now
+> CU4 (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`); *The stub `.pak`, written* and the
+> sections from *New packages register and resolve by name* on were measured on it, and the
+> earlier ones have not been re-measured. See [`build_lock.md`](build_lock.md) for what has been
+> re-verified on CU4.
 
 ## The problem, as it stood
 
@@ -96,6 +98,9 @@ A sensible first target is an **override container holding one chunk**: the patc
 for a single tag, reusing that tag's existing chunk ID, uncompressed, with no directory index.
 
 ## What is not established
+
+**Superseded:** all four were answered by 2026-07-27. See *What has been settled* for 1 to 3
+and *The bulk data chunk is used* for 4.
 
 These are the real unknowns, in the order they need answering.
 
@@ -191,9 +196,10 @@ the `_P` suffix, chunks that landed in the overflow list (see *the perfect hash*
 chunks matching no shipped asset at all. `--verify` additionally reads every chunk back
 through the ordinary reader.
 
-## Step 3: making the game use it — in progress
+## Step 3: making the game use it — done
 
-This is where the work stands. See *Current experiment* below.
+Answered 2026-07-27: a container named with the `_P` suffix wins the chunk lookup and the
+simulation uses its payload. *Current experiment* below is the log of how that was established.
 
 ## Current experiment: does an override container win?
 
@@ -225,7 +231,8 @@ end'
 
 Which is what made the A/B cheap enough to be worth running properly rather than reasoning about.
 
-This section is the live state of the experiment, written so it can be picked up cold.
+This section was the live state of the experiment, written so it could be picked up cold; it is
+kept as the record.
 
 ### What is installed on the test machine
 
@@ -499,6 +506,11 @@ container never exposed this — with the broken hash, only its package chunk wa
 the poisoned payload was never parsed. The tag editor now warns on any string-id edit at
 test/export time.
 
+**Update 2026-10-21:** since tag editor 0.20.0 (PR #97) a bake refuses a string id the shipped
+registry (`blam_live::stringid::shipped`) does not contain unless *allow unregistered string ids*
+is ticked, and still warns on every string-id change it lets through. `mjolnir set` refuses the
+same without `--allow-unknown-string-id`.
+
 ### What this means for the editor
 
 Editing a tag and shipping the result **works end to end, including resizes**. Fixed-width
@@ -583,8 +595,12 @@ empty compression-method names. Only the seed and the footer hash differ between
 stubs, and with no entries the seed hashes nothing. `ue_iostore::pak::write_stub` reproduces
 `pakchunk115-Windows.pak` byte for byte from that file's own seed (a unit test checks it when
 `HCE_PAKS` is set), and `stub_for(name)` seeds from the container name so a rebuild is
-identical. The CLI, the tag editor's test install and export, and the launcher's profile
-materialization all write it; nothing copies a shipped file any more.
+identical. `mjolnir new-tag`, `texture swap`, the `ue` commands and `level bake --install-test`,
+the tag editor's test install, and the launcher's profile materialization all write it. The tag
+editor's exported `.mjolnir` carries only the `.utoc`/`.ucas` pair, and the launcher adds the stub
+when it installs it. `mjolnir pack` writes only the `.utoc`/`.ucas` pair. Three pipeline
+scripts still copy `pakchunk115-Windows.pak` instead: `tools/level/bake_editor_world.sh`, the install step of `tools/level/upgrade_ce_map.py`
+(for a container with no `.pak` of its own), and `unreal/MJOLNIRMapKit/scripts/package.ps1`.
 
 ## New packages register and resolve by name
 
@@ -600,7 +616,7 @@ tag, and the model's resident reference held its handle. Details in
 Three earlier open items close with it: the runtime tag registry is enumerated from what is
 mounted; a mod container's own `ContainerHeader` is honoured; references resolve by name on
 demand. The same-length rename constraint on the wrapper is the remaining limit, and it is the
-wrapper serializer's job to lift.
+wrapper serializer's job to lift. (Since lifted for new tags: see *Writing the wrapper* below.)
 
 The tag editor exposes the same path as **New Tag From This…** (tag editor 0.18.0). The clone
 is a virtual entry in the catalogue that reads as its donor; its edits are recorded under the
@@ -610,6 +626,11 @@ override containers, named `<slug>-new_P`. Its directory index is a real tree
 (`ue_iostore::pack::directory_index`): mounted at `../../../Meteorite/Content/`, one entry per
 distinct folder, files chained under the folder they live in — so new tags from any number of
 folders share the container, and our own reader lists them at their full paths.
+
+**Update 2026-10-21:** since 2026-09-11 (PR #106) `blam_pack::build_addition` mounts the
+addition container at `../../../`, with each package under `Meteorite/Content/` (or
+`Engine/Content/`), the layout UE staging writes; a world is indexed as `.umap`, and a package
+with no bulk data gets no `.ubulk` chunk.
 
 **Proven in game, 2026-09-06:** the editor's own bake path (`resolved_edits` → `modpack::bake` →
 `modpack::install_test`, staged by the ignored test `stage_a_new_tag_for_the_in_game_test`)

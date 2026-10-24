@@ -37,7 +37,7 @@ developer workstation.
 
 **The poisoned `Cargo.lock` was never pushed.** It existed only in local
 commits, which have since been rewritten so no commit reachable from any branch
-contains `proc-macro1`. `main` never carried `blake3` or `arrayref` at all.
+contains `proc-macro1`. `main` did not carry `blake3` or `arrayref` at the time.
 
 ## What is *not* affected
 
@@ -45,7 +45,7 @@ contains `proc-macro1`. `main` never carried `blake3` or `arrayref` at all.
   The most recent release predates the exposure window by 13 hours.
 - **CI runners.** The last workflow run before the window opened was at
   02:00:16Z, over five hours earlier, and no run occurred during or after it.
-  No remote branch ever resolved `arrayref`, so CI could not have fetched it.
+  No remote branch had resolved `arrayref` by then, so CI could not have fetched it.
 - **`apps/launcher` and `apps/tag-editor`**, which carry their own lockfiles
   and never contained the dependency.
 
@@ -59,6 +59,12 @@ binary.
 `main` has no `arrayref` dependency at all — `blake3`, which is what pulls it
 in, exists only on the in-progress level-authoring branch. That branch pins
 `arrayref` **0.3.9**, the last known-good release, which has no dependencies.
+
+**Update 2026-10-21:** the level-authoring work merged to `main` in PR #79
+(2026-09-02), so `main` now depends on `blake3` and, through it, on `arrayref`
+**0.3.9** (`Cargo.lock`). The workspace lockfile at every release tag since
+then pins 0.3.9 and contains no `proc-macro1`. `apps/launcher` and
+`apps/tag-editor` lock `blake3` 1.8.7, which does not depend on `arrayref`.
 
 ## If you built this repository on 2026-08-20 between 07:15Z and 08:41Z
 

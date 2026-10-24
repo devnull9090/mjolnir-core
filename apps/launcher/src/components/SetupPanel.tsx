@@ -17,7 +17,7 @@ interface CodeModRow {
 
 /** Fixed part of the bundle. The mods after it come from the signed set. */
 const RUNTIME_ITEMS = [
-  { name: "UE4SS v3.0.1", desc: "Unreal Engine scripting framework" },
+  { name: "UE4SS 3.0.1 (experimental d0107f63)", desc: "Unreal Engine scripting framework" },
   { name: "AOB Signatures", desc: "HCE-specific memory patterns" },
 ];
 

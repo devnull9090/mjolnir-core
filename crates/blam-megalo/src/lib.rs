@@ -9,9 +9,12 @@
 //! offline before the game ever sees it.
 
 pub mod bits;
+pub mod blf;
 pub mod ctf;
+pub mod dump;
 pub mod objectives;
 pub mod powerups;
+pub mod raw;
 pub(crate) mod script;
 pub mod variant;
 
@@ -25,4 +28,28 @@ pub enum Error {
     TooWide { value: i64, bits: u32 },
     #[error("not modelled: {0}")]
     Unsupported(String),
+    /// The grammar (`grammar/megalo_cu4.json`) is malformed.
+    #[error("grammar: {0}")]
+    Grammar(String),
+    /// The bitstream does not decode under the grammar.
+    #[error("{path}: bit {at}: {msg}")]
+    Decode {
+        path: String,
+        at: usize,
+        msg: String,
+    },
+    /// A union selector with no case in the grammar.
+    #[error("{path}: bit {at}: {ty} has no case {value}")]
+    UnknownCase {
+        ty: String,
+        value: i64,
+        path: String,
+        at: usize,
+    },
+    /// A tree that does not fit its grammar, or a round trip that differs.
+    #[error("{path}: {msg}")]
+    Mismatch { path: String, msg: String },
+    /// A BLF container that does not parse.
+    #[error("BLF: {0}")]
+    Blf(String),
 }

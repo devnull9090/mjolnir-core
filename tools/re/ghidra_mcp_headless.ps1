@@ -2,7 +2,10 @@
 # Ghidra project, for `bridge-mcp-ghidra` / curl to talk to on port 8089.
 #
 #   tools\re\ghidra_mcp_headless.ps1 -File C:\ghidra_proj\cu4\HaloSimulation_tag_release.dll
-#   tools\re\ghidra_mcp_headless.ps1 -Project C:\ghidra_proj\HCE_Analysis -Program CU4/HaloCampaignEvolved.exe
+#   tools\re\ghidra_mcp_headless.ps1 -Project C:\ghidra_proj -Program /CU4/HaloCampaignEvolved.exe -Port 8090 -Heap 40g
+#
+# -Project is the folder holding the .gpr, -Program the path inside the project
+# with its leading "/"; a wrong value still starts the server, with no program.
 #
 # Needs the GhidraMCP extension jar (bethington/ghidra-mcp release
 # `GhidraMCP-<ver>.zip`, unpacked) and a Ghidra install; both default to where

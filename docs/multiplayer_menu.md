@@ -1,7 +1,8 @@
 # The multiplayer menu (MJOLNIRLobby)
 
-**Status:** 2026-10-01. MULTIPLAYER on the main menu opens MJOLNIR's own lobby
-and map select screens ("Our own screens" below). Verified in game on CU4:
+**Status:** 2026-10-01; updated 2026-10-21. MULTIPLAYER on the main menu
+opens MJOLNIR's own lobby and map select screens ("Our own screens" below).
+Verified in game on CU4:
 - CHANGE MAP, picking Danger Canyon and Capture the Flag, SELECT, GAME TYPE
   and Back all worked.
 - START GAME started Danger Canyon under the Megalo engine, with the
@@ -9,7 +10,11 @@ and map select screens ("Our own screens" below). Verified in game on CU4:
 
 Earlier, the campaign-menu screens (now the fallback) started Gephyrophobia
 the same way, and the campaign save stayed byte for byte the same. Finding
-and joining other players' games is not built yet.
+and joining other players' games was not built then. It shipped later:
+PUBLIC GAME, FIND GAMES and joins by connection string in mods-v0.11.0
+(PR #127), joins into a public match under way in mods-v0.12.0 (PR #130),
+and FIND GAMES as a server browser in mods-v0.13.0 (PR #132)
+([multiplayer_servers.md](multiplayer_servers.md)).
 
 Code: `mods/MJOLNIRLobby` (Lua) and `native/lobby` (its native half,
 `mjolnir_lobby.dll`).
@@ -86,9 +91,13 @@ hides the main menu beneath, and Back (Escape, B) pops them
 
 - **The lobby:** the map and game type, a description of each, the players
   (the frontend's player states), and START GAME, INVITE FRIENDS, CHANGE
-  MAP, GAME TYPE (cycles the map's modes), PRIVATE / PUBLIC GAME, MAX
-  PLAYERS (2 to 16, host only;
+  MAP, GAME TYPE (cycles the map's modes), GAME SETTINGS (host only, since
+  mods-v0.16.0; [host_game_settings.md](host_game_settings.md)), PRIVATE /
+  PUBLIC GAME, MAX PLAYERS (2 to 16, host only;
   [fireteam_join_and_cap.md](fireteam_join_and_cap.md)), FIND GAMES and BACK.
+  A fireteam client without the host's map, or with another release of it,
+  sees START GAME as DOWNLOAD MAP or UPDATE MAP (since mods-v0.20.0;
+  [live_map_install.md](live_map_install.md)).
   - Team modes (CTF and Team Slayer) show separate Red/Blue roster sections.
     These reflect the game's team assignments, with an Awaiting assignment
     section when the frontend has no simulation team yet. No local team
@@ -103,14 +112,22 @@ hides the main menu beneath, and Back (Escape, B) pops them
   - That screen also shows START CAMPAIGN, which starts the campaign, not
     the lobby's map. The last game hosted is remembered in
   `MJOLNIRLobby\last_game.txt`.
-- **The map select:** every installed map in a scrolling list. Hovering a
-  map previews its details and game types; clicking picks it. A game type
-  button picks the mode, and SELECT returns to the lobby with both.
+- **The map select:** up to 80 maps in a scrolling list: every installed
+  map, then the hub's maps this PC does not have, marked DOWNLOAD
+  (`MapLive.listings`, the cached `GET /maps`). Chips above it narrow the
+  list by game (the hub's `game`: Halo CE or Halo 2), by source (official
+  or community) and to installed maps; a map the hub does not list passes
+  only the ALL choices. Hovering a map previews its details and game types;
+  clicking picks it. A game type button picks the mode, and SELECT returns
+  to the lobby with both, or, for a map not installed, opens the download
+  screen and picks the map once it is in.
 
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
-`changemap`, `gametype`, `back`, `select`, `map:<i>`, `hover:<i>`,
-`mode:<i>`. Lua hooks it and handles the event off the click, in
-`ExecuteInGameThread`. No native delegate binding is involved. Only the
+`invite`, `changemap`, `gametype`, `gamesettings`, `listing`, `maxdown`,
+`maxup`, `maxplayers`, `findgames`, `back`, `select`, `map:<i>`,
+`hover:<i>`, `mode:<i>`, `filter:game`, `filter:source`, `filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
+as `game:<i>`, `sort:<column>` and `reset`). Lua hooks it and handles the
+event off the click, in `ExecuteInGameThread`. No native delegate binding is involved. Only the
 injected fallback MULTIPLAYER button still needs it (next section).
 
 Without the UI container, MULTIPLAYER falls back to the campaign-menu
@@ -243,8 +260,10 @@ parameters) crashed the game inside UE4SS's argument marshalling.
 
 ## Maps and modes
 
-`mjolnir level bake --install-test` writes `MJOLNIRLevelLoader/maps.json`
-(Lua cannot list a directory). Each entry has:
+The lobby reads the launcher's `MJOLNIRMaps\maps.json`, rebuilt from every
+installed map (`crates/blam-pack/src/maps.rs`). For codes that list lacks, it
+reads `MJOLNIRLevelLoader/maps.json`, which `mjolnir level bake
+--install-test` writes (Lua cannot list a directory). Each entry has:
 
 - `code`
 - `title`
@@ -252,10 +271,22 @@ parameters) crashed the game inside UE4SS's argument marshalling.
 - `modes`: the level file's `modes`, else its `variant`
 
 `tools/level/gen_ce_level.py` names the stock maps (`STOCK_TITLES`) and lists
-`"modes": ["slayer"]`. A mode is offered when the map lists it and
-`variants/<mode>.mglo` is installed.
+`"modes": ["slayer"]`, plus `"ctf"` when the map has a flag for each team.
+A mode is offered when the map lists it and `variants/<mode>.mglo` is
+installed.
 
 ## Next
+
+**Update 2026-10-21:** the lobby service is built on the hub, as a D1-backed
+polled API (`hub/src/lib/api/lobby.ts`, PR #106). The hand-off is the PlayFab
+lobby's connection string, given to the game's own Steam join handler
+(mods-v0.11.0, PR #127; [multiplayer_servers.md](multiplayer_servers.md)),
+and on the Xbox app to the GDK session's invite handler (mods-v0.23.0 and
+v0.23.1, PR #179 and #181). FIND GAMES lists the hub's games, not Steam
+lobbies. The session join was verified on two PCs on 2026-10-01 (03fae037).
+Match chat shipped in the match HUD, not the lobby service (mods-v0.27.0,
+PR #200). Still not built: join codes (JOIN PRIVATE), Steam lobbies, Discord
+rich presence.
 
 - **A lobby service of our own** (Cloudflare, beside the hub), since Game Pass
   and Store players have no Steam. Planned shape: a game list, join codes, the

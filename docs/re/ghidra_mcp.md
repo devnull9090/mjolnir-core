@@ -31,8 +31,20 @@ out of the extension jar on Ghidra's own classpath — no GUI, 195 endpoints:
 # a binary on its own: imports into a scratch project, then POST /run_analysis
 tools\re\ghidra_mcp_headless.ps1 -File C:\ghidra_proj\cu4\HaloSimulation_tag_release.dll
 # a program from the project (only once no analyzeHeadless holds the project lock)
-tools\re\ghidra_mcp_headless.ps1 -Project C:\ghidra_proj\HCE_Analysis -Program CU4/HaloCampaignEvolved.exe
+tools\re\ghidra_mcp_headless.ps1 -Project C:\ghidra_proj -Program /CU4/HaloCampaignEvolved.exe
+# the analysed sim DLL, on a second port so both can run at once
+tools\re\ghidra_mcp_headless.ps1 -Project C:\ghidra_proj\sim -Program /HaloSimulation_tag_release.dll -Port 8089
 ```
+
+With GhidraMCP 6.0.0, `-Project` is the folder that holds the `.gpr` (not
+the project's own path) and `-Program` is the program's path inside the
+project, with its leading `/`. Anything else still starts the HTTP server,
+logs `Failed to open project` or `Failed to load program`, and answers every
+query with "No program loaded". The headless server cannot open a program
+after start (`/open_program` needs the GUI), so restart it with the right
+arguments. The exe server needs a large heap (`-Heap 40g` worked) and takes a
+couple of minutes to load. `batch_decompile?functions=0x...,0x...` decompiles
+several functions in one GET.
 
 The REST surface is usable straight from curl while the MCP bridge is not connected:
 

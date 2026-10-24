@@ -3,9 +3,10 @@
 **Status:** Working. Verified end to end on 2026-07-27 against
 `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam).
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** this note is stamped CU2; the installed build is CU4
+> (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`). The tools have driven CU4 since
+> 2026-08-18; the Hazards below say what changed. See [`build_lock.md`](build_lock.md) for
+> what else has been re-verified against CU4.
 
 Every experiment in this repository used to end at the same place: build the thing, then sit in
 front of the game and type at it. Load a level, alt-tab, run a command, read a number off the
@@ -23,7 +24,7 @@ Three transports, because no single one reaches everything.
 |---|---|---|
 | **Bridge mod** | Lua and console commands inside the process | [`mods/MJOLNIRBridge`](../mods/MJOLNIRBridge/Scripts/main.lua) |
 | **capture.ps1** | What is on screen | [`tools/mcp/game/capture.ps1`](../tools/mcp/game/capture.ps1) |
-| **input.ps1** | Menus, movement, anything needing real input | [`tools/mcp/game/input.ps1`](../tools/mcp/game/input.ps1) |
+| **input.ps1** | Menus, anything needing real input (player movement unverified on CU4, see Hazards) | [`tools/mcp/game/input.ps1`](../tools/mcp/game/input.ps1) |
 
 [`tools/mcp/game/game.mjs`](../tools/mcp/game/game.mjs) is the tools themselves.
 [`server.mjs`](../tools/mcp/game/server.mjs) serves them over MCP and
@@ -53,6 +54,10 @@ Nothing shipped is modified; deleting the mod folder and its `mods.txt` line und
 Re-run it after editing the Lua — UE4SS reads mods from disk at startup, so copy and restart is
 the whole edit loop.
 
+The tools find a Steam install from Steam's own library index. Set `MJOLNIR_GAME_DIR` for any
+other; for the Xbox app (Game Pass) it is the install's `Content` folder, whose binaries are
+`WinGDK`. `install-bridge.ps1` handles Steam (`Win64`) installs only.
+
 `.mcp.json` registers the MCP server. Claude Code loads it at session start, so a session
 already running will not see it until it restarts.
 
@@ -68,7 +73,7 @@ already running will not see it until it restarts.
 | `game_lua` | Evaluate Lua on the game thread, return what it printed |
 | `game_travel` | `open` a level — see the hazard below |
 | `game_screenshot` | Photograph the window |
-| `game_input` | Keyboard and mouse |
+| `game_input` | Keyboard and mouse: key, hold, mouse button, relative `move`, absolute `click`, `wait` steps |
 | `game_log` | Tail `UE4SS.log` |
 
 `game_lua` is the one that matters. Tag values, ammo, pawn state and loaded assets are all
@@ -147,7 +152,11 @@ unless forced, but the 2026-08-02 resize experiment hit the identical crash trav
 missions through the menus with `game_input`: the resume slot is two Enters from launch, and
 mission select is Campaign → New Game → difficulty → mission → two Enters through the skulls
 screen (Enter is "start" there — Space toggles the hovered skull, so keep the cursor off
-Bandana).
+Bandana). That was CU2. **On CU4 the frontend menu's items ignore Enter and take only the
+mouse** (2026-08-18): use `{"click":[x,y]}` steps, which place the cursor absolutely in
+window-client pixels, so scale up from the 800 px screenshot. Relative `move` steps go through
+pointer acceleration and miss. The two-PC harness signs in with Enter, a click at the window
+centre, then Space (`SIGN_IN` in [`tools/remote/jip-test.mjs`](../tools/remote/jip-test.mjs)).
 
 The multiplayer notes had already flagged `mjolnir_travel` as unverified and recommended
 reusing the official campaign flow. This is that prediction coming true.
@@ -156,6 +165,12 @@ reusing the official campaign flow. This is that prediction coming true.
 objects ran past three minutes and the game was unresponsive throughout. It recovers, and the
 heartbeat keeps ticking because the poll thread is separate, but scans should be narrowed to
 candidate classes first.
+
+**A hung game thread fails fast.** The game window belongs to the game thread, so
+`game_screenshot` and `game_input` refuse when the heartbeat shows that thread 15 s behind,
+rather than block on it. A capture script still running after 20 s is killed, and an input
+script 20 s past its own waits and holds. A bridge call returns as soon as the game process is
+gone, rather than waiting out its timeout.
 
 **`game_input` steals focus, and needs an unlocked machine.** The game reads RawInput, which only
 sees what the OS input queue actually delivered, so posted messages do not work and the window has
@@ -172,6 +187,14 @@ it alive. Expect to hit this on any run longer than the timeout.
 working throughout, because `PrintWindow` does not need focus — so a locked machine looks like
 "I can see the game but cannot touch it".
 
+**Player movement through `game_input` is unverified on CU4.** The fire-and-reload run above was
+CU2. A CU4 session on 2026-09-11 recorded `game_input` as driving menus only and left player
+movement to be tried by hand, but its explanation (gameplay reads GameInput, which never sees
+injected keys) was overturned on 2026-10-17, when Blam turned out to take its keys from the game
+viewport. Whether injected keys move the player is open. Do not judge it by `mj.pawn()`: that is
+the UE pawn, whose location stays constant, so it cannot show whether the player moved. A player
+who does not move under `game_input` says nothing about the map; check at a real keyboard.
+
 ~~There is no reflection-driven substitute yet.~~ **Superseded 2026-08-02:** there is one.
 `BlamCampaignFlowGameSubsystem:SetAndBeginCampaign(Campaign, ScenarioName, Options)` starts a
 mission from pure reflection — verified launching A15 from the frontend and traveling A15→A30
@@ -180,6 +203,13 @@ when a world is missing, which also retires the frontend-`open` hazard for missi
 game's own hidden debug menu (`WBP_MainMenu:OnToggleDebugMenu`) drives the same path. See
 [`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md) for the full recipe;
 `mjolnir_mission` in `MJOLNIRMultiplayer` wraps it.
+
+**Update 2026-10-21:** on CU4 (found 2026-08-19), from the frontend, `mjolnir_mission` is
+accepted and the world loads, but the Blam session never comes up and the mission never starts
+([`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md)); `mjolnir level
+bake` prints the same warning. So the frontend hazard stands for cold starts: start campaign
+missions through the game's own menu with `game_input` clicks. Multiplayer maps start from
+MJOLNIRLobby (see "Matches and a second PC" below).
 
 **Ammo is not in UE reflection.** Neither the pawn, the first-person weapon actor, nor any HUD
 object holds the round counts the HUD displays; a scan for the literal reserve value across
@@ -194,3 +224,18 @@ first change; `game_display` with `mode: restore` puts it back.
 **The Steam app id is 2806050**, per `apps/launcher` and Steam's own `appmanifest_2806050.acf`.
 The README carried 2993530 for a while, which is a different app and gets "game not found" on
 launch; it has been corrected.
+
+## Matches and a second PC
+
+MJOLNIRLobby answers `mjolnir_auto <verb>` at the console and writes its answer to
+`native\auto_state.txt` in the mod's folder, so a script can host and join without anyone at
+the menus: `state`, `host <CODE> <mode> [private]`, `public on|off`, `join [host]`,
+`download <CODE>` and `install <CODE>`. `host` lists the game publicly unless given `private`,
+and a listed game is joinable by anyone on the hub, so solo tests use `private`.
+
+[`tools/remote/remote.mjs`](../tools/remote/remote.mjs) drives a second PC's game through
+[`tools/remote/mjolnir-agent.ps1`](../tools/remote/mjolnir-agent.ps1) running there: status,
+Lua, console, input, `mjolnir_auto` and files, over the LAN with a token (`MJOLNIR_REMOTE` and
+`MJOLNIR_REMOTE_TOKEN`, or `%USERPROFILE%\.mjolnir-remote.json`).
+[`tools/remote/jip-test.mjs`](../tools/remote/jip-test.mjs) runs the two-PC join-in-progress
+test end to end with both.

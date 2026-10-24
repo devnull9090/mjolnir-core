@@ -149,7 +149,7 @@ export default function ConsoleIndexPage() {
                 </span>
               </div>
               <p className="mt-1 truncate font-mono text-xs text-text-dim">
-                game_speed · cheat_deathless_player · console_pauses_game
+                game_speed · cheat_deathless_player · render_sky
               </p>
             </Link>
           </li>

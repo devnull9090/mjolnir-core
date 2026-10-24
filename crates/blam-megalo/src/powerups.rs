@@ -197,6 +197,7 @@ mod tests {
     fn ctf_keeps_its_own_variables_and_labels() {
         let ctf = Variant::ctf(Ctf {
             flag_type: 18,
+            blue_flag_type: None,
             score_to_win: 3,
             reset_ticks: 900,
             debug: false,

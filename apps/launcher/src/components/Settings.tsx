@@ -273,7 +273,7 @@ export default function Settings() {
                     custom_exe_path: e.target.value || null,
                   }))
                 }
-                placeholder="C:\...\Meteorite-Win64-Shipping.exe"
+                placeholder="C:\...\HaloCampaignEvolved.exe"
                 className="flex-1 px-3 py-2 rounded-lg text-sm bg-surface-primary border border-border-subtle
                   text-text-primary placeholder-text-secondary/50
                   focus:outline-none focus:border-mjolnir-gold/50 focus:ring-1 focus:ring-mjolnir-gold/20

@@ -26,7 +26,7 @@ pub enum TextureCommand {
     List(ListArgs),
     /// Print one texture's cooked layout in full.
     Info(OneArgs),
-    /// Write one texture's top mip out as a PNG.
+    /// Write one texture out: a mip as PNG or TIFF, or the whole chain as DDS.
     Export(ExportArgs),
     /// Build an override container that replaces a texture's pixels.
     Swap(SwapArgs),

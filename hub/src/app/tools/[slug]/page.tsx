@@ -11,7 +11,7 @@ import { ToolGallery } from "../../components/HubKit";
 import { LatestBuild } from "../_components/LatestBuild";
 import { ToolIcon } from "../_components/icons";
 import { listToolMedia, type MediaRow } from "@/lib/api/queries";
-import { getTool, getToolVersion } from "@/lib/tools";
+import { getTool, getToolVersion, type ToolAvailability, type ToolDownload } from "@/lib/tools";
 import { GitHubIcon } from "../../components/icons";
 
 /**
@@ -72,6 +72,33 @@ export async function generateMetadata({
   };
 }
 
+const GET_IT: Record<ToolAvailability, string> = {
+  download: "Get it",
+  package: "Install it",
+  source: "Build it",
+};
+
+function DownloadList({ downloads }: { downloads: ToolDownload[] }) {
+  return (
+    <div className="mt-4 space-y-2">
+      {downloads.map((download) => (
+        <a
+          key={download.href}
+          href={download.href}
+          className="group flex items-center gap-3 rounded-xl border border-border bg-surface-card p-3 transition-colors hover:border-gold/40"
+        >
+          <Download className="h-4 w-4 shrink-0 text-gold" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-foreground">{download.label}</span>
+            <span className="block text-xs text-text-muted">{download.note}</span>
+          </span>
+          <ArrowRight className="h-4 w-4 shrink-0 text-text-dim transition-transform group-hover:translate-x-0.5" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export default async function ToolPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const tool = getTool(slug);
@@ -87,7 +114,7 @@ export default async function ToolPage({ params }: { params: Promise<{ slug: str
     description: tool.tagline,
     url: `https://mjolnircore.com/tools/${tool.slug}`,
     applicationCategory: "DeveloperApplication",
-    operatingSystem: "Windows 10, Windows 11",
+    operatingSystem: tool.operatingSystem,
     ...(version ? { softwareVersion: version } : {}),
     ...(previews.length > 0
       ? { screenshot: previews.map((m) => `https://mjolnircore.com${m.url}`) }
@@ -171,11 +198,11 @@ export default async function ToolPage({ params }: { params: Promise<{ slug: str
           <ToolGallery slug={tool.slug} initial={previews} />
         </section>
 
-        {/* Getting it — downloads for a published tool, a build for one that
-            ships no binary yet. */}
+        {/* Getting it — the launcher for a tool it installs, package managers
+            and archives for one it does not, a build for one with no binary. */}
         <section className="mb-12" aria-labelledby="get">
           <h2 id="get" className="mb-4 text-sm font-bold uppercase tracking-wide text-text-dim">
-            {tool.availability === "download" ? "Get it" : "Build it"}
+            {GET_IT[tool.availability]}
           </h2>
 
           {tool.availability === "download" ? (
@@ -199,24 +226,7 @@ export default async function ToolPage({ params }: { params: Promise<{ slug: str
 
               <div className="rounded-2xl border border-border bg-surface-raised p-5 sm:p-6">
                 <h3 className="text-lg font-bold text-foreground">Or download it directly</h3>
-                <div className="mt-4 space-y-2">
-                  {tool.downloads.map((download) => (
-                    <a
-                      key={download.href}
-                      href={download.href}
-                      className="group flex items-center gap-3 rounded-xl border border-border bg-surface-card p-3 transition-colors hover:border-gold/40"
-                    >
-                      <Download className="h-4 w-4 shrink-0 text-gold" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-foreground">
-                          {download.label}
-                        </span>
-                        <span className="block text-xs text-text-muted">{download.note}</span>
-                      </span>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-text-dim transition-transform group-hover:translate-x-0.5" />
-                    </a>
-                  ))}
-                </div>
+                <DownloadList downloads={tool.downloads} />
                 <div className="mt-4">
                   <LatestBuild slug={tool.slug} fallbackVersion={version} />
                 </div>
@@ -231,31 +241,39 @@ export default async function ToolPage({ params }: { params: Promise<{ slug: str
               </div>
             </div>
           ) : (
-            tool.build && (
-              <div className="rounded-2xl border border-border bg-surface-raised p-5 sm:p-6">
-                <p className="text-sm leading-6 text-text-muted">{tool.build.intro}</p>
-                <div className="mt-5 space-y-4">
-                  {tool.build.steps.map((step, index) => (
-                    <div key={step.command} className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold/15 text-xs font-bold text-gold">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-1 flex items-center gap-2">
-                          <Terminal className="h-3 w-3 text-text-dim" />
-                          <span className="text-xs font-medium uppercase tracking-wider text-text-dim">
-                            {step.label}
-                          </span>
+            <div className="space-y-4">
+              {tool.install && (
+                <div className="rounded-2xl border border-border bg-surface-raised p-5 sm:p-6">
+                  <p className="text-sm leading-6 text-text-muted">{tool.install.intro}</p>
+                  <div className="mt-5 space-y-4">
+                    {tool.install.steps.map((step, index) => (
+                      <div key={step.command} className="flex items-start gap-3">
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold/15 text-xs font-bold text-gold">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-center gap-2">
+                            <Terminal className="h-3 w-3 text-text-dim" />
+                            <span className="text-xs font-medium uppercase tracking-wider text-text-dim">
+                              {step.label}
+                            </span>
+                          </div>
+                          <pre className="overflow-x-auto rounded-lg border border-border bg-surface-card p-3 font-mono text-sm text-foreground">
+                            <code>{step.command}</code>
+                          </pre>
                         </div>
-                        <pre className="overflow-x-auto rounded-lg border border-border bg-surface-card p-3 font-mono text-sm text-foreground">
-                          <code>{step.command}</code>
-                        </pre>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
+              )}
+              {tool.downloads.length > 0 && (
+                <div className="rounded-2xl border border-border bg-surface-raised p-5 sm:p-6">
+                  <h3 className="text-lg font-bold text-foreground">Or download an archive</h3>
+                  <DownloadList downloads={tool.downloads} />
+                </div>
+              )}
+            </div>
           )}
         </section>
 

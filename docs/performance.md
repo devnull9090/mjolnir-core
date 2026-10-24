@@ -8,6 +8,13 @@ at 1710x1073 (a borderless window over Remote Desktop; the 200% runs render
 measured against Blood Gulch and Death Island at the same settings
 ([Campaign against our maps](#campaign-against-our-maps-2026-10-18)).
 
+**Update 2026-10-21:** the mod changes on this page have shipped:
+`mjolnir_bench`, `/bench`, the cull, low-foliage wind and dry zones fixes in
+mods-v0.28.0 (PR #201), the frame split in mods-v0.29.0 (PR #202), the Lua
+collector changes in mods-v0.30.0 (PR #206), the loader's side of baked
+foliage and the faster asset lookup in mods-v0.31.0 (PR #208), and the bench
+camera fix in mods-v0.31.1 (PR #204).
+
 Players report that the remastered maps play fine without grass and rocks and
 slow down with them. This page covers the tools for seeing where frame time
 goes, what was measured, what was changed, and what is left.
@@ -114,6 +121,10 @@ Bench on DTI at 3840x2160: 64 fps (15.5 ms a frame).
 Foliage costs 2.5 ms (16%): its shadows 0.5, its wind 1.3.
 Sending it to the MJOLNIR team. Thanks!
 ```
+
+From MJOLNIRHud 0.11.0 (PR #202), when `mjolnir_frame_times.dll` returned
+the frame times, a line before the last gives the base's split:
+`Game thread <ms> ms, render thread <ms>, GPU <ms>.`
 
 MJOLNIRLobby posts it to `POST /api/v1/benches` with the launcher's key
 (scope `lobbies:write`, as match reports), so any player signed in to the hub
@@ -340,9 +351,15 @@ out.
 | Placed lights: `shadow_distance` back toward 2500-4000, or no shadows on small fill lights | 0.25-0.75 ms near bases |
 | Flux coast: lower `res` or update rate | under 0.38 ms; last |
 
+**Update 2026-10-21:** the Lua row is superseded. The long runs were the Lua
+collector finishing a cycle, not the loops' own work, and the generational
+collector, one shared hit-result table and garbage-free pulses removed them
+(MJOLNIRLevelLoader 0.7.3, MJOLNIRHud 0.11.1, mods-v0.30.0, PR #206): see
+"Lua garbage collection hitches" below.
+
 For the tools:
 
-- **Fixed in MJOLNIRHud 0.11.2: the bench camera letterboxed non-16:9
+- **Fixed in MJOLNIRHud 0.11.3 (mods-v0.31.1): the bench camera letterboxed non-16:9
   windows.** `lockView` spawned a CameraActor with `bConstrainAspectRatio`
   on, so on 1710x1073 every bench drew 1710x962. Comparisons on one PC hold;
   a 16:10 player's absolute numbers read about 10% light. The held camera
@@ -498,7 +515,8 @@ How it works:
   tier 0 at Low, 0–1 at Medium, 0–2 at High. That is the old keep-1-in-4/3/2.
   The engine's own density scaling would not do: the game's scalability sets
   `foliage.DensityScale` 0 at Low, which clears every instance at load.
-- **The loader** (MJOLNIRLevelLoader 0.7.5): assemble marks the level file's
+- **The loader** (MJOLNIRLevelLoader 0.7.5; it first shipped as 0.7.6, in
+  mods-v0.31.0): assemble marks the level file's
   foliage `baked` and writes `centre`, the clumps' mean position for the wind
   flowmap. `Foliage.spawn` then skips the baked groups and `Foliage.dressBaked`
   does one pass over the `MJFol_<group>_<band>_<tier>` components: tints and
@@ -640,7 +658,11 @@ it holds from 8,581 to 68, at the same frame rate and look.
 ## What is left
 
 - **Bake the other remastered maps** (`bake_foliage` per map, a full
-  editor, cook, bake, assemble run each).
+  editor, cook, bake, assemble run each). **Update 2026-10-21:**
+  `bake_foliage` is on for every remastered map with a landscape world in
+  `tools/level/ce_upgrade_maps.json` (BGL, DTI, YOY, ICE, SDW, TMB, INF, GPH,
+  BCK, DCN; d5719b82, PR #208). Rat Race is `indoor`, with no landscape
+  world to bake into.
 - **Other `StaticFindObject` calls.** The loader still calls it (through
   `findObject`) for classes and default objects in about 50 places; most run
   once a load. Any in a loop that runs often is worth the same treatment.
@@ -648,8 +670,9 @@ it holds from 8,581 to 68, at the same frame rate and look.
 - **The HUD's first tick of a match** holds the game thread 68–77 ms once
   (hooking incidents, making the widgets, the first name-tag sweep). It is
   one frame at the start, not a beat, so it was left for now.
-- **Measure weaker PCs.** Every number above is from a 5090. `/bench` on
-  PC 2, and from players, fills the Benchmarks tab with real hardware.
+- **Measure weaker PCs.** Every number above is from a 5090, apart from one
+  player's RX 9060 XT benches. `/bench` on PC 2, and from players, fills the
+  Benchmarks tab with real hardware.
 - **Pick the foliage tier from the GPU.** `sg.FoliageQuality` only helps
   players who open Video settings. `Saved/GpuBenchmark.json` has a `gpuScore`
   (2060 on the 5090), and every bench report carries it with the foliage

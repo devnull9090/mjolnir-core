@@ -183,6 +183,16 @@ blocks: camera_track_control_point_block  max 16
         <h2 id="open-heading" className="text-xl font-bold">
           What is not solved yet
         </h2>
+        <p className="mt-3 text-sm leading-6 text-text-muted">
+          <strong className="text-foreground">Update 2026-10-21:</strong> both are solved. The
+          auxiliary word carries the pad width in bytes, the struct table index of an inlined
+          struct, the arr! entry of an array, and the sz[] entry naming an enum or bitfield&apos;s
+          option run (crates/blam-tag/src/layout.rs, c87743bc). Root struct sizes resolved for
+          12,290 of 12,290 tags on 2026-07-26 (443d66c7), and by 2026-08-01 the strict bdat walk
+          consumed 12,291 of 12,291 payloads exactly, with every tag rewritten byte for byte
+          (4ac928bb), so field offsets into the data are confirmed. The two cards below are kept as
+          the record of the open questions.
+        </p>
         <div className="mt-5 space-y-4">
           <div className="flex items-start gap-3 border border-gold/30 bg-gold/5 p-4">
             <EvidenceBadge level="Hypothesis" />
@@ -246,7 +256,8 @@ blocks: camera_track_control_point_block  max 16
         <p className="mt-4 text-sm leading-6 text-text-muted">
           Read-only against your own installed copy. Any oo2core_9_win64.dll from a local Unreal
           Engine install works, since UE 5.5 statically links Oodle and the game ships no separate
-          DLL. Nothing is written to disk.
+          DLL. The DLL is optional for these commands: without OODLE, mjolnir falls back to its
+          built-in decoder, which is slower but reads the same bytes. Nothing is written to disk.
         </p>
         <pre className="mt-5 overflow-x-auto border border-border bg-surface p-4 text-xs leading-6 text-text-muted">
           <code>{`$env:HCE_PAKS = "<install>\\Meteorite\\Content\\Paks"

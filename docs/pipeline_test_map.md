@@ -10,8 +10,9 @@ TST is a small, authored CTF/Slayer map for checking the complete Blender →
 classic HEK → CE conversion → Unreal upgrade → local game pipeline. Its CE
 cache builds successfully as of 2026-10-19. The first build loaded and spawned
 a player after correcting its spawn lift. The revised visual build (r1) is
-rebuilt from source; its in-game acceptance and the remaining checks below
-are pending.
+rebuilt from source. TST merged to main with PR #208 (2026-10-20). Of the
+in-game checks below, the trees (3) were found clean after a recipe fix,
+check 1 was observed on the first build only, and the rest are pending.
 
 The approved ImageGen concept is stored locally at `.dream-loop/concept.png`
 (ignored). Dream-loop comparison should use actual game screenshots, especially
@@ -31,7 +32,7 @@ one CE world unit is 3.048 m. Stock HEK assets stay in the installed kit.
 |---|---|
 | Terrain | Approximately 120 × 60 m; rolling grass, a central hill, and a cliff along one side. Exercises ground extraction, Landscape, cliff materials and collision. |
 | Bases | Red/blue BSP structures centred at X = −46/+46 m, each with a flag, two team starts, assault rifle and pistol pickup. Tests CTF/Slayer placement and structure materials. |
-| Trees | Three `scenery\trees\tree_leafy_medium\tree_leafy_medium` instances at (−12,−12), (−22,20), and (25,0) m, all yaw/permutation 0. Their model height is 13.57 m; TST pins the replacement recipe to B30 `Lrg_A` so placement order cannot select different variants. |
+| Trees | Three `scenery\trees\tree_leafy_medium\tree_leafy_medium` instances at (−12,−12), (−22,20), and (25,0) m, all yaw/permutation 0. Their model height is 13.57 m; TST pins one replacement recipe per tree, B30's `Lrg_D`, `Lrg_B` and `Lrg_C` in placement order, so one map compares three tree types. |
 | Boulders | Three `boulder_granite_medium` scenery instances; tests swapped visuals, near-face bullet hits and player collision. |
 | Pond | Shallow basin near (30,−17) m, water surface at −0.18 m. Uses the local `tst_water` shader, derived from the installed B30 water tag, for Fluid Flux conversion. |
 | Extras | One Warthog, health pack, one-way teleporter pair from the red side to the blue side, sky sun, and one placed light fixture. |
@@ -39,7 +40,7 @@ one CE world unit is 3.048 m. Stock HEK assets stay in the installed kit.
 The TST entry in [`ce_upgrade_maps.json`](../tools/level/ce_upgrade_maps.json)
 uses conversion directory `C:/haloce/ce_conversions/test/TST`, Landscape `LTT`,
 chunk **969**, four components a side, `bake_foliage: true`,
-`tree_variant: Lrg_A`, and beach rocks. Ground/cliff tokens are
+`tree_variant: Lrg_D,Lrg_B,Lrg_C`, and beach rocks. Ground/cliff tokens are
 `levels_b30_shaders_beach` and `levels_test_tst_shaders_tst_cliffs`, from the
 installed B30 shader tags. Ground UVs are `(x / 120 + 0.5, y / 120 + 0.5)`
 in metres; cliffs use 6 m per repeat, and B30 base panels/floors use 2 m.
@@ -60,8 +61,9 @@ fresh visual comparison, not evidence that the concept has been matched.
 
 ## Tools and rebuild
 
-Use Blender 5.1, classic HEK at `C:\haloce\hek`, UE 5.5, and this branch's
-current CLI/helpers. The installed Halo Asset Blender Development Toolset is
+Use Blender 5.1, classic HEK at `C:\haloce\hek`, UE 5.5, and the CLI and
+helpers built from this checkout. The installed Halo Asset Blender
+Development Toolset is
 [Release 425](https://github.com/General-101/Halo-Asset-Blender-Development-Toolset/releases/tag/master-425),
 add-on 2.425.0, commit `f1351fe1b3b2bb655a195e57a894e7147d8ae4d3`.
 The approved [Lite ZIP](https://github.com/General-101/Halo-Asset-Blender-Development-Toolset/releases/download/master-425/halo-asset-blender-toolset-lite-v425%40f1351fe.zip)
@@ -170,8 +172,10 @@ Launch through Steam, press Enter at the title screen, and wait for
 `MULTIPLAYER is on the main menu` in
 `Meteorite/Binaries/Win64/ue4ss/UE4SS.log`. Host with
 `mjolnir_auto host TST slayer private`, then repeat in CTF using
-`mjolnir_auto host TST ctf private`. Return to the main menu before loading
-the reference mission with `mjolnir_mission B30`.
+`mjolnir_auto host TST ctf private`. Return to the main menu and load the
+reference mission, B30 (The Silent Cartographer), through the game's own
+campaign menu: on CU4, `mjolnir_mission` from the frontend loads the world but
+never starts the mission ([multiplayer investigation notes](multiplayer_investigation_notes.md)).
 
 The first build's post-fix CTF load is recorded in
 `.dream-loop/tst-ctf-r0.log`: 10,409 baked clumps in 549 meshes, 142 baked
@@ -185,7 +189,7 @@ initial-load measurement does not establish stutter-free play throughout.
 |---|---|---|
 | 1 | Hosting loads TST and spawns the player; loader log confirms baked foliage and a load frame under 1 s. | Observed on r0 after the spawn-lift fix: valid player unit, baked foliage, 439 ms initial load frame / 375 ms loader tick. Repeat on r1. |
 | 2 | Both bases, team starts and flags support CTF, including flag pickup/return/capture. | Pending in-game test. |
-| 3 | From beneath a swapped `Lrg_A` tree, twigs join limbs without detached bare stems; compare the same B30 tree type from the same angle. | Pending in-game test; the open foliage bug is unresolved until this comparison passes. |
+| 3 | From beneath each swapped tree (`Lrg_D`, `Lrg_B`, `Lrg_C`), twigs join limbs without detached bare stems; compare the same B30 tree type from the same angle. | After the recipe fix of 2026-10-19 (8a4da432: no neighbour's twigs), the user found all three of TST's trees clean. The side-by-side B30 comparison is not recorded. |
 | 4 | Bullets stop at the near faces of swapped rocks and tree trunks. | Pending in-game test. |
 | 5 | Players collide correctly with rocks, trunks and the cliff. | Pending in-game test. |
 | 6 | Pond renders as Flux water with shallow edges and no water sheets on walls/cliffs. | Pending in-game test. |

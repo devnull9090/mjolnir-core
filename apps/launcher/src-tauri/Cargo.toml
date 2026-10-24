@@ -1,6 +1,6 @@
 [package]
 name = "mjolnir-launcher"
-version = "0.15.0"
+version = "0.16.0"
 description = "MJOLNIR Launcher — Mod manager for Halo Campaign Evolved"
 authors = ["devnull9090"]
 edition = "2021"
@@ -40,6 +40,10 @@ ue-iostore = { path = "../../../crates/ue-iostore" }
 # Builds the map registration container from the player's own game files
 # (src/maps.rs); the same code as `mjolnir level register`.
 blam-pack = { path = "../../../crates/blam-pack" }
+# Validates `.mglo` variants against the simulation's grammar and store bounds
+# before install, so a crafted variant in distributed content cannot overrun the
+# simulation's file-loader decoder (docs/re/variant_network_safety.md).
+blam-megalo = { path = "../../../crates/blam-megalo" }
 ue-asset = { path = "../../../crates/ue-asset" }
 hex = "0.4"
 zip = "2"

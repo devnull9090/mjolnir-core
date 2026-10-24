@@ -15,6 +15,14 @@ tool.exe's lightmap texel for texel within a small tolerance.
 - `scene.gltf`: every triangle of the BSP (and the placed scenery, which only
   occludes) with its lightmap page (`__lmN` material suffix) and lightmap UVs.
   glTF is metres, y up: CE (x, y, z) world units are glTF (x, z, -y) x 3.048.
+- `scene_translucent.gltf` and `scene_occluders.gltf` beside the scene
+  (`merge_ce_scene.py --translucent`, `--occluders`), used when present: the
+  transparent shaders' sections, lit like the BSP's (CE's lamps are
+  transparent shaders that emit; glass the collision BSP carries tints the
+  light through it, the rest is not in a ray's way; see Light), and the
+  placed objects' collision models, which only shadow. `--no-objects` leaves the
+  placed objects' drawn meshes out of the shadow rays; their collision models
+  still block.
 - `materials.json`: per shader, the radiosity header (`power`,
   `color_of_emitted_light`, `tint_color`, `detail_level`, flags: bit 0 simple
   parameterization, bit 1 ignore normals, bit 2 transparent lit) and the base
@@ -169,7 +177,8 @@ ambient is a page and not a share of the lightmap because two bilinear
 samples multiplied are not the bilinear sample of the product: a share drew
 a bright rim along every shadow's texel contour;
 `tools/level/convert_ce_map.sh` runs it at `LIGHTMAP_SCALE` (default auto, 0
-keeps the shipped pages) and hands the directory to `ce_material_spec.py
+keeps the shipped pages; `LIGHTMAP_ARGS` adds solver flags, such as `--cpu`)
+and hands the directory to `ce_material_spec.py
 --lightmaps`. `--scale 1 --finer 1 --compare` is the acceptance test against
 the shipped pages: Danger Canyon scores a mean difference of 15/255 over the
 drawn texels and Death Island 16.5/255 (its base interior's pages 6-17,

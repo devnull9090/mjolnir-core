@@ -19,8 +19,10 @@ Load from the game's UE4SS Lua sandbox (the MJOLNIR bridge `game_lua` tool):
 local f = package.loadlib("C:\\path\\store_probe.dll", "probe_open"); f()
 ```
 
-Both DLLs refuse to install on a different exe build. Exports and request
-files are listed in `docs/new_scenario_loading.md`.
+`store_probe` refuses to install on a different exe build. `tagrefs_probe`
+hooks nothing and checks no build: it works on the addresses Lua writes to its
+request files (`tagrefs_addr.txt` and the like). Exports and request files are
+listed in `docs/new_scenario_loading.md`.
 
 Added 2026-09-11, when the question became why a brand-new *world* package
 bounced (same doc, "The world gate, found and passed"):

@@ -66,9 +66,24 @@ pub struct PackArgs {
     /// The release version (semver).
     #[arg(long)]
     pub version: String,
-    /// The hub slug; `ce-<title>` by default (`ce-blood-gulch`).
+    /// The hub slug; `ce-<title>` by default (`ce-blood-gulch`), `h2-<title>`
+    /// for a Halo 2 map.
     #[arg(long)]
     pub slug: Option<String>,
+    /// The game the map comes from, `halo1` or `halo2`, for the hub's game
+    /// filter; the staging manifest's `game` by default (a Halo 2
+    /// conversion's says `halo2`), else `halo1`.
+    #[arg(long, value_parser = ["halo1", "halo2"])]
+    pub game: Option<String>,
+    /// The catalog's size: `small`, `medium` or `large`.
+    #[arg(long, value_parser = ["small", "medium", "large"])]
+    pub size: Option<String>,
+    /// The player counts it suits, `MIN-MAX` (`2-8`).
+    #[arg(long, value_name = "MIN-MAX")]
+    pub players: Option<String>,
+    /// Whether it has vehicles.
+    #[arg(long)]
+    pub vehicles: Option<bool>,
     /// The display name; the level file's title by default.
     #[arg(long)]
     pub name: Option<String>,
@@ -132,7 +147,41 @@ fn containers(dir: &Path, code: &str) -> Result<Vec<PathBuf>> {
             dir.display()
         );
     }
+    // A Halo 2 map's turning parts: a container per tag of each machine
+    // (`machines/pakchunk986-MJOLNIRMACH-<CODE>-<k><g>_P`, tools/level/
+    // h2_machines.py). Without them the parts turn but their collision
+    // stays where it was baked.
+    let machines = dir.join("machines");
+    if machines.is_dir() {
+        let mut more: Vec<PathBuf> = std::fs::read_dir(&machines)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_suffix(".utoc"))
+                    .is_some_and(|stem| stem.contains(&format!("-MJOLNIRMACH-{code}-")) && stem.ends_with("_P"))
+            })
+            .collect();
+        more.sort();
+        for path in more {
+            if !path.with_extension("ucas").is_file() {
+                bail!("{} has no .ucas beside it", path.display());
+            }
+            found.push(path);
+        }
+    }
     Ok(found)
+}
+
+/// The game a conversion's staging says it comes from (`staging/manifest.json`
+/// `game`: `halo2` for `mjolnir cache stage`), if it says.
+fn staged_game(dir: &Path) -> Option<String> {
+    let bytes = std::fs::read(dir.join("staging").join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    match manifest.get("game")?.as_str()? {
+        g @ ("halo1" | "halo2") => Some(g.to_string()),
+        _ => None,
+    }
 }
 
 fn level_file(dir: &Path) -> Result<PathBuf> {
@@ -239,10 +288,15 @@ fn pack(a: PackArgs) -> Result<()> {
         .unwrap_or(&code)
         .to_string();
     let title = reg.title.clone().unwrap_or_else(|| map_name.clone());
+    let game = match &a.game {
+        Some(g) => g.clone(),
+        None => staged_game(&a.dir).unwrap_or_else(|| "halo1".into()),
+    };
+    let prefix = if game == "halo2" { "h2" } else { "ce" };
     let slug = a
         .slug
         .clone()
-        .unwrap_or_else(|| format!("ce-{}", slugify(&title)));
+        .unwrap_or_else(|| format!("{prefix}-{}", slugify(&title)));
     let name = a.name.clone().unwrap_or_else(|| title.clone());
     let modes = level
         .get("modes")
@@ -255,9 +309,24 @@ fn pack(a: PackArgs) -> Result<()> {
         "version": a.version,
         "type": "map",
         "summary": a.summary,
-        "map": { "code": code, "title": title, "modes": modes },
+        "map": { "code": code, "title": title, "modes": modes, "game": game },
         "deps": [{ "slug": RUNTIME_SLUG, "range": a.runtime }],
     });
+    let mut manifest = manifest;
+    if let Some(size) = &a.size {
+        manifest["map"]["size"] = serde_json::json!(size);
+    }
+    if let Some(players) = &a.players {
+        let (min, max) = players
+            .split_once('-')
+            .and_then(|(lo, hi)| Some((lo.trim().parse::<u8>().ok()?, hi.trim().parse::<u8>().ok()?)))
+            .filter(|(lo, hi)| (1..=16).contains(lo) && (1..=16).contains(hi) && lo <= hi)
+            .with_context(|| format!("--players {players:?}: want MIN-MAX, 1 to 16"))?;
+        manifest["map"]["players"] = serde_json::json!({ "min": min, "max": max });
+    }
+    if let Some(vehicles) = a.vehicles {
+        manifest["map"]["vehicles"] = serde_json::json!(vehicles);
+    }
 
     let mut members: Vec<(String, Vec<u8>)> =
         vec![("mjolnir.json".into(), serde_json::to_vec_pretty(&manifest)?)];
@@ -383,6 +452,22 @@ fn write_archive(
     signing: &Signing,
     out: &Path,
 ) -> Result<()> {
+    // Never package a `.mglo` the simulation could not decode safely: the file
+    // loader runs its unbounded decoder, so a crafted variant distributed in a
+    // map or runtime pack would overrun it on every client that installs it
+    // (docs/re/variant_network_safety.md). Validated here, before the archive
+    // that gets uploaded even exists.
+    for (path, bytes) in &members {
+        if Path::new(path)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("mglo"))
+        {
+            blam_megalo::Variant::validate(bytes).with_context(|| {
+                format!("{path} is not a variant the simulation can decode safely; refusing to package it")
+            })?;
+        }
+    }
+
     let signer = if signing.sign {
         Some(crate::signkey::device_identity()?)
     } else if let Some(seed) = &signing.sign_seed {

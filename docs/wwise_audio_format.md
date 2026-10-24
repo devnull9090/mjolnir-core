@@ -1,12 +1,12 @@
 # Where the Audio Lives in Halo Campaign Evolved
 
-**Status:** Verified against the installed build
+**Status:** Verified on the CU2 build below; not yet re-measured on CU4
 **Last verified:** 2026-08-03
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** measured on CU2. The installed build is CU4
+> (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`) and this note has not been re-measured
+> on it. See [`build_lock.md`](build_lock.md).
 
 Almost none of the game's audio is reachable through the IoStore reader. The
 cooked packages in `.ucas`/`.utoc` hold Wwise *event* metadata; the samples
@@ -21,10 +21,10 @@ before the `.pak` reader landed.
 | IoStore, `Meteorite/Content/Audio/**.uasset` | 21,924 Wwise event/type assets and 11,698 LipSync assets. No samples. |
 | IoStore, `Meteorite/Content/Audio/cinematic/**.ubulk` | 23 native UE `SoundWave` assets, cooked to **Bink Audio**. Scratch mocap VO. |
 | `pakchunk0-Windows.pak` | 9,867 `.wem` + 113 `.bnk` — the language-neutral bank (SFX, music, ambience). |
-| `pakchunk1..13-Windows.pak` | One language each: 15,391 `.wem` + 53 `.bnk` per pak. |
+| `pakchunk1..10-Windows.pak`, `pakchunk12`, `pakchunk13` | One language each: 15,391 `.wem` + 53 `.bnk` per pak. |
 
-The thirteen localised paks are German, Portuguese(Brazil), Chinese(PRC),
-Chinese(Taiwan), English(US), Spanish(Spain), Spanish(Mexico), French(France),
+The twelve localised paks (there is no `pakchunk11`) are German,
+Portuguese(Brazil), Chinese(PRC), Chinese(Taiwan), English(US), Spanish(Spain), Spanish(Mexico), French(France),
 Italian, Japanese, Korean and Polish, one per `pakchunk`.
 
 `pakchunk115` and the other high-numbered paks are 339-byte stubs with an empty
@@ -153,8 +153,9 @@ the bank's `DATA` section rather than separate `.wem` files, so the browsable
 catalog does not change at all.
 
 `Catalog::names` therefore does **not** walk the banks: it costs seconds and
-names nothing new. `bnk::parse` and `NameIndex::add_bank` are kept and tested,
-ready for the day a name list exists.
+names nothing new. `NameIndex::add_bank` is kept and tested, ready for the day
+a name list exists; `bnk::parse` is used by sound-tag playback (see *Not
+implemented yet*).
 
 Bank names are recovered by hash rather than by guessing at name-map ordering:
 a package references `<id>.bnk` and carries the readable name separately, and
@@ -213,14 +214,17 @@ channel count and sample rate the `.wem` header declared. 400 of 400 convert —
 the `.ubulk` opens with a `SEEK` chunk and the name map carries `BINKA`. They
 are not surfaced in the browser yet.
 
-**Sound banks.** Parsed for their event graph (see above) but not otherwise
-surfaced; the embedded audio in their `DATA` section is not browsable.
+**Sound banks.** Not browsable as a list of their own. A sound tag's audio
+section reaches into them: it follows the tag's events through the bank graph
+(`bnk::parse`) and plays media embedded in a bank's `DATA` section, found
+through `DIDX` (`bnk::embedded`).
 
 ## Verification
 
 `catalog::tests::every_shipped_wem_header_parses` reads every shipped `.wem`
 header through the pak reader and asserts the declared RIFF size matches the
-size the pak entry claims to have stored. Ignored by default; run it with:
+size the pak entry claims to have stored. Ignored by default; run it from
+`apps/tag-editor/src-tauri` (the tag editor is its own Cargo workspace) with:
 
 ```
 MJOLNIR_PAKS="<install>/Meteorite/Content/Paks" cargo test --release --lib every_shipped_wem -- --ignored --nocapture

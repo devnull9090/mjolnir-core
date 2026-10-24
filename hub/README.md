@@ -1,7 +1,8 @@
 # MJOLNIR Hub
 
-The mod platform at **[mjolnircore.com](https://mjolnircore.com)** — mod pages, releases,
-ratings, comments, moderation, and the open API that third-party tools integrate against.
+The mod and multiplayer platform at **[mjolnircore.com](https://mjolnircore.com)** — mod and
+map pages, releases, ratings, comments, moderation, the public games list and match history, the
+blog and changelogs, and the open API that third-party tools integrate against.
 
 Next.js on **Cloudflare Workers** via OpenNext, with D1 for data and R2 for archives and media.
 The API is a [Hono](https://hono.dev) app mounted under a Next catch-all route
@@ -16,10 +17,10 @@ request validation, response types and the OpenAPI document at once.
 
 | Path | What it is |
 |---|---|
-| `src/app` | Routes and pages. `api/v1/[[...route]]` mounts the Hono API; `docs/` renders the guides, notes, tag reference and API reference. |
-| `src/lib/api` | The API itself — one module per area (`mods`, `publish`, `account`, `device`, `moderation`, `scan`, …), plus `app.ts` which assembles them. |
-| `src/kit` | Community UI (mod cards, ratings, comments, galleries) and the API client, shared with the launcher **as source** through a bundler alias. See [`src/kit/README.md`](src/kit/README.md). |
-| `src/generated` | Snapshots built from outside the Next project — the repo's `docs/` and the tag definition corpus. Never edit by hand; `pnpm sync` writes them. |
+| `src/app` | Routes and pages (mods, maps, games, matches, players, tools, blog, changelog, download, moderation, …). `api/v1/[[...route]]` mounts the Hono API, beside plain route handlers for `api/changelog`, `api/releases/latest` and `api/tools/latest`; `docs/` renders the guides, notes, tag and console references, research pages and the API reference. |
+| `src/lib/api` | The API itself — one module per area (`publish`, `community`, `account`, `device`, `moderation`, `maps`, `lobby`, `matches`, `players`, `crashes`, `benches`, `scan`, …), plus `app.ts`, which assembles them and serves the mod listing and detail routes itself. |
+| `src/kit` | Community UI (mod cards, ratings, comments, galleries) and the API client, shared with the launcher (and, for the changelog dialog, the tag editor) **as source** through a bundler alias. See [`src/kit/README.md`](src/kit/README.md). |
+| `src/generated` | Snapshots built from outside the Next project — the repo's `docs/`, `changelog/` and `blog/`, the tag definition corpus and the Blam console reference. Never edit by hand; `pnpm sync` writes them, along with the search indexes and doc images under `public/`. |
 | `migrations/` | Numbered, forward-only D1 migrations. The schema's only source of truth. |
 | `public/openapi.json` | The exported spec, checked in so CI can diff against it. |
 
@@ -28,15 +29,24 @@ request validation, response types and the OpenAPI document at once.
 ```bash
 pnpm install
 pnpm db:migrate      # apply migrations to the local D1
-pnpm dev             # syncs docs + tag defs, then starts Next
+pnpm dev             # syncs docs, defs, changelog and blog, then starts Next
 ```
 
-`pnpm dev` runs `pnpm sync` first, which regenerates `src/generated/` from `../docs` and
-`../defs`. That is why editing a repo doc shows up on the site without touching this package.
+Discord sign-in needs `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `JWT_SECRET`: copy
+`.dev.vars.example` to `.dev.vars` (git-ignored) and fill them in. In production they are GitHub
+Actions secrets that `deploy-hub.yml` uploads to the Worker. Settings that are not secret are
+`vars` in `wrangler.jsonc`: `SITE_URL`, `REQUIRE_SIGNED_UPLOADS` (on, so an upload must carry an
+author signature) and `SUPER_ADMIN_DISCORD_ID` (the account seated as admin at sign-in).
+
+`pnpm dev` runs `pnpm sync` first, which regenerates `src/generated/` from `../docs`, `../defs`,
+`../changelog` and `../blog`. That is why editing a repo doc shows up on the site without
+touching this package.
 
 A doc is only published if it is listed in `scripts/sync-docs.mjs` (`ORDER` for notes, `GUIDES`
-for guides). Anything else is skipped, and a `[…](that.md)` link pointing at it will 404 — the
-script warns about unlisted docs for exactly this reason.
+for guides). Anything else is skipped, and the script warns about unlisted docs. A relative link
+in a published doc goes to the note or guide route when its target is published, and to the file
+on GitHub otherwise (`resolveHref` in `src/app/docs/_components/Markdown.tsx`), so a link to an
+unlisted doc leaves the site rather than 404ing.
 
 To exercise the Workers runtime rather than the Next dev server — bindings, the real R2 and D1
 behaviour — build and preview:
@@ -73,19 +83,27 @@ Auth comes in three shapes, described in full in
 
 ## Checks
 
-Everything CI runs, runnable locally:
+CI (the `hub` job in [`ci.yml`](../.github/workflows/ci.yml)) runs these, and each runs locally:
 
 ```bash
 pnpm lint
 pnpm typecheck
 pnpm openapi:check          # spec matches the code
-pnpm conformance:signing    # TS signature verification agrees with the Rust mjolnir-sign crate
+pnpm sync:check             # committed sync output matches what pnpm sync writes
 ```
 
-`conformance:signing` is the one worth understanding. `.mjolnir` archives are signed by the tag
-editor in Rust and verified both by the launcher (Rust) and by the hub (TypeScript). The check
-generates a fixture from the Rust crate and verifies it with the TypeScript implementation, so
-the two cannot drift into disagreeing about what a valid signature is.
+Two more run locally only:
+
+```bash
+pnpm test                   # match chat and bench routes against every migration, in memory
+pnpm conformance:signing    # TS signature verification agrees with the Rust mjolnir-sign crate (needs cargo)
+```
+
+`conformance:signing` is the one worth understanding. `.mjolnir` archives are signed in Rust, by
+the tag editor and by `mjolnir map pack --sign`, and verified both by the launcher (Rust) and by
+the hub (TypeScript). The check generates a fixture from the Rust crate and verifies it with the
+TypeScript implementation, so the two cannot drift into disagreeing about what a valid signature
+is.
 
 ## Deploying
 
@@ -94,8 +112,11 @@ pnpm db:migrate:prod        # apply migrations to the deployed D1 first
 pnpm deploy
 ```
 
-In practice this is done by [`deploy-hub.yml`](../.github/workflows/deploy-hub.yml) rather than
-by hand.
+[`deploy-hub.yml`](../.github/workflows/deploy-hub.yml) runs the deploy on every push to `main`
+that touches `hub/**` or a source the build snapshots into the site (`docs/**` among them; the
+workflow's `paths` lists them all), or when run by hand, and uploads the Discord and JWT secrets.
+It does not apply migrations: run `pnpm db:migrate:prod` yourself before a change that needs a
+new one reaches `main`.
 
 ## Further reading
 

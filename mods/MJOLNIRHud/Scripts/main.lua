@@ -342,14 +342,17 @@ HANDLERS.kill = function(inc)
     local killer, victim = inc.cause, inc.effect
     if type(victim) ~= "number" or victim < 0 then return end
     if killer == victim or type(killer) ~= "number" or killer < 0 then return end
-    stats(killer).kills = stats(killer).kills + 1
+    local teamOf = stats(killer).team
+    local betrayal = Match.mode.teams and teamOf ~= nil and teamOf == stats(victim).team
+    -- Team Slayer's script takes a point from a teammate's killer
+    -- (blam_megalo Variant::team_slayer); the tallies do the same.
+    local point = (betrayal and Match.variant == "team_slayer") and -1 or 1
+    stats(killer).kills = stats(killer).kills + point
     if Match.variant == "team_slayer" then
-        Match.teamKills[#Match.teamKills + 1] = { player = killer, team = stats(killer).team }
+        Match.teamKills[#Match.teamKills + 1] = { player = killer, team = teamOf, points = point }
     end
     stats(victim).lastLine = inc.at
     local shown = Icons.forKill(inc.damage, inc.modifier)
-    local teamOf = stats(killer).team
-    local betrayal = Match.mode.teams and teamOf ~= nil and teamOf == stats(victim).team
     feedPush({
         lead = short(nameOf(killer)), leadColor = nameColor(killer), leadAvatar = avatarOf(killer),
         weapon = shown.weapon, weaponGlyph = shown.glyph,

@@ -360,6 +360,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "blam-megalo"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blam-pack"
 version = "0.1.0"
 dependencies = [
@@ -2561,8 +2570,9 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-launcher"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
+ "blam-megalo",
  "blam-pack",
  "dirs",
  "ed25519-dalek",

@@ -23,7 +23,12 @@ notes describe".
 
 The tag-DLL hash is what selects a live-mode profile: the RVAs of the simulation's tag table and
 string-id registry in `crates/blam-live/src/tagtable.rs` belong to this exact binary
-(`tag_table_and_string_ids.md`).
+(`tag_table_and_string_ids.md`). A tag DLL whose hash matches no profile is not refused: four code
+anchors recover the same globals from the module on disk (`signatures/README.md`, "The tag
+module's anchors"). The Xbox app's copy of the DLL differs from Steam's only in its header and
+signature (`native/blam_console/mjolnir_blam_console.c`), so its hash matches no measured
+profile and the anchors apply. The Xbox app also ships its own exe; this lock covers the Steam
+install only.
 
 The lock file carries all 252 shipped files — every binary, all 31 IoStore container sets
 (`.utoc`/`.ucas`/`.pak`) and the bundled video, 74 GiB in total.
@@ -44,8 +49,9 @@ The lock file carries all 252 shipped files — every binary, all 31 IoStore con
 
 ## What CU4 changed
 
-CU4 landed on **2026-08-11**. Verifying the CU3 lock against it reported 49 changed files and
-none added or removed: the host executable, the simulation DLL, 17 of the 31 container sets
+CU4 shipped on Steam on **2026-08-17** (its exe is stamped 2026-08-11, the build date).
+Verifying the CU3 lock against it reported 49 changed files and none added or removed: the
+host executable, the simulation DLL, 17 of the 31 container sets
 (`global`, `pakchunk0`, and most level chunks), and a third-party sweep (nine `boost` DLLs,
 `libHttpClient`, `OpenColorIO`, `tbb`, `CrashReportClient`).
 
@@ -70,12 +76,21 @@ python tools/build_lock.py "<install root>" --verify config/hce-build.lock.json
 ```
 
 `--verify` reports the version mismatch first, then every changed and missing file, and exits
-nonzero if the install is not the locked build. `--binaries-only` skips the 74 GiB content pass
-and takes a few seconds, which is usually all you need to answer "did the executable move".
+nonzero if the install is not the locked build. It always hashes every file the lock lists:
+`--binaries-only` applies only when writing a lock. Without `--verify` it skips the 74 GiB
+content pass and prints a binaries-only lock in a few seconds; its `version` and `host_sha256`
+are usually all you need to answer "did the executable move":
 
-`tools/game_snapshot.py snapshot <root> --lock-out config/hce-build.lock.json` hashes the same
-files once and produces both the snapshot and the lock, so after an update prefer it to running
-the full pass twice.
+```bash
+python tools/build_lock.py "<install root>" --binaries-only
+```
+
+A snapshot (`HCE_SNAPSHOTS` can stand in for `--store`) hashes the same files once and produces
+both the snapshot and the lock, so after an update prefer it to running the full pass twice:
+
+```bash
+python tools/game_snapshot.py --store D:/hce-snapshots snapshot "<install root>" --lock-out config/hce-build.lock.json
+```
 
 Paths are recorded relative to the install root, so two machines on the same build produce
 identical locks.
@@ -115,9 +130,10 @@ CU2-label caveat the previous revision of this note carried.
 New tag content in CU4, per the CU3 → CU4 `tagdiff`: exactly one tag, the
 `a10/unsc_cryo_capsule` animation graph. The oddly named
 `Cinematics/020la_sword/.../jorge_turret` graph is present all the way back in vanilla CU2 —
-it is launch-era content, not update content. The two tags the full validation cannot parse
-fail identically on CU2, CU3 and CU4 — a long-standing decoder gap, not an update regression
-(see the pipeline note's known issues).
+it is launch-era content, not update content. The two tags the full validation could not parse
+on 2026-08-18 failed identically on CU2, CU3 and CU4 — a long-standing decoder gap, not an update
+regression. It was fixed on 2026-08-19 (`86f109dc`), and both now parse end to end (see the
+pipeline note's known issues).
 
 ## What is still CU3-or-earlier-measured
 

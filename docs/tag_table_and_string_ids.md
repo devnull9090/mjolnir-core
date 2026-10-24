@@ -79,7 +79,8 @@ string-ids --find <name>` asks the running game directly.
 ## The console's tag commands
 
 `defs/hce/console.json` (CU4) lists `tag_is_active`, `tag_load_force`, `tag_unload_force` and
-`tag_reload_force` as **live** functions (flags 4) and `dump_loaded_tags` as a stub.
+`tag_reload_force` as **live** functions, not stubs (the three `*_force` commands carry flags 4,
+`tag_is_active` flags 0), and `dump_loaded_tags` as a stub.
 `mods/MJOLNIRBlamConsole` reaches them. Measured in A30:
 
 | Command | Result |
@@ -143,8 +144,10 @@ So, for tags:
   handle}`.
 
 This is the door the new-scenario work found closed for `scenario` packages
-(`new-scenario-door-open`): the refusal there is specific to how a scenario is opened, not to
-new packages as such.
+([`new_scenario_loading.md`](new_scenario_loading.md)): the refusal there is specific to how a
+scenario is opened, not to new packages as such. **Update 2026-10-21:** that door opened on
+2026-09-11 (`58def73b`): a new codename starts once it is cooked into `DT_Scenarios` as a row,
+with a `ScenarioList` handle on the campaign asset (`crates/blam-pack/src/scenario.rs`).
 
 ## A tag reference in the resident copy
 
@@ -215,7 +218,9 @@ the assault rifle fires banshee plasma bolts, and reverts on the next poke.
 The RVAs above belong to one tag module. On a game update: hash the new
 `HaloSimulation_tag_release.dll`, re-measure the eight globals (the label `tag instance` at the
 table object and the registry header `00f80f00 00fc0700 04000000` are the anchors to confirm
-against), and add a `Profile` in `crates/blam-live/src/tagtable.rs`. Until then the sweep runs.
+against), and add a `Profile` in `crates/blam-live/src/tagtable.rs`. ~~Until then the sweep runs.~~
+**Superseded 2026-09-07** by the next section: until then the four code anchors derive the
+profile, and the sweep runs only when they cannot (an anchor that does not match exactly once).
 
 ## Finding the globals without a measurement (2026-09-07)
 

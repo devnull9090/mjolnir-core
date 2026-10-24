@@ -52,7 +52,8 @@ export const openApiInfo = {
       "Reads are public and unauthenticated. Browser sessions use Discord " +
       "OAuth with an HttpOnly cookie; third-party tools authenticate with " +
       "`Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, " +
-      "mods:write, ratings:write, comments:write), minted at /account/api-keys. " +
+      "mods:write, ratings:write, comments:write, lobbies:write), minted at " +
+      "/account/api-keys. " +
       "Desktop clients with no browser session pair instead: /auth/device/start, " +
       "show the user the code, and poll /auth/device/token for a scoped key. " +
       "Any authenticated write may additionally answer 401 (no identity), " +

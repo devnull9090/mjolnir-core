@@ -29,7 +29,7 @@ function Board.totals(match)
         -- transfer or erase an earned team point.
         local player = match.players[kill.player]
         kill.team = kill.team or (player and Board.team(player.team))
-        if totals[kill.team] then totals[kill.team] = totals[kill.team] + 1 end
+        if totals[kill.team] then totals[kill.team] = totals[kill.team] + (kill.points or 1) end
     end
     return totals
 end

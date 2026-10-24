@@ -15,6 +15,14 @@ floor, sun and sky in-process the moment the world loads. Runtime spawning uses
 the game's own class layouts, so it sidesteps the serialization wall entirely
 (see [Rules that keep a map loadable](#rules-that-keep-a-map-loadable)).
 
+**Update 2026-10-21:** that was the only recipe until 2026-10-11. Cooked actors
+now load once their properties are re-encoded in the game's layout
+(`ue_asset::retarget`, see [What the runs established](#what-the-runs-established)),
+so the remastered maps' Landscape worlds carry their ground and baked foliage,
+rocks and scenery (`tools/level/bake_editor_world.sh`). A class whose native
+`Serialize` 343 changed would still fail. The empty world is what this kit's
+scripts below build.
+
 ## Requirements
 
 | What | Why |
@@ -26,8 +34,9 @@ the game's own class layouts, so it sidesteps the serialization wall entirely
 
 ## Quickstart
 
-Override a campaign scenario's world — today that is the only route that
-launches, because scenario *names* are gated by Blam tags (see below).
+Override a campaign scenario's world. That is the route these scripts take; a
+map can also launch under a scenario name of its own, baked with
+`mjolnir level bake --standalone <CODE>` (see below).
 
 ```powershell
 cd unreal\MJOLNIRMapKit\scripts
@@ -91,7 +100,7 @@ The world's package path (folder + asset name) must match **exactly**.
 [`Content/Python/mjolnir_build_world.py`](Content/Python/mjolnir_build_world.py)
 builds it; open the level in the editor afterwards to extend it. It contains:
 
-- a 50×50 m floor (engine `Plane` mesh),
+- a 50×50 m floor slab (a scaled engine `Cube`, which carries box collision),
 - one **`PlayerStart`** — the player spawn,
 - movable sun + skylight + atmosphere (no lighting build needed),
 - example **marker actors** for the spawn conventions below.
@@ -101,7 +110,7 @@ builds it; open the level in the editor afterwards to extend it. It contains:
 The game's own actor classes (bipeds, vehicles, weapons) do not exist in stock
 Unreal, so a map cannot place a Warthog directly. Instead the map declares
 *intent* with plain `TargetPoint` actors carrying actor tags, and a runtime
-mod (UE4SS Lua) reads the tags and spawns the real thing:
+mod (UE4SS Lua) was to read the tags and spawn the real thing:
 
 | Actor tag | Meaning |
 |---|---|
@@ -109,8 +118,10 @@ mod (UE4SS Lua) reads the tags and spawns the real thing:
 | `MJOLNIR.WeaponSpawn.<Weapon>` | weapon pickup point |
 | `MJOLNIR.ObjectiveMarker.<Name>` | game-mode objective location (flag stand, hill, ...) |
 
-The tag reader/spawner mod is future work; the convention is established now
-so maps built today keep working.
+No mod reads these tags. Placements are declared in a level file instead:
+vehicles, weapons, equipment and player starts bake into the scenario
+(`mjolnir level bake`), and decor is placed at runtime by MJOLNIRLevelLoader
+([`docs/level_format.md`](../../docs/level_format.md)).
 
 ## Rules that keep a map loadable
 
@@ -120,8 +131,11 @@ so maps built today keep working.
    for them. Anything else you add must cook into your container, and:
 2. **Leave `bShareMaterialShaderCode=False` alone** (set in
    `Config/DefaultGame.ini`). It inlines shader bytecode into material
-   packages. The game never opens a dropped-in container's shader library, so
-   shared shader code renders broken or crashes.
+   packages, so this kit's container needs no shader library. The game does
+   open a dropped-in container's library when it is named after the project
+   and the container's chunk (`Meteorite_Chunk<N>` in a `pakchunk<N>-...`
+   container); materials that need one are cooked in
+   [`MJOLNIRMaterials`](../MJOLNIRMaterials), which is set up for that.
 3. **Cook with UE 5.5.x only.**
 4. **No World Partition** for test maps (the generator creates a classic
    persistent level). The shipped campaign uses WP, but every stripped test
@@ -157,6 +171,8 @@ are being read with the wrong ruler.
 
 > **Ship the world empty (`MJOLNIR_CONTENT=none`); build the map at runtime.**
 
+**Superseded 2026-10-11 by the retarget below; kept as the record.**
+
 **The open lead:** cook with *tagged* properties instead, so each property carries its name and
 type and the game's loader can skip what it does not recognise.
 `package.ps1 -TaggedProperties` does this. It cannot be a project setting — with
@@ -166,12 +182,12 @@ full of it — so it is passed to the cook process alone. **Untested against the
 works, modders get to author real geometry in the editor instead of scripting it.
 
 **Fixed another way (2026-10-11): re-encode the properties in the game's layout.** The
-editor's `WriteUsmap` (MjolnirUIBuilder, `Scripts/write_stock_usmap.py`) writes stock 5.5's
+editor's `WriteUsmap` (MjolnirUIBuilder, `unreal/MJOLNIRMaterials/Scripts/write_stock_usmap.py`) writes stock 5.5's
 schemas to `defs/ue/UE-5.5-stock.usmap`; `ue_asset::retarget` (example `retarget_package`)
 decodes each export of a cooked package with it and encodes it again with the game's usmap,
 matching properties by name. 343's `PrimitiveComponent` has backported fields (5.6's
 `FirstPersonPrimitiveType`, `bHoldout`), so before this every stock component was misread
-from that slot on. Proven with a Landscape (`Scripts/build_landscape_test.py`): unversioned
+from that slot on. Proven with a Landscape (`unreal/MJOLNIRMaterials/Scripts/build_landscape_test.py`): unversioned
 as cooked, the game died with "this landscape does not contain cooked data"; retargeted, it
 loads, renders and answers Unreal traces with its heightfield collision on Death Island. The
 native data after the properties is kept as cooked, so a class whose `Serialize` 343 changed
@@ -214,11 +230,16 @@ BSP collision is still live. So a world overriding a campaign scenario inherits 
 invisible floor plan, which is useful to know before wondering why a player will not stand where
 you put your slab.
 
-**Scenario names are gated by Blam tags.** Only the 13 shipped campaign scenarios have
-`*-scenario` tags, and the campaign flow resolves the scenario *name* against those tags. A
-`testing_*` name cannot launch regardless of what world package exists, so a custom world must
-override a campaign scenario's world (the table of free `Testing_*` slots above is therefore
-aspirational until scenario-tag generation works).
+**Scenario names are gated by Blam tags, and a map can now bring its own.** Of the shipped
+names, only the 13 campaign scenarios have `*-scenario` tags, and the campaign flow resolves the
+scenario *name* against those tags, so a `testing_*` name still cannot launch regardless of what
+world package exists. `mjolnir level bake --standalone <CODE>` ships a baked scenario as a new
+tag package under a three-character codename, and
+`blam_pack::scenario` gives that codename a `DT_Scenarios` row and a `ScenarioList` handle, so it
+starts (verified 2026-09-11, [`docs/new_scenario_loading.md`](../../docs/new_scenario_loading.md)).
+The row's `UnrealLevel` can point at a world the map ships (`--world`) or at another world path,
+such as one of the `Testing_*` slots above (`--world-object`). `mjolnir level register` rebuilds
+that registration from every installed map.
 
 **Environment switches** on the generator: `MJOLNIR_LEVEL_PACKAGE` (target package path),
 `MJOLNIR_CONTENT` (comma-separated list of `floor,playerstart,lights,markers`, or `none`),
@@ -226,13 +247,20 @@ aspirational until scenario-tag generation works).
 
 ## Known unknowns
 
-- **Tagged-property cooking is untested** — see above. It is the difference between authoring
-  maps in the editor and scripting them in Lua.
+- **Tagged-property cooking is untested** — see above. It is no longer what decides between authoring maps
+  in the editor and scripting them in Lua: the property retarget is what made cooked worlds load.
+  `package.ps1 -TaggedProperties` and `tools/ue/cook.ps1 -TaggedProperties` remain for comparison.
 - The 13 shipped campaign worlds all have generated **Blam scenario/BSP tags**; the stripped
-  test worlds have none in the retail build. Generating one is what would free a custom map
-  from having to squat on a campaign scenario ([`docs/tag_data_pipeline.md`](../../docs/tag_data_pipeline.md)).
-- Whether the Blam-driven pawn collides with **runtime-spawned Unreal geometry** at all. It
-  walks on Blam BSP collision; our slab has not been shown to be stood on.
+  test worlds have none in the retail build. **Answered:** a custom map no longer has to squat
+  on a campaign scenario. A standalone bake (above) ships a scenario tag package under a codename
+  of its own, and `mjolnir level collision --own-bsp` builds it a structure BSP from the map's
+  own CE collision alone ([`docs/tag_data_pipeline.md`](../../docs/tag_data_pipeline.md),
+  [`docs/map_distribution.md`](../../docs/map_distribution.md)).
+- **Answered (2026-08-19):** the Blam-driven pawn does not collide with Unreal geometry; the
+  simulation ignores it entirely and walks only on its own collision (the scenario's structure
+  BSP and Blam objects). Unreal collision answers Unreal traces only, as the Landscape above
+  does. Solid ground has to bake into the scenario (`mjolnir level collision`,
+  [`docs/level_format.md`](../../docs/level_format.md)).
 
 ## How the container works
 
@@ -291,3 +319,12 @@ for actors or for meshes. Getting Blood Gulch on screen needs either a mesh
 written in the game's own serialisation (the `ue-asset` mesh/Nanite decoders
 are the start of that) or geometry built at runtime through the game's own
 classes.
+
+**Update 2026-10-21:** superseded. Cooked components load once re-encoded in
+the game's property layout (the 2026-10-11 retarget above), so the remastered
+maps' Landscape worlds carry their ground and baked foliage. Meshes go two
+ways: `ue-asset` writes geometry into a shipped mesh's LOD array in the game's
+own serialisation ([`docs/ue_mesh_write.md`](../../docs/ue_mesh_write.md);
+the CTF flag, `tools/level/build_ce_runtime.sh`), and stock-cooked Nanite
+meshes load when the retarget covers `StaticMesh` (the tessellated cliffs in
+chunk 983, `cook.ps1 -Classes ...,StaticMesh`).

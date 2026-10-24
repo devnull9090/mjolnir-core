@@ -18,6 +18,11 @@ The format therefore carries two kinds of content:
 Anything the player must stand on, drive over, hide behind, or shoot goes in `blam.*`.
 Anything that only needs to look right can go in `decor`.
 
+A standalone bake (`mjolnir level bake --standalone CODE`) ships the result as a new launchable
+scenario instead of an override of the canvas, and can give it a structure BSP (`--bsp`) and an
+Unreal world (`--world`) of its own; the converted CE maps are built that way
+([ce_map_conversion.md](ce_map_conversion.md)).
+
 ## Units, axes, angles
 
 The file stores **UE-native values**: centimeters, Unreal's left-handed Z-up axes, rotations in
@@ -62,6 +67,7 @@ map). Author around your own origin in Blender; move the whole level by editing 
       "bipeds": true,                // remove placed bipeds
       "weapons": true,               // remove the mission's own weapon placements
       "vehicles": true,              // remove the mission's own vehicle placements
+      "equipment": true,             // remove the mission's own equipment placements
       "scripts": true                // stub the mission's HSC scripts
     },
     "player_starts": [               // >= 2 for co-op
@@ -98,15 +104,20 @@ map). Author around your own origin in Blender; move the whole level by editing 
 }
 ```
 
-The JSON Schema is [`defs/level/level.schema.json`](../defs/level/level.schema.json); validate
-with `mjolnir level validate <file>`.
+[`defs/level/level.schema.json`](../defs/level/level.schema.json) is a JSON Schema for the
+format, but it has fallen behind the keys below and nothing in the repository reads it.
+`mjolnir level validate <file>` checks a file the way the bake reads it (`LevelFile` in
+`crates/blam-cli/src/level.rs`): no unknown keys, one of the 13 canvas scenarios, a slug `name`,
+known palette types, and `scenery` or `crates` objects. The keys a remastered map adds for the
+loader alone are unknown to it (see *Keys a converted map adds*).
 
 ## Section notes
 
 ### `canvas`
 
 `scenario` must be one of the 13 launchable names (`A15 A30 A50 B30 B40 C10 C20 C45 D20 D40
-E10 E20 E30`) — scenario names are gated by Blam tags and new ones cannot launch. The default
+E10 E20 E30`) — the canvas has to be a shipped scenario; a new launchable name comes from a
+standalone bake, which registers its codename (`pakchunk996-MJOLNIRREG_P`). The default
 canvas for the pipeline is **B40** (fullest vehicle palette, large flat canyon floors).
 `origin` should sit on walkable BSP: the level's playable area must lie on the canvas map's
 Blam collision, because that is the only floor the sim knows.
@@ -145,9 +156,14 @@ Two more keys come from a CE map's sky and BSP:
 - `weather: { system, copies, params, follow }`. A Niagara system the game
   ships, `copies` of it (1 to 16), each given `params` (user parameters by
   name, floats). The PNW snow fills a box around its component, not around
-  the view, so the copies are spawned in the world at the camera and moved
-  back to it ten times a second unless `follow` is false. Attaching them to
-  the camera draws nothing, because the camera manager is a hidden actor.
+  the view, so the copies are spawned in the world at the camera and follow
+  it (checked ten times a second, moved once the camera has gone half a
+  metre) unless `follow` is false. Attaching them to the camera draws
+  nothing, because the camera manager is a hidden actor. `roofs`
+  (`{ cell, reach, cells }`, written by `gen_ce_level.py`) lists the
+  ceilings over the level by cell; while one is within `reach` above the
+  camera the copies are hidden, as CE's weather polygons kept snow out from
+  under Coldsnap's roofs.
 
 `MJOLNIRWorldBuilder` stands down for any world that has a level file, so its
 auto-built sun and floor pad cannot land on top of an authored environment.
@@ -155,20 +171,24 @@ auto-built sun and floor pad cannot land on top of an authored environment.
 ### `blam.vehicles` / `blam.weapons` / `blam.equipment` — `type` values
 
 Friendly names resolve through [`defs/level/palette-map.json`](../defs/level/palette-map.json)
-to tag paths. v1 requires the resolved tag to already be in the canvas scenario's palette
-(B40 ships warthog, ghost, scorpion, banshee, wraith, shade; palette contents for all 13 are in
-the palette map). Growing a palette means appending a palette block element — supported by the
-bake once block-append lands, but the referenced vehicle's assets may not be streamed for that
-map; treat cross-map palette grafts as experimental.
+to tag paths. A type the canvas palette lacks gets a palette entry of its own, cloned from entry
+0 and re-pointed (B40 has no shotgun or fuel rod, for example); the canvas needs at least one
+placement and one palette entry of that kind to clone from. The palette map records what each of
+the 13 canvases already carries (B40: warthog, ghost, scorpion, banshee, wraith, shade, pelican).
+The added object's assets may still not be streamed for that map; treat cross-map placements as
+experimental.
 
 ### `blam.objects` — the structures lane
 
-Each entry becomes a `scenery` or `crates` placement in the scnr (palette entry appended as
-needed, element cloned from a donor and re-pointed). Object tags bring their own collision and
-render models, so this is how ramps, walls, bases, and cover are built. Block capacity is
-generous (scenery 2000, crates 1536, palettes 256 each). Restrictions v1: groups `scenery` and
-`crates` only (machines/controls need device-group wiring); tag paths must exist in the shipped
-tag set (`mjolnir list --paks ... --group scenery_object`).
+Each entry becomes a `scenery`, `crates` or `machines` placement in the scnr (palette entry
+appended as needed, element cloned from a donor and re-pointed). Object tags bring their own
+collision and render models, so this is how ramps, walls, bases, and cover are built. Block
+capacity is generous (scenery 2000, crates 1536, palettes 256 each). A machine is cut loose
+from the donor's device groups (power and position group `none`), so it runs on its own: a
+gear turns from the map's start. Controls need device-group wiring and are not supported. Tag
+paths must exist in the shipped tag set (`mjolnir list --paks ... --group scenery`, or `--group
+crate` for crates) or in a container installed beside the map (Halo 2's machines,
+`tools/level/h2_machines.py`).
 
 ### `blam.clear`
 
@@ -177,8 +197,9 @@ for an arena level. The bake runs its placement passes **first** and the clears 
 clone still has a shipped donor to copy from; the clear then keeps only the
 elements this bake appended (`Op::KeepLast`) and drops the mission's prefix.
 `clear` empties the relevant placement blocks (counts set to zero or
-elements disabled) and `scripts: true` swaps the scenario's HSC source for one startup script
-(mechanism proven — script sections already resize through `blam-tag::write::Edits`). Expect
+elements disabled; `equipment` covers the mission's equipment placements, and `blocks` names any
+other root block to empty, e.g. `["machines", "scenario kill triggers"]`) and `scripts: true`
+swaps the scenario's HSC source for one startup script (mechanism proven — script sections already resize through `blam-tag::write::Edits`). Expect
 per-mission iteration on how much clearing a mission tolerates before something native asserts.
 
 That startup script is not optional dressing. A Blam map boots faded to black with the HUD
@@ -190,7 +211,7 @@ and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and c
 `player_enable_input` leaves the player able to look around but not move, shoot or switch
 weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
 
-### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`
+### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`, `blam.cutscene_flags`
 
 - `world_bounds`: `[{ "bsp": 8, "min": [x, y, z], "max": [x, y, z] }]`, Halo
   wu. Sets a structure BSP's box in the scenario; the boxes decide which BSP a
@@ -212,9 +233,13 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
   vehicle and scenery tag the level places. Under a multiplayer (Megalo)
   engine, objects whose tags carry multiplayer data exist only through the map
   variant, which the simulation builds from the palette-listed placements.
+- `cutscene_flags`: `[{ "pos": [x, y, z], "yaw": 0 }]` moves the canvas's first
+  cutscene flags to these points, so their names stay valid for
+  `player_teleport` / `object_teleport` from the Blam console.
 
-A `blam.objects` element also takes `set`: fields of the placement, relative to
-its element (`"multiplayer data.owner team": "neutral"`).
+A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
+fields of the placement, relative to its element
+(`"multiplayer data.owner team": "neutral"`).
 
 ### `multiplayer`
 
@@ -222,38 +247,89 @@ Top-level `"multiplayer": true` asks MJOLNIRLevelLoader to start the level
 under the simulation's Megalo engine rather than the campaign
 ([re/megalo_engine.md](re/megalo_engine.md)). The bake ignores it.
 
+### Keys a converted map adds
+
+A converted CE map's level file carries more. All but `modes` are read by `MJOLNIRLevelLoader`,
+and the loader's comments beside each are the reference.
+
+- Accepted by `level bake` and passed over: `variant` (the Megalo game type the map starts
+  with), `modes` (the game types the multiplayer menu offers, listed in the `maps.json` an
+  install writes), `vehicle_sets` (CE's vehicle sets, from which the loader picks the labels a
+  game type requires), `ctf` (Capture the Flag's look: the flag mesh, its materials, the
+  stands), `health_pack` (the CE health pack's look) and `foliage` (the game's grass, tufts and
+  stones, from a file beside the level).
+- Written by `tools/level/upgrade_ce_map.py` for a remastered map, and unknown to
+  `level validate` and `level bake`: `landscape` (an Unreal Landscape for the ground), `flux`
+  (Fluid Flux over rivers and the sea), `decals` (the game's decal materials), `lights` (CE's
+  placed lights as shadowed point lights), `effects` (the game's Niagara ambient life),
+  `slot_meshes` (translucent terrain slots as meshes of their own), `shadow_shell` and
+  `waterfalls`.
+- Under `environment`, beside the keys above: `haze` (Unreal's height fog as distance haze),
+  `clouds` (volumetric clouds), `water` (CE water drawn as rolling, reflecting water),
+  `sun_mask` (a cooked mask of where the sun reaches the terrain), `sounds` (CE's or Halo 2's
+  background sound and sound scenery; an entry's optional `pitch` is a playback rate
+  multiplier) and `fade_in` (`false` opts out of the fade-in the loader asks the Blam console
+  for).
+
 ### `decor`
 
-`mesh` is a full UE object path: `/Engine/BasicShapes/*` or any shipped `SM_` package
-(catalog via `mjolnir mesh list`). The loader spawns `StaticMeshActor`s with `Mobility=Movable`
-(the `SetStaticMesh`-refuses-when-Static edge is handled) and applies `tint` through a dynamic
+`mesh` is a full UE object path: `/Engine/BasicShapes/*`, any shipped `SM_` package
+(catalog via `mjolnir mesh list`), or one of our own packages under `/Game/MJOLNIR/`. The loader
+spawns `StaticMeshActor`s with `Mobility=Movable` (the `SetStaticMesh`-refuses-when-Static edge
+is handled) and applies `tint` through a dynamic
 material instance when the base material exposes a color parameter (BasicShapeMaterial does;
 WorldGridMaterial does not). Decor never blocks anything — do not fake floors or walls with it.
 
-`materials` assigns shipped material instances per material slot, in order, an empty entry
-leaving a slot alone. They go on the **component**, not the mesh: a mesh whose geometry was
-written into a donor package (see [ue_mesh_write.md](ue_mesh_write.md)) still reports the
+`materials` assigns a material per slot, in order, an empty entry leaving a slot alone. An entry
+is a material path (a shipped instance, or one of our own cooked materials) or a runtime
+material, `{ "parent", "textures", "scalars", "vectors", "linear" }`, which the loader makes into
+a dynamic instance of `parent`. They go on the **component**, not the mesh: a mesh whose
+geometry was written into a donor package (see [ue_mesh_write.md](ue_mesh_write.md)) still reports the
 donor's single slot however many the package declares, while `SetMaterial` grows the
 component's override list to as many sections as the render data names. That is what makes a
 transplanted mesh come out textured rather than default grey — Blood Gulch's terrain is one
 decor entry with three. `mesh_rewrite --material` prints the list to paste here.
 
+A converted map's decor also uses `cast_shadow` (false on level geometry whose shadows are
+baked), `sort_priority` (translucent sort order, for the sky), `pulse` (one runtime-material
+scalar driven by a CE periodic function), `scalars` (values on the mesh's own materials),
+`static` (no world-position offset), `capture_only` (seen by the Fluid Flux ground capture,
+then hidden) and `motion` (a Halo 2 gear that turns: `pivot_cm` from the actor, `period` in
+seconds, `keys` as `[seconds, yaw degrees]`, linear between them; with `axis`, a unit vector,
+the keys are degrees about it instead of yaw; `events`, `{t, wave, gain, inner, falloff}`,
+are one-shots played at the pivot as the turn passes `t`; `follow`, `{class, pos}`, names a
+machine of the simulation's own (its Unreal Blueprint class and position, from the canvas
+origin) whose collision turns with the part: the loader attaches the mesh to that actor's
+turning part once it finds it, and fits the turn's phase, for the sounds, to what the part
+does; meshes with the same `entry` (a part's opaque and translucent ones) share that actor,
+and each other part claims its own; until then, and without `follow`, the loader turns the actor about the pivot on the
+world's clock); see the loader's `spawnDecorItem`.
+
 ### `markers`
 
-Inert named points, carried so game-mode work (see
+Inert points, carried so game-mode work (see
 [multiplayer_ctf_plan.md](multiplayer_ctf_plan.md)) can consume them later without a format
-change. Names follow the MapKit convention (`flag_red`, `hill_1`, ...).
+change. An authored level names them, following the MapKit convention (`flag_red`, `hill_1`,
+...); a converted CE map lists its netgame flags as `{ "type", "team", "pos", "yaw" }`
+(`ctf_flag`, `hill`, `oddball`, ..., from `defs/level/ce-tag-map.json`). Nothing reads them yet.
 
 ## File placement and flow
 
 ```
 Blender (+ addon)                        tools/blender/mjolnir_level
    └─ exports <name>.level.json
-        ├─ mjolnir level bake <file>     → scnr override container (_P .utoc/.ucas [+ stub .pak])
-        │                                   installs to Meteorite/Content/Paks for testing
-        └─ copied verbatim               → .../ue4ss/Mods/MJOLNIRLevelLoader/levels/<SCENARIO>.level.json
-                                            read by the loader when that scenario's world arrives
+        ├─ mjolnir level bake <file>     → canvas override: pakchunk998-MJOLNIRLEVEL-<name>_P .utoc/.ucas
+        │  … --standalone CODE           → a new scenario: pakchunk997-MJOLNIRMAP-<CODE>_P, plus the
+        │                                   shared registration container pakchunk996-MJOLNIRREG_P
+        │                                   (--install-test writes either to Meteorite/Content/Paks,
+        │                                   with a stub .pak)
+        └─ copied verbatim               → .../ue4ss/Mods/MJOLNIRLevelLoader/levels/<KEY>.level.json
+                                            KEY = the canvas scenario, or CODE for a standalone map;
+                                            read by the loader when that world arrives
 ```
+
+A map installed from a map pack lives at `ue4ss/MJOLNIRMaps/<CODE>/level.json`, which the loader
+reads in preference to `levels/` ([map_distribution.md](map_distribution.md)).
 
 Launch the canvas mission through the game's own menu (CAMPAIGN → mission select, or the debug
 map menu — `mjolnir_mission` does not cold-start the simulation on current builds; see the

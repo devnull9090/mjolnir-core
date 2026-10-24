@@ -9,6 +9,9 @@ file format in [docs/level_format.md](../../../docs/level_format.md).
 
 Blender 4.0+ (tested on 5.1). Either:
 
+- run `scripts\install-blender-tools.ps1` from the repository, which installs
+  and enables this addon (and blender-mcp, downloaded from GitHub) in the
+  newest Blender under Program Files; pass `-BlenderExe` for another, or
 - zip the `mjolnir_level` folder and install it via
   *Edit → Preferences → Add-ons → Install…*, or
 - for development, add `tools/blender` to `sys.path` and
@@ -38,6 +41,13 @@ Everything lives in the 3D Viewport sidebar (`N`) under **MJOLNIR**:
    ```
    mjolnir level bake my_level.level.json --paks <Paks> --install-test
    ```
+
+   The export owns the whole world. It writes a default sun, skylight and
+   atmosphere for the loader to spawn, and clears the canvas mission's own
+   vehicles, weapons, equipment and placed bipeds (`blam.clear`), so only the
+   scene's content remains. The mission's AI squads and script stay; add
+   `squads` and `scripts` to `blam.clear` by hand to remove them
+   ([docs/level_format.md](../../../docs/level_format.md)).
 
 Blender works in meters, Z-up; the exporter converts to UE centimeters and
 negates Y and every rotation angle. Compound (multi-axis) rotations can differ
