@@ -4,16 +4,16 @@ class Mjolnir < Formula
   desc "Inspect and edit the Blam tag data inside an installed copy of Halo Campaign Evolved"
   homepage "https://mjolnircore.com"
   license "MIT"
-  version "0.3.0"
+  version "0.5.0"
 
   on_macos do
-    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.3.0/mjolnir-0.3.0-macos-universal.tar.gz"
-    sha256 "434ecb5b045fd78ac76a38dc0df1fd80cb66800c0a661480d48b22e60d1d7997"
+    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.5.0/mjolnir-0.5.0-macos-universal.tar.gz"
+    sha256 "aed8c86f6ec76b9b7194be911a782c79d39407e61b4b08551104335798149c92"
   end
 
   on_linux do
-    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.3.0/mjolnir-0.3.0-linux-x64.tar.gz"
-    sha256 "58d68458a1a27fe77ea6698f4e562a372e41250f0b43b30c70d991a21254a1f3"
+    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.5.0/mjolnir-0.5.0-linux-x64.tar.gz"
+    sha256 "2c58f3919937c6a053804942da339452aa95558d60c6f218feee9ad512e52233"
   end
 
   def install
