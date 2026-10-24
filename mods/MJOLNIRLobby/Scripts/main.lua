@@ -172,7 +172,7 @@ local function offered(mode)
         local paks = at and MOD_DIR:sub(1, at - 1) .. "\\Content\\Paks"
         mounted[stem] = (paks ~= nil and fileExists(paks .. "\\" .. stem .. ".pak")) or hubMounts(stem)
         if not mounted[stem] then
-            log(mode.name .. " is not offered: " .. stem .. " is not installed (the CE runtime pack before its blue flag); "
+            log(mode.name .. " is not offered: " .. stem .. " is not installed (an older CE runtime pack); "
                 .. "update the CE runtime pack in the MJOLNIR launcher")
         end
     end
@@ -234,6 +234,19 @@ local function startGame(map, mode)
     local table_ = StaticFindObject(SCENARIOS)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
+    end
+    -- Forge runs on the host alone for now: a fireteam client reads the game
+    -- type from insertion slot 0 and would start Slayer under the Megalo
+    -- engine against the host's sandbox engine. So no guests, and never a
+    -- public listing strangers could join.
+    if mode.forge then
+        local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
+        local members = 1
+        if UI.valid(squad) then pcall(function() members = squad:GetNumSquadMembers() end) end
+        if members > 1 then
+            return false, "FORGE is host only for now: start it without fireteam members"
+        end
+        Games.setPublic(false)
     end
     -- A map installed after the game started (in game, or by the launcher
     -- with no relaunch since) is in no cooked registration: its scenario

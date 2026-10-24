@@ -48,6 +48,7 @@ mjolnir-core/
 │   ├── MJOLNIRLobby/            # MULTIPLAYER menu: host, find and join games, maps from the hub
 │   ├── MJOLNIRLevelLoader/      # Runtime half of custom levels and converted CE maps
 │   ├── MJOLNIRHud/              # Multiplayer HUD: kill feed, scoreboard, match chat
+│   ├── MJOLNIRForge/            # Forge: the Monitor and its editor keys in a FORGE game
 │   ├── MJOLNIRFlyCam/           # Free debug camera on the numpad, mouse look, HUD toggle
 │   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ only; Tab is the scoreboard)
 │   ├── MJOLNIRMultiplayer/      # Mission launching, debug menu, travel probes & admin commands
@@ -140,6 +141,14 @@ records the match for the hub's match history. `mjolnir_hitches` logs frame hitc
 `mjolnir_bench` times what the foliage or a console variable costs a frame; its native half,
 built from `native/frame_times`, reads `stat unit`'s split for it. See
 [`docs/multiplayer_hud.md`](docs/multiplayer_hud.md).
+
+### MJOLNIRForge
+Halo Reach's Forge, still inside the simulation. In a FORGE game (MJOLNIRLobby's game type of
+that name, host only for now) B turns you into the Monitor and back, V picks up and drops what the
+cursor is on, Page Up and Page Down push a held object out or pull it in, and Delete removes it.
+Its native half, built from `native/forge`, turns each key into the engine's own editor request on
+the simulation's thread. See [`docs/forge.md`](docs/forge.md) and
+[`docs/re/forge_engine.md`](docs/re/forge_engine.md).
 
 ### MJOLNIRFlyCam
 Free-flying detached camera on the numpad, with mouse look, speed boost, and automatic

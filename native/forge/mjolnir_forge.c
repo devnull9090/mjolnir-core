@@ -420,6 +420,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, (LPCWSTR)module, &pinned);
         DisableThreadLibraryCalls(module);
         InitializeCriticalSection(&g_lock);
+        // Nothing seen yet: no player, nothing held or aimed at, and no tick
+        // (pump reports forge=0 until the first sandbox tick).
+        g_snap.player = -1;
+        g_snap.held = g_snap.cursor = 0xffffffffu;
+        g_published_tick = 0;
         derive_paths(module);
         set_status("loaded, not installed");
     }
