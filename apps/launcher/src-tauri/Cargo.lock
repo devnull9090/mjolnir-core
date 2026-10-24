@@ -2570,7 +2570,7 @@ dependencies = [
 
 [[package]]
 name = "mjolnir-launcher"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "blam-megalo",
  "blam-pack",
