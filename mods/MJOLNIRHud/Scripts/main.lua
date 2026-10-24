@@ -34,6 +34,7 @@ end
 
 local MOD_DIR = modDirectory()
 local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
+local publishPresence = dofile(MOD_DIR .. "\\Scripts\\presence_snapshot.lua").new(MOD_DIR)
 local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local MatchLog = dofile(MOD_DIR .. "\\Scripts\\matchlog.lua")
@@ -84,6 +85,7 @@ local DEATH_GRACE = 0.4
 --- a fireteam client. Refreshed each tick from the local controller's
 --- BlamPlayerStateComponent (refreshLocalPlayer).
 local LOCAL_PLAYER = 0
+local presencePlayerKnown = false
 
 -- ESlateVisibility
 local VISIBLE = 3        -- HitTestInvisible: drawn, never takes the mouse
@@ -157,7 +159,8 @@ local function refreshLocalPlayer()
     local ok, index = pcall(function()
         return playerController().PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
     end)
-    if ok and type(index) == "number" and index >= 0 then LOCAL_PLAYER = index end
+    presencePlayerKnown = ok and type(index) == "number" and index >= 0
+    if presencePlayerKnown then LOCAL_PLAYER = index end
 end
 
 --- "World /Game/Levels/Halo1/Solo/BGL/BGL.BGL" -> "BGL".
@@ -243,7 +246,7 @@ local nextRosterRefresh = 0
 local function stats(index)
     local p = Match.players[index]
     if not p then
-        p = { index = index, kills = 0, deaths = 0, suicides = 0, captures = 0, name = nil }
+        p = { index = index, kills = 0, rawKills = 0, deaths = 0, suicides = 0, captures = 0, name = nil }
         Match.players[index] = p
     end
     return p
@@ -348,6 +351,7 @@ HANDLERS.kill = function(inc)
     -- (blam_megalo Variant::team_slayer); the tallies do the same.
     local point = (betrayal and Match.variant == "team_slayer") and -1 or 1
     stats(killer).kills = stats(killer).kills + point
+    stats(killer).rawKills = (stats(killer).rawKills or 0) + 1
     if Match.variant == "team_slayer" then
         Match.teamKills[#Match.teamKills + 1] = { player = killer, team = teamOf, points = point }
     end
@@ -1153,6 +1157,7 @@ local function startMatch(running, world)
         teamKills = {},
         world = world,
         startedAt = now(),
+        presenceStarted = os.time(),
         -- The match log: the host records; a client asks the host for the
         -- match's id to claim its seat.
         logChecked = false,
@@ -1396,6 +1401,7 @@ local function tick()
     end
     if not Match then
         Queue = {}
+        publishPresence(nil, LOCAL_PLAYER)
         return
     end
     hookIncidents()
@@ -1420,6 +1426,7 @@ local function tick()
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
     drain()
+    publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
         Match.demoUntil = nil

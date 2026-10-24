@@ -4,8 +4,8 @@
 # tag-editor tests until PR #60 merged one that didn't build and broke the
 # v0.10.0 release.
 #
-# Path-filtered so PRs that touch neither the crates nor the tag editor's Rust
-# side skip both jobs entirely.
+# Path-filtered so PRs that touch neither the crates nor either desktop app
+# skip these jobs entirely.
 name: Rust Tests
 
 # Test jobs only ever read the repo; keep the token to that.
@@ -18,6 +18,7 @@ on:
     paths:
       - 'crates/**'
       - 'apps/tag-editor/src-tauri/**'
+      - 'apps/launcher/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rust-tests.yml'
@@ -26,6 +27,7 @@ on:
     paths:
       - 'crates/**'
       - 'apps/tag-editor/src-tauri/**'
+      - 'apps/launcher/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rust-tests.yml'
@@ -80,3 +82,32 @@ jobs:
       - name: Test
         run: cargo test --no-default-features
         working-directory: apps/tag-editor/src-tauri
+
+  launcher:
+    name: Launcher links and Discord startup
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/launcher/src-tauri -> target
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/launcher/pnpm-lock.yaml
+      - name: Build launcher frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+        working-directory: apps/launcher
+      - name: Test link routing and duplicate launch protection
+        run: |
+          cargo test --lib links::tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --lib discord
+        working-directory: apps/launcher/src-tauri

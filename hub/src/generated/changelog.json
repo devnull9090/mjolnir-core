@@ -74,6 +74,35 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.18.0",
+      "tag": "launcher-v0.18.0",
+      "title": "Open public games from Discord",
+      "date": "2026-10-24",
+      "summary": "Discord's Join Game can open MJOLNIR and start Halo Campaign Evolved, using the launcher's usual sign-in, map and update checks.",
+      "body": "### Added\n\n- **Launch from Discord.** Run the updated launcher once to register its\n  Discord launch link. Clicking Join Game on a public MJOLNIR session can\n  then start the game if it is closed. The normal update and file checks\n  run before launch; a game already running is kept open.\n- Works with **code mods 0.36.0**, which publish MJOLNIR Core presence and\n  receive public-session invites. Keep the Discord desktop app running\n  and enable activity sharing. No Discord SDK installation is needed.\n\n### Known issues\n\n- Joining from another Discord account, including a join that starts a\n  closed game, has not yet been verified end to end. Local presence and\n  automated invite handling tests pass.\n- If game startup or required downloads take more than about three minutes,\n  click Join Game again after the game is ready. An invite received while\n  playing waits until you return to the main menu.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Launch from Discord. Run the updated launcher once to register its Discord launch link. Clicking Join Game on a public MJOLNIR session can then start the game if it is closed. The normal update and file checks run before launch; a game already running is kept open.",
+            "Works with code mods 0.36.0, which publish MJOLNIR Core presence and receive public-session invites. Keep the Discord desktop app running and enable activity sharing. No Discord SDK installation is needed."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Joining from another Discord account, including a join that starts a closed game, has not yet been verified end to end. Local presence and automated invite handling tests pass.",
+            "If game startup or required downloads take more than about three minutes, click Join Game again after the game is ready. An invite received while playing waits until you return to the main menu."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.18.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.18.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.18.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.17.0",
       "tag": "launcher-v0.17.0",
       "title": "Checks before every launch, and moves other mods aside while you play",
@@ -134,6 +163,43 @@
       "path": "/changelog/launcher/0.16.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.16.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.16.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.36.0",
+      "tag": "mods-v0.36.0",
+      "title": "Share your game and public invites on Discord",
+      "date": "2026-10-24",
+      "summary": "Show your map, game type and observed kills and deaths as MJOLNIR Core on Discord, with Join Game for public sessions that have room.",
+      "body": "### Added\n\n- **Discord Rich Presence** (MJOLNIRLobby 0.17.0 and MJOLNIRHud 0.12.0).\n  Discord shows the current map, game type, observed local kills and deaths,\n  and time in the session. Menus and post-game states clear old match stats.\n- **Join Game for public sessions.** Public sessions with room can show a\n  join action on the host's and participants' profiles. Joining uses the\n  existing MJOLNIR sign-in and map checks. Private, full, offline, stale,\n  and non-joinable sessions do not advertise a join action.\n- Presence reconnects when Discord restarts. To disable it locally, create\n  `MJOLNIRLobby/native/discord_disabled.txt`; remove that file to enable it.\n\n### Changed\n\n- Use **launcher 0.18.0** for Discord invites that need to start the game.\n  Keep Discord desktop open with activity sharing enabled. No Discord SDK\n  download or additional runtime DLL is required.\n\n### Known issues\n\n- Joining from another Discord account has not yet been verified end to end.\n  Local presence and automated public-session and invite tests pass.\n- Kills and deaths count events observed during your local session; joining\n  late cannot reconstruct earlier events.\n- Make a solo session public before starting its match. A private solo\n  match that has already gone offline needs a fresh online session to be\n  joinable.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Discord Rich Presence (MJOLNIRLobby 0.17.0 and MJOLNIRHud 0.12.0). Discord shows the current map, game type, observed local kills and deaths, and time in the session. Menus and post-game states clear old match stats.",
+            "Join Game for public sessions. Public sessions with room can show a join action on the host's and participants' profiles. Joining uses the existing MJOLNIR sign-in and map checks. Private, full, offline, stale, and non-joinable sessions do not advertise a join action.",
+            "Presence reconnects when Discord restarts. To disable it locally, create MJOLNIRLobby/native/discorddisabled.txt; remove that file to enable it."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Use launcher 0.18.0 for Discord invites that need to start the game. Keep Discord desktop open with activity sharing enabled. No Discord SDK download or additional runtime DLL is required."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Joining from another Discord account has not yet been verified end to end. Local presence and automated public-session and invite tests pass.",
+            "Kills and deaths count events observed during your local session; joining late cannot reconstruct earlier events.",
+            "Make a solo session public before starting its match. A private solo match that has already gone offline needs a fresh online session to be joinable."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.36.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.36.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.36.0"
     },
     {
       "product": "mods",
