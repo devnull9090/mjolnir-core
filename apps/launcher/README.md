@@ -37,6 +37,14 @@ into one list of items, each carrying how to apply itself. It applies them
 sequentially — they write to the same game directory — with the launcher's own
 update last, because that one restarts the process.
 
+**Launch** checks first (`src/launch/PreflightProvider.tsx`, Rust side in
+`src-tauri/src/preflight.rs` and `unsupported.rs`): updates to the installed
+code mods, runtime and hub mods, the installed files against the hashes
+recorded at install, and pak or UE4SS mods MJOLNIR did not install, which it
+offers to move aside until the game exits. The game's own out-of-date prompt
+asks the same check through `--check-updates` and opens `mjolnir://update` to
+update and restart ([docs/update_check.md](../../docs/update_check.md)).
+
 ## How the hub side is put together
 
 | Layer | Where | What it does |
@@ -63,7 +71,9 @@ Point the launcher at a local hub with `MJOLNIR_HUB_URL=http://localhost:3000/ap
 | Where | What it does |
 | --- | --- |
 | `src-tauri/src/maps.rs` | Installed map packs, and the one registration container in `Paks` rebuilt from all of them (`blam_pack::maps::rebuild`, the same code as `mjolnir level register`) |
-| `src-tauri/src/links.rs` | `mjolnir://mod/<slug>`, `mjolnir://map/<CODE>` and `mjolnir://join/<lobby>` links from the website (the scheme is registered in `tauri.conf.json`) |
+| `src-tauri/src/links.rs` | `mjolnir://mod/<slug>`, `mjolnir://map/<CODE>` and `mjolnir://join/<lobby>` links from the website, and `mjolnir://update` from the game (the scheme is registered in `tauri.conf.json`) |
+| `src-tauri/src/preflight.rs` | What a launch checks first, and `--check-updates` for the game ([docs/update_check.md](../../docs/update_check.md)) |
+| `src-tauri/src/unsupported.rs` | Mods MJOLNIR did not install, moved aside into `MJOLNIR-set-aside` for a session and back, with a ledger |
 | `src-tauri/src/crash.rs`, `minidump.rs` | Crash reports: watches the folders UE's crash handler writes into, keeps the log, and sends a small bundle to the hub when the player says so; a slimmed dump follows only if the hub wants it and the player agrees again ([docs/crash_reports.md](../../docs/crash_reports.md)) |
 | `src-tauri/src/transfer.rs` | Byte counts for the Updates screen's progress bars and speed graph |
 | `src-tauri/src/tools.rs` | Companion tools such as the tag editor, installed on demand from their own manifests |
