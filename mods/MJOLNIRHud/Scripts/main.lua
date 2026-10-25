@@ -824,7 +824,11 @@ local function animate(t)
     pcall(function() Feed.Respawn:SetRenderScale({ X = s, Y = s }) end)
 end
 
+--- `mjolnir_scoreboard on` keeps the board up (two-PC tests, screenshots).
+local BoardPin = { on = false }
+
 local function boardHeld(pc)
+    if BoardPin.on then return true end
     local held = false
     for _, key in ipairs({ "Tab", "Gamepad_Special_Left" }) do
         local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName(key) }) end)
@@ -1521,6 +1525,13 @@ local function poll()
     end
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
+
+pcall(RegisterConsoleCommandHandler, "mjolnir_scoreboard", function(_, args, ar)
+    local on = tostring(args and args[1] or ""):lower()
+    BoardPin.on = on == "on" or on == "1"
+    pcall(function() ar:Log("MJOLNIR HUD: scoreboard " .. (BoardPin.on and "kept up" or "on Tab")) end)
+    return true
+end)
 
 pcall(RegisterConsoleCommandHandler, "mjolnir_hitches", function(_, args, ar)
     ExecuteInGameThread(function()
