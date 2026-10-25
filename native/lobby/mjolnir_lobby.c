@@ -2411,6 +2411,8 @@ static unsigned char *sim_game_globals(void);
 static void inject_players(void);
 static int inject_needed(void);
 
+static void seats_tick(void);
+
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
     sim_thread_id = GetCurrentThreadId();
@@ -2429,6 +2431,10 @@ static void __fastcall hook_main_tick(void) {
     }
     static unsigned inject_ticks;
     if (jip_host_auto && ++inject_ticks % 30 == 0) {
+        __try {
+            seats_tick();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
         __try {
             if (inject_needed()) {
                 fireteam_log("inject: a peer in the session has no player in the running game");
@@ -3284,6 +3290,108 @@ static void teams_balance_once(void) {
                  (unsigned long long)(site - sim));
 }
 
+/* The players parameter, as the in-game handler republishes it: machine
+   mask and ids, the local-machine fields cleared, then the entries. */
+static void publish_players(unsigned char *session, unsigned char *g) {
+    memcpy(session + 0x4584, g + 0x26c, 0x6a);
+    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
+    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
+    session[0x4580] = 1;
+    session[0x4578] |= 1;
+    *(unsigned long long *)(session + 0x4528) = 0;
+    typedef void(__fastcall * changed_t)(void *);
+    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+}
+
+/* A seat that changes hands keeps nothing of its last player (#236).
+   A player who leaves a match under way keeps their player record and score;
+   whoever takes the seat next gets both. Two ways: a peer that rejoins on the
+   departed peer's slot is handed the old player record outright (the engine
+   raises player_rejoined, nothing is created), and a joiner put in by
+   inject_players gets a fresh record on an index whose engine score (game
+   engine globals +0x32c0, four shorts a player, sim 0x2adc70) was never
+   cleared. Each seat's player identifier (options entry +0x12, 8 bytes, from
+   the session member's +4) is remembered; when a seat's member or record
+   shows a different one, the seat's engine score is cleared, and a reused
+   record takes the newcomer's identifier and profile and is republished.
+   The same person coming back keeps their score, as the engine intends. */
+static unsigned long long seat_id[16];
+static unsigned seat_known;
+static unsigned long long seat_instance;
+
+static void seat_reset_score(int p) {
+    unsigned char *block = sim_tls_block();
+    unsigned char *e = block ? *(unsigned char **)(block + 0x38) : NULL;
+    if (!e) return;
+    short *score = (short *)(e + 0x32c0 + p * 8);
+    fireteam_log("seats: seat %d's engine score was %d %d %d %d", p, score[0], score[1], score[2], score[3]);
+    memset(score, 0, 8);
+}
+
+static void seats_tick(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1] || !sim_sessions) return;
+    unsigned long long instance = *(unsigned long long *)(g + 0x18);
+    if (instance != seat_instance) {
+        seat_instance = instance;
+        seat_known = 0;
+    }
+    unsigned char *session = NULL;
+    for (int si = 0; si < 2; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (*(int *)(s + 0x5b460) == 6 && *(unsigned *)(s + 0x5c)) session = s;
+    }
+    if (!session) return;
+    unsigned members = *(unsigned *)(session + 0x140c);
+    int republish = 0;
+    /* native\seat_test.txt "<seat>": treat that seat as handed to another
+       player once (the record's identifier is changed), for a test with one
+       account per PC. Removed after use. */
+    char test_path[MAX_PATH];
+    snprintf(test_path, sizeof test_path, "%sseat_test.txt", dir);
+    FILE *tf = fopen(test_path, "r");
+    if (tf) {
+        int t = -1;
+        if (fscanf(tf, "%d", &t) != 1) t = -1;
+        fclose(tf);
+        DeleteFileA(test_path);
+        if (t >= 0 && t < 16 && g[0x2e0 + t * 0xb0]) {
+            *(unsigned long long *)(g + 0x2e0 + t * 0xb0 + 0x12) ^= 1;
+            fireteam_log("seats: test: seat %d's record now carries another identifier", t);
+        }
+    }
+    for (int p = 0; p < 16; p++) {
+        unsigned char *entry = g + 0x2e0 + p * 0xb0;
+        if (!entry[0]) continue;
+        unsigned long long id = *(unsigned long long *)(entry + 0x12);
+        unsigned char *member = session + 0x1410 + p * 0xb0;
+        if ((members & (1u << p)) && *(int *)(member + 0x1c) != -1) {
+            unsigned long long member_id = *(unsigned long long *)(member + 4);
+            if (member_id && member_id != id) {
+                /* A different player was handed this seat's record. */
+                unsigned char team = entry[0xa8];
+                memcpy(entry + 0x12, member + 4, 8);
+                memcpy(entry + 0x20, member + 0x20, 0x90);
+                entry[0xa8] = team;
+                seat_reset_score(p);
+                republish = 1;
+                fireteam_log("seats: seat %d went to another player (%016llx -> %016llx); its score is cleared", p, id,
+                             member_id);
+                id = member_id;
+            }
+        }
+        if ((seat_known & (1u << p)) && seat_id[p] != id) {
+            /* A fresh record on a seat another player used this match. */
+            seat_reset_score(p);
+            fireteam_log("seats: seat %d has a new player (%016llx -> %016llx); its score is cleared", p, seat_id[p],
+                         id);
+        }
+        seat_id[p] = id;
+        seat_known |= 1u << p;
+    }
+    if (republish) publish_players(session, g);
+}
+
 static void inject_players(void) {
     unsigned char *g = sim_game_globals();
     if (!g || !g[1]) {
@@ -3340,16 +3448,7 @@ static void inject_players(void) {
         fireteam_log("inject: no new player to add (peers %05x, machines %05x, members %05x)", peers, machines, members);
         return;
     }
-    /* The players parameter, as the in-game handler republishes it: machine
-       mask and ids, the local-machine fields cleared, then the entries. */
-    memcpy(session + 0x4584, g + 0x26c, 0x6a);
-    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
-    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
-    session[0x4580] = 1;
-    session[0x4578] |= 1;
-    *(unsigned long long *)(session + 0x4528) = 0;
-    typedef void(__fastcall * changed_t)(void *);
-    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+    publish_players(session, g);
     log_game_players("after", g);
 }
 
