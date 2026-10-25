@@ -76,6 +76,15 @@ pub struct LauncherSettings {
     /// as hidden.
     #[serde(default)]
     pub show_ue4ss_console: bool,
+    /// Skip the studio logos at start-up: straight to the main menu, about
+    /// 20 seconds sooner (`apply_intro`). On unless the player turns it off;
+    /// a settings file written before this field existed reads as on.
+    #[serde(default = "default_true")]
+    pub skip_intro: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for LauncherSettings {
@@ -85,6 +94,7 @@ impl Default for LauncherSettings {
             custom_exe_path: None,
             install_path: None,
             show_ue4ss_console: false,
+            skip_intro: true,
         }
     }
 }
@@ -680,6 +690,49 @@ fn apply_ue4ss_settings(settings: &LauncherSettings) -> Result<(), String> {
     Ok(())
 }
 
+/// The start-up logos: `Content/Movies/LogoParade.mp4`, a loose file the
+/// game plays before the main menu. Moved aside (`.mjolnir-skip`) the game
+/// goes straight on; the main menu, its background video and the mission
+/// pre-renders are other files (PC 1, 2026-10-25: 49 s to the main menu, 28 s
+/// without it). A game update or a file check puts the movie back, so this
+/// runs on every launch as well as on toggle.
+const INTRO_MOVIE: &str = "Meteorite/Content/Movies/LogoParade.mp4";
+const INTRO_ASIDE: &str = "Meteorite/Content/Movies/LogoParade.mp4.mjolnir-skip";
+
+fn set_intro_skipped(install: &Path, skip: bool) -> Result<(), String> {
+    let movie = install.join(INTRO_MOVIE);
+    let aside = install.join(INTRO_ASIDE);
+    if skip {
+        if movie.exists() {
+            // An update brought it back beside our copy: the new one wins.
+            if aside.exists() {
+                fs::remove_file(&aside).map_err(|e| format!("Failed to remove {}: {}", aside.display(), e))?;
+            }
+            fs::rename(&movie, &aside).map_err(|e| format!("Failed to move {} aside: {}", movie.display(), e))?;
+        }
+    } else if aside.exists() && !movie.exists() {
+        fs::rename(&aside, &movie).map_err(|e| format!("Failed to restore {}: {}", movie.display(), e))?;
+    }
+    Ok(())
+}
+
+fn apply_intro(settings: &LauncherSettings) -> Result<(), String> {
+    match find_game_install() {
+        Some((install, _)) => set_intro_skipped(&install, settings.skip_intro),
+        None => Ok(()),
+    }
+}
+
+/// Save the intro choice on its own and apply it at once, so it holds when
+/// the game is started from Steam.
+#[tauri::command]
+fn set_skip_intro(skip: bool) -> Result<(), String> {
+    let mut settings = get_settings();
+    settings.skip_intro = skip;
+    save_settings(settings.clone())?;
+    apply_intro(&settings)
+}
+
 // ─── Existing commands ──────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1034,6 +1087,10 @@ fn launch_game() -> Result<(), String> {
     // choice or the scan-time floor, not the launch, so the game starts anyway.
     if let Err(e) = apply_ue4ss_settings(&settings) {
         eprintln!("ue4ss settings: {e}");
+    }
+    // The same for the intro: a failure costs the skip, not the launch.
+    if let Err(e) = apply_intro(&settings) {
+        eprintln!("skip intro: {e}");
     }
 
     // Mods moved aside for this session (unsupported.rs) go back when the
@@ -2137,6 +2194,7 @@ pub fn run() {
             get_settings,
             save_settings,
             set_ue4ss_console,
+            set_skip_intro,
             get_build_info,
             get_install_status,
             check_install_path,
@@ -2197,6 +2255,39 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_intro_goes_aside_and_comes_back() {
+        let root = std::env::temp_dir().join(format!("mjolnir-intro-{}", std::process::id()));
+        let movie = root.join(INTRO_MOVIE);
+        let aside = root.join(INTRO_ASIDE);
+        fs::create_dir_all(movie.parent().unwrap()).unwrap();
+        fs::write(&movie, b"logos").unwrap();
+        set_intro_skipped(&root, true).unwrap();
+        assert!(!movie.exists() && aside.exists(), "moved aside");
+        set_intro_skipped(&root, true).unwrap();
+        assert!(aside.exists(), "skipping twice leaves it aside");
+        // A game update puts a new movie back: it replaces the old copy aside.
+        fs::write(&movie, b"new logos").unwrap();
+        set_intro_skipped(&root, true).unwrap();
+        assert!(!movie.exists());
+        assert_eq!(fs::read(&aside).unwrap(), b"new logos");
+        set_intro_skipped(&root, false).unwrap();
+        assert!(movie.exists() && !aside.exists(), "restored");
+        assert_eq!(fs::read(&movie).unwrap(), b"new logos");
+        // No movie at all (another layout): nothing to do, no error.
+        fs::remove_file(&movie).unwrap();
+        set_intro_skipped(&root, true).unwrap();
+        set_intro_skipped(&root, false).unwrap();
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn settings_from_before_the_intro_skip_read_as_skipping() {
+        let old: LauncherSettings = serde_json::from_str(r#"{"launch_method":"steam","custom_exe_path":null}"#).unwrap();
+        assert!(old.skip_intro);
+        assert!(LauncherSettings::default().skip_intro);
+    }
 
     #[test]
     fn the_xbox_app_id_comes_from_the_manifest() {
