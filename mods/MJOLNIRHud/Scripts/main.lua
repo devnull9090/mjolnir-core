@@ -662,6 +662,12 @@ local function drain()
         -- it); anyone takes an incident once, from its handler or a relay
         -- (Scripts/relay.lua).
         local skip = not Match or (inc.relayed and Match.host)
+        -- A client with bots in its match hears a bot's kills and deaths
+        -- from the host by seat; its own copies name the AI as -1.
+        if not skip and not inc.relayed and not Match.host and Match.botsHeard
+            and (inc.name == "kill" or inc.name == "death") and (inc.cause == -1 or inc.effect == -1) then
+            skip = true
+        end
         if not skip and Bots.active() then
             -- An AI's incidents name it by player index -1 and its biped.
             if inc.cause == -1 then inc.cause = Bots.seatOf(inc.biped) or -1 end
@@ -686,7 +692,7 @@ local function drain()
             local ok, err = pcall(handler, inc)
             if not ok then Log("incident " .. inc.name .. ": " .. tostring(err)) end
         end
-        if not skip and not Match.over and not inc.relayed then
+        if not skip and not Match.over then
             local ok, err = pcall(botIncident, inc)
             if not ok then Log("bots: " .. tostring(err)) end
         end
@@ -732,6 +738,20 @@ end
 --- (Scripts/relay.lua), and the medals MJOLNIRLevelLoader relays for their
 --- sounds (from a host whose HUD is older). drain takes each incident once.
 local function relayed(text)
+    local roster = Relay.decodeBots(text)
+    if roster then
+        if Match and not Match.host then
+            for seat, name in pairs(roster) do
+                local p = stats(seat)
+                if p.name ~= name then
+                    p.name, p.bot = name, true
+                    boardDirty = true
+                end
+            end
+            Match.botsHeard = true
+        end
+        return
+    end
     local batch = Relay.decode(text, now())
     if batch then
         for _, inc in ipairs(batch) do
@@ -1504,6 +1524,12 @@ local function tick()
     end
     local okBots, errBots = pcall(Bots.tick, now(), humans)
     if not okBots then Log("bots: " .. tostring(errBots)) end
+    -- The bots' names to the fireteam, for players who joined since.
+    if Match.host and Bots.active() and now() >= (Match.nextBotRoster or 0) then
+        Match.nextBotRoster = now() + 5
+        local seats = Bots.seats()
+        if #seats > 0 then pcall(Relay.sendText, Relay.encodeBots(seats)) end
+    end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1
         refreshNames()

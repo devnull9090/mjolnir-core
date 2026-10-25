@@ -142,6 +142,37 @@ function Relay.controllers()
     return out
 end
 
+--- The host's bots (Scripts/bots.lua) by seat, for the clients' feed and
+--- board, which hear bot seats in the relayed incidents:
+---   MJOLNIR|bots|100=Desmond (bot);101=Kira (bot)
+Relay.BOTS = "MJOLNIR|bots|"
+
+function Relay.encodeBots(seats)
+    local items = {}
+    for _, s in ipairs(seats) do
+        items[#items + 1] = string.format("%d=%s", s.index, (tostring(s.name):gsub("[;=|]", "")))
+    end
+    return Relay.BOTS .. table.concat(items, ";")
+end
+
+--- `{ [seat] = name }`, or nil when `text` is not a bot roster.
+function Relay.decodeBots(text)
+    if type(text) ~= "string" or text:sub(1, #Relay.BOTS) ~= Relay.BOTS then return nil end
+    local out = {}
+    for seat, name in text:sub(#Relay.BOTS + 1):gmatch("(%d+)=([^;]+)") do out[tonumber(seat)] = name end
+    return out
+end
+
+--- Sends `message` as it is to every remote player. Returns how many got it.
+function Relay.sendText(message)
+    local kind = FName("MJOLNIR")
+    local sent = 0
+    for _, pc in ipairs(Relay.controllers()) do
+        if pcall(function() pc:ClientMessage(message, kind, 0) end) then sent = sent + 1 end
+    end
+    return sent
+end
+
 --- Sends `incidents` to every remote player. Returns how many got it.
 function Relay.send(incidents)
     local message = Relay.encode(incidents)
