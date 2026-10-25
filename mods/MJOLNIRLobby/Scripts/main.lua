@@ -579,10 +579,14 @@ Live.title = function(code) return (shown(code)) end
 
 --- The screenshot of `code` on `screen` (its MapImage), the note in its place
 --- until it arrives. Screens from an older UI container have no MapImage.
-function Live.showCover(screen, code)
-    local okI, image = pcall(function() return screen.MapImage end)
+--- `field`: the Image (default MapImage; the vote rows' VoteImage0..3), its
+--- note beside it as `<field>Note`. A screen from an older UI container
+--- without it is left alone.
+function Live.showCover(screen, code, field)
+    field = field or "MapImage"
+    local okI, image = pcall(function() return screen[field] end)
     if not (okI and UI.valid(image)) then return end
-    local note = screen.MapImageNote
+    local note = screen[field .. "Note"]
     local tex = code and MapLive.texture(code)
     if tex then
         pcall(function()
@@ -602,7 +606,7 @@ function Live.showCover(screen, code)
         MapLive.cover(code, function(path)
             if not UI.valid(screen) then return end
             if path and MapLive.texture(code) then
-                Live.showCover(screen, code)
+                Live.showCover(screen, code, field)
             else
                 setText(note, "NO SCREENSHOT")
             end
@@ -2641,8 +2645,10 @@ function Live.everyoneCanPlay(code)
 end
 
 --- The vote's options: the game just played, then other maps in a random
---- order (with the same game type where the map has it), then the played
---- map's other game types.
+--- order, each with a game type of its own picked at random (Forge never:
+--- a client reads its slot as Slayer), at least one of them another type
+--- than the game just played (#258: every option used to be Slayer after a
+--- Slayer game), then the played map's other game types.
 local function voteOptions(results)
     local options, seen = {}, {}
     local function add(map, mode, again)
@@ -2662,8 +2668,23 @@ local function voteOptions(results)
         local j = math.random(i)
         others[i], others[j] = others[j], others[i]
     end
+    local played = results and results.variant
+    local mixed = false
     for _, map in ipairs(others) do
-        add(map, modeById(map, results and results.variant) or modesFor(map)[1])
+        local modes, other = {}, {}
+        for _, mode in ipairs(modesFor(map)) do
+            if not mode.forge then
+                modes[#modes + 1] = mode
+                if mode.id ~= played then other[#other + 1] = mode end
+            end
+        end
+        -- The last slot left goes to another type when none is in yet.
+        local pool = (not mixed and #options == VOTE_OPTIONS - 1 and #other > 0) and other or modes
+        local mode = pool[math.random(math.max(1, #pool))]
+        if mode then
+            if mode.id ~= played then mixed = true end
+            add(map, mode)
+        end
     end
     for _, mode in ipairs(last and modesFor(last) or {}) do add(last, mode) end
     return options
@@ -2856,6 +2877,8 @@ local function drawVote()
             voted = voted + (n[i + 1] or 0)
             setText(s["Vote" .. i .. "Label"], optionLabel(o))
             setText(s["VoteCount" .. i], (n[i + 1] or 0) > 0 and tostring(n[i + 1]) or "")
+            -- Each option's own map cover (#258).
+            Live.showCover(s, o.code, "VoteImage" .. i)
             local mine, chosen = v.mine == i + 1, v.chosen == i + 1
             pcall(function()
                 s["Vote" .. i]:SetBackgroundColor((mine or chosen) and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
