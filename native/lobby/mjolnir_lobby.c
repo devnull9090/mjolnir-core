@@ -2437,7 +2437,13 @@ static void __fastcall hook_main_tick(void) {
         }
         __try {
             if (inject_needed()) {
-                fireteam_log("inject: a peer in the session has no player in the running game");
+                /* Once every 15 s: a peer waiting on its old connection
+                   (inject_players) is asked for every second. */
+                static DWORD said_needed;
+                if (GetTickCount() - said_needed > 15000) {
+                    said_needed = GetTickCount();
+                    fireteam_log("inject: a peer in the session has no player in the running game");
+                }
                 InterlockedExchange(&inject_request, 1);
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -3413,8 +3419,30 @@ static void inject_players(void) {
     int added = 0;
     for (int peer = 0; peer < 17; peer++) {
         if (!(peers & (1u << peer)) || (machines & (1u << peer))) continue;
+        /* A player whose game dropped and who joins again before the host
+           has timed out their old connection is two peers with one machine
+           identifier. Added as a second machine, the simulation closed every
+           other connection and disbanded the session: the playtest's mass
+           disconnect (2026-10-24 18:39, machine 4 = machine 3's 0f78fe2c,
+           #233). The new peer waits until the old machine has gone; the
+           inject check runs again every 30 ticks. */
+        unsigned char fresh[16] = {0}; /* the writer copies up to 8 bytes */
+        machine_id(session + 0x60 + peer * 0x128, fresh);
+        int twin = -1;
+        for (int q = 0; q < 17; q++) {
+            if (q != peer && (machines & (1u << q)) && memcmp(g + 0x270 + q * 6, fresh, 6) == 0) twin = q;
+        }
+        if (twin >= 0) {
+            static DWORD said[17];
+            if (GetTickCount() - said[peer] > 15000) {
+                said[peer] = GetTickCount();
+                fireteam_log("inject: peer %d is machine %d again (%08x %04x); waiting for its old connection to close",
+                             peer, twin, *(unsigned *)fresh, *(unsigned short *)(fresh + 4));
+            }
+            continue;
+        }
         unsigned char *id = g + 0x270 + peer * 6;
-        machine_id(session + 0x60 + peer * 0x128, id);
+        memcpy(id, fresh, 6);
         machines |= 1u << peer;
         *(unsigned *)(g + 0x26c) = machines;
         machines_update(machines, g + 0x270);
