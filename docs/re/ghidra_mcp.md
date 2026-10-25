@@ -45,3 +45,17 @@ curl "http://127.0.0.1:8089/decompile_function?address=0x1802eb130"
 
 Analysis of the 230 MB exe takes hours; the 14 MB tag DLL a few minutes. Script
 endpoints are off unless `GHIDRA_MCP_ALLOW_SCRIPTS=1`, and the server binds loopback only.
+
+Two things learnt running it from a Bash tool (2026-10-24):
+
+- `-Project` is the folder holding the `.gpr` (`C:/ghidra_proj` for `HCE_Analysis`,
+  `C:/ghidra_proj/sim` for `HaloSim`), with forward slashes: an unquoted
+  `C:\ghidra_proj\sim` loses its backslashes on the way through bash. A stale
+  `.lock` next to the `.gpr` (no `java.exe` running) can be deleted.
+- `-Program` is not applied on start; load it afterwards with a JSON body, not a
+  query string: `curl -X POST -H "Content-Type: application/json"
+  -d '{"path":"/CU4/HaloCampaignEvolved.exe"}' :8090/load_program_from_project`.
+  Two servers on different ports (sim on 8089, exe on 8090) work side by side.
+  Useful endpoints: `decompile_function?address=`, `get_xrefs_to?address=`,
+  `get_function_callers?address=`, `read_memory?address=&length=`,
+  `search_byte_patterns?pattern=<hex>`, `list_strings?filter=`.

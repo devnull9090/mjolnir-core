@@ -188,3 +188,36 @@ is gone.
 **Record, if anything fails:** both UE4SS.logs (lines with `[MJOLNIR Lobby]
 games:`) and both `...\Mods\MJOLNIRLobby\native\fireteam.log` (`join:` and
 `lobby:` lines).
+
+## Phase 6: client sound roles
+
+Players on clients report reload and grenade sounds that do not always play;
+the host never does. [re/client_sound_roles.md](re/client_sound_roles.md) traces
+why: a sound counts as the player's own only while the UE actor of their biped
+(and first-person weapon) is owned by their own pawn. This phase records that
+ownership on both machines, second by second, while PC 2 fires, reloads and
+throws a grenade.
+
+**Both PCs:** the MJOLNIR bridge and MJOLNIRLobby; PC 2 runs
+`tools/remote/mjolnir-agent.ps1`. From PC 1:
+
+```bash
+node tools/remote/audio-roles-test.mjs --before
+```
+
+```bash
+node tools/remote/audio-roles-test.mjs
+```
+
+The first run has PC 2 in the fireteam before the start (the control), the
+second has it join the match in progress. Each leaves
+`%TEMP%\mjolnir-audio-roles-<time>\summary.txt`: per second and per machine,
+which pawn owns each player's biped (`LOCAL-PAWN` is the one that makes sounds
+first person) and each player's `BlamAbsolutePlayerIndex`. The `MARK` lines say
+when PC 2 fired, reloaded and threw, for whoever is listening at PC 2.
+
+**Expect, if the trace is right:** on PC 2, its own biped (`p<its index>`)
+shows `LOCAL-PAWN` from its first sample on; a biped stuck on another pawn, or
+on `-`, while the player hears no reload is the fault. On PC 1 every biped but
+its own should show the other pawn. The probe alone is
+`node tools/remote/remote.mjs probe snap` for one sample from PC 2.

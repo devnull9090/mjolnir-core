@@ -3523,8 +3523,11 @@ static void watch_loading(void) {
 static int inject_prepare(void);
 static unsigned char *joined_session(void);
 
+static void sound_trace_arm(void);
+
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
+    sound_trace_arm();
     if (keep_lobby && join_in_progress && !jip_host_auto) {
         if (inject_prepare()) {
             InterlockedExchange(&jip_host_auto, 1);
@@ -4228,6 +4231,524 @@ __declspec(dllexport) int mjolnir_lobby_bind(void *L) {
     fclose(req);
     fclose(reply);
     return 0;
+}
+
+/* --- Sound trace (native\sound_trace.txt) ----------------------------------
+   Players on clients miss reload and grenade sounds that the host hears
+   (docs/re/client_sound_roles.md). While native\sound_trace.txt exists when
+   the first lobby tick runs, four simulation functions are hooked and every
+   call is written to native\sound_trace.log, on the host and on a client:
+
+   - object sound (sim 0x2f8a40): the sim asks the exe to play a sound on an
+     object (animations, effects); logged with the exe's answer (-1: refused).
+   - impulse start (sim 0x2d42f0): the scripted/event sound start (hs
+     sound_impulse_start, and the receive side of sound events 0x16-0x18).
+   - event send (sim 0x5136e0): the host queueing a simulation event for its
+     clients, with its type and first reference. Sound events are 0x16
+     (attached), 0x17 (2D) and 0x18 (positional).
+   - entity ref (sim 0x5013e0): a received event's reference that this
+     machine could not turn into an object, which drops the event silently.
+
+   The mode byte G[0x11] is 5 on a networked host, 4 on a client. */
+typedef unsigned(__fastcall *snd_object_t)(int sound, unsigned object, unsigned short a3, unsigned long long a4,
+                                           unsigned long long a5, float scale);
+typedef void(__fastcall *snd_start_t)(int sound, void *position, unsigned object, unsigned node, float scale,
+                                      void *permutation, void *out);
+typedef void(__fastcall *sim_event_t)(unsigned mask, int type, int refs, long long ref_list, unsigned size,
+                                      void *payload);
+typedef int(__fastcall *entity_object_t)(unsigned long long reference, unsigned mask);
+static snd_object_t snd_object_tramp;
+static snd_start_t snd_start_tramp;
+static sim_event_t sim_event_tramp;
+static entity_object_t entity_object_tramp;
+static FILE *sound_trace_file;
+static CRITICAL_SECTION sound_trace_lock;
+static int sound_trace_state; /* 0 unchecked, 1 armed, -1 off */
+
+static const unsigned char SND_OBJECT[] = {0x66, 0x44, 0x89, 0x44, 0x24, 0x18, 0x53, 0x55, 0x56, 0x57, 0x41, 0x56,
+                                           0x41, 0x57, 0x48, 0x83, 0xEC, 0x78, 0x8B, 0xF2, 0x44, 0x8B, 0xF9, 0x48,
+                                           0xC7, 0xC7, 0xFF, 0xFF, 0xFF, 0xFF};
+#define SND_OBJECT_STOLEN 18
+static const unsigned char SND_START[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x44, 0x89, 0x48, 0x20, 0x44,
+                                          0x89, 0x40, 0x18, 0x48, 0x89, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54,
+                                          0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x68, 0xB9, 0x48, 0x81,
+                                          0xEC, 0xF0, 0x00, 0x00, 0x00};
+#define SND_START_STOLEN 19
+static const unsigned char SIM_EVENT[] = {0x48, 0x89, 0x5C, 0x24, 0x20, 0x44, 0x89, 0x44, 0x24, 0x18, 0x89, 0x54,
+                                          0x24, 0x10, 0x89, 0x4C, 0x24, 0x08, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41,
+                                          0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xEC, 0x70, 0x04, 0x00, 0x00};
+#define SIM_EVENT_STOLEN 18
+static const unsigned char ENTITY_OBJECT[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x57, 0x48,
+                                              0x83, 0xEC, 0x20, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x8B, 0xF9, 0x8B, 0xEA,
+                                              0x3B, 0xCB, 0x74, 0x6E};
+#define ENTITY_OBJECT_STOLEN 15
+
+static int sim_mode(void) {
+    unsigned char *g = sim_game_globals();
+    return g ? g[0x11] : -1;
+}
+
+/* A line of the trace, at most 300 a second (the rest counted and noted). */
+static void sound_trace(const char *fmt, ...) {
+    if (!sound_trace_file) return;
+    static DWORD second;
+    static int in_second, dropped;
+    EnterCriticalSection(&sound_trace_lock);
+    DWORD now = GetTickCount();
+    if (now - second >= 1000) {
+        if (dropped) fprintf(sound_trace_file, "... %d lines not written\n", dropped);
+        second = now;
+        in_second = 0;
+        dropped = 0;
+    }
+    if (++in_second > 300) {
+        dropped++;
+    } else {
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        fprintf(sound_trace_file, "%02d:%02d:%02d.%03d ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(sound_trace_file, fmt, args);
+        va_end(args);
+        fputc('\n', sound_trace_file);
+        fflush(sound_trace_file);
+    }
+    LeaveCriticalSection(&sound_trace_lock);
+}
+
+static unsigned __fastcall hook_snd_object(int sound, unsigned object, unsigned short a3, unsigned long long a4,
+                                           unsigned long long a5, float scale) {
+    unsigned r = snd_object_tramp(sound, object, a3, a4, a5, scale);
+    sound_trace("object sound def %08x obj %08x scale %.2f mode %d -> %d", (unsigned)sound, object, scale, sim_mode(),
+                (int)r);
+    return r;
+}
+
+static void __fastcall hook_snd_start(int sound, void *position, unsigned object, unsigned node, float scale,
+                                      void *permutation, void *out) {
+    sound_trace("impulse start def %08x obj %08x node %d scale %.2f positioned %d mode %d", (unsigned)sound, object,
+                (int)node, scale, position != NULL, sim_mode());
+    snd_start_tramp(sound, position, object, node, scale, permutation, out);
+}
+
+static void __fastcall hook_sim_event(unsigned mask, int type, int refs, long long ref_list, unsigned size,
+                                      void *payload) {
+    unsigned ref0 = refs > 0 && ref_list ? *(unsigned *)ref_list : 0xffffffff;
+    unsigned payload0 = size >= 4 && payload ? *(unsigned *)payload : 0;
+    sound_trace("event send type %#x mask %05x refs %d ref0 %08x size %u payload0 %08x", type, mask, refs, ref0,
+                size, payload0);
+    sim_event_tramp(mask, type, refs, ref_list, size, payload);
+}
+
+static int __fastcall hook_entity_object(unsigned long long reference, unsigned mask) {
+    int r = entity_object_tramp(reference, mask);
+    if (r == -1 && (int)reference != -1)
+        sound_trace("entity ref %08x unresolved (mask %08x) mode %d", (unsigned)reference, mask, sim_mode());
+    return r;
+}
+
+/* The other six wrappers the sim plays sounds through (each fetches the exe
+   audio interface and calls one slot of it): 0x20 with a marker (sim
+   0x2f8f50), 0x28 positional (0x2f8bc0, 0x2f9050), 0x30 2D (0x2f9170,
+   0x2f9240), 0x40 (0x2f9480) and 0x60 (0x2f9550). Float parameters sit in
+   XMM registers, so each hook repeats its wrapper's exact prototype. */
+typedef unsigned(__fastcall *snd_marker_t)(int sound, unsigned object, void *marker, float scale);
+typedef int(__fastcall *snd_positional_t)(unsigned *request, unsigned long long a2, int a3);
+typedef unsigned(__fastcall *snd_at_t)(int sound, void *position, float scale);
+typedef unsigned(__fastcall *snd_2d_t)(int sound, int a2, float scale);
+typedef unsigned(__fastcall *snd_2d_short_t)(int sound, float scale);
+typedef unsigned(__fastcall *snd_slot40_t)(int sound, unsigned object, unsigned a3, unsigned a4);
+typedef unsigned(__fastcall *snd_slot60_t)(int sound, int a2);
+static snd_marker_t snd_marker_tramp;
+static snd_positional_t snd_positional_tramp;
+static snd_at_t snd_at_tramp;
+static snd_2d_t snd_2d_tramp;
+static snd_2d_short_t snd_2d_short_tramp;
+static snd_slot40_t snd_slot40_tramp;
+static snd_slot60_t snd_slot60_tramp;
+
+static unsigned __fastcall hook_snd_marker(int sound, unsigned object, void *marker, float scale) {
+    unsigned r = snd_marker_tramp(sound, object, marker, scale);
+    sound_trace("marker sound def %08x obj %08x scale %.2f mode %d -> %d", (unsigned)sound, object, scale, sim_mode(),
+                (int)r);
+    return r;
+}
+static int __fastcall hook_snd_positional(unsigned *request, unsigned long long a2, int a3) {
+    int r = snd_positional_tramp(request, a2, a3);
+    sound_trace("positional sound def %08x a2 %08x a3 %d mode %d -> %d", request ? request[0] : 0, (unsigned)a2, a3,
+                sim_mode(), r);
+    return r;
+}
+static unsigned __fastcall hook_snd_at(int sound, void *position, float scale) {
+    unsigned r = snd_at_tramp(sound, position, scale);
+    sound_trace("at-position sound def %08x scale %.2f mode %d -> %d", (unsigned)sound, scale, sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_2d(int sound, int a2, float scale) {
+    unsigned r = snd_2d_tramp(sound, a2, scale);
+    sound_trace("2d sound def %08x a2 %d scale %.2f mode %d -> %d", (unsigned)sound, a2, scale, sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_2d_short(int sound, float scale) {
+    unsigned r = snd_2d_short_tramp(sound, scale);
+    sound_trace("2d-short sound def %08x scale %.2f mode %d -> %d", (unsigned)sound, scale, sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_slot40(int sound, unsigned object, unsigned a3, unsigned a4) {
+    unsigned r = snd_slot40_tramp(sound, object, a3, a4);
+    sound_trace("slot40 sound def %08x obj %08x a3 %08x a4 %08x mode %d -> %d", (unsigned)sound, object, a3, a4,
+                sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_slot60(int sound, int a2) {
+    unsigned r = snd_slot60_tramp(sound, a2);
+    sound_trace("slot60 sound def %08x a2 %d mode %d -> %d", (unsigned)sound, a2, sim_mode(), (int)r);
+    return r;
+}
+
+static const unsigned char SND_MARKER[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x78, 0xC5, 0xF8, 0x29,
+                                           0x74, 0x24, 0x60, 0xC5, 0xF8, 0x28, 0xF3, 0x49, 0x8B, 0xE8, 0x8B, 0xFA,
+                                           0x8B, 0xF1, 0x48, 0xC7, 0xC3, 0xFF, 0xFF, 0xFF, 0xFF};
+static const unsigned char SND_POSITIONAL[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x70, 0x18, 0x55,
+                                               0x57, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xA0,
+                                               0x48, 0x81, 0xEC, 0x60, 0x01, 0x00, 0x00};
+static const unsigned char SND_AT[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x81,
+                                       0xEC, 0x80, 0x00, 0x00, 0x00, 0xC5, 0xF8, 0x29, 0x74, 0x24, 0x70, 0xC5, 0xF8,
+                                       0x28, 0xF2, 0x48, 0x8B, 0xF2, 0x8B, 0xF9};
+static const unsigned char SND_2D[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83,
+                                       0xEC, 0x50, 0xC5, 0xF8, 0x29, 0x74, 0x24, 0x40, 0xC5, 0xF8, 0x28, 0xF2, 0x8B,
+                                       0xFA, 0x8B, 0xF1};
+static const unsigned char SND_2D_SHORT[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0xC5, 0xFA, 0x11, 0x4C, 0x24, 0x10, 0x57,
+                                             0x48, 0x83, 0xEC, 0x40, 0x48, 0x63, 0xF9, 0x48, 0xC7, 0xC3, 0xFF, 0xFF,
+                                             0xFF, 0xFF, 0x8B, 0x0D};
+static const unsigned char SND_SLOT40[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC,
+                                           0x68, 0x41, 0x8B, 0xE9, 0x45, 0x8B, 0xF0, 0x44, 0x8B, 0xFA, 0x8B, 0xF1,
+                                           0xBB, 0xFF, 0xFF, 0xFF, 0xFF};
+static const unsigned char SND_SLOT60[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48,
+                                           0x83, 0xEC, 0x30, 0x8B, 0xFA, 0x8B, 0xF1, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF,
+                                           0x3B, 0xCB, 0x74, 0x77, 0x3B, 0xD3, 0x74, 0x73};
+
+/* Wwise itself: the exe exports AK::SoundEngine::PostEvent (by id, and by
+   event name), the one door every sound in the game goes through on its way
+   to the mixer, whatever HaloAudio decided before. Hooked by export name, so
+   no pattern; the stolen lengths are CU4's prologues (by id: four spills, a
+   push and the stack frame, 19 bytes; by name: a spill, three pushes and the
+   frame, 14 bytes). */
+typedef unsigned(__fastcall *ak_post_event_t)(unsigned event, unsigned long long game_object, unsigned flags,
+                                              void *callback, void *cookie, unsigned externals, void *external_info,
+                                              unsigned playing_id);
+typedef unsigned(__fastcall *ak_post_event_name_t)(const char *event, unsigned long long game_object, unsigned flags,
+                                                   void *callback, void *cookie, unsigned externals,
+                                                   void *external_info, unsigned playing_id);
+static ak_post_event_t ak_post_event_tramp;
+static ak_post_event_name_t ak_post_event_name_tramp;
+#define AK_POST_EVENT_NAME "?PostEvent@SoundEngine@AK@@YAII_KIP6AXW4AkCallbackType@@PEAUAkCallbackInfo@@@ZPEAXIPEAUAkExternalSourceInfo@@I@Z"
+#define AK_POST_EVENT_BY_NAME_NAME "?PostEvent@SoundEngine@AK@@YAIPEBD_KIP6AXW4AkCallbackType@@PEAUAkCallbackInfo@@@ZPEAXIPEAUAkExternalSourceInfo@@I@Z"
+#define AK_POST_EVENT_STOLEN 19
+#define AK_POST_EVENT_BY_NAME_STOLEN 14
+
+static unsigned __fastcall hook_ak_post_event(unsigned event, unsigned long long game_object, unsigned flags,
+                                              void *callback, void *cookie, unsigned externals, void *external_info,
+                                              unsigned playing_id) {
+    unsigned r = ak_post_event_tramp(event, game_object, flags, callback, cookie, externals, external_info, playing_id);
+    sound_trace("wwise post event %u on %llx flags %x -> playing %u", event, game_object, flags, r);
+    return r;
+}
+
+static unsigned __fastcall hook_ak_post_event_name(const char *event, unsigned long long game_object, unsigned flags,
+                                                   void *callback, void *cookie, unsigned externals,
+                                                   void *external_info, unsigned playing_id) {
+    unsigned r = ak_post_event_name_tramp(event, game_object, flags, callback, cookie, externals, external_info,
+                                          playing_id);
+    sound_trace("wwise post event '%s' on %llx flags %x -> playing %u", event ? event : "", game_object, flags, r);
+    return r;
+}
+
+/* The exe's object-attached play (exe 0x754e7b0), behind the sim's interface
+   slot 0x18: takes the request the sim built (request[1] the sound, [4] the
+   object handle, [8] the scale) and the audio world, and answers 0x24 when
+   the object has no UE actor or emitter, or the sound asset does not resolve
+   (FUN_147545080). Logged with the request and the answer. */
+typedef unsigned long long(__fastcall *exe_object_play_t)(unsigned *request, long long world);
+static exe_object_play_t exe_object_play_tramp;
+static const unsigned char EXE_OBJECT_PLAY[] = {0x40, 0x55, 0x53, 0x56, 0x41, 0x56, 0x48, 0x8D, 0xAC, 0x24, 0xC8,
+                                                0xF6, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0x38, 0x0A, 0x00, 0x00};
+#define EXE_OBJECT_PLAY_STOLEN 14
+
+/* The block the sim's object play is given (`world` below): the audio layer's
+   handle for the Blam game, which the game's start path binds to the current
+   world (FUN_147544b80, from a world listener in the synchronization module)
+   and a joiner's never does. Kept for mjolnir_audio_bind. */
+static volatile long long audio_play_block;
+
+static unsigned long long __fastcall hook_exe_object_play(unsigned *request, long long world) {
+    if (world) audio_play_block = world;
+    unsigned long long r = exe_object_play_tramp(request, world);
+    unsigned r0 = 0, r1 = 0, r4 = 0, r5 = 0, r8 = 0;
+    /* The function's own first three steps, repeated read-only: the world's
+       +0x30 object, the Blam object's UE actor (the tracker at world+0x28,
+       vtable slot 0), and the actor's +0x1b8 component with its +0x90 owner,
+       without which no emitter is made (exe 0x7536dd0). */
+    void *w30 = NULL, *w30_vtable = NULL, *actor = NULL, *comp = NULL, *comp90 = NULL;
+    __try {
+        if (request) {
+            r0 = request[0];
+            r1 = request[1];
+            r4 = request[4];
+            r5 = request[5];
+            r8 = request[8];
+        }
+        if (world) {
+            w30 = *(void **)(world + 0x30);
+            if (w30) w30_vtable = *(void **)w30;
+            long long *tracker = *(long long **)(world + 0x28);
+            if (tracker) {
+                typedef void *(__fastcall * lookup_t)(long long *, unsigned);
+                actor = (*(lookup_t *)(*tracker))(tracker, r4);
+            }
+            if (actor) comp = *(void **)((unsigned char *)actor + 0x1b8);
+            if (comp) comp90 = *(void **)((unsigned char *)comp + 0x90);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    sound_trace("exe object play req %08x sound %08x obj %08x r5 %08x scale %08x -> %llx | world %llx w30 %p "
+                "(vtable %p, exe+%llx) actor %p comp %p comp90 %p",
+                r0, r1, r4, r5, r8, r, world, w30, w30_vtable,
+                w30_vtable ? (unsigned long long)((unsigned char *)w30_vtable - (unsigned char *)GetModuleHandleA(NULL))
+                           : 0ull,
+                actor, comp, comp90);
+    return r;
+}
+
+/* The exe's sound resolve (exe 0x7545080), called by the object play above:
+   asks the asset provider (slot 1 of `provider`'s vtable) for the UE asset of
+   the sim's sound tag, then dispatches on its class (a plain HaloAudioSound,
+   a player variant, a collection; one class is refused). It leaves
+   out+0x880 = 0 when nothing could be played. Logged with the tag, the asset
+   it found, the asset's UClass (Lua names a class from its address) and
+   that flag. */
+typedef long long(__fastcall *exe_resolve_t)(long long out, unsigned long long world, long long *provider,
+                                            unsigned tag, long long a5, long long *a6);
+static exe_resolve_t exe_resolve_tramp;
+static const unsigned char EXE_RESOLVE[] = {0x40, 0x55, 0x53, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x48, 0x8D,
+                                            0x6C, 0x24, 0xC8, 0x48, 0x81, 0xEC, 0x38, 0x01, 0x00, 0x00, 0x48, 0x8B,
+                                            0xBD, 0x98, 0x00, 0x00, 0x00};
+#define EXE_RESOLVE_STOLEN 15
+
+static long long __fastcall hook_exe_resolve(long long out, unsigned long long world, long long *provider,
+                                             unsigned tag, long long a5, long long *a6) {
+    long long r = exe_resolve_tramp(out, world, provider, tag, a5, a6);
+    void *asset = NULL, *cls = NULL;
+    int ok = -1;
+    __try {
+        typedef void *(__fastcall * lookup_t)(long long *, unsigned, int);
+        asset = (*(lookup_t *)(*provider + 8))(provider, tag, 1);
+        if (asset) cls = *(void **)((unsigned char *)asset + 0x10);
+        ok = *(unsigned char *)(out + 0x880);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    sound_trace("exe resolve tag %08x asset %p class %p index %lld -> %d", tag, asset, cls, a5, ok);
+    return r;
+}
+
+/* The bind that fills that +0x60 (exe 0x754c410): `this` is the audio
+   interface subsystem, `owner` the object whose subsystem collection
+   (+0x1b8) holds the audio world object; a null owner clears it. Logged with
+   both pointers, what +0x60 became and the caller's return address, to see
+   when the game's own start path calls it and why a joiner's never does. */
+typedef void(__fastcall *audio_bind_t)(long long self, long long owner);
+static audio_bind_t audio_bind_tramp;
+static const unsigned char AUDIO_BIND[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00,
+                                           0x00, 0x48, 0x8B, 0x41, 0x60, 0x48, 0x8B, 0xDA, 0x48, 0x8B, 0xF9, 0x48,
+                                           0x85, 0xC0, 0x74, 0x59};
+#define AUDIO_BIND_STOLEN 17
+
+static void __fastcall hook_audio_bind(long long self, long long owner) {
+    audio_bind_tramp(self, owner);
+    long long now = 0, before_self = 0;
+    __try {
+        now = *(long long *)(self + 0x60);
+        before_self = *(long long *)(self - 8);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    /* The whole chain above the bind, as exe offsets, names the game's path
+       (which UE event on a host reaches it, and so what a joiner lacks). */
+    void *frames[16];
+    unsigned short n = RtlCaptureStackBackTrace(0, 16, frames, NULL);
+    char chain[16 * 20] = "";
+    unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+    for (unsigned short i = 0; i < n; i++) {
+        unsigned char *f = (unsigned char *)frames[i];
+        size_t at = strlen(chain);
+        if (f >= exe && f < exe + 0x10000000)
+            snprintf(chain + at, sizeof chain - at, " %llx", (unsigned long long)(f - exe));
+        else
+            snprintf(chain + at, sizeof chain - at, " ?");
+    }
+    sound_trace("audio bind self %llx (self-8 %llx) owner %llx -> +0x60 %llx mode %d chain%s", self, before_self,
+                owner, now, sim_mode(), chain);
+}
+
+/* Experiment: give a joiner the audio bind its game never made.
+   native\audio_bind.txt holds "world <hex> subsystem <hex>" (the match's
+   UWorld and the HaloAudioInterfaceSubSystem, as Lua's GetAddress gives
+   them); mjolnir_audio_bind then does what the game's start path does on a
+   host (exe 0x7544e33): FUN_14754c410(self, subsystem + 0x30), with self the
+   audio game world the registry (exe 0xd577308) resolves for that UWorld
+   (exe 0x751be20 returns self + 0x30). Answers in audio_bind_reply.txt. */
+typedef long long(__fastcall *audio_world_t)(long long registry, long long world);
+static const unsigned char AUDIO_WORLD[] = {0x48, 0x83, 0xEC, 0x28, 0x0F, 0xB6, 0x82, 0x3A, 0x01, 0x00, 0x00, 0x04};
+
+__declspec(dllexport) int mjolnir_audio_bind(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH], reply_path[MAX_PATH];
+    snprintf(path, sizeof path, "%saudio_bind.txt", dir);
+    snprintf(reply_path, sizeof reply_path, "%saudio_bind_reply.txt", dir);
+    FILE *reply = fopen(reply_path, "w");
+    if (!reply) return 0;
+    unsigned long long world = 0, subsystem = 0;
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char line[200];
+        while (fgets(line, sizeof line, f)) {
+            unsigned long long v;
+            if (sscanf(line, "world %llx", &v) == 1) world = v;
+            if (sscanf(line, "subsystem %llx", &v) == 1) subsystem = v;
+        }
+        fclose(f);
+    }
+    unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+    if (!world || !subsystem) {
+        fprintf(reply, "error no world/subsystem in audio_bind.txt\n");
+        fclose(reply);
+        return 0;
+    }
+    /* The bind's own bytes may already be this DLL's trace hook (a jmp). */
+    if ((memcmp(exe + 0x754c410, AUDIO_BIND, sizeof AUDIO_BIND) != 0 && !audio_bind_tramp) ||
+        memcmp(exe + 0x751be20, AUDIO_WORLD, sizeof AUDIO_WORLD) != 0) {
+        fprintf(reply, "error this is not the CU4 exe the offsets were read from\n");
+        fclose(reply);
+        return 0;
+    }
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) {
+        fprintf(reply, "error no simulation DLL\n");
+        fclose(reply);
+        return 0;
+    }
+    __try {
+        /* The sim's own route to the exe's audio interface (sim 0xcdc0, then
+           FUN_1802f8a40): the shell at *(sim 0x2c40028)+0x10, its vtable slot
+           0xa0, that object's slot 0. The interface object is the `self` the
+           game's start path binds; the registry route gives the UObject. */
+        long long registry = *(long long *)(exe + 0xd577308);
+        long long impl = ((audio_world_t)(exe + 0x751be20))(registry, (long long)world);
+        long long block = audio_play_block;
+        fprintf(reply, "registry impl %llx (subsystem+0x30 = %llx) play block %llx\n", impl,
+                (long long)subsystem + 0x30, block);
+        if (!block) {
+            fprintf(reply, "error the sim has not asked for an object sound yet (no block captured)\n");
+            fclose(reply);
+            return 0;
+        }
+        long long before = *(long long *)(block + 0x30);
+        fprintf(reply, "block+0x30 before %llx\n", before);
+        /* What the game's world listener (exe 0x7b249f0) does on a host at
+           match start, on its own object, which holds the block at +0x20:
+           listen to the world's object tracker (0x7b20690, so Blam objects
+           reach the audio layer's actor lookup), then wait for pending
+           sound loads, find the audio world for this UWorld, register the
+           block with it and bind the audio interface (0x7544b80). */
+        long long listener = block - 0x20;
+        fprintf(reply, "listener %llx: +0x78 world before %llx\n", listener, *(long long *)(listener + 0x78));
+        ((audio_bind_t)(exe + 0x7b20690))(listener, (long long)world);
+        ((audio_bind_t)(exe + 0x7544b80))(block, (long long)world);
+        fprintf(reply, "ok block+0x30 after %llx\n", *(long long *)(block + 0x30));
+        sound_trace("audio bind forced on block %llx: +0x30 %llx -> %llx", block, before, *(long long *)(block + 0x30));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fprintf(reply, "error exception while binding\n");
+    }
+    fclose(reply);
+    return 0;
+}
+
+struct sound_hook {
+    const char *name;
+    const unsigned char *pattern;
+    size_t length, stolen;
+    void *hook;
+    void **trampoline;
+};
+
+static void sound_trace_hook(unsigned char *sim, const struct sound_hook *h) {
+    int hits;
+    unsigned char *at = find_in_module(sim, h->pattern, NULL, h->length, 1, &hits);
+    if (at) *h->trampoline = inline_hook(at, h->stolen, h->hook);
+    fireteam_log("sound trace: %s %s (%d matches)", h->name, *h->trampoline ? "hooked" : "not hooked", hits);
+}
+
+/* Called from the lobby's tick: hooks once the simulation DLL is loaded, when
+   native\sound_trace.txt exists; otherwise leaves everything alone. */
+static void sound_trace_arm(void) {
+    if (sound_trace_state) return;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%ssound_trace.txt", dir);
+    if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
+        sound_trace_state = -1;
+        return;
+    }
+    sound_trace_state = -1;
+    snprintf(path, sizeof path, "%ssound_trace.log", dir);
+    FILE *f = fopen(path, "a");
+    if (!f) {
+        fireteam_log("sound trace: cannot open %s", path);
+        return;
+    }
+    InitializeCriticalSection(&sound_trace_lock);
+    sound_trace_file = f;
+    static const struct sound_hook hooks[] = {
+        {"object sound", SND_OBJECT, sizeof SND_OBJECT, SND_OBJECT_STOLEN, (void *)hook_snd_object, (void **)&snd_object_tramp},
+        {"impulse start", SND_START, sizeof SND_START, SND_START_STOLEN, (void *)hook_snd_start, (void **)&snd_start_tramp},
+        {"event send", SIM_EVENT, sizeof SIM_EVENT, SIM_EVENT_STOLEN, (void *)hook_sim_event, (void **)&sim_event_tramp},
+        {"entity ref", ENTITY_OBJECT, sizeof ENTITY_OBJECT, ENTITY_OBJECT_STOLEN, (void *)hook_entity_object,
+         (void **)&entity_object_tramp},
+        {"marker sound", SND_MARKER, sizeof SND_MARKER, 15, (void *)hook_snd_marker, (void **)&snd_marker_tramp},
+        {"positional sound", SND_POSITIONAL, sizeof SND_POSITIONAL, 19, (void *)hook_snd_positional,
+         (void **)&snd_positional_tramp},
+        {"at-position sound", SND_AT, sizeof SND_AT, 18, (void *)hook_snd_at, (void **)&snd_at_tramp},
+        {"2d sound", SND_2D, sizeof SND_2D, 15, (void *)hook_snd_2d, (void **)&snd_2d_tramp},
+        {"2d-short sound", SND_2D_SHORT, sizeof SND_2D_SHORT, 16, (void *)hook_snd_2d_short, (void **)&snd_2d_short_tramp},
+        {"slot40 sound", SND_SLOT40, sizeof SND_SLOT40, 16, (void *)hook_snd_slot40, (void **)&snd_slot40_tramp},
+        {"slot60 sound", SND_SLOT60, sizeof SND_SLOT60, 15, (void *)hook_snd_slot60, (void **)&snd_slot60_tramp},
+    };
+    for (size_t i = 0; i < sizeof hooks / sizeof hooks[0]; i++) sound_trace_hook(sim, &hooks[i]);
+    HMODULE exe = GetModuleHandleA(NULL);
+    static const struct sound_hook exe_object_hook = {"exe object play", EXE_OBJECT_PLAY, sizeof EXE_OBJECT_PLAY,
+                                                      EXE_OBJECT_PLAY_STOLEN, (void *)hook_exe_object_play,
+                                                      (void **)&exe_object_play_tramp};
+    sound_trace_hook((unsigned char *)exe, &exe_object_hook);
+    static const struct sound_hook exe_resolve_hook = {"exe resolve", EXE_RESOLVE, sizeof EXE_RESOLVE,
+                                                       EXE_RESOLVE_STOLEN, (void *)hook_exe_resolve,
+                                                       (void **)&exe_resolve_tramp};
+    sound_trace_hook((unsigned char *)exe, &exe_resolve_hook);
+    static const struct sound_hook audio_bind_hook = {"audio bind", AUDIO_BIND, sizeof AUDIO_BIND, AUDIO_BIND_STOLEN,
+                                                      (void *)hook_audio_bind, (void **)&audio_bind_tramp};
+    sound_trace_hook((unsigned char *)exe, &audio_bind_hook);
+    unsigned char *post = (unsigned char *)GetProcAddress(exe, AK_POST_EVENT_NAME);
+    if (post) ak_post_event_tramp = (ak_post_event_t)inline_hook(post, AK_POST_EVENT_STOLEN, (void *)hook_ak_post_event);
+    fireteam_log("sound trace: wwise PostEvent %s", ak_post_event_tramp ? "hooked" : "not hooked");
+    post = (unsigned char *)GetProcAddress(exe, AK_POST_EVENT_BY_NAME_NAME);
+    if (post)
+        ak_post_event_name_tramp =
+            (ak_post_event_name_t)inline_hook(post, AK_POST_EVENT_BY_NAME_STOLEN, (void *)hook_ak_post_event_name);
+    fireteam_log("sound trace: wwise PostEvent by name %s", ak_post_event_name_tramp ? "hooked" : "not hooked");
+    sound_trace("trace armed in pid %lu", (unsigned long)GetCurrentProcessId());
+    sound_trace_state = 1;
 }
 
 /* Pinned for the life of the process. The game keeps calling the hooks this
