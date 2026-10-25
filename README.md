@@ -45,16 +45,23 @@ players can play together.
 mjolnir-core/
 ├── mods/                        # UE4SS Lua mods
 │   ├── MJOLNIRCore/             # Core runtime & UEHelpers library
+│   ├── MJOLNIRLobby/            # MULTIPLAYER menu: host, find and join games, maps from the hub
+│   ├── MJOLNIRLevelLoader/      # Runtime half of custom levels and converted CE maps
+│   ├── MJOLNIRHud/              # Multiplayer HUD: kill feed, scoreboard, match chat
+│   ├── MJOLNIRForge/            # Forge: the Monitor and its editor keys in a FORGE game
 │   ├── MJOLNIRFlyCam/           # Free debug camera on the numpad, mouse look, HUD toggle
-│   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ / Tab / F10)
-│   ├── MJOLNIRMultiplayer/      # Experimental map travel & admin commands
+│   ├── MJOLNIRConsoleEnabler/   # Developer console enabler (~ only; Tab is the scoreboard)
+│   ├── MJOLNIRMultiplayer/      # Mission launching, debug menu, travel probes & admin commands
 │   ├── MJOLNIRDiscovery/        # UFunction dumper & travel logging
+│   ├── MJOLNIRMapMenu/          # The shipped debug map menu, with custom worlds in it
+│   ├── MJOLNIRWorldBuilder/     # Lighting and a floor for a custom world at runtime
+│   ├── MJOLNIRCTF/              # Experience-framework game mode and CTF arena in a custom world
 │   ├── MJOLNIRTagProbe/         # Read loaded Blam tag assets in game
 │   ├── MJOLNIRBridge/           # Remote control: run Lua & console commands from outside
 │   └── MJOLNIRBlamConsole/      # The classic Blam console at the Unreal console, with help
 ├── signatures/                  # UE4SS AOB scan overrides for HCE
-├── native/                      # C sources: the Blam console DLL, the FName trampoline
-├── config/                      # Reference UE4SS-settings.ini + CU3 build lock
+├── native/                      # C sources: the mods' native DLLs (built at release), FName trampoline, probes
+├── config/                      # Reference UE4SS-settings.ini + CU4 build lock
 ├── runtime/                     # Pinned UE4SS runtime bundle inputs (ue4ss.lock.json)
 ├── keys/                        # Public release-signing keys
 ├── defs/                        # Exported tag definition corpus (schema only)
@@ -65,24 +72,84 @@ mjolnir-core/
 ├── tools/iostore/               # UE5 IoStore + Blam tag readers (Python)
 ├── tools/pe/                    # PE/binary inspection, AOB signature checker
 ├── tools/mcp/game/              # Launch, drive and screenshot the game (MCP server + CLI)
+├── tools/level/                 # Classic CE map conversion and remaster pipeline
+├── tools/ue/                    # Cooking and Unreal-side helpers
+├── tools/blender/               # Blender add-on for authoring custom levels
+├── tools/remote/                # Drive a second PC's game for multiplayer tests
+├── scripts/                     # Modpack, manifest-signing and install helper scripts
 ├── crates/                      # Rust workspace
 │   ├── ue-iostore/              # UE5 .utoc/.ucas + .pak reader, TOC writer, container packer
+│   ├── ue-texture/              # Read and rewrite cooked Texture2D payloads (texture swaps)
+│   ├── ue-asset/                # Cooked Unreal packages: usmap, properties, meshes, Nanite, levels
 │   ├── blam-defs/               # Tag definition model & JSON corpus loader
 │   ├── blam-tag/                # Blam tag reader, writer and editor
 │   ├── blam-hsc/                # Blam script: expression tree, decompiler, compiler, opcode table
 │   ├── blam-pack/               # Bake edited tags into `_P` override containers
+│   ├── blam-sbsp/               # Classic CE collision BSPs as scenario_structure_bsp overrides
+│   ├── blam-megalo/             # Megalo game variants (.mglo) the simulation loads
 │   ├── blam-live/               # Read and patch tag payloads in the running game
+│   ├── blam-radiosity/          # Classic CE lightmaps, re-solved at any resolution
 │   ├── mjolnir-sign/            # Ed25519 author signatures for .mjolnir archives
 │   └── blam-cli/                # `mjolnir` command-line tool
+├── packaging/                   # How the CLI is packaged for each install channel
+├── bucket/                      # Scoop manifest for the CLI
+├── HomebrewFormula/             # Homebrew formula for the CLI
 ├── apps/
 │   ├── launcher/                # Tauri desktop mod manager
 │   └── tag-editor/              # Guerilla-style tag, texture, audio and script browser and editor
-└── hub/                         # Cloudflare mod community platform
+├── unreal/                      # UE 5.5 projects: MJOLNIRMapKit, MJOLNIRMaterials
+└── hub/                         # Cloudflare hub: mods, maps, public games, match history
 ```
 
 ---
 
 ## Mods
+
+A map pack from the hub plays through four of these: MJOLNIRCore, MJOLNIRLevelLoader, MJOLNIRLobby
+and MJOLNIRHud, which the launcher installs with it.
+
+### MJOLNIRLobby
+Adds MULTIPLAYER to the main menu, on MJOLNIR's own cooked screens (the game's own widgets are the
+fallback when the UI container is missing). HOST GAME picks a classic map, a game type and its
+settings, and starts it for the fireteam the way the campaign
+menu's Start Game does; MAX PLAYERS goes up to 16. A game the host makes public is listed on the
+hub, and FIND GAMES (or a `mjolnir://` join link) joins one by its connection string. A map this PC
+does not have is downloaded and mounted without a restart. The lobby also runs the post-game vote
+on the next game, shows hub names in place of platform names, and uploads match records. Its
+native half, built from `native/lobby`, binds the clicks of the Lua-made buttons, raises the
+fireteam cap, and makes the hub calls and joins. See
+[`docs/multiplayer_menu.md`](docs/multiplayer_menu.md) and
+[`docs/multiplayer_servers.md`](docs/multiplayer_servers.md).
+
+### MJOLNIRLevelLoader
+The runtime half of custom levels and of the converted CE maps. It reads
+`levels/<SCENARIO>.level.json` and spawns the level's Unreal decor, visual only: the simulation
+collides with the baked scenario, never with Unreal geometry. On a converted map it also adds the
+lighting, water, grass, weather and effects. On a multiplayer map it starts the game type the
+lobby chose, a Megalo variant (`variants/*.mglo`, written by `mjolnir megalo write` at release).
+Its native half, built from `native/map_registry`, lets a map run on a world of its own and
+switches the simulation to its Megalo engine for multiplayer maps. See
+[`docs/level_format.md`](docs/level_format.md) and
+[`docs/ce_map_conversion.md`](docs/ce_map_conversion.md).
+
+### MJOLNIRHud
+The multiplayer HUD for the classic maps: an animated kill feed with the game's weapon icons,
+medals, score bars, the respawn countdown, name tags over teammates, and a scoreboard while Tab is
+held. Match chat opens on T (all) and Y (team); a line starting with `/` is a command, and `/help`
+lists them (the host also has `/kick`, `/ban` and `/slay`). On the host of a public game it
+records the match for the hub's match history. `mjolnir_hitches` logs frame hitches, and
+`mjolnir_bench` times what the foliage or a console variable costs a frame; its native half,
+built from `native/frame_times`, reads `stat unit`'s split for it. See
+[`docs/multiplayer_hud.md`](docs/multiplayer_hud.md).
+
+### MJOLNIRForge
+Halo Reach's Forge, still inside the simulation. In a FORGE game (MJOLNIRLobby's game type of
+that name, host only for now) B turns you into the Monitor and back, V picks up and drops what the
+cursor is on, Page Up and Page Down push a held object out or pull it in, and Delete removes it.
+Insert places a new object from the map's palette, picked with the arrow keys in a palette panel.
+Its native half, built from `native/forge`, turns each key into the engine's own editor request on
+the simulation's thread. See [`docs/forge.md`](docs/forge.md) and
+[`docs/re/forge_engine.md`](docs/re/forge_engine.md).
 
 ### MJOLNIRFlyCam
 Free-flying detached camera on the numpad, with mouse look, speed boost, and automatic
@@ -103,22 +170,60 @@ the camera is detached.
 | `Numpad +/-` or `[ / ]` | Increase / Decrease base speed |
 
 ### MJOLNIRConsoleEnabler
-Enables the UE5 developer console in the shipping build.
+Enables the UE5 developer console in the shipping build, on `~`. The game also opens it on Tab;
+the mod moves that binding to `~`, because Tab is the multiplayer scoreboard.
 
 ### MJOLNIRMultiplayer
-Experimental travel probes for verified campaign package paths, listen-server loading, and player
-administration. Runtime travel and session preservation still require in-game verification.
+Campaign-flow mission launching, the hidden debug menu, experimental travel probes for verified
+campaign package paths and listen-server loading, and player administration. `mjolnir_mission`
+starts a scenario the way the game's own Debug Level Select does, through `SetAndBeginCampaign`,
+which rejects a scenario whose world is not cooked rather than crashing. Runtime travel and
+session preservation still require in-game verification.
 
 | Command | Purpose |
 | :--- | :--- |
 | `mjolnir_maps` | List verified CU3 root world package keys and paths |
+| `mjolnir_mission <scenario>` | Start A15..D40, E10..E30, a `testing_*` scenario, or a three-character MJOLNIR map through the campaign flow |
+| `mjolnir_debug_ui` | Toggle the main menu's hidden Test options panel (Debug Level Select) |
 | `mjolnir_kick <name>` | Send a player the kick notice (see caveat below) |
 | `mjolnir_travel a15` | Dispatch plain travel to the A15 campaign world |
 | `mjolnir_listen a15` | Dispatch travel to A15 with `?listen` |
+
+> **`mjolnir_kick` notifies, it does not disconnect.** `AGameSession::KickPlayer` is a plain
+> C++ virtual with no `UFUNCTION` macro, so it is absent from Unreal's reflection tables and
+> unreachable from UE4SS — the call raises "attempt to call a TrivialObject value". The only
+> kick-shaped reflected function in the build is `PlayerController:ClientWasKicked`, so the
+> command sends that and leaves the disconnect to the client. It is not enforcement.
+
+### MJOLNIRDiscovery
+Diagnostic UFunction dumper and travel logging for reverse engineering. Each dump is printed and
+also written to a `ue4ss/MJOLNIR_*.txt` file.
+
+| Command | Purpose |
+| :--- | :--- |
 | `mjolnir_scan_blam` | Dump live BlamEngine classes, functions, and candidate instances |
 | `mjolnir_scan_worlds` | Dump loaded Halo world objects |
 | `mjolnir_trace_network` | Hook co-op session, lobby, and travel lifecycle functions |
 | `mjolnir_dump_state` | Snapshot live variant and Blam network component properties |
+
+### MJOLNIRMapMenu
+Reveals the game's shipped debug map menu (Test options, DEBUG LEVEL SELECT) and adds custom
+worlds to its TEST MAPS page. `mjolnir_menu_debug` shows the panel, `mjolnir_menu_open` opens MAP
+SELECT directly, `mjolnir_menu_add <scenario> [label]` adds an entry, and `mjolnir_menu_list`
+lists both pages.
+
+### MJOLNIRWorldBuilder
+Furnishes a custom world after it loads with what a stock-UE cook cannot carry: lighting, since an
+overridden campaign world arrives without its sun, sky and fog, and a floor under the pawn.
+`mjolnir_world_build [size_m]` does both, `mjolnir_world_light` and `mjolnir_world_floor` one
+each, `mjolnir_world_probe` reports what the world holds, and `mjolnir_world_auto` toggles
+building on arrival.
+
+### MJOLNIRCTF
+Installs a game mode into the game's own Experience framework at runtime and lays out a two-base
+Capture the Flag arena inside a custom world (`mjolnir_ctf_experience`, `mjolnir_ctf_arena`,
+`mjolnir_ctf_status`, `mjolnir_ctf_reset`). The Capture the Flag played on the classic maps is not
+this mod: it is the Megalo `ctf` variant MJOLNIRLevelLoader runs.
 
 ### MJOLNIRTagProbe
 Reads loaded Blam tag assets from inside the running game, so an override container can be checked
@@ -142,15 +247,9 @@ The simulation DLL still carries the classic Blam console — the HS compiler an
 functions — but nothing feeds it text, so every Blam command at the Unreal console is "Command not
 recognized". This mod wires it: type `ai_enabled`, `player_teleport player0 ...` or
 `blam (unit_get_health (player0))` and the result value, or the compiler's error, comes back on the
-UE4SS console. `help <prefix>` lists names with signatures, marking the 425 functions and 217
-globals the release build compiled out. The native half is built from `native/blam_console`; see
-[`docs/blam_console.md`](docs/blam_console.md).
-
-> **`mjolnir_kick` notifies, it does not disconnect.** `AGameSession::KickPlayer` is a plain
-> C++ virtual with no `UFUNCTION` macro, so it is absent from Unreal's reflection tables and
-> unreachable from UE4SS — the call raises "attempt to call a TrivialObject value". The only
-> kick-shaped reflected function in the build is `PlayerController:ClientWasKicked`, so the
-> command sends that and leaves the disconnect to the client. It is not enforcement.
+UE4SS console and in an on-screen panel (`blam_overlay off` hides it). `help <prefix>` lists names
+with signatures, marking the 425 functions and 217 globals the release build compiled out. The
+native half is built from `native/blam_console`; see [`docs/blam_console.md`](docs/blam_console.md).
 
 ### MJOLNIRCore
 Core framework initialization and `UEHelpers` utility library.
@@ -165,9 +264,16 @@ Core framework initialization and `UEHelpers` utility library.
 
 ## Quick Start
 
+To play, install the [launcher](https://mjolnircore.com/download). It installs UE4SS with the
+signatures and settings this game needs, the signed MJOLNIR mods and the maps, and checks them for
+updates. The steps below are the manual route, for working on the mods themselves.
+
 ### Prerequisites
 - [Halo Campaign Evolved](https://store.steampowered.com/app/2806050/Halo_Campaign_Evolved/) (Steam, or the Xbox app / Game Pass)
-- [RE-UE4SS v3.0.1 experimental](https://github.com/UE4SS-RE/RE-UE4SS/releases) (`dwmapi.dll` proxy)
+- RE-UE4SS 3.0.1 experimental, build `d0107f63` (`dwmapi.dll` proxy), the one pinned in
+  [`runtime/ue4ss.lock.json`](runtime/ue4ss.lock.json). Upstream no longer serves that build;
+  `runtime.zip` from the latest [`runtime-v` release](https://github.com/devnull9090/mjolnir-core/releases?q=runtime-v)
+  carries it with the signatures and settings in place (Installation steps 1, 3 and 4)
 
 ### Installation
 1. Install UE4SS into `Meteorite/Binaries/Win64/ue4ss/` (`Meteorite/Binaries/WinGDK/ue4ss/` on the Xbox app)
@@ -182,10 +288,17 @@ Core framework initialization and `UEHelpers` utility library.
    ```
 6. Launch the game via Steam or the Xbox app
 
+A checkout has no native DLLs and no Megalo game types: neither is committed, and a release builds
+both (`native/*/build.ps1`, `mjolnir megalo write`). MJOLNIRBlamConsole, MJOLNIRLevelLoader and
+MJOLNIRLobby load their native halves for what Lua cannot do (evaluating Blam script, running a map
+on its own world and under Megalo, button clicks and hub calls), so to test multiplayer from a
+checkout, copy its Lua over a launcher install rather than installing from scratch.
+
 ### Reloading Mods
-UE4SS reads `mods.txt` and loads Lua scripts during process startup in the tested configuration.
-Restart HCE after adding, enabling, or changing a mod; MJOLNIR Core does not currently install a
-`CTRL+R` reload binding.
+UE4SS reads `mods.txt` and loads Lua scripts during process startup. Restart HCE after adding,
+enabling, or changing a mod. UE4SS's own `CTRL+R` hot reload is on in the reference
+`config/UE4SS-settings.ini`; the launcher turns it off (`EnableHotReloadSystem = 0`) whenever it
+starts the game, because a reload in the middle of a match crashed the host.
 
 ---
 
@@ -193,7 +306,10 @@ Restart HCE after adding, enabling, or changing a mod; MJOLNIR Core does not cur
 
 Reads and edits the Blam tags inside your installed game — list the groups, print a tag's
 decoded fields, change one, and bake the result into an override container the game loads.
-It needs nothing but the game; it writes nothing into your install.
+It also bakes custom levels, writes the Megalo game variants the multiplayer maps run, re-solves
+classic CE lightmaps (on the GPU by default), swaps textures, and packages maps for the hub
+(`mjolnir level`, `megalo`, `texture`, `map`). It needs nothing but the game, and writes into your
+install only when told to: `--install-test`, `level register`, or an `--out-dir` in `Paks`.
 
 **Runs on Windows, Linux and macOS.** The game itself is a Windows title — it runs on Linux
 under Proton, and not at all on macOS — but its containers are just files, and reading and
@@ -242,6 +358,11 @@ Checks the install against the committed lock and names every file that moved. R
 `-o config/hce-build.lock.json`; `--binaries-only` skips the 74 GiB content pass. The current build
 and what has been re-verified against it are in [`docs/build_lock.md`](docs/build_lock.md).
 
+Two native halves fail loudly instead. `native/blam_console` and `native/map_registry` hard-code
+addresses for one build and refuse to install their hooks on any other PE timestamp (the
+simulation DLL's and the exe's), so after an update their offsets have to be re-derived and the
+mods re-released; see [`docs/blam_console.md`](docs/blam_console.md).
+
 ### Experimental Builds from a Pull Request
 
 To get a change in front of testers before it ships, a maintainer comments on the pull request:
@@ -274,6 +395,9 @@ Testers install by hand — unzip over `ue4ss/`, back up what it replaces, and a
   touches R2 at all. No existing install changes until someone copies the files in.
 - **Nothing from the pull request executes.** Script mods are Lua text and packaging them is `zip`;
   no build script and none of this repository's own `scripts/` are run from the checked-out branch.
+- **Lua only.** The native DLLs and the Megalo game types are built only for signed releases, so
+  an experimental build carries none of them. Unzip it over a launcher install, whose DLLs it
+  leaves in place; a change to `native/` cannot be tried this way.
 
 See [`.github/workflows/experimental-build.yml`](.github/workflows/experimental-build.yml).
 
@@ -342,10 +466,16 @@ The Rust workspace in `crates/` reads containers and layouts natively:
 | Crate | Purpose |
 |---|---|
 | `ue-iostore` | UE 5.5 IoStore `.utoc`/`.ucas` reader (TOC v2–8, built-in Oodle decoder, zlib, partitions), the `.pak` reader the audio lives behind, and the container packer |
+| `ue-texture` | Cooked Texture2D payloads: decode, and re-encode a replacement at the shipped size |
+| `ue-asset` | Cooked Unreal (zen) packages: usmap schemas, unversioned properties, mesh and Nanite data, level export |
 | `blam-defs` | Shared tag definition model and JSON corpus format |
 | `blam-tag` | Container header, `blay` layout, `bdat` values: read, decode, edit, write |
+| `blam-hsc` | Blam script: decompile the expression tree a scenario carries, and compile HSC back into it |
 | `blam-pack` | The one implementation of "patched tag bytes → a `_P` container the game loads", shared by the CLI and the tag editor |
+| `blam-sbsp` | Classic CE collision BSPs transcoded into `scenario_structure_bsp` overrides |
+| `blam-megalo` | Megalo game variants, written and read as the simulation's decoder reads them |
 | `blam-live` | Reading and patching a tag payload inside the *running* game, no rebuild or restart |
+| `blam-radiosity` | Classic CE lightmap radiosity, re-solved at any resolution (on the GPU by default in the CLI) |
 | `mjolnir-sign` | Ed25519 author signatures for `.mjolnir` archives — the editor signs, the launcher and CLI verify, the hub mirrors it in TypeScript |
 | `blam-cli` | The `mjolnir` command-line tool |
 
@@ -359,7 +489,7 @@ cargo run --release -p blam-cli -- list --group weapon               # every tag
 cargo run --release -p blam-cli -- fields --group weapon             # resolved field list
 cargo run --release -p blam-cli -- layout --group camera_track --tables
 cargo run --release -p blam-cli -- types                             # field type vocabulary
-cargo run --release -p blam-cli -- validate --all                    # invariants, all 12,290 tags
+cargo run --release -p blam-cli -- validate --all                    # invariants, all 12,292 tags
 cargo run --release -p blam-cli -- sections                          # tgly tables + blay preamble
 cargo run --release -p blam-cli -- data --group weapon --trace       # decode one tag's values
 cargo run --release -p blam-cli -- values --group weapon             # fields with decoded values
@@ -383,9 +513,9 @@ the **running game** — no rebuild, no restart, nothing written to disk; see
 table of loaded tags and its string-id registry, which is also how `poke` finds a tag on a
 known build (`docs/tag_table_and_string_ids.md`).
 
-`mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags**,
-resolves a root struct size for **100%** of them, and decodes the field values of **99.9%** into a
-byte-exact value tree. `mjolnir roundtrip --all` then writes every one of those trees back out
+`mjolnir validate --all` passes every structural invariant across all **12,290 shipped tags** of
+the CU2 build it was measured on, resolves a root struct size for **100%** of them, and decodes
+the field values of **99.9%** into a byte-exact value tree. `mjolnir roundtrip --all` then writes every one of those trees back out
 and confirms **12,281 / 12,281** reproduce the original bytes exactly, across 5.77 GB.
 `mjolnir defs` writes
 `defs/hce/tag-definitions.json` — 101 groups, 1,779 structs, 13,250 fields — which the hub renders
@@ -423,9 +553,10 @@ Fields are editable: click a value, type a new one, press Enter. Every edit is a
 re-parsed from scratch and re-walked before it is kept, so a value that does not fit is rejected
 rather than written.
 
-Beyond tags, it opens the three things that used to need external tools:
+Beyond tags, it opens the things that used to need external tools:
 
-- **Textures** — decoded and displayed, with zoom and PNG export. Both cook paths are handled
+- **Textures** — decoded and displayed, with zoom, and exported as PNG, TIFF, or DDS (the cooked
+  format, every mip). Both cook paths are handled
   (virtual textures and classic mip chains); 4787 of 4844 decode, and the 57 that do not ship no
   pixel data at all. They can also be **swapped**: point a texture at a PNG from inside a mod
   project, or run `mjolnir texture swap` on the command line. Either way the image is re-encoded
@@ -436,10 +567,13 @@ Beyond tags, it opens the three things that used to need external tools:
   event that plays it rather than by a bare numeric ID, and exportable as `.wem`. See
   [`docs/wwise_audio_format.md`](docs/wwise_audio_format.md).
 - **Scripts** — every campaign mission is scripted in HSC, and the original source ships in the
-  `scenario` tag. A mission gets a third view beside Form and Tree: the source with highlighting
+  `scenario` tag. A mission gets a Script view beside Form and Tree: the source with highlighting
   and an outline that jumps to any script or global. It is editable, and compiles back into the
   tag — writing all thirteen missions back unmodified reproduces them byte for byte. See
   [`docs/blam_script.md`](docs/blam_script.md).
+- **Models and worlds** — an object's Model view draws its geometry in 3D, and a scenario's World
+  view draws its collision world with every placement on it, selectable and movable; a squad's
+  spawn points can be moved and duplicated there too. Meshes export as glTF.
 
 Edits belong to a **mod project** — a folder of small JSON recipe files naming tags and fields
 rather than byte offsets, which autosaves on every edit and survives game updates. Script rewrites
@@ -469,8 +603,10 @@ how the container format was worked out and what is still open.
 
 ### The Hub, and its public API
 
-`hub/` is the mod platform at [mjolnircore.com](https://mjolnircore.com) — Next.js on Cloudflare
-Workers via OpenNext, with D1, R2 and an API mounted as a Hono app under a catch-all route.
+`hub/` is the mod platform at [mjolnircore.com](https://mjolnircore.com) and the multiplayer back
+end the game and launcher talk to: the public games FIND GAMES lists, match history, map packs,
+hub identities and player reports, and crash reports. It is Next.js on Cloudflare Workers via
+OpenNext, with D1, R2 and an API mounted as a Hono app under a catch-all route.
 
 The API is **open**: reads need no authentication and CORS is `*`. It is spec-first, so the
 OpenAPI 3.1 document is generated from the same Zod schemas that validate requests and can never
@@ -499,7 +635,9 @@ phase. Texture replacement used to head this list and shipped in
   chunk, and merge soft conflicts field by field
 - **Collections**: shareable profiles — a list of mod references, not bytes. Local profiles are
   live in the launcher; publishing one to the hub is not built
-- **Player Tracker**: multiplayer stats and leaderboards
+- **Leaderboards**: public matches already report to the hub, which keeps a
+  [match history](https://mjolnircore.com/matches) with per-player totals; ranking players against
+  each other is not built
 
 ---
 

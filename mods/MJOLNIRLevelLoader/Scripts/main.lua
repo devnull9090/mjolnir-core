@@ -71,6 +71,9 @@ local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local VariantSettings = dofile(MOD_DIR .. "\\Scripts\\variant_settings.lua")
 local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
+-- CTF flags and team armour in their team's colours (Teams.init in
+-- initialize, once main.lua's helpers exist).
+local Teams = dofile(MOD_DIR .. "\\Scripts\\teams.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -216,10 +219,6 @@ local Current = {
     -- level with no decor spawns nothing, and furnishing again every tick
     -- re-spawned the environment and re-sent fade_in every 1.5 s.
     furnished = false,
-    -- CTF flag actors already dressed, by full name (dressFlags).
-    flags = {},
-    -- Bipeds already given their team colour, by full name.
-    tinted = {},
     -- Set once fade_in has been asked for; it waits for the player, while the
     -- terrain and sky go in as soon as the world is known.
     faded = false,
@@ -232,6 +231,13 @@ local Current = {
     -- Sounds on a machine's moving part (spawnSounds): { comp, pos, pivot,
     -- t0, t1, s0, s1, period, position }, moved by moveSounds.
     movingSounds = {},
+    -- Decor that turns about a pivot (a Halo 2 gear: Ascension's antennas;
+    -- level.decor[].motion): { actor, rest, pivot, period, keys }, turned
+    -- by the "turning machines" loop.
+    turning = {},
+    -- The simulation's machine actors a turning mesh rides, by full name:
+    -- one mesh each.
+    claimed = {},
     -- Level sounds that follow the game's volume sliders (spawnSounds):
     -- { comp, gain, category, volume }, kept in step by syncVolumes.
     volumed = {},
@@ -242,6 +248,17 @@ local Current = {
     -- source material, shared by every decor piece and foliage group that
     -- asks for the same values.
     scalarMids = {},
+    -- The world the level was furnished in (spawnDecor), for the loops that
+    -- need a world context: getWorld() reads a dozen properties and leaves
+    -- ~1.5 KB of handles behind a call.
+    world = nil,
+    -- The one table every call with a hit-result out parameter is handed
+    -- (K2_SetActorTransform's SweepHitResult and the like). UE4SS keeps a
+    -- registry reference to an out parameter's table and never lets it go:
+    -- a fresh {} a call left 7,733 FHitResult tables (13 objects each) live
+    -- on Death Island, all marked again by every garbage collection, and a
+    -- 10 Hz loop added one a run. One shared table: nothing piles up.
+    hit = {},
 }
 
 local function resetState()
@@ -255,17 +272,19 @@ local function resetState()
     Current.furnished = false
     Current.faded = false
     Current.announced = false
-    Current.flags = {}
     Current.packDressed = false
-    Current.tinted = {}
     Current.fileMissing = false
     Current.pulses = {}
     Current.movingSounds = {}
+    Current.turning = {}
+    Current.claimed = {}
     Current.volumed = {}
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.water = nil
     Current.weatherHidden = nil
+    Current.weatherAt = nil
+    Current.world = nil
     Current.fluxPending = nil
     -- The console variables a level changed (the sun's shadows,
     -- spawnEnvironment) back as the game had them.
@@ -278,11 +297,8 @@ local function resetState()
         end)
         Current.cvars = nil
     end
-    -- Flag state is per match: the first drop of a match took the last
-    -- match's team.
-    Current.lastFlagTeam = nil
-    Current.carriedTeam = nil
-    Current.flagSerial = 0
+    -- The flags and Spartans of the last world (teams.lua).
+    Teams.reset()
 end
 
 local function clearActors()
@@ -299,6 +315,8 @@ local function clearActors()
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.movingSounds = {}
+    Current.turning = {}
+    Current.claimed = {}
     Current.volumed = {}
     Current.spawned = 0
     Current.failed = 0
@@ -437,25 +455,34 @@ local function resolveMesh(path)
         Resolved[path] = nil
     end
     if Unresolved[path] then return nil end
+    -- A soft-path blocking load first: it hands back an object already in
+    -- memory in ~0.03 ms and loads one in ~1 ms, where StaticFindObject
+    -- took ~21 ms a path, loaded or not. Death Island's terrain resolves 124
+    -- textures: 3.5 s of its load frame were these lookups (2026-10-18).
+    local ok, loaded = pcall(function()
+        local ksl = Resolved["\0ksl"]
+        if not (ksl and ksl:IsValid()) then
+            ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
+            Resolved["\0ksl"] = ksl
+        end
+        return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
+    end)
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
+    -- The soft path does not take a name with a number (SM_..._Big_6):
+    -- UE4SS's LoadAsset does, for what the game's AssetRegistry lists (none
+    -- of our own packages, which the soft path loads).
+    ok, loaded = pcall(function() return LoadAsset(path) end)
+    if ok and loaded and loaded:IsValid() then
+        Resolved[path] = loaded
+        return loaded
+    end
     local mesh = findObject(path)
     if mesh then
         Resolved[path] = mesh
         return mesh
-    end
-    local ok, loaded = pcall(function() return LoadAsset(path) end)
-    if not (ok and loaded and loaded:IsValid()) then
-        -- UE4SS's LoadAsset only knows what the game's AssetRegistry lists,
-        -- which leaves out every package of ours (the converted levels'
-        -- cooked materials and textures, pakchunk988). A soft-path blocking
-        -- load goes straight to the package store instead.
-        ok, loaded = pcall(function()
-            local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
-            return ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
-        end)
-    end
-    if ok and loaded and loaded:IsValid() then
-        Resolved[path] = loaded
-        return loaded
     end
     Unresolved[path] = true
     Log("asset not found, not tried again on this map: " .. path)
@@ -1346,6 +1373,12 @@ local function spawnDecorItem(world, origin, item)
         -- Order matters: SetStaticMesh silently refuses on a registered
         -- component whose mobility is Static, and StaticMeshActor ships Static.
         comp.Mobility = MOBILITY_MOVABLE
+        -- The rotation asked for, set exactly (once Movable: a Static actor
+        -- refuses it): through UE4SS, SpawnActor's comes out wrong (pitch
+        -- alone negated, mixed angles composed otherwise), and a tilted
+        -- tree's pieces, each turned about its own pivot, stood apart: a
+        -- trunk with a gap, a branch hanging in the air (2026-10-18).
+        actor:K2_SetActorRotation({ Pitch = rot[1] or 0.0, Yaw = rot[2] or 0.0, Roll = rot[3] or 0.0 }, false)
         comp:SetStaticMesh(mesh)
         local s = item.scale
         if type(s) == "table" and #s >= 3 then
@@ -1404,8 +1437,11 @@ local function spawnDecorItem(world, origin, item)
             local base = type(first) == "table" and first.scalars and first.scalars[pulse.param]
             local okM, mid = pcall(function() return actor.StaticMeshComponent:GetMaterial(0) end)
             if okM and mid and mid:IsValid() and base then
+                -- The setter kept: UE4SS hands back a new function handle at
+                -- every method lookup (~250 bytes), and one bound to its
+                -- object, so it is this instance's own.
                 Current.pulses[#Current.pulses + 1] = {
-                    mid = mid, param = FName(pulse.param), base = base,
+                    mid = mid, set = mid.SetScalarParameterValue, param = FName(pulse.param), base = base,
                     fn = pulse["function"] or 2, period = pulse.period or 1.0,
                 }
             end
@@ -1426,7 +1462,12 @@ local function spawnDecorItem(world, origin, item)
     -- for ray tracing every frame and re-renders its shadow pages; Ice
     -- Fields' 506 fir pieces hung the GPU in Lumen's reflections and their
     -- shadows jumped as the player walked (2026-10-13).
-    if item.static then
+    -- A swapped tree's piece (its sway calmed, scenery_swap.py TREE_CALM)
+    -- too: each piece bends about its own pivot, and a 10 m trunk piece's
+    -- tip moved far enough to part from the next, the trunk breaking apart
+    -- and joining again in the wind (Infinity, 2026-10-18). Its leaf
+    -- clusters (foliage) still flutter.
+    if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
         pcall(function() actor.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
     end
     -- After the materials: the strength is set on them.
@@ -1580,7 +1621,7 @@ local function spawnEnvironment(world)
         place("__sky_fog", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
             pcall(function()
                 actor:K2_SetActorLocation({ X = high.X, Y = high.Y, Z = high.Z + (skyFog.height or 400000.0) },
-                    false, {}, false)
+                    false, Current.hit, false)
             end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
@@ -1605,7 +1646,7 @@ local function spawnEnvironment(world)
     local haze = env.haze
     if type(haze) == "table" and type(haze.color) == "table" then
         place("__haze", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
-            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, {}, false) end)
+            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, Current.hit, false) end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
             c.FogCutoffDistance = haze.cutoff or 80000
@@ -1614,10 +1655,14 @@ local function spawnEnvironment(world)
             c:SetStartDistance(haze.start or 2500)
             c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
-            ExecuteInGameThreadWithDelay(1000, function()
+            -- Both as soon as they can be: the capture on the first tick after
+            -- the load lets go (the delay has run out by then), the haze a few
+            -- frames after it. At 1 s and 2 s it came up ~2 s after the
+            -- player spawned (2026-10-18), once the load itself was short.
+            ExecuteInGameThreadWithDelay(50, function()
                 local sky = Current.actors.__sky
                 if sky and sky:IsValid() then pcall(function() sky.LightComponent:RecaptureSky() end) end
-                ExecuteInGameThreadWithDelay(2000, function()
+                ExecuteInGameThreadWithDelay(250, function()
                     if actor:IsValid() then pcall(function() actor.Component:SetFogMaxOpacity(haze.max_opacity or 0.7) end) end
                 end)
             end)
@@ -1746,8 +1791,10 @@ local function spawnSounds(world)
             -- A CE music loop (class music) follows the music slider.
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            -- `pitch`: Halo 2's pitched loops (the humming lights, 5
+            -- semitones down).
             local ok, comp = pcall(function()
-                return gs:SpawnSound2D(world, wave, gain * volume, 1.0, 0.0, nil, false, false)
+                return gs:SpawnSound2D(world, wave, gain * volume, s.pitch or 1.0, 0.0, nil, false, false)
             end)
             keep("__bg" .. i, ok and comp, s.fade_in, gain, category, volume)
         else
@@ -1785,7 +1832,7 @@ local function spawnSounds(world)
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, 1.0, 0.0, att, nil, false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, nil, false)
             end)
             keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
             -- On a machine's moving part (Infinity's beams): moved with it
@@ -1808,283 +1855,10 @@ local function spawnSounds(world)
         #Current.movingSounds > 0 and (", " .. #Current.movingSounds .. " on moving parts") or ""))
 end
 
---- The skull's ghostly fire (BP_SkullEffect) and its whispering, which is
---- the actor's own audio component (HaloAudioTracking): removing the effect
---- alone left the whisper playing. The game makes the effect again as the
---- flag is picked up and dropped, so it is removed again then, from the
---- first-person actor too.
-local SKULL_PARTS = { "BP_SkullEffect", "HaloAudioTracking" }
-
---- The flag mesh the loader put on each flag actor, by actor full name;
---- every other mesh on the actor is the skull's.
-local FlagMeshes = {}
-
---- Hide the skull's own meshes. The game shows them again (the skull came
---- back at the foot of the flag after it was dressed), so this runs whenever
---- the skull's parts are removed.
-local function hideSkull(actor)
-    local mine = FlagMeshes[actor:GetFullName()]
-    for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.PrimitiveComponent")) or {}) do
-        pcall(function()
-            if type(c) == "userdata" and c.get then c = c:get() end
-            if mine and mine:IsValid() and c:GetFullName() == mine:GetFullName() then return end
-            c:SetHiddenInGame(true, false)
-            c:SetVisibility(false, false)
-        end)
-    end
-end
-
-local function quenchSkull(actor)
-    hideSkull(actor)
-    for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.ActorComponent")) or {}) do
-        pcall(function()
-            if type(c) == "userdata" and c.get then c = c:get() end
-            local name = c:GetFullName()
-            for _, part in ipairs(SKULL_PARTS) do
-                if name:find(part, 1, true) then
-                    c:Deactivate()
-                    c:K2_DestroyComponent(c)
-                end
-            end
-        end)
-    end
-end
-
---- Capture the Flag flags (the level's `ctf`). The flag object borrows the
---- oddball's actor, since nothing ships for it (tools/level/build_ctf_flag.sh),
---- so each flag that turns up is a skull: it gets CE's flag mesh in its
---- team's colours instead, the team from the stand it is made on. A new flag
---- is a new actor (a captured or reset flag is deleted and made again).
-local FLAG_ACTOR_CLASS = "BP_SkullActor_C"
-local FP_FLAG_ACTOR_CLASS = "BP_FP_SkullActor_C"
-local TEAM_NAMES = { [0] = "red", [1] = "blue" }
--- Within this of a stand, a new flag actor is that stand's flag.
-local FLAG_AT_STAND_CM = 400
-
---- Put CE's flag mesh on a skull actor, at `pos` (cm), `rot` (pitch, yaw,
---- roll) and `scale` relative to it, in team `name`'s colours.
-local function attachFlagMesh(world, actor, ctf, name, pos, rot, scale)
-    local flag = ctf.flag
-    local mesh = resolveMesh(flag.mesh)
-    if not mesh then error("mesh not found: " .. tostring(flag.mesh)) end
-    -- The skull's own meshes go (quenchSkull hides them, now and whenever
-    -- the game shows them again); the actor, which follows the flag, stays.
-    local comp = actor:AddComponentByClass(findObject("/Script/Engine.StaticMeshComponent"), false, {
-        Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-        Translation = { X = 0, Y = 0, Z = 0 },
-        Scale3D = { X = 1, Y = 1, Z = 1 },
-    }, false)
-    if not (comp and comp:IsValid()) then error("no mesh component") end
-    comp.Mobility = MOBILITY_MOVABLE
-    comp:SetStaticMesh(mesh)
-    comp:SetCollisionEnabled(COLLISION_NONE)
-    comp:K2_SetRelativeLocationAndRotation({ X = pos[1], Y = pos[2], Z = pos[3] },
-        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, {}, false)
-    comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
-    FlagMeshes[actor:GetFullName()] = comp
-    hideSkull(actor)
-    local materials = type(flag.materials) == "table" and flag.materials[name]
-    local applied, failed = applyMaterials(comp, materials, world, "flag_" .. name)
-    Log(string.format("CTF: %s flag dressed%s (%d material(s), %d failed)", name,
-        actor:GetClass():GetFName():ToString() == FLAG_ACTOR_CLASS and "" or " in first person", applied, failed))
-    return comp
-end
-
---- Flags at home, pinned to their stands, by team name.
-local HomeFlags = {}
-
---- A flag at home is drawn exactly on its stand, facing the stand's way: the
---- flag object (a weapon) settles a little off the stand and turned, which
---- showed on Gephyrophobia. Picked up, it follows the flag again
---- (unpinFlag).
-local function pinFlag(comp, flag, stand, name, actor)
-    local p, yaw = flag.pos or { 0, 0, 0 }, math.rad(stand.yaw or 0)
-    comp:SetAbsolute(true, true, false)
-    comp:K2_SetWorldLocationAndRotation({
-        X = stand.pos[1] + p[1] * math.cos(yaw) - p[2] * math.sin(yaw),
-        Y = stand.pos[2] + p[1] * math.sin(yaw) + p[2] * math.cos(yaw),
-        Z = stand.pos[3] + p[3],
-    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, {}, false)
-    HomeFlags[name] = { comp = comp, flag = flag, actor = actor }
-end
-
-local function unpinFlag(name)
-    local home = HomeFlags[name]
-    HomeFlags[name] = nil
-    if not (home and home.comp:IsValid()) then return end
-    local p = home.flag.pos or { 0, 0, 0 }
-    home.comp:SetAbsolute(false, false, false)
-    home.comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
-end
-
-local function teamName(team)
-    return type(team) == "string" and team or TEAM_NAMES[team] or nil
-end
-
---- Whether team `name`'s flag is at home already, as an actor other than
---- `actor`.
-local function flagHome(name, actor)
-    local home = HomeFlags[name]
-    if not (home and home.actor and home.actor:IsValid() and home.comp:IsValid()) then return false end
-    local ok, other = pcall(function() return home.actor:GetFullName() ~= actor:GetFullName() end)
-    return ok and other
-end
-
---- Dress a world flag in its team's colours. `serial` is the flag incident
---- count when the actor appeared (nil from a sweep: no wait).
-local function dressFlag(world, actor, ctf, serial, tries)
-    if not actor:IsValid() then return end
-    local at = actor:K2_GetActorLocation()
-    local team, best, home = nil, math.huge, nil
-    for _, s in ipairs(type(ctf.stands) == "table" and ctf.stands or {}) do
-        local dx, dy, dz = at.X - s.pos[1], at.Y - s.pos[2], at.Z - s.pos[3]
-        local d = dx * dx + dy * dy + dz * dz
-        if d < best then team, best, home = s.team, d, s end
-    end
-    -- A flag made on a stand is that stand's, unless that team's flag is
-    -- home already: a carrier killed beside their own stand drops the
-    -- enemy's flag there, and it was dressed in the stand's colour and
-    -- pinned over the stand (playtest, 2026-10-03).
-    local atStand = best <= FLAG_AT_STAND_CM * FLAG_AT_STAND_CM and not flagHome(teamName(team), actor)
-    if not atStand then
-        -- A flag picked up or dropped is a new actor away from both stands;
-        -- its team is the one the flag incident about it names
-        -- (CustomValue). That incident comes after the actor, a drain or a
-        -- relay later, so wait for one newer than the actor (up to 1.5 s)
-        -- rather than take the last incident of either flag.
-        if serial and (Current.flagSerial or 0) == serial and (tries or 0) < 15 then
-            ExecuteInGameThreadWithDelay(100, function()
-                local ok, err = pcall(dressFlag, world, actor, ctf, serial, (tries or 0) + 1)
-                if not ok then Log("CTF flag: " .. tostring(err)) end
-            end)
-            return
-        end
-        if Current.lastFlagTeam then team = Current.lastFlagTeam end
-    end
-    local name = teamName(team) or "red"
-    local flag = ctf.flag
-    local comp = attachFlagMesh(world, actor, ctf, name, flag.pos or { 0, 0, 0 }, { 0, 0, 0 }, flag.scale or 1.0)
-    if atStand then pinFlag(comp, flag, home, name, actor) end
-end
-
---- The flag in first person: the carrier's own copy of the skull actor
---- (BP_FP_SkullActor_C), whose origin is the camera. Its skull is drawn by
---- the first-person renderer, which a mesh of ours does not take part in, so
---- the flag is held as an ordinary mesh at a fixed place before the camera:
---- low on the right, its pole leaning up and to the left, as in CE. Relative
---- to the actor, X is forward, Y up and Z left. Found by hand, holding the
---- flag (2026-10-01).
-local FP_FLAG = { pos = { 65, -42, -28 }, rot = { -10, -20, 60 }, scale = 0.7 }
-
---- The team is the local player's own grab's (Current.carriedTeam), which
---- arrives after the actor: waited for up to 1.5 s, then the last flag
---- incident's.
-local function dressFirstPersonFlag(world, actor, ctf, tries)
-    if not actor:IsValid() then return end
-    if not Current.carriedTeam and (tries or 0) < 15 then
-        ExecuteInGameThreadWithDelay(100, function()
-            local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf, (tries or 0) + 1)
-            if not ok then Log("CTF first-person flag: " .. tostring(err)) end
-        end)
-        return
-    end
-    local name = TEAM_NAMES[Current.carriedTeam] or TEAM_NAMES[Current.lastFlagTeam] or "red"
-    attachFlagMesh(world, actor, ctf, name, FP_FLAG.pos, FP_FLAG.rot, FP_FLAG.scale)
-end
-
-
---- Quench a skull actor, and dress it if it is a world flag (not the
---- first-person one, a subclass) not yet dressed. `serial`: the flag
---- incident count when the actor appeared.
-local function handleSkull(world, actor, ctf, serial)
-    if not actor:IsValid() then return end
-    pcall(quenchSkull, actor)
-    local class = actor:GetClass():GetFName():ToString()
-    local key = actor:GetFullName()
-    if Current.flags[key] then return end
-    Current.flags[key] = actor
-    if class == FP_FLAG_ACTOR_CLASS then
-        local ok, err = pcall(dressFirstPersonFlag, world, actor, ctf)
-        if not ok then Log("CTF first-person flag: " .. tostring(err)) end
-        return
-    end
-    if class ~= FLAG_ACTOR_CLASS then return end
-    local ok, err = pcall(dressFlag, world, actor, ctf, serial)
-    if not ok then Log("CTF flag: " .. tostring(err)) end
-end
-
-local function ctfLevel()
-    local ctf = Current.level and Current.level.ctf
-    if type(ctf) == "table" and type(ctf.flag) == "table" then return ctf end
-end
-
---- Every skull actor the watch has seen (and the ones there before it).
-local Skulls = {}
-
---- A pass over every known skull actor, for any the watch's own handling
---- missed (MJOLNIRLevelLoader's slow tick). It was a FindAllOf: at 0.3 s,
---- twice a pass, the game stuttered, and at 3 s it still cost a 20 ms frame
---- on a converted map.
-local function dressFlags(world)
-    local ctf = ctfLevel()
-    if not ctf then return end
-    for _, actor in ipairs(liveIn(Skulls)) do
-        handleSkull(world, actor, ctf)
-    end
-end
-
-local SKULL_ACTOR_CLASS_PATH = "/Game/Weapons/Melee/Skull/Blueprints/BP_SkullActor.BP_SkullActor_C"
-local skullsWatched = false
-
---- Every skull actor the game makes from now on (a flag picked up, dropped
---- or made anew, and the first-person one) is handled as it appears, once
---- its components exist.
-local function watchSkulls()
-    if skullsWatched or not mayArm("skulls") then return end
-    skullsWatched = pcall(NotifyOnNewObject, SKULL_ACTOR_CLASS_PATH, function(actor)
-        track(Skulls, actor)
-        local serial = Current.flagSerial or 0
-        ExecuteInGameThreadWithDelay(50, function()
-            local ctf, world = ctfLevel(), getWorld()
-            if ctf and world then handleSkull(world, actor, ctf, serial) end
-        end)
-        -- The effect and its sound start a little after the actor.
-        for _, ms in ipairs({ 500, 2000 }) do
-            ExecuteInGameThreadWithDelay(ms, function()
-                if ctfLevel() and actor:IsValid() then pcall(quenchSkull, actor) end
-            end)
-        end
-    end)
-    if skullsWatched then
-        for _, actor in ipairs(FindAllOf(FLAG_ACTOR_CLASS) or {}) do track(Skulls, actor) end
-        Log("CTF: watching for flag actors")
-    end
-end
-
---- The skull's effect comes back as a flag changes hands; a flag incident is
---- the cue to put it out again on the flags the loader knows.
-local function quenchFlags()
-    ExecuteInGameThreadWithDelay(200, function()
-        local ctf, world = ctfLevel(), getWorld()
-        -- Only the local player's own grab recolours their first-person
-        -- flag: any flag's incident did, so carrying blue while red was
-        -- dropped turned the flag in hand red (playtest, 2026-10-03).
-        local name = TEAM_NAMES[Current.carriedTeam]
-        for key, actor in pairs(Current.flags) do
-            if type(actor) == "userdata" and actor:IsValid() then
-                pcall(quenchSkull, actor)
-                -- The first-person actor may carry over to the next flag
-                -- grabbed, of the other team: recolour it to this one.
-                local comp = FlagMeshes[key]
-                if ctf and world and name and comp and comp:IsValid()
-                    and actor:GetClass():GetFName():ToString() == FP_FLAG_ACTOR_CLASS then
-                    pcall(applyMaterials, comp, ctf.flag.materials[name], world, "flag_fp_" .. name)
-                end
-            end
-        end
-    end)
-end
+--- Capture the Flag flags and team armour are teams.lua's (Teams.flagTick,
+--- Teams.armorTick, Teams.onIncident): CE's flag mesh on each flag actor in
+--- the colours of its tag's team, and Mk V Classic tinted on the game's
+--- own events.
 
 --- Health packs (the level's `health_pack`). Nothing in the game heals on
 --- contact, so the Megalo variants make and take the packs
@@ -2102,12 +1876,17 @@ local function healthPackLevel()
     if type(hp) == "table" and hp.mesh then return hp end
 end
 
---- Hide every primitive of `actor` but `mine`.
+--- Hide every primitive of `actor` but `mine` (a pack's mesh here; a flag's
+--- mesh and cloth, as a list, in teams.lua).
 local function hideAllBut(actor, mine)
+    local keep = {}
+    for _, m in ipairs(type(mine) == "table" and mine or { mine }) do
+        if m and m:IsValid() then keep[m:GetFullName()] = true end
+    end
     for _, c in ipairs(actor:K2_GetComponentsByClass(findObject("/Script/Engine.PrimitiveComponent")) or {}) do
         pcall(function()
             if type(c) == "userdata" and c.get then c = c:get() end
-            if mine and mine:IsValid() and c:GetFullName() == mine:GetFullName() then return end
+            if keep[c:GetFullName()] then return end
             c:SetHiddenInGame(true, false)
             c:SetVisibility(false, false)
         end)
@@ -2151,9 +1930,9 @@ local function seatPackMesh(actor, comp, hp)
     -- straight up from the crate's lowest corner, in the crate's frame.
     local p = hp.pos or { 0, 0, 0 }
     local up = (p[3] or 0) + lowest
-    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, {}, false)
+    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, Current.hit, false)
     comp:SetAbsolute(false, true, false)
-    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, {}, false)
+    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, Current.hit, false)
 end
 
 local function dressHealthPack(world, actor, hp)
@@ -2179,7 +1958,7 @@ local function dressHealthPack(world, actor, hp)
     comp:SetCollisionEnabled(COLLISION_NONE)
     local p, s = hp.pos or { 0, 0, 0 }, hp.scale or 1.0
     comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
     comp:SetRelativeScale3D({ X = s, Y = s, Z = s })
     pcall(seatPackMesh, actor, comp, hp)
     PackMeshes[key] = comp
@@ -2294,9 +2073,6 @@ local function preloadEventSounds()
     Log(string.format("event sounds: %d wave(s) loaded, %d failed", n, failed))
 end
 
---- Re-tint team armour after a spawn (set below, beside tintBiped).
-local retintSoon = function() end
-
 --- Each incident's first occurrence per level is logged (with or without a
 --- sound), so what a game type raises, and for whom, shows up.
 local SilentIncidents = {}
@@ -2310,24 +2086,9 @@ local function isLocal(cause, effect)
 end
 
 local function playEvent(name, cause, value, effect)
-    -- The CTF variant's flag incidents carry the flag's team (dressFlag).
-    if name:find("^flag_") then
-        if value == 0 or value == 1 then
-            Current.lastFlagTeam = value
-            -- A flag actor made away from both stands waits for the
-            -- incident after it (dressFlag), not the last one before it.
-            Current.flagSerial = (Current.flagSerial or 0) + 1
-            -- The flag in the local player's hands, for the first-person
-            -- flag: only their own grab says which it is.
-            -- Any other flag incident of theirs (a drop, a capture) ends it,
-            -- so their next flag waits for its own grab.
-            if cause == LOCAL_PLAYER then
-                Current.carriedTeam = name == "flag_grabbed" and value or nil
-            end
-        end
-        if name == "flag_grabbed" and TEAM_NAMES[value] then unpinFlag(TEAM_NAMES[value]) end
-        quenchFlags()
-    end
+    -- A flag's incident moves flags on and off their stands, and a new
+    -- round resets them (teams.lua). No flag takes its colour from one.
+    Teams.onIncident(name, value)
     if not SilentIncidents[name] then
         SilentIncidents[name] = true
         local heard = EventWaves[name] or (value and EventWaves[name .. ":" .. tostring(value)])
@@ -2338,9 +2099,6 @@ local function playEvent(name, cause, value, effect)
     if START_EVENT_SET[name] then
         if Current.announced then return end
         Current.announced = true
-    end
-    if name == "player_spawn" or name == "respawn_final_tick" then
-        retintSoon()
     end
     if name == "player_spawn" then
         if cause ~= LOCAL_PLAYER or Current.announced then return end
@@ -2379,9 +2137,10 @@ local function isHostWorld()
 end
 
 --- Whether a client has a use for an incident: one with a sound, or a flag's
---- (its team colours the flags). Relaying every incident sent six reliable
---- messages for one sniper headshot, most of them silent, and each one
---- queued behind the last (playtest, 2026-10-03).
+--- (a grab takes the flag off its stand at once, and any flag incident puts
+--- the skull's effect out again; teams.lua). Relaying every incident sent
+--- six reliable messages for one sniper headshot, most of them silent, and
+--- each one queued behind the last (playtest, 2026-10-03).
 local function relayed(e)
     local name = e[1]
     if name == "player_spawn" or e.relayed then return false end
@@ -2493,9 +2252,9 @@ local function hookIncidents()
                 local i = incident:get()
                 return i.Name:ToString(), i.CausePlayerAbsoluteIndex, i.CustomValue, i.EffectPlayerAbsoluteIndex
             end)
-            -- Flag incidents count without sounds too: they colour the flags,
-            -- and with no wave loaded every dropped flag came out red.
-            if not (okI and name) or not (next(EventWaves) or name:find("^flag_")) then return end
+            -- Flag incidents and the end of a round count without sounds
+            -- too: they place the flags and reset them (teams.lua).
+            if not (okI and name) or not (next(EventWaves) or name:find("^flag_") or name == "round_over") then return end
             if #EventQueue < 32 then
                 NativeIncidents[name] = true
                 EventQueue[#EventQueue + 1] = { name, cause, value, effect }
@@ -2504,168 +2263,6 @@ local function hookIncidents()
         end)
     end)
     if incidentHooked then Log("event sounds: incident hook armed") end
-end
-
---- Team colours. The Spartan's armour material has one colour (`Armor
---- Color`, Master Chief's olive), whatever team the simulation puts the
---- player on, though the biped's team component knows it
---- (`EBlamMultiplayerTeam::Red`). In a team game each Spartan gets its own
---- instance of the armour material in its team's colour, as a new biped
---- appears (every spawn is a new actor), and again a moment later for armour
---- pieces attached after it.
-local TEAM_GAMES = { ctf = true, team_slayer = true }
-local TEAM_ARMOR = {
-    Red = { R = 1.0, G = 0.0, B = 0.0, A = 1 },
-    Blue = { R = 0.03, G = 0.15, B = 1.0, A = 1 },
-}
--- The colour the armour shows is `Armor Color` at global association with
--- parameter index 0, which only the by-info setter reaches: the plain setter
--- writes index -1, which this (layered) material never reads, and changed
--- nothing on screen. Found by giving each association and index its own
--- colour (2026-10-01).
-local ARMOR_COLOR = { Name = FName("Armor Color"), Association = 0, Index = 0 }
-local SPARTAN_CLASS_PATH = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C"
-local bipedsWatched = false
-
-local function teamGame()
-    return Current.level and Current.level.multiplayer == true
-        and TEAM_GAMES[string.lower(tostring(RunningVariant))] == true
-end
-
---- True once the armour has its team colour; false while the biped has no
---- team yet (a new biped is on none until the simulation spawns its player).
-local function setArmorColor(mid, color)
-    mid:SetVectorParameterValueByInfo(ARMOR_COLOR, color)
-end
-
-local function bipedTeam(actor)
-    return actor.BlamGameTeam:GetGameTeamString():ToString():match("EBlamMultiplayerTeam::(%a+)")
-end
-
---- In a team game every Spartan wears the classic Mk V armour. It is the one
---- armour whose material takes a colour (`Armor Color`): the others a player
---- can pick (Chief's default, MkIV, Blamite, Lone Wolf, the coatings) bake
---- their colours into textures, so a player in one stayed olive on Blue
---- (2026-10-02, CTF over two PCs). Each mesh component's class names its
---- role, the same whatever armour was picked, and the role names the Mk V
---- mesh; `armor` roles also get the team-coloured material. The shields keep
---- their own material (an empty or camo shell, the same for every armour).
-local MKV = "/Game/Characters/Spartans/MkV_Classic/"
-local MKV_FP = "/Game/Characters/SpartansFP/MkV_Classic/"
-local MKV_ARMOR = MKV .. "Materials/MI_Spartans_MkV_Classic.MI_Spartans_MkV_Classic"
-local BIPED_ROLES = {
-    BPC_SkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic.SK_Spartans_MkV_Classic", armor = true },
-    BPC_TranslucentSkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_Shield.SK_Spartans_MkV_Classic_Shield" },
-}
--- The local player's own view: first-person arms and their shield, the legs
--- seen looking down and their shield, and the body that casts its shadow.
-local PAWN_ROLES = {
-    BPC_FP_SkeletalMesh_C = { mesh = MKV_FP .. "Mesh/SK_SpartansFP_MkV_Classic.SK_SpartansFP_MkV_Classic", armor = true },
-    BPC_FP_TranslucentSkeletalMesh_C = { mesh = MKV_FP .. "Mesh/SK_SpartansFP_MkV_Classic_Shield.SK_SpartansFP_MkV_Classic_Shield" },
-    BPC_PAWN_SkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_Legs.SK_Spartans_MkV_Classic_Legs", armor = true },
-    BPC_FP_ShadowSkeletalMesh_C = {
-        mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_NonNanite_Shadow.SK_Spartans_MkV_Classic_NonNanite_Shadow",
-        armor = true,
-    },
-    BPC_TranslucentSkeletalMesh_C = { mesh = MKV .. "Mesh/SK_Spartans_MkV_Classic_ShieldLegs.SK_Spartans_MkV_Classic_ShieldLegs" },
-}
-
---- Put every Spartan mesh on `actor` in the Mk V armour and give its armour
---- the team colour. Meshes already in Mk V are left in place.
-local function dressMeshes(actor, roles, color)
-    local tinted = false
-    local skel = findObject("/Script/Engine.SkeletalMeshComponent")
-    for _, c in ipairs(actor:K2_GetComponentsByClass(skel) or {}) do
-        if type(c) == "userdata" and c.get then c = c:get() end
-        local role = roles[c:GetClass():GetFName():ToString()]
-        local mesh = role and resolveMesh(role.mesh)
-        if mesh then
-            local current = c.SkeletalMesh
-            if not (current and current:IsValid() and current:GetFullName() == mesh:GetFullName()) then
-                c:SetSkeletalMeshAsset(mesh)
-            end
-            if role.armor then
-                local mat = c:GetMaterial(0)
-                local name = mat and mat:IsValid() and mat:GetFName():ToString() or ""
-                if name:find("^MJ_TeamArmor") then
-                    setArmorColor(mat, color)
-                    tinted = true
-                else
-                    local armor = resolveMesh(MKV_ARMOR)
-                    if armor then
-                        setArmorColor(c:CreateDynamicMaterialInstance(0, armor, FName("MJ_TeamArmor")), color)
-                        tinted = true
-                    end
-                end
-            end
-        end
-    end
-    return tinted
-end
-
-local function tintBiped(actor)
-    if not (actor and actor:IsValid() and teamGame()) then return false end
-    local team = bipedTeam(actor)
-    local color = team and TEAM_ARMOR[team]
-    if not color then return false end
-    return dressMeshes(actor, BIPED_ROLES, color)
-end
-
---- Every Spartan biped the watch has seen (and the ones there before it).
-local Bipeds = {}
-
-local function watchBipeds()
-    if bipedsWatched or not mayArm("bipeds") then return end
-    bipedsWatched = pcall(NotifyOnNewObject, SPARTAN_CLASS_PATH, function(actor)
-        track(Bipeds, actor)
-        for _, ms in ipairs({ 300, 2000 }) do
-            ExecuteInGameThreadWithDelay(ms, function()
-                local ok, err = pcall(tintBiped, actor)
-                if not ok then Log("team colour: " .. tostring(err)) end
-            end)
-        end
-    end)
-    if bipedsWatched then
-        for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do track(Bipeds, actor) end
-    end
-end
-
---- The Spartans in the world. A respawn reuses the actor, so the set holds
---- each for the match; arming the watch is the one FindAllOf.
-local function knownBipeds()
-    watchBipeds()
-    return liveIn(Bipeds)
-end
-
---- The local player's first-person arms, legs and shadow are meshes of the
---- pawn, which has no team; it takes the team of the Spartan nearest the
---- camera, its own body.
-local function tintLocalPawn()
-    if not teamGame() then return end
-    local pawn = getPawn()
-    local pc = getPlayerController()
-    if not (pawn and pc) then return end
-    local cam = pc.PlayerCameraManager:GetCameraLocation()
-    local team, best = nil, math.huge
-    for _, actor in ipairs(knownBipeds()) do
-        local l = actor:K2_GetActorLocation()
-        local d = (l.X - cam.X) ^ 2 + (l.Y - cam.Y) ^ 2 + (l.Z - cam.Z) ^ 2
-        if d < best then team, best = bipedTeam(actor), d end
-    end
-    local color = team and TEAM_ARMOR[team]
-    if color then dressMeshes(pawn, PAWN_ROLES, color) end
-end
-
-retintSoon = function()
-    for _, ms in ipairs({ 300, 1500, 4000 }) do
-        ExecuteInGameThreadWithDelay(ms, function()
-            if not teamGame() then return end
-            for _, actor in ipairs(knownBipeds()) do
-                pcall(tintBiped, actor)
-            end
-            pcall(tintLocalPawn)
-        end)
-    end
 end
 
 local function fadeIn()
@@ -2732,11 +2329,17 @@ local function updateWeather()
     local changed = hidden ~= (Current.weatherHidden or false)
     Current.weatherHidden = hidden
     if changed then Log(hidden and "weather: under a roof, hidden" or "weather: in the open, shown") end
+    -- Moved when the camera has gone half a metre: each move is a call that
+    -- leaves a reference behind (Current.hit), ten a second a copy.
+    local last = Current.weatherAt
+    local follow = w.follow ~= false and not (last and math.abs(here.X - last.X) < 50
+        and math.abs(here.Y - last.Y) < 50 and math.abs(here.Z - last.Z) < 50)
+    if follow then Current.weatherAt = here end
     local missing = {}
     for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
         local comp = Current.actors["__weather" .. i]
         if comp and comp:IsValid() then
-            if w.follow ~= false then comp:K2_SetWorldLocation(here, false, {}, true) end
+            if follow then comp:K2_SetWorldLocation(here, false, Current.hit, true) end
             if changed then pcall(function() comp:SetVisibility(not hidden, false) end) end
         else
             missing[#missing + 1] = i
@@ -3089,7 +2692,7 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
                     end)
                 end
                 actor:K2_SetActorTransform({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
-                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
+                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, Current.hit, true)
                 actors[#actors + 1] = actor
                 Current.actors[string.format("__clad_%d_%d", g, k)] = actor
             end
@@ -3238,6 +2841,25 @@ end
 Effects.FLUX_DOMAIN = "/Game/FluidFlux/Simulation/Blueprints/BP_FluxSimulationDomain.BP_FluxSimulationDomain_C"
 Effects.FLUX_SOURCE = "/Game/FluidFlux/Simulation/Modifiers/BP_FluxModifierSourceActor.BP_FluxModifierSourceActor_C"
 Effects.FLUX_SURFACE = "/Game/FluidFlux/Surface/Templates/River/BP_FluxSurface_River.BP_FluxSurface_River_C"
+
+--- Optional river colour, on the new Flux surface's own material instances.
+--- CE's rivers.spec belongs to the hidden CE water and cannot colour Flux.
+function Effects.fluxColor(surf, spec)
+    if type(spec.color_preset) == "string" then
+        local preset = resolveMesh(spec.color_preset)
+        if not preset then error("Flux colour preset not found: " .. spec.color_preset) end
+        surf.BaseColorPreset = preset
+        surf:ApplyColor()
+    end
+    if type(spec.surface_vectors) == "table" then
+        local materials = surf.MaterialInstances
+        for i = 1, #materials do
+            for key, v in pairs(spec.surface_vectors) do
+                materials[i]:SetVectorParameterValue(FName(key), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+            end
+        end
+    end
+end
 
 --- The sea as B30's beach has it (level.flux.coast): Fluid Flux's ocean wave
 --- (BP_FluxOceanWave) and a coastline domain, which captures the ground
@@ -3393,23 +3015,109 @@ function Effects.dryTick()
     end
 end
 
+--- A river's settled water, baked (level.flux.state: `mjolnir_flux_bake`'s
+--- height/velocity EXRs beside the level file, and the domain they fit), as
+--- the domain's InitialState: its ResetRenderTargets at BeginPlay draws it in
+--- (LoadInitialState) instead of starting dry, as the game's own
+--- PDA_M06_343_FluxState does. Set before the deferred spawn finishes. A
+--- state baked for another domain (centre, resolution or cell) is left out.
+--- Returns whether the state went in.
+function Effects.fluxState(w, dom, spec, centre)
+    local bs, d = spec.state, spec.domain
+    if type(bs) ~= "table" or type(bs.height) ~= "string" or type(bs.velocity) ~= "string" then return false end
+    local fits = type(bs.centre) == "table" and type(bs.res) == "table"
+        and math.abs(bs.centre[1] - d.centre[1]) < 1 and math.abs(bs.centre[2] - d.centre[2]) < 1
+        and math.abs(bs.centre[3] - d.centre[3]) < 1 and bs.res[1] == d.res[1] and bs.res[2] == d.res[2]
+        and bs.cell == d.cell and bs.height_cm == d.height
+    if not fits then Log("flux: the baked state is for another domain; filling instead") return false end
+    local K = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local cls = findObject("/Game/FluidFlux/Simulation/Blueprints/PDA_FluxSimulationState.PDA_FluxSimulationState_C")
+    local dir = (Current.level._dir or MOD_DIR) .. "\\"
+    local hw = K:ImportFileAsTexture2D(w, dir .. bs.height)
+    local vd = K:ImportFileAsTexture2D(w, dir .. bs.velocity)
+    if not (cls and hw and hw:IsValid() and vd and vd:IsValid()) then
+        Log("flux: baked state files missing; filling instead") return false
+    end
+    hw.SRGB = false
+    vd.SRGB = false
+    -- Outer the domain: its InitialState property keeps the state (and the
+    -- state its textures) alive.
+    local st = StaticConstructObject(cls, dom)
+    st.HeightWetMap = hw
+    st.VelocityDepthFoamMap = vd
+    -- The raw simulation targets, as the domain's own CurrentState holds
+    -- them: no encoding.
+    st.EncodeHeightMax = 1.0
+    st.EncodeVelocityMax = 1.0
+    st.Compression = false
+    st.AreaLocation = centre
+    st.AreaSize = { X = d.res[1] * d.cell, Y = d.res[2] * d.cell, Z = d.height }
+    st.Resolution = { X = d.res[1], Y = d.res[2] }
+    st.CaptureOffset = tonumber(bs.capture) or 0
+    dom.InitialState = st
+    return true
+end
+
+--- `mjolnir_flux_bake`: the river as it is now (let it settle first) into
+--- flux_state\ beside the level file: its height/wet and velocity/depth/foam
+--- targets as EXR (the RG16f height copied into RGBA16f first, which the
+--- engine writes as EXR rather than a clamped PNG), and state.json with the
+--- domain it fits. tools/level/upgrade_ce_map.py ships them.
+function Effects.fluxBake()
+    local dom = Current.actors["__flux_domain"]
+    local spec = Current.level and Current.level.flux
+    if not (dom and dom:IsValid() and type(spec) == "table" and type(spec.domain) == "table") then
+        return "no Flux river on this level"
+    end
+    local st, w = dom.CurrentState, getWorld()
+    local K = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local d = spec.domain
+    local dir = (Current.level._dir or MOD_DIR) .. "\\flux_state"
+    local rt = K:CreateRenderTarget2D(w, d.res[1], d.res[2], 6, { R = 0, G = 0, B = 0, A = 0 }, false, false)
+    local outs, size, ctx = {}, {}, {}
+    K:BeginDrawCanvasToRenderTarget(w, rt, outs, size, ctx)
+    outs.Canvas:K2_DrawTexture(st.HeightWetMap, { X = 0, Y = 0 }, { X = d.res[1], Y = d.res[2] }, { X = 0, Y = 0 },
+        { X = 1, Y = 1 }, { R = 1, G = 1, B = 1, A = 1 }, 0, 0, { X = 0, Y = 0 })
+    K:EndDrawCanvasToRenderTarget(w, ctx)
+    K:ExportRenderTarget(w, rt, dir, "height.exr")
+    K:ExportRenderTarget(w, st.VelocityDepthFoamMap, dir, "velocity.exr")
+    local f = io.open(dir .. "\\state.json", "w")
+    if not f then return "could not write " .. dir end
+    f:write(string.format('{"height": "flux_state/height.exr", "velocity": "flux_state/velocity.exr", '
+        .. '"centre": [%s, %s, %s], "res": [%d, %d], "cell": %s, "height_cm": %s, "capture": %s}\n',
+        d.centre[1], d.centre[2], d.centre[3], d.res[1], d.res[2], d.cell, d.height, st.CaptureOffset))
+    f:close()
+    return "baked into " .. dir
+end
+
+--- Hide CE's water (level.flux.hide), once the Flux water has taken over.
+function Effects.hideCE(spec)
+    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
+        local a = Current.actors[key]
+        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
+    end
+end
+
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
     if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
     for _, key in ipairs({ "__flux_domain", "__flux_coast" }) do
         if Current.actors[key] and Current.actors[key]:IsValid() then return end
     end
-    for _, key in ipairs(type(spec.hide) == "table" and spec.hide or {}) do
-        local a = Current.actors[key]
-        if a and a:IsValid() then pcall(function() a:SetActorHiddenInGame(true) end) end
-    end
     if Current.fluxPending then return end
     Current.fluxPending = true
     local name, level = Current.worldName, Current.level
-    ExecuteInGameThreadWithDelay(tonumber(spec.delay_ms) or 4000, function()
+    -- A coast goes in a third of a second after the decor, so its sea is up
+    -- by the time the screen fades in: 4 s after, CE's water showed for ~3 s
+    -- and then the sea changed in front of the player (Death Island,
+    -- 2026-10-18). Its capture came out the same. A river keeps 4 s: that
+    -- wait is what its capture of the ground was proved with (Timberland).
+    local delay = tonumber(spec.delay_ms) or (type(spec.domain) == "table" and 4000 or 300)
+    ExecuteInGameThreadWithDelay(delay, function()
         local w = getWorld()
         if not w or Current.worldName ~= name or Current.level ~= level then return end
         Current.fluxPending = false
+        Current.fluxHideLater = false
         local ok, err = pcall(function()
             local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
             local gs = findObject("/Script/Engine.Default__GameplayStatics")
@@ -3496,10 +3204,14 @@ function Effects.flux(world)
                 sv.UseInstancedMeshes_64_5640381C4A7506AD66F872A101E54AB7 = false
                 sv.UseFoliageMeshes_63_108019E4475E89156CB35DA9D2A91E33 = false
                 dom.SceneVisibility = sv
+                -- Its baked water, if any: then it starts full and needs
+                -- no priming.
+                local baked = Effects.fluxState(w, dom, spec, c)
                 gs:FinishSpawningActor(dom, xf, 0)
                 Current.actors["__flux_domain"] = dom
                 local src, comps, primed = cls(Effects.FLUX_SOURCE), {}, {}
                 for i, s in ipairs(type(spec.sources) == "table" and spec.sources or {}) do
+                  if not (baked and s.prime) then
                     local p, sc = s.pos, tonumber(s.scale) or 1.0
                     local t = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
                         Translation = { X = origin[1] + p[1], Y = origin[2] + p[2], Z = origin[3] + p[3] },
@@ -3514,7 +3226,12 @@ function Effects.flux(world)
                     Current.actors["__flux_source_" .. i] = a
                     comps[#comps + 1] = m
                     if s.prime then primed[#primed + 1] = "__flux_source_" .. i end
+                  end
                 end
+                -- A primed river fills over prime_ms: its bed showed dry for
+                -- that minute with CE's water already hidden (Battle Creek,
+                -- 2026-10-19). CE's stays until the river is full.
+                Current.fluxHideLater = #primed > 0
                 -- `prime` sources fill the river at the start, then go: held,
                 -- a Set source takes away the water that runs in, and the river
                 -- stood still (Timberland, 2026-10-14).
@@ -3535,12 +3252,25 @@ function Effects.flux(world)
                         end
                     end)
                     Log(string.format("flux: river filled, %d priming source(s) removed", gone))
+                    Effects.hideCE(spec)
                 end)
                 dom:FindWorldModifiers(true)
                 -- Volume, mode and velocity reach the simulation through the
                 -- source's material, which only UpdateMaterial writes.
                 for _, m in ipairs(comps) do m:UpdateMaterial() end
                 pcall(function() dom:CaptureGroundHeightmap(true) end)
+                if type(spec.color_preset) == "string" or type(spec.surface_vectors) == "table" then
+                    -- InitializeStates applies the preset again when the domain
+                    -- binds its state. Apply our vectors after that startup; the
+                    -- surface's later 2 s callback only initializes overlaps.
+                    ExecuteInGameThreadWithDelay(math.max(1500, ((tonumber(dom.RuntimeCaptureDelay) or 0) + 0.5) * 1000), function()
+                        if Current.worldName ~= name or Current.level ~= level then return end
+                        local applied, why = pcall(function()
+                            if surf:IsValid() then Effects.fluxColor(surf, spec) end
+                        end)
+                        if not applied then Log("flux: colour: " .. tostring(why)) end
+                    end)
+                end
                 made[#made + 1] = string.format("river %dx%d at %g cm, %d source(s)", d.res[1], d.res[2], d.cell, #comps)
             end
             if type(spec.coast) == "table" then
@@ -3566,6 +3296,10 @@ function Effects.flux(world)
             Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it, "
                 .. "%d sea floor slot(s) out of it", table.concat(made, ", "), tagged, #uncut, #floored))
         end)
+        -- CE's water (`hide`) goes once Flux's is up, not before: until then
+        -- the level has its old water rather than none. It is out of the
+        -- ground capture already (FluxHide, with every actor not `ground`).
+        if ok and not Current.fluxHideLater then Effects.hideCE(spec) end
         if not ok then Log("flux: " .. tostring(err)) end
     end)
 end
@@ -3703,9 +3437,130 @@ function Foliage.quality()
     return Foliage.QUALITY[math.max(0, math.min(3, q))] or Foliage.QUALITY[3]
 end
 
+--- A group's material on one of its meshes (a spawned band or a baked
+--- one): `material`, `tint`/`tint_param`/`params`/`scalars` as tinted
+--- instances, one a slot shared by the group's meshes (`mids`, returned).
+function Foliage.dress(world, kml, g, group, comp, mids)
+    local material = type(group.material) == "string" and resolveMesh(group.material)
+    if material then comp:SetMaterial(0, material) end
+    if type(group.tint) == "table" and kml then
+        -- One tinted instance a slot, shared by the bands.
+        if not mids then
+            mids = {}
+            for i = 0, comp:GetNumMaterials() - 1 do
+                local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
+                -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
+                -- tints through "Color Tint", the Megascans one through
+                -- "Color Overlay".
+                local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
+                mid:SetVectorParameterValue(FName(param),
+                    { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
+                -- `params`: more vector parameters by name, e.g. a
+                -- B30 grass's "Subsurface Color Tint" with its tint.
+                if type(group.params) == "table" then
+                    for name, v in pairs(group.params) do
+                        if type(v) == "table" then
+                            mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
+                        end
+                    end
+                end
+                for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
+                    if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
+                end
+                mids[i] = mid
+            end
+        end
+        for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
+    elseif type(group.scalars) == "table" then
+        -- `scalars`: values on the mesh's own materials (scalarMid),
+        -- e.g. a swapped tree's leaf clusters.
+        for i = 0, comp:GetNumMaterials() - 1 do
+            local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
+            if mid then comp:SetMaterial(i, mid) end
+        end
+    end
+    return mids
+end
+
+--- A level whose foliage is `baked` (tools/level/foliage_bake.py,
+--- upgrade_ce_map.py `bake_foliage`) carries its groups in the world as
+--- hierarchical instanced meshes named MJFol_<group>_<band>_<tier>: this
+--- gives them what Foliage.spawn gives its own, the group's materials and
+--- tints, its cull distances scaled and its wind stilled by the quality,
+--- and hides the grassy groups' tiers above the quality (tier 0 at Low, 0-1
+--- Medium, 0-2 High: the loader's keep 4, 3, 2). `quality` nil hides them
+--- all (`mjolnir_foliage off`). Cull and wind are worked out afresh from
+--- the level file each time (the components keep the last load's), as
+--- Foliage.spawn and BakeFoliage work them out. One FindAllOf, no handles
+--- kept. Returns the baked meshes found, then the meshes and clumps drawn.
+Foliage.TIERS = { [4] = 0, [3] = 1, [2] = 2, [1] = 3 }
+function Foliage.dressBaked(world, foliage, quality)
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local top = quality and (Foliage.TIERS[quality.keep] or 3) or -1
+    local mids, found, comps, drawn = {}, 0, 0, 0
+    for _, comp in ipairs(FindAllOf("HierarchicalInstancedStaticMeshComponent") or {}) do
+        local g, b, tier = comp:GetFName():ToString():match("^MJFol_(%d+)_(%d+)_(%d+)$")
+        g, b, tier = tonumber(g), tonumber(b), tonumber(tier)
+        local group = g and foliage.groups[g]
+        if type(group) == "table" then
+            found = found + 1
+            local shown = tier <= top
+            comp:SetVisibility(shown, false)
+            if shown then
+                -- Back to the mesh's own materials first: a reload dressed
+                -- the last load's tinted instances again, and the grass
+                -- drew dark grey (2026-10-18).
+                pcall(function()
+                    local mesh = comp.StaticMesh
+                    for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
+                end)
+                mids[g] = Foliage.dress(world, kml, g, group, comp, mids[g])
+                local gc = type(group.cull) == "table" and group.cull
+                    or type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
+                gc = { gc[1] * quality.cull, gc[2] * quality.cull }
+                local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
+                local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
+                comp:SetCullDistances(math.floor(math.min(gc[1], far)), math.floor(far))
+                local sway = not (group.static or quality.still)
+                pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
+                comps, drawn = comps + 1, drawn + comp:GetInstanceCount()
+            end
+        end
+    end
+    return found, comps, drawn
+end
+
+--- The cladding rocks a baked world carries (MJClad_<group>_<rock>, mesh
+--- actors: BakeFoliage's flag 8), by group, from one FindAllOf. `shown`
+--- false hides them (`mjolnir_foliage off`). The lists go to
+--- Foliage.cliffGroups for Land.cliffs, which drops them once the rocks
+--- have their material: the loader keeps no handle a rock.
+function Foliage.bakedRocks(shown)
+    local rocks, found = {}, 0
+    for _, actor in ipairs(FindAllOf("StaticMeshActor") or {}) do
+        local g = tonumber(actor:GetFName():ToString():match("^MJClad_(%d+)_%d+$"))
+        if g then
+            local list = rocks[g] or {}
+            list[#list + 1] = actor
+            rocks[g], found = list, found + 1
+            if shown ~= nil then actor:SetActorHiddenInGame(not shown) end
+        end
+    end
+    return rocks, found
+end
+
 function Foliage.spawn(world)
     local foliage = Current.level and Current.level.foliage
-    if not Foliage.on or type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+    if type(foliage) ~= "table" or type(foliage.file) ~= "string" or type(foliage.groups) ~= "table" then
+        return
+    end
+    -- Only a landscape world (upgrade_ce_map.py) can carry baked foliage.
+    local landWorld = type(Current.level.landscape) == "table"
+    if not Foliage.on then
+        if landWorld then
+            Foliage.dressBaked(world, foliage, nil)
+            Foliage.bakedRocks(false)
+        end
         return
     end
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
@@ -3725,10 +3580,42 @@ function Foliage.spawn(world)
     Foliage.cliffGroups = {}
     local quality = Foliage.quality()
     local total, sx, sy, n = 0, 0, 0, 0
+    -- Baked: what the world carries decides, not the level file's `baked`.
+    -- The launcher puts the hub's level.json back on every launch and leaves
+    -- installed containers alone, so a baked world under an older level file
+    -- spawned every clump and rock a second time: trees with a swaying copy
+    -- of their leaves, rocks flickering in each other (2026-10-18). A level
+    -- file that says baked over a world without them spawns them as before.
+    local baked, centre = nil, nil
+    if landWorld then
+        local found, comps, drawn = Foliage.dressBaked(world, foliage, quality)
+        if found > 0 then
+            baked = string.format(", %d baked clump(s) drawn in %d mesh(es)", drawn, comps)
+            -- The wind's flowmap centres on the clumps: assemble's mean of
+            -- them (it spans 4 km, so the origin serves a level without one).
+            centre = drawn > 0 and (type(foliage.centre) == "table" and foliage.centre or { 0, 0 }) or nil
+        elseif foliage.baked == true then
+            Log("foliage: the level file says baked, but the world carries none; spawning it")
+        end
+    end
+    -- Baked cladding rocks likewise: spawned only for a group the world
+    -- does not carry.
+    local rocks, rocked = {}, 0
+    if landWorld and coloured then rocks, rocked = Foliage.bakedRocks(true) end
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
         local group = foliage.groups[g] or {}
+        if baked and not (group.cliff == true and coloured) then
+            pos = pos + size * (coloured and 19 or tilted and 16 or 14)
+            goto continue
+        end
+        if group.cliff == true and coloured and rocks[g] then
+            pos = pos + size * 19
+            Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = rocks[g], base = group.base,
+                light = group.light, lm = group.lm, baked = true }
+            goto continue
+        end
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
         if group.cliff == true and coloured then
             pos = Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
@@ -3768,44 +3655,7 @@ function Foliage.spawn(world)
             -- (2026-10-12); the shadows stay, they just do not sway.
             pcall(function() comp.ShadowCacheInvalidationBehavior = SHADOW_CACHE_RIGID end)
             comp:SetCastShadow(group.shadow ~= false)
-            local material = type(group.material) == "string" and resolveMesh(group.material)
-            if material then comp:SetMaterial(0, material) end
-            if type(group.tint) == "table" and kml then
-                -- One tinted instance a slot, shared by the bands.
-                if not mids then
-                    mids = {}
-                    for i = 0, comp:GetNumMaterials() - 1 do
-                        local mid = kml:CreateDynamicMaterialInstance(world, comp:GetMaterial(i), FName(string.format("foliage_%d_%d", g, i)), 0)
-                        -- `tint_param`: B30's own foliage master (MM_Foliage_MET)
-                        -- tints through "Color Tint", the Megascans one through
-                        -- "Color Overlay".
-                        local param = type(group.tint_param) == "string" and group.tint_param or "Color Overlay"
-                        mid:SetVectorParameterValue(FName(param),
-                            { R = group.tint[1], G = group.tint[2], B = group.tint[3], A = 1 })
-                        -- `params`: more vector parameters by name, e.g. a
-                        -- B30 grass's "Subsurface Color Tint" with its tint.
-                        if type(group.params) == "table" then
-                            for name, v in pairs(group.params) do
-                                if type(v) == "table" then
-                                    mid:SetVectorParameterValue(FName(name), { R = v[1], G = v[2], B = v[3], A = v[4] or 1 })
-                                end
-                            end
-                        end
-                        for name, v in pairs(type(group.scalars) == "table" and group.scalars or {}) do
-                            if type(v) == "number" then mid:SetScalarParameterValue(FName(name), v) end
-                        end
-                        mids[i] = mid
-                    end
-                end
-                for i, mid in pairs(mids) do comp:SetMaterial(i, mid) end
-            elseif type(group.scalars) == "table" then
-                -- `scalars`: values on the mesh's own materials (scalarMid),
-                -- e.g. a swapped tree's leaf clusters.
-                for i = 0, comp:GetNumMaterials() - 1 do
-                    local mid = scalarMid(world, comp:GetMaterial(i), group.scalars)
-                    if mid then comp:SetMaterial(i, mid) end
-                end
-            end
+            mids = Foliage.dress(world, kml, g, group, comp, mids)
             comps[#comps + 1] = comp
         end
         if #comps > 0 then
@@ -3834,9 +3684,11 @@ function Foliage.spawn(world)
         end
         ::continue::
     end
-    local wind = n > 0 and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, { sx / n, sy / n })
-    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s), %.1f s%s",
-        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", os.clock() - started, wind and ", wind on" or ""))
+    centre = centre or n > 0 and { sx / n, sy / n }
+    local wind = centre and pcall(Foliage.wind, world, type(foliage.wind) == "table" and foliage.wind or {}, centre)
+    Log(string.format("foliage: %d clump(s) in %d group(s), %d placed (quality: 1 in %d grass, cull x%.2f%s)%s%s, %.1f s%s",
+        total, count, n, quality.keep, quality.cull, quality.still and ", still" or "", baked or "",
+        rocked > 0 and string.format(", %d baked rock(s)", rocked) or "", os.clock() - started, wind and ", wind on" or ""))
 end
 
 --- A Landscape in the map's world (MJOLNIRMaterials build_ce_landscape.py)
@@ -4312,6 +4164,8 @@ function Land.cliffs(world, spec)
                     pcall(function() actor.StaticMeshComponent:SetMaterial(0, mid) end)
                 end
             end
+            -- Baked rocks are the world's: no handle kept once dressed.
+            if group.baked then group.actors = {} end
             changed = changed + 1
             Land.cliffMids[#Land.cliffMids + 1] = mid
         end
@@ -4565,8 +4419,15 @@ function Footprints.draw(world, fn, rt)
     if not (rt and rt:IsValid()) then return false end
     local krl = findObject("/Script/Engine.Default__KismetRenderingLibrary")
     -- UE4SS hands the out parameters back shifted: the canvas (and size) in
-    -- the first table, the drawing context in the second.
-    local c1, c2, c3 = {}, {}, {}
+    -- the first table, the drawing context in the second. The same three
+    -- tables every draw (UE4SS keeps each out parameter's table: Current.hit),
+    -- emptied first so a begin that fails does not hand back the last
+    -- canvas and context.
+    Footprints.out = Footprints.out or { {}, {}, {} }
+    for _, t in ipairs(Footprints.out) do
+        for k in pairs(t) do t[k] = nil end
+    end
+    local c1, c2, c3 = Footprints.out[1], Footprints.out[2], Footprints.out[3]
     krl:BeginDrawCanvasToRenderTarget(world, rt, c1, c2, c3)
     local canvas = c1.Canvas
     if not (canvas and canvas:IsValid()) then
@@ -4730,16 +4591,32 @@ function Footprints.deformStart(world)
             g:SetTextureParameterValue(FName("FootRT"), m.RTDeformationMask_Canvas)
         end
     end
-    Footprints.deformHook()
+    -- `foot_mpc` (upgrade_ce_map.py): the sand reads the map's centre from
+    -- the game's globals itself (FootFromMPC), as the campaign's ground does,
+    -- and nothing here follows the manager.
+    if land.pbr.foot_mpc == true then
+        Footprints.deform.fromMpc = true
+        local rect = { R = 0, G = 0, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
+        ldl:SetLandscapeMaterialScalarParameterValue(FName("FootFromMPC"), 1.0)
+        ldl:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
+        for _, g in ipairs(Land.groundMids or {}) do
+            if g:IsValid() then
+                g:SetScalarParameterValue(FName("FootFromMPC"), 1.0)
+                g:SetVectorParameterValue(FName("FootRect"), rect)
+            end
+        end
+    else
+        Footprints.deformHook()
+    end
     Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
-        Footprints.hooked and ", recentres followed" or ""))
+        Footprints.deform.fromMpc and ", centre read by the sand" or Footprints.hooked and ", recentres followed" or ""))
 end
 
 --- The map's centre to the sand: FootRect on the landscape and the mesh's
 --- ground in its holes.
 function Footprints.deformRect(x, y)
     local d = Footprints.deform
-    if not (d and d.land:IsValid()) then return end
+    if not (d and not d.fromMpc and d.land:IsValid()) then return end
     d.cx, d.cy = x, y
     local rect = { R = x, G = y, B = Footprints.DEFORM_SPAN, A = Footprints.DEFORM_SPAN }
     d.land:SetLandscapeMaterialVectorParameterValue(FName("FootRect"), rect)
@@ -4776,6 +4653,7 @@ function Footprints.deformTick()
         Footprints.deform, Footprints.on = nil, d.footprints
         return false
     end
+    if d.fromMpc then return true end
     -- Kept for the map: a StaticFindObject of the collection takes ~13 ms,
     -- the library ~1 ms, and asking every run held each 100 ms tick ~15 ms,
     -- a beat ten times a second (MJOLNIRHud's hitch log, 2026-10-17).
@@ -4877,6 +4755,7 @@ end
 
 local function spawnDecor(world)
     local level = Current.level
+    Current.world = world
     spawnEnvironment(world)
     spawnSounds(world)
     preloadEventSounds()
@@ -4886,21 +4765,95 @@ local function spawnDecor(world)
         return
     end
     local origin = level.canvas.origin
+    -- Swapped scenery baked into a landscape world (BakeDecor, MJDecor_<id>):
+    -- the world's own. It gets its `scalars` and `static` here, back from
+    -- the mesh's own materials (a reload would stack instances), and no
+    -- handle is kept. One FindAllOf; what the world lacks is spawned.
+    local baked, nBaked = {}, 0
+    if type(level.landscape) == "table" then
+        for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
+            local id = a:GetFName():ToString():match("^MJDecor_(.+)$")
+            if id then baked[id] = a end
+        end
+    end
     for index, item in ipairs(decor) do
         local id = (type(item) == "table" and item.id) or ("#" .. index)
-        if not (Current.actors[id] and Current.actors[id]:IsValid()) then
+        local own = baked[id]
+        if own then
+            nBaked = nBaked + 1
+            -- Still, as spawnDecorItem keeps them (a swapped tree's piece),
+            -- first and on its own: a material error below skipped it, and
+            -- Infinity's small trees swayed apart (2026-10-19). Worlds baked
+            -- since carry it themselves (foliage_bake.py `still`).
+            -- Either way: a world baked still follows a level file that
+            -- lets the piece move, and the other way round.
+            local still = item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0)
+            pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(not still) end)
+            pcall(function()
+                local comp = own.StaticMeshComponent
+                local mesh = comp.StaticMesh
+                for i = 0, comp:GetNumMaterials() - 1 do
+                    local src = mesh:GetMaterial(i)
+                    local mid = type(item.scalars) == "table" and scalarMid(world, src, item.scalars) or src
+                    if mid then comp:SetMaterial(i, mid) end
+                end
+            end)
+        elseif not (Current.actors[id] and Current.actors[id]:IsValid()) then
             local actor, err = spawnDecorItem(world, origin, item)
             if actor then
                 Current.actors[id] = actor
                 Current.spawned = Current.spawned + 1
+                -- A turning machine: turned from its rest by the "turning
+                -- machines" loop (motion: pivot_cm from the actor, period
+                -- in seconds, keys { seconds, yaw degrees }), which also
+                -- plays the sounds its turn raises (events: { t seconds,
+                -- wave, gain, inner, falloff cm }) at its pivot.
+                local mo = item.motion
+                if type(mo) == "table" and type(mo.keys) == "table" and #mo.keys >= 2
+                    and type(mo.pivot_cm) == "table" and (tonumber(mo.period) or 0) > 0 then
+                    local l = actor:K2_GetActorLocation()
+                    local m = {
+                        actor = actor, rest = { l.X, l.Y, l.Z }, period = mo.period, keys = mo.keys,
+                        pivot = { l.X + mo.pivot_cm[1], l.Y + mo.pivot_cm[2], l.Z + mo.pivot_cm[3] },
+                        loc = { X = 0, Y = 0, Z = 0 }, rot = { Pitch = 0, Yaw = 0, Roll = 0 }, events = {},
+                    }
+                    -- Paths, not waves or attenuation objects: nothing in the
+                    -- engine holds what Lua alone made or loaded, and the
+                    -- garbage collector freed them under the next play (a
+                    -- null access 41 s into Ascension). Each is made as it
+                    -- plays, and the sound holds it.
+                    for _, e in ipairs(type(mo.events) == "table" and mo.events or {}) do
+                        if type(e.wave) == "string" and type(e.t) == "number" and resolveMesh(e.wave) then
+                            m.events[#m.events + 1] = { t = e.t, wave = e.wave, gain = e.gain or 1.0,
+                                inner = e.inner or 150.0, falloff = e.falloff or 600.0 }
+                        end
+                    end
+                    m.at = { X = m.pivot[1], Y = m.pivot[2], Z = m.pivot[3] }
+                    -- A turn about another axis than +Z (Zanzibar's wheels):
+                    -- its unit vector, the keys' degrees about it.
+                    if type(mo.axis) == "table" and #mo.axis == 3 then
+                        m.axis = { X = mo.axis[1], Y = mo.axis[2], Z = mo.axis[3] }
+                    end
+                    -- A machine of the simulation's own turns its collision
+                    -- (follow: the Blueprint class the game draws it with,
+                    -- its position from the canvas origin): the mesh rides
+                    -- on that actor's turning part instead of the clock.
+                    local f = mo.follow
+                    if type(f) == "table" and type(f.class) == "string" and type(f.pos) == "table" then
+                        m.follow = { class = f.class, pos = { origin[1] + f.pos[1], origin[2] + f.pos[2], origin[3] + f.pos[3] } }
+                        m.entry = mo.entry
+                    end
+                    Current.turning[#Current.turning + 1] = m
+                end
             else
                 Current.failed = Current.failed + 1
                 Log(string.format("decor '%s': %s", tostring(id), tostring(err)))
             end
         end
     end
-    Log(string.format("level '%s': %d decor spawned, %d failed",
-        tostring(level.name), Current.spawned, Current.failed))
+    Log(string.format("level '%s': %d decor spawned, %d failed%s",
+        tostring(level.name), Current.spawned, Current.failed,
+        nBaked > 0 and string.format(", %d baked in the world", nBaked) or ""))
     if type(level.slot_meshes) == "table" then
         local sok, sn = pcall(Land.slotMeshes, world, level)
         Log("slot meshes: " .. tostring(sok and sn or sn))
@@ -4952,7 +4905,6 @@ local function tick()
         EventQueue = {}
         NativeIncidents = {}
         Resolved, Unresolved = {}, {}
-        HomeFlags, FlagMeshes = {}, {}
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
@@ -5004,6 +4956,19 @@ local function tick()
         end
     end
 end
+
+-- The Lua collector in generational mode. Incremental, it let ~40 MB of
+-- garbage pile up between cycles, and finishing one (sweeping it, and
+-- running the finalizers of the thousands of object handles UE4SS hands
+-- out) landed in a single step: whichever loop allocated next held the game
+-- thread 30-200 ms, the pulses most often, being the most frequent (MJOLNIRHud
+-- hitch log, 2026-10-18). A smaller step size made it worse: the heap ran to
+-- 230 MB and the step that finished the cycle took 205 ms. Generational, a
+-- young collection takes only what was made since the last. At the default
+-- 20% of the heap that was ~3.5 MB, an 11 ms run every ~97 s; at 5% it is a
+-- quarter of that, four times as often. UE4SS ships Lua 5.4.7, whose
+-- generational mode is sound.
+pcall(collectgarbage, "generational", 5, 100)
 
 --- Run `fn` on the game thread every `ms`, from the game thread: each run
 --- schedules the next. An async loop that hands work to the game thread
@@ -5061,16 +5026,20 @@ end
 
 local KismetSystem = nil
 
---- Every pulsing decor material, at the game's time.
+--- Every pulsing decor material, at the game's time. 25 times a second
+--- with Death Island's 25 flares, so nothing here may leave garbage: a
+--- getWorld() and a method lookup a flare made ~8 KB a run, 200 KB a
+--- second, and the collections that bought cost 30-150 ms runs (MJOLNIRHud
+--- hitch log, 2026-10-18).
 local function updatePulses()
     if #Current.pulses == 0 then return end
-    local world = getWorld()
-    if not world then return end
+    local world = Current.world
+    if not (world and world:IsValid()) then return end
     KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local t = KismetSystem:GetGameTimeInSeconds(world)
     for _, p in ipairs(Current.pulses) do
         if p.mid:IsValid() then
-            p.mid:SetScalarParameterValue(p.param, p.base * ceWave(p.fn, t / p.period))
+            p.set(p.mid, p.param, p.base * ceWave(p.fn, t / p.period))
         end
     end
 end
@@ -5087,27 +5056,15 @@ local function watch()
     every(100, "dry zones", Effects.dryTick)
     -- A slider moved in the pause menu is heard within half a second.
     every(500, "sound volume", syncVolumes)
-    -- A flag picked up or dropped is a new actor, drawn as a skull until it
-    -- is dressed, so CTF levels look for new ones often.
-    -- CTF flags: new skull actors are reported as they are made
-    -- (watchSkulls); a slow sweep catches any that were not.
-    local sweeps = 0
-    every(1500, "CTF flags", function()
-        if not (Current.furnished and ctfLevel()) then return end
-        watchSkulls()
-        watchBipeds()
-        sweeps = sweeps + 1
-        if sweeps % 2 == 1 then
-            local world = getWorld()
-            if world then dressFlags(world) end
-            -- A respawn reuses the actor and puts the stock armour back, so
-            -- every pass re-tints (cheap: a few Spartans, a parameter each).
-            for _, actor in ipairs(teamGame() and knownBipeds() or {}) do
-                pcall(tintBiped, actor)
-            end
-            pcall(tintLocalPawn)
-        end
-    end)
+    -- CTF flags: new flag actors are dressed as they are made, and a slow
+    -- sweep (every other pass) takes in any the watch missed and reads each
+    -- flag's team again. Team armour is tinted on the game's own events; a
+    -- pass checks the Spartans for a tint undone. Both in teams.lua, which
+    -- checks for a CTF level or a team game itself.
+    every(1500, "CTF flags", Teams.flagTick)
+    -- The flags' cloth waves, and trails behind a carrier.
+    every(33, "flag cloth", Teams.clothTick)
+    every(1500, "team armour", Teams.armorTick)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so
     -- the pass that arms it sweeps for them too, once: a FindAllOf is a
@@ -5118,19 +5075,204 @@ local function watch()
     -- (build_ce_materials.py DEVICE_WPO_CODE).
     every(100, "moving sounds", function()
         if #Current.movingSounds == 0 then return end
-        local world = getWorld()
-        local gs = findObject("/Script/Engine.Default__GameplayStatics")
-        if not (world and gs) then return end
-        local now = gs:GetTimeSeconds(world)
+        local world = Current.world
+        if not (world and world:IsValid()) then return end
+        -- The world's time (as GameplayStatics' GetTimeSeconds), through
+        -- the library pulses keep: a StaticFindObject a run cost ~1 ms.
+        KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local now = KismetSystem:GetGameTimeInSeconds(world)
         for _, m in ipairs(Current.movingSounds) do
             if m.comp:IsValid() then
                 local p = m.period > 0 and ((now / m.period + m.position) % 1.0) or m.position
                 local sc = m.s0 + (m.s1 - m.s0) * p
-                local at = {}
+                local at = m.at or {}
+                m.at = at
+                local moved = false
                 for k = 1, 3 do
-                    at[k] = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                    local v = m.pos[k] + (m.pos[k] - m.pivot[k]) * (sc - 1) + m.t0[k] + (m.t1[k] - m.t0[k]) * p
+                    if at[k] == nil or math.abs(v - at[k]) > 1 then at[k], moved = v, true end
                 end
-                m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, {}, false)
+                -- A held part (period 0) is placed once.
+                if moved then
+                    m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, Current.hit, false)
+                end
+            end
+        end
+    end)
+    -- Turning machines (Halo 2 gears: Ascension's antennas), on the world's
+    -- clock from the level's load, as the game runs a gear's position from
+    -- it: the yaw between the keys at t mod period, the actor swung about
+    -- its pivot to it. Its tables are its own, refilled: nothing per run.
+    every(33, "turning machines", function()
+        if #Current.turning == 0 then return end
+        local world = Current.world
+        if not (world and world:IsValid()) then return end
+        KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local now = KismetSystem:GetGameTimeInSeconds(world)
+        local gs, scans = nil, nil
+        for _, m in ipairs(Current.turning) do
+            -- A machine of the simulation's own turns the part's collision
+            -- (follow): its Unreal actor is found (a FindAllOf every 2 s
+            -- until it is; the mesh turns by the clock meanwhile), the mesh
+            -- posed at the machine's present angle and attached to the part
+            -- that turns, whose own mesh is hidden. The angle about the
+            -- axis comes from a vector of the actor's frame and the same of
+            -- the part's; the turn's phase, for the sounds, is fitted to
+            -- what the part does, as the simulation runs its gears from its
+            -- own clock.
+            local function partAngle()
+                local k = m.axis or { X = 0, Y = 0, Z = 1 }
+                local a, b = m.base:GetActorForwardVector(), m.part:GetForwardVector()
+                if math.abs(a.X * k.X + a.Y * k.Y + a.Z * k.Z) > 0.9 then
+                    a, b = m.base:GetActorUpVector(), m.part:GetUpVector()
+                end
+                local ak, bk = a.X * k.X + a.Y * k.Y + a.Z * k.Z, b.X * k.X + b.Y * k.Y + b.Z * k.Z
+                local cross = k.X * (a.Y * b.Z - a.Z * b.Y) + k.Y * (a.Z * b.X - a.X * b.Z) + k.Z * (a.X * b.Y - a.Y * b.X)
+                return math.deg(math.atan(cross, a.X * b.X + a.Y * b.Y + a.Z * b.Z - ak * bk))
+            end
+            if m.actor:IsValid() and m.follow and not m.attached then
+                if not m.seek or now - m.seek > 2 then
+                    m.seek = now
+                    -- One actor a part: parts placed together (Zanzibar's
+                    -- wheel and its blades) each claim their own, and a
+                    -- part's meshes (its opaque and translucent ones, by
+                    -- their staging entry) share it.
+                    -- One scan a class a run, shared: each is ~20 ms.
+                    Current.claimed = Current.claimed or {}
+                    scans = scans or {}
+                    scans[m.follow.class] = scans[m.follow.class] or FindAllOf(m.follow.class) or {}
+                    pcall(function()
+                        for _, a in ipairs(scans[m.follow.class]) do
+                            local l = a:K2_GetActorLocation()
+                            local d = math.abs(l.X - m.follow.pos[1]) + math.abs(l.Y - m.follow.pos[2]) + math.abs(l.Z - m.follow.pos[3])
+                            local key = a:GetFullName()
+                            local owner = Current.claimed[key]
+                            if d < 30 and (not owner or (m.entry ~= nil and owner == m.entry)) then
+                                Current.claimed[key] = m.entry or true
+                                m.base = a
+                                m.part = a:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.StaticMeshComponent"))[1]:get()
+                                m.pose = partAngle()
+                                break
+                            end
+                        end
+                    end)
+                end
+            elseif m.actor:IsValid() and m.attached and not m.offset and m.part:IsValid() then
+                local h = m.hist
+                local rel = partAngle()
+                h[#h + 1] = { now, rel }
+                local lo, hi = rel, rel
+                for _, sm in ipairs(h) do lo, hi = math.min(lo, sm[2]), math.max(hi, sm[2]) end
+                if now - h[1][1] > 8 and hi - lo > 5 then
+                    local function at(t)
+                        local keys = m.keys
+                        for k = 2, #keys do
+                            if t <= keys[k][1] then
+                                local a, b = keys[k - 1], keys[k]
+                                return b[1] > a[1] and (a[2] + (b[2] - a[2]) * (t - a[1]) / (b[1] - a[1])) or b[2]
+                            end
+                        end
+                        return keys[#keys][2]
+                    end
+                    local best, bestCost = 0, math.huge
+                    for o = 0, m.period, 0.1 do
+                        local cost = 0
+                        for i = 1, #h, 3 do
+                            local e = (at((h[i][1] - o) % m.period) - h[i][2] + 540) % 360 - 180
+                            cost = cost + e * e
+                        end
+                        if cost < bestCost then best, bestCost = o, cost end
+                    end
+                    m.offset, m.hist = best, nil
+                    Log(string.format("turning machine phase: %.1f s from the world clock", best))
+                elseif #h > 600 then
+                    table.remove(h, 1)
+                end
+            end
+            if m.actor:IsValid() then
+                local t = (now - (m.offset or 0)) % m.period
+                -- Its sounds whose time the turn passed since the last
+                -- run (across the wrap too); none on the first.
+                local last = m.last
+                m.last = t
+                for _, e in ipairs(last and (not m.follow or m.offset) and m.events or {}) do
+                    if (last < t and e.t > last and e.t <= t) or (t < last and (e.t > last or e.t <= t)) then
+                        gs = gs or findObject("/Script/Engine.Default__GameplayStatics")
+                        pcall(function()
+                            local wave = resolveMesh(e.wave)
+                            if not wave then return end
+                            -- The class is native and never collected; a
+                            -- StaticFindObject a play would be ~20 ms.
+                            Current.attClass = Current.attClass or findObject("/Script/Engine.SoundAttenuation")
+                            Current.machineSounds = (Current.machineSounds or 0) + 1
+                            local att = StaticConstructObject(Current.attClass, world,
+                                FName("MJOLNIR_MachAtt_" .. Current.machineSounds))
+                            local a = att.Attenuation
+                            a.bAttenuate = true
+                            a.bSpatialize = true
+                            a.DistanceAlgorithm = 0
+                            a.AttenuationShape = 0
+                            a.AttenuationShapeExtents = { X = e.inner, Y = 0, Z = 0 }
+                            a.FalloffDistance = e.falloff
+                            gs:SpawnSoundAtLocation(world, wave, m.at, m.rot, e.gain * gameVolume("ambient"),
+                                1.0, 0.0, att, nil, true)
+                        end)
+                    end
+                end
+                local keys, yaw = m.keys, m.keys[#m.keys][2]
+                for k = 2, #keys do
+                    if t <= keys[k][1] then
+                        local a, b = keys[k - 1], keys[k]
+                        local span = b[1] - a[1]
+                        yaw = span > 0 and (a[2] + (b[2] - a[2]) * (t - a[1]) / span) or b[2]
+                        break
+                    end
+                end
+                -- A ridden mesh moves with the machine, not here; one just
+                -- found is posed at the machine's angle first.
+                if m.attached then
+                    yaw = m.yaw
+                elseif m.pose then
+                    yaw, m.yaw = m.pose, nil
+                end
+                if yaw ~= m.yaw and m.axis then
+                    -- About its axis k: the rest offset turned by Rodrigues'
+                    -- formula, the actor's rotation from the axis and angle.
+                    m.yaw = yaw
+                    local r = math.rad(yaw)
+                    local c, sn = math.cos(r), math.sin(r)
+                    local k = m.axis
+                    local vx, vy, vz = m.rest[1] - m.pivot[1], m.rest[2] - m.pivot[2], m.rest[3] - m.pivot[3]
+                    local kv = (k.X * vx + k.Y * vy + k.Z * vz) * (1 - c)
+                    m.loc.X = m.pivot[1] + vx * c + (k.Y * vz - k.Z * vy) * sn + k.X * kv
+                    m.loc.Y = m.pivot[2] + vy * c + (k.Z * vx - k.X * vz) * sn + k.Y * kv
+                    m.loc.Z = m.pivot[3] + vz * c + (k.X * vy - k.Y * vx) * sn + k.Z * kv
+                    Current.mathLib = Current.mathLib or StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
+                    local ro = Current.mathLib:RotatorFromAxisAndAngle(k, yaw)
+                    m.rot.Pitch, m.rot.Yaw, m.rot.Roll = ro.Pitch, ro.Yaw, ro.Roll
+                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
+                elseif yaw ~= m.yaw then
+                    m.yaw = yaw
+                    local r = math.rad(yaw)
+                    local c, sn = math.cos(r), math.sin(r)
+                    local dx, dy = m.rest[1] - m.pivot[1], m.rest[2] - m.pivot[2]
+                    m.loc.X = m.pivot[1] + dx * c - dy * sn
+                    m.loc.Y = m.pivot[2] + dx * sn + dy * c
+                    m.loc.Z = m.rest[3]
+                    m.rot.Yaw = yaw
+                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
+                end
+                if m.pose and m.part and m.part:IsValid() then
+                    pcall(function()
+                        m.actor:K2_AttachToComponent(m.part, FName("None"), 1, 1, 1, true)
+                        m.part:SetVisibility(false, false)
+                    end)
+                    m.attached, m.pose, m.hist = true, nil, {}
+                    -- No sounds, nothing to fit the phase for (a wheel that
+                    -- turns evenly has no landmark to fit it to anyway).
+                    if #m.events == 0 then m.offset, m.hist = 0, nil end
+                    Log(string.format("turning machine rides the simulation's %s", m.follow.class))
+                end
             end
         end
     end)
@@ -5163,9 +5305,20 @@ local function status()
         if Current.water then
             Log("water: " .. Current.water.style .. (Current.water.slots and string.format(" (%d slot(s))", Current.water.slots) or ""))
         end
+        pcall(Teams.status)
     else
         Log("no level loaded")
     end
+    -- The live heap: two full collections, as a finalized UE4SS handle
+    -- survives one (docs/performance.md). Then back to generational.
+    local held = 0
+    for _ in pairs(Current.actors or {}) do held = held + 1 end
+    local before = collectgarbage("count")
+    collectgarbage("collect")
+    collectgarbage("collect")
+    Log(string.format("lua heap: %.1f MB live (%.1f MB before collecting), %d actor handle(s) held",
+        collectgarbage("count") / 1024, before / 1024, held))
+    pcall(collectgarbage, "generational", 5, 100)
 end
 
 local function reload()
@@ -5539,9 +5692,33 @@ local function loadMegaloSwitch()
     -- the native half installs it where the simulation's loader reads it at
     -- the next round reset (docs/ce_map_conversion.md).
     local variant = package.loadlib(dll, "mjolnir_megalo_variant")
+    -- A FORGE game (MJOLNIRLobby) runs the sandbox engine instead, whose
+    -- default variant the load builds itself (docs/re/forge_engine.md).
+    local forgeOn = package.loadlib(dll, "mjolnir_forge_on")
     if not (on and off) then
         Log("multiplayer switch: not in this build of the native DLL")
         return
+    end
+    -- Team armour: in a team game the native half makes the simulation
+    -- choose Mk V Classic for every Spartan (the one armour whose material
+    -- takes a team colour; teams.lua tints it), on every machine, as each
+    -- simulation works out every player's armour itself. Off, each player
+    -- wears their own choice. An older DLL has no switch, and teams.lua
+    -- swaps the armour to Mk V itself.
+    local armorOn = package.loadlib(dll, "mjolnir_team_armor_on")
+    local armorOff = package.loadlib(dll, "mjolnir_team_armor_off")
+    Teams.native = (armorOn and armorOff) and "off" or "missing"
+    if Teams.native == "missing" then
+        Log("team armour: no switch in this build of the native DLL; in team games the Lua swaps each Spartan to Mk V Classic")
+    end
+    local function teamArmor(wanted)
+        if not (armorOn and armorOff) then return end
+        local ok, err = pcall(wanted and armorOn or armorOff)
+        if ok then
+            Teams.native = wanted and "on" or "off"
+        else
+            Log("team armour: " .. tostring(err))
+        end
     end
     --- Switch for the map about to load: the host's campaign flow names it
     --- (SetAndBeginCampaign), a client in the host's fireteam learns it from
@@ -5560,23 +5737,46 @@ local function loadMegaloSwitch()
             -- Leave the patches alone. Restoring them under a running Megalo
             -- game froze every fireteam client on its way back to the menu
             -- (two PCs, 2026-10-02); the next map start names its scenario
-            -- and switches either way.
+            -- and switches either way. Team armour is only a flag the
+            -- native hook reads, safe to clear: the menu shows each player's
+            -- own armour.
             switched.code = nil
+            teamArmor(false)
             return
         end
         if not level then
             off()
+            teamArmor(false)
             switched.code = nil
             return
         end
-        on()
-        switched.code, switched.at = code, os.clock()
-        Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine (" .. how .. ")")
         -- The game type: the host's choice from the multiplayer menu; a
         -- client has only the map's default (the host's choice does not
         -- travel yet).
         local chosen = pending or level.variant
+        switched.code, switched.at = code, os.clock()
+        if chosen == "forge" then
+            if not forgeOn then
+                Log("multiplayer switch: FORGE needs a newer mjolnir_map_registry.dll; " .. tostring(code)
+                    .. " starts as Slayer")
+                chosen = "slayer"
+            else
+                forgeOn()
+                RunningVariant = chosen
+                teamArmor(false)
+                local running = io.open(MOD_DIR .. "\\running.txt", "w")
+                if running then
+                    running:write(tostring(code), "\tforge\t", tostring(level.title or level.name or code), "\n")
+                    running:close()
+                end
+                Log("multiplayer switch: " .. tostring(code) .. " starts under the sandbox engine, FORGE (" .. how .. ")")
+                return
+            end
+        end
+        on()
+        Log("multiplayer switch: " .. tostring(code) .. " starts under the Megalo engine (" .. how .. ")")
         RunningVariant = chosen
+        teamArmor(Teams.TEAM_GAMES[string.lower(tostring(chosen))] == true)
         local running = io.open(MOD_DIR .. "\\running.txt", "w")
         if running then
             running:write(tostring(code), "\t", tostring(chosen or ""), "\t",
@@ -5633,6 +5833,15 @@ local function loadMegaloSwitch()
                 staged:close()
                 variant()
                 Log("multiplayer switch: variant " .. name .. " (see native\\map_registry.log)")
+                -- CTF makes each team's flag of its own type, and the blue
+                -- one ships in the CE runtime pack: without it the
+                -- simulation wipes the whole script (docs/game_modes.md
+                -- 2.2), a match with no flags and nothing to say why.
+                if name == "ctf" and not Teams.blueFlagInstalled() then
+                    Log("CTF needs the CE runtime with the blue flag (" .. Teams.BLUE_FLAG_CONTAINER .. "), and this PC "
+                        .. "does not have it: a CTF variant that names the blue flag runs with no flags and no captures "
+                        .. "here. Update the MJOLNIR CE runtime pack in the launcher.")
+                end
             else
                 Log("multiplayer switch: no variants\\" .. name .. ".mglo; the default variant runs")
             end
@@ -5696,6 +5905,13 @@ local function loadMegaloSwitch()
 end
 
 local function initialize()
+    Teams.init({
+        Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
+        hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,
+        mayArm = mayArm, Current = Current, modDir = MOD_DIR, decode = Json.decode,
+        -- The running game type changes with each map (switchFor).
+        variant = function() return RunningVariant end,
+    })
     loadMapRegistry()
     loadMegaloSwitch()
     loadEventSounds()
@@ -5707,6 +5923,11 @@ local function initialize()
     end)
     RegisterConsoleCommandHandler("mjolnir_level_reload", function()
         reload()
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_flux_bake", function()
+        local _, msg = pcall(Effects.fluxBake)
+        Log("flux bake: " .. tostring(msg))
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_level_clear", function()

@@ -283,6 +283,29 @@ export interface CrashSignature {
   last_seen: string;
 }
 
+/**
+ * stat unit's split of a bench frame in ms, a mean over a condition's turns.
+ * Game includes the game thread's wait for the GPU; the `_cp` figures are
+ * critical paths, without waits. Draw is the render thread.
+ */
+export interface BenchTimes {
+  game?: number;
+  game_cp?: number;
+  draw?: number;
+  draw_cp?: number;
+  rhit?: number;
+  gpu?: number;
+}
+
+/** Where a bench held the camera: world position in cm, pitch and yaw in degrees. */
+export interface BenchView {
+  x: number;
+  y: number;
+  z: number;
+  pitch: number;
+  yaw: number;
+}
+
 /** One player's /bench run (docs/performance.md). Admin-only. */
 export interface BenchReport {
   id: string;
@@ -307,7 +330,11 @@ export interface BenchReport {
   base_ms: number;
   base_min_ms: number | null;
   base_max_ms: number | null;
-  results: { name: string; ms: number }[];
+  results: { name: string; ms: number; times?: BenchTimes | null }[];
+  /** stat unit's split of the base frame; null from clients before MJOLNIRHud 0.11.0. */
+  base_times: BenchTimes | null;
+  /** The held camera; null from clients before MJOLNIRHud 0.11.0. */
+  view: BenchView | null;
   /** "no foliage" less the base: negative, the frame time the foliage costs. */
   foliage_delta_ms: number | null;
   client_version: string | null;
@@ -520,6 +547,8 @@ export type MapSize = "small" | "medium" | "large";
 /** classic: a converted stock Halo CE map; custom_edition: a converted
  *  Custom Edition map; original: made for Campaign Evolved. */
 export type MapOrigin = "classic" | "custom_edition" | "original";
+/** Which game a map comes from: halo1 is Halo CE, halo2 is Halo 2. */
+export type MapGame = "halo1" | "halo2";
 export type MapSort = "newest" | "downloads" | "rating" | "title";
 
 /** A map in the catalog: an official classic or a community map. */
@@ -544,6 +573,7 @@ export interface MapListing {
   players_max: number | null;
   vehicles: boolean | null;
   origin: MapOrigin | null;
+  game: MapGame | null;
   /** When the map's mod was created. */
   created_at: string;
   /** The latest published release, the one to install. */
@@ -567,6 +597,7 @@ export interface MapQuery {
   size?: MapSize;
   vehicles?: boolean;
   origin?: MapOrigin;
+  game?: MapGame;
   players?: number;
   sort?: MapSort;
   limit?: number;
@@ -586,6 +617,7 @@ export interface MapMetadata {
   players_max: number | null;
   vehicles: boolean | null;
   origin: MapOrigin | null;
+  game: MapGame | null;
 }
 
 /** Fields to change: absent keeps a field, null clears it. */
@@ -659,4 +691,10 @@ export const MAP_ORIGIN_NAMES: Record<MapOrigin, string> = {
   classic: "Halo CE classic",
   custom_edition: "Custom Edition",
   original: "Original",
+};
+
+/** Display names for the game a map comes from. */
+export const MAP_GAME_NAMES: Record<MapGame, string> = {
+  halo1: "Halo CE",
+  halo2: "Halo 2",
 };

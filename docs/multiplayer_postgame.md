@@ -3,7 +3,7 @@
 A custom game ends with everyone still together: the final standings in the
 map, then a post-game screen on the menu where the fireteam votes on the next
 game, and the host starts it. Nobody leaves the fireteam. Status as of
-2026-10-02.
+2026-10-02; updated 2026-10-21.
 
 ## What the game does on its own, and why we don't use it
 
@@ -53,7 +53,10 @@ reaches `game_over`, and the host ends the match itself.
      by hand.
 5. **Joiners** get our lobby instead of the game's CLIENT LOBBY whenever the
    host is in it: the host's map and game type, with START GAME, CHANGE MAP
-   and GAME TYPE hidden.
+   and GAME TYPE hidden (and, since they were added, PRIVATE / PUBLIC GAME,
+   MAX PLAYERS and GAME SETTINGS). Since mods-v0.20.0, a joiner without the
+   host's map, or with another release of it, sees START GAME as DOWNLOAD
+   MAP or UPDATE MAP ([live_map_install.md](live_map_install.md)).
 
 Each machine shows its own standings. They agree because every machine
 counted the same incidents ([multiplayer_hud.md](multiplayer_hud.md)).
@@ -72,16 +75,24 @@ A message is `MJOLNIR|<verb>|<field>...`:
 
 | Verb | From | Fields |
 |---|---|---|
-| `vote` | host, every second | id, seconds left, options (`CODE:mode:again;...`), counts, chosen option |
+| `vote` | host, every second | id, seconds left, options (`CODE:mode:again;...`), counts, chosen option, the chosen map's campaign-list index, its hub release id and version, held (below) |
 | `ballot` | anyone, the host included | id, option |
 | `cancel` | host | id |
-| `lobby` | host, while its lobby is up | map code, game type |
+| `lobby` | host, while its lobby is up | map code, game type, game settings line ([host_game_settings.md](host_game_settings.md)), campaign-list index, hub release id, version |
+| `starting` | host, as it starts a game | map code, hub release id |
+| `mapstate` | a client getting the host's map | map code, stage, percent ([live_map_install.md](live_map_install.md)) |
+| `where` | a client joining a match under way | map code |
+| `mapindex` | host, in answer to `where` | map code, campaign-list index |
+| `kick` | host | why |
 | `reporting` | anyone on the post-game screen | 1 when the report panel opens, 0 when it closes: the host holds the vote |
 | `iam` | a client | its identity ticket ([player_identity.md](player_identity.md)) |
 | `whois` | a client with no roster yet | none |
 | `ids` | host | its hub account, the roster of in-game name to hub account |
 
 The vote's ninth field is 1 while the countdown is held for a report.
+MJOLNIRHud's `feed`, `clock`, `match`, `matchid`, `say`, `chat` and `cmd`,
+and MJOLNIRLevelLoader's `event`, use the same two RPCs
+([multiplayer_hud.md](multiplayer_hud.md)).
 
 Hooks on both functions (native, with parameters) ran on CU4 without trouble
 (2026-10-02). The host never sends a client RPC to a controller with no
@@ -104,10 +115,15 @@ run it locally.
 
 ## Open
 
-- Two PCs: the vote end to end (a client's ballot reaching the host, every
+- ~~Two PCs: the vote end to end (a client's ballot reaching the host, every
   screen following the outcome) and the client lobby. Steps:
-  [two_pc_test.md](two_pc_test.md), Phase 4.
+  [two_pc_test.md](two_pc_test.md), Phase 4.~~ **Update 2026-10-21:**
+  verified on two PCs on 2026-10-09 (e98d2152): the post-game vote chose The
+  Longest, and the host's pick of a map the guest lacked (Hang 'em High) went
+  the same way; each was downloaded in game and played by both PCs.
 - A client that joins during the vote sees it from the next broadcast; one
-  that joins mid-match is not handled yet.
+  that joins mid-match is not handled yet. **Update 2026-10-21:** since
+  mods-v0.12.0 (PR #130) a client can join a public match under way; a
+  private game still refuses a join mid-match.
 - The tallies are HUD-side. Reading the Megalo score itself would make a
   client's standings authoritative.

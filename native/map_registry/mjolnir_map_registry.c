@@ -30,10 +30,14 @@
 // Megalo engine instead of the campaign, drop the map-variant requirement the
 // campaign flow cannot meet, keep the map variant across the start-up zone
 // switch, and let the variant file loader read a file at all
-// (mjolnir_megalo_variant installs the game mode it reads). A seventh, kept
+// (mjolnir_megalo_variant installs the game mode it reads). mjolnir_forge_on
+// makes the same switch start the sandbox engine instead, for a Forge game
+// (docs/re/forge_engine.md). A seventh, kept
 // even when the switch goes off, lets the game quit from inside a
 // multiplayer match. Each site is checked for the exact shipped or patched bytes first,
-// so a different build is refused rather than corrupted.
+// so a different build is refused rather than corrupted. In team games it
+// also makes the simulation give every Spartan Mk V Classic
+// (mjolnir_team_armor_on / _off), so team colours show on everyone.
 //
 // Everything here is CU4-specific: the exe's RVAs are per build (exe_profiles,
 // picked by the PE timestamp), the simulation's are guarded by the bytes
@@ -1235,7 +1239,24 @@ static const code_patch_t MEGALO[] = {
 // Sites from this index on stay patched when the switch goes off.
 #define MEGALO_KEEP 6
 
-static int set_megalo(int on) {
+// MEGALO[0] is `mov r8d, <engine>`; its immediate is byte 2 of the site.
+#define ENGINE_IMMEDIATE 2
+
+// Site 0 as it reads now, for any engine the switch can have set.
+static int engine_site_ok(const code_patch_t *p, const uint8_t *at) {
+    for (uint8_t engine = 1; engine <= 3; engine++) {
+        uint8_t bytes[16];
+        memcpy(bytes, p->shipped, p->len);
+        bytes[ENGINE_IMMEDIATE] = engine;
+        if (memcmp(at, bytes, p->len) == 0) return 1;
+    }
+    return 0;
+}
+
+// `engine` 0 puts the shipped bytes back (campaign); 2 starts the next map
+// under Megalo, 1 under the sandbox engine, Forge (docs/re/forge_engine.md).
+// Forge needs every other site Megalo does: the same multiplayer launch.
+static int set_engine(int engine) {
     ensure_init();
     uint8_t *sim = (uint8_t *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) {
@@ -1246,7 +1267,9 @@ static int set_megalo(int on) {
     for (size_t i = 0; i < n; i++) {
         const code_patch_t *p = &MEGALO[i];
         uint8_t *at = sim + p->rva;
-        if (memcmp(at, p->shipped, p->len) != 0 && memcmp(at, p->patched, p->len) != 0) {
+        int ok = i == 0 ? engine_site_ok(p, at)
+                        : memcmp(at, p->shipped, p->len) == 0 || memcmp(at, p->patched, p->len) == 0;
+        if (!ok) {
             Log("megalo: refused, +%x holds neither the CU4 bytes nor the patch (%s)", p->rva, p->what);
             return 0;
         }
@@ -1254,7 +1277,13 @@ static int set_megalo(int on) {
     for (size_t i = 0; i < n; i++) {
         const code_patch_t *p = &MEGALO[i];
         uint8_t *at = sim + p->rva;
-        const uint8_t *want = (on || i >= MEGALO_KEEP) ? p->patched : p->shipped;
+        uint8_t engine_site[16];
+        const uint8_t *want = (engine || i >= MEGALO_KEEP) ? p->patched : p->shipped;
+        if (i == 0 && engine) {
+            memcpy(engine_site, p->shipped, p->len);
+            engine_site[ENGINE_IMMEDIATE] = (uint8_t)engine;
+            want = engine_site;
+        }
         if (memcmp(at, want, p->len) == 0) continue;
         DWORD old;
         if (!VirtualProtect(at, p->len, PAGE_EXECUTE_READWRITE, &old)) {
@@ -1265,7 +1294,11 @@ static int set_megalo(int on) {
         VirtualProtect(at, p->len, old, &old);
         FlushInstructionCache(GetCurrentProcess(), at, p->len);
     }
-    Log("megalo: %s (%zu sites)", on ? "ON: the next map load starts the Megalo engine" : "off: shipped bytes", n);
+    Log("megalo: %s (%zu sites)",
+        engine == 2   ? "ON: the next map load starts the Megalo engine"
+        : engine == 1 ? "FORGE: the next map load starts the sandbox engine"
+                      : "off: shipped bytes",
+        n);
     return 1;
 }
 
@@ -1314,8 +1347,41 @@ static int mglo_dir(uint8_t *sim, char *dir, size_t cap) {
 // event reads the first patch).
 __declspec(dllexport) int mjolnir_megalo_on(void *L) {
     (void)L;
-    set_megalo(1);
+    set_engine(2);
     return 0;
+}
+
+// The same switch for a Forge game: the sandbox engine (engine 1), whose
+// default variant the load builds itself, so nothing is staged.
+__declspec(dllexport) int mjolnir_forge_on(void *L) {
+    (void)L;
+    set_engine(1);
+    return 0;
+}
+
+// Validate a `.mglo` against the simulation's grammar and store bounds before
+// it is staged for the file loader to decode. Implemented in Rust by
+// crates/mjolnir-mglo-cabi over blam-megalo (the single grammar source), linked
+// as a static library. 0 = safe, non-zero = refuse (docs/re/variant_network_safety.md).
+extern int mjolnir_mglo_validate(const unsigned char *data, size_t len);
+
+// Read the staged file and ask the validator whether the simulation can decode
+// it safely. A last line of defense for a `.mglo` that reached disk past the
+// launcher's install-time check (a sideloaded map, say). A file larger than the
+// buffer is already past the simulation's 0x5000-byte bound, so it is refused.
+static int mglo_file_ok(const char *path) {
+    FILE *f = NULL;
+    if (fopen_s(&f, path, "rb") != 0 || !f) {
+        return 0;
+    }
+    static unsigned char buf[0x8000];
+    size_t n = fread(buf, 1, sizeof buf, f);
+    int more = fgetc(f) != EOF;
+    fclose(f);
+    if (more) {
+        return 0;
+    }
+    return mjolnir_mglo_validate(buf, n) == 0;
 }
 
 // Install `native\variant.mglo` (staged next to this DLL by MJOLNIRLevelLoader
@@ -1331,6 +1397,11 @@ __declspec(dllexport) int mjolnir_megalo_variant(void *L) {
     char *slash = strrchr(staged, '\\');
     if (slash) *(slash + 1) = 0;
     strcat_s(staged, sizeof staged, "variant.mglo");
+    if (!mglo_file_ok(staged)) {
+        Log("megalo: %s failed variant validation; refusing to stage it (the default variant runs)",
+            staged);
+        return 0;
+    }
     if (!mglo_dir(sim, dir, sizeof dir)) {
         Log("megalo: no variant directory (LOCALAPPDATA unset); the default variant runs");
         return 0;
@@ -1353,7 +1424,166 @@ __declspec(dllexport) int mjolnir_megalo_variant(void *L) {
 
 __declspec(dllexport) int mjolnir_megalo_off(void *L) {
     (void)L;
-    set_megalo(0);
+    set_engine(0);
+    return 0;
+}
+
+// ------------------------------------------------------------ team armour
+
+// In a team game every Spartan wears Mk V Classic (`og_001`): the one armour
+// with no static plates and no helmet, and the one whose material takes a
+// team colour (MJOLNIRLevelLoader's teams.lua tints it; docs/game_modes.md
+// 2.3). Armour is a Blam model variant the simulation picks per player:
+// 0x182ef0 asks 0x2f2730 for the variant of the player's (customization,
+// selection) pair in `globals\player_model_customization`, and when it names
+// one, puts it on the placement and skips the legacy body and head
+// overrides. Every machine's simulation works this out for every player, at
+// spawn and on each configuration update, so the switch is set on every
+// machine.
+//
+// The one call at sim 0x182f09 (inside 0x182ef0) goes to team_armor_pick
+// instead, through a stub near the simulation (a rel32 call reaches only
+// +-2 GB, and this DLL may load anywhere). With forcing on, it first asks the
+// original for a made-up appearance whose only pair is (0, 0). Entry 0 of
+// the customization list is the Spartans biped and its selection 0 is
+// `og_001`, and 0x2f2730 matches the object definition against the entries
+// before it reads a pair, so only the Spartans definition gets an answer
+// from it; any other (the weapon skins are entries 1 to 7) gets 0 or -1 and
+// is asked again with its real appearance. 0x2f2730 reads only RCX (the
+// appearance: +0x19, +5+2i, +6+2i) and EDX (the definition), and 0x182ef0
+// reads only EAX after the call, so a plain C function stands in for it. The
+// weapon-skin calls of 0x2f2730 elsewhere (0x1823c0, 0x60c9b0) are untouched.
+//
+// Installed once and kept for the life of the process, like the DLL itself:
+// "off" only clears the flag, so a travel back to the menu (where restoring
+// code under a running Megalo game froze clients, 2026-10-02) changes no
+// code. Each machine refuses a build whose bytes differ.
+#define RVA_ARMOR_CALL 0x182f09u
+#define RVA_ARMOR_PICK 0x2f2730u
+// The aligned qword holding the call: `f8 | e8 22 f8 16 00 | 8b d8` (the last
+// byte of `mov r15, r8`, `call 0x2f2730`, `mov ebx, eax`).
+#define RVA_ARMOR_QWORD 0x182f08u
+#define ARMOR_QWORD_SHIPPED 0xd88b0016f822e8f8ull
+
+typedef uint32_t(__fastcall *armor_pick_fn)(const uint8_t *appearance, uint32_t definition);
+
+static armor_pick_fn g_armor_pick;
+static volatile LONG g_armor_force;
+// 0 not tried, 1 installed, 2 refused (this process gives up on the hook).
+static volatile LONG g_armor_state;
+static volatile LONG g_armor_logged;
+
+static uint32_t __fastcall team_armor_pick(const uint8_t *appearance, uint32_t definition) {
+    if (g_armor_force) {
+        uint8_t made_up[0x20] = {0};
+        made_up[0x19] = 1;
+        uint32_t forced = g_armor_pick(made_up, definition);
+        if (forced + 1u > 1u) {
+            if (InterlockedCompareExchange(&g_armor_logged, 1, 0) == 0)
+                Log("team armour: the simulation picked a Spartan's armour; forced variant string id 0x%x "
+                    "(og_001) for definition 0x%x",
+                    forced, definition);
+            return forced;
+        }
+    }
+    return g_armor_pick(appearance, definition);
+}
+
+// A 12-byte `mov rax, imm64; jmp rax` within 1.75 GB below `near`. RAX is not
+// an input of 0x2f2730, and a jump keeps the caller's stack as the call left
+// it. Never freed: the hook stays for the life of the process.
+static uint8_t *armor_stub(uint8_t *near_at, void *target) {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    uintptr_t gran = si.dwAllocationGranularity;
+    for (uintptr_t step = gran * 4; step < 0x70000000u && step < (uintptr_t)near_at; step += gran) {
+        uint8_t *cand = (uint8_t *)(((uintptr_t)near_at - step) & ~(gran - 1));
+        uint8_t *p = (uint8_t *)VirtualAlloc(cand, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!p) continue;
+        p[0] = 0x48;
+        p[1] = 0xb8;
+        memcpy(p + 2, &target, 8);
+        p[10] = 0xff;
+        p[11] = 0xe0;
+        DWORD old;
+        if (!VirtualProtect(p, 0x1000, PAGE_EXECUTE_READ, &old)) {
+            VirtualFree(p, 0, MEM_RELEASE);
+            return NULL;
+        }
+        FlushInstructionCache(GetCurrentProcess(), p, 12);
+        return p;
+    }
+    return NULL;
+}
+
+static int team_armor_install(void) {
+    if (g_armor_state) return g_armor_state == 1;
+    uint8_t *sim = (uint8_t *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) {
+        // Not a refusal: the simulation may load later.
+        Log("team armour: the simulation DLL is not loaded");
+        return 0;
+    }
+    volatile LONG64 *word = (volatile LONG64 *)(sim + RVA_ARMOR_QWORD);
+    const LONG64 shipped = (LONG64)ARMOR_QWORD_SHIPPED;
+    LONG64 now = *word;
+    if (((uintptr_t)word & 7) != 0 || now != shipped) {
+        Log("team armour: refused, sim +%x holds %016llx, not CU4's call of 0x%x; players keep their own armour "
+            "and the Lua swaps it",
+            RVA_ARMOR_QWORD, (unsigned long long)now, RVA_ARMOR_PICK);
+        g_armor_state = 2;
+        return 0;
+    }
+    uint8_t *site = sim + RVA_ARMOR_CALL;
+    uint8_t *stub = armor_stub(site, (void *)team_armor_pick);
+    int64_t delta = stub ? (int64_t)(stub - (site + 5)) : 0;
+    if (!stub || delta > INT32_MAX || delta < INT32_MIN) {
+        Log("team armour: refused, no memory for the stub within reach of the simulation");
+        g_armor_state = 2;
+        return 0;
+    }
+    g_armor_pick = (armor_pick_fn)(sim + RVA_ARMOR_PICK);
+    // Byte 0 and bytes 6-7 stay; bytes 2-5 become the stub's rel32. One
+    // locked 8-byte write, so the simulation thread never runs half a call.
+    const LONG64 patched = (LONG64)(((uint64_t)shipped & 0xffff00000000ffffull) |
+                                    ((uint64_t)(uint32_t)(int32_t)delta << 16));
+    DWORD old;
+    if (!VirtualProtect((void *)word, 8, PAGE_EXECUTE_READWRITE, &old)) {
+        Log("team armour: refused, VirtualProtect failed at sim +%x", RVA_ARMOR_QWORD);
+        g_armor_state = 2;
+        return 0;
+    }
+    LONG64 was = InterlockedCompareExchange64(word, patched, shipped);
+    VirtualProtect((void *)word, 8, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void *)word, 8);
+    if (was != shipped) {
+        Log("team armour: refused, sim +%x changed under the install (%016llx)", RVA_ARMOR_QWORD,
+            (unsigned long long)was);
+        g_armor_state = 2;
+        return 0;
+    }
+    g_armor_state = 1;
+    Log("team armour: hook installed, sim +%x -> stub %p -> team_armor_pick", RVA_ARMOR_CALL, (void *)stub);
+    return 1;
+}
+
+// Lua C functions: 0 results. Call before the map loads, on every machine.
+// "On" installs the hook if it is not in yet and makes every Spartan take
+// Mk V Classic from the next spawn or configuration update on.
+__declspec(dllexport) int mjolnir_team_armor_on(void *L) {
+    (void)L;
+    ensure_init();
+    if (!team_armor_install()) return 0;
+    if (InterlockedExchange(&g_armor_force, 1) == 0) Log("team armour: ON, every Spartan wears Mk V Classic");
+    return 0;
+}
+
+// "Off" only clears the flag the hook reads; the hook stays, and each player
+// wears their own choice again from the next spawn or configuration update.
+__declspec(dllexport) int mjolnir_team_armor_off(void *L) {
+    (void)L;
+    ensure_init();
+    if (InterlockedExchange(&g_armor_force, 0) != 0) Log("team armour: off, players wear their own armour");
     return 0;
 }
 

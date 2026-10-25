@@ -37,17 +37,19 @@ bundler, and the app with the flexible one reaches in:
 | launcher | `resolve.alias` + `server.fs.allow` in `vite.config.ts`, `paths` in `tsconfig.json`, `@source` in `src/index.css` |
 | tag editor | the same three, added for the changelog dialog |
 
-Consumed as **source**, never as a published package: the two apps have
-separate lockfiles and separate CI jobs (`deploy-hub.yml`,
-`release-launcher.yml`), each running `pnpm install --frozen-lockfile` in its
-own directory, and a workspace would make one app's install depend on the
-other's lockfile for no benefit. There is no build step and no `dist/` — both
-apps typecheck this source as part of their own `tsc`, so a break surfaces in
-whichever app you are working in, immediately.
+Consumed as **source**, never as a published package: the three apps have
+separate lockfiles and separate CI jobs (`ci.yml` and `deploy-hub.yml` for the
+hub, `release-launcher.yml`, `release-tag-editor.yml`), each running
+`pnpm install --frozen-lockfile` in its own directory, and a workspace would
+make one app's install depend on another's lockfile for no benefit. There is
+no build step and no `dist/` — every app typechecks this source as part of its
+own `tsc`, so a break surfaces in whichever app you are working in,
+immediately.
 
-The launcher also aliases `react` and `react-dom` to its own copies, because
-these files sit outside its root and cannot resolve them by walking up. That
-alias is what guarantees a single React instance in the bundle.
+The launcher and the tag editor also alias `react` and `react-dom` to their
+own copies, because these files sit outside their roots and cannot resolve
+them by walking up. That alias is what guarantees a single React instance in
+the bundle.
 
 ## Theming
 
@@ -78,8 +80,10 @@ just never calls back, and the bar stays indeterminate.
 ## The client
 
 `createHubClient({ baseUrl, token, transport })` returns a typed client for the
-whole v1 API. The transport is injectable because the two callers reach the API
-very differently:
+parts of the v1 API the website and the launcher use: browsing mods and maps,
+the community layer, pairing, lobbies, and the moderation and admin queues.
+Publishing and the game's own reports call the API directly. The transport is
+injectable because the two callers reach the API very differently:
 
 - **Website** — same-origin `fetch`, Discord cookie session.
 - **Launcher** — a Tauri command. The webview holds no credential; the paired

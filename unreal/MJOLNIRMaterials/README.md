@@ -2,7 +2,9 @@
 
 The Unreal Engine 5.5 project that builds and cooks the materials and bitmaps
 of converted Halo CE maps ([docs/ce_map_conversion.md](../../docs/ce_map_conversion.md),
-"Materials"). `tools/level/convert_ce_map.sh` drives it. This page covers
+"Materials"), and for the remastered maps their Landscape worlds, tessellated
+cliffs and water masters. `tools/level/convert_ce_map.sh` drives it, and
+`tools/level/upgrade_ce_map.py` for the remastered maps. This page covers
 setting it up and running it by hand.
 
 It is a separate project from [`MJOLNIRMapKit`](../MJOLNIRMapKit), which cooks
@@ -16,7 +18,7 @@ is also why the project must be named **Meteorite**.
 
 The game runs 343's fork of UE 5.5.4. A material cooked by a stock editor
 binds and draws in it only once the editor matches the fork in the places
-that end up inside compiled shaders ([docs/re/fork_renderer.md](../../docs/re/fork_renderer.md)).
+that end up inside compiled shaders and cooked packages ([docs/re/fork_renderer.md](../../docs/re/fork_renderer.md)).
 
 | Difference | Reproduced by |
 |---|---|
@@ -24,7 +26,9 @@ that end up inside compiled shaders ([docs/re/fork_renderer.md](../../docs/re/fo
 | GPU-scene primitive stride 44 (stock 43), custom data from element 35 | the same plugin, module `MjolnirForkShaders`: `/Engine/Shared` and `/Engine/Private` remapped to patched copies under `Intermediate/` |
 | The game's renderer settings (they decide which permutations cook) | `Config/DefaultEngine.ini` `[/Script/Engine.RendererSettings]` |
 | No editor selection colour in the shaders | `r.CompileShadersForDevelopment=0` |
-| Material instances and parameter collections serialize differently | not cooked: the level loader makes dynamic instances at runtime |
+| Nanite raster: a 992-byte `FPackedNaniteView`, the HW raster's clip position handed to the pixel shader, `FRasterizePassParameters` at the fork's offsets | `MjolnirForkShaders` (patched `Private/Nanite/*`) and `MjolnirForkLayouts` (the parameter offsets) |
+| Property blocks are laid out differently (343's `Material` and `PrimitiveComponent` carry extra slots) | `tools/ue/cook.ps1` re-encodes every staged chunk container in the game's layout after the cook (`mjolnir ue retarget --rewrite`; materials and material instances by default, `-Classes` adds more) |
+| Game assets our masters and instances read (`MPC_DeformationGlobals`, the game's foliage meshes and materials) | never-cooked stand-ins at the game's paths (`Plugins/HaloLandscapeDeformations`, `/Game/Env`, `/Game/Megascans`; `DirectoriesToNeverCook`): in game the references resolve to the game's own. No parameter collection of ours is cooked, and the CE masters' per-slot instances are made at runtime by the level loader |
 
 The engine install itself is never modified. The shader override applies to
 this project only; `-MjolnirStockShaders` turns it off. The editor's own
@@ -65,21 +69,39 @@ for viewing materials in the editor.
 
 ## Running it
 
-The scripts run the editor as a commandlet, limited to 8 cores at
-below-normal priority: full-machine shader compiles have powered the dev box
-off. The editor resets its own affinity once up, so keep a watcher re-pinning
-`UnrealEditor-Cmd` and `ShaderCompileWorker` while they run.
+The scripts run the editor as a commandlet at below-normal priority, on every
+core unless `-Mask` or `MJ_CPU_MASK` (hex) limits them. With a mask set, the
+editor resets its own affinity once up, so keep a watcher re-pinning
+`UnrealEditor-Cmd` and `ShaderCompileWorker` while they run. Every editor run
+and cook takes the named mutex `MjolnirMeteoriteProject`, so only one Unreal
+process works on the project at a time; conversions running side by side wait
+for it.
 
 ```powershell
 powershell -File tools/ue/editor_cmd.ps1 -Script Scripts/build_ce_materials.py   # masters, defaults, chunk label
 $env:MJ_CE_SPEC = "out\bgl\materials.spec.json"
 powershell -File tools/ue/editor_cmd.ps1 -Script Scripts/build_ce_level.py       # one level's bitmaps
-powershell -File tools/ue/cook.ps1                                               # pakchunk988
-bash tools/ue/install_cook.sh                                                    # into the game (closed)
+powershell -File tools/ue/cook.ps1                                               # every chunk, re-encoded for the game
+HCE_PAKS="<game>/Meteorite/Content/Paks" bash tools/ue/install_cook.sh           # 988 into the game (closed)
 ```
 
-`Content/` is build output: every level built so far stays in it, so one
-container carries them all.
+`cook.ps1` re-encodes each staged container in the game's property layout with
+`mjolnir ue retarget --rewrite`, so build the CLI first (`target/release/mjolnir.exe`)
+or point `MJOLNIR` at one; without it the cook prints a warning and the
+materials are misread in game. Copy containers out of staging only after it
+returns.
+
+`Content/` is build output: every level built so far stays in it. What lands
+in which container:
+
+| Chunk | What | Built by |
+|---|---|---|
+| 988 | the CE masters, shared textures, event sounds, and the maps converted before per-map chunks (`/Game/MJOLNIR/Levels`) | `Scripts/build_ce_materials.py`, `build_ce_textures.py`, `build_ce_sounds.py` |
+| a map's own | a map with a code of its own (`/Game/MJOLNIR/Maps/<CODE>`): its bitmaps and ambient sounds, shipped in its map pack ([docs/map_distribution.md](../../docs/map_distribution.md)) | `Scripts/build_ce_level.py`, `build_ce_sounds.py` |
+| 984 | MJOLNIR's widgets (see [Widgets](#widgets)) | `Scripts/build_mjolnir_ui.py` |
+| 983 | the trial masters and the tessellated cliffs | `Scripts/build_ce_materials.py` (`MJ_CE_ROOT=/Game/MJOLNIR/CETrial`, `MJ_CE_CHUNK=983`), `build_ce_cliffs.py` |
+| 982 | the water masters | `Scripts/build_ce_water.py` |
+| one per remastered map (`MJ_LANDSCAPE_CHUNK`; 979 is Death Island's) | the map's Landscape world, its bakes and its baked foliage | `Scripts/build_ce_landscape.py`, cooked with `cook.ps1 -Map`; `tools/level/bake_editor_world.sh` bakes the world into the map's own container and keeps this one for its shader library |
 
 ## Widgets
 

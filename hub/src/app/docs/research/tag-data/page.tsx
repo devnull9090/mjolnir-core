@@ -278,7 +278,12 @@ export default function TagDataPage() {
           <p className="text-sm leading-6 text-text-muted">
             This does not prove a competitive mode is launchable. No multiplayer scenario tag and no
             competitive world package exists in this build, so a competitive map likely needs both an
-            Unreal world and a matching generated Blam scenario and BSP set.
+            Unreal world and a matching generated Blam scenario and BSP set.{" "}
+            <strong className="text-foreground">Update 2026-10-21:</strong> confirmed. Converted
+            maps ship exactly that pair, a cooked Unreal world of their own plus their own scenario
+            and structure BSP tags (
+            <span className="font-mono text-foreground">mjolnir level bake --standalone --world --bsp</span>), and
+            the simulation starts its Megalo engine for them (mods-v0.7.0, PR #106).
           </p>
         </div>
         <p className="mt-4 text-sm text-text-muted">

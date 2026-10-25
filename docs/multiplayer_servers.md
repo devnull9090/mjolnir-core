@@ -14,7 +14,7 @@ a dedicated server that players connect to?
   game, windowless) works on a GPU machine, but the idea was dropped on
   2026-10-02. The findings are kept below.
 
-Status as of 2026-10-02 (CU4).
+Status as of 2026-10-02 (CU4); updated 2026-10-21.
 
 ## What exists
 
@@ -26,7 +26,7 @@ Status as of 2026-10-02 (CU4).
 | The lobby's connection string | `native/lobby` `mjolnir_lobby_connection` | Verified: `cv2:...`, 106 characters, membership unlocked, max 16 |
 | Join by connection string | `native/lobby` `mjolnir_join` (OnlineTick hook) | Verified on one PC: the game left its lobby and called `PFMultiplayerJoinLobby` with our string, then showed its own FAILED TO JOIN for a fake one |
 | Hub calls from the game | `native/lobby` `mjolnir_hub_call` (WinHTTP) | Verified: `GET /lobbies` 200 |
-| PRIVATE / PUBLIC GAME, FIND GAMES | `mods/MJOLNIRLobby/Scripts/games.lua`, `main.lua`, `WBP_MJOLNIRFindGames` | Built, solo-verified; two-PC test pending ([two_pc_test.md](two_pc_test.md), Phase 5) |
+| PRIVATE / PUBLIC GAME, FIND GAMES | `mods/MJOLNIRLobby/Scripts/games.lua`, `main.lua`, `WBP_MJOLNIRFindGames` | Built; verified on two PCs 2026-10-09 (FIND GAMES download and join, e98d2152; steps in [two_pc_test.md](two_pc_test.md), Phase 5) |
 
 The listing hides the connection string. A client gets it from `/join`, which
 requires sign-in. See the header comment in `lobby.ts`.
@@ -113,11 +113,24 @@ How the native half finds it, by pattern rather than address:
 The handler converts the connect string as a C string, so Steam's 256-byte
 limit doesn't apply. Today's strings are 106 characters anyway.
 
+On the Xbox app there is no Steam subsystem. `mjolnir_join` hands the string
+to the GDK session's own invite handler, from the GDK subsystem's tick, the
+way an Xbox join arrives (mods-v0.23.0 and v0.23.1, PR #179 and #181;
+[game_pass.md](game_pass.md)). `join_request.txt` may carry the host's
+SteamID64 or XUID after the string.
+
+A website's `mjolnir://join/<lobby>` link reaches the launcher, which leaves
+the lobby id in `native\pending_join.txt`; once signed in on the menu, FIND
+GAMES opens and joins that game as JOIN would (mods-v0.21.0 and
+launcher-v0.13.0, PR #166).
+
 **Auth.** Listing needs `lobbies:write`; `/join` needs any signed-in key. The
 native half reads the launcher's key from
 `%APPDATA%\com.devnull9090.mjolnir-launcher\hub_auth.json` and sends it to
 the hub only. Players without the launcher can still host for, and be
-invited by, friends.
+invited by, friends. An account banned from matchmaking can neither list
+nor join (403), and a banned host's game drops out of the list (PR #172;
+[player_identity.md](player_identity.md)).
 
 **A game on a map you lack:** JOIN reads DOWNLOAD AND JOIN. The map installs
 in the running game first, then the join runs as usual
@@ -184,11 +197,17 @@ What a headless host still needs:
 
 ## Open questions
 
-- **Can a player join a match in progress?** The host's lobby membership is
+- **Can a player join a match in progress?** ~~The host's lobby membership is
   unlocked at the menu; whether the game locks it in a match, and whether a
   late client gets a seat in the sim, is untested. The local-guest research
   found the sim roster fixed at launch,
-  but that was a local `CreatePlayer`, not a network join.
+  but that was a local `CreatePlayer`, not a network join.~~ **Update
+  2026-10-21:** answered 2026-10-03. The match's game mode refuses a login
+  mid-match ("Cannot join - game is already in progress"). For a public game
+  MJOLNIRLobby's native half skips that refusal and the host puts the
+  joiner's players in its running Blam game (mods-v0.12.0, PR #130;
+  `native\join_in_progress.txt` = 0 turns it off). A private game still
+  refuses. Two-PC test: `tools/remote/jip-test.mjs`.
 - Does a Private lobby accept a join by connection string from a stranger?
   Expected yes, per PlayFab's model; not tested with a real host.
 - Headless host (dropped): keeping its player from spawning; WARP for a

@@ -1,12 +1,12 @@
 # Cooked Texture2D / Virtual Texture Format in Halo Campaign Evolved
 
-**Status:** Verified against the installed build
+**Status:** Verified on the CU2 build below; not yet re-measured on CU4
 **Last verified:** 2026-08-03
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. See
-> [`build_lock.md`](build_lock.md) for what has been re-verified against CU3 and for a
-> caveat about CU2-stamped notes dated after 2026-08-01.
+> **Build label:** measured on CU2. The installed build is CU4
+> (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`) and this note has not been re-measured
+> on it. See [`build_lock.md`](build_lock.md).
 
 A shipped `Texture2D` in this build cooks one of two ways, and both are common:
 
@@ -161,6 +161,18 @@ for a virtual texture the `.uasset` is not touched at all.
 inside a copy of the shipped payload, which leaves anything the reader does not
 model — chunk headers, alignment padding, tiles no table points at — exactly as
 it was. See [`texture_swapping.md`](texture_swapping.md).
+
+A classic chain keeps its tail mips (everything below 128×128) inline in the
+export, so a swap rewrites those in place in the export body too, at the same
+length, and packs the `.uasset` as a second chunk beside the `.ubulk`
+(`encode::swap_with_export`, which `mjolnir texture swap` uses). The tag
+editor's swap goes through `encode::swap`, which still refuses a texture with
+inline mips.
+
+`encode` writes `PF_DXT1`, `PF_DXT3`, `PF_DXT5`, `PF_BC4`, `PF_BC5`,
+`PF_B8G8R8A8`, `PF_G8` and `PF_A8`, and refuses every other format: `PF_BC7`
+and `PF_BC6H` until there is a BPTC encoder, and the float formats. Those
+textures cannot be swapped yet.
 
 The `FIoHash` in each chunk record is *not* recomputed, and the game plays the
 swapped texture regardless: those hashes are cook-time DDC keys, not a runtime

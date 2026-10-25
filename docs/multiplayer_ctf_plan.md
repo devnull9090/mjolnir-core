@@ -1,6 +1,12 @@
 # Getting Two Players Into a Match
 
-**Status:** Plan. Research section verified 2026-08-04.
+**Status:** Superseded plan, kept as history. Research section verified 2026-08-04 on CU3.
+**Update 2026-10-21:** the goal was met by architecture A, which this plan set aside. The
+simulation's own Megalo engine runs Slayer and Capture the Flag on converted CE maps, hosted from
+MJOLNIRLobby's MULTIPLAYER menu (mods-v0.7.0, PR #106; the `.mglo` game types ship in the release
+from mods-v0.9.0, PR #119; [`re/megalo_engine.md`](re/megalo_engine.md)).
+[`mods/MJOLNIRCTF`](../mods/MJOLNIRCTF/Scripts/main.lua) is Phase 4 step 0's Experience experiment,
+not the shipped mode.
 **Goal:** two or more human players in a shared lobby, playing an objective game mode.
 
 ### Build Lock
@@ -183,6 +189,11 @@ field at all.
 This is why **CTF is the most expensive objective mode to target, not the cheapest.** Oddball needs
 no new art. CTF needs a carryable flag object built from scratch.
 
+**Update 2026-10-21:** it did not need one from scratch. The flag is a weapon tag cloned from the
+assault bomb, which ships whole and is carried the same way, drawn by the oddball's actor with CE's
+flag mesh put on it at runtime, and added to the object type list as entry 18
+(`tools/level/build_ctf_flag.sh`; PR #106).
+
 ### The variant settings tags were cut
 
 **Verified.** The DLL's definition strings promise a settings UI for every mode — `ctf top level
@@ -240,6 +251,12 @@ edit, or Blueprint mod is going to "turn CTF back on" — there is nothing on th
 *executable* game-engine code for the competitive modes, reachable through the shell interface
 without the UE5 enum. String evidence is ambiguous — the megalo material in the DLL is definitions,
 traits, and HUD widgets rather than an interpreter. See Phase 1.
+
+**Update 2026-10-21:** it does. The simulation still carries and runs Reach's Megalo engine. It is
+reached without the UE5 enum: one constant in the simulation's load-map handler picks the engine,
+and MJOLNIR's native switch patches it from 3 (campaign) to 2 (Megalo), with five more byte patches
+for the map-variant checks and the variant file reader. The engine then runs Megalo variants of our
+own (`native/map_registry`, `crates/blam-megalo`; PR #106; [`re/megalo_engine.md`](re/megalo_engine.md)).
 
 ### Two network stacks, both real
 
@@ -393,6 +410,11 @@ CTF, and its strings ship too. Prove the loop with the skull, then swap in a fla
 building objects. The user goal — *two or more players in a lobby playing an objective mode* — is met
 sooner, and CTF becomes a content problem instead of a content-plus-systems problem.
 
+**Update 2026-10-21:** Oddball was not built. What ships is Slayer and CTF as Megalo variants: every
+conversion writes `slayer.mglo`, a map with both teams' flags is offered CTF, and the mods release
+writes only `slayer.mglo` and `ctf.mglo` (`mjolnir megalo write`; PR #106, and PR #119 for the
+release, mods-v0.9.0).
+
 ### Phase 1 — Settle whether the Blam engine can still run a match
 
 Decides between A and B. Do not build anything until this returns.
@@ -400,7 +422,8 @@ Decides between A and B. Do not build anything until this returns.
 > **Result, 2026-08-04: step 2 was attempted and did not answer the question. Recorded here rather
 > than quietly retried, because the failure is informative and the next person should not repeat it.**
 >
-> `AnalyzeGameEngineCode.java` walks from a probe string up to whatever code consumes it, with two
+> `AnalyzeGameEngineCode.java` (on the unmerged `mjolnir/multiplayer-ctf-plan-6ac681` branch,
+> f2c44e9c) walks from a probe string up to whatever code consumes it, with two
 > calibration groups: known tag-definition names and known console-command names. Version one asked
 > the naive question — is the string referenced from an instruction? — and got zero for every group
 > *including both controls*. Blam is table-driven: strings are referenced only by pointer-table
@@ -442,6 +465,12 @@ Decides between A and B. Do not build anything until this returns.
 > structure, rather than a proximity heuristic) and would not change what we build next.
 >
 > **Proceed on architecture B.** Steps 1 and 3 are deferred, not done. Step 5 is now the priority.
+>
+> **Update 2026-10-21: superseded.** The invocation path for A was not absent, only hard-coded.
+> Step 1's answer is the load-map handler's engine constant (3 campaign, 2 Megalo; see the update
+> under *The hard blocker* above). Step 3 has a route too: MJOLNIRBlamConsole feeds the Unreal
+> console's text to the Blam console's `hs_compile_and_evaluate` on the simulation thread
+> (`native/blam_console`; PR #91, mods-v0.6.0). The shipped modes run on the Blam engine (PR #106).
 
 1. **Ghidra: shell primary slot 2.** The 14.6 MB DLL's slot 2 is the large startup path
    ([`halosimulation_tag_release.md`](halosimulation_tag_release.md)). Recover the structure it takes
@@ -596,9 +625,15 @@ Decides between A and B. Do not build anything until this returns.
 
 **Gate:** ~~if (2) finds live game-engine code and (1) finds a type field, pursue A. Otherwise B.~~
 **Closed 2026-08-04 on B**, for the reason recorded above: the invocation path for A is verified
-absent, so the DLL-code question no longer changes the decision.
+absent, so the DLL-code question no longer changes the decision. **Update 2026-10-21:** reopened and
+settled on A; see the update at the end of the Phase 1 result above.
 
 ### Phase 2 — Get two humans into one session, unmodified
+
+**Update 2026-10-21:** done. Two-PC fireteam matches have run since 2026-10-01
+(`mods/MJOLNIRLevelLoader`), fireteams take more than four players (`native/lobby`; PR #120,
+mods-v0.10.0), and a player joining a match under way has the experience component's three
+`bWaiting…` gates from step 5 watched and logged (`native/lobby`; PR #130, mods-v0.12.0).
 
 This is the milestone everything else stands on, and it is the one thing in this whole plan that the
 shipping game already does. It also needs a second person; the existing notes flag that as the
@@ -623,6 +658,12 @@ standing blocker, and every "co-op" capture so far has been a solo baseline misl
 into one session and read that fact programmatically.
 
 ### Phase 3 — A lobby we control
+
+**Update 2026-10-21:** built, but inside the campaign flow rather than outside it. MJOLNIRLobby's
+fireteam is the game's own co-op squad, and START GAME runs the co-op lobby's `StartCountdown`
+(PR #106). Public games are listed on the hub and joined from FIND GAMES by the PlayFab lobby's
+connection string, through the game's own join handler (PR #127, mods-v0.11.0; PR #132,
+mods-v0.13.0).
 
 1. Stand up a session outside the campaign flow. Try, in order of decreasing preference:
    `OnlineSubsystemNull` LAN (no accounts, no PlayFab, easiest to iterate); `OnlineSubsystemSteam`,
@@ -678,6 +719,11 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
    **Still open:** an empty experience is installed but nothing *consumes* it yet. Whether populating
    `Actions` / `ActionSets` at runtime makes the game act on them is the next question, and it is the
    one that decides whether the experience is a real lever or just a labelled slot.
+
+   **Update 2026-10-21:** not pursued. The shipped modes take their rules from the simulation's
+   Megalo engine (PR #106), and nothing but `mods/MJOLNIRCTF` writes `CurrentExperience`. The
+   arena's marker stands gave way to flag stands placed in the converted maps' scenario tags
+   (`tools/level/build_ctf_flag.sh`).
 1. **Scoring and state.** Team scores, round timer, win condition. Server-authoritative on the
    listen host.
 2. **The carryable.** Start with the shipped oddball skull. Pick up, drop on death, return on timer.
@@ -702,15 +748,22 @@ Under architecture B. Under A, this collapses to configuring a variant instead.
    and a talking announcer. Under architecture B this only pays off if our mode raises the same Blam
    events; under A it is close to free. Either way, `flag_drop` and `flag_failure` ship and should be
    used regardless.
+
+   **Update 2026-10-21:** done another way. Our Megalo CTF script raises the game's own incidents
+   (`flag_grabbed`, `flag_scored` …), and MJOLNIRLevelLoader plays CE's announcer lines for them,
+   keyed by the flag's team (`mods/MJOLNIRLevelLoader/events.json`, `tools/level/ce_sounds.py`), so
+   the nine Blam sound tags were never authored (PR #106).
 5. **Then CTF.** Build the flag object — model, collision, physics, skeleton, animation graph,
    following `objects/Weapons/multiplayer/Skull/` as the template, since that is the shipped example
-   of exactly this kind of object. Swap it for the skull.
+   of exactly this kind of object. Swap it for the skull. **Update 2026-10-21:** done without a new
+   model; see the update under *The flag object does not exist*.
 
 ### What would change this plan
 
 - **Phase 1 finds live Blam game-engine code.** Then architecture A, and Phase 4 becomes variant
   authoring instead of gameplay programming. Best outcome; treat as unlikely given the UE5 enum, but
-  it is the cheapest thing to check and the payoff is large.
+  it is the cheapest thing to check and the payoff is large. **Update 2026-10-21:** this is what
+  happened; see the update under *The hard blocker*.
 - **A later game update restores competitive content.** The build is version-locked above; re-run
   the Part 1 checks against any new build before trusting this document. This already happened once
   — the install moved CU2 → CU3 between the previous investigation and this one, and CU3 changed

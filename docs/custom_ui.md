@@ -1,9 +1,12 @@
 # Custom UI: our own Widget Blueprints in the game
 
-MJOLNIR's screens (lobby, map select, chat, kill feed, scoreboard) can be real
-Widget Blueprints, cooked in our Unreal project and loaded by the game from a
-container of ours. They don't have to be buttons injected into the shipped
-screens (`mods/MJOLNIRLobby`).
+MJOLNIR's screens (the lobby, map select, FIND GAMES, game settings,
+post-game and map download screens, and the HUD's chat, kill feed and
+scoreboard) are real Widget Blueprints, cooked in our Unreal project and
+loaded by the game from a container of ours
+(`unreal/MJOLNIRMaterials/Scripts/build_mjolnir_ui.py`). They don't have to
+be buttons injected into the shipped screens; `mods/MJOLNIRLobby` falls back
+to those only when our UI container is missing.
 
 Proven 2026-10-01 with `WBP_MJOLNIRHello`:
 
@@ -21,8 +24,12 @@ No native delegate binding was needed for any of it.
 The game runs 343's fork of UE 5.5.4. Our project (`unreal/MJOLNIRMaterials`)
 is stock UE 5.5. Cooked packages store properties unversioned, by position,
 so a class whose property layout differs in the fork reads garbage. That is
-why cooked scene components, static meshes and material instances fail
+why a stock cook of scene components, static meshes or materials is misread
 ([ue_mesh_write.md](ue_mesh_write.md), [re/fork_renderer.md](re/fork_renderer.md)).
+`tools/ue/cook.ps1` now re-encodes each staged container's materials (and,
+with `-Classes`, other classes such as `StaticMesh`) in the game's layout by
+property name (`mjolnir ue retarget --rewrite`, `crates/ue-asset/src/retarget.rs`).
+The widget classes listed as identical below need none of it.
 
 Comparing the fork's layouts (`defs/ue/Meteorite-2607-CU3.usmap`) with stock
 headers, 2026-10-01:
@@ -102,6 +109,12 @@ powershell -File tools/ue/cook.ps1     # also writes pakchunk984-Windows
 `PAL_MJOLNIR_UI` puts `/Game/MJOLNIR/UI` in chunk 984. Install the staged
 `pakchunk984-Windows.{utoc,ucas,pak}` as `pakchunk984-MJOLNIRUI-Windows.*`.
 
+The Forge HUD (`WBP_MJOLNIRForge`, [forge.md](forge.md)) is built by the same
+script but lives in `/Game/MJOLNIR/ForgeUI` with its own glyphs
+(`Art/ForgeIcons`, `T_MJForge_*`) and its own label, `PAL_MJOLNIR_ForgeUI`,
+which puts it in chunk 980. It ships as `pakchunk980-MJOLNIRFORGEUI-Windows`
+beside the CE runtime's monitor fix, without touching chunk 984.
+
 Before installing, list the container:
 `find_files <StagedBuilds Paks dir> MJOLNIR/UI EngineFonts`. It must hold our
 widgets only. The engine assets a widget imports (Roboto) cook into chunk 0,
@@ -128,6 +141,12 @@ w:SetVisibility(1)                          -- Collapsed; never RemoveFromParent
 - Widgets are variables, so Lua reaches them by name (`w.Ok`, `w.Message`).
 - `PlayerController:SetMouseLocation` places the cursor in viewport pixels
   (3840×2160 here), which is how the click was tested.
+- Text input: chat's `ChatInput` is an `EditableTextBox` that Lua focuses
+  (`SetKeyboardFocus`); a UE4SS `RegisterKeyBind` on ENTER reads it with
+  `GetText()`, so no delegate binding is needed. Keys the box does not use
+  bubble up to the game viewport, which feeds the simulation, so while the
+  box is open the game is in UI-only input (`SetInputMode_UIOnlyEx`;
+  `mods/MJOLNIRHud/Scripts/chat.lua`).
 
 ## Screens on the game's menu stack
 
@@ -140,17 +159,14 @@ everything a shipped screen has:
   class defaults (`finish_screen`);
 - `DeactivateWidget()` pops it from Lua.
 
-`WBP_MJOLNIRLobby` and `WBP_MJOLNIRMapSelect` work this way
+`WBP_MJOLNIRLobby`, `WBP_MJOLNIRMapSelect`, `WBP_MJOLNIRFindGames`,
+`WBP_MJOLNIRGameSettings`, `WBP_MJOLNIRPostGame` and
+`WBP_MJOLNIRMapDownload` work this way
 ([multiplayer_menu.md](multiplayer_menu.md)). Their buttons use stock
 `Button` styling (tinted brushes): the game's own CommonUI buttons can't be
 cooked.
 
-## Next
-
-- Text input for chat. `EditableTextBox.OnTextCommitted` goes through
-  `bind_event_to_function`, extended to pass the text on. Keys come from UE4SS
-  `RegisterKeyBind`. The sim reads input through GameInput, so typing may
-  still move the player.
-- `CommonActivatableWidget` as the parent, so a screen joins the game's menu
-  stack and gets gamepad back handling.
-- The game's fonts and styles, set on our widgets at runtime.
+The main menu's MULTIPLAYER button is not one of ours: it is the shipped
+`WBP_MainMenu` with a button added, rewritten into chunk 985
+(`pakchunk985-MJOLNIRMENU_P`, `mjolnir ue menu-button`). MJOLNIRLobby injects
+a button only when that container is missing.

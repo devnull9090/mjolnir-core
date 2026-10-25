@@ -34,6 +34,7 @@ end
 
 local MOD_DIR = modDirectory()
 local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
+local publishPresence = dofile(MOD_DIR .. "\\Scripts\\presence_snapshot.lua").new(MOD_DIR)
 local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local MatchLog = dofile(MOD_DIR .. "\\Scripts\\matchlog.lua")
@@ -84,6 +85,7 @@ local DEATH_GRACE = 0.4
 --- a fireteam client. Refreshed each tick from the local controller's
 --- BlamPlayerStateComponent (refreshLocalPlayer).
 local LOCAL_PLAYER = 0
+local presencePlayerKnown = false
 
 -- ESlateVisibility
 local VISIBLE = 3        -- HitTestInvisible: drawn, never takes the mouse
@@ -157,7 +159,8 @@ local function refreshLocalPlayer()
     local ok, index = pcall(function()
         return playerController().PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
     end)
-    if ok and type(index) == "number" and index >= 0 then LOCAL_PLAYER = index end
+    presencePlayerKnown = ok and type(index) == "number" and index >= 0
+    if presencePlayerKnown then LOCAL_PLAYER = index end
 end
 
 --- "World /Game/Levels/Halo1/Solo/BGL/BGL.BGL" -> "BGL".
@@ -243,7 +246,7 @@ local nextRosterRefresh = 0
 local function stats(index)
     local p = Match.players[index]
     if not p then
-        p = { index = index, kills = 0, deaths = 0, suicides = 0, captures = 0, name = nil }
+        p = { index = index, kills = 0, rawKills = 0, deaths = 0, suicides = 0, captures = 0, name = nil }
         Match.players[index] = p
     end
     return p
@@ -342,14 +345,18 @@ HANDLERS.kill = function(inc)
     local killer, victim = inc.cause, inc.effect
     if type(victim) ~= "number" or victim < 0 then return end
     if killer == victim or type(killer) ~= "number" or killer < 0 then return end
-    stats(killer).kills = stats(killer).kills + 1
+    local teamOf = stats(killer).team
+    local betrayal = Match.mode.teams and teamOf ~= nil and teamOf == stats(victim).team
+    -- Team Slayer's script takes a point from a teammate's killer
+    -- (blam_megalo Variant::team_slayer); the tallies do the same.
+    local point = (betrayal and Match.variant == "team_slayer") and -1 or 1
+    stats(killer).kills = stats(killer).kills + point
+    stats(killer).rawKills = (stats(killer).rawKills or 0) + 1
     if Match.variant == "team_slayer" then
-        Match.teamKills[#Match.teamKills + 1] = { player = killer, team = stats(killer).team }
+        Match.teamKills[#Match.teamKills + 1] = { player = killer, team = teamOf, points = point }
     end
     stats(victim).lastLine = inc.at
     local shown = Icons.forKill(inc.damage, inc.modifier)
-    local teamOf = stats(killer).team
-    local betrayal = Match.mode.teams and teamOf ~= nil and teamOf == stats(victim).team
     feedPush({
         lead = short(nameOf(killer)), leadColor = nameColor(killer), leadAvatar = avatarOf(killer),
         weapon = shown.weapon, weaponGlyph = shown.glyph,
@@ -807,6 +814,11 @@ end
 
 local function drawScoreStrip()
     if not (Feed and Feed:IsValid()) then return end
+    -- A FORGE game (MJOLNIRForge) keeps no score: no strip.
+    if Match.variant == "forge" then
+        setVisible(Feed.MatchScore, false)
+        return
+    end
     local summary = Scoreboard.summary(Match, LOCAL_PLAYER)
     setText(Feed.ScoreLeftLabel, summary.leftLabel)
     setText(Feed.ScoreRightLabel, summary.rightLabel)
@@ -1145,6 +1157,7 @@ local function startMatch(running, world)
         teamKills = {},
         world = world,
         startedAt = now(),
+        presenceStarted = os.time(),
         -- The match log: the host records; a client asks the host for the
         -- match's id to claim its seat.
         logChecked = false,
@@ -1388,6 +1401,7 @@ local function tick()
     end
     if not Match then
         Queue = {}
+        publishPresence(nil, LOCAL_PLAYER)
         return
     end
     hookIncidents()
@@ -1412,6 +1426,7 @@ local function tick()
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
     drain()
+    publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
         Match.demoUntil = nil
@@ -1432,7 +1447,7 @@ local function tick()
         boardShown = held
         if held then boardDirty = true end
         setVisible(Board, held and not HudHidden)
-        if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held) end
+        if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held and Match.variant ~= "forge") end
     end
     -- The game's HUD hidden (MJOLNIRFlyCam's F7): ours goes with it, and
     -- comes back as it was.
@@ -1455,6 +1470,14 @@ local function tick()
     animate(now())
     pcall(Chat.frame, now())
 end
+
+-- The Lua collector in generational mode. The HUD keeps ~0.5 MB but makes
+-- ~350 KB of garbage a second (object handles, at every frame and poll), and
+-- the incremental collector finished a cycle every ~15 s by sweeping ~5 MB of
+-- it in one step: a 4-6 ms tick every 15 s, standing still (MJOLNIRHud hitch
+-- log, 2026-10-18). Young collections take what was made since the last:
+-- the worst tick was 2-3 ms. UE4SS ships Lua 5.4.7.
+pcall(collectgarbage, "generational")
 
 --- A tick that holds the game thread past 50 ms is logged (at most every
 --- 30 s): a CTF host froze ~250 ms every 3.24 s in Lua, and nothing said

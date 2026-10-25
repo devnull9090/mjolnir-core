@@ -7,12 +7,15 @@ use tauri::{AppHandle, Emitter};
 
 mod changelog;
 mod crash;
+mod discord_launch;
 mod hub;
 mod links;
 mod maps;
 mod minidump;
+mod preflight;
 mod tools;
 mod transfer;
+mod unsupported;
 
 // ─── Runtime bundle ─────────────────────────────────────────────────────
 //
@@ -509,7 +512,7 @@ fn sha256_file(path: &Path) -> io::Result<String> {
 }
 
 /// Load cached manifest from disk
-fn load_cached_manifest() -> Option<ModpackManifest> {
+pub(crate) fn load_cached_manifest() -> Option<ModpackManifest> {
     let path = cached_manifest_path();
     if let Ok(content) = fs::read_to_string(&path) {
         serde_json::from_str(&content).ok()
@@ -1033,6 +1036,12 @@ fn launch_game() -> Result<(), String> {
         eprintln!("ue4ss settings: {e}");
     }
 
+    // Mods moved aside for this session (unsupported.rs) go back when the
+    // game exits.
+    if !unsupported::status().is_empty() {
+        unsupported::restore_after_game();
+    }
+
     match settings.launch_method.as_str() {
         "exe" => {
             if let Some(exe_path) = &settings.custom_exe_path {
@@ -1138,7 +1147,7 @@ fn tasklist_lists(output: &str, names: &[String]) -> bool {
 /// Whether the game is running, from one `tasklist` (hidden: no console
 /// flashes up over the launcher). False when it cannot tell, which starts
 /// the game: a second start of a running Steam game only focuses it.
-fn game_running() -> bool {
+pub(crate) fn game_running() -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1192,6 +1201,88 @@ async fn hub_join_lobby(lobby: String) -> Result<JoinStart, String> {
     })
     .await
     .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// Discord only asks us to start the game. The running game's IPC callback
+/// receives and validates the join secret, then uses the usual lobby queue.
+/// Check again after preflight: a second invite or a Steam launch may have
+/// started the game while the launcher was checking the installation.
+#[tauri::command]
+async fn discord_launch_game() -> Result<JoinStart, String> {
+    static START: std::sync::Mutex<discord_launch::LaunchGuard> =
+        std::sync::Mutex::new(discord_launch::LaunchGuard::new());
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut guard = START.lock().unwrap_or_else(|e| e.into_inner());
+        let launched = guard.start(std::time::Instant::now, game_running, || {
+            hub::multiplayer_ready().map_err(|e| format!("Multiplayer is not ready: {e}"))?;
+            launch_game()
+        })?;
+        Ok(JoinStart { launched })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+// ─── Before a launch (preflight.rs, unsupported.rs) ──────────────────────
+
+/// Everything out of date, unreachable sources, and unsupported mods.
+/// Each item is announced as `preflight-progress` as it is checked.
+#[tauri::command]
+async fn preflight_check(app: AppHandle) -> Result<preflight::UpdateCheck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        preflight::check(&|s| {
+            let _ = app.emit("preflight-progress", s);
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))
+}
+
+/// Installed files that no longer match what was installed, each item
+/// announced as `preflight-progress`.
+#[tauri::command]
+async fn preflight_verify(app: AppHandle) -> Result<Vec<preflight::Problem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        preflight::verify(&|s| {
+            let _ = app.emit("preflight-progress", s);
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
+async fn unsupported_mods() -> Result<Vec<unsupported::UnsupportedMod>, String> {
+    tauri::async_runtime::spawn_blocking(unsupported::scan)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// Move every unsupported mod aside until the game exits.
+#[tauri::command]
+async fn unsupported_set_aside() -> Result<unsupported::SetAsideResult, String> {
+    tauri::async_runtime::spawn_blocking(unsupported::set_aside)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn unsupported_restore() -> Result<unsupported::RestoreResult, String> {
+    tauri::async_runtime::spawn_blocking(unsupported::restore)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
+#[tauri::command]
+fn set_aside_status() -> Vec<unsupported::Moved> {
+    unsupported::status()
+}
+
+#[tauri::command]
+async fn game_is_running() -> bool {
+    tauri::async_runtime::spawn_blocking(game_running)
+        .await
+        .unwrap_or(false)
 }
 
 // ─── New commands: Install lifecycle ────────────────────────────────────
@@ -1264,7 +1355,14 @@ pub struct ModpackUpdate {
 /// one call that reaches the network, and the update manager owns it.
 #[tauri::command]
 async fn check_modpack_update() -> Result<ModpackUpdate, String> {
-    tauri::async_runtime::spawn_blocking(|| {
+    tauri::async_runtime::spawn_blocking(modpack_update)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// `check_modpack_update`'s work, for the pre-launch check too.
+pub(crate) fn modpack_update() -> Result<ModpackUpdate, String> {
+    {
         let installed = load_cached_manifest();
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -1295,9 +1393,7 @@ async fn check_modpack_update() -> Result<ModpackUpdate, String> {
             update_available,
             file_count: latest.files.len(),
         })
-    })
-    .await
-    .map_err(|e| format!("Task join error: {e}"))?
+    }
 }
 
 #[tauri::command]
@@ -1431,7 +1527,7 @@ async fn hub_install(
         .map_err(|e| format!("Task join error: {e}"))?
 }
 
-/// Every official map, the CE runtime pack and the multiplayer mods, with
+/// Every official CE map, the CE runtime pack and the multiplayer mods, with
 /// progress on the same `install-progress` event the runtime install uses
 /// (stage `multiplayer`).
 #[tauri::command]
@@ -1439,6 +1535,19 @@ async fn hub_install_multiplayer(app: AppHandle) -> Result<hub::MultiplayerInsta
     tauri::async_runtime::spawn_blocking(move || {
         hub::install_multiplayer(&|message, fraction| {
             emit_progress(&app, "multiplayer", message, fraction * 100.0)
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+/// The optional Halo 2 map pack, as `hub_install_multiplayer` but stage
+/// `halo2-maps`.
+#[tauri::command]
+async fn hub_install_halo2_maps(app: AppHandle) -> Result<hub::MultiplayerInstall, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hub::install_halo2_maps(&|message, fraction| {
+            emit_progress(&app, "halo2-maps", message, fraction * 100.0)
         })
     })
     .await
@@ -1943,6 +2052,19 @@ pub fn run() {
             .cloned();
         std::process::exit(hub::run_live_install(&code, release.as_deref(), &progress));
     }
+    // The game asking what is out of date (preflight::run_check): no window,
+    // for the same reason as above.
+    if args.iter().any(|a| a == "--check-updates") {
+        let out = args
+            .iter()
+            .position(|a| a == "--out")
+            .and_then(|j| args.get(j + 1))
+            .map(PathBuf::from);
+        let Some(out) = out else {
+            std::process::exit(2);
+        };
+        std::process::exit(preflight::run_check(&out));
+    }
     hub::record_exe_path();
     tauri::Builder::default()
         // First, as the deep-link plugin requires: a second launcher (a
@@ -1966,16 +2088,19 @@ pub fn run() {
                 eprintln!("ue4ss settings: {e}");
             }
 
-            // mjolnir:// links. The installer registers the scheme; this
-            // registers it for a dev build and for installs from before it
-            // (HKCU, so no elevation), and points it back at this exe when
-            // it has moved.
+            // Website links and Discord's cold-start protocol. Register for
+            // dev builds and older installs too (HKCU, no elevation), and
+            // update the quoted executable command if the launcher moved.
+            // The deep-link plugin owns the same discord-<app-id> Windows
+            // protocol registration used by Discord_Register.
             use tauri_plugin_deep_link::DeepLinkExt;
             let deep_link = app.deep_link();
             #[cfg(windows)]
-            if !deep_link.is_registered(links::SCHEME).unwrap_or(false) {
-                if let Err(e) = deep_link.register(links::SCHEME) {
-                    eprintln!("links: registering {}://: {e}", links::SCHEME);
+            for scheme in [links::SCHEME, links::DISCORD_SCHEME] {
+                if !deep_link.is_registered(scheme).unwrap_or(false) {
+                    if let Err(e) = deep_link.register(scheme) {
+                        eprintln!("links: registering {scheme}://: {e}");
+                    }
                 }
             }
             let handle = app.handle().clone();
@@ -1991,6 +2116,14 @@ pub fn run() {
                     links::deliver(app.handle(), url.as_str());
                 }
             }
+
+            // Mods a launch moved aside whose game has ended, by an exit
+            // this launcher did not see (it was closed, or crashed).
+            std::thread::spawn(|| {
+                if !unsupported::status().is_empty() && !game_running() {
+                    unsupported::restore();
+                }
+            });
 
             // Game crashes, however the game was started (crash.rs).
             crash::watch(app.handle().clone());
@@ -2009,6 +2142,13 @@ pub fn run() {
             check_install_path,
             set_install_path,
             check_modpack_update,
+            preflight_check,
+            preflight_verify,
+            unsupported_mods,
+            unsupported_set_aside,
+            unsupported_restore,
+            set_aside_status,
+            game_is_running,
             verify_install,
             install_modpack,
             set_modpack_enabled,
@@ -2020,7 +2160,9 @@ pub fn run() {
             hub_api,
             hub_install,
             hub_install_multiplayer,
+            hub_install_halo2_maps,
             hub_join_lobby,
+            discord_launch_game,
             links::take_pending_link,
             hub_uninstall,
             hub_state,

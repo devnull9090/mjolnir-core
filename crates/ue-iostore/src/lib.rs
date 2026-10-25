@@ -1,8 +1,11 @@
-//! Read-only Unreal Engine 5 IoStore (`.utoc` / `.ucas`) container reader.
+//! Unreal Engine 5 IoStore (`.utoc` / `.ucas`) container reader, and a writer
+//! for small override containers.
 //!
 //! A Rust port of `tools/iostore/iostore.py`. Scope is deliberately narrow:
 //! enumerate a container's directory index and read individual chunks back into
-//! memory. It is not a bulk asset ripper and never writes game content to disk.
+//! memory; [`pack`] builds a container holding a handful of replacement chunks,
+//! and [`pak`] the stub `.pak` beside it. It is not a bulk asset ripper and never
+//! extracts game content to disk.
 //!
 //! Format reference: UE 5.5 `IoStore.cpp` / `IoDirectoryIndex.h`.
 

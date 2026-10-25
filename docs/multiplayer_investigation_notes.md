@@ -1,10 +1,16 @@
 # MJOLNIR Multiplayer Investigation — Session Notes
 **Date**: 2026-07-25 ~11:50 PM PST
 **Conversation ID**: `f74b07be-cdb9-4b3f-ac8b-b193380aa670`
+**Status:** Research history, 2026-07-25 to 2026-08-20, superseded turns included. Multiplayer later shipped another way: converted CE maps, each a scenario of its own, run under the simulation's Megalo engine and are hosted from MJOLNIRLobby's MULTIPLAYER menu (mods-v0.7.0, PR #106; the `.mglo` game types ship in the release from mods-v0.9.0, PR #119; [`re/megalo_engine.md`](re/megalo_engine.md)).
 
-> **Build label:** this note is stamped CU2; the installed build is CU3. The 13 root
-> world package paths below have been re-verified against CU3; nothing else here has.
+> **Build label:** each section is only true of the build it was measured on: CU2 for the
+> 2026-07-25 to 2026-07-27 work, CU3 for the 2026-08-02 and 2026-08-03 passes, CU4 (the
+> locked build) for the 2026-08-19 and 2026-08-20 follow-ups. The 13 root world package paths
+> below were re-verified against CU3; other CU2 findings were not re-checked unless a later
+> section says so.
 > See [`build_lock.md`](build_lock.md).
+
+The working log of the first multiplayer and custom-world investigation, in the order it was found.
 
 ---
 
@@ -285,6 +291,11 @@ $strings | Where-Object { $_ -match 'BlamEngine|HaloSimulation|Simulation|GameVa
 
 ## 🎯 WHAT TO DO NEXT (Priority Order)
 
+**Update 2026-10-21:** item 2's first bullet and items 3 and 5 were done in the 2026-07-26
+follow-up below: the Ghidra pass on `CreateBlamEngineShell` (`tools/ghidra/AnalyzeBlamShell.java`),
+the `MJOLNIRDiscovery` scans, and the IoStore and pak index listings (`tools/iostore/dump_index.py`,
+committed later that day, lists the IoStore side).
+
 ### 1. 🔴 Deep EXE String Search (HIGH PRIORITY)
 Run more targeted string searches on the main EXE:
 ```powershell
@@ -561,6 +572,13 @@ session preservation across custom travel, and the solo-versus-co-op state diffe
 `Unverified`; do not infer them from the solo baseline. Static analysis and single-process runtime
 work can continue independently.
 
+**Update 2026-10-21:** competitive-mode activation and two-player play are no longer unverified.
+Byte patches in the simulation make the next map load start Reach's Megalo engine instead of the
+campaign (`native/map_registry`), and converted CE maps were played under it between two PCs on
+2026-10-01 (`mods/MJOLNIRLevelLoader`; mods-v0.7.0, PR #106;
+[`re/megalo_engine.md`](re/megalo_engine.md)), Slayer and CTF with up to five players in the
+2026-10-03 playtest ([`playtest_2026-10-03.md`](playtest_2026-10-03.md)).
+
 ### Native Reflection Follow-Up
 
 `AnalyzeMultiplayerRuntime.java` was run against the matching CU2 host executable. It recovered 112
@@ -613,6 +631,11 @@ mjolnir_dump_state
 6. Add team spawns, flag stands, boundaries, and objectives to an existing campaign world at runtime.
 7. Only then cook a tiny UE5.5 test world and package it as pak/utoc/ucas.
 
+**Update 2026-10-21:** step 7 came first, on 2026-08-02 (below). Steps 5 and 6 were done another
+way: the competitive engine is switched on in the simulation (`native/map_registry`), and team
+spawns and flag stands whose boundaries are the capture zones are placed in a converted map's
+scenario tag (`tools/level/build_ctf_flag.sh`), not spawned in Unreal (PR #106).
+
 ## 2026-08-02 Follow-Up: CU3 — the game ships a working debug map-select menu
 
 **Game build:** `2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3` (read off the live Test
@@ -632,12 +655,14 @@ live process. The bytes were right; the scanner missed them.
 did not fix it; deleting `ue4ss/cache` and relaunching with 1 thread did. The scan cache is a
 known trap — `InvalidateCacheIfDLLDiffers` watches UE4SS's own DLL, not the game exe — so
 **always clear `ue4ss/cache` after a game update** before diagnosing signatures. Whether the
-thread count mattered is unproven; both changes are currently in place and injection is
-verified working on CU3. See `signatures/README.md` for the triage procedure.
+thread count mattered is unproven; both changes were in place on the test install and injection
+was verified working on CU3 (the shipped `config/UE4SS-settings.ini` keeps
+`SigScannerNumThreads = 8`). See `signatures/README.md` for the triage procedure.
 
 Also observed: `GUObjectHashTables.lua` resolved to different addresses on different launches
 with the same image base, so its wildcarded pattern matches more than one site. It works, but
-the ambiguity is worth tightening.
+the ambiguity is worth tightening. **Update 2026-10-21:** tightened 2026-08-05; the signature now
+anchors on a call site (1834c145, PR #48, runtime-v2.0.1).
 
 ### UI widget inventory: the co-op layer ships, the competitive layer does not
 
@@ -706,6 +731,11 @@ BlamScenarioGameOptions: bLoadFromCoreSave, SaveSlot, SavedFilmName,
 accepts a variant *object*. Whether it accepts a non-campaign variant subclass is the next
 question that matters for competitive-mode activation.
 
+**Update 2026-10-21:** activation did not go through this seam. The campaign flow still builds its
+own campaign variant; a patch to the simulation's load-map handler makes it start the Megalo engine
+instead, which then reads a `.mglo` variant written by `mjolnir megalo write` (`native/map_registry`,
+`crates/blam-megalo`; PR #106).
+
 ### Test worlds were stripped from the cook — which is the opportunity
 
 **Verified:** `DT_Test_Scenarios` maps all 20 scenario names to worlds under
@@ -773,6 +803,8 @@ the engine's travel path is not a safe probe; use `SetAndBeginCampaign` and read
 `/Script/BlamEngine/BlamWorldSettings` where a stock cook emits `/Script/Engine/WorldSettings`.
 Whether the Blam subclass is *required* for a world to run is untested — if the A15 override
 loads geometry but the simulation never starts, this is the first thing to suspect.
+**Answered the same day:** it is not required; A15's mission ran on a world with stock
+`WorldSettings` (third pass, below).
 
 ### 2026-08-02, third pass: a custom world loads and the mission runs on it
 
@@ -794,7 +826,8 @@ flow behaved normally. **Cooked custom worlds are viable in this game.** The sto
 
 The screen is black because the world is *empty on purpose* — this run used
 `MJOLNIR_EMPTY_WORLD=1`, which saves the bare level (World, Level, Model, WorldSettings) with
-no actors. Black is the correct result for a world with no geometry and no lights.
+no actors (the switch is now `MJOLNIR_CONTENT=none` in `mjolnir_build_world.py`). Black is the
+correct result for a world with no geometry and no lights.
 
 #### The actual wall: cooked actor components
 
@@ -828,7 +861,8 @@ process may construct our *actors*.
 **Unverified:** whether a runtime-spawned mesh actually renders. Screenshots stayed black after
 spawning a cube and a light. Candidates: no sky/ambient contribution, the Blam renderer owning
 the view, or the spawned actor needing registration the Lua path skipped. This is the next
-thing to chase.
+thing to chase. **Answered 2026-08-03:** it renders; the black frames came from the screenshot
+path, and `SetStaticMesh` needs `Mobility = 2` first. See the 2026-08-03 pass below.
 
 **Also verified (and it matters for automation):** `SetAndBeginCampaign` called straight from
 the frontend, *before* clearing the title/login screen, loads the mission in a degraded state —
@@ -910,6 +944,12 @@ flag gates *reading* unversioned data, and the editor asserts on startup
 (`UnversionedPropertySerialization.cpp:936`) because its own caches are full of it. It has to be
 a cook-process override, which is now `package.ps1 -TaggedProperties`. **Not yet tested against
 the game.** If it works, maps get authored in the editor rather than scripted in Lua.
+**Update 2026-10-21:** overtaken by re-encoding stock-cooked packages in the game's own property
+layout (`ue_asset::retarget`, `mjolnir ue retarget`). 343's `PrimitiveComponent` carries fields
+stock 5.5 lacks, so stock components were misread from that slot on; retargeted, a cooked Landscape
+loads, renders and answers traces on Death Island (9fe92e26), and `tools/ue/cook.ps1` re-encodes
+the materials of every staged container (8b8f9e70), both in PR #184. Native data after the
+properties is kept as cooked, so a class whose serialization 343 changed would still fail.
 
 #### Also learned: the Blam simulation brings its own collision
 
@@ -918,7 +958,9 @@ collision with no Unreal geometry behind it — the `a15` scenario tag's BSP col
 live even though the Unreal world is ours. A world overriding a campaign scenario inherits that
 mission's invisible floor plan. Whether the Blam-driven pawn collides with runtime-spawned
 *Unreal* geometry is still unknown: our slab was laid 1.2 m below the surface the pawn was
-already standing on, so it was never tested as a floor.
+already standing on, so it was never tested as a floor. **Answered 2026-08-19:** it does not; the
+pawn walks through Unreal geometry (see *ANSWERED: the Blam pawn does NOT collide with Unreal
+geometry* below).
 
 ### Revised next steps
 
@@ -934,6 +976,14 @@ already standing on, so it was never tested as a floor.
    `BlamGameEngineBaseVariant`/`SetSocialOptions` behavior.
 4. Decode the 308 `game_variant_settings` tags to learn what a competitive variant payload
    looks like before trying to activate one.
+
+**Update 2026-10-21:** all four settled. 1b was overtaken by re-encoding cooked properties in the
+game's layout (PR #184, above). Step 2 is done: `mjolnir level collision --own-bsp` gives a
+converted map a structure BSP of its own with a rebuilt Havok MOPP tree (`crates/blam-sbsp`), and
+`mjolnir level bake --standalone` gives it its own scenario codename. Step 3 went the simulation's
+way instead (the Megalo switch in `native/map_registry`). Step 4: a competitive variant is the
+bitstream the simulation's own Megalo decoder reads, which `crates/blam-megalo` writes. Steps 2
+to 4 are in PR #106.
 
 ## 2026-08-19 Follow-Up: CU4+ — `mjolnir_mission` no longer starts the simulation
 
@@ -970,6 +1020,13 @@ that a bare `SetAndBeginCampaign` no longer triggers on this build. The 2026-08-
 `mjolnir_mission` predates CU4; treat the command as **unverified for cold mission starts** until
 the missing step is found. (`mjolnir_debug_ui` → Debug Level Select presumably still works, since
 it drives the same UI flow — untested this pass.)
+
+**Update 2026-10-21:** the start the simulation accepts is the campaign menu's:
+`SetClientLobbyMission` / `Difficulty`, then the co-op lobby's `StartCountdown`, at whose end the
+game's `LaunchCampaign` builds the scenario options with the campaign variant a bare
+`SetAndBeginCampaign` lacks.
+MJOLNIRLobby's START GAME starts maps that way (mods-v0.7.0, PR #106). `mjolnir_mission` still
+calls `SetAndBeginCampaign` directly.
 
 Two more hazards from the same session:
 
@@ -1013,7 +1070,22 @@ Consequences, in order of weight:
    edit the `scnr` (spawns, vehicles, weapons, object-built structures) and dress with
    non-collidable UE meshes at runtime. No Unreal cook required anywhere in that loop.
 
+**Update 2026-10-21:** consequence 1's wall came down. `crates/blam-sbsp` writes a CE map's
+winged-edge collision into a shipped `sbsp` and rebuilds its Havok MOPP tree, and
+`mjolnir level collision --own-bsp` gives a converted map a BSP that is only the CE map, the one
+BSP its scenario loads (`tools/level/convert_ce_map.sh`; PR #106). Consequence 3 gave way to that:
+converted maps are scenarios of their own codename with an empty world of their own
+(`level bake --standalone --world`), and their materials are cooked in Unreal (`tools/ue/cook.ps1`).
+
 ## 2026-08-20 Follow-Up: standalone map packages — machinery proven, mount-time registration still closed
+
+**Superseded 2026-09-03:** the door was not closed at mount. Native probes of the running game
+(`native/scenario_probe`) found the standalone container mounted into the package store; the
+failing `LoadAsset` was UE4SS's own gatekeeping. The gate is the campaign flow's `ScenarioList` and
+its `DT_Scenarios` row (32bb400a), and cooked into that table a new codename starts (2026-09-11,
+45f1098f; `crates/blam-pack/src/scenario.rs`). Both merged in PR #106; see
+[`new_scenario_loading.md`](new_scenario_loading.md). Converted maps ship under codenames of their
+own rather than as map variants of a canvas mission.
 
 Goal: a custom level with its OWN scenario name ("PG1") instead of squatting a campaign
 scenario — a new `scnr` tag package the game has never shipped. Everything needed to *build*

@@ -1,6 +1,6 @@
 # Code mod submission
 
-<!-- For UE4SS Lua / native mods under mods/. Delete for other PRs.
+<!-- For UE4SS Lua mods under mods/ and their native halves under native/. Delete for other PRs.
      Full pipeline and review criteria: docs/contributing_code_mods.md -->
 
 ## What it does
@@ -28,6 +28,8 @@
 ## Checklist
 
 - [ ] `luacheck` passes locally with the flags from `.github/workflows/release-mods.yml`
+- [ ] The Lua tests in `tools/tests/` pass (`lua5.4 tools/tests/<test>.lua`)
+- [ ] `version` bumped in the `mod.json` of every mod this changes (the launcher offers an update only when it changes)
 - [ ] No prebuilt binaries anywhere in the diff
 - [ ] No code is fetched, generated, or evaluated at runtime
 - [ ] I've read the review criteria in `docs/contributing_code_mods.md`

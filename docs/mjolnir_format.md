@@ -103,8 +103,9 @@ keys with the shipped value beside the modded one:
 ```
 
 `new_tags` lists the tags the mod adds, each cloned from a shipped one. The hub's
-validator drops fields it does not know, so a hub that predates the list accepts the
-archive and shows nothing for them.
+validator (`hub/src/lib/api/changes.ts`) does not know the list yet and drops it, so
+the archive validates but neither the mod page nor the launcher shows anything for
+new tags.
 
 It is a **declaration, not a proof**: the containers remain the bytes that
 ship. The hub stores the list at scan time and renders it beside the
@@ -125,41 +126,64 @@ member set to exactly equal the statement's — nothing added, nothing removed,
 nothing changed — so anyone holding the archive can prove who bundled exactly
 these bytes, without asking the hub.
 
-The tag editor writes this automatically. The hub verifies it at upload
-(`unsigned` is a warning today, an error once signing is required;
-`bad_signature` and `foreign_signature` are always errors), and the launcher
-verifies it again at install, refusing an archive whose signature is present
-and wrong. Full design, threat model and rollout:
+The tag editor writes this automatically, and `mjolnir map pack --sign` and
+`mjolnir map runtime --sign` sign the archives the CLI writes (map packs and
+the CE runtime pack). The hub
+verifies it at upload: mjolnircore.com requires a signature
+(`REQUIRE_SIGNED_UPLOADS`), so a missing one is an error (`unsigned`), as are
+`bad_signature` and `foreign_signature`. The launcher verifies it again at
+install, refusing an archive whose signature is present and wrong. Full
+design, threat model and rollout:
 [`mod_signing_design.md`](mod_signing_design.md).
 
 ## What the scanner checks
 
 | Check | Failure |
 |---|---|
-| Valid zip, decompressed total ≤ 256 MiB | `bad_zip` |
+| Valid zip, decompressed total ≤ 768 MiB | `bad_zip` |
+| The stored archive is the one uploaded | `hash_mismatch` |
 | No `..`, absolute, or drive-letter paths | `path_traversal` |
 | `mjolnir.json` present and valid | `no_manifest`, `bad_manifest` |
 | Manifest version matches the release | `version_mismatch` |
-| Only allowed file kinds (`utoc ucas json md txt png jpg jpeg webp`) | `forbidden_file` |
+| Only allowed file kinds (`utoc ucas json md txt png jpg jpeg webp`, plus `bin` under `map/`) | `forbidden_file` |
 | Every `.utoc` parses, unencrypted, paired with its `.ucas` | `bad_container`, `encrypted_container`, `orphan_utoc`, `orphan_ucas` |
 | At least one container under `content/` | `no_content` |
 | `changes.json`, when present, valid and ≤ 512 KiB | `bad_changes` (absent is the `no_changes` warning) |
+| A map archive carries `map/level.json` and `map/registration.json`, both valid JSON | `map_file_missing`, `bad_map_file` |
+| A map's `code` is not already held by another mod | `map_code_taken` |
+
+Warnings never fail a scan: `no_summary` (the manifest has no summary),
+`stray_container` (a `.utoc` outside `content/`), `empty_container`,
+`foreign_container` (a map archive's container not named `-<CODE>_P`), and
+`no_changes`, which a map archive never raises.
 
 On a passing scan the hub records every chunk ID the containers claim into
 the **conflict index** (`release_chunks`), and the release — plus its mod, if
-this was the first release — goes live. On a failing scan the findings are
-stored and returned; fix the archive and re-upload to the same release.
+this was the first release — goes live. The exception is a map release from
+an author below trust level 2 (moderators excepted): it passes with an
+`awaiting_review` warning and stays pending until a moderator approves or
+rejects it. On a failing scan the findings are stored and returned; fix the
+archive and re-upload to the same release.
 
 ## Publishing flow
 
 ```
 POST /api/v1/mods                          {"slug":"my-pack","name":"My Pack", ...}
 POST /api/v1/mods/my-pack/releases         {"version":"1.0.0"}
-PUT  /api/v1/releases/{id}/archive         <raw .mjolnir bytes>   (≤ 50 MiB)
-POST /api/v1/releases/{id}/complete        → published | rejected + findings
+PUT  /api/v1/releases/{id}/archive         <raw .mjolnir bytes>   (≤ 90 MiB)
+POST /api/v1/releases/{id}/complete        → published | pending | rejected + findings
 ```
 
-All four need a signed-in session (Discord OAuth). Third-party tools can
+An archive over 90 MiB, up to 400 MiB, goes up in parts instead of the single
+`PUT`: `POST /api/v1/releases/{id}/archive/multipart` returns an `upload_id`;
+each part (5 to 64 MiB, every part but the last the same size, numbered from 1)
+goes to `PUT …/archive/multipart/{upload_id}/{n}`;
+`POST …/archive/multipart/{upload_id}/complete` with the parts' etags joins
+them; then `/complete` as above. `DELETE …/archive/multipart/{upload_id}`
+abandons an upload.
+
+Each of these needs a signed-in session (Discord OAuth) or an API key with the
+`mods:write` scope, which is how the tag editor publishes. Third-party tools can
 watch `GET /api/v1/releases/{id}` for status and query
 `POST /api/v1/conflicts/check` before installing a set of releases together.
 

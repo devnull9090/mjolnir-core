@@ -1,0 +1,13 @@
+[package]
+name = "mjolnir-mglo-cabi"
+description = "C ABI over blam-megalo's validator, for the native map-registry DLL to check a staged .mglo before the simulation's file loader decodes it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+blam-megalo = { path = "../blam-megalo" }

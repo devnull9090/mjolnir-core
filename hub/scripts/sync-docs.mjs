@@ -147,15 +147,16 @@ if (missingGuides.length > 0) {
   console.warn(`sync-docs: skipping missing guide(s): ${missingGuides.join(", ")}`);
 }
 
-// A doc in neither list is never published, and any `[…](that.md)` link from a
-// doc that *is* published resolves to a 404. That is how three format notes went
-// missing for months, so say so rather than ignoring it quietly.
+// A doc in neither list is never published, and a `[…](that.md)` link from a doc
+// that *is* published leaves the site for GitHub (resolveHref in Markdown.tsx).
+// That is how three format notes went missing from the hub for months, so say
+// so rather than ignoring it quietly.
 const listed = new Set([...ORDER, ...GUIDES]);
 const unlisted = [...present].filter((name) => !listed.has(name)).sort();
 if (unlisted.length > 0) {
   console.warn(
     `sync-docs: ${unlisted.length} doc(s) in neither ORDER nor GUIDES, so not published: ` +
-      `${unlisted.join(", ")}. Add them to a list, or accept that links to them 404.`,
+      `${unlisted.join(", ")}. Add them to a list, or accept that links to them go to GitHub.`,
   );
 }
 const guides = [];

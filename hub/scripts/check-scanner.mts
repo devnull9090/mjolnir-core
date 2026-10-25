@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { unzipSync, zipSync } from "fflate";
 
-import { scanArchive } from "../src/lib/api/scan";
+import { scanArchive, scanArchiveStream } from "../src/lib/api/scan";
 import { checkArchiveSignature } from "../src/lib/api/signing";
 import { Sha256 } from "../src/lib/api/sha256";
 
@@ -62,6 +62,38 @@ for (const [file, bytes] of inputs) {
   }
   if (Object.keys(scan.hashes).length !== Object.keys(whole).length) {
     console.error(`${path.basename(file)}: member count disagrees`);
+    failed = true;
+  }
+
+  // The scan /complete runs: the archive streamed in uneven pieces, as R2's
+  // body arrives. It must find what the in-memory scan finds, and hash the
+  // archive as node does.
+  const piece = 1024 * 1024 + 7;
+  const stream = new ReadableStream<Uint8Array>({
+    start(ctl) {
+      for (let at = 0; at < bytes.length; at += piece) ctl.enqueue(bytes.slice(at, at + piece));
+      ctl.close();
+    },
+  });
+  const streamed = await scanArchiveStream(stream, Number.MAX_SAFE_INTEGER);
+  const same =
+    JSON.stringify(streamed.scan.hashes) === JSON.stringify(scan.hashes) &&
+    JSON.stringify(streamed.scan.sizes) === JSON.stringify(scan.sizes) &&
+    streamed.scan.verdict === scan.verdict &&
+    streamed.scan.findings.map((f) => f.code).join() === scan.findings.map((f) => f.code).join() &&
+    streamed.scan.chunkIds.length === scan.chunkIds.length &&
+    streamed.size === bytes.length &&
+    streamed.sha256 === createHash("sha256").update(bytes).digest("hex");
+  if (!same) {
+    console.error(`${path.basename(file)}: the streamed scan disagrees with the in-memory one`);
+    failed = true;
+  }
+  const capped = await scanArchiveStream(
+    new ReadableStream<Uint8Array>({ start: (ctl) => (ctl.enqueue(bytes), ctl.close()) }),
+    bytes.length - 1,
+  );
+  if (bytes.length > 0 && capped.scan.verdict !== "fail") {
+    console.error(`${path.basename(file)}: a stream over the cap passed`);
     failed = true;
   }
 

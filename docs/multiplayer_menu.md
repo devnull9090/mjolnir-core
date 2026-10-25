@@ -1,7 +1,8 @@
 # The multiplayer menu (MJOLNIRLobby)
 
-**Status:** 2026-10-01. MULTIPLAYER on the main menu opens MJOLNIR's own lobby
-and map select screens ("Our own screens" below). Verified in game on CU4:
+**Status:** 2026-10-01; updated 2026-10-24. MULTIPLAYER on the main menu
+opens MJOLNIR's own lobby, map select and game type screens ("Our own
+screens" below). The lobby and map selection were verified in game on CU4:
 - CHANGE MAP, picking Danger Canyon and Capture the Flag, SELECT, GAME TYPE
   and Back all worked.
 - START GAME started Danger Canyon under the Megalo engine, with the
@@ -9,7 +10,11 @@ and map select screens ("Our own screens" below). Verified in game on CU4:
 
 Earlier, the campaign-menu screens (now the fallback) started Gephyrophobia
 the same way, and the campaign save stayed byte for byte the same. Finding
-and joining other players' games is not built yet.
+and joining other players' games was not built then. It shipped later:
+PUBLIC GAME, FIND GAMES and joins by connection string in mods-v0.11.0
+(PR #127), joins into a public match under way in mods-v0.12.0 (PR #130),
+and FIND GAMES as a server browser in mods-v0.13.0 (PR #132)
+([multiplayer_servers.md](multiplayer_servers.md)).
 
 Code: `mods/MJOLNIRLobby` (Lua) and `native/lobby` (its native half,
 `mjolnir_lobby.dll`).
@@ -76,8 +81,9 @@ three unchanged. The menu therefore skips that popup.
 
 ## Our own screens
 
-`WBP_MJOLNIRLobby` and `WBP_MJOLNIRMapSelect` are MJOLNIR's own Widget
-Blueprints, cooked into `pakchunk984-MJOLNIRUI`
+`WBP_MJOLNIRLobby`, `WBP_MJOLNIRMapSelect` and
+`WBP_MJOLNIRGameTypeSelect` are MJOLNIR's own Widget Blueprints, cooked
+into `pakchunk984-MJOLNIRUI`
 (`unreal/MJOLNIRMaterials/Scripts/build_mjolnir_ui.py`,
 [custom_ui.md](custom_ui.md)). They derive from `CommonActivatableWidget`, so
 `ContentStack:BP_AddWidget` pushes them like any shipped screen: the stack
@@ -86,9 +92,13 @@ hides the main menu beneath, and Back (Escape, B) pops them
 
 - **The lobby:** the map and game type, a description of each, the players
   (the frontend's player states), and START GAME, INVITE FRIENDS, CHANGE
-  MAP, GAME TYPE (cycles the map's modes), PRIVATE / PUBLIC GAME, MAX
-  PLAYERS (2 to 16, host only;
+  MAP, GAME TYPE (opens the current map's mode picker), GAME SETTINGS (host only, since
+  mods-v0.16.0; [host_game_settings.md](host_game_settings.md)), PRIVATE /
+  PUBLIC GAME, MAX PLAYERS (2 to 16, host only;
   [fireteam_join_and_cap.md](fireteam_join_and_cap.md)), FIND GAMES and BACK.
+  A fireteam client without the host's map, or with another release of it,
+  sees START GAME as DOWNLOAD MAP or UPDATE MAP (since mods-v0.20.0;
+  [live_map_install.md](live_map_install.md)).
   - Team modes (CTF and Team Slayer) show separate Red/Blue roster sections.
     These reflect the game's team assignments, with an Awaiting assignment
     section when the frontend has no simulation team yet. No local team
@@ -103,15 +113,50 @@ hides the main menu beneath, and Back (Escape, B) pops them
   - That screen also shows START CAMPAIGN, which starts the campaign, not
     the lobby's map. The last game hosted is remembered in
   `MJOLNIRLobby\last_game.txt`.
-- **The map select:** every installed map in a scrolling list. Hovering a
-  map previews its details and game types; clicking picks it. A game type
-  button picks the mode, and SELECT returns to the lobby with both.
+- **The map select:** up to 80 maps in a scrolling list: every installed
+  map, then the hub's maps this PC does not have, marked DOWNLOAD
+  (`MapLive.listings`, the cached `GET /maps`). Chips above it narrow the
+  list by game (the hub's `game`: Halo CE or Halo 2), by source (official
+  or community) and to installed maps; a map the hub does not list passes
+  only the ALL choices. Hovering a map previews its details and game types;
+  clicking picks it. A game type button picks the mode, and SELECT returns
+  to the lobby with both, or, for a map not installed, opens the download
+  screen and picks the map once it is in.
+- **The game type select:** the host's current map and its available modes,
+  with an icon, description and match format for each. The current mode is
+  marked CURRENT and focused when the screen opens. Hover previews a mode;
+  clicking chooses a pending mode. SELECT saves that choice and updates the
+  lobby; BACK, Escape or controller B leaves the hosted game unchanged.
+  Availability uses the same map support, installed variant and required
+  runtime checks as map selection. Team Slayer is supported wherever Slayer
+  is, and Forge appears when its editor and runtime are installed. Six rows
+  accommodate all five multiplayer modes plus Forge. Before confirming,
+  `Scripts/gametype.lua` rechecks host authority, the map and mode availability.
+  An older UI container without this screen opens the existing map picker
+  on the current map instead.
+
+The game type icons are original geometric glyphs generated by
+`tools/ue/draw_gametype_icons.py`, using Pillow. They contain no extracted
+Halo or MCC artwork. Run `python tools/ue/draw_gametype_icons.py` to rebuild
+the six transparent 256-pixel PNGs in
+`unreal/MJOLNIRMaterials/Art/GameTypeIcons`; add `--sheet out/gametype-icons.png`
+for a preview sheet. The UI builder imports them as `T_MJMode_<Name>` under
+`/Game/MJOLNIR/UI/ModeIcons` and cooks them with the screen in chunk 984.
+The lobby shows the selected mode's same icon beside its game type title,
+including when following the host's choice as a fireteam client. Missing
+icon textures hide the lobby emblem and do not prevent mode selection.
 
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
-`changemap`, `gametype`, `back`, `select`, `map:<i>`, `hover:<i>`,
-`mode:<i>`. Lua hooks it and handles the event off the click, in
-`ExecuteInGameThread`. No native delegate binding is involved. Only the
+`invite`, `changemap`, `gametype`, `gamesettings`, `listing`, `maxdown`,
+`maxup`, `maxplayers`, `findgames`, `back`, `select`, `map:<i>`,
+`hover:<i>`, `unhover:<i>`, `mode:<i>`, `filter:game`, `filter:source`, `filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
+as `game:<i>`, `sort:<column>` and `reset`). Lua hooks it and handles the
+event off the click, in `ExecuteInGameThread`. No native delegate binding is involved. Only the
 injected fallback MULTIPLAYER button still needs it (next section).
+Game type events compare the sender's native UObject address with the
+active screen, so delayed events from a previous picker cannot change the
+new choice. `tools/tests/test_gametype_picker.lua` covers this and the
+selection, cancellation, availability and older-container behavior.
 
 Without the UI container, MULTIPLAYER falls back to the campaign-menu
 screens described next.
@@ -243,8 +288,10 @@ parameters) crashed the game inside UE4SS's argument marshalling.
 
 ## Maps and modes
 
-`mjolnir level bake --install-test` writes `MJOLNIRLevelLoader/maps.json`
-(Lua cannot list a directory). Each entry has:
+The lobby reads the launcher's `MJOLNIRMaps\maps.json`, rebuilt from every
+installed map (`crates/blam-pack/src/maps.rs`). For codes that list lacks, it
+reads `MJOLNIRLevelLoader/maps.json`, which `mjolnir level bake
+--install-test` writes (Lua cannot list a directory). Each entry has:
 
 - `code`
 - `title`
@@ -252,10 +299,23 @@ parameters) crashed the game inside UE4SS's argument marshalling.
 - `modes`: the level file's `modes`, else its `variant`
 
 `tools/level/gen_ce_level.py` names the stock maps (`STOCK_TITLES`) and lists
-`"modes": ["slayer"]`. A mode is offered when the map lists it and
-`variants/<mode>.mglo` is installed.
+`"modes": ["slayer"]`, plus `"ctf"` when the map has a flag for each team.
+A mode is offered when the map lists it and `variants/<mode>.mglo` is
+installed.
 
 ## Next
+
+**Update 2026-10-21:** the lobby service is built on the hub, as a D1-backed
+polled API (`hub/src/lib/api/lobby.ts`, PR #106). The hand-off is the PlayFab
+lobby's connection string, given to the game's own Steam join handler
+(mods-v0.11.0, PR #127; [multiplayer_servers.md](multiplayer_servers.md)),
+and on the Xbox app to the GDK session's invite handler (mods-v0.23.0 and
+v0.23.1, PR #179 and #181). FIND GAMES lists the hub's games, not Steam
+lobbies. The session join was verified on two PCs on 2026-10-01 (03fae037).
+Match chat shipped in the match HUD, not the lobby service (mods-v0.27.0,
+PR #200). Discord Rich Presence and public-session Join Game are implemented
+through local IPC ([discord_presence.md](discord_presence.md)). Still not
+built: join codes (JOIN PRIVATE) and Steam lobbies.
 
 - **A lobby service of our own** (Cloudflare, beside the hub), since Game Pass
   and Store players have no Steam. Planned shape: a game list, join codes, the
@@ -269,5 +329,6 @@ parameters) crashed the game inside UE4SS's argument marshalling.
   - JOIN PRIVATE: friends-only and invite lobbies.
   - The friends list's Join Game: `GameLobbyJoinRequested`, `+connect_lobby`.
   - Bringing lobby members into the host's fireteam session.
-- **Discord** rich presence over its local IPC pipe.
+- **Discord** rich presence over its local IPC pipe is implemented; see
+  [setup and verification](discord_presence.md).
 - Two-player verification of the session join and of Megalo kill scoring.

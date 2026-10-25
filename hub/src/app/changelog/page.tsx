@@ -10,7 +10,7 @@ import { ReleaseCard } from "./_components/ReleaseCard";
 export const metadata: Metadata = {
   title: "Changelog | MJOLNIR Core",
   description:
-    "Every release of the MJOLNIR Launcher, Tag Editor, Runtime and code mods for Halo Campaign Evolved — what changed, what was fixed, and what it means for you.",
+    "Every release of the MJOLNIR Launcher, Tag Editor, CLI, Runtime and code mods for Halo Campaign Evolved — what changed, what was fixed, and what it means for you.",
   alternates: {
     canonical: "https://mjolnircore.com/changelog",
     types: { "application/rss+xml": "https://mjolnircore.com/changelog/rss.xml" },
@@ -64,7 +64,8 @@ export default function ChangelogIndexPage() {
           </div>
           <p className="mt-4 max-w-2xl text-lg text-text-muted">
             Every release of the MJOLNIR modding platform for Halo Campaign Evolved — the
-            launcher, the tag editor, the runtime and the signed code mods. Newest first.
+            launcher, the tag editor, the command line, the runtime and the signed code mods.
+            Newest first.
           </p>
           <a
             href="/changelog/rss.xml"

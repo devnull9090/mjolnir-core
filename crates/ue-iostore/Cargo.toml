@@ -1,6 +1,6 @@
 [package]
 name = "ue-iostore"
-description = "Read-only Unreal Engine 5 IoStore (.utoc/.ucas) container reader"
+description = "Unreal Engine 5 IoStore (.utoc/.ucas) container reader and override-container writer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

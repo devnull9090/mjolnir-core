@@ -8,6 +8,10 @@ launcher in `apps/launcher/src-tauri/src/crash.rs` and the hub in
 `hub/src/lib/api/crashes.ts` (migration 0019, admin section on
 `/moderation`). Tested end to end against a local hub with this PC's real
 crashes; not deployed, and the real launcher has not run it yet.
+**Update 2026-10-21:** shipped. The launcher side is in launcher-v0.15.0
+(PR #196); the hub side reached main with PR #194, and the hub deploys from
+main. Migration 0019 was applied to production during PR #194's deploy,
+and the `mjolnir-mods` bucket expires `crashes/` after 100 days (c05e2de4).
 
 ## Where crashes land
 
@@ -66,7 +70,7 @@ lists recent crashes with a Send button each, for one dismissed earlier.
 | File | Contents |
 |---|---|
 | `report.json` | The summary below, plus launcher version, installed hub mods (slug, version, enabled), code mods and versions, `mods.txt` |
-| `CrashContext.runtime-xml` | With `MachineId`, `LoginId`, `EpicAccountId` emptied and Windows user names masked in paths |
+| `CrashContext.runtime-xml` | With `MachineId`, `LoginId`, `EpicAccountId` and `UserName` emptied and Windows user names masked in paths |
 | `UEMinidump-slim.dmp` | The dump with every memory range dropped except thread stacks, the handle data and the XML user stream removed, and user names masked in module paths. Same layout and size, the dropped bytes zeroed, so it still opens in WinDbg and compresses to almost nothing |
 | `UE4SS.log` | The crashed session's log, last 4 MiB, user names masked |
 | `Breadcrumbs_*.txt` | GPU crashes only |
@@ -166,8 +170,8 @@ for it or already has it. `200 {sha256, bytes}`.
   downloads.
 
 Admins only, not moderators: a bundle carries a player's log and a dump is
-their game's memory. The page is the Crash reports section of `/moderation`,
-shown to admins.
+their game's memory. The page is the Crashes tab of `/moderation`
+(`/moderation#crashes`), shown to admins.
 
 ### Storage
 
@@ -176,8 +180,8 @@ MODS_BUCKET under `crashes/<id>/bundle.zip` and `crashes/<id>/dump.zip`.
 Nothing serves that bucket directly. Each new report also sweeps up to 50
 reports older than 90 days, rows and objects. An account deleted from
 `users` takes its rows with it (cascade) but leaves its objects, so an R2
-lifecycle rule on the `crashes/` prefix (about 100 days) is the backstop
-once this is deployed.
+lifecycle rule on the `crashes/` prefix (about 100 days) is the backstop,
+set on `mjolnir-mods` since the deploy (c05e2de4).
 
 ### Testing locally
 

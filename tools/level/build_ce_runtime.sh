@@ -12,13 +12,23 @@
 #                                    library, the cooked CTF flag textures, the
 #                                    event sounds (one cook of
 #                                    unreal/MJOLNIRMaterials, chunk 988)
+#   pakchunk981-MJOLNIRH2-Windows    the Halo 2 masters (M_H2_PlasmaAlpha:
+#                                    Scripts/build_h2_materials.py, same cook,
+#                                    chunk 981) and the CTF flag's cloth
+#                                    textures (ce_flag_cloth.py, from MCC's
+#                                    Halo CE maps: MJ_MCC_HALO1_MAPS)
 #   pakchunk984-MJOLNIRUI-Windows    the multiplayer screens and HUD widgets
 #                                    (Scripts/build_mjolnir_ui.py, same cook,
 #                                    chunk 984; docs/custom_ui.md)
 #   pakchunk990-MJOLNIRCTFMESH_P     the CE flag mesh (/Game/MJOLNIR/CTF)
-#   pakchunk990-MJOLNIRFLAG_P, -STAND_P, -MOTL_P   the CTF flag, its stand,
-#                                    and the object type list that adds it
-#                                    (build_ctf_flag.sh)
+#   pakchunk990-MJOLNIRFLAG_P, -FLAGB_P, -STAND_P, -MOTL_P
+#                                    the red and blue CTF flags, their stand,
+#                                    and the object type list that adds them
+#                                    (entries 18 and 20; build_ctf_flag.sh).
+#                                    Release this pack before, or with, the
+#                                    mods release whose ctf.mglo creates type
+#                                    20: the simulation wipes a variant naming
+#                                    a type the installed list lacks
 #   pakchunk994-MJOLNIRSPAWN_P, 993-MJOLNIRTELES_P, 992-MJOLNIRTELER_P,
 #   991-MJOLNIRTELE2_P               spawn point and teleporter scenery
 #                                    (build_spawn_point.sh)
@@ -26,6 +36,14 @@
 #                                    the body damage section (it ships on the
 #                                    head section, so every bullet hit was a
 #                                    headshot: docs/playtest_2026-10-03.md, 6)
+#   pakchunk980-MJOLNIRFORGEUI-Windows  the Forge HUD, WBP_MJOLNIRForge and its
+#                                    glyphs (build_mjolnir_ui.py, same cook,
+#                                    chunk 980); MJOLNIRForge shows its text
+#                                    panel without it
+#   pakchunk990-MJOLNIRFORGEMON_P    Forge's monitor: the editor model on one
+#                                    skeleton, so the simulation can create
+#                                    it (docs/re/forge_engine.md). MJOLNIRLobby
+#                                    offers FORGE only with this installed
 #   pakchunk990-MJOLNIRFLUX_P        Fluid Flux's infinite sea with fixed bounds
 #                                    tall enough for a sea far from Z 0 (rebuild
 #                                    after every game update: byte offsets)
@@ -54,6 +72,11 @@ echo "== 1/5 the CTF flag model and textures"
 staging="$out/flag_staging"
 [ -d "$staging/models" ] || "$exporter" --map "$maps/bloodgulch.map" --out "$staging" --no-collision > "$out/flag_staging.log"
 python "$here/ce_flag_textures.py" "$staging" "$out/ctf_textures"
+# The flag's cloth (MJOLNIRLevelLoader teams.lua CLOTH), from MCC's Halo CE
+# maps (the flag tag's bitmaps are not the model's, so halo2ue does not stage
+# them); cooked under /Game/MJOLNIR/H2, so into chunk 981.
+mcc_h1="${MJ_MCC_HALO1_MAPS:-C:/Program Files (x86)/Steam/steamapps/common/Halo The Master Chief Collection/halo1/maps}"
+python "$here/ce_flag_cloth.py" "$mcc_h1" "$out/cloth_textures"
 
 echo "== 2/5 the event sounds"
 python "$here/ce_sounds.py" --events "$maps/sounds.map" "$out/events"
@@ -65,14 +88,19 @@ python "$here/mcc_tags.py" --plasma-noise "$out/T_CE_PlasmaNoise.png"
 MJ_PLASMA_NOISE="$(cygpath -w "$out/T_CE_PlasmaNoise.png")" run Scripts/build_ce_materials.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/ctf_textures")" \
   MJ_CE_TEXTURE_ROOT="/Game/MJOLNIR/CE/CTF" run Scripts/build_ce_textures.py
+MSYS2_ENV_CONV_EXCL="MJ_CE_TEXTURE_ROOT" MJ_CE_TEXTURES="$(cygpath -w "$out/cloth_textures")" \
+  MJ_CE_TEXTURE_ROOT="/Game/MJOLNIR/H2" run Scripts/build_ce_textures.py
 MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")" \
   MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Sounds/Events" run Scripts/build_ce_sounds.py
 run Scripts/build_mjolnir_ui.py
+run Scripts/build_h2_materials.py
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")"
 staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
 for e in utoc ucas; do
   cp -f "$staged/pakchunk988-Windows.$e" "$out/pakchunk988-MJOLNIRMAT-Windows.$e"
   cp -f "$staged/pakchunk984-Windows.$e" "$out/pakchunk984-MJOLNIRUI-Windows.$e"
+  cp -f "$staged/pakchunk981-Windows.$e" "$out/pakchunk981-MJOLNIRH2-Windows.$e"
+  cp -f "$staged/pakchunk980-Windows.$e" "$out/pakchunk980-MJOLNIRFORGEUI-Windows.$e"
 done
 
 echo "== 4/5 the flag mesh"
@@ -109,6 +137,14 @@ MJOLNIR="$mjolnir" "$here/build_ctf_flag.sh" "$out" > "$out/ctf_flag.log"
 "$mjolnir" pack --group model --tag Spartans/spartans-model \
   --set 'model materials[0].damage section=#0' \
   --out-dir "$(cygpath -m "$out")" --name pakchunk990-MJOLNIRSPARTAN_P > "$out/spartan_model.log"
+# Forge's monitor (multiplayer_globals' editor biped) ships with a model that
+# pairs its own 4-node skeleton with the campaign monitor's 5-node animation,
+# collision and physics. Those three references never resolve, so the
+# simulation cannot create the biped and no player can enter Forge. On the
+# campaign monitor's skeleton all four agree (verified in game 2026-10-24).
+"$mjolnir" pack --group model --tag monitor/monitor_editor-model \
+  --set 'skeleton model=skel:objects\characters\monitor\monitor' \
+  --out-dir "$(cygpath -m "$out")" --name pakchunk990-MJOLNIRFORGEMON_P > "$out/forge_monitor.log"
 "$mjolnir" ue menu-button --out-dir "$(cygpath -m "$out")" | tail -1
 # Fluid Flux's infinite sea (NS_InfiniteSurfaceMesh) has fixed bounds only
 # 50 m tall round Z 0 (the system's; its far emitter's are 100 m), made for a

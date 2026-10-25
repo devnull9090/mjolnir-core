@@ -1,7 +1,8 @@
 # Mod Authoring: Design
 
-**Status:** implemented through publishing (tag editor ≥ 0.3); texture assets and recipe
-distribution are future phases.
+**Status:** implemented through publishing (tag editor ≥ 0.3); texture swaps in the recipe
+since 0.8.0 (not BC7/BC6H). Recipe distribution and the pre-upload conflict check are future
+phases.
 
 How a community member goes from "I changed a value in the Tag Editor" to "players are
 rating my mod on the hub", and why it is built the way it is.
@@ -50,7 +51,9 @@ edit in the editor ──► edits.json (autosave, per edit)
   matches the launcher's installer.
 - **Export** produces a spec-exact `.mjolnir` (see `mjolnir_format.md`) and mirrors the
   hub's limits client-side (50 MiB, manifest rules) so most rejections happen before any
-  upload.
+  upload. **Update 2026-10-21:** the hub now takes 90 MiB in one upload (PR #184) and 400 MiB in
+  parts (PR #210). The editor still checks against 50 MiB and uploads in one request, so it is
+  stricter than the hub rather than a mirror of it.
 
 ## Publishing auth
 
@@ -85,11 +88,21 @@ key cannot mint another. Each app pairs for itself.
   set to text the game's string table does not already contain makes the game reject the
   whole tag, degrading to the pistol-fallback. The editor warns on string-id edits at
   test/export time; it cannot see the game's string table, so it warns rather than blocks.
+  **Update 2026-10-21:** since tag editor 0.20.0 it does see one. The registry as the game
+  held it in mission A30 ships with the editor, and an unregistered string id is refused
+  unless the author ticks *allow unregistered string ids*, which covers a test or an export
+  but never a publish. A registered name still earns a warning, since one mission's registry
+  is not the whole game's.
 - **Texture replacement does not exist yet.** Viewing and PNG export work; writing needs
   a BC encoder and a virtual-texture tile writer (the inverse of `assemble_mip`), which
   is its own project. The recipe format reserves an `assets/` folder for it.
-- **Block counts, `data` fields** — same editing limits as the editor generally
-  (`tag_editing_guide.md`).
+  **Update 2026-10-21:** shipped in tag editor 0.8.0. `ue-texture` re-encodes the swap
+  (for a virtual texture, every tile rewritten in place), and the project records it as
+  `textures/<path>.png` rather than in an `assets/` folder. BC7 and BC6H still cannot be
+  written; they need a BPTC encoder.
+- **`data` fields** — same editing limits as the editor generally
+  (`tag_editing_guide.md`). Block counts were on this list until tag editor 0.12.0, which
+  records element add, duplicate and remove in the recipe as ordinary edits.
 - **Ratings, comments, conflict pages** live on the hub; the editor links out rather than
   reimplementing them.
 
@@ -98,9 +111,14 @@ key cannot mint another. Each app pairs for itself.
 1. ~~Project model: recipe folder, autosave, change list, stable keys~~ ✅
 2. ~~Bake and test: blam-pack, Test in game, Export `.mjolnir`~~ ✅
 3. ~~Publish: API-key flow, upload, findings surfaced in the panel~~ ✅
-4. Texture swaps: encoder + VT writer, `assets/` in the recipe
+4. ~~Texture swaps: encoder + VT writer, `assets/` in the recipe~~ ✅ (tag editor 0.8.0, as
+   `textures/<path>.png`; BC7/BC6H not yet)
 5. Recipe distribution (hub Phase 4): ship `edits.json`, bake on the player's machine
 6. Conflict pre-check: a hub endpoint taking chunk IDs, so the editor can warn about
    overlaps with published mods *before* upload
+
+**Update 2026-10-21:** off the list but shipped: new tags cloned from a shipped one, baked
+into a `<slug>-new_P` addition container (tag editor 0.20.0). Phases 5 and 6 are still open;
+the hub's `/conflicts/check` compares releases already uploaded, not chunk IDs before upload.
 
 Author-facing walkthrough: [`making_your_first_mod.md`](making_your_first_mod.md).

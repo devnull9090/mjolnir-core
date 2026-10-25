@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use blam_tag::TagFile;
 use clap::{Args, Parser, Subcommand};
 
+mod cache;
 mod console;
 mod container;
 mod defs;
@@ -182,6 +183,10 @@ enum Command {
     Megalo(megalo::MegaloArgs),
     /// Package a converted map for the mod hub (docs/map_distribution.md).
     Map(map::MapArgs),
+    /// Read other Halo games' `.map` cache files: identify the game, list
+    /// tags, stage a map for conversion (docs/h2_map_conversion.md).
+    #[command(subcommand_help_heading = "Cache")]
+    Cache(cache::CacheArgs),
     /// Catalog shipped meshes for the level exporter's asset library.
     #[command(subcommand_help_heading = "Mesh")]
     Mesh(mesh::MeshArgs),
@@ -577,6 +582,7 @@ fn main() -> Result<()> {
         Command::Level(a) => level::run(a),
         Command::Megalo(a) => megalo::run(a),
         Command::Map(a) => map::run(a),
+        Command::Cache(a) => cache::run(a),
         Command::Mesh(a) => mesh::run(a),
         Command::Ue(a) => ue::run(a),
         Command::Packageid(a) => container::run_packageid(a),

@@ -26,8 +26,11 @@ exchange, every player who installs one knows a human read every line.
    fails without all three). `slug` and `default` are optional; see
    [Shipping by default](#shipping-by-default) before reaching for the
    latter.
-2. **Lint clean.** CI runs luacheck over `mods/`; the release workflow
-   treats warnings as fatal. Run it locally first.
+2. **Lint and test clean.** CI runs luacheck over `mods/` and
+   `signatures/` but only reports; the release workflow runs the same
+   check and treats warnings as fatal, so run it locally first. CI also
+   runs the Lua tests in `tools/tests/` (`lua5.4 tools/tests/<test>.lua`),
+   and those do fail a pull request.
 3. **Open a pull request** using the code-mod template. Fill in what the
    mod does, every capability it uses (file I/O, network, input hooks,
    console commands), and how to test it in game.
@@ -35,10 +38,13 @@ exchange, every player who installs one knows a human read every line.
    minified, or needlessly clever code is returned, not debated. Budget a
    round or two of feedback.
 5. **Release.** Merged mods ship in the next `mods-v*` tag.
-   `release-mods.yml` builds every mod into a versioned zip, writes a
-   manifest with each artifact's SHA-256, signs the manifest with the
-   release key, and publishes to GitHub Releases and
-   `releases.mjolnircore.com/mods/`. The launcher pins
+   `release-mods.yml` builds the native halves and the Megalo game types
+   from source, refuses a tag with no changelog entry
+   (`changelog/mods/<version>.md`), builds every mod into a versioned
+   zip, writes a manifest with each artifact's SHA-256, signs the manifest
+   with the release key, publishes to GitHub Releases and
+   `releases.mjolnircore.com/mods/`, and refreshes each mod's hub page.
+   The launcher pins
    [`keys/mod-signing.pub`](../keys/mod-signing.pub) and installs nothing
    that fails verification.
 
@@ -64,12 +70,23 @@ repo, with no prebuilt binaries in the tree, and the bar for accepting one
 at all is materially higher — expect "can this be Lua?" as the first
 question.
 
+A native half keeps its C source and a `build.ps1` in `native/<name>/`.
+The build writes the DLL into `mods/<Mod>/native/`, where the Lua side
+loads it from, and `.gitignore` keeps it out of the tree. CI builds it on
+every pull request and `release-mods.yml` builds it again from the tag,
+so adding one means adding its DLL to `.gitignore`, its build and upload
+to the `build-native` jobs in both `ci.yml` and `release-mods.yml`, and
+its download and check to the release job.
+
 ## Shipping by default
 
 `"default": true` in a mod's `mod.json` puts it in the set the launcher
-installs during setup, without asking. Everything else in the set is
-opt-in from My Mods, which lists the whole set so nothing is hidden —
-just not installed.
+installs during setup, without asking. A map is the other way in:
+installing a map pack, or the official maps from the Multiplayer page,
+also installs the mods a map plays through (`MJOLNIRCore`,
+`MJOLNIRLevelLoader`, `MJOLNIRLobby`, `MJOLNIRHud`). Everything else in
+the set is opt-in from My Mods, which lists the whole set so nothing is
+hidden — just not installed.
 
 The bar is "a MJOLNIR install does not work without this", not "this is
 good and people would like it". Being useful is an argument for being in
@@ -87,3 +104,8 @@ any other, and it is reviewed as a decision about every player's machine.
 The set version (`mods-vX.Y.Z`) is the unit of release; individual mods
 declare their own version in their metadata and it appears in the
 manifest. Yanking a bad set is a new tag, never a mutated old one.
+
+Bump `version` in the `mod.json` of every mod a pull request changes,
+a change to its native half included. The launcher offers a mod's update
+only when that version changes, so a changed mod that keeps its number
+ships in the set but never reaches anyone who already has it.

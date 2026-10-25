@@ -14,17 +14,36 @@ Each answers one question, and none answers two:
 | View | Question | Contains |
 | --- | --- | --- |
 | **My Mods** | What is installed? | Content mods (hub) with their load order, and script mods (UE4SS) with their toggles |
-| **Browse Hub** | What exists? | The community catalogue and the signed code-mod set, with full mod pages |
+| **Browse Hub** | What exists? | The community catalogue in three tabs (content mods, maps, and the signed code-mod set), with full mod pages |
 | **Updates** | What is out of date? | Every source at once — launcher, core install, content mods, script mods, tools |
 
 That split is deliberate. Installed mods used to appear under both My Mods
 (UE4SS scripts) and the Hub tab (content mods), with neither mentioning the
 other, and "update available" lived in four unrelated corners of the UI.
 
+Multiplayer, Tools and Settings sit outside that loop. **Multiplayer** lists the
+classic maps and has the one button that installs everything they need: every
+official CE map pack, the CE runtime pack they share, and the code mods that
+put MULTIPLAYER on the main menu (`hub::install_multiplayer`). Running it again
+updates what moved on. The official Halo 2 maps are a separate, optional pack
+with their own button (`hub::install_halo2_maps`). Community maps install one at a time from Browse Hub's
+Maps tab, or in game when a lobby needs one; a `mjolnir://join/<lobby>` link
+opens this view to join. **Tools** installs companion apps such as the tag
+editor. **Settings** holds the game location, the launch method, the UE4SS
+console switch, install verification and the list of recent crashes.
+
 The update manager (`src/updates/useUpdates.ts`) normalises all five sources
 into one list of items, each carrying how to apply itself. It applies them
 sequentially — they write to the same game directory — with the launcher's own
 update last, because that one restarts the process.
+
+**Launch** checks first (`src/launch/PreflightProvider.tsx`, Rust side in
+`src-tauri/src/preflight.rs` and `unsupported.rs`): updates to the installed
+code mods, runtime and hub mods, the installed files against the hashes
+recorded at install, and pak or UE4SS mods MJOLNIR did not install, which it
+offers to move aside until the game exits. The game's own out-of-date prompt
+asks the same check through `--check-updates` and opens `mjolnir://update` to
+update and restart ([docs/update_check.md](../../docs/update_check.md)).
 
 ## How the hub side is put together
 
@@ -46,6 +65,22 @@ Two rules explain most of the structure:
   Ed25519-signed set (`keys/mod-signing.pub`).
 
 Point the launcher at a local hub with `MJOLNIR_HUB_URL=http://localhost:3000/api/v1`.
+
+## The rest of the Rust side
+
+| Where | What it does |
+| --- | --- |
+| `src-tauri/src/maps.rs` | Installed map packs, and the one registration container in `Paks` rebuilt from all of them (`blam_pack::maps::rebuild`, the same code as `mjolnir level register`) |
+| `src-tauri/src/links.rs` | `mjolnir://mod/<slug>`, `mjolnir://map/<CODE>` and `mjolnir://join/<lobby>` links from the website, and `mjolnir://update` from the game (the scheme is registered in `tauri.conf.json`) |
+| `src-tauri/src/preflight.rs` | What a launch checks first, and `--check-updates` for the game ([docs/update_check.md](../../docs/update_check.md)) |
+| `src-tauri/src/unsupported.rs` | Mods MJOLNIR did not install, moved aside into `MJOLNIR-set-aside` for a session and back, with a ledger |
+| `src-tauri/src/crash.rs`, `minidump.rs` | Crash reports: watches the folders UE's crash handler writes into, keeps the log, and sends a small bundle to the hub when the player says so; a slimmed dump follows only if the hub wants it and the player agrees again ([docs/crash_reports.md](../../docs/crash_reports.md)) |
+| `src-tauri/src/transfer.rs` | Byte counts for the Updates screen's progress bars and speed graph |
+| `src-tauri/src/tools.rs` | Companion tools such as the tag editor, installed on demand from their own manifests |
+| `src-tauri/src/changelog.rs` | Release notes for the What's new dialog, from the hub's `/api/changelog` |
+
+The game is found and started on Steam (`Meteorite/Binaries/Win64`) and on the
+Xbox app (`Meteorite/Binaries/WinGDK`, started through `shell:AppsFolder`).
 
 ## Tests
 

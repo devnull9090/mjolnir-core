@@ -26,11 +26,13 @@ Two facts about the release build shape what you get:
 
 - **1,270 of the 1,695 functions are live.** The scripting API proper —
   `object_create`, `player_teleport`, `ai_place`, `unit_get_health`,
-  `game_save`, `fade_out`, the whole `ai_*` family — works.
+  `game_save`, `fade_out`, 169 of the 183 `ai_*` functions — works. The 14
+  `ai_*` stubs are mostly debug and render helpers, such as
+  `ai_render_paths_all`.
 - **425 functions are compiled out**, and every `cheat_*` is among them. They
   share one stub evaluator that returns void without looking at its
   arguments. Likewise 217 of the 260 engine globals (`game_speed`,
-  `cheat_deathless_player`, `console_pauses_game`) have no storage: they read
+  `cheat_deathless_player`) have no storage: they read
   as zero and ignore writes. `help` marks both, and the mod says so when you
   run one.
 
@@ -86,6 +88,9 @@ Two facts, both measured on 2026-09-02, rule out the obvious routes.
   members. Writing them would mean the native half calling the exe's
   `UConsole::OutputText`, one more exe-side signature to break on every
   update, for a line in a console most players open with Tab by accident.
+  **Update 2026-10-21:** since mods-v0.7.0 (MJOLNIRConsoleEnabler 1.1.0) Tab
+  no longer opens the console: Tab is the multiplayer scoreboard, and the
+  console is on Tilde only.
 - **`PrintString` is a no-op** in this Shipping build, and the Blueprint HUD
   never fires `ReceiveDrawHUD`, so neither of the cheap on-screen routes
   works either.
@@ -167,6 +172,15 @@ called but cannot read arguments. `mjolnir_blam_pump`, called from Lua, moves
 text between the files and an in-memory mailbox; the simulation thread never
 touches a file.
 
+**Update 2026-10-21:** the mailbox has a second client. MJOLNIRHud's
+match-chat slash commands (`/suicide`, `/slay`, `/tp`, `/bring`; mods-v0.27.0,
+PR #200) load the DLL themselves, write `request.txt` in the same
+`<id> <flags>` format with ids of their own counting up from 7,000,001, and
+call `mjolnir_blam_pump`, one line a poll because the mailbox has one slot.
+A change to the request format has to keep them working. Since mods-v0.14.1
+the DLL also pins itself at load, so a UE4SS hot reload gets the same module
+back and does not install a second time.
+
 ## After a game update
 
 `mjolnir_blam_open` checks the simulation DLL's PE timestamp before
@@ -186,8 +200,11 @@ re-derive the RVAs:
    at `[0x28]` (byte `+0x140`); the global it stores the shell in is the
    shell pointer. `game_in_progress` is the check the drain makes for
    subtype-1 text events.
-5. Update the `#define`s and `EXPECTED_TIMESTAMP` in
-   `native/blam_console/mjolnir_blam_console.c`, rebuild, reinstall.
+5. Update the `#define`s, `TIMESTAMP_STEAM` and `TIMESTAMP_GAME_PASS` among
+   them, in `native/blam_console/mjolnir_blam_console.c`, rebuild, reinstall.
+   The two timestamps are Steam's and the Xbox app's copies of the DLL, which
+   differ only in the header and Steam's signature, so one set of RVAs serves
+   both (PR #179, mods-v0.23.0).
 
 ## Verified
 

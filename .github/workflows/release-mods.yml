@@ -16,12 +16,12 @@ on:
 jobs:
   # The native mods. Their DLLs are never committed (docs/contributing_code_mods.md:
   # no prebuilt binaries in the tree), so they are built here from the C in
-  # native/blam_console, native/map_registry and native/lobby, on the same runner image
+  # native/blam_console, native/map_registry, native/lobby, native/frame_times and native/forge, on the same runner image
   # every time, with a reproducible link — a reviewer can rebuild one and get
   # the same hash the job prints. The release job below takes the artifacts
   # from this job, not from anywhere else.
   build-native:
-    name: Build native (Blam console + map registry + lobby DLLs)
+    name: Build native (Blam console + map registry + lobby + frame times DLLs)
     if: github.ref_type == 'tag'
     runs-on: windows-latest
     steps:
@@ -43,10 +43,18 @@ jobs:
         shell: pwsh
         run: .\native\lobby\build.ps1
 
+      - name: Build mjolnir_frame_times.dll
+        shell: pwsh
+        run: .\native\frame_times\build.ps1
+
+      - name: Build mjolnir_forge.dll
+        shell: pwsh
+        run: .\native\forge\build.ps1
+
       - name: Record the hashes
         shell: pwsh
         run: |
-          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll", "mods\MJOLNIRLobby\native\mjolnir_lobby.dll")) {
+          foreach ($dll in @("mods\MJOLNIRBlamConsole\native\mjolnir_blam_console.dll", "mods\MJOLNIRLevelLoader\native\mjolnir_map_registry.dll", "mods\MJOLNIRLobby\native\mjolnir_lobby.dll", "mods\MJOLNIRHud\native\mjolnir_frame_times.dll", "mods\MJOLNIRForge\native\mjolnir_forge.dll")) {
             $hash = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
             "$(Split-Path -Leaf $dll) sha256 $hash" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
           }
@@ -69,6 +77,18 @@ jobs:
           path: mods/MJOLNIRLobby/native/mjolnir_lobby.dll
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_frame_times
+          path: mods/MJOLNIRHud/native/mjolnir_frame_times.dll
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjolnir_forge
+          path: mods/MJOLNIRForge/native/mjolnir_forge.dll
+          if-no-files-found: error
+
   # The game types MJOLNIRLevelLoader hands the simulation (variants/*.mglo):
   # Megalo bytecode written by our own encoder (crates/blam-megalo), nothing
   # from the game, and never committed (.gitignore), so built here like the
@@ -88,7 +108,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Write slayer.mglo and ctf.mglo
+      - name: Write slayer.mglo, team_slayer.mglo and ctf.mglo
         run: |
           set -euo pipefail
           cargo build --release -q -p blam-cli
@@ -97,6 +117,7 @@ jobs:
           # layout.json, from which MJOLNIRLevelLoader adds a map's vehicle
           # filters (docs/ce_map_conversion.md, "Vehicle sets").
           ./target/release/mjolnir megalo write --mode slayer --vehicle-label-pool --out variants/slayer.mglo
+          ./target/release/mjolnir megalo write --mode team-slayer --vehicle-label-pool --out variants/team_slayer.mglo
           ./target/release/mjolnir megalo write --mode ctf --vehicle-label-pool --out variants/ctf.mglo
           for f in variants/*.mglo; do
             ./target/release/mjolnir megalo read "$f" | grep -E "score_to_win|rounds"
@@ -140,6 +161,16 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          name: mjolnir_frame_times
+          path: mods/MJOLNIRHud/native
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mjolnir_forge
+          path: mods/MJOLNIRForge/native
+
+      - uses: actions/download-artifact@v4
+        with:
           name: game_types
           path: mods/MJOLNIRLevelLoader/variants
 
@@ -147,12 +178,15 @@ jobs:
         run: |
           for dll in mods/MJOLNIRBlamConsole/native/mjolnir_blam_console.dll \
                      mods/MJOLNIRLevelLoader/native/mjolnir_map_registry.dll \
-                     mods/MJOLNIRLobby/native/mjolnir_lobby.dll; do
+                     mods/MJOLNIRLobby/native/mjolnir_lobby.dll \
+                     mods/MJOLNIRHud/native/mjolnir_frame_times.dll \
+                     mods/MJOLNIRForge/native/mjolnir_forge.dll; do
             test -s "$dll" || { echo "::error::$(basename "$dll") did not arrive from build-native"; exit 1; }
             sha256sum "$dll"
           done
           for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo \
-                      mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json; do
+                      mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/team_slayer.mglo mods/MJOLNIRLevelLoader/variants/team_slayer.layout.json; do
             test -s "$mglo" || { echo "::error::$(basename "$mglo") did not arrive from build-game-types"; exit 1; }
             sha256sum "$mglo"
           done

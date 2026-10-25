@@ -11,13 +11,24 @@ It answers, in order:
    two players reach the kill feed and the scoreboard on both screens?
 2. Does PlayFab accept a co-op lobby bigger than four
    ([fireteam_join_and_cap.md](fireteam_join_and_cap.md))?
+   **Update 2026-10-21:** yes. With MJOLNIRLobby's native hooks raising the
+   lobby, Party and presence limits, a fifth player joined on two PCs on
+   2026-10-02; shipped in mods-v0.10.0 (PR #121).
 3. What does the end of a match do to the fireteam? Today everyone lands on
    the main menu and the second player is out of the fireteam. Which way of
    ending a game causes it ([re/megalo_engine.md](re/megalo_engine.md),
    "Rounds, the end of a game, and the next map")?
+   **Update 2026-10-21:** answered in Phase 3: the game's own return to the
+   menu drops the fireteam. Since mods-v0.9.0 (PR #119) a match never runs
+   it, and the host brings everyone back with a seamless travel (Phase 4).
 4. Does the post-game screen and vote work across the fireteam?
 
 ## Setup
+
+**Update 2026-10-21:** since mods-v0.10.0 the FIRETEAM header shows the real
+limit, 16. Since mods-v0.16.0 (PR #143) the host's header shows its MAX
+PLAYERS (16 unless lowered), and a client's still 16. The FIRETEAM 2/4
+expected below reads 2/16 on a current install.
 
 **Both PCs:**
 - Steam is up to date (the same game build; CU4 when this was written).
@@ -60,6 +71,11 @@ PC 2's `...\Meteorite\Binaries\Win64\ue4ss\UE4SS.log`. Copy it to PC 1 before
 PC 2 restarts the game, because each start overwrites it.
 
 ## Phase 2: a lobby bigger than four
+
+**Superseded:** since mods-v0.10.0 (PR #121) MJOLNIRLobby's native half
+rewrites `maxMemberCount` itself (`native/lobby/mjolnir_lobby.c`), to 16 by
+default or the host's MAX PLAYERS (PR #143). This phase records how the cap
+was first tested with `tools/pe/lobby_size_hook.py`.
 
 The co-op lobby is created when the first invite goes out or the first player
 joins. The host asks PlayFab for `maxMemberCount` = 4.
@@ -173,7 +189,10 @@ game, and the lobby's footer says so. Listing and joining both need one.
    (both show FIRETEAM 2), as after an accepted invite.
 4. **PC 1:** START GAME. Both should load the map and play.
 
-**B. Join a match in progress** (the open question).
+**B. Join a match in progress** (the open question when this was written.
+**Update 2026-10-21:** joining a public match under way shipped in
+mods-v0.12.0, PR #130; `tools/remote/jip-test.mjs` runs this part on the two
+PCs unattended.)
 1. **PC 2:** leave the fireteam (quit to the main menu, or restart the game).
 2. **PC 1:** still PUBLIC, start Blood Gulch, Slayer, and stay in the match.
 3. **PC 2:** FIND GAMES, REFRESH. **Expect:** the game shows "IN MATCH".

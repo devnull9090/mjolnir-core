@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import type { BenchReport, BenchSummaryRow, HubClient } from "@mjolnir/hub-kit";
+import type { BenchReport, BenchSummaryRow, BenchTimes, HubClient } from "@mjolnir/hub-kit";
 
 const QUALITY = ["Low", "Medium", "High", "Epic", "Cinematic"];
 
@@ -37,6 +37,52 @@ function saved(b: BenchReport, name: string) {
   if (!r) return "–";
   const d = b.base_ms - r.ms;
   return (Math.abs(d) < 0.05 ? 0 : d).toFixed(1);
+}
+
+/**
+ * What held the frame back: the slowest of the game thread, the render
+ * thread and the GPU. Game counts the game thread's wait for the GPU, so its
+ * critical path stands in for it.
+ */
+function bound(t: BenchTimes): string | null {
+  const parts: [string, number | undefined][] = [
+    ["game", t.game_cp ?? t.game],
+    ["draw", t.draw],
+    ["GPU", t.gpu],
+  ];
+  let best: [string, number] | null = null;
+  for (const [name, ms] of parts) if (ms !== undefined && (!best || ms > best[1])) best = [name, ms];
+  return best ? best[0] : null;
+}
+
+/** Game / draw / GPU in ms, with what bound the frame first. */
+function split(t: BenchTimes | null) {
+  if (!t) return "–";
+  const f = (v: number | undefined) => (v === undefined ? "?" : v.toFixed(1));
+  return `${bound(t) ?? "?"}-bound · ${f(t.game)} / ${f(t.draw)} / ${f(t.gpu)}`;
+}
+
+/** Each condition's change to game, draw and GPU against the base, for a tooltip. */
+function splitDeltas(b: BenchReport) {
+  const base = b.base_times;
+  if (!base) return undefined;
+  const d = (a: number | undefined, x: number | undefined) =>
+    a === undefined || x === undefined ? "?" : (a - x).toFixed(1);
+  const lines: string[] = [];
+  for (const r of b.results) {
+    const t = r.times;
+    if (!t) continue;
+    lines.push(`${r.name}: game ${d(base.game, t.game)}, draw ${d(base.draw, t.draw)}, GPU ${d(base.gpu, t.gpu)} ms saved`);
+  }
+  return lines.length ? lines.join("\n") : undefined;
+}
+
+/** The held camera in metres, as the level loader's coordinates read. */
+function where(b: BenchReport) {
+  const v = b.view;
+  if (!v) return "–";
+  const m = (cm: number) => Math.round(cm / 100);
+  return `${m(v.x)}, ${m(v.y)}, ${m(v.z)} m · yaw ${Math.round(v.yaw)}°`;
 }
 
 const TH = "px-3 py-2 text-left";
@@ -75,6 +121,8 @@ export function Benches({ client, onError }: { client: HubClient; onError: (mess
       </h2>
       <p className="text-xs text-text-dim mb-4">
         Sent with /bench in match chat: the map with and without its foliage, at the player&apos;s held camera.
+        A frame is as slow as the slowest of the game thread, the render thread (draw) and the GPU; taking
+        foliage away helps only the one it lands on. Hover a run&apos;s savings for each condition&apos;s split.
       </p>
 
       {summary === null ? (
@@ -143,8 +191,14 @@ export function Benches({ client, onError }: { client: HubClient; onError: (mess
                 <th className={TH}>Drawn at</th>
                 <th className={TH}>Foliage</th>
                 <th className={`${TH} text-right`}>Frame rate</th>
+                <th className={TH} title="stat unit: game thread (with its wait for the GPU) / render thread / GPU, ms">
+                  Game / draw / GPU (ms)
+                </th>
                 <th className={`${TH} text-right`} title="Frame time saved without the foliage, its shadows, its wind">
                   Foliage / shadows / wind (ms)
+                </th>
+                <th className={TH} title="The held camera: position in metres, yaw">
+                  View
                 </th>
               </tr>
             </thead>
@@ -164,10 +218,14 @@ export function Benches({ client, onError }: { client: HubClient; onError: (mess
                   </td>
                   <td className={`${TD} text-text-muted`}>{quality(b.sg.Foliage)}</td>
                   <td className={`${TD} text-right text-foreground font-semibold`}>{fps(b.base_ms)} fps</td>
-                  <td className={`${TD} text-right text-text-muted whitespace-nowrap`}>
+                  <td className={`${TD} text-text-muted whitespace-nowrap`}>{split(b.base_times)}</td>
+                  <td className={`${TD} text-right text-text-muted whitespace-nowrap`} title={splitDeltas(b)}>
                     {b.kind === "foliage"
                       ? `${saved(b, "no foliage")} / ${saved(b, "no foliage shadows")} / ${saved(b, "no foliage wind")}`
                       : b.label}
+                  </td>
+                  <td className={`${TD} text-text-dim whitespace-nowrap`} title={b.view ? `pitch ${Math.round(b.view.pitch)}°` : undefined}>
+                    {where(b)}
                   </td>
                 </tr>
               ))}

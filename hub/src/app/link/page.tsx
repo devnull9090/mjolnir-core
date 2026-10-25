@@ -37,6 +37,7 @@ const SCOPE_LABELS: Record<string, string> = {
   "mods:write": "Publish and update mods in your name",
   "ratings:write": "Rate mods as you",
   "comments:write": "Post comments as you",
+  "lobbies:write": "List the games you host, and report your matches",
 };
 
 /** A scope with no reading is still shown — unnamed, but never hidden. */
@@ -246,7 +247,8 @@ export default function LinkDevicePage() {
         </h1>
         <p className="text-text-muted text-sm mb-8">
           MJOLNIR desktop apps show a code when you sign in from the desktop — the launcher to rate
-          and comment as you, the tag editor to publish your mods. Enter it here to say yes.
+          and comment as you and to host and report multiplayer games, the tag editor to publish
+          your mods. Enter it here to say yes.
         </p>
         {/* useSearchParams opts its subtree out of prerendering; the boundary
             keeps that to the form. */}

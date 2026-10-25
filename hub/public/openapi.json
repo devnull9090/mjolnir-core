@@ -3,7 +3,7 @@
   "info": {
     "title": "MJOLNIR Hub API",
     "version": "1.0.0",
-    "description": "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. Reads are public and unauthenticated. Browser sessions use Discord OAuth with an HttpOnly cookie; third-party tools authenticate with `Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, mods:write, ratings:write, comments:write), minted at /account/api-keys. Desktop clients with no browser session pair instead: /auth/device/start, show the user the code, and poll /auth/device/token for a scoped key. Any authenticated write may additionally answer 401 (no identity), 403 (missing scope), or 429 (per-subject hourly write budget) with the standard Error shape."
+    "description": "Open API for the MJOLNIR mod platform for Halo Campaign Evolved. Reads are public and unauthenticated. Browser sessions use Discord OAuth with an HttpOnly cookie; third-party tools authenticate with `Authorization: Bearer mjc_…` API keys carrying scopes (mods:read, mods:write, ratings:write, comments:write, lobbies:write), minted at /account/api-keys. Desktop clients with no browser session pair instead: /auth/device/start, show the user the code, and poll /auth/device/token for a scoped key. Any authenticated write may additionally answer 401 (no identity), 403 (missing scope), or 429 (per-subject hourly write budget) with the standard Error shape."
   },
   "servers": [
     {
@@ -2052,6 +2052,18 @@
             ],
             "description": "`classic` for the converted stock Halo CE maps, `custom_edition` for a converted Halo Custom Edition map, `original` for a map made for Campaign Evolved."
           },
+          "game": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "halo1",
+              "halo2",
+              null
+            ],
+            "description": "The game the map comes from: `halo1` (Halo CE) or `halo2` (Halo 2); null if never declared."
+          },
           "created_at": {
             "type": "string"
           },
@@ -2110,6 +2122,7 @@
           "players_max",
           "vehicles",
           "origin",
+          "game",
           "created_at",
           "release"
         ]
@@ -2172,6 +2185,17 @@
               "original",
               null
             ]
+          },
+          "game": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "halo1",
+              "halo2",
+              null
+            ]
           }
         },
         "required": [
@@ -2180,7 +2204,8 @@
           "players_min",
           "players_max",
           "vehicles",
-          "origin"
+          "origin",
+          "game"
         ]
       },
       "MapMetadataPatch": {
@@ -2229,6 +2254,17 @@
               "classic",
               "custom_edition",
               "original",
+              null
+            ]
+          },
+          "game": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "halo1",
+              "halo2",
               null
             ]
           }
@@ -4508,6 +4544,12 @@
             "minItems": 1,
             "maxItems": 12
           },
+          "base_times": {
+            "$ref": "#/components/schemas/BenchTimes"
+          },
+          "view": {
+            "$ref": "#/components/schemas/BenchView"
+          },
           "client_version": {
             "type": "string",
             "maxLength": 40
@@ -4676,11 +4718,92 @@
             "exclusiveMinimum": 0,
             "maximum": 10000,
             "example": 6.42
+          },
+          "times": {
+            "$ref": "#/components/schemas/BenchTimes"
           }
         },
         "required": [
           "name",
           "ms"
+        ]
+      },
+      "BenchTimes": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "game": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "game_cp": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "draw": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "draw_cp": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "rhit": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "gpu": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        }
+      },
+      "BenchView": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "z": {
+            "type": "number",
+            "minimum": -10000000,
+            "maximum": 10000000
+          },
+          "pitch": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "pitch",
+          "yaw"
         ]
       },
       "Bench": {
@@ -4803,6 +4926,12 @@
               "$ref": "#/components/schemas/BenchResult"
             }
           },
+          "base_times": {
+            "$ref": "#/components/schemas/BenchTimes"
+          },
+          "view": {
+            "$ref": "#/components/schemas/BenchView"
+          },
           "foliage_delta_ms": {
             "type": [
               "number",
@@ -4841,6 +4970,8 @@
           "base_min_ms",
           "base_max_ms",
           "results",
+          "base_times",
+          "view",
           "foliage_delta_ms",
           "client_version",
           "created_at"
@@ -5809,6 +5940,421 @@
           },
           "413": {
             "description": "Archive too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/archive/multipart": {
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Start uploading the archive in parts",
+        "description": "For an archive over 90 MiB, up to 400 MiB. Upload every part but the last at the same size, 5 to 64 MiB, then complete the upload, then call /complete on the release as for a single upload.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The upload to send parts to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "upload_id": {
+                      "type": "string"
+                    },
+                    "min_part_bytes": {
+                      "type": "integer"
+                    },
+                    "max_part_bytes": {
+                      "type": "integer"
+                    },
+                    "max_archive_bytes": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "upload_id",
+                    "min_part_bytes",
+                    "max_part_bytes",
+                    "max_archive_bytes"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Release is published or yanked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/archive/multipart/{upload_id}/{part}": {
+      "put": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Upload one part of the archive",
+        "description": "Raw bytes, at most 64 MiB. Parts are numbered from 1.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "upload_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "required": true,
+            "name": "part",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; keep the etag for completing the upload.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "part": {
+                      "type": "integer"
+                    },
+                    "etag": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "part",
+                    "etag"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Release is published or yanked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Part too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/archive/multipart/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Finish uploading the archive in parts",
+        "description": "Joins the parts into the release's archive. Its SHA-256 is worked out when /complete scans it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "upload_id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "part": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "etag": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "part",
+                        "etag"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 10000
+                  }
+                },
+                "required": [
+                  "parts"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; call /complete to scan and publish.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "file_size": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "file_size"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Release is published or yanked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Archive too large.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/archive/multipart/{upload_id}": {
+      "delete": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Abandon an upload in parts",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "upload_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Its parts are discarded."
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Release is published or yanked.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8037,7 +8583,7 @@
           "maps"
         ],
         "summary": "Published maps: every one by default, or searched, filtered and paged",
-        "description": "With no `sort` or `limit`, every published map (up to 500), the official classics first and then by title; the launcher and the game's menu rely on that form. Filters narrow it, and a map that never declared a filtered field passes the players filter but not the others.",
+        "description": "With no `sort` or `limit`, every published map (up to 500), the official classics first and then by title; the launcher and the game's menu rely on that form. Filters narrow it, and a map that never declared a filtered field passes the players filter but not the others. `game` (`halo1` or `halo2`) narrows it to one game's maps; absent, maps from every game are listed.",
         "parameters": [
           {
             "schema": {
@@ -8107,6 +8653,20 @@
             },
             "required": false,
             "name": "origin",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "halo1",
+                "halo2"
+              ],
+              "description": "Only maps from this game: `halo1` (Halo CE) or `halo2` (Halo 2)."
+            },
+            "required": false,
+            "description": "Only maps from this game: `halo1` (Halo CE) or `halo2` (Halo 2).",
+            "name": "game",
             "in": "query"
           },
           {
@@ -8260,7 +8820,7 @@
           "maps"
         ],
         "summary": "Set a map's catalog metadata (its authors, or moderators)",
-        "description": "Size, player range, vehicles and origin, as the catalog filters by them. The mod's owner and authors may set them; only moderators may set or change `origin: classic`, which marks the converted stock maps.",
+        "description": "Size, player range, vehicles, origin and game, as the catalog filters by them. The mod's owner and authors may set them; only moderators may set or change `origin: classic`, which marks the converted stock maps.",
         "parameters": [
           {
             "schema": {
@@ -10427,7 +10987,7 @@
           "benches"
         ],
         "summary": "Send a bench the caller's game ran",
-        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
+        "description": "The game's /bench chat command times the map as it is against the map without its foliage, the foliage's shadows and its wind, at a held camera, and sends the result with the settings it ran at, the camera's place, and stat unit's game thread, render thread and GPU times for each condition. `bench_id` is the game's own id for the run: sending it again returns the report made the first time. Only admins read reports (GET /admin/benches). Needs the `lobbies:write` scope.",
         "requestBody": {
           "content": {
             "application/json": {

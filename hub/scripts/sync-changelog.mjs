@@ -113,10 +113,16 @@ function parseEntry(product, version, fileName, raw) {
   const title = lines[cursor].slice(2).trim();
   cursor += 1;
 
+  // The block ends at its first blank line, so a body that opens with a bold
+  // sentence keeps it (launcher 0.3.2 lost its opening line to the meta).
+  // scripts/check-changelog.mjs parses the same way for the release body.
   const meta = {};
   for (; cursor < lines.length; cursor += 1) {
     const line = lines[cursor].trim();
-    if (!line) continue;
+    if (!line) {
+      if (Object.keys(meta).length > 0) break;
+      continue;
+    }
     const match = line.match(/^\*\*([^*]+?)\*\*\s*:?\s*(.+)$/);
     if (!match) break;
     meta[match[1].replace(/:$/, "").trim().toLowerCase()] = match[2].trim();

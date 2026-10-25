@@ -128,6 +128,124 @@ landscape = unreal.MjolnirUIBuilderLibrary.create_landscape(
     spec["sections"], spec["quads"], heights.tolist(), master, holes)
 if not landscape:
     raise RuntimeError("create_landscape failed")
+
+
+def standin(entry):
+    """An editor-only stand-in for a game mesh at its path: a box of the game
+    mesh's bounds with its slots (tools/level/foliage_bake.py). Never cooked
+    (DefaultGame.ini DirectoriesToNeverCook): in game the world's reference
+    resolves to the game's own mesh."""
+    path = entry["path"].split(".", 1)[0]
+    # Made by its full path in C++: create_asset dropped a trailing _<n>
+    # from the name (SM_..._Big_6 became SM_..._Big).
+    mesh = unreal.MjolnirUIBuilderLibrary.create_stand_in_mesh(entry["path"])
+    if not mesh or mesh.get_path_name() != entry["path"]:
+        raise RuntimeError(f"stand-in {entry['path']} came out as {mesh.get_path_name() if mesh else None}")
+    (ox, oy, oz), (ex, ey, ez) = entry["origin"], entry["extent"]
+    corners = [unreal.Vector(ox + sx * ex, oy + sy * ey, oz + sz * ez)
+               for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    normals = [unreal.Vector(sx, sy, sz) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    # The six faces, two triangles each, wound outward (corner index =
+    # 4 * x + 2 * y + z, 0 the minimum on that axis).
+    quads = ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3))
+    indices = [i for a, b, c, d in quads for i in (a, b, c, a, c, d)]
+    uv = [unreal.Vector2D(0, 0)] * len(indices)
+    slots = [unreal.Name(s) for s in entry["slots"]]
+    if not unreal.MjolnirUIBuilderLibrary.build_static_mesh(mesh, corners, normals, indices, uv, uv,
+                                                            [0] * (len(indices) // 3), slots, [], []):
+        raise RuntimeError(f"stand-in {path} did not build")
+    eal.save_loaded_asset(mesh)
+    return mesh
+
+
+def decor_material(entry):
+    """A cooked MIC referring to the native game's material, by a never-cooked stand-in.
+
+    Only the scalar override array ships. No static switches/permutation are
+    authored: in game its parent supplies the real layers, textures and shader.
+    """
+    material = entry["material"]
+    parent_path = material["parent"].split(".", 1)[0]
+    if not parent_path.startswith(("/Game/Env/", "/Game/Megascans/")):
+        raise RuntimeError(f"decor material parent is not a never-cooked game asset: {parent_path}")
+    parent = unreal.load_asset(parent_path)
+    if not parent:
+        folder, name = parent_path.rsplit("/", 1)
+        unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([folder], True)
+        parent = unreal.load_asset(parent_path)
+        if not parent:
+            parent = tools.create_asset(name, folder, unreal.MaterialInstanceConstant,
+                                        unreal.MaterialInstanceConstantFactoryNew())
+            if not parent:
+                raise RuntimeError(f"could not create native material stand-in: {parent_path}")
+            unreal.MaterialEditingLibrary.set_material_instance_parent(
+                parent, unreal.load_asset("/Engine/EngineMaterials/DefaultMaterial"))
+            eal.save_loaded_asset(parent)
+    if not isinstance(parent, unreal.MaterialInstanceConstant):
+        raise RuntimeError(f"native material stand-in has the wrong class: {parent_path}")
+    mi = tools.create_asset(f"MI_{NAME}_{entry['id']}", TEXTURES, unreal.MaterialInstanceConstant,
+                            unreal.MaterialInstanceConstantFactoryNew())
+    if not mi:
+        raise RuntimeError(f"could not create baked decor material: {entry['id']}")
+    unreal.MaterialEditingLibrary.set_material_instance_parent(mi, parent)
+    values = []
+    for key, value in sorted(material["scalars"].items()):
+        name, layer = key.rsplit("#", 1)
+        info = unreal.MaterialParameterInfo(name=unreal.Name(name),
+                    association=unreal.MaterialParameterAssociation.LAYER_PARAMETER, index=int(layer))
+        values.append(unreal.ScalarParameterValue(parameter_info=info, parameter_value=float(value)))
+    # ByInfo includes the layer index; SetMaterialInstanceScalarParameterValue
+    # only takes an association, so cannot address both native rock layers.
+    mi.set_editor_property("scalar_parameter_values", values)
+    if not eal.save_loaded_asset(mi):
+        raise RuntimeError(f"could not save baked decor material: {entry['id']}")
+    return mi
+
+
+# The map's foliage baked into the world (MJ_FOLIAGE: tools/level/foliage_bake.py's
+# spec), as MJOLNIRLevelLoader's Foliage.spawn would place it at runtime.
+FOLIAGE = os.environ.get("MJ_FOLIAGE")
+if FOLIAGE:
+    fspec = json.load(open(FOLIAGE, encoding="utf-8"))
+    # Scanned first, as the world's folder above: a stand-in the registry has
+    # not reached yet would be made afresh over its file, and the editor's
+    # overwrite prompt crashes it unattended.
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(
+        sorted({e["path"].rsplit("/", 1)[0] for e in fspec["standins"]}), True)
+    for entry in fspec["standins"]:
+        standin(entry)
+    groups = fspec["groups"]
+    placed = unreal.MjolnirUIBuilderLibrary.bake_foliage(
+        world, fspec["bin"], fspec["actor"], [g["mesh"] for g in groups], [g["bands"] for g in groups],
+        [unreal.Vector2D(*g["cull"]) for g in groups], [g["flags"] for g in groups])
+    if placed < 0:
+        raise RuntimeError(f"bake_foliage failed for {FOLIAGE}")
+    # The swapped scenery (decor the loader would spawn: game meshes, no
+    # materials of their own), a mesh actor a piece, MJDecor_<id>.
+    decor = fspec.get("decor") or []
+    if decor:
+        pieces = unreal.MjolnirUIBuilderLibrary.bake_decor(
+            world, [d["id"] for d in decor], [d["mesh"] for d in decor], [unreal.Vector(*d["loc"]) for d in decor],
+            [unreal.Vector(*d["rot"]) for d in decor], [unreal.Vector(*d["scale"]) for d in decor],
+            [d["flags"] for d in decor])
+        if pieces < 0:
+            raise RuntimeError(f"bake_decor failed for {FOLIAGE}")
+        # Material work happens in the editor. These entries are omitted from
+        # runtime decor, so UE4SS neither reads their components nor replaces
+        # the saved MIC with the mesh's native material.
+        materials = {f"MJDecor_{d['id']}": d for d in decor if d.get("material")}
+        if materials:
+            material_count = len(materials)
+            actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+            for actor in actors:
+                entry = materials.pop(actor.get_name(), None)
+                if entry:
+                    actor.static_mesh_component.set_material(0, decor_material(entry))
+            if materials:
+                raise RuntimeError(f"baked decor missing for material assignment: {sorted(materials)}")
+            unreal.log(f"MJOLNIR baked decor materials: {material_count} cooked MIC(s)")
+    unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
+               f"{len(fspec['standins'])} stand-in(s)")
 if not les.save_current_level():
     raise RuntimeError("save_current_level failed")
 

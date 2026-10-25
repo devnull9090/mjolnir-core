@@ -29,8 +29,9 @@ export function SetupPanel() {
       <div className="w-full max-w-xl">
         <h1 className="text-xl font-bold text-mjolnir-gold">MJOLNIR Tag Editor</h1>
         <p className="mt-2 text-sm text-text-secondary">
-          Reads Blam tag definitions from your own installation of Halo Campaign Evolved. Nothing
-          is modified and no tag content is written to disk.
+          Reads Blam tags from your own installation of Halo Campaign Evolved. The shipped files
+          are never modified: edits go into a mod project, and only Test in game writes into the
+          install, as an override container you can remove.
         </p>
 
         {note && (

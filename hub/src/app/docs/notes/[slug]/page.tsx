@@ -74,7 +74,7 @@ export default async function DocNotePage({ params }: { params: Promise<{ slug: 
       </header>
 
       <article className="py-9">
-        <Markdown>{note.body}</Markdown>
+        <Markdown source="docs">{note.body}</Markdown>
       </article>
 
       <footer className="border-t border-border py-9">

@@ -1,13 +1,14 @@
 # Distributing converted maps
 
-**Status:** 2026-10-02. Format v1 is proven with Blood Gulch: a pack built by
+**Status:** 2026-10-21. Format v1 is proven with Blood Gulch: a pack built by
 `mjolnir map pack`, installed as the launcher will install it and registered
-by `mjolnir level register`, plays CTF. Phases 1 to 3 are done: the hub takes
-map packs with a review queue, and the launcher installs them with their
-dependencies and registers them (`apps/launcher/src-tauri/src/maps.rs`). Of
-Phase 4, `map pack`, `map runtime` and `build_ce_runtime.sh` are done; the
-packs are not published yet. The tag editor's map publishing remains: see
-[Phases](#phases).
+by `mjolnir level register`, plays CTF. Phases 1 to 4 are done, but for the
+tag editor's map publishing: the hub takes map packs with a review queue, the
+launcher installs them with their dependencies and registers them
+(`apps/launcher/src-tauri/src/maps.rs`), and the 19 classic maps and the CE
+runtime pack are published, the remastered maps as 2.x releases of the same
+listings. The tag editor's map publishing and the Rust cook (Phase 5)
+remain: see [Phases](#phases).
 
 Converted Halo CE maps ([ce_map_conversion.md](ce_map_conversion.md)) reach
 players the way texture swaps and tag edits do. Each map is baked ahead of
@@ -42,17 +43,21 @@ A `.mjolnir` archive ([mjolnir_format.md](mjolnir_format.md)) of type `map`:
 
 ```
 mjolnir.json                  manifest: type "map", plus the map block below
-signature.json                added when the tag editor publishes it
+signature.json                added by `mjolnir map pack --sign` (below)
 content/
-  MJOLNIRMAP-<CODE>_P.utoc     the scenario, its BSP, and the map's own world
-  MJOLNIRMAP-<CODE>_P.ucas
-  MJOLNIRMESH-<CODE>_P.utoc    the terrain mesh
-  MJOLNIRMESH-<CODE>_P.ucas
-  MJOLNIRCOOK-<CODE>_P.utoc    the map's cooked CE textures, lightmaps and
-  MJOLNIRCOOK-<CODE>_P.ucas    ambient sounds
+  pakchunk997-MJOLNIRMAP-<CODE>_P.utoc    the scenario, its BSP, and the map's own world
+  pakchunk997-MJOLNIRMAP-<CODE>_P.ucas
+  pakchunk986-MJOLNIRMESH-<CODE>_P.utoc   the terrain mesh
+  pakchunk986-MJOLNIRMESH-<CODE>_P.ucas
+  pakchunk985-MJOLNIRCOOK-<CODE>_P.utoc   the map's cooked CE textures, lightmaps and
+  pakchunk985-MJOLNIRCOOK-<CODE>_P.ucas   ambient sounds
+  pakchunk<N>-MJOLNIRLAND-<CODE>_P.utoc   a remastered map's landscape world; it has a
+  pakchunk<N>-MJOLNIRLAND-<CODE>_P.ucas   shader library, so it keeps its chunk number
 map/
   level.json                  the level file the loader reads
   registration.json           the bake's registration record (below)
+  <foliage file>              the foliage placements the level file names
+  decals/*.png                its decals' textures
 docs/README.md                optional
 ```
 
@@ -64,8 +69,11 @@ Format rules (version 1):
 - A map cooks into a chunk of its own, `10000 + int(CODE, 36)` (Blood Gulch,
   `BGL`, is 24853). A `PrimaryAssetLabel` at the map's root sets it, so the
   map's cook never mixes with the runtime pack's chunk 988.
-- No `.mglo`, no loose textures and no code. A `map/preview.png` is
-  [Phase 6](#phases).
+- No `.mglo` and no code. The only loose files are the level's own data
+  under `map/`, which the loader reads beside the level file: the foliage
+  file the level names (a remastered map's `foliage.bin`) and its decals'
+  textures. A map's preview is its hub listing's cover image, not a file in
+  the pack.
 
 The manifest's map block:
 
@@ -81,7 +89,8 @@ The manifest's map block:
     "modes": ["slayer", "ctf"],
     "size": "large",
     "players": { "min": 4, "max": 16 },
-    "vehicles": true
+    "vehicles": true,
+    "game": "halo1"
   },
   "compat": { "min_build": "2026.06.26.1097863.1" },
   "deps": [{ "slug": "mjolnir-ce-runtime", "range": "^1.0.0" }]
@@ -92,11 +101,12 @@ The manifest's map block:
   hub, which rejects a second map claiming a code someone else's map holds.
 - `modes` lists the game types the multiplayer menu offers. Each one must be
   a variant the loader ships (`slayer`, `ctf`, ...).
-- `size`, `players`, `vehicles` and `origin` are optional catalog metadata,
+- `size`, `players`, `vehicles`, `origin` and `game` are optional catalog metadata,
   what players filter the hub's map list by ([below](#the-catalog)). A
   release that leaves one out keeps the value the listing already has.
   `origin` is `custom_edition` or `original`; `classic` is set by
-  moderators only. Field rules are in [mjolnir_format.md](mjolnir_format.md#map-archives).
+  moderators only. `game` is the game the map comes from, `halo1` (Halo CE)
+  or `halo2` (Halo 2). Field rules are in [mjolnir_format.md](mjolnir_format.md#map-archives).
 - The registration record is what `mjolnir level bake --standalone` writes
   beside its output as `<CODE>.registration.json`: the codename, the canvas
   scenario it was cloned from, the title, the description and the world
@@ -111,19 +121,25 @@ loader ships, so a map can only name them. Custom game types per map are
 ### The CE runtime pack
 
 This pack is published once by us and updated rarely. It holds everything
-converted maps share. `tools/level/build_ce_runtime.sh` builds it:
+converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 
 | Container | Holds |
 |---|---|
 | `pakchunk988-MJOLNIRMAT-Windows` | the CE material masters (`/Game/MJOLNIR/CE/M_CE_*`) and their shader library; the CTF flag's textures (`/Game/MJOLNIR/CE/CTF`); the announcer and event sounds (`/Game/MJOLNIR/Sounds/Events`) |
 | `pakchunk990-MJOLNIRCTFMESH_P` | the CE flag mesh (`/Game/MJOLNIR/CTF/SM_CE_Flag`) |
-| `pakchunk990-MJOLNIRFLAG_P`, `-STAND_P`, `-MOTL_P` | the CTF flag weapon, its stand, and the object-type-list override that adds the flag |
+| `pakchunk990-MJOLNIRFLAG_P`, `-FLAGB_P`, `-STAND_P`, `-MOTL_P` | the red and blue CTF flag weapons (model variants `default` and `blue`, which the loader colours them by), their stand, and the object-type-list override that adds them as entries 18 and 20 |
 | `pakchunk994-MJOLNIRSPAWN_P`, `993-MJOLNIRTELES_P`, `992-MJOLNIRTELER_P`, `991-MJOLNIRTELE2_P` | the spawn point and the teleporter sender, receiver and 2-way |
 | `pakchunk990-MJOLNIRHPACK_P`, `-HPSPOT_P`, `-HPMESH_P` | the health pack, its spawn spot and its mesh |
 | `pakchunk990-MJOLNIRSPARTAN_P` | the Spartan model with its body material on the body damage section (shipped on the head section, every bullet hit was a headshot) |
 | `pakchunk990-MJOLNIRFLUX_P` | Fluid Flux's infinite sea (`NS_InfiniteSurfaceMesh`) with fixed bounds 10 km tall: the shipped ones are 50 m round Z 0, and a sea far below it (Yoyorast's, -256 m) was culled whole when the top of the view was level. Byte offsets, so it is rebuilt for every game update |
 | `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
+| `pakchunk981-MJOLNIRH2-Windows` | the Halo 2 masters (`/Game/MJOLNIR/H2`, `Scripts/build_h2_materials.py`): `M_H2_PlasmaAlpha`, which converted Halo 2 maps' plasma draws with ([h2_map_conversion.md](h2_map_conversion.md)) |
 | `pakchunk985-MJOLNIRMENU_P` | the main menu with its own MULTIPLAYER button ([multiplayer_menu.md](multiplayer_menu.md)). It replaces the shipped menu, so it is rebuilt for every game update |
+| `pakchunk983-MJOLNIRCETRIAL-Windows` | the trial masters the remastered maps draw with (`/Game/MJOLNIR/CETrial`, `Scripts/build_ce_materials.py`) and their tessellated cliffs (`Scripts/build_ce_cliffs.py`). `tools/level/upgrade_ce_map.py` cooks it, not `build_ce_runtime.sh`, and looks it up among the installed runtime's containers |
+
+`tools/level/pack_remastered.py` leaves the water masters (`M_CE_Ocean`,
+chunk 982, `Scripts/build_ce_water.py`) out of the map packs: like the trial
+masters, they go in the runtime pack.
 
 A map's ambient sounds are not shared. They cook into the map's own chunk,
 under `/Game/MJOLNIR/Maps/<CODE>/Sounds`, so a map ships only the sounds it
@@ -133,6 +149,16 @@ Its containers are content containers, so they install like any content
 mod. Its version moves when a shared piece changes; maps depend on a
 compatible range. `mjolnir map runtime <out dir> --version X --sign`
 packages the builder's output as the `mjolnir-ce-runtime` content mod.
+
+The CTF variant the loader ships names the object types it creates, and
+the simulation wipes a variant naming one the installed object type list
+lacks (`0x409c40` -> `0x40a310`): CTF then has no rules at all. So the
+runtime release that adds `-FLAGB_P` and the list's entry 20 goes out
+before, or with, the mods release whose `ctf.mglo` creates the blue flag
+(type 20). The lobby offers CTF only when the blue flag's container is
+installed, and `mjolnir megalo write --mode ctf --single-flag` still
+writes the one-type script for a list without entry 20
+([game_modes.md](game_modes.md), 2.2).
 
 ## Installing
 
@@ -192,8 +218,10 @@ registration container it built.
 ### Dependencies
 
 Installing a map installs what it depends on first. Its manifest's `deps`
-come from the hub (the CE runtime pack; its newest release, as the version
-range is not enforced yet). The code mods are implied by type `map`:
+come from the hub (the CE runtime pack, at its newest release). Only a
+range's floor is enforced: since launcher 0.14.0 a dependency that is
+installed but older than the floor (the `1.8.0` of a `^1.8.0`) is updated
+first. The code mods are implied by type `map`:
 MJOLNIRCore, MJOLNIRLevelLoader, MJOLNIRLobby and MJOLNIRHud. Each is
 installed when missing, updated when the launcher installed it and nobody
 edited it, and switched on in `mods.txt`. A map whose code another
@@ -202,7 +230,9 @@ installed map holds is refused.
 **Install multiplayer** (the launcher's Multiplayer page,
 `hub::install_multiplayer`) runs this for every official map (`GET
 /maps?official=1`), then materializes and registers once. Maps already at
-their newest release are skipped, so running it again is an update.
+their newest release are skipped, so running it again is an update. Since
+launcher 0.14.1 a map whose cache lacks a file its level names (its foliage
+file, `decals/`) is fetched again rather than skipped.
 
 ## Publishing
 
@@ -223,6 +253,13 @@ mjolnir map pack out/bgl --code BGL --version 1.0.0 --sign
   `PUT /releases/{id}/archive`, `POST /releases/{id}/complete`).
 - CI cannot bake, since it has no copy of the game, so maps are published
   from a maintainer's machine.
+
+**Update 2026-10-21:** the tag editor still publishes only its own project
+(`project_publish`), and no tool in this repository uploads a map pack or
+uses the hub's upload in parts ([below](#on-the-hub)). The remastered maps
+are staged and packed by `tools/level/pack_remastered.py <CODES> --version
+2.x.y --runtime <range> --sign`, which takes each map's cooked textures from
+its installed hub release and hands the folder to `mjolnir map pack`.
 
 ### Players' maps
 
@@ -249,7 +286,14 @@ official classic, and the catalog metadata (migration 0017). `GET
   - requires `map/level.json` and `map/registration.json`, as valid JSON;
   - warns about containers not named for the map (`-<CODE>_P`);
   - rejects a `code` another mod already holds (`map_code_taken`).
-- The archive limit is the same 50 MiB as any content release.
+- The archive limits are those of any content release. One request
+  (`PUT /releases/{id}/archive`) takes up to 90 MiB, under Cloudflare's
+  100 MB request body. A bigger archive, up to 400 MiB, goes up in parts:
+  `POST /releases/{id}/archive/multipart`, parts of 5 to 64 MiB, then
+  `.../multipart/{upload_id}/complete` joins them. The release's
+  `POST /releases/{id}/complete` then scans the stored archive from R2 as a
+  stream. A remastered map with its foliage runs past one request
+  (Timberland 2.1.0 is 117 MiB).
 - A passing map release writes its `map_listings` row; a held one
   ([review](#players-maps)) writes it too, but the listing stays out of
   the catalog until the mod is published.
@@ -265,23 +309,28 @@ image, and metadata:
 | `size` | `small`, `medium`, `large`, or null |
 | `players_min`, `players_max` | 1 to 16, or null |
 | `vehicles` | true, false, or null |
-| `origin` | `classic` (the 19 converted stock maps), `custom_edition`, `original`, or null |
+| `origin` | `classic` (the converted stock maps), `custom_edition`, `original`, or null |
+| `game` | `halo1` (Halo CE), `halo2` (Halo 2), or null |
 
-Migration 0017 fills these for the 19 classics. Authors set them in the
+Migration 0017 fills these for the 19 Halo CE classics, and migration 0023
+sets `game` to `halo1` on every map published before it. Authors set them in the
 manifest, and the mod's owner, its authors and moderators change them with
 `PATCH /api/v1/maps/{code}` (only moderators may set or change `classic`).
 
-With no parameters, `/maps` returns every map (up to 500) in one list: the
-official classics first, then by title. The launcher's **Install
-multiplayer** (`/maps?official=1`) and the game's map list rely on that
-form, so filters and paging are opt-in:
+With no parameters, `/maps` returns every map (up to 500), from every
+game, in one list: the official classics first, then by title. The game's
+map list relies on that form, so filters and paging are opt-in. The
+launcher's **Install multiplayer** asks for `/maps?official=1&game=halo1`,
+the official Halo CE maps, and its optional **Install Halo 2 maps** for
+`/maps?official=1&game=halo2`. An older launcher asks for
+`/maps?official=1`, which lists the official maps of both games.
 
 | Parameter | Effect |
 |---|---|
 | `official` | `1` official maps only, `0` community maps only |
 | `mode` | maps offering this game type |
 | `q` | title, code or summary contains this (up to 80 characters) |
-| `size`, `vehicles`, `origin` | exact match; a map that never declared the field is left out |
+| `size`, `vehicles`, `origin`, `game` | exact match; a map that never declared the field is left out |
 | `players` | maps whose player range includes this count; a map with no range is kept |
 | `sort` | `newest`, `downloads`, `rating` or `title`; absent keeps official first, then title |
 | `limit`, `cursor` | page size 1 to 100, and the `next_cursor` of the previous page |
@@ -312,7 +361,7 @@ scheme, which launcher 0.13.0 and newer register:
    hub's map listings, scanner rules and review queue.
 3. **The launcher (done).** It installs maps, resolves dependencies, and
    builds the registration container on every change.
-4. **The CE runtime pack, and our maps.** The shared containers move into the
+4. **The CE runtime pack, and our maps (done).** The shared containers move into the
    runtime pack, and each map's textures and sounds cook into a chunk of its
    own. Then we publish Blood Gulch, Gephyrophobia and the rest of the stock
    maps.
@@ -323,4 +372,6 @@ scheme, which launcher 0.13.0 and newer register:
    their own.
 6. **Later.** Custom game types per map (reviewed `.mglo` in a map pack),
    map previews (`map/preview.png`) in the menu and on the hub, and
-   collections ("CE classics").
+   collections ("CE classics"). Map previews landed another way: the game
+   and the launcher show each map's hub cover image (`cover_url`; PR #165
+   and #166), and nothing reads a `map/preview.png`.

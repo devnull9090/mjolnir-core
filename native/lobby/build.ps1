@@ -3,7 +3,7 @@
     Build the MJOLNIR Lobby native DLL with MSVC.
 
 .DESCRIPTION
-    Compiles mjolnir_lobby.c into mods\MJOLNIRLobby\native\ so the
+    Compiles mjolnir_lobby.c and discord_presence.c into mods\MJOLNIRLobby\native\ so the
     Lua mod next to it can load it with package.loadlib.
 
     Finds the compiler three ways, in order: `cl` already on PATH (a Developer
@@ -34,10 +34,11 @@ New-Item -ItemType Directory -Force $outDir | Out-Null
 New-Item -ItemType Directory -Force $objDir | Out-Null
 
 $src = Join-Path $here "mjolnir_lobby.c"
+$discord = Join-Path $here "discord_presence.c"
 $dll = Join-Path $outDir "mjolnir_lobby.dll"
 
 # /MD: share the process's ucrtbase, the same CRT the simulation DLL uses.
-$compile = "cl /nologo /O2 /W4 /WX /MD /LD `"$src`" /Fo`"$objDir\\`" /Fe:`"$dll`" /link /NOLOGO /Brepro /IMPLIB:`"$objDir\mjolnir_lobby.lib`""
+$compile = "cl /nologo /O2 /W4 /WX /MD /LD `"$src`" `"$discord`" /Fo`"$objDir\\`" /Fe:`"$dll`" /link /NOLOGO /Brepro /IMPLIB:`"$objDir\mjolnir_lobby.lib`""
 
 if (-not $VcVars -and (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     Write-Host "using cl from PATH: $((Get-Command cl.exe).Source)"

@@ -1,8 +1,9 @@
 # Mod Signing and Attribution: Design
 
 **Status:** shipped. Tag editor 0.3.0 signs; launcher 0.5.3 verifies; hub migration
-0005 carries the key registry and per-release attribution. Rollout step 2
-(`REQUIRE_SIGNED_UPLOADS`) is not switched on yet.
+0005 carries the key registry and per-release attribution. Rollout step 2 is done:
+`REQUIRE_SIGNED_UPLOADS` has been on since 2026-08-02 (`hub/wrangler.jsonc`), so the
+hub rejects an unsigned upload.
 
 Who bundled a `.mjolnir`, and how does anyone downstream know its bytes are the bytes
 they bundled? Today the answer is "the hub says so": the archive hash is pinned by the
@@ -119,6 +120,9 @@ Decisions worth recording:
    signature (must be 64 bytes) — strict decoding, no whitespace forgiveness.
 2. Ed25519 `verify_strict` of `prefix || payload_bytes` against `public_key`.
    Crypto first, parsing after: never parse unauthenticated bytes into business logic.
+   (**Update 2026-10-21:** `mjolnir-sign` checks with `VerifyingKey::verify`, not
+   `verify_strict`; only the launcher's checks against the platform key use
+   `verify_strict`.)
 3. Parse the payload; require `schema_version == 1`.
 4. Require `fingerprint(public_key) == key_fingerprint`.
 5. Require `slug` and `version` to match the expected release.
@@ -171,7 +175,10 @@ to 16 chars in UIs, stored and compared in full.
   `/complete` when a signature verifies).
 - **`/complete`** (where the async work fits, since `scanArchive` is sync and stays
   untouched): after the scan passes, if `signature.json` is present, run the
-  verification algorithm. New finding codes:
+  verification algorithm. (**Update 2026-10-21:** since PR #210, `/complete` scans
+  the stored archive as a stream with the async `scanArchiveStream`; the signature
+  check still follows the scan, on the members it already unzipped.) New finding
+  codes:
   - `bad_signature` (error) — structurally or cryptographically invalid, digest
     mismatch, slug/version mismatch: the archive is not what its signature claims.
   - `foreign_signature` (error) — cryptographically valid but the key is not a
@@ -186,7 +193,7 @@ to 16 chars in UIs, stored and compared in full.
   `signer_fingerprint`, `signer_key_revoked` (all optional — additive, non-breaking).
   Spec-first as always; `openapi.json` regenerates or CI fails the drift check.
 - **UI**: the account keys page gains a signing-keys section; release rows on mod
-  pages show "published by U · signed <fingerprint>" or an unsigned badge.
+  pages show `published by U · signed <fingerprint>` or an unsigned badge.
 
 ## Launcher behavior
 
@@ -230,13 +237,21 @@ At install, after the existing hash check and before anything is materialized:
    untouched (their `published_by` stays null — honest "predates attribution").
 2. Once the editor release with signing is the one people actually have,
    set `REQUIRE_SIGNED_UPLOADS` — new publishes must be signed. No flag day for
-   existing content.
+   existing content. **Update 2026-10-21:** done on 2026-08-02 (1028c6de), as a
+   `vars` entry in `hub/wrangler.jsonc` rather than a secret, so the policy deploys
+   with the worker.
 3. Deferred, deliberately:
    - **Transparency log** — an append-only public log of publish statements is the
      real endgame against hub compromise; the signed statement designed here is
      exactly what such a log records, so nothing about this design blocks it.
    - **CLI signing** — `mjolnir-sign` is CLI-ready, but key storage there means
      DPAPI-less key files; not worth the footgun until someone needs it.
+     **Update 2026-10-21:** shipped in cli 0.3.0 (PR #106) for the archives the
+     CLI writes, map packs and the CE runtime pack.
+     `mjolnir map pack --sign` and `mjolnir map runtime --sign` sign with the tag
+     editor's DPAPI device key, so no second key needs registering;
+     `--sign-seed <file>` takes a seed file instead, for other machines, as an
+     explicit opt-in.
    - **Browser-approved key registration** — hardening if API-key theft ever proves
      to be a real pattern.
 

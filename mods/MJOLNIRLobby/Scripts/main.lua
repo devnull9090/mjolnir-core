@@ -22,7 +22,7 @@
 -- MULTIPLAYER opens MJOLNIR's own lobby and map select screens
 -- (WBP_MJOLNIRLobby, WBP_MJOLNIRMapSelect, "Our own screens" below), with the
 -- campaign-menu screens as the fallback when the UI container is missing.
--- Finding and joining other players' games is still to come.
+-- Public games, FIND GAMES and joins by connection string are in games.lua.
 
 local function modDirectory()
     local source = debug.getinfo(1, "S").source or ""
@@ -40,13 +40,16 @@ local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
+local Presence = dofile(MOD_DIR .. "\\Scripts\\presence.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MapLive = dofile(MOD_DIR .. "\\Scripts\\maplive.lua")
 local Identity = dofile(MOD_DIR .. "\\Scripts\\identity.lua")
+local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
+Presence.init({ modDir = MOD_DIR, json = Json, log = log })
 
 local HELPERS = "/Game/UI/Frontend/CampaignMenu/Data/BPFL_CampaignMenuHelpers.Default__BPFL_CampaignMenuHelpers_C"
 local SCENARIOS = "/Game/Blueprints/Campaign/DT_Scenarios.DT_Scenarios"
@@ -54,16 +57,28 @@ local CAMPAIGN_MODE = 0      -- E_CampaignMode: the campaign's scenario list and
 local DIFFICULTY_NORMAL = 1
 
 -- The game types, in menu order. A mode is offered for a map when the map
--- lists it and its variant file is installed. `slot` is the insertion point
--- a game of this type starts at: the host's travel carries the index to
--- every fireteam client, whose loader reads the game type from it (keep in
--- step with MJOLNIRLevelLoader's GAME_TYPE_SLOTS).
+-- lists it and its variant file is installed, and the container it `needs`
+-- is. `slot` is the insertion point a game of this type starts at: the
+-- host's travel carries the index to every fireteam client, whose loader
+-- reads the game type from it (keep in step with MJOLNIRLevelLoader's
+-- GAME_TYPE_SLOTS). CTF's blue flag is a tag of its own in the CE runtime
+-- pack, and on a PC without it the simulation wipes a CTF script that names
+-- it: a match with no flags (docs/game_modes.md 2.2).
 local MODES = {
     { id = "slayer", slot = 0, name = "SLAYER", description = "Free for all. Every kill scores a point; the first to the score limit wins." },
     { id = "team_slayer", slot = 2, name = "TEAM SLAYER", teams = true, description = "Red against Blue. Kills score for your team." },
     { id = "koth", slot = 3, name = "KING OF THE HILL", description = "Hold the hill to score. The hill moves." },
     { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
-    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base." },
+    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base.",
+        needs = "pakchunk990-MJOLNIRFLAGB_P" },
+    -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
+    -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
+    -- on every map once MJOLNIRForge's native half and the CE runtime's
+    -- monitor fix are installed. Host only for now: a fireteam client reads
+    -- the game type from slot 0 and would start Slayer.
+    { id = "forge", slot = 0, name = "FORGE", forge = true,
+        description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
+        needs = "pakchunk990-MJOLNIRFORGEMON_P" },
 }
 
 local function readFile(path)
@@ -115,16 +130,78 @@ local function installedMaps()
     return maps
 end
 
-local function modesFor(map)
+local modesFor
+do
+-- Whether this PC mounts a container, by name, asked once a session (the
+-- launcher puts containers in place before the game starts): its stub .pak
+-- in Paks under its own name (a manual install), or a hub mod enabled in the
+-- launcher's active profile that lists it. The hub copies each container
+-- into Paks under a load-order name (pakchunk9NN-MJOLNIRHUB-<slug>-<j>_P),
+-- so there the original name is only in hub_state.json. The same test as
+-- MJOLNIRLevelLoader's teams.lua (Teams.containerInstalled), tested in
+-- tools/tests/test_teams.lua.
+local mounted = {}
+
+local function hubMounts(stem)
+    local appdata = os.getenv("APPDATA")
+    local raw = appdata and readFile(appdata .. "\\com.devnull9090.mjolnir-launcher\\hub_state.json")
+    local ok, state = pcall(Json.decode, raw or "")
+    if not ok or type(state) ~= "table" or type(state.installed) ~= "table" then return false end
+    local enabled = {}
+    for _, p in ipairs(type(state.profiles) == "table" and state.profiles or {}) do
+        if type(p) == "table" and p.name == state.active and type(p.entries) == "table" then
+            for _, e in ipairs(p.entries) do
+                if type(e) == "table" and e.enabled == true and e.slug ~= nil then enabled[e.slug] = true end
+            end
+        end
+    end
+    for _, m in ipairs(state.installed) do
+        if type(m) == "table" and enabled[m.slug] and type(m.containers) == "table" then
+            for _, c in ipairs(m.containers) do
+                if c == stem then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function offered(mode)
+    local stem = mode.needs
+    if not stem then return true end
+    if mounted[stem] == nil then
+        -- <root>\Meteorite\Binaries\<Win64 or WinGDK>\ue4ss\Mods\<mod> ->
+        -- <root>\Meteorite\Content\Paks
+        local at = MOD_DIR:lower():find("\\binaries\\", 1, true)
+        local paks = at and MOD_DIR:sub(1, at - 1) .. "\\Content\\Paks"
+        mounted[stem] = (paks ~= nil and fileExists(paks .. "\\" .. stem .. ".pak")) or hubMounts(stem)
+        if not mounted[stem] then
+            log(mode.name .. " is not offered: " .. stem .. " is not installed (an older CE runtime pack); "
+                .. "update the CE runtime pack in the MJOLNIR launcher")
+        end
+    end
+    return mounted[stem]
+end
+
+modesFor = function(map)
     local listed = {}
     for _, m in ipairs(type(map.modes) == "table" and map.modes or { "slayer" }) do listed[m] = true end
+    -- Team Slayer needs nothing a map has to place: it runs wherever Slayer
+    -- does, and the released maps' lists predate it.
+    if listed.slayer then listed.team_slayer = true end
     local out = {}
     for _, mode in ipairs(MODES) do
-        if listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo") then
+        local installed
+        if mode.forge then
+            installed = fileExists(MODS_DIR .. "\\MJOLNIRForge\\native\\mjolnir_forge.dll")
+        else
+            installed = listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo")
+        end
+        if installed and offered(mode) then
             out[#out + 1] = mode
         end
     end
     return out
+end
 end
 
 local function titleOf(map)
@@ -160,6 +237,19 @@ local function startGame(map, mode)
     local table_ = StaticFindObject(SCENARIOS)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
+    end
+    -- Forge runs on the host alone for now: a fireteam client reads the game
+    -- type from insertion slot 0 and would start Slayer under the Megalo
+    -- engine against the host's sandbox engine. So no guests, and never a
+    -- public listing strangers could join.
+    if mode.forge then
+        local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
+        local members = 1
+        if UI.valid(squad) then pcall(function() members = squad:GetNumSquadMembers() end) end
+        if members > 1 then
+            return false, "FORGE is host only for now: start it without fireteam members"
+        end
+        Games.setPublic(false)
     end
     -- A map installed after the game started (in game, or by the launcher
     -- with no relaunch since) is in no cooked registration: its scenario
@@ -251,7 +341,7 @@ local function mapScreen()
         title = "SELECT MAP",
         subtitle = "HOST GAME",
         description = #buttons > 0 and buttons[1].description
-            or "No classic CE maps are installed. Convert one with tools/level/convert_ce_map.sh.",
+            or "No classic CE maps are installed. Install them from the MJOLNIR launcher's Multiplayer page.",
         buttons = buttons,
     })
 end
@@ -299,7 +389,7 @@ local FIND_CLASS = UI_ROOT .. "WBP_MJOLNIRFindGames.WBP_MJOLNIRFindGames_C"
 local SETTINGS_CLASS = UI_ROOT .. "WBP_MJOLNIRGameSettings.WBP_MJOLNIRGameSettings_C"
 local SETTINGS_PAGES = 5    -- page buttons in the cooked screen
 local SETTINGS_ROWS = 12    -- option rows in the cooked screen
-local MAP_BUTTONS = 32
+local MAP_BUTTONS = 80
 local MODE_BUTTONS = 5
 local ROSTER_ROWS = 16
 local GAME_ROWS = 40
@@ -322,6 +412,57 @@ local Find = nil                         -- FIND GAMES, while it is up
 local Found = { all = {}, games = {}, maps = {}, matching = 0, chosen = nil, loading = false }
 local listingStatus = nil                -- the lobby footer's last listing line
 local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELECT
+
+-- The map select's rows: the installed maps, then the hub's maps this PC
+-- does not have (`missing`), which SELECT downloads first (Live.prompt).
+-- The chips filter them by game (the hub's `game`), source (official or
+-- community) and whether they are installed. A map neither the hub nor its
+-- level file places has no game, and only GAME ALL shows it; one the hub
+-- does not list has no source, and only SOURCE ALL shows it.
+Pick.filters = { game = nil, source = nil, installedOnly = false }
+Pick.GAMES = { "halo1", "halo2" }
+Pick.GAME_NAMES = { halo1 = "HALO CE", halo2 = "HALO 2" }
+Pick.SOURCES = { "official", "community" }
+
+--- A chip's next value: nil (ALL), then each choice, then ALL again.
+function Pick.cycle(choices, current)
+    if current == nil then return choices[1] end
+    for i, v in ipairs(choices) do
+        if v == current then return choices[i + 1] end
+    end
+    return nil
+end
+
+function Pick.list()
+    local f = Pick.filters
+    -- The game: the installed map's own record, else the hub's listing; a
+    -- listing without one is a Halo CE map (the hub listed only those
+    -- before it had the field).
+    local function keep(listing, map)
+        local game = (map and map.game) or (listing and (listing.game or "halo1"))
+        if f.game and game ~= f.game then return false end
+        if f.source and not (listing and (listing.official == true) == (f.source == "official")) then return false end
+        return true
+    end
+    local out, have = {}, {}
+    for _, map in ipairs(installedMaps()) do
+        have[map.code] = true
+        if keep(MapLive.cached(map.code), map) then out[#out + 1] = map end
+    end
+    if not f.installedOnly then
+        local missing = {}
+        for _, listing in ipairs(MapLive.listings()) do
+            if not have[listing.code] and keep(listing) then
+                missing[#missing + 1] = { code = listing.code, title = listing.title, description = listing.summary,
+                    modes = listing.modes, missing = true }
+            end
+        end
+        table.sort(missing, function(a, b) return titleOf(a) < titleOf(b) end)
+        for _, map in ipairs(missing) do out[#out + 1] = map end
+    end
+    Pick.shown = out
+    return out
+end
 -- A fireteam client's view of the host's lobby (After a match, below).
 local clientLobby = { dismissed = false, at = nil }
 -- A fireteam client's copy of the host's game settings line (the lobby
@@ -523,6 +664,7 @@ end)
 --- player's view model (the one that can). BlamCampaignFlowGameSubsystem's
 --- LeaveGame only leaves a match. true when a leave was asked for.
 function Live.leaveFireteam()
+    Games.leavePresence()
     for _, vm in ipairs(FindAllOf("MeteoritePlayerViewModel") or {}) do
         local ok, can = pcall(function() return vm:CanLeaveFireteam() end)
         if ok and can then
@@ -912,9 +1054,13 @@ local function drawLobby()
         or (map.update and ("The host runs version " .. tostring(map.update.version or "?") .. " of this map; you have "
             .. tostring(map.update.have or "?") .. ". UPDATE MAP installs the host's version without leaving the game."))
         or map.description) or
-        "Convert a classic CE map (tools/level/convert_ce_map.sh) or install a map pack.")
+        "Install the classic maps from the MJOLNIR launcher's Multiplayer page, or a map pack from mjolnircore.com.")
     Live.showCover(Lobby, map and map.code)
     setText(Lobby.ModeTitle, mode and mode.name or "")
+    pcall(function()
+        local shown = Pick.gameType.showIcon(Lobby.ModeIcon, mode)
+        setShown(Lobby.ModeIconBox, shown)
+    end)
     setText(Lobby.ModeDescription, mode and mode.description or "")
     local roster = rosterPlayers()
     local teams = mode and mode.teams
@@ -990,7 +1136,8 @@ end
 local function showDetails(map)
     if not (UI.valid(Select) and map) then return end
     setText(Select.MapTitle, titleOf(map))
-    setText(Select.MapDescription, map.description)
+    setText(Select.MapDescription, map.missing and ("NOT INSTALLED: SELECT DOWNLOADS IT.  " .. (map.description or ""))
+        or map.description)
     Live.showCover(Select, map.code)
     setText(Select.MapMeta, Live.metaLine(map.code))
     local modes = modesFor(map)
@@ -1010,20 +1157,33 @@ end
 local function drawSelect()
     if not UI.valid(Select) then return end
     pcall(function() Select.Select:SetIsEnabled(Pick.map ~= nil and Pick.mode ~= nil) end)
-    local maps = installedMaps()
+    local maps = Pick.list()
+    local missing = 0
+    for _, map in ipairs(maps) do if map.missing then missing = missing + 1 end end
     for i = 0, MAP_BUTTONS - 1 do
         local map, button = maps[i + 1], Select["Map" .. i]
         setShown(button, map ~= nil)
         if map then
             local label = Select["Map" .. i .. "Label"]
-            setText(label, titleOf(map))
+            setText(label, titleOf(map) .. (map.missing and "   /   DOWNLOAD" or ""))
             local chosen = Pick.map and Pick.map.code == map.code
+            local colour = chosen and ACCENT or (map.missing and { R = 0.6, G = 0.66, B = 0.72, A = 1 } or WHITE)
             pcall(function()
                 button:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
-                label:SetColorAndOpacity({ SpecifiedColor = chosen and ACCENT or WHITE, ColorUseRule = 0 })
+                label:SetColorAndOpacity({ SpecifiedColor = colour, ColorUseRule = 0 })
             end)
         end
     end
+    -- The chips (a runtime pack from before them has none: these do nothing).
+    local f = Pick.filters
+    setText(Select.FilterGameValue, f.game and Pick.GAME_NAMES[f.game] or "ALL")
+    setText(Select.FilterSourceValue, f.source and string.upper(f.source) or "ALL")
+    setText(Select.FilterInstalledValue, f.installedOnly and "INSTALLED" or "ALL")
+    for key, on in pairs({ Game = f.game ~= nil, Source = f.source ~= nil, Installed = f.installedOnly }) do
+        pcall(function() Select["Filter" .. key]:SetBackgroundColor(on and SELECTED_BACKGROUND or NORMAL_BACKGROUND) end)
+    end
+    setText(Select.ListCount, string.format("MAPS   /   %d", #maps)
+        .. (missing > 0 and string.format("   /   %d TO DOWNLOAD", missing) or ""))
     showDetails(Pick.map)
 end
 
@@ -1045,8 +1205,34 @@ local function openMapSelect()
         return
     end
     drawSelect()
+    -- The hub's maps, for the rows of maps this PC does not have.
+    MapLive.refresh(function() if UI.valid(Select) then drawSelect() end end)
     pcall(function() Select.Select:SetFocus() end)
 end
+
+-- Keep the game type draft separate from the map picker and hosted game.
+-- Older runtime UI packs can still choose explicitly through CHANGE MAP.
+Pick.gameType = dofile(MOD_DIR .. "\\Scripts\\gametype.lua").new({
+    valid = UI.valid, alive = alive, loadClass = loadClass, pushScreen = pushScreen,
+    sameWidget = function(a, b) return UI.addressOf(a) == UI.addressOf(b) end,
+    current = function() return Game.map, Game.mode end,
+    modesFor = modesFor, isHost = Net.isHost, titleOf = titleOf,
+    showCover = Live.showCover,
+    commit = function(mode)
+        Game.mode = mode
+        saveGame()
+        Games.changed()
+        drawLobby()
+    end,
+    fallback = openMapSelect,
+    focusLobby = function()
+        if alive(Lobby) then
+            drawLobby()
+            pcall(function() Lobby.GameType:SetFocus() end)
+        end
+    end,
+    note = function(message) if alive(Lobby) then setText(Lobby.Status, message) end end,
+})
 
 --- The game's own Friends screen (Platform and Cross-Platform friends, each
 --- with + Invite), as the fireteam panel's INVITE + rows open it: their
@@ -1907,17 +2093,7 @@ local LOBBY_EVENTS = {
         if Net.isHost() then openMapSelect() end
     end,
     gametype = function()
-        if not (Game.map and Net.isHost()) then return end
-        local modes = modesFor(Game.map)
-        if #modes == 0 then return end
-        local next_ = 1
-        for i, m in ipairs(modes) do
-            if Game.mode and m.id == Game.mode.id then next_ = i % #modes + 1 end
-        end
-        Game.mode = modes[next_]
-        saveGame()
-        Games.changed()
-        drawLobby()
+        Pick.gameType.open()
     end,
     listing = function()
         if not Net.isHost() then return end
@@ -1955,6 +2131,28 @@ local LOBBY_EVENTS = {
 
 local SELECT_EVENTS = {
     select = function()
+        if Pick.map and Pick.map.missing then
+            -- Download it first, then come back to it here, installed.
+            local code, modeId = Pick.map.code, Pick.mode and Pick.mode.id
+            Live.prompt(code, {
+                reason = "To host " .. titleOf(Pick.map) .. ".",
+                action = "DOWNLOAD",
+                readyText = "Installed.",
+                onReady = function()
+                    for _, map in ipairs(installedMaps()) do
+                        if map.code == code then
+                            Pick.map, Pick.mode = map, nil
+                            for _, m in ipairs(modesFor(map)) do
+                                if m.id == modeId then Pick.mode = m end
+                            end
+                            Pick.mode = Pick.mode or modesFor(map)[1]
+                        end
+                    end
+                    drawSelect()
+                end,
+            })
+            return
+        end
         if Pick.map and Pick.mode then
             Game.map, Game.mode = Pick.map, Pick.mode
             saveGame()
@@ -1964,6 +2162,18 @@ local SELECT_EVENTS = {
         drawLobby()
     end,
     back = function() pcall(function() Select:DeactivateWidget() end) end,
+    ["filter:game"] = function()
+        Pick.filters.game = Pick.cycle(Pick.GAMES, Pick.filters.game)
+        drawSelect()
+    end,
+    ["filter:source"] = function()
+        Pick.filters.source = Pick.cycle(Pick.SOURCES, Pick.filters.source)
+        drawSelect()
+    end,
+    ["filter:installed"] = function()
+        Pick.filters.installedOnly = not Pick.filters.installedOnly
+        drawSelect()
+    end,
 }
 
 -------------------------------------------------------------------------------
@@ -2063,16 +2273,17 @@ local function onSettingsEvent(event)
 end
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
-local function onScreenEvent(isLobby, event)
+local function onScreenEvent(isLobby, event, source)
+    if isLobby == "gametype" then return Pick.gameType.onEvent(event, source) end
     if isLobby == "find" then return onFindEvent(event) end
     if isLobby == "settings" then return onSettingsEvent(event) end
     local verb, index = event:match("^(%a+):(%d+)$")
     if verb then
         local i = tonumber(index) + 1
         if verb == "map" then
-            pickMap(installedMaps()[i])
+            pickMap((Pick.shown or installedMaps())[i])
         elseif verb == "hover" then
-            showDetails(installedMaps()[i])
+            showDetails((Pick.shown or installedMaps())[i])
         elseif verb == "mode" and Pick.map then
             local mode = modesFor(Pick.map)[i]
             if mode then
@@ -2095,6 +2306,7 @@ local function hookScreenEvents()
     local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
     if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
     if hasGameSettings() then specs[#specs + 1] = { SETTINGS_CLASS, "settings" } end
+    if Pick.gameType.available() then specs[#specs + 1] = { Pick.gameType.class, "gametype" } end
     local all = true
     for _, spec in ipairs(specs) do
         if not screenEvents.hooked[spec[1]] then
@@ -2107,10 +2319,12 @@ local function hookScreenEvents()
                     local okS, screen = pcall(function() return self:get() end)
                     if okS and UI.valid(screen) then Lobby = screen end
                 end
+                local source
+                if spec[2] == "gametype" then pcall(function() source = self:get() end) end
                 -- Off the click: pushing and popping screens inside the
                 -- button's own handler is not safe.
                 ExecuteInGameThread(function()
-                    local okH, err = pcall(onScreenEvent, spec[2], event)
+                    local okH, err = pcall(onScreenEvent, spec[2], event, source)
                     if not okH then log("screen event " .. event .. ": " .. tostring(err)) end
                 end)
             end)
@@ -3212,6 +3426,10 @@ local function watchMainMenu()
             if entry.signedIn then
                 local picked, why = pcall(pickUpJoin, hookScreenEvents)
                 if not picked then log("join link: " .. tostring(why)) end
+                -- Out of date, or mods MJOLNIR did not install: said over
+                -- the main menu (Scripts/outdated.lua).
+                local checked, err = pcall(Outdated.tick, menu)
+                if not checked then log("update check: " .. tostring(err)) end
             end
             if not UI.valid(menu) then return end
             if nativeEntry(menu) then
@@ -3773,6 +3991,10 @@ local function initialize()
         net = Net,
         log = log,
         version = LOBBY_VERSION,
+        world = function()
+            local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+            return ok and tostring(address) or nil
+        end,
         -- The game a public listing shows: the lobby's choice, which a start
         -- (from the lobby or the post-game vote) also sets.
         info = function()
@@ -3782,6 +4004,7 @@ local function initialize()
             return {
                 name = name and (name .. "'s game") or "MJOLNIR game",
                 map_code = Game.map.code,
+                world = tostring(UI.playerController():GetWorld():GetAddress()),
                 map_release_id = release.id,
                 map_version = release.version,
                 game_type = Game.mode.id,
@@ -3791,6 +4014,21 @@ local function initialize()
             }
         end,
     })
+    Presence.context(function()
+        local pc = UI.playerController()
+        local worldCode
+        pcall(function()
+            worldCode = pc:GetWorld():GetFullName():match("%.([%w_]+)$")
+            worldCode = worldCode and worldCode:upper()
+        end)
+        return {
+            frontend = inFrontend(), world_code = worldCode,
+            lobby = alive(Lobby) or (Post and alive(Post.screen)),
+            postgame = Post and alive(Post.screen),
+            map_title = Game.map and (Game.map.title or Game.map.code),
+            mode = Game.mode and Game.mode.id,
+        }, Games.presence()
+    end)
     -- Public match history: MJOLNIRHud's records and seat claims, to the hub.
     Matches.init({ modDir = MOD_DIR, games = Games, log = log })
     -- Hub accounts in place of in-game names, proven to the host by tickets
@@ -3858,6 +4096,7 @@ local function initialize()
         end
     end
     ExecuteInGameThreadWithDelay(2000, function() registerInstalled(0) end)
+    Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\" })
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

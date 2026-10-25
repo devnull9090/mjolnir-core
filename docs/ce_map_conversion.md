@@ -1,10 +1,14 @@
 # Converting a Classic CE Map
 
-**Status:** 2026-09-30. Verified in game on Blood Gulch and Sidewinder,
+**Status:** 2026-10-21. The 19 stock maps and the Custom Edition maps
+Yoyorast Island and Coldsnap convert with the one command below. A converted
+map is hosted from the main menu's MULTIPLAYER entry (MJOLNIRLobby, "Playing
+it"), and kills score and are recorded (two PCs, 2026-10-03).
+`tools/level/upgrade_ce_map.py` takes a converted map further ("Upgraded
+maps"). First verified in game on 2026-09-30, on Blood Gulch and Sidewinder,
 started from the menu with nothing done by hand: own collision at CE
 coordinates, terrain mesh, spawns, vehicles and weapons, the Megalo engine and
-the Slayer script (loaded, and the interpreter shown running it; a kill has not
-been scored, since that needs a second player).
+the Slayer script.
 
 A classic Halo CE `.map` becomes a standalone multiplayer mission in Halo:
 Campaign Evolved: its own scenario, its own collision, its players, vehicles
@@ -60,10 +64,20 @@ extracted.
 |---|---|---|
 | 1 | `halo2ue-export` (HalcyonRing) | the `.map` staged: collision BSP, placements, netgame flags |
 | 2 | `merge_ce_collision.py`, `mjolnir level collision --own-bsp` | the structure BSP, scenery collision included |
-| 3 | `merge_ce_scene.py`, `ce_material_spec.py`, `build_terrain_meshes.py` (`mesh_rewrite` + `package_override`), `unreal/MJOLNIRMaterials` | the terrain, scenery and sky as two meshes (over `/Engine/BasicShapes/Cylinder` and `Cone`), and their CE materials and bitmaps (`pakchunk988-MJOLNIRMAT`) |
+| 3 | `merge_ce_scene.py`, `ce_material_spec.py`, `build_terrain_meshes.py` (`mesh_rewrite` + `package_add`), `scatter_foliage.py`, `unreal/MJOLNIRMaterials` | the terrain, scenery, transparent sections, sky and (where CE has it) water as meshes of the map's own (`pakchunk986-MJOLNIRMESH-<CODE>_P`, see "The terrain, scenery and sky"), their CE materials and bitmaps (the map's bitmaps in `pakchunk985-MJOLNIRCOOK-<CODE>_P`), and the game's grass, tufts and shore stones on the ground (`<name>.foliage.bin` beside the level file; `FOLIAGE=0` leaves it out) |
 | 4 | `tools/level/gen_ce_level.py` | the level file |
 | 5 | `mjolnir level bake --standalone CODE --bsp 8=…` | scenario and registration containers, on the map's own empty Unreal world |
 | 6 | `tools/level/build_spawn_point.sh` | the spawn-point and teleporter scenery every converted map places |
+
+The script's other settings: `LIGHTMAP_ARGS` (extra solver flags, e.g.
+`--cpu`), `BAKE_ARGS` (extra `lightmap_bake` flags: `--max-size 1024` took
+Coldsnap's pack from 58.6 MB to 41.8 MB), `CE_START_LIFT` (the player
+starts' lift, 1 wu by default, lower for low ceilings), `WORLD` (another
+world `.umap`, or `none` for the canvas mission's), `DELTA` (moves the whole
+map, in wu), `SOUNDS_MAP` (a `sounds.map` other than the one beside the map)
+and `SCORE` (Slayer's score to win, 25). A failed cook stops the conversion:
+copying the last good cook's chunk had shipped the wrong textures without a
+word (Coldsnap, 2026-10-10).
 
 **The world must be a Blam world.** Step 5 gives the bare MapKit world
 `BlamWorldSettings` with a `DefaultScenario` path (`blam_world_settings` in
@@ -83,18 +97,21 @@ the gate does not resolve, and with it the world has the same 35 subsystems
 as B40.
 
 Build the tools first: `cargo build --release -p blam-cli -p ue-asset --example
-mesh_rewrite -p blam-pack --example package_override -p ue-texture --example
-lightmap_bake`. Without `lightmap_bake` the map converts without its baked
-corners and sun.
+mesh_rewrite -p blam-pack --example package_add --example package_override -p
+ue-texture --example lightmap_bake` (`package_override` only for the
+`CE_COOK=0` fallback). Without `lightmap_bake` the map converts without its
+baked corners and sun.
 
 Step 3 also re-solves the map's lightmaps (`mjolnir level lightmaps`,
 [crates/blam-radiosity](../crates/blam-radiosity/README.md): tool.exe's own
-radiosity, on every core, the sun and sky fill evaluated per texel) at
+radiosity, the sun and sky fill evaluated per texel, its rays cast on the GPU
+by default since 2026-10-10 and on the CPU, the reference path, with
+`LIGHTMAP_ARGS=--cpu`) at
 `LIGHTMAP_SCALE` times the shipped pages' size (`auto` by default: the
 power of two that brings the lit surfaces' median texel density to 4 per
-metre, no page over 2048; Blood Gulch comes out at 8x, Danger Canyon at
-8x, Hang 'Em High at 4x); the shipped pages are 1x and blur every shadow
-edge, and at 2x a pillar's shadow on a base roof was still a soft blob
+metre, no page over 2048 and 48 million texels in all; Blood Gulch comes
+out at 8x, Danger Canyon at 8x, Hang 'Em High at 4x); the shipped pages are
+1x and blur every shadow edge, and at 2x a pillar's shadow on a base roof was still a soft blob
 beside the traced shadow's hard edge. `LIGHTMAP_SCALE=0` keeps the
 shipped pages. A map's interior light is its emitting shaders' (Death
 Island's red and blue strips, the door glyphs): they shoot before the
@@ -136,8 +153,10 @@ cluster and one instance, of which only the file format is kept
 - and into **definition 0 behind instance 0**, which the collision queries
   test (the instance is listed at the collision kd hierarchy's root);
 - the BSP's static Havok body, **`structure_physics`**, is recompiled with one
-  key per CE surface. This is what players, vehicles and items stand on;
-  nothing rebuilds it at load.
+  key per CE surface (one whole-instance key on the biggest maps, see
+  "Limits"), and since 2026-10-12 one whole-instance key for each scenery
+  piece behind an instance of its own. This is what players, vehicles and
+  items stand on; nothing rebuilds it at load.
 
 The map keeps its CE coordinates. It is built for **index 0**
 (`level collision --bsp-index 0`): every kd hierarchy header and instance
@@ -172,14 +191,20 @@ scenery's own collision models to the BSP's collision first:
 - the exporter stages each scenery tag's collision triangles
   (`collision/*.json`);
 - every placement's triangles go in as standalone two-sided surfaces;
-- the compiled MOPP gives every surface a key, so players and vehicles stand
-  on and run into rocks and trees as in CE;
+- the compiled MOPP reaches every surface, through a key of its own or, for
+  scenery behind an instance of its own, through the instance's key, which
+  Havok descends into the instance's own MOPP (since 2026-10-12: as surface
+  keys, Death Island's ~96k piece surfaces shared the structure tree's
+  coarse quantisation and players fell through the terrain), so players and
+  vehicles stand on and run into rocks and trees as in CE;
 - `mjolnir level collision` puts them into the BSP tree as well
   (`blam_sbsp::scenery`), so queries that walk the tree, projectiles among
   them, meet them too: every leaf a scenery triangle passes through is split
   on the triangle's plane into two flagged copies of itself that name the
   triangle, the rule the simulation's line test uses for two-sided surfaces
-  between open leaves. Where the scenery does not fit the BSP's 16-bit tables
+  between open leaves (its polygon test takes one winding, so such a surface
+  stops a ray only from the side its plane faces; see "Limits"). Where the
+  scenery does not fit the BSP's 16-bit tables
   it goes to instances of its own, each with such a tree (until 2026-10-03 no
   leaf named a scenery surface, and bullets went through the Covenant
   shields).
@@ -287,19 +312,29 @@ material even though the surfaces carry theirs. Untested.
   Gephyrophobia's bridge, in its chasm, so the ring stood a few degrees off
   where CE draws it (2026-10-09).
 
-The scene becomes two meshes, written into shipped basic shapes in the game's
-own serialisation ([ue_mesh_write.md](ue_mesh_write.md)). Each is normalised
-into its donor's bounds, and MJOLNIRLevelLoader spawns it at the position and
-scale that undo the normalisation.
+The scene becomes meshes of the map's own: each is a shipped basic shape's
+mesh rewritten in the game's own serialisation
+([ue_mesh_write.md](ue_mesh_write.md)) and renamed to a package under the
+map's root, `/Game/MJOLNIR/Maps/<CODE>` (`build_terrain_meshes.py`). Each is
+normalised into its donor's bounds, and MJOLNIRLevelLoader spawns it at the
+position and scale that undo the normalisation.
 
-| Mesh | Donor | Container | Holds |
+| Mesh | Donor | Package | Holds |
 |---|---|---|---|
-| Opaque | `/Engine/BasicShapes/Cylinder` | `pakchunk989-MJOLNIRMESH` | terrain and scenery |
-| Transparent | `/Engine/BasicShapes/Cone` | `pakchunk987-MJOLNIRMESHT` | sky, lights, teleporter fields |
+| Terrain | `/Engine/BasicShapes/Cylinder` | `SM_<CODE>_Terrain` | terrain and scenery |
+| Translucent | `/Engine/BasicShapes/Cone` | `SM_<CODE>_Translucent` | lights, teleporter fields and the other transparent sections |
+| Sky | `/Engine/BasicShapes/Sphere` | `SM_<CODE>_Sky` | the sky: kilometres across, it cost the transparent pieces their precision when they shared a mesh |
+| Water | `/Engine/BasicShapes/Cube` | `SM_<CODE>_Water` | CE water, where the map has it (since 2026-10-10) |
+
+`package_add` puts a map's meshes in one container,
+`pakchunk986-MJOLNIRMESH-<CODE>_P`, so maps install side by side. Only the
+`CE_COOK=0` fallback overrides the shipped cylinder itself
+(`pakchunk989-MJOLNIRMESH`); a cooked install removes such overrides of the
+cylinder and cone (989, and 987 `MJOLNIRMESHT`) left by older conversions.
 
 A rewritten mesh enters Unreal's translucency pass only through its single
 donor slot ([re/fork_renderer.md](re/fork_renderer.md)), so the transparent
-mesh's slot 0 is its first section, the sky.
+mesh's slot 0 is its first section.
 
 Each mesh carries:
 
@@ -327,7 +362,11 @@ cooks them:
    with the CE shader's fields as parameters.
 2. `Scripts/build_ce_materials.py` builds the master materials.
 3. `Scripts/build_ce_level.py` imports the level's bitmaps.
-4. `tools/ue/cook.ps1` cooks them into `pakchunk988-MJOLNIRMAT`.
+4. `tools/ue/cook.ps1` cooks them. The masters go into `pakchunk988-MJOLNIRMAT`,
+   which ships in the CE runtime pack (`tools/level/build_ce_runtime.sh`).
+   The map's own bitmaps, under `/Game/MJOLNIR/Maps/<CODE>`, cook into a
+   chunk of their own (`ce_material_spec.py` `cook_chunk`), which the
+   converter copies out as `pakchunk985-MJOLNIRCOOK-<CODE>_P`.
 5. At load, MJOLNIRLevelLoader makes a dynamic instance of a master per mesh
    slot and sets that slot's textures and parameters.
 
@@ -354,9 +393,9 @@ gamma space as the hardware did.
 | Specular lightmap | Shaders with the "lightmap" specular flag. `mix(parallel, perpendicular colour, N·E) × brightness × lightmap luminance × (R·L)⁸`; ³² for "extra shiny", ×2 for "overbright". |
 | Reflection | The cube map, in D3D face order, sampled along the eye vector reflected about the bump normal (the vertex normal for a flat cube map). `mix(c⁸, c, tint) × brightness`, where tint and brightness go from their parallel to their perpendicular values by the squared view term. Added, masked by bump alpha × the texture pass's specular mask. |
 | Alpha test | On the bump map's alpha: `> 0x7F` passes. |
-| Fog | The sky's outdoor atmospheric fog: `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
+| Fog | The sky's outdoor atmospheric fog, or, where no cluster draws a sky, sky 0's indoor fog (Chill Out, 2026-10-13): `max density × saturate((depth − start) / (opaque − start))` towards its colour. |
 | Planar fog | Below a BSP fog plane (Damnation's shaft, Gephyrophobia's chasm, the water of Battle Creek, Chill Out and Death Island), as MCC's environment fog shaders: x = depth under the plane / opaque depth, y = distance from the eye / opaque distance, `A = (1 − min((1−x)² + (1−y)², 1))²`, `B = (1 − (1−y)²)²`, `Pf = (eye density × (B − A) + A) × max density`, the eye density being the eye's own depth under the plane / opaque depth. Everything under the plane's height is fogged, not just what lies under the plane's polygon: CE fogs every cluster of the fog region, which reaches past the polygon (MCC fogs all of Chill Out's lower floor; clipping to the polygon's footprint drew a hard-edged slab there, 2026-10-09). The surface's colour goes to the fog's by Pf, the share Unreal's lights draw included; transparents fade by 1 − Pf. `tools/level/ce_fog.py` reads the planes and fog tags from the map (halo2ue does not stage them) into `fog.json`; `ce_material_spec.py` puts the first plane on every environment and transparent material (`PlanarFogPlane`, `PlanarFogColor`, `PlanarFogParams`). Players, vehicles and weapons, drawn with the game's own materials, are not fogged. Boarding Action's red fog has no plane and is not drawn. |
-| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m, divided by a knee of 0.85 (`--ao-knee`) and raised to 1.3 (`--ao-curve`), so the mild folds between a cliff's facets read as open while a wall's foot keeps its darkness: as traced, every fold took a dark line and the cliffs showed their triangles (Blood Gulch, 2026-10-05). `--ao-smooth` (world-space smoothing) is off by default; at 1 m it washed out the wall-floor corners and drew dashes along them. The masters read it through a 3 x 3 tent a texel apart. Blue is the sky's detail: sky visibility (`--sky-rays`, to any distance) over its mean across 1.5 m of surface facing the same way, x 0.5, so 0.5 is as CE's lightmap has it; where CE had shade the masters multiply the lightmap by it (`SkyDetail`, clamped to 0.5-1.5; `mjolnir_terrain_shadows sky <strength>`), which shades the overhangs and crevices CE's lightmap is too coarse for. A bake the loader imports at runtime (`mjolnir_terrain_shadows lightmap`) goes through `M_CE_LinearCopy`: `ImportFileAsTexture2D` is always sRGB, and drawn as it was every runtime bake and sun mask arrived sRGB-decoded (128 as 55), too dark. The lightmap is multiplied by `red ^ BakeAO` (1.4: Blood Gulch was approved at 2.5, found a little dark across the maps at 2.0, and with the knee and curve chosen at 1.4). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
+| Corners and sun | Not CE's: `lightmap_bake` (crates/ue-texture) traces the merged scene for each lightmap page, at up to 16 times its size (2,048 at most), into a texture of its own (`<lightmap>_bake`, BC1 with mips). Red is ambient occlusion within 1 m, divided by a knee of 0.85 (`--ao-knee`) and raised to 1.3 (`--ao-curve`), so the mild folds between a cliff's facets read as open while a wall's foot keeps its darkness: as traced, every fold took a dark line and the cliffs showed their triangles (Blood Gulch, 2026-10-05). `--ao-smooth` (world-space smoothing) is off by default; at 1 m it washed out the wall-floor corners and drew dashes along them. The masters read it through a 3 x 3 tent a texel apart. Blue is the sky's visibility: the share of `--sky-rays` rays that leave the level, smoothed over `--sky-fine` (0.5 m) of surface. CE's shade is brighter the less sky a surface sees (Blood Gulch: a median of 0.18 open to the sky, 0.53 enclosed, against a shadow level of 0.19, 2026-10-06), so on a level without the solver's `SunShare` the masters scale the lightmap's shadow level by it, from 1 where the surface is open to the sky up to 2.8 where it is enclosed; that tells a coarse lightmap's sun leak from lamp light. `mjolnir_terrain_debug sky` (layer 3) shows it. A bake the loader imports at runtime (`mjolnir_terrain_shadows lightmap`) goes through `M_CE_LinearCopy`: `ImportFileAsTexture2D` is always sRGB, and drawn as it was every runtime bake and sun mask arrived sRGB-decoded (128 as 55), too dark. The lightmap is multiplied by `red ^ BakeAO` (1.4: Blood Gulch was approved at 2.5, found a little dark across the maps at 2.0, and with the knee and curve chosen at 1.4). Green is where CE's sun reaches: the share of the colour drawn as Unreal sun light (so a player or vehicle shadows the ground) is kept to it, and taken down only as far as the lightmap's shadow level (`environment.sun.lightmap_sun`, which `gen_ce_level.py` measures on sun-facing surfaces: the lower quartile of the lightmap's luminance where the bake has shadow, since lamp-lit interiors count as shadow too, and the median where it has sun). A shadow therefore never reaches through a roof onto ground CE had in shade, and a baked shadow is not darkened twice. |
 
 Object shaders (`shader_model`: Covenant crates, rocks, trees, vehicles)
 use the same master with `ModelShader` on, for the terms that differ:
@@ -430,6 +469,20 @@ MCC's Halo CE editing kit (HCEEK) ships the original tags, so where it has a
 Teleporter fields, the turret's beam tendril, the beacons, the light
 volumes, the waves and the night sky's ring and planet take MCC's shaders
 this way (15 of the 24 shaders with stages over the 19 maps).
+
+**Update 2026-10-21:** since 2026-10-04, `M_CE_Water` follows the water tag field by field
+(halo2ue's `tag`): up to four ripple layers (contribution, angle, velocity,
+offset, repeats, bitmap), faded towards flat by mip level, and the bumped
+cube reflection as `mix(c⁸, c, tint)`, the tint set by how squarely the
+camera looks down on the water. The third flag (atmospheric fog) fogs it.
+The second flag is drawn, as a multiply pass of its own
+(`M_CE_WaterBackground`) on a copy of the surface that `merge_ce_scene.py`
+puts first, and sky water replaces the frame (`M_CE_WaterSky`, opaque).
+Since 2026-10-10 the water is a mesh of its own (`SM_<CODE>_Water`), which
+`environment.water` or `mjolnir_water ocean` can draw as rolling water
+(`M_CE_Ocean`); CE's style is the default, but `gen_ce_level.py` asks for
+the ocean on Death Island and Yoyorast Island (`OCEAN_MAPS`). The list
+below is the first version.
 
 Water (`shader_transparent_water`: Death Island, Battle Creek, Gephyrophobia,
 Damnation) is drawn by `M_CE_Water`, in the transparent mesh:
@@ -505,9 +558,10 @@ own.
    Xbox ADPCM is decoded to WAV and Ogg is kept as is. A loop's permutations
    are joined into one `_loop` file, because CE plays them back to back.
 2. **Import.** `unreal/MJOLNIRMaterials/Scripts/build_ce_sounds.py` imports
-   them under `/Game/MJOLNIR/Levels/<map>/Sounds`, which cooks into
-   `pakchunk988`. Loops are marked looping, and the compression is ADPCM:
-   the default, Bink, needs a decoder the game may not ship.
+   them under `/Game/MJOLNIR/Maps/<CODE>/Sounds`, which cooks with the
+   map's own chunk (`pakchunk985-MJOLNIRCOOK-<CODE>_P`). Loops are marked
+   looping, and the compression is ADPCM: the default, Bink, needs a decoder
+   the game may not ship.
 3. **Play.** `gen_ce_level.py --sounds` writes `environment.sounds`, and
    MJOLNIRLevelLoader plays it:
    - background loops in 2D, map-wide;
@@ -545,10 +599,11 @@ hooked), for example:
 and writes `mods/MJOLNIRLevelLoader/events.json` (event name to waves).
 `build_ce_sounds.py` imports them under `/Game/MJOLNIR/Sounds/Events`, and
 the loader plays an event's sound on converted multiplayer levels only.
-Personal events (teleport, respawn ticks, multikills and sprees) play only
-for the player who caused them, taken to be absolute index 0, the host's
-first local player. A networked client's index is not exposed to scripts
-yet.
+Personal events (teleport, respawn ticks, multikills and sprees, and a
+health pack's `lap_complete`) play only for the player they concern: the
+incident's cause or effect must be the local player's absolute index, read
+from its `BlamPlayerStateComponent` (`BlamAbsolutePlayerIndex`: 0 on the
+host, the joiner's own slot on a fireteam client; 2026-10-01).
 
 The waves are loaded when the level is furnished, and the hook only queues
 the event; a 100 ms game-thread loop plays it. Loading and playing inside
@@ -572,7 +627,9 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   (none ships).
 - **Map variant palette** (`blam.map_variant`). Objects with multiplayer data
   exist only through the map variant, which is built from the placements whose
-  tags a palette lists. A model variant gets an entry of its own. Grenades,
+  tags a palette lists. A model variant gets an entry of its own. The bake
+  writes a palette per category with every kind the palette map knows, so
+  Forge can place the whole arsenal ([forge.md](forge.md)). Grenades,
   the overshield and camouflage also need the game variant's map options
   (grenades, equipment and powerups on map), which `megalo write` sets.
 - **Vehicles:** every vehicle the CE scenario places (`--game-type all`),
@@ -658,31 +715,51 @@ there is no variant, no flag object and no flag mesh, so each piece is ours.
 
 - **The rules** are a Megalo variant, `variants/ctf.mglo`
   (`mjolnir megalo write --mode ctf`, `crates/blam-megalo/src/ctf.rs`). The
-  script makes each team's flag on its stand, scores a capture when the
-  carrier stands in their own stand's boundary while their own flag is home,
-  returns a dropped flag when its own team touches it or after 30 s, and ends
-  the round at 3 captures. The flag incidents (`flag_grabbed` 110,
-  `flag_dropped` 112, `flag_scored` 116, `flag_reset` 118, `flag_recovered`
-  119) carry the flag's team as their value (Unreal's `CustomValue`), so
-  the loader plays CE's team lines ("Red team has the flag", "Blue team
-  score", "Red team flag returned"). The action and condition encodings
-  match ReachVariantTool's opcode list; they are checked against the CU4
-  decoder in [re/megalo_variant_format.md](re/megalo_variant_format.md).
+  script makes each team's flag on its stand (red's object type on a stand
+  owned by red, blue's on blue's), scores a capture when the carrier stands
+  in their own stand's boundary while their own flag is home, returns a
+  dropped flag when its own team touches it or after 30 s, and ends the
+  round at 3 captures. The reset, like the health pack's respawn, is counted
+  in ticks at the simulation's 60 a second (`--tick-rate`; at the old
+  default of 30 both lasted half as long). The flag incidents
+  (`flag_grabbed` 110, `flag_dropped` 112, `flag_scored` 116, `flag_reset`
+  118, `flag_recovered` 119) carry the flag's team as their value (Unreal's
+  `CustomValue`), so the loader plays CE's team lines ("Red team has the
+  flag", "Blue team score", "Red team flag returned"). The action and
+  condition encodings match ReachVariantTool's opcode list; they are checked
+  against the CU4 decoder in
+  [re/megalo_variant_format.md](re/megalo_variant_format.md).
 - **Teams.** Each CE start is labelled `ctf_spawn_red`, `ctf_spawn_blue` or
   `ctf_spawn_none` and placed neutral. The variant gives the red and blue
   spawn points their teams, and parks the rest on a team no player is on.
   It waits 2 s before the first spawn (the loadout camera time), so the
   first tick has set the teams up; a spawn on tick 0 used them neutral.
-- **The flag** (`tools/level/build_ctf_flag.sh`) is a weapon cloned from the
-  assault bomb, which ships whole and is carried the same way. It is entry
-  18 of the multiplayer object type list, which the script needs before it
-  can create one. The bomb binds no Unreal actor, so the flag borrows the
-  oddball's `BP_SkullActor`. MJOLNIRLevelLoader hides the skull, removes its
-  fire effect and whispering audio, and attaches CE's own flag mesh in its
-  team's colours. The mesh is exported by halo2ue and rewritten into
-  `/Game/MJOLNIR/CTF/SM_CE_Flag`; its textures come from
-  `tools/level/ce_flag_textures.py`. The stand needs no mesh: CE's own flag
-  base scenery sits at each flag and comes in with the map.
+- **The flags** (`tools/level/build_ctf_flag.sh`) are two weapons cloned
+  from the assault bomb, which ships whole and is carried the same way:
+  `objects\weapons\multiplayer\flag\flag` for red and `flag_blue` for blue,
+  entries 18 and 20 of the multiplayer object type list, which the script
+  needs before it can create them. They differ only in their default model
+  variant, `default` and `blue`, both variants of the bomb's model. The
+  bomb binds no Unreal actor, so the flags borrow the oddball's
+  `BP_SkullActor`. MJOLNIRLevelLoader hides the skull, removes its fire
+  effect and whispering audio, and attaches CE's own flag mesh in its
+  team's colours. The team is the actor's own: the simulation computes a
+  flag's team colour but never hands it to Unreal, while an object's model
+  variant does reach the actor (`GetVariantName()` on its mesh
+  synchronization component) on every machine, because a tag's default
+  comes with the tag ([game_modes.md](game_modes.md), 2.2). The mesh is
+  exported by halo2ue and rewritten into `/Game/MJOLNIR/CTF/SM_CE_Flag`;
+  its textures come from `tools/level/ce_flag_textures.py`. The stand needs
+  no mesh: CE's own flag base scenery sits at each flag and comes in with
+  the map.
+- **Release order.** The variant names every object type it creates, and
+  the simulation wipes a variant naming one the installed list lacks: no
+  rules at all, not a colour bug. The CE runtime pack with
+  `pakchunk990-MJOLNIRFLAGB_P` and the list's entry 20 ships before, or
+  with, the mods release whose `ctf.mglo` creates type 20. The lobby offers
+  CTF only when that container is installed, and `mjolnir megalo write
+  --mode ctf --single-flag` writes the one-type script (entry 18 for both
+  teams) for a pack without it.
 - **Armour colours.** In a team game the loader puts every Spartan in the
   classic Mk V armour, whatever the player picked: only its material takes a
   colour. The others (Chief's default, MkIV, Blamite, Lone Wolf, the
@@ -776,6 +853,16 @@ distance), at the same numbers in CU4's decoder.
 
 ## Playing it
 
+**Update 2026-10-21:** a converted map is hosted from the main menu's
+MULTIPLAYER → HOST GAME (MJOLNIRLobby), which starts it through the campaign
+flow's countdown. The host's game type reaches the loader as
+`pending_variant.txt` and takes precedence over the level's `"variant"`,
+which stays the default; a fireteam client reads it from the insertion point
+index the host's travel carries. The host's game settings and vehicle sets
+are patched into the copy the simulation loads. `mjolnir_map_registry.dll`
+is built by the mods release and ships in MJOLNIRLevelLoader's `native`
+folder. The paragraph below is the first route, from the campaign menu.
+
 CAMPAIGN → NEW GAME → the map (the last mission). `"multiplayer": true` tells
 MJOLNIRLevelLoader's native half to switch the simulation to the Megalo engine
 when that mission starts, and back before any other mission; `"variant":
@@ -789,8 +876,48 @@ manual form of the engine switch, without the variant, is:
 mjolnir live engine --launch-engine 2 --map-variant-gate skip --map-variant-reset skip   # at the main menu
 ```
 
-The level spawns its terrain once the player pawn exists, so the first
-seconds after the loading screen are dark.
+The level spawns its terrain and sky as soon as the world exists, behind the
+loading screen (waiting for the player pawn left converted maps black for
+20-30 s after it), and fades in once the pawn exists.
+
+## Upgraded maps
+
+`python tools/level/upgrade_ce_map.py <CODE>` takes a converted map through
+the B30 pipeline, for each map in `tools/level/ce_upgrade_maps.json` (TST,
+BGL, DTI, YOY, ICE, SDW, TMB, INF, GPH, BCK, RAT, DCN). Its stages, which
+`--stages` picks from: `land` (a Landscape from the ground's heights),
+`foliage` (the game's grass and debris), `swap` (B30's own rocks and trees
+for CE's natural scenery), `collision` (their hulls, `b30_collision.py`, in
+the BSP through `merge_ce_collision.py --extra`), `editor` (the map's
+Landscape world), `cook`, `bake`, `assemble` (the level file) and `install`.
+A map with `bake_foliage` has its foliage placed in the landscape world
+(`foliage_bake.py`, PR #208) instead of spawned at load. `pack_remastered.py`
+packs the result as the next version of each map's hub listing (PR #184).
+
+### Baked Flux rivers
+
+A Fluid Flux river (an upgraded map's `flux` with a `domain`) fills from
+priming sources over about a minute. Baking its settled water makes it start
+full, as the game's own 343 Guilty Spark water does (`PDA_M06_343_FluxState`):
+
+1. Host the map and wait for `flux: river filled` in `UE4SS.log`, plus a
+   few seconds.
+2. Run `mjolnir_flux_bake` in the console. It writes `flux_state/`
+   (`height.exr`, `velocity.exr`, `state.json`) beside the installed level
+   file.
+3. Run `python tools/level/upgrade_ce_map.py <CODE> --stages assemble`, then
+   `--stages install` with the game closed. Assemble copies the bake into the
+   upgrade's work folder and sets `level.flux.state`; install and
+   `pack_remastered.py` ship `flux_state/` beside the level file.
+
+MJOLNIRLevelLoader builds a `PDA_FluxSimulationState` from the EXRs and sets
+it as the domain's `InitialState` before the domain starts. Its
+`ResetRenderTargets` then loads that state rather than clearing the water,
+the priming sources are skipped, and CE's water is hidden at once. A bake
+for another domain (centre, resolution, cell or height) is ignored, by
+assemble and by the loader, and the river fills the old way: rebake after
+changing a map's `flux` settings or its river mesh. Battle Creek was baked
+on 2026-10-19.
 
 ## Limits
 
@@ -798,17 +925,27 @@ seconds after the loading screen are dark.
   palette's particle systems that the BSP's clusters use, and the weather
   polyhedra, into `fog.json`. `gen_ce_level.py` maps a snow system to the
   game's PNW falling snow (`environment.weather`, docs/level_format.md).
-  Weather does not stop indoors yet: the polyhedra and the clusters with no
-  weather are read but not used. A sky with no model draws its outdoor fog
-  colour past the opaque distance (`environment.sky_fog`). Only Coldsnap,
-  among the converted maps, has either. Only a map's first fog plane is
+  Weather stops under a roof (2026-10-13): `gen_ce_level.py` writes a roof
+  map from the collision BSP's ceilings that have a floor below them
+  (`weather.roofs`), and the loader hides the snow while a ceiling is within
+  25 m above the camera. CE's own weather polyhedra (mostly single planes
+  over a room's openings) are read but not used. A sky with no model draws
+  its outdoor fog colour past the opaque distance (`environment.sky_fog`).
+  Only Coldsnap, among the converted maps, has either. Only one fog plane is
   drawn, and Coldsnap has three: the crevasse's two pit fogs and a
-  "snowyfog night" layer.
-- **Visuals.** No decals yet. A light a placed object carries
-  (the base beacons) is drawn as its lens flare only, never as a light, and
+  "snowyfog night" layer. Since 2026-10-13 `ce_fog.py` puts first the plane
+  most of the map's clusters draw (Coldsnap: its night fog, in 121 clusters).
+- **Visuals.** No scenario decals on a plain conversion; CE's decal-flagged
+  surfaces (light panels, moss) are drawn lifted 1 cm off what they lie on
+  (`merge_ce_scene.py` `DECAL_OFFSET`, 2026-10-04). A light a placed object
+  carries (the base beacons) is drawn as its lens flare only, never as a light, and
   the flare's brightness follows the object function that scales the light
   (Danger Canyon's beacons: a 1 s cosine; MJOLNIRLevelLoader updates it
-  every 40 ms). Dynamic lights
+  every 40 ms). On an upgraded map ("Upgraded maps"), CE's scenario decals
+  are drawn as quads over the decal's own texture (2026-10-12), the lights
+  CE's placed objects carry are shadowed point lights (`level.lights`,
+  2026-10-12), and a flare's pulse runs in its material (`M_CE_Flare`
+  `Pulse`, 2026-10-18). Dynamic lights
   (headlights, muzzle flashes, the flashlight) light players, vehicles and
   weapons but not the terrain: its base colour holds only the sun's share
   of the baked light (object shadows), and it sits on lighting channel 1,
@@ -846,10 +983,17 @@ seconds after the loading screen are dark.
   white. Scenery has CE's object lighting (ambient,
   dominant light, floor bounce, reflection tint) but not its shadow colour
   or point lights; a self-illumination colour that takes a change colour
-  does not take it. One converted
-  map installed at a time: its meshes override the two donor shapes.
+  does not take it.
 - **Scenery collision** stops players, vehicles and, since 2026-10-03,
-  projectiles (checked offline, `scenery_probe`; not yet in game). Each
+  projectiles (checked offline, `scenery_probe`). **Update 2026-10-21:** in
+  game on Death Island (2026-10-18), shots stop on scenery collision: the swapped B30
+  rocks' hulls, which reach the collision the same way as CE's scenery
+  (`merge_ce_collision.py --extra`). The simulation's polygon test for such a
+  crossing takes one winding only (`FUN_1802f0170`, CU4), so a two-sided
+  surface stops a ray only from the side its plane faces: hulls wound inward
+  stopped shots on their far wall, from inside, until they were wound
+  outward. `raytest::tree_game` walks by that rule. That test shot a swapped
+  rock, not CE's own scenery. Each
   node of a collision model is placed by its model node's rest pose: before
   halo2ue did that, a tree's canopy hull sat around its trunk at head
   height (Infinity, 2026-10-04), so maps converted earlier need converting
@@ -872,25 +1016,41 @@ seconds after the loading screen are dark.
   nominal period. The plasma self-illumination band's width and the
   "add signed" chicago functions are estimates. The reflection's view term
   uses the per-pixel eye vector where CE used the camera's forward vector.
-  Water (`swat`), glass (`sgla`) and the reflection lightmap mask are not
-  reproduced.
-- **One standalone map installed at a time:** each ships its own override of
-  `DT_Scenarios`.
+  Water (`swat`, "Water" above), glass (`sgla`) and the reflection
+  lightmap mask, once listed here as missing, are drawn: glass in CE's three
+  passes since 2026-10-04 (`merge_ce_scene.py` `extra_passes`: the
+  background tint multiplied in, the reflection added, then the diffuse
+  pass, on `M_CE_Glass{Tint,Reflection,Diffuse}`, two-sided by flag bit 2),
+  and the environment masters dim reflections in dark lightmap areas by the
+  shader's lightmap brightness scale (`LightmapReflScale`, 2026-10-04).
+  Plasma (`spla`, Yoyorast's energy beams) draws on `M_CE_Plasma`, MCC's
+  transparent_plasma (2026-10-12).
+- **Maps install side by side.** Each has its own scenario, world and mesh
+  containers. The one registration container, `pakchunk996-MJOLNIRREG_P`
+  (the `DT_Scenarios` rows and the campaign asset's `ScenarioList`), is
+  rebuilt from every installed map's record by `level bake --install-test`
+  or `mjolnir level register`, whose code the launcher runs after a map
+  install or removal. Only the `CE_COOK=0` fallback still overrides the
+  shipped cylinder, one such map at a time.
 - **More than 8,191 surfaces** (Sidewinder, Infinity, Death Island, ...): the
   static body lists the terrain as one whole-instance key instead of one key
   per surface. Verified on Sidewinder: players walk and vehicles rest on it.
 - **One BSP per map.** A map's second BSP is not converted (Coldsnap's is a
   copy of its first).
-- **The canvas palette.** Weapons and vehicles the canvas mission never
-  places (shotgun, flamethrower, fuel rod, health packs) are dropped.
+- **The canvas palette.** A type B40's palette lacks gets an entry of its
+  own at the bake (the shotgun, and the fuel rod as Reach's `flak_cannon`),
+  and health packs are Megalo script ("Health packs"). Only the
+  flamethrower, which the game does not ship, is dropped.
 - **No rocket Warthog.** Rocket hogs spawn as chaingun hogs until the rocket
   turret's tag wrapper points at an actor Blueprint (the chaingun turret's,
   via `ue-asset` tagwrap, or a rewritten mesh with CE's rocket pod).
 - **Extent.** Keep a map inside the canvas level's overall extent: lifted 800 wu
   above B40, Havok flung objects hundreds of wu.
-- **Game modes.** Slayer only (`mjolnir megalo write --mode slayer --score N
-  --out .../MJOLNIRLevelLoader/variants/slayer.mglo` changes the score to
-  win). Without the file the map runs the empty default variant: players
-  spawn, nothing scores. `--mode tick` scores every player every tick, a
-  smoke test for the interpreter. CTF, Oddball and King need their scripts
-  written.
+- **Game modes.** Slayer and Capture the Flag (`mjolnir megalo write --mode
+  slayer|ctf`; the mods release ships `variants/slayer.mglo` and `ctf.mglo`,
+  and `--score N --out .../MJOLNIRLevelLoader/variants/slayer.mglo` changes
+  the score to win). Without the file the map runs the empty default
+  variant: players spawn, nothing scores. `--mode tick` scores every player
+  every tick, a smoke test for the interpreter. Team Slayer, Oddball and
+  King have entries in the lobby's mode list but no variant yet, so the
+  lobby does not offer them.

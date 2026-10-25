@@ -3,9 +3,10 @@
 **Since:** CU4 (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`), 2026-08-18
 
 Steam updates the game in place. The moment a patch lands, the previous build is gone, and with
-it any chance of asking "what did this update actually change" — CU4 taught us that the hard
-way: we can prove 17 container sets changed (the CU3 lock's hashes say so) but never what
-changed inside them, because nobody kept the CU3 bytes.
+it any chance of asking "what did this update actually change" — CU4 nearly taught us that the
+hard way: the CU3 lock's hashes proved 17 container sets changed, but nobody had kept the CU3
+bytes to say what changed inside them. Steam's depot history saved that run (see "Recovering an
+older build"), and it cannot be counted on to do so again.
 
 So every build gets kept from now on. The pipeline has three stages — snapshot, diff, publish —
 and ends in a blog post on [mjolnircore.com/blog](https://mjolnircore.com/blog) naming what the
@@ -29,9 +30,9 @@ into that pool. Unchanged files are stored once, so the first snapshot costs the
 and each later one only what the update touched. `--lock-out` stamps out the repo's
 [build lock](build_lock.md) from the same hashing pass.
 
-The skip rules (`ue4ss/`, `LogicMods/`, `dwmapi.dll`, `*.log`, `*.dmp`) are imported from
-`build_lock.py`, not duplicated — a snapshot and a lock taken from the same install must agree
-about what "the install" is.
+The skip rules (`ue4ss/`, `LogicMods/`, `.DepotDownloader/`, `dwmapi.dll`, `*_P` override
+containers, `*.log`, `*.dmp`) are imported from `build_lock.py`, not duplicated — a snapshot
+and a lock taken from the same install must agree about what "the install" is.
 
 Other verbs: `list`, `verify` (store integrity), `diff` (file-level, `--json` for machines), and
 `materialize`, which rebuilds a build's file tree out of the pool with hardlinks:
@@ -91,13 +92,14 @@ python tools/steam_depot_fetch.py 457322918737678760 --name cu3 --qr --store D:/
 Login is interactive and stays between the user and Steam — `--qr` is a Steam Mobile scan, or
 `--username` makes DepotDownloader prompt for the password itself; nothing is typed into or
 stored by our tooling. The game is app `2806050`; the content lives in depot `2806051` and the
-never-changed DigitalExtras in depot `4192200`. Manifests SteamDB had seen as of 2026-08-18:
+never-changed DigitalExtras in depot `4192200`. Every manifest SteamDB had seen as of
+2026-08-19; all three are downloaded, snapshotted and confirmed by their exe version stamps:
 
-| Depot 2806051 manifest | Seen | Build |
+| Depot 2806051 manifest | Shipped | Build |
 |:--|:--|:--|
-| `5851394981381786761` | 2026-08-17 | CU4 — snapshotted live |
-| `457322918737678760` | 2026-07-29 | **CU3, confirmed** — recovered 2026-08-18, hashed identical to the CU3 lock |
-| `8153709523381701809` | 2026-07-23 | CU2 (launch-era), unconfirmed until fetched |
+| `5851394981381786761` | 2026-08-17 | CU4 (`2026.08.11.1121610.2`) — snapshotted live |
+| `457322918737678760` | 2026-07-29 | **CU3** (`2026.07.25.1112544.4`) — recovered 2026-08-18, hashed identical to the CU3 lock |
+| `8153709523381701809` | 2026-07-23 (launch/preload) | **CU2** (`2026.06.26.1097863.1`) — recovered; no older manifest exists, so there is no Steam CU1 |
 
 The build is whatever version stamp the downloaded exe carries — the snapshot reads it from
 there, so a wrong guess in `--name` mislabels the scratch directory, never the store. The
@@ -107,8 +109,9 @@ recovered build hashes identically to the same build caught live.
 Two caveats. Steam grants manifest *request codes* per manifest, and codes for old manifests
 are not guaranteed forever — if DepotDownloader reports the code was denied, that build is
 gone through official channels, which is the whole argument for snapshotting on the day an
-update lands. And SteamDB's "seen" dates are its crawler's, not the release's, so the
-build-to-manifest mapping above is confirmed only when the downloaded exe says so.
+update lands. And SteamDB's "seen" dates are its crawler's, not the release's (the ship dates
+above were settled from its build history on 2026-08-19), so a build-to-manifest mapping is
+confirmed only when the downloaded exe says so; for the three above, it did.
 
 ## Known issues
 
@@ -144,7 +147,8 @@ to the CU3 lock on all 252 shipped files, which both rescued the CU3→CU4 diff 
 the whole recovery path. The full `tagdiff` (labels CU3 → CU4) reported:
 
 - **1 added** (`a10/unsc_cryo_capsule` animation graph), **0 removed**, **358 changed**,
-  11,931 byte-identical, 2 unreadable (the Oodle pair below).
+  11,931 byte-identical, 2 unreadable (the Oodle pair under Known issues, which has decoded
+  since 2026-08-19).
 - Substantive: `ai/generic-character` (+2 firing patterns, 199 field diffs) and
   `floodcombat_base-character` retuned; `jackal-model` hitbox targets reworked (elbows →
   hands, a headshot flag); `globals` camo `biped speed reference` 3.25 → 3.7;

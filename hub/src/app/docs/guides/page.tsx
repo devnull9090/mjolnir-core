@@ -6,7 +6,7 @@ import { getGuides } from "@/lib/docs";
 export const metadata: Metadata = {
   title: "Guides | MJOLNIR Docs",
   description:
-    "Step-by-step guides for modding Halo Campaign Evolved: editing a tag, getting it into the game, and driving the game from a script.",
+    "Step-by-step guides for modding Halo Campaign Evolved: editing a tag and getting it into the game, making a mod, swapping a texture, building a custom level, and driving the game from a script.",
 };
 
 export default function GuidesPage() {

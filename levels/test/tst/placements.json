@@ -1,0 +1,223 @@
+{
+  "sky": "sky\\clear afternoon\\clear afternoon",
+  "scenery": [
+    {
+      "tag": "scenery\\trees\\tree_leafy_medium\\tree_leafy_medium",
+      "position_m": [
+        -12,
+        -12,
+        0.10358
+      ],
+      "yaw_degrees": 0,
+      "permutation": 0
+    },
+    {
+      "tag": "scenery\\trees\\tree_leafy_medium\\tree_leafy_medium",
+      "position_m": [
+        -22,
+        20,
+        0.00899
+      ],
+      "yaw_degrees": 0,
+      "permutation": 0
+    },
+    {
+      "tag": "scenery\\trees\\tree_leafy_medium\\tree_leafy_medium",
+      "position_m": [
+        25,
+        0,
+        -0.05612
+      ],
+      "yaw_degrees": 0,
+      "permutation": 0
+    },
+    {
+      "tag": "scenery\\rocks\\boulder_granite_medium\\boulder_granite_medium",
+      "position_m": [
+        -12,
+        -21,
+        0.10516
+      ],
+      "yaw_degrees": 30
+    },
+    {
+      "tag": "scenery\\rocks\\boulder_granite_medium\\boulder_granite_medium",
+      "position_m": [
+        0,
+        8,
+        1.07613
+      ],
+      "yaw_degrees": 30
+    },
+    {
+      "tag": "scenery\\rocks\\boulder_granite_medium\\boulder_granite_medium",
+      "position_m": [
+        15,
+        -9,
+        -0.01916
+      ],
+      "yaw_degrees": 30
+    }
+  ],
+  "vehicles": [
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "position_m": [
+        -37,
+        -12,
+        0.20699
+      ],
+      "yaw_degrees": 0,
+      "team": 0
+    }
+  ],
+  "spawns": [
+    {
+      "position_m": [
+        -45,
+        -4,
+        0.65
+      ],
+      "yaw_degrees": 0,
+      "team": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "position_m": [
+        -45,
+        4,
+        0.65
+      ],
+      "yaw_degrees": 0,
+      "team": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "position_m": [
+        45,
+        -4,
+        0.65
+      ],
+      "yaw_degrees": 180,
+      "team": 1,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "position_m": [
+        45,
+        4,
+        0.65
+      ],
+      "yaw_degrees": 180,
+      "team": 1,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    }
+  ],
+  "flags": [
+    {
+      "position_m": [
+        -47,
+        0,
+        0.55
+      ],
+      "yaw_degrees": 0,
+      "team": 0
+    },
+    {
+      "position_m": [
+        47,
+        0,
+        0.55
+      ],
+      "yaw_degrees": 180,
+      "team": 1
+    }
+  ],
+  "pickups": [
+    {
+      "tag": "item collections\\single weapons\\assault rifle",
+      "position_m": [
+        -44,
+        -3,
+        0.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\single weapons\\pistol",
+      "position_m": [
+        -44,
+        3,
+        0.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\single weapons\\assault rifle",
+      "position_m": [
+        44,
+        -3,
+        0.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\single weapons\\pistol",
+      "position_m": [
+        44,
+        3,
+        0.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\powerups\\powerup health pack",
+      "position_m": [
+        0,
+        -5,
+        0.20019
+      ],
+      "yaw_degrees": 0
+    }
+  ],
+  "teleporters": [
+    {
+      "channel": 0,
+      "from_m": [
+        -35,
+        9,
+        0.02819
+      ],
+      "to_m": [
+        35,
+        9,
+        0.07181
+      ],
+      "from_yaw_degrees": 0,
+      "to_yaw_degrees": 180
+    }
+  ],
+  "lights": [
+    {
+      "tag": "levels\\test\\deathisland\\devices\\light fixtures\\light fixture floor1",
+      "position_m": [
+        -40,
+        -3.5,
+        0.5
+      ],
+      "yaw_degrees": 0
+    }
+  ]
+}

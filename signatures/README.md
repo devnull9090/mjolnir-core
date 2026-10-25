@@ -1,9 +1,10 @@
 # UE4SS AOB signatures (Halo Campaign Evolved, Steam)
 
 What UE4SS scans for to find engine internals in the shipping binary. All four
-are verified resolving **uniquely** against CU3
-(`2026.07.25.1112544.4-Rel-i343-Meteorite-2607-CU3`, host SHA-256
-`4D20DC56…D367753` — see [`config/hce-build.lock.json`](../config/hce-build.lock.json)):
+are verified resolving **uniquely** against CU4
+(`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`, host SHA-256
+`EB1DACA6…4B152`, re-verified 2026-08-18 — see [`config/hce-build.lock.json`](../config/hce-build.lock.json)
+and [`docs/build_lock.md`](../docs/build_lock.md)):
 
 ```bash
 python tools/pe/aob_scan.py "<Win64>/HaloCampaignEvolved.exe"
@@ -45,9 +46,10 @@ The instruction *shape* is what identifies the function; the displacement is
 build-specific noise. The same applies to `E8` call targets — wildcard the
 rel32 and decode it, as upstream's `gamepass/GUObjectHashTables.lua` does.
 
-This is not theoretical. On 2026-08-01 a game update broke exactly one
-signature: `GUObjectHashTables.lua`, the only file that had two displacements
-(`39 05 12 39 C5 09`, `48 8D 05 B1 CA 74 09`) committed as literal bytes.
+This is not theoretical. The CU3 update (shipped 2026-07-29, fixed here on
+2026-08-01) broke exactly one signature: `GUObjectHashTables.lua`, the only file
+that had two displacements (`39 05 12 39 C5 09`, `48 8D 05 B1 CA 74 09`)
+committed as literal bytes.
 UE4SS retried the scan 1476 times and then killed the process with a fatal
 error. The other three resolved fine, because they follow the rule.
 
@@ -99,17 +101,27 @@ own, anchor on a call site and decode the `E8` rel32 instead — that is what
    watches its own DLL, **not** the game executable, so a game update does not
    invalidate a cached scan on its own.
 
-This bit on the 2026-07-31 CU3 update: `FName_Constructor.lua` failed even though
-its pattern was verified present — exactly once — both in the CU3 exe on disk and
-in the live process via `ReadProcessMemory`. The pattern was fine. Recovery was
-deleting `ue4ss/cache` and relaunching (with `SigScannerNumThreads = 1` also set;
+This bit on the CU3 update (shipped on Steam 2026-07-29): `FName_Constructor.lua`
+failed even though its pattern was verified present — exactly once — both in the
+CU3 exe on disk and in the live process via `ReadProcessMemory`. The pattern was
+fine. Recovery was deleting `ue4ss/cache` and relaunching (with `SigScannerNumThreads = 1` also set;
 which of the two mattered was not bisected). Clear the cache **first**, before
 touching any pattern — a stale cache can impersonate a broken signature.
 
-Known looseness: `GUObjectHashTables.lua` resolved to different addresses on
-different CU3 launches at the same image base, so its pattern matches more than
-one site. It has worked regardless; tighten it if hash-table lookups ever
-misbehave.
+Known looseness, since fixed: as recorded on 2026-08-02,
+`GUObjectHashTables.lua` resolved to different addresses on different CU3
+launches at the same image base. That was the wildcarded pattern that matched
+195 sites (above). The call-site anchor that replaced it on 2026-08-05
+(`1834c145`) matches exactly once, on CU3 and on CU4.
+
+These four are not the only per-build anchors an update can break. The native
+mods carry their own: `native/map_registry`'s `exe_profiles` (ported to a new
+exe with `native/signatures/port_rvas.py`), `native/blam_console`'s
+simulation-DLL timestamps and RVAs (`docs/blam_console.md`, "After a game
+update"), and `native/frame_times`' DrawStat pattern
+(`tools/pe/statunit_pattern.py`). So does the tag module (below). The
+`game-update-report` skill (`.claude/skills/game-update-report/SKILL.md`) walks
+through all of them.
 
 ## The tag module's anchors (`crates/blam-live/src/tagtable.rs`)
 
@@ -126,7 +138,7 @@ what the code does rather than where it is:
 | string-id storage | `48 89 05 ? ? ? ? BA 00 F8 0F 00 41 B8 00 FC 07 00` | the registry's constructor storing its storage pointer, then sizing the hash table (0xFF800 buckets, 0x7FC00 max) |
 | string-id builtins | `48 8D 05 ? ? ? ? 8B 04 F8 89 44 24 70 EB 20` | a builtin-id lookup, `mov eax, [rax+rdi*8]` |
 
-The other five registry globals sit at fixed offsets from the storage
+The other four registry globals sit at fixed offsets from the storage
 pointer (`+8` used, `+0x10` strings, `+0x18` count, `+0x30` map). The gated
 test `anchors_reproduce_the_measured_profile` checks the derived profile
 against the measured one on the installed module.

@@ -113,3 +113,31 @@ test("the summary averages foliage runs by GPU, map, height and quality", async 
   assert.equal(rows[0].base_ms, 15.52);
   assert.equal(rows[0].foliage_delta_ms, -2.54);
 });
+
+test("a report from MJOLNIRHud 0.11.0 keeps its camera and frame split", async () => {
+  const times = { game: 19.6, game_cp: 6.1, draw: 7.4, draw_cp: 5.9, rhit: 3.2, gpu: 19.1 };
+  const view = { x: -4521.5, y: 1830.25, z: 312, pitch: -8.5, yaw: 143.2 };
+  const results = (fixture.results as { name: string; ms: number }[]).map((r) => ({
+    ...r,
+    times: { ...times, gpu: times.gpu - 2 },
+  }));
+  const r = await call("POST", "/benches", player, report({
+    bench_id: "00112233445566778899aabbccddeeff",
+    base_times: times,
+    view,
+    results,
+  }));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const list = (await call("GET", "/admin/benches?map=DTI", admin)).body.benches as Record<string, unknown>[];
+  const got = list.find((b) => b.id === r.body.id)!;
+  assert.deepEqual(got.view, view);
+  assert.deepEqual(got.base_times, times);
+  assert.equal((got.results as { times: { gpu: number } }[])[0].times.gpu, times.gpu - 2);
+  // Older clients' reports read as null, not as zeros.
+  const old = list.find((b) => b.id !== r.body.id && b.kind === "foliage")!;
+  assert.equal(old.view, null);
+  assert.equal(old.base_times, null);
+  // A camera with no place, or a negative time, is refused.
+  assert.equal((await call("POST", "/benches", player, report({ bench_id: "aa112233445566778899aabbccddeeff", view: { x: 1 } }))).status, 400);
+  assert.equal((await call("POST", "/benches", player, report({ bench_id: "bb112233445566778899aabbccddeeff", base_times: { gpu: -1 } }))).status, 400);
+});

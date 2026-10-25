@@ -39,6 +39,10 @@ pub struct NewTagArgs {
     /// A field to change in the new tag's body, as `path=value`. Repeatable.
     #[arg(long = "set")]
     sets: Vec<String>,
+    /// More `--set`s from a file, one `path=value` a line (a physics model
+    /// of hundreds of boxes outgrows a command line).
+    #[arg(long)]
+    set_file: Option<PathBuf>,
     /// Replace a whole block of the new tag with another shipped tag's block
     /// (elements and their wrappers), as `TARGET_PATH=GROUP:TAG:SOURCE_PATH`,
     /// e.g. `object.multiplayer object=weapon:assault_rifle-weapon:item.object.multiplayer object`.
@@ -64,6 +68,17 @@ pub struct NewTagArgs {
     /// ready for the next launch.
     #[arg(long)]
     install_test: bool,
+    /// Resize a root block of the new tag to N elements, as `BLOCK=N`:
+    /// truncated, or grown by copies of its last element (a physics model's
+    /// boxes, one a piece). Runs after `--graft` and before `--set`, so the
+    /// copies can be edited. Repeatable.
+    #[arg(long = "resize")]
+    resizes: Vec<String>,
+    /// Replace the donor's body wholesale with this file (a complete tag
+    /// payload written by another tool, e.g. an animation graph with a
+    /// resource of its own), before any `--graft` or `--set`.
+    #[arg(long)]
+    payload: Option<PathBuf>,
     /// Measurement aid: overwrite the wrapper's `cooked_header_size` with this
     /// value, to test whether the game reads it.
     #[arg(long, hide = true)]
@@ -83,7 +98,10 @@ pub fn run(a: NewTagArgs) -> Result<()> {
         .with_context(|| format!("no {} tag matching {:?}", a.group, a.from))?;
     let usmap = crate::embedded_usmap()?;
 
-    let original = idx.read(donor_entry, None, &a.src.oodle_roots())?;
+    let original = match &a.payload {
+        Some(path) => std::fs::read(path).with_context(|| format!("reading {}", path.display()))?,
+        None => idx.read(donor_entry, None, &a.src.oodle_roots())?,
+    };
     println!("donor    {}", donor_entry.path);
     println!("  body   {} bytes", original.len());
 
@@ -132,7 +150,33 @@ pub fn run(a: NewTagArgs) -> Result<()> {
             from.path
         );
     }
-    let file = crate::apply_sets(&grafted, &a.sets)?;
+    for spec in &a.resizes {
+        let (block, n) = spec
+            .rsplit_once('=')
+            .with_context(|| format!("--resize takes BLOCK=N, got {spec:?}"))?;
+        let n: usize = n.trim().parse().with_context(|| format!("--resize count in {spec:?}"))?;
+        let count = {
+            let t = TagFile::parse(&grafted, Some(grafted.len()))?;
+            let l = t.layout()?;
+            let root = t.read_data(&l)?;
+            blam_tag::blockedit::find_block(&l, &grafted, &root, block)?.block.count as usize
+        };
+        let op = match n.cmp(&count) {
+            std::cmp::Ordering::Less | std::cmp::Ordering::Equal => blam_tag::blockedit::Op::Truncate { keep: n },
+            std::cmp::Ordering::Greater if count > 0 => {
+                blam_tag::blockedit::Op::CloneAppend { donor: count - 1, copies: n - count }
+            }
+            _ => bail!("--resize {block}: the block is empty, nothing to copy"),
+        };
+        grafted = blam_tag::blockedit::resize(&grafted, block, &[op])?.0;
+        println!("  resize {block}: {count} -> {n} element(s)");
+    }
+    let mut sets = a.sets.clone();
+    if let Some(path) = &a.set_file {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        sets.extend(text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
+    }
+    let file = crate::apply_sets(&grafted, &sets)?;
     let tag = TagFile::parse(&file, Some(file.len()))?;
     let l = tag.layout()?;
     let block = tag.read_data(&l)?;

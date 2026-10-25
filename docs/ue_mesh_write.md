@@ -5,6 +5,16 @@ obvious route does not work.
 
 ## Why not just cook the mesh
 
+**Superseded 2026-10-21:** meshes of our own now load by path. The CE flag and
+health pack are built with `mesh_rewrite --rename` and `package_add` as in
+*A brand-new package does not work (yet)* below (`tools/level/build_ce_runtime.sh`,
+PR #106), and the remastered maps' tessellated cliffs and other meshes of their own
+are cooked in `unreal/MJOLNIRMaterials` and re-encoded in the game's property
+layout after the cook (`ue_asset::retarget`, `mjolnir ue retarget`, run by
+`tools/ue/cook.ps1`; PR #184). `MJOLNIRLevelLoader` loads both kinds from
+`/Game/MJOLNIR/...`. Which change cured the failures below is not recorded here;
+the rest of this note is kept as the record.
+
 Content cooked by stock UE 5.5 does not load in this build. Two independent
 failures, both read off the game's own crash reports in
 `%LOCALAPPDATA%\Meteorite\Saved\Crashes\*\CrashContext.runtime-xml`:
@@ -44,9 +54,11 @@ Constraints the donor has to meet:
 
 **`/Engine/BasicShapes/Cylinder` is the donor to use.** It has no Nanite, one
 inlined LOD, one material, a `(50, 50, 50)` box with a `70.71` sphere, and
-nothing references it: the shipped B40 world imports no engine basic shape at
-all, and the level loader places only `Cube` and `Sphere` (plus
-`BasicShapeMaterial` for tinting). `Cone` is an equivalent second choice.
+the game does not reference it: the shipped B40 world imports no engine basic
+shape at all. The level loader places only what a level file names (plus
+`BasicShapeMaterial` for tinting); its bundled A30 sample level does place one
+`Cylinder` pillar beside a `Cube` and a `Sphere`, which an override would
+reshape. `Cone` is an equivalent second choice.
 `Plane` is not usable — its box is flat, so there is nothing to normalise
 into.
 
@@ -64,11 +76,11 @@ anything is packed.
 # 1. geometry in, package out; --selftest rewrites the donor with its own
 #    geometry first, so a failure says which half is wrong
 cargo run -p ue-asset --example mesh_rewrite -- \
-    "<paks>" basicshapes/cube staging/bloodgulch/bsp/bsp_0.gltf out.uasset --selftest
+    "<paks>" basicshapes/cylinder staging/bloodgulch/bsp/bsp_0.gltf out.uasset --selftest
 
 # 2. put it in front of the game
 cargo run -p blam-pack --example package_override -- \
-    "<paks>" basicshapes/cube out.uasset <out dir>
+    "<paks>" basicshapes/cylinder out.uasset <out dir>
 ```
 
 The gate at every step is that `ue_asset::mesh::parse_static_mesh` — verified
@@ -117,6 +129,9 @@ default grey until something says otherwise. Two halves:
    `MJOLNIRLevelLoader` assigns them to the *component* at spawn
    ([level_format.md](level_format.md)). Only shipped materials can be named —
    nothing new is cooked, the mesh just points at what the game already has.
+   **Update 2026-10-21:** an entry may now also be one of our own cooked
+   materials, or a runtime material (a master plus textures and parameters)
+   the loader builds at spawn; see [level_format.md](level_format.md).
 
 **The mesh's own slots do not survive the load.** `--asset-imports` writes the
 materials into the package properly: `StaticMaterials` grows to four entries,
@@ -183,6 +198,9 @@ BC5 normal map has two, and grading its missing blue channel is what made a
 perfect flat normal read as an 85/255 error.
 
 ## A brand-new package does not work (yet)
+
+**Superseded:** packages of our own now resolve by path; see the note at the
+top of *Why not just cook the mesh*.
 
 The tidier answer would be a package of our own rather than shadowing a
 shipped one, and all the machinery for it exists and produces something

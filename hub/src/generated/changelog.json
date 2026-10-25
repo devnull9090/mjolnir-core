@@ -39,6 +39,428 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.5.0",
+      "tag": "cli-v0.5.0",
+      "title": "Halo 2 maps, every Megalo game type readable, and game types checked before they ship",
+      "date": "2026-10-24",
+      "summary": "The CLI converts MCC Halo 2 multiplayer maps, reads and lists any Megalo game type, checks one is safe before it is packed, and writes Team Slayer.",
+      "body": "### Added\n\n- **`mjolnir cache info|tags|stage`** reads other Halo games' map files.\n  `cache info` names the game a `.map` comes from; `cache stage` stages an\n  MCC Halo 2 multiplayer map for conversion in the same layout the Halo CE\n  converter writes, so `tools/level/convert_ce_map.sh` converts Halo 2 maps\n  beside Halo CE ones.\n- **`mjolnir megalo dump <file>`** lists everything a Megalo game type holds:\n  its options, teams, traits, strings and the whole script as triggers with\n  named conditions and actions. It reads `.mglo` files and MCC Halo Reach\n  `.bin` game variants, and says whether the file encodes back bit for bit.\n- **`mjolnir megalo validate <file>`** checks a game type is one the game can\n  load safely. `megalo write` and `map pack` refuse to write one that is not.\n- **`mjolnir megalo write --mode team-slayer`**: Red against Blue, a kill of\n  an enemy scores 1, a teammate kill costs 1.\n- **`mjolnir map pack --game halo1|halo2`** tags a map pack with its game for\n  the hub's game filter.\n- **`mjolnir live engine`** prints the running match's team and player\n  scores.\n\n### Changed\n\n- **`mjolnir megalo write --mode ctf`** writes a CTF whose blue flag is its\n  own object type (20), so each flag's colour comes from the game itself;\n  `--single-flag` writes the old one-type script. It needs CE runtime 1.13.0\n  or later.\n- **`mjolnir megalo write --tick-rate`** defaults to 60, the game's own rate:\n  at 30, the dropped-flag reset and the health-pack respawn lasted half their\n  time.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir cache info|tags|stage reads other Halo games' map files. cache info names the game a .map comes from; cache stage stages an MCC Halo 2 multiplayer map for conversion in the same layout the Halo CE converter writes, so tools/level/convertcemap.sh converts Halo 2 maps beside Halo CE ones.",
+            "mjolnir megalo dump <file> lists everything a Megalo game type holds: its options, teams, traits, strings and the whole script as triggers with named conditions and actions. It reads .mglo files and MCC Halo Reach .bin game variants, and says whether the file encodes back bit for bit.",
+            "mjolnir megalo validate <file> checks a game type is one the game can load safely. megalo write and map pack refuse to write one that is not.",
+            "mjolnir megalo write --mode team-slayer: Red against Blue, a kill of an enemy scores 1, a teammate kill costs 1.",
+            "mjolnir map pack --game halo1|halo2 tags a map pack with its game for the hub's game filter.",
+            "mjolnir live engine prints the running match's team and player scores."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "mjolnir megalo write --mode ctf writes a CTF whose blue flag is its own object type (20), so each flag's colour comes from the game itself; --single-flag writes the old one-type script. It needs CE runtime 1.13.0 or later.",
+            "mjolnir megalo write --tick-rate defaults to 60, the game's own rate: at 30, the dropped-flag reset and the health-pack respawn lasted half their time."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.5.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.5.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.5.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.18.0",
+      "tag": "launcher-v0.18.0",
+      "title": "Open public games from Discord",
+      "date": "2026-10-24",
+      "summary": "Discord's Join Game can open MJOLNIR and start Halo Campaign Evolved, using the launcher's usual sign-in, map and update checks.",
+      "body": "### Added\n\n- **Launch from Discord.** Run the updated launcher once to register its\n  Discord launch link. Clicking Join Game on a public MJOLNIR session can\n  then start the game if it is closed. The normal update and file checks\n  run before launch; a game already running is kept open.\n- Works with **code mods 0.36.0**, which publish MJOLNIR Core presence and\n  receive public-session invites. Keep the Discord desktop app running\n  and enable activity sharing. No Discord SDK installation is needed.\n\n### Known issues\n\n- Joining from another Discord account, including a join that starts a\n  closed game, has not yet been verified end to end. Local presence and\n  automated invite handling tests pass.\n- If game startup or required downloads take more than about three minutes,\n  click Join Game again after the game is ready. An invite received while\n  playing waits until you return to the main menu.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Launch from Discord. Run the updated launcher once to register its Discord launch link. Clicking Join Game on a public MJOLNIR session can then start the game if it is closed. The normal update and file checks run before launch; a game already running is kept open.",
+            "Works with code mods 0.36.0, which publish MJOLNIR Core presence and receive public-session invites. Keep the Discord desktop app running and enable activity sharing. No Discord SDK installation is needed."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Joining from another Discord account, including a join that starts a closed game, has not yet been verified end to end. Local presence and automated invite handling tests pass.",
+            "If game startup or required downloads take more than about three minutes, click Join Game again after the game is ready. An invite received while playing waits until you return to the main menu."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.18.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.18.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.18.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.17.0",
+      "tag": "launcher-v0.17.0",
+      "title": "Checks before every launch, and moves other mods aside while you play",
+      "date": "2026-10-24",
+      "summary": "Launch now checks for updates, checks your installed files and offers to move unsupported mods aside, showing every item as it goes.",
+      "body": "### Added\n\n- **A check before every launch.** Launch looks at the MJOLNIR core, each\n  code mod, the CE runtime pack and every installed map. It lists anything\n  out of date and any installed files that no longer match what was\n  installed. **Update and launch** fixes them first; **Launch without\n  updating** goes straight in. Every item shows as it is checked, under one\n  progress bar, and each download shows its progress. What was installed is\n  checked again before the game starts. Maps are not re-read every time:\n  the launcher remembers each file's size and time and reads a file only\n  when it changed, so the check takes under a second instead of minutes on a\n  slow disk. The Library's Re-check still reads everything.\n- **Unsupported mods moved aside.** Pak mods in the game's Paks folder and\n  UE4SS mods that MJOLNIR did not install can break multiplayer for the whole\n  fireteam. Launch lists them and offers to move them into a\n  `MJOLNIR-set-aside` folder in the game folder while you play. They move\n  back when the game closes, or the next time the launcher starts. Nothing is\n  deleted, and every move is logged.\n- **Update from inside the game.** When the game says it is out of date and\n  you choose UPDATE AND RESTART, the launcher opens, waits for the game to\n  close, updates, and starts it again (`mjolnir://update`).\n- A join from a website link that has to start the game runs the same\n  check first.\n\n### Fixed\n\n- A code mod that writes files into its own folder while the game runs no\n  longer reads as changed: the check compares only the files its release\n  shipped.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A check before every launch. Launch looks at the MJOLNIR core, each code mod, the CE runtime pack and every installed map. It lists anything out of date and any installed files that no longer match what was installed. Update and launch fixes them first; Launch without updating goes straight in. Every item shows as it is checked, under one progress bar, and each download shows its progress. What was installed is checked again before the game starts. Maps are not re-read every time: the launcher remembers each file's size and time and reads a file only when it changed, so the check takes under a second instead of minutes on a slow disk. The Library's Re-check still reads everything.",
+            "Unsupported mods moved aside. Pak mods in the game's Paks folder and UE4SS mods that MJOLNIR did not install can break multiplayer for the whole fireteam. Launch lists them and offers to move them into a MJOLNIR-set-aside folder in the game folder while you play. They move back when the game closes, or the next time the launcher starts. Nothing is deleted, and every move is logged.",
+            "Update from inside the game. When the game says it is out of date and you choose UPDATE AND RESTART, the launcher opens, waits for the game to close, updates, and starts it again (mjolnir://update).",
+            "A join from a website link that has to start the game runs the same check first."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A code mod that writes files into its own folder while the game runs no longer reads as changed: the check compares only the files its release shipped."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.17.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.17.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.17.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.16.0",
+      "tag": "launcher-v0.16.0",
+      "title": "Installs the Halo 2 maps as an optional pack, apart from the CE maps",
+      "date": "2026-10-24",
+      "summary": "Install multiplayer now installs only the Halo CE maps. The Halo 2 maps are a separate, optional pack with their own button.",
+      "body": "### Added\n\n- **Install Halo 2 maps.** The Multiplayer page has a second section for the\n  official Halo 2 multiplayer maps, an optional pack of about 700 MB. Its\n  button installs them all with what they need, and running it again\n  updates the ones that moved on, the same way Install multiplayer does.\n- Map tiles, on the Multiplayer page and in Browse Hub's Maps tab, say which\n  game a map comes from (Halo CE or Halo 2) when the hub says.\n\n### Changed\n\n- **Install multiplayer takes only the Halo CE maps.** With the Halo 2 maps\n  on the hub as official maps too, it leaves them out, so the classic set is\n  no bigger to download than before.\n\n### Security\n\n- **Game types are checked before they install.** The launcher refuses a\n  map or mod whose Megalo game type the game could not load safely, rather\n  than install it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Install Halo 2 maps. The Multiplayer page has a second section for the official Halo 2 multiplayer maps, an optional pack of about 700 MB. Its button installs them all with what they need, and running it again updates the ones that moved on, the same way Install multiplayer does.",
+            "Map tiles, on the Multiplayer page and in Browse Hub's Maps tab, say which game a map comes from (Halo CE or Halo 2) when the hub says."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Install multiplayer takes only the Halo CE maps. With the Halo 2 maps on the hub as official maps too, it leaves them out, so the classic set is no bigger to download than before."
+          ]
+        },
+        {
+          "heading": "Security",
+          "items": [
+            "Game types are checked before they install. The launcher refuses a map or mod whose Megalo game type the game could not load safely, rather than install it."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.16.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.16.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.16.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.36.0",
+      "tag": "mods-v0.36.0",
+      "title": "Share your game and public invites on Discord",
+      "date": "2026-10-24",
+      "summary": "Show your map, game type and observed kills and deaths as MJOLNIR Core on Discord, with Join Game for public sessions that have room.",
+      "body": "### Added\n\n- **Discord Rich Presence** (MJOLNIRLobby 0.17.0 and MJOLNIRHud 0.12.0).\n  Discord shows the current map, game type, observed local kills and deaths,\n  and time in the session. Menus and post-game states clear old match stats.\n- **Join Game for public sessions.** Public sessions with room can show a\n  join action on the host's and participants' profiles. Joining uses the\n  existing MJOLNIR sign-in and map checks. Private, full, offline, stale,\n  and non-joinable sessions do not advertise a join action.\n- Presence reconnects when Discord restarts. To disable it locally, create\n  `MJOLNIRLobby/native/discord_disabled.txt`; remove that file to enable it.\n\n### Changed\n\n- Use **launcher 0.18.0** for Discord invites that need to start the game.\n  Keep Discord desktop open with activity sharing enabled. No Discord SDK\n  download or additional runtime DLL is required.\n\n### Known issues\n\n- Joining from another Discord account has not yet been verified end to end.\n  Local presence and automated public-session and invite tests pass.\n- Kills and deaths count events observed during your local session; joining\n  late cannot reconstruct earlier events.\n- Make a solo session public before starting its match. A private solo\n  match that has already gone offline needs a fresh online session to be\n  joinable.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Discord Rich Presence (MJOLNIRLobby 0.17.0 and MJOLNIRHud 0.12.0). Discord shows the current map, game type, observed local kills and deaths, and time in the session. Menus and post-game states clear old match stats.",
+            "Join Game for public sessions. Public sessions with room can show a join action on the host's and participants' profiles. Joining uses the existing MJOLNIR sign-in and map checks. Private, full, offline, stale, and non-joinable sessions do not advertise a join action.",
+            "Presence reconnects when Discord restarts. To disable it locally, create MJOLNIRLobby/native/discorddisabled.txt; remove that file to enable it."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Use launcher 0.18.0 for Discord invites that need to start the game. Keep Discord desktop open with activity sharing enabled. No Discord SDK download or additional runtime DLL is required."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Joining from another Discord account has not yet been verified end to end. Local presence and automated public-session and invite tests pass.",
+            "Kills and deaths count events observed during your local session; joining late cannot reconstruct earlier events.",
+            "Make a solo session public before starting its match. A private solo match that has already gone offline needs a fresh online session to be joinable."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.36.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.36.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.36.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.35.0",
+      "tag": "mods-v0.35.0",
+      "title": "Choose game types from their own screen",
+      "date": "2026-10-24",
+      "summary": "Browse your map's supported game types with icons and descriptions, see the chosen icon in the lobby, and place objects from Forge's palette.",
+      "body": "### Added\n\n- **Game type picker** (MJOLNIRLobby 0.16.0). GAME TYPE opens a dedicated\n  screen showing the modes available for your map, with matching icons,\n  descriptions and team formats. Preview a mode, then SELECT to apply it.\n  BACK, Escape or controller B keeps your current choice.\n- **Game type icons in the lobby.** The selected mode's icon appears beside\n  its name and changes with your selection.\n- **Forge palette** (MJOLNIRForge 0.2.0). Use the arrow keys to browse the\n  map's weapons, vehicles, equipment and scenery; Insert places the selected\n  object at the cursor, ready to move. N duplicates the target. The Forge\n  HUD shows the category and available objects. Older maps offer the kinds\n  already in their palettes; newly baked maps can include the full arsenal.\n\n### Needs\n\n- Update the **CE runtime to 1.15.0** for the game type screen, lobby icons\n  and Forge palette panel. With an older runtime, GAME TYPE opens the map\n  picker and Forge names the selected palette object in a text note.\n- Forge remains solo, and edits last until the game ends.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Game type picker (MJOLNIRLobby 0.16.0). GAME TYPE opens a dedicated screen showing the modes available for your map, with matching icons, descriptions and team formats. Preview a mode, then SELECT to apply it. BACK, Escape or controller B keeps your current choice.",
+            "Game type icons in the lobby. The selected mode's icon appears beside its name and changes with your selection.",
+            "Forge palette (MJOLNIRForge 0.2.0). Use the arrow keys to browse the map's weapons, vehicles, equipment and scenery; Insert places the selected object at the cursor, ready to move. N duplicates the target. The Forge HUD shows the category and available objects. Older maps offer the kinds already in their palettes; newly baked maps can include the full arsenal."
+          ]
+        },
+        {
+          "heading": "Needs",
+          "items": [
+            "Update the CE runtime to 1.15.0 for the game type screen, lobby icons and Forge palette panel. With an older runtime, GAME TYPE opens the map picker and Forge names the selected palette object in a text note.",
+            "Forge remains solo, and edits last until the game ends."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.35.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.35.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.35.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.34.0",
+      "tag": "mods-v0.34.0",
+      "title": "Forge",
+      "date": "2026-10-24",
+      "summary": "FORGE is a new game type: become the Monitor and pick up, move and delete a map's objects, with Halo Reach's own Forge engine and a HUD of its own.",
+      "body": "### Added\n\n- **Forge** (MJOLNIRForge 0.1.0, new). Halo Reach's Forge engine is still\n  inside the game, and MJOLNIR now switches it on. Host a map from\n  MULTIPLAYER and pick **FORGE** as the game type. Press **B** to become the\n  Monitor and fly around the map. **V** picks up what the cursor is on and\n  drops it again, **Page Up** and **Page Down** push a held object out or\n  pull it in, and **Delete** removes it. Every edit goes through the game's\n  own Forge engine. A HUD shows what you aim at or hold (with the game's own\n  picture for weapons), how far out it is, and every key, dimmed when it\n  does nothing right now. The keys are ones the game leaves free, and a\n  `keys.txt` in the mod's folder changes them. See `docs/forge.md`.\n- **FORGE in the lobby** (MJOLNIRLobby 0.15.1). The game type is offered on\n  every map once MJOLNIRForge and CE runtime 1.14.0 are installed. For now it\n  is for the host alone: it does not start with fireteam members in the\n  lobby, and it is never listed publicly.\n\n### Changed\n\n- **MJOLNIRLevelLoader 0.9.1** starts a FORGE game under the Forge engine.\n- **MJOLNIRHud 0.11.5** hides the score bar in a FORGE game, which keeps no\n  score.\n\n### Needs\n\n- CE runtime 1.14.0 (the Monitor fix and the Forge HUD), published on the\n  hub with this release.\n\n### Not yet\n\n- Placing new objects: duplicate (N) needs a Forge palette, which the\n  converted maps do not have yet.\n- Saving a layout, and Forge with your fireteam.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge (MJOLNIRForge 0.1.0, new). Halo Reach's Forge engine is still inside the game, and MJOLNIR now switches it on. Host a map from MULTIPLAYER and pick FORGE as the game type. Press B to become the Monitor and fly around the map. V picks up what the cursor is on and drops it again, Page Up and Page Down push a held object out or pull it in, and Delete removes it. Every edit goes through the game's own Forge engine. A HUD shows what you aim at or hold (with the game's own picture for weapons), how far out it is, and every key, dimmed when it does nothing right now. The keys are ones the game leaves free, and a keys.txt in the mod's folder changes them. See docs/forge.md.",
+            "FORGE in the lobby (MJOLNIRLobby 0.15.1). The game type is offered on every map once MJOLNIRForge and CE runtime 1.14.0 are installed. For now it is for the host alone: it does not start with fireteam members in the lobby, and it is never listed publicly."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "MJOLNIRLevelLoader 0.9.1 starts a FORGE game under the Forge engine.",
+            "MJOLNIRHud 0.11.5 hides the score bar in a FORGE game, which keeps no score."
+          ]
+        },
+        {
+          "heading": "Needs",
+          "items": [
+            "CE runtime 1.14.0 (the Monitor fix and the Forge HUD), published on the hub with this release."
+          ]
+        },
+        {
+          "heading": "Not yet",
+          "items": [
+            "Placing new objects: duplicate (N) needs a Forge palette, which the converted maps do not have yet.",
+            "Saving a layout, and Forge with your fireteam."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.34.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.34.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.34.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.33.0",
+      "tag": "mods-v0.33.0",
+      "title": "The game tells you when MJOLNIR is out of date",
+      "date": "2026-10-24",
+      "summary": "At the main menu, the game says when MJOLNIR, the CE runtime or your maps are out of date, and UPDATE AND RESTART updates through the launcher.",
+      "body": "### Added\n\n- **Out-of-date prompt** (MJOLNIRLobby 0.15.0). When the game reaches its\n  main menu, at start and after each match, it asks the MJOLNIR launcher what\n  is out of date: code mods, the CE runtime pack and installed maps. It also\n  asks about mods MJOLNIR did not install. If anything turns up, a screen\n  lists it. **UPDATE AND RESTART** opens the launcher, closes the game, and\n  the launcher updates and starts it again. **NOT NOW** puts it away until\n  the next visit to the main menu. It needs launcher 0.17.0; an older\n  launcher is never started for it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Out-of-date prompt (MJOLNIRLobby 0.15.0). When the game reaches its main menu, at start and after each match, it asks the MJOLNIR launcher what is out of date: code mods, the CE runtime pack and installed maps. It also asks about mods MJOLNIR did not install. If anything turns up, a screen lists it. UPDATE AND RESTART opens the launcher, closes the game, and the launcher updates and starts it again. NOT NOW puts it away until the next visit to the main menu. It needs launcher 0.17.0; an older launcher is never started for it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.33.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.33.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.33.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.32.0",
+      "tag": "mods-v0.32.0",
+      "title": "Team Slayer, CTF in team colours, and Halo 2 maps in the map list",
+      "date": "2026-10-24",
+      "summary": "Team Slayer, CTF flags and armour in team colours with CE's own waving flag cloth, and a map list with every hub map, Halo 2 included.",
+      "body": "### Added\n\n- **Every map in SELECT MAP** (MJOLNIRLobby 0.14.1). The host's map list\n  now holds up to 80 maps: the installed ones, then the hub's maps this PC\n  doesn't have, marked DOWNLOAD. Pick one and SELECT opens the download\n  screen; once it installs, it is picked and ready to host.\n- **Filters for the map list** (MJOLNIRLobby 0.14.1). Chips above the list\n  narrow it by game (Halo CE or Halo 2), by source (official or community)\n  and to installed maps only, with a count of the maps shown.\n- **Halo 2 maps' moving parts** (MJOLNIRLevelLoader 0.9.0). Turning parts\n  such as Zanzibar's wheel, Ascension's antennas and Foundation's fans ride\n  the simulation's own machines, so their collision turns with them; their\n  see-through parts follow the same machine, and their sounds play as they\n  turn.\n\n- **Team Slayer** (MJOLNIRLobby 0.14.1, MJOLNIRHud 0.11.4). Red against\n  Blue on every map that offers Slayer: an enemy kill scores 1 for your\n  team, a teammate kill takes 1 away and shows BETRAYAL, and the first team\n  to the kill limit wins.\n- **CE's own flag cloth** (MJOLNIRLevelLoader 0.9.0). CTF flags carry Halo\n  CE's red cobra and blue eagle banners, waving on the pole and streaming\n  out behind whoever carries them, instead of a bare pole.\n\n### Changed\n\n- **The lobby's no-maps hints** (MJOLNIRLobby 0.14.1) send you to the\n  launcher's Multiplayer page to install maps.\n- **Every Spartan wears Mk V in team games** (MJOLNIRLevelLoader 0.9.0). In\n  CTF and Team Slayer the game itself dresses every player in Mk V Classic,\n  whatever armour or coating they picked, so the team colour shows on all\n  of them; Slayer keeps everyone's own armour.\n- **CTF needs CE runtime 1.13.0** (MJOLNIRLobby 0.14.1). The lobby offers\n  CTF only when the runtime's blue flag is installed: install or update\n  multiplayer in the launcher.\n\n### Fixed\n\n- **CTF flags kept their colours** (MJOLNIRLevelLoader 0.9.0). A flag no\n  longer turns the other team's colour when it is dropped near a stand,\n  when both flags move at once, or on a client; each flag's colour now comes\n  from the game itself.\n- **Custom armour showed its own colours in team games**\n  (MJOLNIRLevelLoader 0.9.0): plates, helmets and coatings stayed on top of\n  the team colour.\n- **The dropped-flag reset and the health-pack respawn** took 15 seconds\n  instead of 30: game types are now written at the game's 60 ticks a\n  second.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Every map in SELECT MAP (MJOLNIRLobby 0.14.1). The host's map list now holds up to 80 maps: the installed ones, then the hub's maps this PC doesn't have, marked DOWNLOAD. Pick one and SELECT opens the download screen; once it installs, it is picked and ready to host.",
+            "Filters for the map list (MJOLNIRLobby 0.14.1). Chips above the list narrow it by game (Halo CE or Halo 2), by source (official or community) and to installed maps only, with a count of the maps shown.",
+            "Halo 2 maps' moving parts (MJOLNIRLevelLoader 0.9.0). Turning parts such as Zanzibar's wheel, Ascension's antennas and Foundation's fans ride the simulation's own machines, so their collision turns with them; their see-through parts follow the same machine, and their sounds play as they turn.",
+            "Team Slayer (MJOLNIRLobby 0.14.1, MJOLNIRHud 0.11.4). Red against Blue on every map that offers Slayer: an enemy kill scores 1 for your team, a teammate kill takes 1 away and shows BETRAYAL, and the first team to the kill limit wins.",
+            "CE's own flag cloth (MJOLNIRLevelLoader 0.9.0). CTF flags carry Halo CE's red cobra and blue eagle banners, waving on the pole and streaming out behind whoever carries them, instead of a bare pole."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The lobby's no-maps hints (MJOLNIRLobby 0.14.1) send you to the launcher's Multiplayer page to install maps.",
+            "Every Spartan wears Mk V in team games (MJOLNIRLevelLoader 0.9.0). In CTF and Team Slayer the game itself dresses every player in Mk V Classic, whatever armour or coating they picked, so the team colour shows on all of them; Slayer keeps everyone's own armour.",
+            "CTF needs CE runtime 1.13.0 (MJOLNIRLobby 0.14.1). The lobby offers CTF only when the runtime's blue flag is installed: install or update multiplayer in the launcher."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "CTF flags kept their colours (MJOLNIRLevelLoader 0.9.0). A flag no longer turns the other team's colour when it is dropped near a stand, when both flags move at once, or on a client; each flag's colour now comes from the game itself.",
+            "Custom armour showed its own colours in team games (MJOLNIRLevelLoader 0.9.0): plates, helmets and coatings stayed on top of the team colour.",
+            "The dropped-flag reset and the health-pack respawn took 15 seconds instead of 30: game types are now written at the game's 60 ticks a second."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.32.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.32.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.32.0"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.24.0",
+      "tag": "tag-editor-v0.24.0",
+      "title": "Clearer help text, and block indexes named for what they point at",
+      "date": "2026-10-24",
+      "summary": "The tag editor names what a block index points at and what a squad cell spawns, and its help and messages now match what it does.",
+      "body": "### Changed\n\n- **Block indexes say what they point at,** and a squad's cells say what\n  they spawn, instead of showing bare numbers.\n- **Help and messages** were rewritten to match what the editor does today.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Block indexes say what they point at, and a squad's cells say what they spawn, instead of showing bare numbers.",
+            "Help and messages were rewritten to match what the editor does today."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.24.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.24.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.24.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.31.1",
+      "tag": "mods-v0.31.1",
+      "title": "Benches that fill the screen",
+      "date": "2026-10-20",
+      "summary": "/bench and mjolnirbench now measure the whole screen at your own field of view, so their timings are right on monitors that aren't 16:9.",
+      "body": "### Fixed\n\n- **Benches see the whole screen** (MJOLNIRHud 0.11.3). On a screen that\n  isn't 16:9, `/bench` and `mjolnir_bench` drew the held view with black\n  bars, so their timings read about 10% light on a 16:10 monitor. The held\n  view now fills the screen at your own field of view.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Benches see the whole screen (MJOLNIRHud 0.11.3). On a screen that isn't 16:9, /bench and mjolnirbench drew the held view with black bars, so their timings read about 10% light on a 16:10 monitor. The held view now fills the screen at your own field of view."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.31.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.31.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.31.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.31.0",
+      "tag": "mods-v0.31.0",
+      "title": "Faster map loads and rivers that start full",
+      "date": "2026-10-20",
+      "summary": "The remastered maps load much faster with their grass and scenery built in, and their rivers are full the moment you spawn.",
+      "body": "### Changed\n\n- **Faster loads on the remastered maps** (MJOLNIRLevelLoader 0.7.6).\n  The grass, ground cover, cliff rocks and swapped trees and boulders are\n  now part of each map's world. The level script only sets them up for\n  your graphics settings, where before it placed every piece while the map\n  loaded. On Death Island the longest frame while loading fell from 15.5\n  to under a second. Grass still thins out at lower foliage quality, and a\n  map without its built-in foliage gets it placed the old way.\n- **Haze comes on sooner.** The haze on Blood Gulch, Death Island and\n  Yoyorast now appears about half a second after the load instead of\n  three.\n- **`mjolnir_bench` covers the built-in foliage** (MJOLNIRHud 0.11.2), so\n  its grass and wind timings still mean the same thing on the new maps.\n\n### Fixed\n\n- **Rivers start full.** Battle Creek's and Timberland's rivers used to\n  load dry, or show a wall of water, and take up to a minute to fill.\n  They now start from a saved, settled state, full and calm the moment\n  you spawn. On a map without a saved state, the old CE water stays until\n  the river has filled, so the riverbed is never bare.\n- **Trees hold together.** The swapped trees' branches and small leaf\n  clusters no longer drift apart from their trunks in the wind.\n- **Scenery faces the right way.** Some rocks and props the level script\n  places stood at the wrong angle.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Faster loads on the remastered maps (MJOLNIRLevelLoader 0.7.6). The grass, ground cover, cliff rocks and swapped trees and boulders are now part of each map's world. The level script only sets them up for your graphics settings, where before it placed every piece while the map loaded. On Death Island the longest frame while loading fell from 15.5 to under a second. Grass still thins out at lower foliage quality, and a map without its built-in foliage gets it placed the old way.",
+            "Haze comes on sooner. The haze on Blood Gulch, Death Island and Yoyorast now appears about half a second after the load instead of three.",
+            "mjolnirbench covers the built-in foliage (MJOLNIRHud 0.11.2), so its grass and wind timings still mean the same thing on the new maps."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Rivers start full. Battle Creek's and Timberland's rivers used to load dry, or show a wall of water, and take up to a minute to fill. They now start from a saved, settled state, full and calm the moment you spawn. On a map without a saved state, the old CE water stays until the river has filled, so the riverbed is never bare.",
+            "Trees hold together. The swapped trees' branches and small leaf clusters no longer drift apart from their trunks in the wind.",
+            "Scenery faces the right way. Some rocks and props the level script places stood at the wrong angle."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.31.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.31.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.31.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.30.0",
+      "tag": "mods-v0.30.0",
+      "title": "Smoother frames on the classic maps",
+      "date": "2026-10-18",
+      "summary": "The occasional stutter on the classic maps, a frame of 50 to 200 ms every minute or two even standing still, is gone. It came from MJOLNIR's own scripts cleaning up their memory, not from the maps.",
+      "body": "### Fixed\n\n- **Stutters while standing still** (MJOLNIRLevelLoader 0.7.3). Every\n  minute or two the level script's memory cleanup ran in one go and held a\n  frame for 30 to 200 ms. The cleanup now runs a little at a time, and the\n  script makes far less to clean up. The flashing beacon lights on Death\n  Island alone made about 200 KB of it a second, and every rock placed on\n  the cliffs left a little behind that was never freed. On Death Island no\n  script now holds a frame for more than 3 ms, and the worst frame in a\n  five-minute test was 17 ms.\n- **A short HUD hitch every 15 seconds** (MJOLNIRHud 0.11.1). The kill feed\n  and scoreboard script's own cleanup held a frame for 4 to 9 ms. It now\n  holds one for at most 2 ms.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Stutters while standing still (MJOLNIRLevelLoader 0.7.3). Every minute or two the level script's memory cleanup ran in one go and held a frame for 30 to 200 ms. The cleanup now runs a little at a time, and the script makes far less to clean up. The flashing beacon lights on Death Island alone made about 200 KB of it a second, and every rock placed on the cliffs left a little behind that was never freed. On Death Island no script now holds a frame for more than 3 ms, and the worst frame in a five-minute test was 17 ms.",
+            "A short HUD hitch every 15 seconds (MJOLNIRHud 0.11.1). The kill feed and scoreboard script's own cleanup held a frame for 4 to 9 ms. It now holds one for at most 2 ms."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.30.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.30.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.30.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.29.0",
+      "tag": "mods-v0.29.0",
+      "title": "/bench shows where the frame goes",
+      "date": "2026-10-18",
+      "summary": "/bench now says whether your game thread, render thread or GPU is holding the frame back, and where you were standing, so the MJOLNIR team can tell what to optimize for your hardware.",
+      "body": "### Changed\n\n- **`/bench` measures where each frame's time goes** (MJOLNIRHud 0.11.0).\n  Each part of the bench (with foliage, without it, without its shadows, without its\n  wind) now records the game thread, render thread and GPU times that `stat\n  unit` shows. A saving on the GPU does nothing while your CPU is the slow\n  part, so this tells us which part a fix has to target. Your chat\n  shows the split for your normal frame.\n- **`/bench` sends the camera's position.** Two benches on one map can read\n  very differently depending on where you stand. The report now says where\n  that was.\n- **`mjolnir_bench`** prints the same split on every row of `bench.log`.\n\n### Notes\n\n- The split comes from a small native file in the MJOLNIRHud folder,\n  `native\\mjolnir_frame_times.dll`. If a game update moves what it reads, the\n  bench still runs and just leaves the split out.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "/bench measures where each frame's time goes (MJOLNIRHud 0.11.0). Each part of the bench (with foliage, without it, without its shadows, without its wind) now records the game thread, render thread and GPU times that stat unit shows. A saving on the GPU does nothing while your CPU is the slow part, so this tells us which part a fix has to target. Your chat shows the split for your normal frame.",
+            "/bench sends the camera's position. Two benches on one map can read very differently depending on where you stand. The report now says where that was.",
+            "mjolnirbench prints the same split on every row of bench.log."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "The split comes from a small native file in the MJOLNIRHud folder, native\\mjolnirframetimes.dll. If a game update moves what it reads, the bench still runs and just leaves the split out."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.29.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.29.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.29.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.28.0",
@@ -2977,7 +3399,7 @@
       "title": "Security: replaces the update signing key",
       "date": "2026-07-31",
       "summary": "Replaces the key that automatic updates are verified against, after the previous private key was found committed to the public repository.",
-      "body": "existing launcher cannot update itself to it, and until you replace it, it will\nkeep trusting a key anyone can read.\n\n### Security\n\n- The private key that signed launcher updates had been committed to this\n  public repository with an empty passphrase, so anyone could have produced an\n  update the launcher would accept and install. This build ships a new key and\n  stops new installs joining that pool.\n\n  It cannot rescue installs that already exist. Builds up to and including 0.3.1\n  carry the old public key, will reject anything signed with the new one, and\n  need one manual reinstall to recover — this release, downloaded and installed\n  by hand.\n\n### Changed\n\n- Internal version numbers that had drifted behind since 0.2.6 were brought\n  back into line. Shipped installers were always labelled correctly, so this is\n  tidying rather than a fix.",
+      "body": "**If you are on 0.3.1 or earlier, please install this build manually.** Your\nexisting launcher cannot update itself to it, and until you replace it, it will\nkeep trusting a key anyone can read.\n\n### Security\n\n- The private key that signed launcher updates had been committed to this\n  public repository with an empty passphrase, so anyone could have produced an\n  update the launcher would accept and install. This build ships a new key and\n  stops new installs joining that pool.\n\n  It cannot rescue installs that already exist. Builds up to and including 0.3.1\n  carry the old public key, will reject anything signed with the new one, and\n  need one manual reinstall to recover — this release, downloaded and installed\n  by hand.\n\n### Changed\n\n- Internal version numbers that had drifted behind since 0.2.6 were brought\n  back into line. Shipped installers were always labelled correctly, so this is\n  tidying rather than a fix.",
       "sections": [
         {
           "heading": "Security",
