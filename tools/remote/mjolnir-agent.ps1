@@ -46,7 +46,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "6"
+$AgentVersion = "7"
 
 # --- Where things are --------------------------------------------------------
 
@@ -279,6 +279,16 @@ function Handle($request, $stream) {
             # the game again while it is.
             $reporters = @(Get-Process CrashReportClient -ErrorAction SilentlyContinue)
             $reporters | Stop-Process -Force -ErrorAction SilentlyContinue
+            # The start-up logos set aside, as the launcher's "Skip intro
+            # videos" does (?intro=1 keeps them): ~20 s sooner to the menu.
+            $movie = Join-Path $GameDir "Meteorite\Content\Movies\LogoParade.mp4"
+            $aside = "$movie.mjolnir-skip"
+            if ($p["intro"] -eq "1") {
+                if ((Test-Path $aside) -and -not (Test-Path $movie)) { Move-Item $aside $movie }
+            } elseif (Test-Path $movie) {
+                if (Test-Path $aside) { Remove-Item $aside -Force }
+                Move-Item $movie $aside
+            }
             Start-Process "steam://rungameid/2806050"
             $note = if ($reporters.Count) { "launched through Steam (closed the crash reporter first)" } else { "launched through Steam" }
             Send-Json $stream 200 @{ ok = $true; note = $note }
