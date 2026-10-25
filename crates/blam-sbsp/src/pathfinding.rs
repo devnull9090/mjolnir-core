@@ -107,11 +107,18 @@ impl Pathfinding {
                 pf.surface_sector[s] = Some(pf.sectors.len());
                 pf.refs[s] = pf.sectors.len() as i32;
                 pf.sector_surface.push(s);
-                pf.sectors.push(Sector { flags: SECTOR_FLOOR, hint: -1, first_link: -1 });
+                pf.sectors.push(Sector {
+                    flags: SECTOR_FLOOR,
+                    hint: -1,
+                    first_link: -1,
+                });
             }
         }
         if pf.sectors.len() > 65534 {
-            return Err(format!("{} walkable surfaces; a BSP holds at most 65534 sectors", pf.sectors.len()));
+            return Err(format!(
+                "{} walkable surfaces; a BSP holds at most 65534 sectors",
+                pf.sectors.len()
+            ));
         }
         let by_surface = pf.surface_sector.clone();
         let sector_of = |surface: i32| -> Option<usize> {
@@ -138,7 +145,10 @@ impl Pathfinding {
             kept.push(e);
         }
         if kept.len() > 32767 {
-            return Err(format!("{} links; the 16-bit link indices hold 32767", kept.len()));
+            return Err(format!(
+                "{} links; the 16-bit link indices hold 32767",
+                kept.len()
+            ));
         }
         let mut vertex_of = vec![-1i32; c.vertices.len()];
         let mut vertex = |v: i32, verts: &mut Vec<[f32; 3]>| -> Result<i16, String> {
@@ -147,7 +157,8 @@ impl Pathfinding {
                 vertex_of[v] = verts.len() as i32;
                 verts.push(c.vertices[v].point);
             }
-            i16::try_from(vertex_of[v]).map_err(|_| "more than 32767 pathfinding vertices".to_string())
+            i16::try_from(vertex_of[v])
+                .map_err(|_| "more than 32767 pathfinding vertices".to_string())
         };
         let mut verts = Vec::new();
         for &e in &kept {
@@ -155,13 +166,33 @@ impl Pathfinding {
             // In edge terms: `forward` continues the left surface's ring,
             // `reverse` the right's.
             let (start, end, ls, rs, lnext, rnext) = if flipped[e] {
-                (edge.end, edge.start, edge.right, edge.left, edge.reverse, edge.forward)
+                (
+                    edge.end,
+                    edge.start,
+                    edge.right,
+                    edge.left,
+                    edge.reverse,
+                    edge.forward,
+                )
             } else {
-                (edge.start, edge.end, edge.left, edge.right, edge.forward, edge.reverse)
+                (
+                    edge.start,
+                    edge.end,
+                    edge.left,
+                    edge.right,
+                    edge.forward,
+                    edge.reverse,
+                )
             };
             let left = sector_of(ls).expect("left side is walkable");
             let right = sector_of(rs);
-            let next = |n: i32| if n < 0 { -1 } else { link_of[n as usize] as i16 };
+            let next = |n: i32| {
+                if n < 0 {
+                    -1
+                } else {
+                    link_of[n as usize] as i16
+                }
+            };
             let flags = match (right, rs) {
                 (Some(_), _) => 0,
                 (None, s) if s >= 0 && surface_normal(c, s as usize)[2] > -0.3 => LINK_WALL_BASE,
@@ -204,13 +235,18 @@ impl Pathfinding {
         }
         for l in &pf.links {
             if l.right >= 0 {
-                let (a, b) = (find(&mut parent, l.left as usize), find(&mut parent, l.right as usize));
+                let (a, b) = (
+                    find(&mut parent, l.left as usize),
+                    find(&mut parent, l.right as usize),
+                );
                 if a != b {
                     parent[a] = b;
                 }
             }
         }
-        pf.component = (0..pf.sectors.len()).map(|s| find(&mut parent, s)).collect();
+        pf.component = (0..pf.sectors.len())
+            .map(|s| find(&mut parent, s))
+            .collect();
         Ok(pf)
     }
 
@@ -306,7 +342,11 @@ impl Pathfinding {
                 let mut gy = (y0 / spacing).ceil() * spacing;
                 while gy <= y1 {
                     if let Some(z) = Self::surface_z(c, surface, gx, gy) {
-                        out.push(FiringPosition { point: [gx, gy, z + lift], normal, sector });
+                        out.push(FiringPosition {
+                            point: [gx, gy, z + lift],
+                            normal,
+                            sector,
+                        });
                     }
                     gy += spacing;
                 }
@@ -321,7 +361,7 @@ impl Pathfinding {
         let mut best: Option<(usize, f32)> = None;
         for (sector, &surface) in self.sector_surface.iter().enumerate() {
             if let Some(z) = Self::surface_z(c, surface, p[0], p[1]) {
-                if z <= p[2] + 1.0 && best.map_or(true, |(_, bz)| z > bz) {
+                if z <= p[2] + 1.0 && best.is_none_or(|(_, bz)| z > bz) {
                     best = Some((sector, z));
                 }
             }
@@ -358,7 +398,10 @@ impl Pathfinding {
     }
 
     pub fn vertices_bytes(&self) -> Vec<u8> {
-        self.vertices.iter().flat_map(|p| p.iter().flat_map(|f| f.to_le_bytes())).collect()
+        self.vertices
+            .iter()
+            .flat_map(|p| p.iter().flat_map(|f| f.to_le_bytes()))
+            .collect()
     }
 }
 
@@ -369,9 +412,14 @@ pub fn shell_collision(sbsp: &[u8]) -> Result<Collision, String> {
     let layout = tag.layout().map_err(|e| e.to_string())?;
     let root = tag.read_data(&layout).map_err(|e| e.to_string())?;
     let get = |n: &str| -> &[u8] {
-        find_block(&layout, sbsp, &root, &format!("{}.{n}", crate::transplant::SHELL))
-            .map(|f| f.block.elements)
-            .unwrap_or(&[])
+        find_block(
+            &layout,
+            sbsp,
+            &root,
+            &format!("{}.{n}", crate::transplant::SHELL),
+        )
+        .map(|f| f.block.elements)
+        .unwrap_or(&[])
     };
     let t = crate::unpack16::Tables {
         bsp3d_nodes: get("bsp3d nodes"),
@@ -383,7 +431,9 @@ pub fn shell_collision(sbsp: &[u8]) -> Result<Collision, String> {
         edges: get("edges"),
         vertices: get("vertices"),
     };
-    crate::unpack16::unpack(&t).map(|(c, _)| c).map_err(|e| e.to_string())
+    crate::unpack16::unpack(&t)
+        .map(|(c, _)| c)
+        .map_err(|e| e.to_string())
 }
 
 /// How many instanced geometry instances a `scenario_structure_bsp` payload
@@ -395,4 +445,107 @@ pub fn instance_count(sbsp: &[u8]) -> Result<usize, String> {
     blam_tag::blockedit::find_block(&layout, sbsp, &root, "instanced geometry instances")
         .map(|f| f.block.count as usize)
         .map_err(|e| format!("{e:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ce::{Edge, Plane, Surface, Vertex};
+
+    /// A 1 x 1 wu floor in two triangles, CE winged edges: S0 = v0 v1 v2,
+    /// S1 = v0 v2 v3, sharing e2 (v2 -> v0, S0 on its left).
+    fn floor() -> Collision {
+        let v = |x: f32, y: f32| Vertex {
+            point: [x, y, 0.0],
+            first_edge: -1,
+        };
+        let e = |start, end, forward, reverse, left, right| Edge {
+            start,
+            end,
+            forward,
+            reverse,
+            left,
+            right,
+        };
+        let s = |first_edge| Surface {
+            plane: 0,
+            first_edge,
+            flags: 0,
+            breakable: -1,
+            material: 0,
+        };
+        Collision {
+            planes: vec![Plane {
+                n: [0.0, 0.0, 1.0],
+                d: 0.0,
+            }],
+            surfaces: vec![s(0), s(3)],
+            edges: vec![
+                e(0, 1, 1, -1, 0, -1),
+                e(1, 2, 2, -1, 0, -1),
+                e(2, 0, 0, 3, 0, 1),
+                e(2, 3, 4, -1, 1, -1),
+                e(3, 0, 2, -1, 1, -1),
+            ],
+            vertices: vec![v(0.0, 0.0), v(1.0, 0.0), v(1.0, 1.0), v(0.0, 1.0)],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_floor_becomes_two_linked_sectors() {
+        let c = floor();
+        let pf = Pathfinding::build(&c).unwrap();
+        assert_eq!(pf.sectors.len(), 2);
+        assert_eq!(pf.links.len(), 5);
+        assert_eq!(pf.vertices.len(), 4);
+        assert_eq!(pf.refs, vec![0, 1]);
+        pf.check_rings().unwrap();
+        // The shared edge links the two sectors; the rest are open edges.
+        let shared: Vec<_> = pf.links.iter().filter(|l| l.right >= 0).collect();
+        assert_eq!(shared.len(), 1);
+        assert_eq!((shared[0].left, shared[0].right), (0, 1));
+        assert!(pf
+            .links
+            .iter()
+            .filter(|l| l.right < 0)
+            .all(|l| l.reverse == -1 && l.flags == LINK_LEDGE));
+        assert_eq!(pf.component[0], pf.component[1]);
+        assert_eq!(pf.sector_at(&c, [0.9, 0.1, 1.0]).map(|(s, _)| s), Some(0));
+        assert_eq!(pf.sector_at(&c, [0.1, 0.9, 1.0]).map(|(s, _)| s), Some(1));
+        assert!(!pf.firing_positions(&c, 0.25, &[], 0.0).is_empty());
+    }
+
+    #[test]
+    fn steep_and_breakable_surfaces_are_not_sectors() {
+        let mut c = floor();
+        c.planes.push(Plane {
+            n: [1.0, 0.0, 0.0],
+            d: 0.0,
+        });
+        c.surfaces[0].plane = 1; // a wall
+        c.surfaces[1].flags = 0x8; // breakable
+        let pf = Pathfinding::build(&c).unwrap();
+        assert!(pf.sectors.is_empty());
+        assert!(pf.links.is_empty());
+        assert_eq!(pf.refs, vec![-1, -1]);
+    }
+
+    #[test]
+    fn a_link_with_only_its_right_side_walkable_is_turned_round() {
+        let mut c = floor();
+        c.planes.push(Plane {
+            n: [1.0, 0.0, 0.0],
+            d: 0.0,
+        });
+        c.surfaces[0].plane = 1; // S0, left of the shared edge, is a wall
+        let pf = Pathfinding::build(&c).unwrap();
+        assert_eq!(pf.sectors.len(), 1);
+        pf.check_rings().unwrap();
+        // e2 ran v2 -> v0 with the wall on its left: now v0 -> v2 around S1.
+        let flipped = pf.links.iter().find(|l| l.flags == LINK_WALL_BASE).unwrap();
+        assert_eq!((flipped.left, flipped.right), (0, -1));
+        assert_eq!(pf.vertices[flipped.v1 as usize], [0.0, 0.0, 0.0]);
+        assert_eq!(pf.vertices[flipped.v2 as usize], [1.0, 1.0, 0.0]);
+    }
 }

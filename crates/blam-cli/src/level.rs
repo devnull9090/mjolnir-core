@@ -731,7 +731,7 @@ fn put_f32s(e: &mut [u8], at: usize, v: &[f32]) {
 }
 
 /// Write a fixed-length `string` field (zero-padded; the last byte stays 0).
-fn set_fixed_string(file: &mut Vec<u8>, path: &str, text: &str) -> Result<()> {
+fn set_fixed_string(file: &mut [u8], path: &str, text: &str) -> Result<()> {
     let tag = TagFile::parse(file, Some(file.len()))?;
     let l = tag.layout()?;
     let root = tag.read_data(&l)?;
@@ -1633,7 +1633,7 @@ impl Baker {
         let names: Vec<String> = (0..squads).map(|i| format!("squads[{i}].name")).collect();
         let donor = read_many(&self.file, &names)?
             .iter()
-            .position(|v| v.as_ref().map_or(false, |s| s.display().trim_matches('"') == bots.squad))
+            .position(|v| v.as_ref().is_some_and(|s| s.display().trim_matches('"') == bots.squad))
             .with_context(|| format!("bots: the canvas has no squad named {:?}", bots.squad))?;
         let mut base = |name: &'static str, donor: usize, copies: usize| -> Result<usize> {
             let before = block_count(&self.file, name)?;
@@ -1824,8 +1824,8 @@ impl Baker {
             let n = members.len() as f32;
             let mut mean = [0f32; 3];
             for f in members {
-                for i in 0..3 {
-                    mean[i] += f.point[i] / n;
+                for (m, p) in mean.iter_mut().zip(f.point) {
+                    *m += p / n;
                 }
             }
             let var = members
@@ -1941,7 +1941,7 @@ impl Baker {
                 let names: Vec<String> = (0..n).map(|i| format!("weapon palette[{i}].name")).collect();
                 let i = read_many(&self.file, &names)?
                     .iter()
-                    .position(|v| v.as_ref().map_or(false, |s| s.display().contains(want.as_str())))
+                    .position(|v| v.as_ref().is_some_and(|s| s.display().contains(want.as_str())))
                     .with_context(|| format!("bots: no weapon palette entry matching {want:?}"))?;
                 Some(i)
             }
