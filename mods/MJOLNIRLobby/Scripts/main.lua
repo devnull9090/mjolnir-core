@@ -4036,6 +4036,7 @@ local function initialize()
             local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
             return ok and tostring(address) or nil
         end,
+        worldObject = function() return UI.playerController():GetWorld() end,
         -- The game a public listing shows: the lobby's choice, which a start
         -- (from the lobby or the post-game vote) also sets.
         info = function()

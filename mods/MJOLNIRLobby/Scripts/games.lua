@@ -215,9 +215,19 @@ end
 -- answers "already bound" on a host or a player who was in the fireteam at the
 -- start, and an error until the simulation has asked for its first object
 -- sound, so this retries each tick until the world is bound.
+--
+-- Not in a world's first AUDIO_BIND_WAIT seconds: a host and a player in the
+-- fireteam at the start are bound by the game itself as the match starts,
+-- and a bind forced before that (a host logged one the second its match
+-- began, 2026-10-25) registers the game's world listener twice. Only a
+-- player who joined in progress is still unbound by then.
+local AUDIO_BIND_WAIT = 10
 local audioBoundWorld
+local audioSeen = { key = nil, at = 0 }
 local function audioBindTick()
-    local okW, world = pcall(function() return FindFirstOf("PlayerController"):GetWorld() end)
+    -- The world through the engine's local player, not FindFirstOf: that
+    -- walked every object each second of every match.
+    local okW, world = pcall(Host.worldObject)
     if not okW or not world or not world:IsValid() then return end
     -- By address too: a joiner who leaves and joins again lands in a new
     -- world of the same name, and was taken as bound (no object sounds; two
@@ -226,6 +236,8 @@ local function audioBindTick()
     if name:find("Frontend", 1, true) then return end
     name = string.format("%s@%x", name, world:GetAddress())
     if audioBoundWorld == name then return end
+    if audioSeen.key ~= name then audioSeen.key, audioSeen.at = name, os.clock() end
+    if os.clock() - audioSeen.at < AUDIO_BIND_WAIT then return end
     local okS, subsystem = pcall(FindFirstOf, "HaloAudioInterfaceSubSystem")
     if not okS or not subsystem or not subsystem:IsValid() then return end
     local f = io.open(nativeDir .. "audio_bind.txt", "wb")
@@ -646,6 +658,7 @@ function Games.init(deps)
     Session = dofile(deps.modDir .. "\\Scripts\\publicsession.lua")
     guest = Session.new()
     Host.world = deps.world
+    Host.worldObject = deps.worldObject
     Net.on("publicsession", function(fields, sender)
         if sender ~= nil or Net.isHost() then return end
         local world = Host.world and Host.world()
