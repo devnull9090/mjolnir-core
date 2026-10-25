@@ -167,6 +167,33 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.37.0",
+      "tag": "mods-v0.37.0",
+      "title": "Reload and grenade sounds for players who join a match under way",
+      "date": "2026-10-24",
+      "summary": "A player who joined a match in progress heard gunfire but no reload, grenade or other sound attached to an object; the lobby now gives their game the audio binding the join skipped.",
+      "body": "### Fixed\n\n- **Silent reloads and grenades for joiners** (MJOLNIRLobby 0.17.1). The\n  game binds its audio layer to a match's audio world from a world listener\n  that runs when a match starts normally. A player who joins a match already\n  under way builds their game another way and that listener never runs, so\n  the engine dropped every object-attached sound before it reached Wwise:\n  reloads, grenade pins and throws, melee, equipment. Gunfire still played\n  because it takes another path. The lobby now performs that bind itself once\n  the joiner's game is running; the host and players who were in the fireteam\n  at the start were never affected and are left alone.\n\n### Added\n\n- A sound tracer for the next audio bug: with `MJOLNIRLobby/native/sound_trace.txt`\n  present when the game starts, every sound the simulation asks for, every\n  Wwise event posted and the audio binds are written to `sound_trace.log`\n  (`docs/re/client_sound_roles.md`).",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Silent reloads and grenades for joiners (MJOLNIRLobby 0.17.1). The game binds its audio layer to a match's audio world from a world listener that runs when a match starts normally. A player who joins a match already under way builds their game another way and that listener never runs, so the engine dropped every object-attached sound before it reached Wwise: reloads, grenade pins and throws, melee, equipment. Gunfire still played because it takes another path. The lobby now performs that bind itself once the joiner's game is running; the host and players who were in the fireteam at the start were never affected and are left alone."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "A sound tracer for the next audio bug: with MJOLNIRLobby/native/soundtrace.txt present when the game starts, every sound the simulation asks for, every Wwise event posted and the audio binds are written to soundtrace.log (docs/re/clientsoundroles.md)."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.37.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.37.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.37.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.36.0",
       "tag": "mods-v0.36.0",
       "title": "Share your game and public invites on Discord",

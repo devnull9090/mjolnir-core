@@ -18,6 +18,8 @@
 //   node tools/remote/remote.mjs input '[{"key":"Enter"}]'  keys and clicks for the game window (agent 2)
 //   node tools/remote/remote.mjs auto state|host CODE mode|join [host]|public on|off
 //                                                          MJOLNIRLobby's mjolnir_auto, and its answer
+//   node tools/remote/remote.mjs probe load|start|snap|mark|stop|dump|clear
+//                                                          the audio-role probe (tools/remote/audio-probe.lua)
 //   node tools/remote/remote.mjs stage-agent               copy agent 2 into ue4ss/mjolnir-agent (once,
 //                                                          through an agent 1; then run it from there)
 //   node tools/remote/remote.mjs deploy-agent              replace this agent's files and restart it
@@ -77,7 +79,12 @@ const AGENT_FILES = [
   [path.join(REPO, "tools", "remote", "mjolnir-agent.ps1"), "mjolnir-agent.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "capture.ps1"), "capture.ps1"],
+  // The bridge mod beside the agent, so `install-bridge` has something to install.
+  [path.join(REPO, "mods", "MJOLNIRBridge", "Scripts", "main.lua"), "MJOLNIRBridge/Scripts/main.lua"],
+  [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
 ];
+const PROBE_LUA = path.join(REPO, "tools", "remote", "audio-probe.lua");
+const PROBE_LOG = "mjolnir-bridge/audio-probe.log";
 
 /** mjolnir_auto's answer file as an object, or null (reads the file only: safe while the game travels). */
 export async function autoState() {
@@ -146,6 +153,47 @@ export const commands = {
       if (state && state.at !== before) return JSON.stringify(state);
     }
     throw new Error("mjolnir_auto did not answer (is MJOLNIRLobby loaded?)");
+  },
+  /**
+   * The audio-role probe (tools/remote/audio-probe.lua) in PC 2's game:
+   *   probe load                      define AudioProbe in the bridge's sandbox
+   *   probe start [label] [seconds]   one sample a second (default 60 s)
+   *   probe snap [label]              one sample, printed
+   *   probe mark <text>               a marker line in the log
+   *   probe stop
+   *   probe dump [local file]         the log so far (ue4ss/mjolnir-bridge/audio-probe.log)
+   *   probe clear                     empty the log
+   */
+  async probe(verb = "snap", ...rest) {
+    const loaded = async () => {
+      const ok = await bridge("lua", "print(AudioProbe and 'yes' or 'no')");
+      if (!ok.includes("yes")) await bridge("lua", fs.readFileSync(PROBE_LUA, "utf8"));
+    };
+    switch (verb) {
+      case "load":
+        return bridge("lua", fs.readFileSync(PROBE_LUA, "utf8"));
+      case "start":
+        await loaded();
+        return bridge("lua", `print(AudioProbe.start(${JSON.stringify(rest[0] ?? "run")}, ${Number(rest[1] ?? 60)}, 1000))`);
+      case "snap":
+        await loaded();
+        return bridge("lua", `AudioProbe.snapshot(${JSON.stringify(rest[0] ?? "snapshot")}, true)`, 30000);
+      case "mark":
+        await loaded();
+        return bridge("lua", `AudioProbe.mark(${JSON.stringify(rest.join(" "))})`);
+      case "stop":
+        return bridge("lua", "if AudioProbe then AudioProbe.stop() end print('stopped')");
+      case "dump": {
+        const bytes = await call("GET", "/file", { root: "ue4ss", path: PROBE_LOG });
+        if (!rest[0]) return bytes.toString("utf8");
+        fs.writeFileSync(rest[0], bytes);
+        return `${rest[0]}: ${bytes.length} bytes`;
+      }
+      case "clear":
+        return JSON.stringify(await json("PUT", "/file", { root: "ue4ss", path: PROBE_LOG }, ""));
+      default:
+        throw new Error(`probe: unknown verb '${verb}' (load, start, snap, mark, stop, dump, clear)`);
+    }
   },
   /** The game window as a PNG (agent 4). */
   async shot(local = "pc2.png", max = "1280") {
