@@ -77,11 +77,36 @@ end
 --- garbage collection, but its Slate widgets are gone, and pushing a screen
 --- onto that UI layout read through a null (crash on MULTIPLAYER, 2026-10-01).
 --- `alive(widget)` tells the live one apart; class defaults are skipped.
+---
+--- The widget found last is kept, with the world it was found in, and given
+--- back while it is valid, still in that world and still `alive`: each
+--- FindAllOf walks every object (17-22 ms on the frontend), and the main
+--- menu watch looked for the main menu and the squad panel every 1.5 s, a
+--- hitch on every menu (post-game vote screen profile, 2026-10-25, #232).
+local liveCache = {}
+
+local function worldAddress()
+    local pc = UI.playerController()
+    local ok, a = pcall(function() return pc:GetWorld():GetAddress() end)
+    return ok and a or nil
+end
+UI.worldAddress = worldAddress
+
 function UI.liveWidget(className, alive)
+    local world = worldAddress()
+    local kept = liveCache[className]
+    if kept and world and kept.world == world and valid(kept.widget) then
+        local ok, yes = pcall(alive, kept.widget)
+        if ok and yes then return kept.widget end
+    end
+    liveCache[className] = nil
     for _, w in ipairs(FindAllOf(className) or {}) do
         if valid(w) and not (nameOf(w) or "Default__"):find("^Default__") then
             local ok, yes = pcall(alive, w)
-            if ok and yes then return w end
+            if ok and yes then
+                liveCache[className] = { widget = w, world = world }
+                return w
+            end
         end
     end
     return nil

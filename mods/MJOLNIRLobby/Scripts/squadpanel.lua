@@ -59,11 +59,29 @@ end
 
 --- The panel on screen. FindFirstOf returns the class default, whose
 --- sub-widgets are null; the live one is outered to the transient package.
+--- The panel and its view model are kept with the world they were found in
+--- (SquadPanel.worldAddress, from main.lua): FindAllOf and FindFirstOf each
+--- walk every object, ~20 ms, and the refresh ran every 1.5 s on every menu
+--- (#232). Without a world to compare (the tests) nothing is kept.
+local kept = nil
+
 local function liveWidget()
     for _, w in ipairs(FindAllOf("WBP_SquadWidget_C") or {}) do
         if valid(w) and w:GetFullName():find("/Engine/Transient", 1, true) then return w end
     end
     return nil
+end
+
+local function widgetAndModel()
+    local world = SquadPanel.worldAddress and SquadPanel.worldAddress()
+    if kept and world and kept.world == world and valid(kept.widget) and valid(kept.vm) then
+        return kept.widget, kept.vm
+    end
+    kept = nil
+    local widget = liveWidget()
+    local vm = FindFirstOf("MeteoriteSquadLobbyViewModel")
+    if widget and valid(vm) and world then kept = { widget = widget, vm = vm, world = world } end
+    return widget, vm
 end
 
 local function players(widget)
@@ -108,8 +126,7 @@ end
 
 --- Bring the panel up to date with the game state, for a fireteam of `size`.
 function SquadPanel.refresh(size)
-    local widget = liveWidget()
-    local vm = FindFirstOf("MeteoriteSquadLobbyViewModel")
+    local widget, vm = widgetAndModel()
     if not (widget and valid(vm)) then return end
     local list = widget.SquadListView
     if not valid(list) then return end
