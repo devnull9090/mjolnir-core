@@ -579,10 +579,14 @@ Live.title = function(code) return (shown(code)) end
 
 --- The screenshot of `code` on `screen` (its MapImage), the note in its place
 --- until it arrives. Screens from an older UI container have no MapImage.
-function Live.showCover(screen, code)
-    local okI, image = pcall(function() return screen.MapImage end)
+--- `field`: the Image (default MapImage; the vote rows' VoteImage0..3), its
+--- note beside it as `<field>Note`. A screen from an older UI container
+--- without it is left alone.
+function Live.showCover(screen, code, field)
+    field = field or "MapImage"
+    local okI, image = pcall(function() return screen[field] end)
     if not (okI and UI.valid(image)) then return end
-    local note = screen.MapImageNote
+    local note = screen[field .. "Note"]
     local tex = code and MapLive.texture(code)
     if tex then
         pcall(function()
@@ -602,7 +606,7 @@ function Live.showCover(screen, code)
         MapLive.cover(code, function(path)
             if not UI.valid(screen) then return end
             if path and MapLive.texture(code) then
-                Live.showCover(screen, code)
+                Live.showCover(screen, code, field)
             else
                 setText(note, "NO SCREENSHOT")
             end
@@ -2873,6 +2877,8 @@ local function drawVote()
             voted = voted + (n[i + 1] or 0)
             setText(s["Vote" .. i .. "Label"], optionLabel(o))
             setText(s["VoteCount" .. i], (n[i + 1] or 0) > 0 and tostring(n[i + 1]) or "")
+            -- Each option's own map cover (#258).
+            Live.showCover(s, o.code, "VoteImage" .. i)
             local mine, chosen = v.mine == i + 1, v.chosen == i + 1
             pcall(function()
                 s["Vote" .. i]:SetBackgroundColor((mine or chosen) and SELECTED_BACKGROUND or NORMAL_BACKGROUND)

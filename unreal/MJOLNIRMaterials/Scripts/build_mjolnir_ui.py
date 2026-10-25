@@ -1436,6 +1436,10 @@ def build_post_game():
     for i in range(VOTE_OPTIONS):
         line = widget(bp, unreal.HorizontalBox, f"VoteRow{i}", "VoteStack")
         gap(line, bottom=8)
+        # The option's map cover (MJOLNIRLobby drawVote, #258).
+        cover = map_image(bp, f"VoteImage{i}", line.get_name(), 128, 72)
+        cover.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+        cover.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
         button = menu_button(bp, f"Vote{i}", "", line.get_name(), size=26)
         button.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
         count_size = sized(bp, f"VoteCountSize{i}", line.get_name(), width=110)
