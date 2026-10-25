@@ -284,6 +284,21 @@ units and axes, so every later step reads them unchanged:
   Every other machine (doors, lifts, Triplicate's train, Backwash's
   monitor) is left out as before, listed in staging's notes: still, a
   closed gate or a parked train would block a way Halo 2 opens.
+- **Lifts, jump pads and vents.** Halo 2 pushes through physics model
+  phantoms (`crate::h2::phantom`): shapes nothing collides with, each with a
+  phantom type (accelerations and top speeds along a render model marker's
+  forward, towards its axis and towards its point, and whether it holds off
+  gravity). The stage writes every placed object's phantoms that push
+  players to placement.json `lifts` (object space, whether or not the prop
+  is drawn), `gen_ce_level.py` puts them in the level file in Unreal space
+  (`lifts`: planes or a pill, a bounding sphere, the marker, the pushes in
+  cm), and MJOLNIRLevelLoader's `lifts.lua` sets the velocity of a player
+  inside one through `(object_set_velocity (player_get N) ...)` every 50 ms.
+  Each game pushes its own players only: a joiner's motion is its own game's,
+  and a push the host sends a joiner's unit does nothing (two PCs,
+  2026-10-25). Maps with player lifts: Lockout, Midship, Cyclotron,
+  Colossus, Coagulation, Headlong, High Plains (hvac), Backwash, Foundation,
+  Warlock, Derelict, Dune (watchtowers), Ascension and Gemini (jump pads).
 - **Moving collision.** The simulation does all collision, never reads
   Unreal geometry, and its structure BSP cannot move: an arm's collision
   baked at rest stood where the arm only sometimes is. Rewriting a live

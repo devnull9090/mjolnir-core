@@ -11,6 +11,7 @@ pub mod collision;
 pub mod animation;
 pub mod bitmap;
 pub mod geometry;
+pub mod phantom;
 pub mod render;
 pub mod sound;
 pub mod stage;
