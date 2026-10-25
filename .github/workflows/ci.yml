@@ -197,6 +197,26 @@ jobs:
         run: pnpm typecheck
         working-directory: hub
 
+      # Build the worker the way the deploy does and answer one request with
+      # it. Lint and types passed on #268, whose Next.js update the OpenNext
+      # adapter of the day could not run: every request in production 500'd
+      # ("Unexpected loadManifest(/.next/server/preview-props.json) call!")
+      # from deploy to rollback. /api/changelog reads only generated JSON, so
+      # it needs no database, and that crash came before any route ran.
+      - name: Build with OpenNext and serve one request
+        working-directory: hub
+        run: |
+          pnpm run cf:build
+          npx wrangler dev --port 8787 --local > wrangler-dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/api/changelog || true)
+            if [ "$code" = "200" ]; then echo "worker answered 200"; exit 0; fi
+            sleep 2
+          done
+          echo "worker never answered 200 (last: $code)"
+          tail -60 wrangler-dev.log
+          exit 1
+
       # The committed spec must match what the code generates; a mismatch
       # means someone changed the API without re-running openapi:export.
       - name: OpenAPI drift check
