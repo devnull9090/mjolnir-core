@@ -109,22 +109,32 @@ local function fillPool()
     end
 end
 
---- Every AI biped out of the pool: a pooled actor waits at the origin.
+--- Every AI biped out of the pool (a pooled actor waits at the origin),
+--- and where each stands.
 local function liveActors()
-    local out = {}
+    local out, where = {}, {}
     for at, a in pairs(pool) do
-        local ok, pooled = pcall(function()
+        local ok, l = pcall(function()
             if not a:IsValid() then return nil end
-            local l = a:K2_GetActorLocation()
-            return math.abs(l.X) + math.abs(l.Y) < 1
+            return a:K2_GetActorLocation()
         end)
-        if ok and pooled == nil then
+        if ok and l == nil then
             pool[at] = nil
-        elseif ok and not pooled then
-            out[at] = a
+        elseif ok and math.abs(l.X) + math.abs(l.Y) >= 1 then
+            out[at], where[at] = a, { l.X, l.Y, l.Z }
         end
     end
-    return out
+    return out, where
+end
+
+--- An erased AI leaves its actor where it stood, and the next placement may
+--- take that actor: it then jumps to the spawn point.
+local JUMP_CM = 400
+
+local function jumped(from, to)
+    if not (from and to) then return false end
+    local dx, dy, dz = to[1] - from[1], to[2] - from[2], to[3] - from[3]
+    return dx * dx + dy * dy + dz * dz > JUMP_CM * JUMP_CM
 end
 
 local function shuffled(list)
@@ -147,19 +157,46 @@ function Bots.begin(count, now, onSeat)
     if enable then pcall(enable) end
     fillPool()
     math.randomseed(os.time())
-    local names = shuffled(Bots.NAMES)
-    state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil }
-    for k = 0, count - 1 do
-        state.slots[#state.slots + 1] = {
-            k = k, index = Bots.BASE + k, name = names[(k % #names) + 1] .. " (bot)",
-            status = "waiting", nextAt = now + 1 + k * 0.5,
-        }
-    end
+    state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil, names = shuffled(Bots.NAMES) }
+    Bots.resize(count, now)
     log(string.format("bots: %d bot(s) for this match", count))
     return true
 end
 
+--- Change how many bots play, keeping the ones there are: new seats are
+--- placed as usual, the last ones past `count` are erased from the world.
+--- Returns the seats taken out, so their rows can leave the board.
+function Bots.resize(count, now)
+    if not state then return {} end
+    local removed = {}
+    local lines = {}
+    while #state.slots > count do
+        local s = table.remove(state.slots)
+        if state.placing == s then state.placing = nil end
+        if s.addr then state.retired[s.addr] = true end
+        if s.status ~= "waiting" and s.status ~= "missing" then
+            lines[#lines + 1] = string.format("(ai_erase bot_%d)", s.k)
+        end
+        if s.seated then removed[#removed + 1] = s.index end
+    end
+    for k = #state.slots, count - 1 do
+        state.slots[#state.slots + 1] = {
+            k = k, index = Bots.BASE + k, name = state.names[(k % #state.names) + 1] .. " (bot)",
+            status = "waiting", nextAt = now + 1 + (k - #state.slots) * 0.5,
+        }
+    end
+    if #lines > 0 then script(lines) end
+    return removed
+end
+
+--- How many bots this match has asked for.
+function Bots.count()
+    return state and #state.slots or 0
+end
+
+--- No more bots: every one placed is erased.
 function Bots.stop()
+    if state then Bots.resize(0, 0) end
     state = nil
 end
 
@@ -224,7 +261,7 @@ end
 function Bots.tick(now, humans)
     if not state or now < state.nextScan then return end
     state.nextScan = now + SCAN_SECONDS
-    local live = liveActors()
+    local live, where = liveActors()
     -- A retired actor that went back to the pool may be handed out again.
     for at in pairs(state.retired) do
         if not live[at] then state.retired[at] = nil end
@@ -244,7 +281,8 @@ function Bots.tick(now, humans)
     local p = state.placing
     if p then
         for at, actor in pairs(live) do
-            if not taken[at] and not state.retired[at] and not p.before[at] then
+            local fresh = not p.before[at] and not state.retired[at]
+            if not taken[at] and (fresh or jumped(p.before[at], where[at])) then
                 p.status, p.addr, p.actor = "alive", at, actor
                 -- A few seconds to look around where it spawned first.
                 p.roamAt = now + 3 + math.random() * 4
@@ -270,7 +308,7 @@ function Bots.tick(now, humans)
         if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
             if script({ string.format("(ai_place bot_%d)", s.k) }) then
                 -- Whatever is out already is not this bot.
-                s.status, s.placedAt, s.before = "placing", now, live
+                s.status, s.placedAt, s.before = "placing", now, where
                 state.placing = s
             end
             return

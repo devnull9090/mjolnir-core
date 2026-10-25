@@ -843,7 +843,9 @@ local function runAs(who, text)
         kick = function(n, ban) said.kicked[#said.kicked + 1] = (ban and "ban " or "kick ") .. n end,
         unban = function(n) said.unbanned = n end,
         blam = function(line) said.blam[#said.blam + 1] = line end,
-        bench = function() said.benched = true; return { "Benching." } end }
+        bench = function() said.benched = true; return { "Benching." } end,
+        setBots = function(n) said.bots = n; return n .. " bot(s)." end,
+        botCount = function() return 2 end }
     said.answer = table.concat(Commands.run(cx, who, text), " | ")
     return said
 end
@@ -864,6 +866,12 @@ eq(runAs({ here = true, index = 0 }, "/bring bobby").blam[1], '(objects_attach (
 assert(runAs({ here = true, index = 0 }, "/nope").answer:find("Unknown command /nope", 1, true))
 assert(runAs({ here = false, index = 2 }, "/help").answer:find("/suicide", 1, true))
 assert(not runAs({ here = false, index = 2 }, "/help").answer:find("/kick", 1, true))
+-- /bots is the host's: it sets this match's bots, and alone says how many.
+local botsRun = runAs({ here = true, index = 0 }, "/bots 4")
+eq(botsRun.bots, 4); eq(botsRun.answer, "4 bot(s).")
+eq(runAs({ here = true, index = 0 }, "/bots").answer, "/bots <0-15>: 2 now.")
+eq(runAs({ here = false, index = 2 }, "/bots 4").answer, "/bots is for the host.")
+eq(runAs({ here = false, index = 2 }, "/bots 4").bots, nil)
 -- /bench runs where it is typed, for anyone, host or not.
 local benched = runAs({ here = false, index = 2 }, "/bench")
 assert(benched.benched); eq(benched.answer, "Benching.")

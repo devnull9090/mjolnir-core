@@ -15,6 +15,7 @@
 --   kick, ban, unban   MJOLNIRLobby's own (`mjolnir_auto kick|ban|unban`)
 --   suicide, slay      (unit_kill (player_get <index>)) through the Blam
 --                      console's mailbox (MJOLNIRBlamConsole), one line a poll
+--   bots               Scripts/bots.lua, through MJOLNIRHud's setBots (host)
 --   bench              Scripts/bench.lua's foliage bench, sent to the hub
 --                      (POST /benches); runs where it is typed
 --   tp, bring          objects_attach then objects_detach, a poll apart:
@@ -38,6 +39,7 @@ local LIST = {
     { name = "ban", who = "host", args = "<player>", help = "Kick a player and keep them out of your games", player = true },
     { name = "unban", who = "host", args = "<name>", help = "Let a banned name join again" },
     { name = "slay", who = "host", args = "<player>", help = "Kill a player", player = true },
+    { name = "bots", who = "host", args = "<0-15>", help = "Add or remove AI bots in this match" },
     { name = "tp", who = "host", args = "<player>", help = "Teleport to a player (experimental)", player = true },
     { name = "bring", who = "host", args = "<player>", help = "Teleport a player to you (experimental)", player = true },
 }
@@ -181,6 +183,11 @@ function Commands.run(cx, who, text)
         if type(who.index) ~= "number" then return { "You are not seated yet. Try again in a few seconds." } end
         cx.blam("(unit_kill " .. unitOf(who.index) .. ")")
         return {}
+    end
+    if c.name == "bots" then
+        local n = tonumber(rest)
+        if not n or n < 0 then return { "/bots <0-15>: " .. tostring(cx.botCount and cx.botCount() or 0) .. " now." } end
+        return { cx.setBots(n) }
     end
     if c.name == "unban" then
         if rest == "" then return { "/unban <name>" } end
