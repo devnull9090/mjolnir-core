@@ -39,6 +39,7 @@ local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
+SquadPanel.worldAddress = UI.worldAddress
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
 local Presence = dofile(MOD_DIR .. "\\Scripts\\presence.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
@@ -2679,17 +2680,25 @@ end
 
 --- An avatar Image: the account's cached picture, hidden (keeping its
 --- space) until there is one.
+--- False while the account's picture is still to come.
 function Report.showAvatar(image, userId)
-    if not UI.valid(image) then return end
+    if not UI.valid(image) then return true end
     local tex = userId and Identity.avatar(userId)
     pcall(function()
         if tex then image:SetBrushFromTexture(tex, false) end
         image:SetVisibility(tex and 3 or 2) -- HitTestInvisible, Hidden
     end)
+    return tex ~= nil or userId == nil
 end
 
 local function drawResults()
     local s, r = Post.screen, Post.results
+    -- Drawn once per screen and set of results: the rows took up to 35 ms
+    -- and were drawn four times a second, a stutter for everyone while the
+    -- vote was up (#232). Again every two seconds while a hub picture is
+    -- still on its way.
+    if Post.resultsDrawn == r and Post.resultsOn == s and os.clock() < (Post.resultsRetry or math.huge) then return end
+    Post.resultsDrawn, Post.resultsOn, Post.resultsRetry = r, s, nil
     if not r then
         setText(s.Winner, "MATCH OVER")
         setText(s.Summary, "")
@@ -2736,7 +2745,7 @@ local function drawResults()
             -- The hub account's avatar, and a click to report anyone else
             -- with an account (docs/player_identity.md). A screen from an
             -- older UI container has neither.
-            Report.showAvatar(s["Avatar" .. i], p and p.userId)
+            if not Report.showAvatar(s["Avatar" .. i], p and p.userId) then Post.resultsRetry = os.clock() + 2 end
             local reportable = p and not p.you and p.userId ~= nil
             Post.rowPlayers[i] = reportable and p or nil
             pcall(function() s["RowButton" .. i]:SetIsEnabled(reportable and true or false) end)
@@ -2770,6 +2779,28 @@ end
 local function drawVote()
     local s, v = Post.screen, Post.vote
     local host = Net.isHost()
+    -- Drawn when something it shows changes, not on every tick: each draw
+    -- took up to 31 ms (#232). The key holds everything below reads but the
+    -- countdown, which alone changes each second and is set by itself.
+    local key, countdown = { tostring(host) }, nil
+    if v then
+        local next_ = v.chosen and v.options[v.chosen]
+        local waiting, pct = 0, nil
+        if host and next_ then waiting, pct = Live.waitingOn(next_.code) end
+        key = { tostring(host), tostring(v.id), encodeOptions(v.options), table.concat(counts(v), ","),
+            tostring(v.mine), tostring(v.chosen), tostring(v.held), tostring(#rosterPlayers()), tostring(waiting),
+            tostring(pct) }
+        if not (v.chosen or v.held) then
+            countdown = string.format("VOTING ENDS IN %d", math.max(0, math.ceil(v.left or 0)))
+        end
+    end
+    key = table.concat(key, "|")
+    if Post.voteDrawn == key and Post.voteOn == s then
+        if countdown and countdown ~= Post.voteCountdown then setText(s.VoteTimer, countdown) end
+        Post.voteCountdown = countdown
+        return
+    end
+    Post.voteDrawn, Post.voteOn, Post.voteCountdown = key, s, countdown
     setShown(s.Start, host)
     setShown(s.Lobby, host)
     if not v then
