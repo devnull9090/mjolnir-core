@@ -81,20 +81,47 @@ local function address(actor)
     return ok and a or nil
 end
 
+--- Every AI biped actor there is, by address. FindAllOf walks the whole
+--- object array (about 23 ms a class on Blood Gulch, 2026-10-25), so the
+--- pools are found once, when bots start, and actors made later arrive
+--- through NotifyOnNewObject; a tick only reads positions.
+local pool = {}
+local watched = {}
+
+local function fillPool()
+    pool = {}
+    for _, class in ipairs(CLASSES) do
+        for _, a in ipairs(FindAllOf(class) or {}) do
+            local at = address(a)
+            if at then pool[at] = a end
+            -- NotifyOnNewObject takes the class's full path.
+            if not watched[class] then
+                local ok, path = pcall(function() return a:GetClass():GetFullName():match("%s(/%S+)$") end)
+                if ok and path then
+                    watched[class] = true
+                    pcall(NotifyOnNewObject, path, function(new)
+                        local id = address(new)
+                        if id then pool[id] = new end
+                    end)
+                end
+            end
+        end
+    end
+end
+
 --- Every AI biped out of the pool: a pooled actor waits at the origin.
 local function liveActors()
     local out = {}
-    for _, class in ipairs(CLASSES) do
-        for _, a in ipairs(FindAllOf(class) or {}) do
-            local ok, pooled = pcall(function()
-                if not a:IsValid() then return true end
-                local l = a:K2_GetActorLocation()
-                return math.abs(l.X) + math.abs(l.Y) < 1
-            end)
-            if ok and not pooled then
-                local at = address(a)
-                if at then out[at] = a end
-            end
+    for at, a in pairs(pool) do
+        local ok, pooled = pcall(function()
+            if not a:IsValid() then return nil end
+            local l = a:K2_GetActorLocation()
+            return math.abs(l.X) + math.abs(l.Y) < 1
+        end)
+        if ok and pooled == nil then
+            pool[at] = nil
+        elseif ok and not pooled then
+            out[at] = a
         end
     end
     return out
@@ -118,6 +145,7 @@ function Bots.begin(count, now, onSeat)
         return false
     end
     if enable then pcall(enable) end
+    fillPool()
     math.randomseed(os.time())
     local names = shuffled(Bots.NAMES)
     state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil }
