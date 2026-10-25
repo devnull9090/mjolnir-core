@@ -31,6 +31,9 @@ jobs:
       - name: Test kill floors
         run: lua5.4 tools/tests/test_kill_floor.lua
 
+      - name: Test Halo 2's lifts
+        run: lua5.4 tools/tests/test_lifts.lua
+
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 

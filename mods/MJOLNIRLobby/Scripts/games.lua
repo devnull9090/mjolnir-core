@@ -219,8 +219,13 @@ local audioBoundWorld
 local function audioBindTick()
     local okW, world = pcall(function() return FindFirstOf("PlayerController"):GetWorld() end)
     if not okW or not world or not world:IsValid() then return end
+    -- By address too: a joiner who leaves and joins again lands in a new
+    -- world of the same name, and was taken as bound (no object sounds; two
+    -- PCs, 2026-10-25, #231).
     local name = world:GetFullName()
-    if name:find("Frontend", 1, true) or audioBoundWorld == name then return end
+    if name:find("Frontend", 1, true) then return end
+    name = string.format("%s@%x", name, world:GetAddress())
+    if audioBoundWorld == name then return end
     local okS, subsystem = pcall(FindFirstOf, "HaloAudioInterfaceSubSystem")
     if not okS or not subsystem or not subsystem:IsValid() then return end
     local f = io.open(nativeDir .. "audio_bind.txt", "wb")
