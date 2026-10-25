@@ -108,8 +108,12 @@ function Anim.nextCall(state, t)
     local c = state.call
     if c and t < c.endAt then
         -- A medal waiting cuts the one showing short (never under CALL_QUICK).
+        -- A cut only ever brings the end nearer: one that came after the
+        -- quick time used to set the end to t + CALL_OUT on every frame, so
+        -- the callout never ended and the medals behind it never came up
+        -- (a Killing Spree just after a Triple Kill, #242).
         if #state.calls > 0 and c.endAt - c.at > Anim.CALL_QUICK + Anim.CALL_OUT then
-            c.endAt = math.max(t + Anim.CALL_OUT, c.at + Anim.CALL_QUICK + Anim.CALL_OUT)
+            c.endAt = math.min(c.endAt, math.max(t + Anim.CALL_OUT, c.at + Anim.CALL_QUICK + Anim.CALL_OUT))
         end
         return false
     end
