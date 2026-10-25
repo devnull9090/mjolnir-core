@@ -258,6 +258,19 @@ ctf.incident("flag_scored", 1, -1, 0)
 eq(ctf.feed.ScoreRightValue.text, "2") -- updates while the big board is closed
 ctf.hold(true); eq(ctf.board.visibility, 3); eq(ctf.feed.MatchScore.visibility, 1)
 eq(ctf.board.Score2.text, "2")
+-- Who is dead (#249): a death marks the row until that player spawns
+-- again; the local player's own row says DEAD over YOU while it waits.
+eq(ctf.board.Name1.text, "Alpha"); eq(ctf.board.Marker1.text, "")
+ctf.incident("death", -1, 0, 0)
+eq(ctf.board.Marker1.text, "DEAD")
+eq(ctf.board.Name1.tint.SpecifiedColor.A, 0.45)
+ctf.incident("death", -1, 1, 0)
+eq(ctf.board.Marker3.text, "DEAD")
+ctf.incident("player_spawn", 0, -1, 0)
+eq(ctf.board.Marker1.text, ""); eq(ctf.board.Marker3.text, "DEAD")
+ctf.incident("player_spawn", 1, -1, 0)
+eq(ctf.board.Marker3.text, "YOU")
+print("Multiplayer UI: the scoreboard marks the dead until they spawn")
 
 local slayer = runHUD("team_slayer")
 slayer.incident("player_spawn", 0, -1, 0) -- team arrives after the spawn

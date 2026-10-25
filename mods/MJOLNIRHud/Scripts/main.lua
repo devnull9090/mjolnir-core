@@ -426,6 +426,8 @@ HANDLERS.death = function(inc)
     local victim = inc.effect
     if type(victim) ~= "number" or victim < 0 then return end
     stats(victim).deaths = stats(victim).deaths + 1
+    -- Dead on the scoreboard until the next spawn (#249).
+    stats(victim).dead = true
     Match.deaths[#Match.deaths + 1] = { victim = victim, at = inc.at, damage = inc.damage }
     if victim == LOCAL_PLAYER then
         Match.dead = true
@@ -464,6 +466,7 @@ HANDLERS["10_seconds_remaining"] = function(inc) clockFrom(10, inc.at) end
 
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end
+    if type(inc.cause) == "number" and inc.cause >= 0 then stats(inc.cause).dead = false end
     if inc.cause == LOCAL_PLAYER and not Match.clockEnd then
         clockFrom((Match.mode.timeLimit or 0) * 60 + CLOCK_LAG, inc.at)
     end
@@ -922,7 +925,10 @@ local function drawBoard()
                     image:SetVisibility(tex and VISIBLE or 2)
                 end)
             end
-            setText(Board["Marker" .. i], you and "YOU" or "")
+            -- Dead until the next spawn (#249); a player nothing was heard of
+            -- yet (joined mid-match) counts as alive.
+            local dead = p and p.dead
+            setText(Board["Marker" .. i], dead and "DEAD" or (you and "YOU" or ""))
             setText(Board["Score" .. i], p and tostring(score(p)) or (entry.total and tostring(entry.total) or ""))
             setText(Board["Kills" .. i], p and tostring(p.kills) or "")
             setText(Board["Deaths" .. i], p and tostring(p.deaths) or "")
@@ -932,7 +938,9 @@ local function drawBoard()
                 row:SetBrushColor(color)
                 row.Slot:SetPadding({ Left = 0, Top = entry.team and 12 or 2, Right = 0, Bottom = 0 })
                 Board["Stripe" .. i]:SetBrushColor(tint or (you and YOU or ROW_EVEN))
-                Board["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = entry.team and tint or WHITE, ColorUseRule = 0 })
+                local nameTint = entry.team and tint or WHITE
+                if dead then nameTint = { R = nameTint.R, G = nameTint.G, B = nameTint.B, A = 0.45 } end
+                Board["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = nameTint, ColorUseRule = 0 })
             end)
         else
             setVisible(row, false)
