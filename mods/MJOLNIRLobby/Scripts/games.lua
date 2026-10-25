@@ -207,7 +207,41 @@ local function levelSwitchTick()
     pendingSwitch.tries = pendingSwitch.tries + 1
 end
 
+-- A player who joins a match under way hears gunfire but no reload, grenade
+-- or other object-attached sound: the game binds its audio layer to the
+-- match's audio world from a world listener that a joiner's build of the game
+-- never runs, so the exe drops those sounds before Wwise
+-- (docs/re/client_sound_roles.md). mjolnir_audio_bind does that bind; it
+-- answers "already bound" on a host or a player who was in the fireteam at the
+-- start, and an error until the simulation has asked for its first object
+-- sound, so this retries each tick until the world is bound.
+local audioBoundWorld
+local function audioBindTick()
+    local okW, world = pcall(function() return FindFirstOf("PlayerController"):GetWorld() end)
+    if not okW or not world or not world:IsValid() then return end
+    local name = world:GetFullName()
+    if name:find("Frontend", 1, true) or audioBoundWorld == name then return end
+    local okS, subsystem = pcall(FindFirstOf, "HaloAudioInterfaceSubSystem")
+    if not okS or not subsystem or not subsystem:IsValid() then return end
+    local f = io.open(nativeDir .. "audio_bind.txt", "wb")
+    if not f then return end
+    f:write(string.format("world %x\nsubsystem %x\n", world:GetAddress(), subsystem:GetAddress()))
+    f:close()
+    if not native("mjolnir_audio_bind") then return end
+    local r = io.open(nativeDir .. "audio_bind_reply.txt", "rb")
+    if not r then return end
+    local reply = r:read("a") or ""
+    r:close()
+    if reply:find("already bound", 1, true) then
+        audioBoundWorld = name
+    elseif reply:find("\nok ", 1, true) then
+        audioBoundWorld = name
+        log("games: audio bound to the match's audio world (a joiner's object sounds play now)")
+    end
+end
+
 local function jipTick()
+    audioBindTick()
     levelSwitchTick()
     local held = io.open(nativeDir .. "jip_held.txt", "rb")
     if not held then jipJoinedUrl = nil end

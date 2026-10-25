@@ -4595,6 +4595,7 @@ static volatile long long audio_play_block;
 static unsigned long long __fastcall hook_exe_object_play(unsigned *request, long long world) {
     if (world) audio_play_block = world;
     unsigned long long r = exe_object_play_tramp(request, world);
+    if (!sound_trace_file) return r; /* installed for the block alone, outside a trace */
     unsigned r0 = 0, r1 = 0, r4 = 0, r5 = 0, r8 = 0;
     /* The function's own first three steps, repeated read-only: the world's
        +0x30 object, the Blam object's UE actor (the tracker at world+0x28,
@@ -4735,6 +4736,11 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
         fclose(reply);
         return 0;
     }
+    if (!exe_object_play_tramp) {
+        fprintf(reply, "error the object play hook is not installed\n");
+        fclose(reply);
+        return 0;
+    }
     /* The bind's own bytes may already be this DLL's trace hook (a jmp). */
     if ((memcmp(exe + 0x754c410, AUDIO_BIND, sizeof AUDIO_BIND) != 0 && !audio_bind_tramp) ||
         memcmp(exe + 0x751be20, AUDIO_WORLD, sizeof AUDIO_WORLD) != 0) {
@@ -4765,6 +4771,11 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
         }
         long long before = *(long long *)(block + 0x30);
         fprintf(reply, "block+0x30 before %llx\n", before);
+        if (before) {
+            fprintf(reply, "already bound\n");
+            fclose(reply);
+            return 0;
+        }
         /* What the game's world listener (exe 0x7b249f0) does on a host at
            match start, on its own object, which holds the block at +0x20:
            listen to the world's object tracker (0x7b20690, so Blam objects
@@ -4777,6 +4788,8 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
         ((audio_bind_t)(exe + 0x7544b80))(block, (long long)world);
         fprintf(reply, "ok block+0x30 after %llx\n", *(long long *)(block + 0x30));
         sound_trace("audio bind forced on block %llx: +0x30 %llx -> %llx", block, before, *(long long *)(block + 0x30));
+        fireteam_log("audio: a joiner's audio world bound (block %llx -> %llx); object sounds reach Wwise now", block,
+                     *(long long *)(block + 0x30));
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fprintf(reply, "error exception while binding\n");
     }
@@ -4806,6 +4819,12 @@ static void sound_trace_arm(void) {
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return;
     if (!dir[0]) find_dir();
+    /* Always: the object play hook that remembers the audio layer's block,
+       which mjolnir_audio_bind needs to repair a joiner's sound. */
+    static const struct sound_hook exe_object_hook_always = {"exe object play", EXE_OBJECT_PLAY, sizeof EXE_OBJECT_PLAY,
+                                                             EXE_OBJECT_PLAY_STOLEN, (void *)hook_exe_object_play,
+                                                             (void **)&exe_object_play_tramp};
+    sound_trace_hook((unsigned char *)GetModuleHandleA(NULL), &exe_object_hook_always);
     char path[MAX_PATH];
     snprintf(path, sizeof path, "%ssound_trace.txt", dir);
     if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
@@ -4838,10 +4857,6 @@ static void sound_trace_arm(void) {
     };
     for (size_t i = 0; i < sizeof hooks / sizeof hooks[0]; i++) sound_trace_hook(sim, &hooks[i]);
     HMODULE exe = GetModuleHandleA(NULL);
-    static const struct sound_hook exe_object_hook = {"exe object play", EXE_OBJECT_PLAY, sizeof EXE_OBJECT_PLAY,
-                                                      EXE_OBJECT_PLAY_STOLEN, (void *)hook_exe_object_play,
-                                                      (void **)&exe_object_play_tramp};
-    sound_trace_hook((unsigned char *)exe, &exe_object_hook);
     static const struct sound_hook exe_resolve_hook = {"exe resolve", EXE_RESOLVE, sizeof EXE_RESOLVE,
                                                        EXE_RESOLVE_STOLEN, (void *)hook_exe_resolve,
                                                        (void **)&exe_resolve_tramp};
