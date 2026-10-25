@@ -5908,8 +5908,11 @@ end
 
 local function initialize()
     -- Kill floors (#234), kept on Teams: main.lua is at Lua's 200 locals.
+    -- Blam script goes through sim_script.lua.
+    Teams.Script = dofile(MOD_DIR .. "\\Scripts\\sim_script.lua")
+    Teams.Script.init(MOD_DIR)
     Teams.KillFloor = dofile(MOD_DIR .. "\\Scripts\\kill_floor.lua")
-    Teams.KillFloor.init({ Log = Log, getWorld = getWorld, isHost = isHostWorld, Current = Current, modDir = MOD_DIR })
+    Teams.KillFloor.init({ Log = Log, getWorld = getWorld, isHost = isHostWorld, Current = Current, Script = Teams.Script })
     Teams.init({
         Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
         hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,

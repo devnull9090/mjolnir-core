@@ -8,7 +8,7 @@
 --
 -- A kill floor is a height below which a player dies, as a kill volume
 -- spanning the whole map would. The host checks its Spartans twice a second
--- and kills, through MJOLNIRBlamConsole's mailbox, any whose biped is below
+-- and kills, through a Blam script line (sim_script.lua), any whose biped is below
 -- the floor; the death is the engine's own, so respawns, the kill feed and
 -- the scores follow as for any death. Floors are per map: the table below,
 -- or "kill_floor" (Unreal centimetres) in a level's JSON, which wins.
@@ -43,7 +43,7 @@ function KillFloor.below(z, floor)
 end
 
 local env
-local state = { world = nil, seeded = false, bipeds = {}, killed = {}, watched = false, consoleDir = nil, id = 7300000 }
+local state = { world = nil, seeded = false, bipeds = {}, killed = {}, watched = false }
 
 local SPARTAN = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C"
 
@@ -65,22 +65,6 @@ local function playerOf(actor)
         if type(datum) == "number" and datum ~= -1 then index = math.floor(datum % 65536) end
     end)
     return index
-end
-
---- One line into MJOLNIRBlamConsole's mailbox (native\request.txt, flags 1:
---- run whether or not the console thinks a game is in progress), then its
---- pump. False when the console mod is not installed.
-local function blam(line)
-    local dir = state.consoleDir
-    local pump = package and package.loadlib and package.loadlib(dir .. "mjolnir_blam_console.dll", "mjolnir_blam_pump")
-    if not pump then return false end
-    state.id = state.id + 1
-    local f = io.open(dir .. "request.txt", "wb")
-    if not f then return false end
-    f:write(string.format("%d 1\n%s\n", state.id, line))
-    f:close()
-    pcall(pump)
-    return true
 end
 
 local function newWorld(world)
@@ -118,7 +102,7 @@ function KillFloor.tick()
                 local index = playerOf(actor)
                 if index and now - (state.killed[index] or -100) >= KillFloor.RETRY_SECONDS then
                     state.killed[index] = now
-                    if blam(string.format("(unit_kill (player_get %d))", index)) then
+                    if env.Script.send(string.format("(unit_kill (player_get %d))", index)) then
                         env.Log(string.format("kill floor: player %d fell below %d cm on %s", index, floor,
                             tostring(env.Current.scenario)))
                     end
@@ -128,10 +112,9 @@ function KillFloor.tick()
     end
 end
 
---- `deps`: Log, getWorld, isHost, Current, modDir.
+--- `deps`: Log, getWorld, isHost, Current, Script (sim_script.lua).
 function KillFloor.init(deps)
     env = deps
-    state.consoleDir = deps.modDir:gsub("[\\/]MJOLNIRLevelLoader[\\/]?$", "") .. "\\MJOLNIRBlamConsole\\native\\"
 end
 
 return KillFloor
