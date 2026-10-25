@@ -417,6 +417,7 @@ fn placements<'c>(
     }
 
     let mut skipped: BTreeMap<String, usize> = BTreeMap::new();
+    let mut lifts = Vec::new();
     // Scenery (0x5C), crates (0x4C) and machines (0x48): props, each placed
     // by its palette's object, with the object's collision model staged in
     // object space for tools/level/merge_ce_collision.py to place. A machine
@@ -447,6 +448,20 @@ fn placements<'c>(
             if games != 0 && games & 2 == 0 {
                 *skipped.entry(format!("{} (game-type prop, flags {games:#x})", object.name())).or_default() += 1;
                 continue;
+            }
+            // A lift, jump pad or vent pushes through its physics model's
+            // phantoms (crate::h2::phantom), whether or not the prop itself
+            // is drawn: the level loader pushes the players in them.
+            let pushes = crate::h2::phantom::lifts(cache, &object);
+            if !pushes.is_empty() {
+                let scale = match e.f32(0x20) {
+                    s if s == 0.0 => 1.0,
+                    s => s,
+                };
+                lifts.push(json!({
+                    "asset": object.name(), "tag_class": group, "pos": e.vec3(0x08), "rot": e.vec3(0x14),
+                    "scale": scale, "phantoms": pushes,
+                }));
             }
             let turn = match group {
                 "mach" => match crate::h2::animation::gear_turn(cache, &object) {
@@ -585,6 +600,9 @@ fn placements<'c>(
     if !decals.is_empty() {
         notes.push(format!("{} decal(s)", decals.len()));
     }
+    if !lifts.is_empty() {
+        notes.push(format!("{} lift(s)", lifts.len()));
+    }
     summary.notes.extend(notes);
     Ok(json!({
         "world_unit_meters": 3.048,
@@ -593,6 +611,7 @@ fn placements<'c>(
         "player_starts": player_starts,
         "netgame_flags": netgame_flags,
         "decals": decals,
+        "lifts": lifts,
     }))
 }
 
