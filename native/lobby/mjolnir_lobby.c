@@ -5181,8 +5181,22 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
             fclose(reply);
             return 0;
         }
+        /* The listener holding the block keeps the UWorld it listens to at
+           +0x78 (0x7b20690 stores it). The block captured last may be an
+           earlier world's (a joiner who left and joined again, before the new
+           world's first object sound): bound or not, it is not this world's,
+           so wait for this world's. Bound means +0x30 set on this world's
+           block (two PCs, 2026-10-25: host and joiner both read +0x78 = the
+           match's UWorld once bound). */
         long long before = *(long long *)(block + 0x30);
-        fprintf(reply, "block+0x30 before %llx\n", before);
+        long long listening = *(long long *)(block - 0x20 + 0x78);
+        fprintf(reply, "block+0x30 before %llx; listener+0x78 %llx (this world %llx)\n", before, listening,
+                (long long)world);
+        if (listening && listening != (long long)world) {
+            fprintf(reply, "error the captured block is another world's; waiting for this world's first object sound\n");
+            fclose(reply);
+            return 0;
+        }
         if (before) {
             fprintf(reply, "already bound\n");
             fclose(reply);
@@ -5217,7 +5231,16 @@ struct sound_hook {
     void **trampoline;
 };
 
+/* native\sound_trace.txt may name hooks to leave out ("skip event send,
+   entity ref"): one of them crashed a host in a two-player match
+   (2026-10-25), and leaving hooks out finds which. */
+static char sound_trace_skip[512];
+
 static void sound_trace_hook(unsigned char *sim, const struct sound_hook *h) {
+    if (h->trampoline != (void **)&exe_object_play_tramp && strstr(sound_trace_skip, h->name)) {
+        fireteam_log("sound trace: %s skipped", h->name);
+        return;
+    }
     int hits;
     unsigned char *at = find_in_module(sim, h->pattern, NULL, h->length, 1, &hits);
     if (at) *h->trampoline = inline_hook(at, h->stolen, h->hook);
@@ -5244,6 +5267,13 @@ static void sound_trace_arm(void) {
         return;
     }
     sound_trace_state = -1;
+    FILE *opts = fopen(path, "r");
+    if (opts) {
+        size_t n = fread(sound_trace_skip, 1, sizeof sound_trace_skip - 1, opts);
+        sound_trace_skip[n] = '\0';
+        fclose(opts);
+        if (strncmp(sound_trace_skip, "skip", 4) != 0) sound_trace_skip[0] = '\0';
+    }
     snprintf(path, sizeof path, "%ssound_trace.log", dir);
     FILE *f = fopen(path, "a");
     if (!f) {
