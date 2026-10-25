@@ -44,6 +44,27 @@ jobs:
         env:
           NEXT_PUBLIC_GTAG_ID: ${{ secrets.GOOGLE_GTAG }}
 
+      # The Worker's secrets, set on a new version without deploying it.
+      # `wrangler secret bulk` (what wrangler-action's `secrets:` runs) refuses
+      # whenever the Worker's newest version is not the one deployed, which is
+      # the state every rollback leaves: after the 2026-10-25 rollback the
+      # fix's deploy failed here twice. The deploy below uploads the new code
+      # on top of this version, secrets included.
+      - name: Set the Worker's secrets
+        working-directory: hub
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+          DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          jq -n '{DISCORD_CLIENT_ID: env.DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET: env.DISCORD_CLIENT_SECRET,
+                  DISCORD_PUBLIC_KEY: env.DISCORD_PUBLIC_KEY, JWT_SECRET: env.JWT_SECRET}' > "$RUNNER_TEMP/secrets.json"
+          pnpm exec wrangler versions secret bulk "$RUNNER_TEMP/secrets.json" --message "Secrets for the deploy of ${GITHUB_SHA::8}"
+          rm -f "$RUNNER_TEMP/secrets.json"
+
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v4
         with:
@@ -51,14 +72,3 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
-          # Uploaded to the Worker's secret store, not baked into the bundle.
-          secrets: |
-            DISCORD_CLIENT_ID
-            DISCORD_CLIENT_SECRET
-            DISCORD_PUBLIC_KEY
-            JWT_SECRET
-        env:
-          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
-          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
-          DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
