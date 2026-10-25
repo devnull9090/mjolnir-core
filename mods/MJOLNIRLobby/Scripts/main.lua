@@ -277,6 +277,16 @@ local function startGame(map, mode)
     -- The host's game settings, which the loader patches into the variant;
     -- the fireteam got the same line with the lobby (broadcastLobby).
     writeVariantSettings(Settings.variantLine())
+    -- Whether this is a team game, for the native half: the game's variant
+    -- still says free-for-all when the players are numbered (the loader
+    -- swaps in the team variant as the map loads), so without this a third
+    -- player came in on team 2, which the engine ends at once as a draw
+    -- (#229; mjolnir_lobby.c, teams_balance).
+    local tf = io.open(MOD_DIR .. "\\native\\team_game.txt", "w")
+    if tf then
+        tf:write(mode.teams and "1" or "0")
+        tf:close()
+    end
     -- A guest without the map leaves rather than hold everyone's start.
     pcall(Net.toClients, "starting", map.code, (MapLive.release(map.code) or {}).id or "")
     helpers:StartCountdown(setup, pc)

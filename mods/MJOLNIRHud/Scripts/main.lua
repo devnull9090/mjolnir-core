@@ -265,7 +265,19 @@ local function refreshNames()
             if okI and type(index) == "number" and index >= 0 then
                 local okN, name = pcall(function() return ps:GetPlayerName():ToString() end)
                 local p = stats(index)
-                if okN and name and name ~= "" then p.name = name end
+                if okN and name and name ~= "" then
+                    -- A seat someone left, now taken: by them again, their
+                    -- tallies stand; by another player, the seat starts from
+                    -- nothing, as the game's own score does (#236).
+                    if p.arriving and p.leftName and name ~= p.leftName then
+                        Log(string.format("seat %d: %s took %s's seat; its tallies start again", index, name, p.leftName))
+                        p.kills, p.rawKills, p.deaths, p.suicides, p.captures = 0, 0, 0, 0, 0
+                        p.display, p.userId, p.reports, p.team = nil, nil, nil, nil
+                        boardDirty = true
+                    end
+                    if p.arriving then p.arriving, p.leftName = nil, nil end
+                    p.name = name
+                end
                 -- The hub account MJOLNIRLobby resolved for that name, shown
                 -- in its place (docs/player_identity.md). p.name stays the
                 -- in-game name: seats, claims and bans are keyed by it.
@@ -493,7 +505,11 @@ local JOIN_WAIT = 8
 
 HANDLERS.player_joined = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
-    stats(inc.cause).left = false
+    local seat = stats(inc.cause)
+    -- Whose seat this is now is settled by name once its player state has
+    -- one (refreshNames).
+    if seat.left then seat.arriving = true end
+    seat.left = false
     refreshNames()
     Match.joins = Match.joins or {}
     Match.joins[#Match.joins + 1] = { index = inc.cause, at = now() }
@@ -563,6 +579,7 @@ HANDLERS.player_quit = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
     eventLine(inc.cause, "Left", FEED.words, "left the game")
     stats(inc.cause).left = true
+    stats(inc.cause).leftName = stats(inc.cause).name
     stats(inc.cause).biped = nil
     boardDirty = true
 end
@@ -571,6 +588,7 @@ HANDLERS.player_booted_player = function(inc)
     if type(inc.effect) ~= "number" or inc.effect < 0 then return end
     eventLine(inc.effect, "Kicked", FEED.kicked, "was kicked")
     stats(inc.effect).left = true
+    stats(inc.effect).leftName = stats(inc.effect).name
     stats(inc.effect).biped = nil
     boardDirty = true
 end

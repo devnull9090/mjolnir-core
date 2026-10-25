@@ -16,6 +16,7 @@
 //   node tools/remote/remote.mjs log [lines]               the tail of MJOLNIRLobby's fireteam.log
 //   node tools/remote/remote.mjs crash                     the newest crash report's message and stack
 //   node tools/remote/remote.mjs input '[{"key":"Enter"}]'  keys and clicks for the game window (agent 2)
+//   node tools/remote/remote.mjs signin                    sign in at the title screen with no input
 //   node tools/remote/remote.mjs auto state|host CODE mode|join [host]|public on|off
 //                                                          MJOLNIRLobby's mjolnir_auto, and its answer
 //   node tools/remote/remote.mjs probe load|start|snap|mark|stop|dump|clear
@@ -84,6 +85,10 @@ const AGENT_FILES = [
   [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
 ];
 const PROBE_LUA = path.join(REPO, "tools", "remote", "audio-probe.lua");
+export const SIGN_IN_LUA =
+  'local t = FindFirstOf("WBP_TitleMenu_C") if t and t:IsValid() then ' +
+  "t:BndEvt__WBP_TitleMenu_WBP_MeteoriteStandaloneButtonDefault_K2Node_ComponentBoundEvent_1_CommonButtonBaseClicked__DelegateSignature(nil) " +
+  'print("clicked") else print("no title menu") end';
 const PROBE_LOG = "mjolnir-bridge/audio-probe.log";
 
 /** mjolnir_auto's answer file as an object, or null (reads the file only: safe while the game travels). */
@@ -194,6 +199,21 @@ export const commands = {
       default:
         throw new Error(`probe: unknown verb '${verb}' (load, start, snap, mark, stop, dump, clear)`);
     }
+  },
+  /**
+   * Sign in at the title screen with no input: the title menu's own click
+   * event (docs/multiplayer_servers.md). Keys need the game window in the
+   * foreground, which Windows refuses while PC 2's desktop is locked.
+   * Waits for MJOLNIRLobby's "MULTIPLAYER is on the main menu".
+   */
+  async signin() {
+    const ready = async () => (await call("GET", "/file", { root: "ue4ss", path: "UE4SS.log" })).toString("utf8").includes("MULTIPLAYER is on the main menu");
+    for (let i = 0; i < 40; i++) {
+      if (await ready()) return "at the main menu";
+      await bridge("lua", SIGN_IN_LUA).catch(() => null);
+      await sleep(3000);
+    }
+    throw new Error("PC 2 did not reach the main menu");
   },
   /** The game window as a PNG (agent 4). */
   async shot(local = "pc2.png", max = "1280") {

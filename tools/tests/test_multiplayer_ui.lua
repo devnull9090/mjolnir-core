@@ -493,6 +493,36 @@ old.incident("respawn_tick", 1, -1, 0)
 eq(old.feed.Respawn.text, "Respawn in 3")
 print("Multiplayer UI: an older UI container gets a text feed")
 
+-- The medal callout's queue (Scripts/anim.lua), stepped as the frame does:
+-- a medal that arrives late in the one showing (a Killing Spree 2.1 s into
+-- a Triple Kill) cuts it short and comes up itself, and both end (#242: the
+-- cut pushed the end back on every frame and the Triple Kill stayed).
+do
+    local Anim = dofile("mods/MJOLNIRHud/Scripts/anim.lua")
+    local s = Anim.new()
+    local shown, last = {}, nil
+    for step = 0, 1500 do
+        local t = 5 + step / 100
+        if step == 0 then Anim.callout(s, { title = "TRIPLE KILL" }, t) end
+        if step == 210 then Anim.callout(s, { title = "KILLING SPREE" }, t) end
+        Anim.nextCall(s, t)
+        local c = Anim.callPose(s, t)
+        if c and c.title ~= last then shown[#shown + 1] = { c.title, t } end
+        last = c and c.title
+    end
+    eq(#shown, 2)
+    eq(shown[2][1], "KILLING SPREE")
+    assert(shown[2][2] <= 5 + Anim.CALL_HOLD + Anim.CALL_OUT + 0.01, "the spree waits no longer than the hold")
+    eq(s.call, nil)
+    eq(#s.calls, 0)
+    -- A medal early in the one showing still cuts it to the quick time.
+    s = Anim.new()
+    Anim.callout(s, { title = "DOUBLE KILL" }, 0)
+    Anim.callout(s, { title = "TRIPLE KILL" }, 0.2)
+    assert(math.abs(s.call.endAt - (Anim.CALL_QUICK + Anim.CALL_OUT)) < 1e-9, "cut to the quick time")
+end
+print("Multiplayer UI: a medal late in a callout cuts it short, and both end")
+
 -- The feed's model on its own: poses are a function of the time.
 local Rows = dofile("mods/MJOLNIRHud/Scripts/feed.lua")
 local state = Rows.new()

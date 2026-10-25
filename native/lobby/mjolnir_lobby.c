@@ -2401,6 +2401,8 @@ static volatile LONG inject_request;
 static volatile LONG jip_host_auto;
 static volatile LONG fade_in_pending;
 static void fade_in_tick(void);
+static volatile LONG script_pending;
+static void script_tick(void);
 static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
@@ -2408,6 +2410,8 @@ static unsigned char *watch_globals;
 static unsigned char *sim_game_globals(void);
 static void inject_players(void);
 static int inject_needed(void);
+
+static void seats_tick(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
@@ -2417,6 +2421,7 @@ static void __fastcall hook_main_tick(void) {
         if (g && g[1]) watch_globals = g;
     }
     if (fade_in_pending) fade_in_tick();
+    if (script_pending) script_tick();
     if (InterlockedExchange(&end_game_request, 0)) {
         __try {
             end_game_tick();
@@ -2426,6 +2431,10 @@ static void __fastcall hook_main_tick(void) {
     }
     static unsigned inject_ticks;
     if (jip_host_auto && ++inject_ticks % 30 == 0) {
+        __try {
+            seats_tick();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
         __try {
             if (inject_needed()) {
                 fireteam_log("inject: a peer in the session has no player in the running game");
@@ -2983,6 +2992,31 @@ static char __fastcall hook_end_check(unsigned *winner, char *tie, unsigned *rea
     unsigned local_reason = 0;
     unsigned *out = reason ? reason : &local_reason;
     char ends = end_check_trampoline(winner, tie, out);
+    if (ends) {
+        /* Every "end" the engine reaches, once per reason a match, with the
+           game's player entries' teams (options +0x2e0, 0xb0 apart, team at
+           +0xa8): reason 2 is "fewer than two teams active", 4 the game
+           type's own end (Megalo). */
+        static unsigned long long logged_instance;
+        static unsigned logged_reasons;
+        unsigned char *g = sim_game_globals();
+        unsigned long long instance = g ? *(unsigned long long *)(g + 0x18) : 0;
+        if (instance != logged_instance) {
+            logged_instance = instance;
+            logged_reasons = 0;
+        }
+        if (*out < 32 && !(logged_reasons & (1u << *out))) {
+            logged_reasons |= 1u << *out;
+            char teams[200] = "";
+            size_t at = 0;
+            for (int i = 0; g && i < 16; i++)
+                if (g[0x2e0 + i * 0xb0])
+                    at += (size_t)snprintf(teams + at, sizeof teams - at, " %d:t%d", i,
+                                           (signed char)g[0x2e0 + i * 0xb0 + 0xa8]);
+            fireteam_log("game: the engine ends the match: reason %u, winner %d, tie %d; players%s", *out,
+                         winner ? (int)*winner : -1, tie ? *tie : -1, at ? teams : " none");
+        }
+    }
     if (ends && (*out == 0 || *out == 2) && keep_lobby && join_in_progress) {
         static DWORD last;
         if (GetTickCount() - last > 30000) {
@@ -2997,7 +3031,68 @@ static char __fastcall hook_end_check(unsigned *winner, char *tie, unsigned *rea
     return ends;
 }
 
+/* The sim's thread-local block (sim_game_globals is its +0x60): +0x38 is the
+   game engine's globals, whose +0x08/+0x0a/+0x16/+0x18 are team masks. */
+static unsigned char *sim_tls_block(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g) return NULL;
+    static unsigned tls_index = ~0u;
+    if (tls_index == ~0u) {
+        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+        IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+        IMAGE_DATA_DIRECTORY d = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+        tls_index = *(unsigned *)(uintptr_t)((IMAGE_TLS_DIRECTORY64 *)(sim + d.VirtualAddress))->AddressOfIndex;
+    }
+    void **tls_array = (void **)__readgsqword(0x58);
+    return tls_array ? (unsigned char *)tls_array[tls_index] : NULL;
+}
+
+/* The game's end (sim 0x2afa70: winner, end the game, reason; the round end
+   mjolnir_sim_end_game calls), whichever test asked for it: 0x2b1170 ends a
+   game for reason 13 when the engine's team masks disagree (a player on a
+   team the game type does not have, #229), and for 5/6 on score; the end
+   test above gives 0-4.
+   Logged with the team masks and each player's team. */
+typedef void(__fastcall *game_end_t)(unsigned long long winner, char end_game, int reason);
+static game_end_t game_end_trampoline;
+static const unsigned char GAME_END[] = {0x44, 0x89, 0x44, 0x24, 0x18, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41,
+                                         0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x48,
+                                         0x41, 0x8B, 0xF0, 0x8B, 0xD9};
+#define GAME_END_STOLEN 17
+
+static void __fastcall hook_game_end(unsigned long long winner, char end_game, int reason) {
+    char teams[240] = "";
+    unsigned short m8 = 0, ma = 0, m16 = 0, m18 = 0;
+    __try {
+        unsigned char *g = sim_game_globals();
+        unsigned char *block = sim_tls_block();
+        unsigned char *e = block ? *(unsigned char **)(block + 0x38) : NULL;
+        if (e) {
+            m8 = *(unsigned short *)(e + 8);
+            ma = *(unsigned short *)(e + 0xa);
+            m16 = *(unsigned short *)(e + 0x16);
+            m18 = *(unsigned short *)(e + 0x18);
+        }
+        size_t at = 0;
+        for (int i = 0; g && i < 16; i++)
+            if (g[0x2e0 + i * 0xb0])
+                at += (size_t)snprintf(teams + at, sizeof teams - at, " %d:t%d", i,
+                                       (signed char)g[0x2e0 + i * 0xb0 + 0xa8]);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fireteam_log("game: the match ends: reason %d, winner %d, end game %d; team masks +8 %04x +a %04x +16 %04x +18 "
+                 "%04x; players%s",
+                 reason, (int)winner, end_game, m8, ma, m16, m18, teams[0] ? teams : " none");
+    game_end_trampoline(winner, end_game, reason);
+}
+
 static void hook_end_check_once(unsigned char *sim) {
+    if (!game_end_trampoline) {
+        int hits;
+        unsigned char *fn = find_in_module(sim, GAME_END, NULL, sizeof GAME_END, 1, &hits);
+        if (fn) game_end_trampoline = (game_end_t)inline_hook(fn, GAME_END_STOLEN, (void *)hook_game_end);
+        fireteam_log("game: match end %s (%d matches)", game_end_trampoline ? "hooked" : "not found", hits);
+    }
     if (end_check_trampoline) return;
     int hits;
     unsigned char *fn = find_in_module(sim, END_CHECK, NULL, sizeof END_CHECK, 1, &hits);
@@ -3064,6 +3159,239 @@ static int inject_needed(void) {
     return 0;
 }
 
+/* A team game, as the lobby started it (native\team_game.txt, "1"), or as
+   the session's game variant says (+0x63cc present when +0x63c8 is set,
+   +0x2bc bit 0 "teams on"). The variant alone is not enough: at the start
+   it is still the free-for-all one the level loader swaps out as the map
+   loads. */
+static int lobby_team_game(unsigned char *session) {
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%steam_game.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (f) {
+        int c = fgetc(f);
+        fclose(f);
+        if (c == '1') return 1;
+        if (c == '0') return 0;
+    }
+    return session && session[0x63c8] && (session[0x63cc + 0x2bc] & 1);
+}
+
+/* A team game's two teams: red (0) or blue (1), whichever has fewer of the
+   game's other players (options entries, team at +0xa8); red on a tie. A
+   joiner who kept the team number of their slot (2, 3, ...) would be on a
+   team the game type does not have, and the engine ends such a game at once
+   as a draw (sim 0x2b1170, reason 13; #229). */
+static int smaller_team(unsigned char *g, int self) {
+    int count[2] = {0, 0};
+    for (int i = 0; i < 16; i++) {
+        if (i == self || !g[0x2e0 + i * 0xb0]) continue;
+        signed char t = (signed char)g[0x2e0 + i * 0xb0 + 0xa8];
+        if (t == 0 || t == 1) count[t]++;
+    }
+    return count[1] < count[0] ? 1 : 0;
+}
+
+/* The pre-game handler (sim 0x55b2c0) builds the game's player entries from
+   the session's members and publishes them as the players parameter, which
+   the host's game and every client's are built from. A free-for-all numbers
+   its players by slot; a team game keeps the team in each member's entry,
+   and the third player of a fireteam comes in on team 2. Our team game types
+   (team_slayer, ctf) have two teams, so the engine's team test (sim
+   0x2b1170) ends the game on its first update as a draw, reason 13: every
+   team game with three or more players "returned everyone to the lobby"
+   (#229). A detour just before the publish (sim 0x55b803, `lea rcx,
+   [r13+0x44f8]; vzeroupper; call 0x4c1220`) hands the entries (rbp+0x40,
+   0xb0 apart, team at +0xa8) and the session (r13) to teams_balance, which
+   puts the players on red and blue in turn. */
+static const unsigned char PUBLISH_AT[] = {0x83, 0xF9, 0xFF, 0x0F, 0x85, 0xB1, 0xFE, 0xFF, 0xFF, 0x49,
+                                           0x8D, 0x8D, 0xF8, 0x44, 0x00, 0x00, 0xC5, 0xF8, 0x77, 0xE8};
+#define PUBLISH_SKIP 9 /* the cmp/jnz before the detoured lea */
+
+static void __fastcall teams_balance(unsigned char *entries, unsigned char *session) {
+    __try {
+        /* The game variant parameter (+0x63cc) is there when +0x63c8 is set;
+           its +0x2bc bit 0 is "teams on". */
+        if (!lobby_team_game(session)) {
+            static DWORD last;
+            if (GetTickCount() - last > 10000) {
+                last = GetTickCount();
+                fireteam_log("teams: players list published, teams off (variant present %d, flags %02x)",
+                             session[0x63c8], session[0x63cc + 0x2bc]);
+            }
+            return;
+        }
+        char line[200];
+        size_t at = 0;
+        int k = 0;
+        line[0] = 0;
+        for (int i = 0; i < 16; i++) {
+            unsigned char *e = entries + i * 0xb0;
+            if (!e[0]) continue;
+            signed char before = (signed char)e[0xa8];
+            e[0xa8] = (unsigned char)(k++ & 1);
+            at += (size_t)snprintf(line + at, sizeof line - at, " %d:t%d->t%d", i, before, e[0xa8]);
+        }
+        fireteam_log("teams: the game's players go red and blue in turn:%s", line);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("teams: the players list was unreadable; teams left as they were");
+    }
+}
+
+static void teams_balance_once(void) {
+    static int done;
+    if (done) return;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return;
+    done = 1;
+    int hits;
+    unsigned char *at = find_in_module(sim, PUBLISH_AT, NULL, sizeof PUBLISH_AT, 1, &hits);
+    if (!at) {
+        fireteam_log("teams: the players-list publish matched %d times; team games keep the game's numbering", hits);
+        return;
+    }
+    unsigned char *site = at + PUBLISH_SKIP;     /* lea rcx,[r13+0x44f8] */
+    unsigned char *call = site + 10;             /* call rel32 */
+    unsigned char *target = call + 5 + *(int *)(call + 1);
+    unsigned char *resume = call + 5;
+    unsigned char *stub = (unsigned char *)VirtualAlloc(NULL, 128, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!stub) return;
+    unsigned char *p = stub;
+    /* save the volatile registers, 16-byte align with shadow space */
+    static const unsigned char save[] = {0x50, 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53,
+                                         0x48, 0x83, 0xEC, 0x28};
+    memcpy(p, save, sizeof save), p += sizeof save;
+    static const unsigned char args[] = {0x48, 0x8D, 0x4D, 0x40, 0x4C, 0x89, 0xEA}; /* lea rcx,[rbp+0x40]; mov rdx,r13 */
+    memcpy(p, args, sizeof args), p += sizeof args;
+    *p++ = 0x48, *p++ = 0xB8; /* mov rax, imm64 */
+    *(void **)p = (void *)teams_balance, p += 8;
+    *p++ = 0xFF, *p++ = 0xD0; /* call rax */
+    static const unsigned char restore[] = {0x48, 0x83, 0xC4, 0x28, 0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59,
+                                            0x41, 0x58, 0x5A, 0x59, 0x58};
+    memcpy(p, restore, sizeof restore), p += sizeof restore;
+    memcpy(p, site, 10), p += 10; /* lea rcx,[r13+0x44f8]; vzeroupper */
+    *p++ = 0x48, *p++ = 0xB8;
+    *(void **)p = target, p += 8;
+    *p++ = 0xFF, *p++ = 0xD0; /* call the original target */
+    *p++ = 0xFF, *p++ = 0x25, *(int *)p = 0, p += 4;
+    *(void **)p = resume, p += 8; /* jmp back after the call */
+    DWORD old;
+    if (!VirtualProtect(site, 15, PAGE_EXECUTE_READWRITE, &old)) return;
+    unsigned char patch[15];
+    memset(patch, 0x90, sizeof patch);
+    patch[0] = 0xFF, patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = stub;
+    memcpy(site, patch, sizeof patch);
+    VirtualProtect(site, 15, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 15);
+    fireteam_log("teams: a team game's players go red and blue in turn (players list publish at sim+%llx)",
+                 (unsigned long long)(site - sim));
+}
+
+/* The players parameter, as the in-game handler republishes it: machine
+   mask and ids, the local-machine fields cleared, then the entries. */
+static void publish_players(unsigned char *session, unsigned char *g) {
+    memcpy(session + 0x4584, g + 0x26c, 0x6a);
+    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
+    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
+    session[0x4580] = 1;
+    session[0x4578] |= 1;
+    *(unsigned long long *)(session + 0x4528) = 0;
+    typedef void(__fastcall * changed_t)(void *);
+    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+}
+
+/* A seat that changes hands keeps nothing of its last player (#236).
+   A player who leaves a match under way keeps their player record and score;
+   whoever takes the seat next gets both. Two ways: a peer that rejoins on the
+   departed peer's slot is handed the old player record outright (the engine
+   raises player_rejoined, nothing is created), and a joiner put in by
+   inject_players gets a fresh record on an index whose engine score (game
+   engine globals +0x32c0, four shorts a player, sim 0x2adc70) was never
+   cleared. Each seat's player identifier (options entry +0x12, 8 bytes, from
+   the session member's +4) is remembered; when a seat's member or record
+   shows a different one, the seat's engine score is cleared, and a reused
+   record takes the newcomer's identifier and profile and is republished.
+   The same person coming back keeps their score, as the engine intends. */
+static unsigned long long seat_id[16];
+static unsigned seat_known;
+static unsigned long long seat_instance;
+
+static void seat_reset_score(int p) {
+    unsigned char *block = sim_tls_block();
+    unsigned char *e = block ? *(unsigned char **)(block + 0x38) : NULL;
+    if (!e) return;
+    short *score = (short *)(e + 0x32c0 + p * 8);
+    fireteam_log("seats: seat %d's engine score was %d %d %d %d", p, score[0], score[1], score[2], score[3]);
+    memset(score, 0, 8);
+}
+
+static void seats_tick(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1] || !sim_sessions) return;
+    unsigned long long instance = *(unsigned long long *)(g + 0x18);
+    if (instance != seat_instance) {
+        seat_instance = instance;
+        seat_known = 0;
+    }
+    unsigned char *session = NULL;
+    for (int si = 0; si < 2; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (*(int *)(s + 0x5b460) == 6 && *(unsigned *)(s + 0x5c)) session = s;
+    }
+    if (!session) return;
+    unsigned members = *(unsigned *)(session + 0x140c);
+    int republish = 0;
+    /* native\seat_test.txt "<seat>": treat that seat as handed to another
+       player once (the record's identifier is changed), for a test with one
+       account per PC. Removed after use. */
+    char test_path[MAX_PATH];
+    snprintf(test_path, sizeof test_path, "%sseat_test.txt", dir);
+    FILE *tf = fopen(test_path, "r");
+    if (tf) {
+        int t = -1;
+        if (fscanf(tf, "%d", &t) != 1) t = -1;
+        fclose(tf);
+        DeleteFileA(test_path);
+        if (t >= 0 && t < 16 && g[0x2e0 + t * 0xb0]) {
+            *(unsigned long long *)(g + 0x2e0 + t * 0xb0 + 0x12) ^= 1;
+            fireteam_log("seats: test: seat %d's record now carries another identifier", t);
+        }
+    }
+    for (int p = 0; p < 16; p++) {
+        unsigned char *entry = g + 0x2e0 + p * 0xb0;
+        if (!entry[0]) continue;
+        unsigned long long id = *(unsigned long long *)(entry + 0x12);
+        unsigned char *member = session + 0x1410 + p * 0xb0;
+        if ((members & (1u << p)) && *(int *)(member + 0x1c) != -1) {
+            unsigned long long member_id = *(unsigned long long *)(member + 4);
+            if (member_id && member_id != id) {
+                /* A different player was handed this seat's record. */
+                unsigned char team = entry[0xa8];
+                memcpy(entry + 0x12, member + 4, 8);
+                memcpy(entry + 0x20, member + 0x20, 0x90);
+                entry[0xa8] = team;
+                seat_reset_score(p);
+                republish = 1;
+                fireteam_log("seats: seat %d went to another player (%016llx -> %016llx); its score is cleared", p, id,
+                             member_id);
+                id = member_id;
+            }
+        }
+        if ((seat_known & (1u << p)) && seat_id[p] != id) {
+            /* A fresh record on a seat another player used this match. */
+            seat_reset_score(p);
+            fireteam_log("seats: seat %d has a new player (%016llx -> %016llx); its score is cleared", p, seat_id[p],
+                         id);
+        }
+        seat_id[p] = id;
+        seat_known |= 1u << p;
+    }
+    if (republish) publish_players(session, g);
+}
+
 static void inject_players(void) {
     unsigned char *g = sim_game_globals();
     if (!g || !g[1]) {
@@ -3109,9 +3437,8 @@ static void inject_players(void) {
             /* Teams off in the game variant (session +0x63cc, byte +0x2bc
                bit 0): each player is its own team, as the pre-game handler
                numbers them. */
-            if (!(session[0x63cc + 0x2bc] & 1)) entry[0xa8] = (unsigned char)(p & 0xf);
-            else if ((signed char)entry[0xa8] < 0) entry[0xa8] = 0;
-            else if ((signed char)entry[0xa8] > 7) entry[0xa8] = 7;
+            if (!lobby_team_game(session)) entry[0xa8] = (unsigned char)(p & 0xf);
+            else entry[0xa8] = (unsigned char)smaller_team(g, p);
             char made = player_new_jip(p, entry, 1);
             fireteam_log("inject: player %d (peer %d, team %u) created -> %d", p, peer, entry[0xa8], made);
             added++;
@@ -3121,16 +3448,7 @@ static void inject_players(void) {
         fireteam_log("inject: no new player to add (peers %05x, machines %05x, members %05x)", peers, machines, members);
         return;
     }
-    /* The players parameter, as the in-game handler republishes it: machine
-       mask and ids, the local-machine fields cleared, then the entries. */
-    memcpy(session + 0x4584, g + 0x26c, 0x6a);
-    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
-    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
-    session[0x4580] = 1;
-    session[0x4578] |= 1;
-    *(unsigned long long *)(session + 0x4528) = 0;
-    typedef void(__fastcall * changed_t)(void *);
-    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+    publish_players(session, g);
     log_game_players("after", g);
 }
 
@@ -3183,6 +3501,16 @@ static const unsigned char HS_EVALUATE[] = {0x48, 0x89, 0x54, 0x24, 0x10, 0x56, 
                                             0,    0,    0,    0x48, 0x2B, 0xE0, 0x48, 0x89, 0xAC, 0x24, 0x70, 0x20};
 static const unsigned char HS_EVALUATE_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
+static int find_hs_evaluate(const char *what) {
+    if (hs_evaluate) return 1;
+    int hits = 0;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
+                      : NULL;
+    if (!hs_evaluate) fireteam_log("game: script evaluator not found (%d matches); %s", hits, what);
+    return hs_evaluate != NULL;
+}
+
 static void fade_in_tick(void) {
     static unsigned running_ticks;
     static unsigned long long instance;
@@ -3195,16 +3523,7 @@ static void fade_in_tick(void) {
     if (++running_ticks < 90) return;
     running_ticks = 0;
     InterlockedExchange(&fade_in_pending, 0);
-    if (!hs_evaluate) {
-        int hits = 0;
-        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
-        hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
-                          : NULL;
-        if (!hs_evaluate) {
-            fireteam_log("game: script evaluator not found (%d matches); the view stays faded", hits);
-            return;
-        }
-    }
+    if (!find_hs_evaluate("the view stays faded")) return;
     int value = -1, type = 0;
     __try {
         hs_evaluate(0, "mjolnir_lobby", "(fade_in 0 0 0 15)", 1, 0, &value, &type);
@@ -3221,6 +3540,67 @@ __declspec(dllexport) int mjolnir_sim_fade_in(void *L) {
     if (!sim || !install_main_tick(sim)) return 0;
     InterlockedExchange(&fade_in_pending, 1);
     fireteam_log("game: fade-in queued");
+    return 0;
+}
+
+/* Script lines for the Lua mods (MJOLNIRLevelLoader's kill floors and lifts),
+   run through the same evaluator on the simulation thread while a game is
+   running. native\script.txt: "<id>\n" then up to SCRIPT_MAX lines;
+   mjolnir_sim_script queues a new id's lines and the next main tick runs
+   them. MJOLNIRBlamConsole does the same for a typed line, but it is a
+   developer mod: a player's game has only this one. */
+#define SCRIPT_MAX 16
+#define SCRIPT_LINE 256
+static SRWLOCK script_lock = SRWLOCK_INIT;
+static char script_lines[SCRIPT_MAX][SCRIPT_LINE];
+static int script_count;
+
+static void script_tick(void) {
+    char lines[SCRIPT_MAX][SCRIPT_LINE];
+    AcquireSRWLockExclusive(&script_lock);
+    int n = script_count;
+    memcpy(lines, script_lines, sizeof lines);
+    script_count = 0;
+    InterlockedExchange(&script_pending, 0);
+    ReleaseSRWLockExclusive(&script_lock);
+    unsigned char *g = sim_game_globals();
+    if (!n || !g || !g[1] || !find_hs_evaluate("script lines dropped")) return;
+    for (int i = 0; i < n; i++) {
+        int value = -1, type = 0;
+        __try {
+            hs_evaluate(0, "mjolnir_lobby", lines[i], 1, 0, &value, &type);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("game: script line faulted (%08lx): %s", GetExceptionCode(), lines[i]);
+        }
+    }
+}
+
+__declspec(dllexport) int mjolnir_sim_script(void *L) {
+    (void)L;
+    static long long last_id = -1;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim || !install_main_tick(sim)) return 0;
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sscript.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    char line[SCRIPT_LINE];
+    long long id = -1;
+    if (fgets(line, sizeof line, f)) id = strtoll(line, NULL, 10);
+    if (id < 0 || id == last_id) {
+        fclose(f);
+        return 0;
+    }
+    last_id = id;
+    AcquireSRWLockExclusive(&script_lock);
+    while (script_count < SCRIPT_MAX && fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0]) strcpy(script_lines[script_count++], line);
+    }
+    if (script_count) InterlockedExchange(&script_pending, 1);
+    ReleaseSRWLockExclusive(&script_lock);
+    fclose(f);
     return 0;
 }
 
@@ -3349,6 +3729,9 @@ __declspec(dllexport) int mjolnir_sim_end_game(void *L) {
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return 0;
     int hits = 0;
+    /* With the match-end log hook in (hook_game_end), the function's first
+       bytes are a jump: go through the hook, which calls the original. */
+    if (!round_end && game_end_trampoline) round_end = (round_end_t)(void *)hook_game_end;
     if (!round_end) {
         round_end = (round_end_t)find_in_module(sim, ROUND_END, NULL, sizeof ROUND_END, 1, &hits);
         if (!round_end) {
@@ -3528,6 +3911,7 @@ static void sound_trace_arm(void);
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
     sound_trace_arm();
+    teams_balance_once();
     if (keep_lobby && join_in_progress && !jip_host_auto) {
         if (inject_prepare()) {
             InterlockedExchange(&jip_host_auto, 1);
