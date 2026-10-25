@@ -9,6 +9,7 @@ interface LauncherSettings {
   custom_exe_path: string | null;
   install_path: string | null;
   show_ue4ss_console: boolean;
+  skip_intro: boolean;
 }
 
 interface BuildInfo {
@@ -42,6 +43,7 @@ export default function Settings() {
     custom_exe_path: null,
     install_path: null,
     show_ue4ss_console: false,
+    skip_intro: true,
   });
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null>(null);
   const [saving, setSaving] = useState(false);
@@ -119,6 +121,21 @@ export default function Settings() {
     try {
       await invoke("set_ue4ss_console", { show });
       setSettings((prev) => ({ ...prev, show_ue4ss_console: show }));
+    } catch (err) {
+      setConsoleError(String(err));
+    } finally {
+      setConsoleSaving(false);
+    }
+  };
+
+  // Saved and applied straight away, like the console choice.
+  const handleIntroToggle = async () => {
+    const skip = !settings.skip_intro;
+    setConsoleSaving(true);
+    setConsoleError(null);
+    try {
+      await invoke("set_skip_intro", { skip });
+      setSettings((prev) => ({ ...prev, skip_intro: skip }));
     } catch (err) {
       setConsoleError(String(err));
     } finally {
@@ -351,6 +368,31 @@ export default function Settings() {
             <span
               className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200
                 ${settings.show_ue4ss_console ? "translate-x-5" : "translate-x-0"}`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-start justify-between gap-4 p-4 rounded-xl border border-border-subtle bg-surface-primary mt-3">
+          <div>
+            <span className="text-sm font-medium text-text-primary">Skip intro videos</span>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Goes straight to the main menu, about 20 seconds sooner, by setting the start-up logo
+              movie aside. Turn it off to see the logos again. Takes effect the next time the game
+              starts.
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={settings.skip_intro}
+            aria-label="Skip intro videos"
+            onClick={handleIntroToggle}
+            disabled={consoleSaving}
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer shrink-0 disabled:opacity-50
+              ${settings.skip_intro ? "bg-accent-green" : "bg-border-subtle"}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200
+                ${settings.skip_intro ? "translate-x-5" : "translate-x-0"}`}
             />
           </button>
         </div>

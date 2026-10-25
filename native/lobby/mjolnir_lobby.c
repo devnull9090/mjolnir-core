@@ -5208,6 +5208,17 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
            reach the audio layer's actor lookup), then wait for pending
            sound loads, find the audio world for this UWorld, register the
            block with it and bind the audio interface (0x7544b80). */
+        /* Never the same block twice for one world: a joiner's log showed
+           pairs of forced binds a second apart on one block (2026-10-24),
+           each registering the game's world listener again. */
+        static long long forced_block, forced_world;
+        if (block == forced_block && (long long)world == forced_world) {
+            fprintf(reply, "already bound (forced on this block before)\n");
+            fclose(reply);
+            return 0;
+        }
+        forced_block = block;
+        forced_world = (long long)world;
         long long listener = block - 0x20;
         fprintf(reply, "listener %llx: +0x78 world before %llx\n", listener, *(long long *)(listener + 0x78));
         ((audio_bind_t)(exe + 0x7b20690))(listener, (long long)world);
