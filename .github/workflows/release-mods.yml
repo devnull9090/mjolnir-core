@@ -281,7 +281,25 @@ jobs:
           sha256sum *.zip manifest.json > "checksums-${GITHUB_REF_NAME}.txt"
           cat "checksums-${GITHUB_REF_NAME}.txt"
 
+      # Immutable releases: once this tag's release is published, its assets
+      # cannot be replaced, and a second run for the same tag (mods-v0.35.0
+      # ran twice, 21 s apart) failed here on "Cannot delete asset from an
+      # immutable release". A published release is left as it is and the run
+      # goes on to R2, which can be rewritten.
+      - name: Is this tag already released?
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" --json isDraft -q '.isDraft' 2>/dev/null | grep -q false; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${GITHUB_REF_NAME} is already published on GitHub; keeping its assets, updating R2 only"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: GitHub release
+        if: steps.existing.outputs.published != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
