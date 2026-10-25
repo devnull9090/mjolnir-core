@@ -296,9 +296,25 @@ local function refreshNames()
     end)
 end
 
+--- A fireteam client asks its host for the bots' names (Relay.BOTS_ASK): a
+--- few times as its match starts, and again when it meets a bot seat it
+--- cannot name. A host without bots says nothing.
+local function askBotNames(pc, urgent)
+    if not Match or Match.host or Match.botsHeard then return end
+    local t = now()
+    Match.botAsks = Match.botAsks or 0
+    if not urgent and (t - Match.startedAt < 2 or Match.botAsks >= 5) then return end
+    if t < (Match.nextBotAsk or 0) then return end
+    Match.nextBotAsk = t + 3
+    Match.botAsks = Match.botAsks + 1
+    pc = pc or playerController()
+    if pc then pcall(function() pc:ServerExecRPC(Relay.BOTS_ASK) end) end
+end
+
 local function nameOf(index)
     if type(index) ~= "number" or index < 0 then return nil end
     local p = stats(index)
+    if not p.name and Bots.isBot(index) then askBotNames(nil, true) end
     if not p.name then refreshNames() end
     return p.display or p.name or ("Player " .. tostring(index + 1))
 end
@@ -653,6 +669,16 @@ local function botIncident(inc)
     end
 end
 
+--- The bots' names to each fireteam player who has not had them yet: a new
+--- name (a bot placed for the first time) or a player who just arrived.
+local function syncBotNames()
+    if not (Match and Match.host and Bots.active()) then return end
+    local seats = Bots.seats()
+    if #seats == 0 then return end
+    local message = Relay.encodeBots(seats)
+    pcall(Relay.syncBots, message, message)
+end
+
 local function drain()
     local queued = Queue
     Queue = {}
@@ -699,6 +725,8 @@ local function drain()
     end
     if not Match then return end
     if #outgoing > 0 then
+        -- A joiner has the bots' names before the first line that needs them.
+        syncBotNames()
         local ok, sent = pcall(Relay.send, outgoing)
         if not ok then
             Log("relay: " .. tostring(sent))
@@ -737,19 +765,27 @@ end
 --- What a fireteam client hears from its host: the feed's incidents
 --- (Scripts/relay.lua), and the medals MJOLNIRLevelLoader relays for their
 --- sounds (from a host whose HUD is older). drain takes each incident once.
+--- The host's bot names (Relay.syncBots sends them once): kept until this
+--- machine's match is up, which can be after the host sees it arrive.
+local HeardBots = nil
+
+local function applyBotNames()
+    if not (HeardBots and Match) or Match.host then return end
+    for seat, name in pairs(HeardBots) do
+        local p = stats(seat)
+        if p.name ~= name then
+            p.name, p.bot = name, true
+            boardDirty = true
+        end
+    end
+    Match.botsHeard = true
+end
+
 local function relayed(text)
     local roster = Relay.decodeBots(text)
     if roster then
-        if Match and not Match.host then
-            for seat, name in pairs(roster) do
-                local p = stats(seat)
-                if p.name ~= name then
-                    p.name, p.bot = name, true
-                    boardDirty = true
-                end
-            end
-            Match.botsHeard = true
-        end
+        HeardBots = roster
+        applyBotNames()
         return
     end
     local batch = Relay.decode(text, now())
@@ -1026,6 +1062,17 @@ local function hookMatchLog()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
             if okM and Chat.heardSay(self:get(), text) then return end
+            -- A fireteam player asking for the bots' names (Relay.BOTS_ASK).
+            if okM and text == Relay.BOTS_ASK then
+                local asker = self:get()
+                ExecuteInGameThread(function()
+                    if not (Match and Match.host and Bots.active() and asker:IsValid()) then return end
+                    local seats = Bots.seats()
+                    if #seats == 0 then return end
+                    pcall(function() asker:ClientMessage(Relay.encodeBots(seats), FName("MJOLNIR"), 0) end)
+                end)
+                return
+            end
             if not okM or text ~= ASK or not MatchLog.recording() then return end
             local pc = self:get()
             -- Off the RPC, as MJOLNIRLobby answers its messages.
@@ -1244,6 +1291,9 @@ local function startMatch(running, world)
     boardDirty = true
     nextRosterRefresh = 0
     Log("match: " .. running.code .. " " .. tostring(running.variant))
+    -- Bot names heard while this match was still loading (a host's next
+    -- match replaces them as soon as it is up).
+    applyBotNames()
 end
 
 --- The widgets, once the map's world is up: created too early (while the
@@ -1524,11 +1574,10 @@ local function tick()
     end
     local okBots, errBots = pcall(Bots.tick, now(), humans)
     if not okBots then Log("bots: " .. tostring(errBots)) end
-    -- The bots' names to the fireteam, for players who joined since.
-    if Match.host and Bots.active() and now() >= (Match.nextBotRoster or 0) then
-        Match.nextBotRoster = now() + 5
-        local seats = Bots.seats()
-        if #seats > 0 then pcall(Relay.sendText, Relay.encodeBots(seats)) end
+    if now() >= (Match.nextBotRoster or 0) then
+        Match.nextBotRoster = now() + 1
+        syncBotNames()
+        askBotNames(pc, false)
     end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1
