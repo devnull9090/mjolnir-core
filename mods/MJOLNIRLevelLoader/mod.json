@@ -1,5 +1,5 @@
 {
-  "version": "0.9.1",
+  "version": "0.9.3",
   "summary": "Runtime half of custom levels and the converted CE maps: spawns a level's Unreal decor, lighting, water, grass and weather, and starts the multiplayer game type. Solid geometry comes from the baked scenario, not from this mod.",
   "category": "tools"
 }
