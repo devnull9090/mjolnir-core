@@ -3787,6 +3787,10 @@ end
 
 local function fixPauseMenu(menu)
     if not UI.valid(menu) or not inMultiplayerMatch() then return end
+    -- The header is the mission's title, and every converted map is a
+    -- mission clone (B40's "Assault on the Control Room"): name the map.
+    local title = (readFile(LOADER_DIR .. "\\running.txt") or ""):match("^[^\t]*\t[^\t]*\t([^\r\n]+)")
+    if title then pcall(function() menu.HeaderText:SetText(FText(title)) end) end
     pcall(function() hostLayout = menu:GetOuter():GetOuter() end)
     pcall(function() menu.RestartMissionButton:SetVisibility(1) end)
     if not Net.isHost() then

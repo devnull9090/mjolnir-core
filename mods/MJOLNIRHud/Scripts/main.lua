@@ -1436,15 +1436,10 @@ local function startBots(count)
     end)
 end
 
---- `mjolnir_bots <n>`: how many bots the host fills its matches with (kept
---- in bots.txt); in a match, the bots start again with that many.
+--- `mjolnir_bots <n>`: this match's bots start again with that many (the
+--- host's game settings set the number for every match).
 pcall(RegisterConsoleCommandHandler, "mjolnir_bots", function(_, args, ar)
     local n = math.max(0, math.min(tonumber(args and args[1]) or 0, 15))
-    local f = io.open(MOD_DIR .. "\\bots.txt", "wb")
-    if f then
-        f:write(tostring(n), "\n")
-        f:close()
-    end
     ExecuteInGameThread(function() startBots(n) end)
     pcall(function() ar:Log("MJOLNIR HUD: " .. n .. " bot(s)") end)
     return true
@@ -1501,9 +1496,13 @@ local function tick()
     end
     if Match.host and not Match.botsChecked and now() - Match.startedAt > 3 then
         Match.botsChecked = true
-        startBots(Bots.wanted(MOD_DIR))
+        startBots(Bots.wanted(LOADER_DIR))
     end
-    local okBots, errBots = pcall(Bots.tick, now())
+    local humans = 0
+    for index, p in pairs(Match.players) do
+        if index >= 0 and index <= 15 and not p.left then humans = humans + 1 end
+    end
+    local okBots, errBots = pcall(Bots.tick, now(), humans)
     if not okBots then Log("bots: " .. tostring(errBots)) end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1

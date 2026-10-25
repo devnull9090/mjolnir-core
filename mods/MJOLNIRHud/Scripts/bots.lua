@@ -197,7 +197,31 @@ function Bots.died(index, now)
     s.nextAt = now + Bots.RESPAWN_SECONDS
 end
 
-function Bots.tick(now)
+--- AI stand at their firing positions until they see someone. A bot is
+--- given somewhere to be every so often: half the time a human player it is
+--- made aware of, wherever they are (task `hunt`), otherwise one of the
+--- map's areas (task `area_<k>`) to walk to (level.rs bots_finish).
+Bots.AREAS = 16
+local ROAM_MIN, ROAM_MAX = 12, 25
+
+local function roam(now, humans)
+    local lines = {}
+    for _, s in ipairs(state.slots) do
+        if s.status == "alive" and now >= (s.roamAt or 0) and #lines < 14 then
+            s.roamAt = now + ROAM_MIN + math.random() * (ROAM_MAX - ROAM_MIN)
+            if humans > 0 and math.random() < 0.5 then
+                lines[#lines + 1] = string.format("(ai_set_task bot_%d mjolnir_bots hunt)", s.k)
+                lines[#lines + 1] = string.format("(ai_magically_see_object bot_%d (player_get %d))", s.k, math.random(humans) - 1)
+            else
+                lines[#lines + 1] = string.format("(ai_set_task bot_%d mjolnir_bots area_%d)", s.k, math.random(Bots.AREAS) - 1)
+            end
+        end
+    end
+    if #lines > 0 then script(lines) end
+end
+
+--- `humans`: how many human players the match has (`player_get`'s range).
+function Bots.tick(now, humans)
     if not state or now < state.nextScan then return end
     state.nextScan = now + SCAN_SECONDS
     local live = liveActors()
@@ -216,11 +240,14 @@ function Bots.tick(now)
             end
         end
     end
+    if not state.placing then roam(now, humans or 0) end
     local p = state.placing
     if p then
         for at, actor in pairs(live) do
             if not taken[at] and not state.retired[at] and not p.before[at] then
                 p.status, p.addr, p.actor = "alive", at, actor
+                -- A few seconds to look around where it spawned first.
+                p.roamAt = now + 3 + math.random() * 4
                 state.placing = nil
                 p.seated = true
                 pcall(state.onSeat, p.index, p.name)
@@ -261,12 +288,12 @@ function Bots.seats()
     return out
 end
 
---- How many bots the host asked for: `bots.txt` beside the HUD (a number),
---- 0 without one.
-function Bots.wanted(modDir)
-    local f = io.open(modDir .. "\\bots.txt", "rb")
+--- How many bots the host asked for: `bots` in the game settings line
+--- MJOLNIRLobby writes for the loader (variant_settings.txt), 0 without it.
+function Bots.wanted(loaderDir)
+    local f = io.open(loaderDir .. "\\variant_settings.txt", "rb")
     if not f then return 0 end
-    local n = tonumber((f:read("*a") or ""):match("%d+"))
+    local n = tonumber((f:read("*a") or ""):match("bots=(%d+)"))
     f:close()
     return math.min(n or 0, 15)
 end

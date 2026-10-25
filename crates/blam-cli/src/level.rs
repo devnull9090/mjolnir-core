@@ -1870,42 +1870,69 @@ impl Baker {
         }
         self.file = blockedit::replace_nested(&self.file, &hints)?;
 
-        // The objective: one task over every area, players always in sight.
+        // The objective `mjolnir_bots`: task `hunt` over every area, where the
+        // bots start, then a task `area_<k>` per area, which MJOLNIRHud sends a
+        // bot to (`ai_set_task`) to roam the map. Every task sees the players.
+        let n = areas.len();
         let op = format!("ai objectives[{}]", ix.objective);
-        self.file = blockedit::select(&self.file, &[(format!("{op}.tasks"), vec![0]), (format!("{op}.opposing objectives"), vec![])])?;
-        let tp = format!("{op}.tasks[0]");
-        let tap = format!("{tp}.areas");
-        let ta_size = block_element_size(&self.file, &tap)?;
-        let (donor_ta, _) = blockedit::element_with_wrapper(&self.file, &tap, 0)?;
-        let toff = field_offsets(&self.file, &format!("{tap}[0]"), &["area type", "zone", "area", "connection flags 0", "connection flags 1"])?;
-        let every: u32 = if areas.len() >= 32 { u32::MAX } else { (1u32 << areas.len()) - 1 };
-        let mut tas = Vec::new();
-        for k in 0..areas.len() {
+        self.file = blockedit::select(
+            &self.file,
+            &[(format!("{op}.tasks"), vec![0; n + 1]), (format!("{op}.opposing objectives"), vec![])],
+        )?;
+        let tap0 = format!("{op}.tasks[0].areas");
+        let ta_size = block_element_size(&self.file, &tap0)?;
+        let (donor_ta, _) = blockedit::element_with_wrapper(&self.file, &tap0, 0)?;
+        let toff = field_offsets(&self.file, &format!("{tap0}[0]"), &["area type", "zone", "area", "connection flags 0", "connection flags 1"])?;
+        let every: u32 = if n >= 32 { u32::MAX } else { (1u32 << n) - 1 };
+        let area_entry = |k: usize| {
             let mut e = donor_ta.clone();
             put_i16(&mut e, toff[0], 0);
             put_i16(&mut e, toff[1], ix.zone as i16);
             put_i16(&mut e, toff[2], k as i16);
             e[toff[3]..toff[3] + 4].copy_from_slice(&every.to_le_bytes());
             debug_assert_eq!(e.len(), ta_size);
-            tas.extend_from_slice(&e);
+            e
+        };
+        let mut task_areas = vec![blockedit::NestedReplace {
+            path: tap0,
+            count: n as u32,
+            elements: (0..n).flat_map(area_entry).collect(),
+            wrappers: None,
+        }];
+        for k in 0..n {
+            task_areas.push(blockedit::NestedReplace {
+                path: format!("{op}.tasks[{}].areas", k + 1),
+                count: 1,
+                elements: area_entry(k),
+                wrappers: None,
+            });
         }
-        self.file = blockedit::replace_nested(
-            &self.file,
-            &[blockedit::NestedReplace { path: tap, count: areas.len() as u32, elements: tas, wrappers: None }],
-        )?;
-        for (field, value) in [
+        self.file = blockedit::replace_nested(&self.file, &task_areas)?;
+        let mut sets = vec![
+            (format!("{op}.name"), "mjolnir_bots".to_string()),
             (format!("{op}.zone index"), format!("#{}", ix.zone)),
             (format!("{op}.first task index"), "#0".to_string()),
-            (format!("{tp}.flags"), "0x200".to_string()),
-            (format!("{tp}.first_child"), "none".to_string()),
-            (format!("{tp}.next_sibling"), "none".to_string()),
-            (format!("{tp}.parent"), "none".to_string()),
-            (format!("{tp}.filter"), "0".to_string()),
-            (format!("{tp}.filter flags"), "0x0".to_string()),
-            (format!("{tp}.Squad group filter"), "none".to_string()),
-        ] {
+        ];
+        for t in 0..=n {
+            let tp = format!("{op}.tasks[{t}]");
+            let name = if t == 0 { "hunt".to_string() } else { format!("area_{}", t - 1) };
+            sets.extend([
+                (format!("{tp}.name"), name),
+                (format!("{tp}.flags"), "0x200".to_string()),
+                // The roaming tasks go where their area is, not after player 0.
+                (format!("{tp}.follow"), if t == 0 { "1" } else { "0" }.to_string()),
+                (format!("{tp}.first_child"), "none".to_string()),
+                (format!("{tp}.next_sibling"), if t < n { format!("#{}", t + 1) } else { "none".to_string() }),
+                (format!("{tp}.parent"), "none".to_string()),
+                (format!("{tp}.filter"), "0".to_string()),
+                (format!("{tp}.filter flags"), "0x0".to_string()),
+                (format!("{tp}.Squad group filter"), "none".to_string()),
+            ]);
+        }
+        for (field, value) in sets {
             apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
         }
+        println!("  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{}", n - 1);
 
         // The squads: one actor each, standing on its spawn.
         let weapon = match &bots.weapon {

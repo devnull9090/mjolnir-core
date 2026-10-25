@@ -68,6 +68,14 @@ Settings.OPTIONS = {
         help = "Every player is permanently camouflaged.",
     },
     {
+        -- AI bots (docs/bots.md), on maps baked with bot squads; MJOLNIRHud
+        -- reads `bots` from the settings line on the host.
+        id = "bots", page = 2, label = "BOTS",
+        choices = choices({ 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15 }, function(n) return n == 0 and "NONE" or tostring(n) end),
+        default = 0,
+        help = "AI players that join the match, on maps built for them. They do not take a player's seat.",
+    },
+    {
         id = "grenades", page = 3, label = "GRENADES ON MAP",
         choices = choices({ 1, 0 }, yesNo), default = 1,
         help = "Whether the map's grenade pickups appear. Players still spawn with grenades.",
@@ -216,6 +224,7 @@ function Settings.variantLine()
     if Settings.value(Settings.option("grenades")) == 0 then map = map - MAP_GRENADES end
     if Settings.value(Settings.option("powerups")) == 0 then map = map - MAP_POWERUPS end
     f.map_flags = map
+    f.bots = Settings.value(Settings.option("bots"))
     -- Each team's vehicle set, and its counts when it is CUSTOM.
     for _, team in ipairs({ "red", "blue" }) do
         local set = Settings.value(Settings.option("vehicles." .. team))
@@ -261,6 +270,7 @@ function Settings.describe(line, mode)
     values.time_limit = f.time_limit
     values.respawn = f.respawn_seconds
     values.suicide_penalty = f.suicide_seconds
+    values.bots = f.bots
     if f["trait.shields"] then values.shields = f["trait.shields"] == 1 and 0 or 1 end
     if f["trait.camo"] then values.invisible = f["trait.camo"] ~= 0 and 1 or 0 end
     if f.map_flags then
