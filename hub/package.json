@@ -40,8 +40,8 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260801.1",
-    "@opennextjs/cloudflare": "^1.20.2",
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "@opennextjs/cloudflare": "^1.20.13",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -52,7 +52,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.148.0"
   },
   "pnpm": {
     "overrides": {
