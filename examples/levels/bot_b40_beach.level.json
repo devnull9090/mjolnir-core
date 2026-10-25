@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "name": "bot",
+  "title": "BOT Beach (AI spike)",
+  "description": "Issue #247 spike: Slayer on Silent Cartographer's stock beach BSP, keeping B40's squads, zones, objectives and pathfinding so AI can be placed with ai_place.",
+  "canvas": {
+    "scenario": "B40",
+    "origin": [0, 0, 0]
+  },
+  "multiplayer": true,
+  "variant": "slayer",
+  "modes": ["slayer"],
+  "blam": {
+    "clear": {
+      "squads": false,
+      "bipeds": true,
+      "weapons": true,
+      "vehicles": true,
+      "equipment": true,
+      "scripts": true,
+      "blocks": [
+        "machines",
+        "terminals",
+        "controls",
+        "giants",
+        "actual cues",
+        "quick cues",
+        "zone set switch trigger volumes",
+        "scenario kill triggers",
+        "cutscene titles",
+        "cutscene camera points",
+        "cutscene spline points",
+        "cinematics"
+      ]
+    },
+    "player_starts": [
+      { "pos": [9609.9, -10200.0, 14780.0], "yaw": -110.0 },
+      { "pos": [9760.0, -10750.0, 14780.0], "yaw": -110.0 },
+      { "pos": [10220.0, -10640.0, 14780.0], "yaw": -110.0 },
+      { "pos": [10210.0, -10220.0, 14780.0], "yaw": -110.0 }
+    ],
+    "objects": [
+      { "tag": "objects\\multi\\spawning\\player_spawn", "group": "scenery", "pos": [9609.9, -10200.0, 14780.0], "rot": [0, -110.0, 0], "set": { "multiplayer data.owner team": "neutral" } },
+      { "tag": "objects\\multi\\spawning\\player_spawn", "group": "scenery", "pos": [9760.0, -10750.0, 14780.0], "rot": [0, -110.0, 0], "set": { "multiplayer data.owner team": "neutral" } },
+      { "tag": "objects\\multi\\spawning\\player_spawn", "group": "scenery", "pos": [10220.0, -10640.0, 14780.0], "rot": [0, -110.0, 0], "set": { "multiplayer data.owner team": "neutral" } },
+      { "tag": "objects\\multi\\spawning\\player_spawn", "group": "scenery", "pos": [10210.0, -10220.0, 14780.0], "rot": [0, -110.0, 0], "set": { "multiplayer data.owner team": "neutral" } }
+    ],
+    "set": {
+      "type": "multiplayer",
+      "flags": "0x1"
+    },
+    "map_variant": true,
+    "active_bsps": [8]
+  }
+}
