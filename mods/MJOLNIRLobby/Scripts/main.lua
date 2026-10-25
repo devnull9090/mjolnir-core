@@ -717,6 +717,31 @@ Net.on("mapstate", function(f, sender)
     Live.states[sender or "?"] = { code = f[1], stage = f[2], pct = tonumber(f[3] or ""), at = os.time() }
 end)
 
+-- Which maps each fireteam member has, so the post-game vote offers only
+-- games everyone can load (#261: the host's own test conversion was voted
+-- for, and a client without it stayed at the frontend). A client sends its
+-- installed codes when the host's roster arrives, at most every 20 s unless
+-- they change; the host keeps each member's for two minutes.
+Live.memberMaps = {}
+
+function Live.sendMaps()
+    if Net.isHost() then return end
+    local codes = {}
+    for _, map in ipairs(installedMaps()) do codes[#codes + 1] = map.code end
+    table.sort(codes)
+    local text = table.concat(codes, ",")
+    if text == Live.sentMaps and os.time() - (Live.sentMapsAt or 0) < 20 then return end
+    Live.sentMaps, Live.sentMapsAt = text, os.time()
+    Net.toHost("maps", text)
+end
+
+Net.on("maps", function(f, sender)
+    if not Net.isHost() then return end
+    local set = {}
+    for code in (f[1] or ""):gmatch("[%w_]+") do set[code] = true end
+    Live.memberMaps[sender or "?"] = { has = set, at = os.time() }
+end)
+
 local function percent(event)
     if not (event and event.received and event.total and event.total > 0) then return nil end
     return math.min(100, event.received * 100 / event.total)
@@ -2602,6 +2627,19 @@ local function readResults()
     return r.code and r or nil
 end
 
+--- The host: whether every member here who said which maps they have has
+--- `code`, or can get it from the hub (a map the host installed from it).
+--- A member who never said (an MJOLNIR Lobby from before) is taken to have it.
+function Live.everyoneCanPlay(code)
+    if MapLive.release(code) then return true end
+    local here = {}
+    for _, p in ipairs(rosterPlayers()) do here[p.name] = true end
+    for name, m in pairs(Live.memberMaps) do
+        if here[name] and os.time() - m.at <= 120 and not m.has[code] then return false end
+    end
+    return true
+end
+
 --- The vote's options: the game just played, then other maps in a random
 --- order (with the same game type where the map has it), then the played
 --- map's other game types.
@@ -2618,7 +2656,7 @@ local function voteOptions(results)
     add(last, last and modeById(last, results.variant), true)
     local others = {}
     for _, map in ipairs(installedMaps()) do
-        if not last or map.code ~= last.code then others[#others + 1] = map end
+        if (not last or map.code ~= last.code) and Live.everyoneCanPlay(map.code) then others[#others + 1] = map end
     end
     for i = #others, 2, -1 do
         local j = math.random(i)
@@ -4088,6 +4126,9 @@ local function initialize()
             return names
         end,
         isPublic = function() return Games.isPublic() end,
+        -- The host's roster comes every few seconds: the client's maps go
+        -- back with it (Live.sendMaps).
+        onIds = function() Live.sendMaps() end,
         onBanned = function(name, why)
             for _, player in ipairs(remotePlayers()) do
                 if player.name == name then kick(player, why) end
