@@ -28,6 +28,9 @@ jobs:
       - name: Test Discord presence and public-session joins
         run: lua5.4 tools/tests/test_discord_presence.lua
 
+      - name: Test kill floors
+        run: lua5.4 tools/tests/test_kill_floor.lua
+
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 

@@ -2401,6 +2401,8 @@ static volatile LONG inject_request;
 static volatile LONG jip_host_auto;
 static volatile LONG fade_in_pending;
 static void fade_in_tick(void);
+static volatile LONG script_pending;
+static void script_tick(void);
 static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
@@ -2417,6 +2419,7 @@ static void __fastcall hook_main_tick(void) {
         if (g && g[1]) watch_globals = g;
     }
     if (fade_in_pending) fade_in_tick();
+    if (script_pending) script_tick();
     if (InterlockedExchange(&end_game_request, 0)) {
         __try {
             end_game_tick();
@@ -3399,6 +3402,16 @@ static const unsigned char HS_EVALUATE[] = {0x48, 0x89, 0x54, 0x24, 0x10, 0x56, 
                                             0,    0,    0,    0x48, 0x2B, 0xE0, 0x48, 0x89, 0xAC, 0x24, 0x70, 0x20};
 static const unsigned char HS_EVALUATE_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
+static int find_hs_evaluate(const char *what) {
+    if (hs_evaluate) return 1;
+    int hits = 0;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
+                      : NULL;
+    if (!hs_evaluate) fireteam_log("game: script evaluator not found (%d matches); %s", hits, what);
+    return hs_evaluate != NULL;
+}
+
 static void fade_in_tick(void) {
     static unsigned running_ticks;
     static unsigned long long instance;
@@ -3411,16 +3424,7 @@ static void fade_in_tick(void) {
     if (++running_ticks < 90) return;
     running_ticks = 0;
     InterlockedExchange(&fade_in_pending, 0);
-    if (!hs_evaluate) {
-        int hits = 0;
-        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
-        hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
-                          : NULL;
-        if (!hs_evaluate) {
-            fireteam_log("game: script evaluator not found (%d matches); the view stays faded", hits);
-            return;
-        }
-    }
+    if (!find_hs_evaluate("the view stays faded")) return;
     int value = -1, type = 0;
     __try {
         hs_evaluate(0, "mjolnir_lobby", "(fade_in 0 0 0 15)", 1, 0, &value, &type);
@@ -3437,6 +3441,67 @@ __declspec(dllexport) int mjolnir_sim_fade_in(void *L) {
     if (!sim || !install_main_tick(sim)) return 0;
     InterlockedExchange(&fade_in_pending, 1);
     fireteam_log("game: fade-in queued");
+    return 0;
+}
+
+/* Script lines for the Lua mods (MJOLNIRLevelLoader's kill floors and lifts),
+   run through the same evaluator on the simulation thread while a game is
+   running. native\script.txt: "<id>\n" then up to SCRIPT_MAX lines;
+   mjolnir_sim_script queues a new id's lines and the next main tick runs
+   them. MJOLNIRBlamConsole does the same for a typed line, but it is a
+   developer mod: a player's game has only this one. */
+#define SCRIPT_MAX 16
+#define SCRIPT_LINE 256
+static SRWLOCK script_lock = SRWLOCK_INIT;
+static char script_lines[SCRIPT_MAX][SCRIPT_LINE];
+static int script_count;
+
+static void script_tick(void) {
+    char lines[SCRIPT_MAX][SCRIPT_LINE];
+    AcquireSRWLockExclusive(&script_lock);
+    int n = script_count;
+    memcpy(lines, script_lines, sizeof lines);
+    script_count = 0;
+    InterlockedExchange(&script_pending, 0);
+    ReleaseSRWLockExclusive(&script_lock);
+    unsigned char *g = sim_game_globals();
+    if (!n || !g || !g[1] || !find_hs_evaluate("script lines dropped")) return;
+    for (int i = 0; i < n; i++) {
+        int value = -1, type = 0;
+        __try {
+            hs_evaluate(0, "mjolnir_lobby", lines[i], 1, 0, &value, &type);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("game: script line faulted (%08lx): %s", GetExceptionCode(), lines[i]);
+        }
+    }
+}
+
+__declspec(dllexport) int mjolnir_sim_script(void *L) {
+    (void)L;
+    static long long last_id = -1;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim || !install_main_tick(sim)) return 0;
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sscript.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    char line[SCRIPT_LINE];
+    long long id = -1;
+    if (fgets(line, sizeof line, f)) id = strtoll(line, NULL, 10);
+    if (id < 0 || id == last_id) {
+        fclose(f);
+        return 0;
+    }
+    last_id = id;
+    AcquireSRWLockExclusive(&script_lock);
+    while (script_count < SCRIPT_MAX && fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0]) strcpy(script_lines[script_count++], line);
+    }
+    if (script_count) InterlockedExchange(&script_pending, 1);
+    ReleaseSRWLockExclusive(&script_lock);
+    fclose(f);
     return 0;
 }
 
