@@ -41,6 +41,100 @@
     {
       "product": "cli",
       "productName": "MJOLNIR CLI",
+      "version": "0.6.0",
+      "tag": "cli-v0.6.0",
+      "title": "Forge map variants, Forge palettes, and Halo 2 lifts in converted maps",
+      "date": "2026-10-25",
+      "summary": "The CLI reads and writes Forge map variants (.mvar), bakes a Forge palette into each level, and carries Halo 2's lifts and jump pads into converted maps.",
+      "body": "### Added\n\n- **Forge map variants.** The Megalo crate reads and writes Halo Reach map\n  variant files (`.mvar`) bit for bit, and `examples/mvar_summary` lists what\n  one holds: objects, positions, labels and budgets.\n- **Forge palettes in every baked level.** `mjolnir level bake` writes the\n  scenario's map variant palettes, one per category (weapons, vehicles,\n  equipment, scenery), so MJOLNIRForge can place them.\n- **Halo 2 lifts, jump pads and vents.** `mjolnir cache stage` reads the\n  physics phantoms that push players in Halo 2 maps (pills, boxes and convex\n  shapes, with the marker each pushes along) and writes them to\n  `placement.json` as `lifts`. The level generator puts them in the level\n  file, where MJOLNIRLevelLoader 0.9.4 pushes players with them.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge map variants. The Megalo crate reads and writes Halo Reach map variant files (.mvar) bit for bit, and examples/mvarsummary lists what one holds: objects, positions, labels and budgets.",
+            "Forge palettes in every baked level. mjolnir level bake writes the scenario's map variant palettes, one per category (weapons, vehicles, equipment, scenery), so MJOLNIRForge can place them.",
+            "Halo 2 lifts, jump pads and vents. mjolnir cache stage reads the physics phantoms that push players in Halo 2 maps (pills, boxes and convex shapes, with the marker each pushes along) and writes them to placement.json as lifts. The level generator puts them in the level file, where MJOLNIRLevelLoader 0.9.4 pushes players with them."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.6.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.6.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.6.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.19.0",
+      "tag": "launcher-v0.19.0",
+      "title": "Straight to the main menu: the intro videos are skipped",
+      "date": "2026-10-25",
+      "summary": "The game skips its start-up logo videos and reaches the main menu about 20 seconds sooner. Settings has a switch to turn the videos back on.",
+      "body": "### Added\n\n- **Skip intro videos**, on by default, under Settings > Troubleshooting. The\n  launcher sets the start-up logo movie aside before each launch, so the game\n  goes straight to its title screen (49 s to the main menu became 28 s on a\n  test PC). Turning it off puts the movie back. It also holds when you start\n  the game from Steam, and a game update or a file check that brings the\n  movie back is handled at the next launch.\n\n### Changed\n\n- Dependency updates.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Skip intro videos, on by default, under Settings > Troubleshooting. The launcher sets the start-up logo movie aside before each launch, so the game goes straight to its title screen (49 s to the main menu became 28 s on a test PC). Turning it off puts the movie back. It also holds when you start the game from Steam, and a game update or a file check that brings the movie back is handled at the next launch."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependency updates."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.19.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.19.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.19.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.38.0",
+      "tag": "mods-v0.38.0",
+      "title": "Steadier fireteam matches: no mass drops, no lost sounds, a smooth vote",
+      "date": "2026-10-25",
+      "summary": "Fixes from the 2026-10-24 playtest: team games that ended at load, a mass disconnect, joiner sounds and crashes, kill floors, Halo 2 lifts and a lag-free vote.",
+      "body": "### Fixed\n\n- **CTF and Team Slayer ended the moment the map loaded** with three or more\n  players (MJOLNIRLobby 0.17.2). The third player landed on a team the game\n  type does not have, and the engine ended the match. Players now go red and\n  blue in turn, and a player who joins later takes the smaller team.\n- **A whole fireteam dropped at once** (MJOLNIRLobby 0.17.8). A player whose\n  game dropped and who joined again before the host had closed their old\n  connection was given a second copy of themselves, and the host's game\n  closed every connection. The new join now waits for the old one to go.\n- **A new player inherited the score and kills of the player who left that\n  seat** (MJOLNIRLobby 0.17.3, MJOLNIRHud 0.12.1). Their tallies start at\n  zero; a player who comes back to their own seat keeps theirs.\n- **Players who left and joined a match again heard no reloads or grenades**\n  (MJOLNIRLobby 0.17.6). The lobby took their new game as already set up for\n  sound because it was on the same map.\n- **Joiners could crash when the map changed** (MJOLNIRLobby 0.17.12). The\n  lobby could set up a match's sound a second time, before or on top of the\n  game's own setup. It now waits for the game, and only steps in for a\n  player who joined a match already under way.\n- **The post-game vote screen stuttered** for everyone (MJOLNIRLobby 0.17.7):\n  it redrew every row four times a second and searched the whole game for\n  the players each second. The menus lost a few milliseconds every 1.5 s\n  for the same reason. Both now redraw only what changed.\n- **The vote could pick a map someone in the fireteam does not have**\n  (MJOLNIRLobby 0.17.10), leaving them at the main menu. Each player's game\n  now tells the host which maps it has, and the vote offers only maps\n  everyone has or can download.\n- **Falling into Gephyrophobia's canyon did not kill** (MJOLNIRLevelLoader\n  0.9.3). The game types our matches use have no falling death, so maps with\n  a pit now have a kill floor.\n- **The Killing Spree callout stayed on screen** (MJOLNIRHud 0.12.2) when it\n  came just after a Triple Kill, and the medals behind it never showed.\n\n### Added\n\n- **Halo 2's gravity lifts, jump pads and vents push players**\n  (MJOLNIRLevelLoader 0.9.4), each player's game pushing its own player.\n  Lockout's lift carries you to the top floor as in Halo 2.\n- **The scoreboard shows who is dead** (MJOLNIRHud 0.12.4): DEAD beside their\n  name, dimmed, until they spawn again. `mjolnir_scoreboard on` keeps the\n  board up.\n- **The post-game vote mixes game types** (MJOLNIRLobby 0.17.13): not four\n  Slayers after a Slayer game. Forge is never offered.\n\n### Known issues\n\n- Halo 2 lifts need the Halo 2 maps converted again: a map from before this\n  release has no lift data, and its lifts still do nothing until its next\n  release.\n- Each vote option's own map picture comes with the next CE runtime release;\n  until then the vote shows the one picture it always has.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "CTF and Team Slayer ended the moment the map loaded with three or more players (MJOLNIRLobby 0.17.2). The third player landed on a team the game type does not have, and the engine ended the match. Players now go red and blue in turn, and a player who joins later takes the smaller team.",
+            "A whole fireteam dropped at once (MJOLNIRLobby 0.17.8). A player whose game dropped and who joined again before the host had closed their old connection was given a second copy of themselves, and the host's game closed every connection. The new join now waits for the old one to go.",
+            "A new player inherited the score and kills of the player who left that seat (MJOLNIRLobby 0.17.3, MJOLNIRHud 0.12.1). Their tallies start at zero; a player who comes back to their own seat keeps theirs.",
+            "Players who left and joined a match again heard no reloads or grenades (MJOLNIRLobby 0.17.6). The lobby took their new game as already set up for sound because it was on the same map.",
+            "Joiners could crash when the map changed (MJOLNIRLobby 0.17.12). The lobby could set up a match's sound a second time, before or on top of the game's own setup. It now waits for the game, and only steps in for a player who joined a match already under way.",
+            "The post-game vote screen stuttered for everyone (MJOLNIRLobby 0.17.7): it redrew every row four times a second and searched the whole game for the players each second. The menus lost a few milliseconds every 1.5 s for the same reason. Both now redraw only what changed.",
+            "The vote could pick a map someone in the fireteam does not have (MJOLNIRLobby 0.17.10), leaving them at the main menu. Each player's game now tells the host which maps it has, and the vote offers only maps everyone has or can download.",
+            "Falling into Gephyrophobia's canyon did not kill (MJOLNIRLevelLoader 0.9.3). The game types our matches use have no falling death, so maps with a pit now have a kill floor.",
+            "The Killing Spree callout stayed on screen (MJOLNIRHud 0.12.2) when it came just after a Triple Kill, and the medals behind it never showed."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "Halo 2's gravity lifts, jump pads and vents push players (MJOLNIRLevelLoader 0.9.4), each player's game pushing its own player. Lockout's lift carries you to the top floor as in Halo 2.",
+            "The scoreboard shows who is dead (MJOLNIRHud 0.12.4): DEAD beside their name, dimmed, until they spawn again. mjolnirscoreboard on keeps the board up.",
+            "The post-game vote mixes game types (MJOLNIRLobby 0.17.13): not four Slayers after a Slayer game. Forge is never offered."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Halo 2 lifts need the Halo 2 maps converted again: a map from before this release has no lift data, and its lifts still do nothing until its next release.",
+            "Each vote option's own map picture comes with the next CE runtime release; until then the vote shows the one picture it always has."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.38.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.38.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.38.0"
+    },
+    {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
       "version": "0.5.0",
       "tag": "cli-v0.5.0",
       "title": "Halo 2 maps, every Megalo game type readable, and game types checked before they ship",
