@@ -3632,6 +3632,59 @@ __declspec(dllexport) int mjolnir_sim_script(void *L) {
     return 0;
 }
 
+/* AI in a multiplayer game (docs/bots.md). ai_place's core returns unless the
+   game options' mode byte ([TLS+0x60]+0x10) is campaign (1) or Firefight (2);
+   a Megalo match is 3, so every squad placement is dropped
+   (docs/re/ai_in_multiplayer.md). The patch turns its first test,
+   `cmp byte [rax+10h],1; jz place`, into an unconditional jump. Nothing else
+   gates the AI: placed actors path, fight and die under Megalo. Found by its
+   bytes, so a game update that moves it is left alone rather than patched
+   blind. */
+static const unsigned char AI_PLACE_GATE[] = {0x80, 0x78, 0x10, 0x01, 0x74, 0x22, 0x48, 0x85, 0xC0, 0x0F, 0x84,
+                                              0x62, 0x02, 0x00, 0x00, 0x80, 0x38, 0x00, 0x75, 0x0A, 0x80, 0x78,
+                                              0x01, 0x00};
+#define AI_PLACE_JZ 4
+
+__declspec(dllexport) int mjolnir_bots_enable(void *L) {
+    (void)L;
+    static int done;
+    if (done) return 0;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return 0;
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    unsigned char *found = NULL;
+    int hits = 0;
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        unsigned char *start = sim + s->VirtualAddress, *end = start + s->Misc.VirtualSize - sizeof AI_PLACE_GATE;
+        for (unsigned char *p = start; p <= end; p++) {
+            if (p[0] != AI_PLACE_GATE[0] || memcmp(p, AI_PLACE_GATE, AI_PLACE_JZ)) continue;
+            /* The jump byte reads 0x74 as shipped, 0xEB once patched. */
+            if (p[AI_PLACE_JZ] != 0x74 && p[AI_PLACE_JZ] != 0xEB) continue;
+            if (memcmp(p + AI_PLACE_JZ + 1, AI_PLACE_GATE + AI_PLACE_JZ + 1, sizeof AI_PLACE_GATE - AI_PLACE_JZ - 1))
+                continue;
+            found = p;
+            hits++;
+        }
+    }
+    done = 1;
+    if (hits != 1) {
+        fireteam_log("bots: ai_place gate matched %d times, left alone (AI will not spawn)", hits);
+        return 0;
+    }
+    if (found[AI_PLACE_JZ] == 0xEB) return 0;
+    DWORD old;
+    if (!VirtualProtect(found + AI_PLACE_JZ, 1, PAGE_EXECUTE_READWRITE, &old)) return 0;
+    found[AI_PLACE_JZ] = 0xEB;
+    VirtualProtect(found + AI_PLACE_JZ, 1, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), found + AI_PLACE_JZ, 1);
+    fireteam_log("bots: ai_place places squads in multiplayer games (sim+%llx)",
+                 (unsigned long long)(found + AI_PLACE_JZ - sim));
+    return 0;
+}
+
 /* A hardware write watch on the simulation thread's game globals, for
    finding what writes a field (native\watch_write.txt: "<hex offset from G>
    [length 1|2|4|8]"). Debug register 0 of the simulation thread (recorded by

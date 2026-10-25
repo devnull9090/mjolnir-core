@@ -46,12 +46,14 @@ local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
+local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
+Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
 
 --- The match log must never break the HUD: a failure in it is logged, and
 --- the feed, the board and the end of the match go on.
@@ -636,6 +638,21 @@ local function hookIncidents()
     if incidentHooked then Log("incident hook armed") end
 end
 
+--- What the simulation says differently for an AI: a player who kills a bot
+--- raises `Kill` but no `death`, and a bot that kills a player raises the
+--- player's `death` but no `Kill`.
+local function botIncident(inc)
+    if inc.name == "kill" and Bots.isBot(inc.effect) then
+        local p = stats(inc.effect)
+        p.deaths = p.deaths + 1
+        p.dead = true
+        Bots.died(inc.effect, now())
+        boardDirty = true
+    elseif inc.name == "death" and Bots.isBot(inc.cause) and type(inc.effect) == "number" and inc.effect >= 0 then
+        HANDLERS.kill(inc)
+    end
+end
+
 local function drain()
     local queued = Queue
     Queue = {}
@@ -645,6 +662,11 @@ local function drain()
         -- it); anyone takes an incident once, from its handler or a relay
         -- (Scripts/relay.lua).
         local skip = not Match or (inc.relayed and Match.host)
+        if not skip and Bots.active() then
+            -- An AI's incidents name it by player index -1 and its biped.
+            if inc.cause == -1 then inc.cause = Bots.seatOf(inc.biped) or -1 end
+            if inc.effect == -1 then inc.effect = Bots.seatOf(inc.victimBiped) or -1 end
+        end
         if not skip and Relay.carried(inc.name) then
             skip = Relay.seen(Match.recent, inc)
             if not skip and not inc.relayed and Match.host and not Match.over then outgoing[#outgoing + 1] = inc end
@@ -663,6 +685,10 @@ local function drain()
             end
             local ok, err = pcall(handler, inc)
             if not ok then Log("incident " .. inc.name .. ": " .. tostring(err)) end
+        end
+        if not skip and not Match.over and not inc.relayed then
+            local ok, err = pcall(botIncident, inc)
+            if not ok then Log("bots: " .. tostring(err)) end
         end
     end
     if not Match then return end
@@ -1333,6 +1359,7 @@ local function endMatch()
     if Match and MatchLog.recording() then
         logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
     end
+    Bots.stop()
     widgetTries = 0
     if Feed and Feed:IsValid() then setVisible(Feed, false) end
     if Board and Board:IsValid() then setVisible(Board, false) end
@@ -1396,6 +1423,33 @@ local function demoTick()
     DemoRun.steps = #left > 0 and left or nil
 end
 
+--- Bots for this match (Scripts/bots.lua): each gets a seat on the board
+--- under its name, and is alive again each time it is placed (an AI raises
+--- no `player_spawn`).
+local function startBots(count)
+    Bots.stop()
+    if not (Match and Match.host) or count <= 0 then return end
+    Bots.begin(count, now(), function(index, name)
+        local p = stats(index)
+        p.name, p.bot, p.dead = name, true, false
+        boardDirty = true
+    end)
+end
+
+--- `mjolnir_bots <n>`: how many bots the host fills its matches with (kept
+--- in bots.txt); in a match, the bots start again with that many.
+pcall(RegisterConsoleCommandHandler, "mjolnir_bots", function(_, args, ar)
+    local n = math.max(0, math.min(tonumber(args and args[1]) or 0, 15))
+    local f = io.open(MOD_DIR .. "\\bots.txt", "wb")
+    if f then
+        f:write(tostring(n), "\n")
+        f:close()
+    end
+    ExecuteInGameThread(function() startBots(n) end)
+    pcall(function() ar:Log("MJOLNIR HUD: " .. n .. " bot(s)") end)
+    return true
+end)
+
 pcall(RegisterConsoleCommandHandler, "mjolnir_feed_demo", function(_, _, ar)
     local Demo = dofile(MOD_DIR .. "\\Scripts\\demo.lua")
     ExecuteInGameThread(function()
@@ -1445,6 +1499,12 @@ local function tick()
         Match.relayArmed = true
         pcall(Relay.arm)
     end
+    if Match.host and not Match.botsChecked and now() - Match.startedAt > 3 then
+        Match.botsChecked = true
+        startBots(Bots.wanted(MOD_DIR))
+    end
+    local okBots, errBots = pcall(Bots.tick, now())
+    if not okBots then Log("bots: " .. tostring(errBots)) end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1
         refreshNames()
