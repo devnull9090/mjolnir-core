@@ -1,0 +1,2827 @@
+{
+ "schema_version": 1,
+ "name": "bloodgulch",
+ "title": "Blood Gulch",
+ "description": "Blood Gulch, from Halo: Combat Evolved: its own collision, spawns, vehicles, weapons and teleporters.",
+ "canvas": {
+  "scenario": "B40",
+  "origin": [
+   0,
+   0,
+   0
+  ]
+ },
+ "multiplayer": true,
+ "variant": "slayer",
+ "modes": [
+  "slayer",
+  "ctf"
+ ],
+ "blam": {
+  "clear": {
+   "squads": true,
+   "bipeds": true,
+   "weapons": true,
+   "vehicles": true,
+   "equipment": true,
+   "scripts": true,
+   "blocks": [
+    "scenery",
+    "machines",
+    "terminals",
+    "controls",
+    "effect scenery",
+    "sound scenery",
+    "giants",
+    "squad groups",
+    "zones",
+    "actual cues",
+    "quick cues",
+    "trigger volumes",
+    "zone set switch trigger volumes",
+    "scenario kill triggers",
+    "cutscene titles",
+    "cutscene camera points",
+    "cutscene spline points",
+    "crates",
+    "device groups",
+    "object names",
+    "cutscene flags",
+    "cinematics",
+    "ai objectives",
+    "reference frames",
+    "user interface objectives block",
+    "ai user hint data",
+    "scripting data"
+   ]
+  },
+  "player_starts": [
+   {
+    "pos": [
+     30020.8,
+     48048.4,
+     824.4
+    ],
+    "yaw": -76.1
+   },
+   {
+    "pos": [
+     29511.2,
+     47849.2,
+     824.4
+    ],
+    "yaw": -90.0
+   },
+   {
+    "pos": [
+     28779.7,
+     47763.3,
+     824.3
+    ],
+    "yaw": -120.0
+   },
+   {
+    "pos": [
+     28009.2,
+     48091.6,
+     824.3
+    ],
+    "yaw": -133.0
+   },
+   {
+    "pos": [
+     30231.7,
+     44705.6,
+     347.2
+    ],
+    "yaw": -140.0
+   },
+   {
+    "pos": [
+     30772.9,
+     44576.8,
+     393.8
+    ],
+    "yaw": -140.0
+   },
+   {
+    "pos": [
+     28144.0,
+     49061.4,
+     824.3
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     28640.6,
+     49098.0,
+     824.3
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     29654.0,
+     49845.8,
+     824.3
+    ],
+    "yaw": 57.0
+   },
+   {
+    "pos": [
+     30279.9,
+     49179.7,
+     824.3
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     28571.1,
+     49803.8,
+     824.3
+    ],
+    "yaw": 118.3
+   },
+   {
+    "pos": [
+     25200.8,
+     49205.3,
+     336.1
+    ],
+    "yaw": -120.0
+   },
+   {
+    "pos": [
+     25649.8,
+     48915.7,
+     321.5
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     26441.4,
+     48053.8,
+     320.0
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     27273.8,
+     46787.1,
+     393.4
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     27986.1,
+     45888.4,
+     498.7
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     29732.7,
+     45121.6,
+     325.3
+    ],
+    "yaw": -130.0
+   },
+   {
+    "pos": [
+     30071.1,
+     45614.3,
+     329.5
+    ],
+    "yaw": 110.8
+   },
+   {
+    "pos": [
+     28193.2,
+     45535.4,
+     459.3
+    ],
+    "yaw": 60.5
+   },
+   {
+    "pos": [
+     25982.1,
+     48087.4,
+     299.1
+    ],
+    "yaw": 20.4
+   },
+   {
+    "pos": [
+     25877.9,
+     49290.6,
+     337.7
+    ],
+    "yaw": -17.8
+   },
+   {
+    "pos": [
+     28189.0,
+     51681.5,
+     343.8
+    ],
+    "yaw": -56.2
+   },
+   {
+    "pos": [
+     29764.2,
+     51700.2,
+     383.5
+    ],
+    "yaw": -98.5
+   },
+   {
+    "pos": [
+     32011.9,
+     49441.3,
+     311.4
+    ],
+    "yaw": -153.9
+   },
+   {
+    "pos": [
+     32154.2,
+     47992.0,
+     366.7
+    ],
+    "yaw": 161.5
+   },
+   {
+    "pos": [
+     31350.4,
+     47219.4,
+     302.6
+    ],
+    "yaw": -92.9
+   },
+   {
+    "pos": [
+     13385.1,
+     24590.9,
+     824.3
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     12661.2,
+     25233.8,
+     824.4
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     11620.8,
+     25248.6,
+     824.3
+    ],
+    "yaw": 114.3
+   },
+   {
+    "pos": [
+     13455.9,
+     23615.2,
+     824.4
+    ],
+    "yaw": -23.5
+   },
+   {
+    "pos": [
+     12066.9,
+     27272.6,
+     330.8
+    ],
+    "yaw": 50.0
+   },
+   {
+    "pos": [
+     11590.8,
+     27321.9,
+     315.6
+    ],
+    "yaw": 50.0
+   },
+   {
+    "pos": [
+     12820.5,
+     23162.0,
+     824.3
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     12800.0,
+     23592.0,
+     824.4
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     11762.5,
+     23308.3,
+     824.3
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     11208.0,
+     23434.6,
+     824.4
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     15386.2,
+     26265.5,
+     338.7
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     14888.1,
+     26661.5,
+     328.7
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     14047.0,
+     27037.3,
+     317.8
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     12956.1,
+     27593.1,
+     357.8
+    ],
+    "yaw": 60.0
+   },
+   {
+    "pos": [
+     9312.9,
+     27260.1,
+     343.9
+    ],
+    "yaw": 57.3
+   },
+   {
+    "pos": [
+     13079.1,
+     20654.2,
+     462.1
+    ],
+    "yaw": 119.5
+   },
+   {
+    "pos": [
+     8933.0,
+     24812.3,
+     356.9
+    ],
+    "yaw": -12.0
+   },
+   {
+    "pos": [
+     12527.8,
+     27517.9,
+     358.2
+    ],
+    "yaw": -98.9
+   },
+   {
+    "pos": [
+     15868.2,
+     25061.0,
+     340.7
+    ],
+    "yaw": -153.4
+   },
+   {
+    "pos": [
+     15820.5,
+     23293.6,
+     330.4
+    ],
+    "yaw": 165.6
+   },
+   {
+    "pos": [
+     11408.5,
+     20759.3,
+     384.4
+    ],
+    "yaw": 76.0
+   },
+   {
+    "pos": [
+     9023.0,
+     23272.9,
+     395.5
+    ],
+    "yaw": 19.6
+   },
+   {
+    "pos": [
+     11245.8,
+     27494.6,
+     325.9
+    ],
+    "yaw": -62.6
+   },
+   {
+    "pos": [
+     9775.1,
+     27097.4,
+     335.0
+    ],
+    "yaw": 56.5
+   },
+   {
+    "pos": [
+     12764.5,
+     24696.5,
+     824.4
+    ],
+    "yaw": 57.9
+   },
+   {
+    "pos": [
+     11857.6,
+     24715.4,
+     824.3
+    ],
+    "yaw": 131.4
+   },
+   {
+    "pos": [
+     11182.0,
+     24640.1,
+     824.4
+    ],
+    "yaw": 159.9
+   },
+   {
+    "pos": [
+     11656.3,
+     22837.4,
+     824.4
+    ],
+    "yaw": -109.6
+   },
+   {
+    "pos": [
+     12843.2,
+     22876.7,
+     824.3
+    ],
+    "yaw": -59.1
+   }
+  ],
+  "vehicles": [
+   {
+    "type": "warthog",
+    "pos": [
+     8796.7,
+     27662.8,
+     107.5
+    ],
+    "yaw": 48.6,
+    "set": {
+     "multiplayer data.spawn time": "30",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_warthog_2"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     31184.8,
+     44082.0,
+     191.9
+    ],
+    "yaw": -108.6,
+    "set": {
+     "multiplayer data.spawn time": "37",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_warthog_2"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     8226.2,
+     26466.9,
+     145.3
+    ],
+    "yaw": 44.6,
+    "set": {
+     "multiplayer data.spawn time": "33",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_1"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     16021.2,
+     27456.6,
+     77.9
+    ],
+    "yaw": 120.7,
+    "set": {
+     "multiplayer data.spawn time": "40",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_2"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     31908.8,
+     45514.2,
+     75.4
+    ],
+    "yaw": -106.9,
+    "set": {
+     "multiplayer data.spawn time": "36",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_1"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     25061.4,
+     46935.2,
+     -13.5
+    ],
+    "yaw": -114.9,
+    "set": {
+     "multiplayer data.spawn time": "32",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_2"
+    }
+   },
+   {
+    "type": "scorpion",
+    "pos": [
+     29601.2,
+     52770.5,
+     302.7
+    ],
+    "yaw": -87.8,
+    "set": {
+     "multiplayer data.spawn time": "39",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_scorpion_1"
+    }
+   },
+   {
+    "type": "scorpion",
+    "pos": [
+     12857.4,
+     19819.4,
+     366.2
+    ],
+    "yaw": 92.3,
+    "set": {
+     "multiplayer data.spawn time": "35",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_scorpion_1"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     15439.6,
+     26757.5,
+     39.2
+    ],
+    "yaw": 110.9,
+    "set": {
+     "multiplayer data.spawn time": "31",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_rwarthog_2"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     14124.6,
+     19720.6,
+     354.5
+    ],
+    "yaw": 49.7,
+    "set": {
+     "multiplayer data.spawn time": "38",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_warthog_1"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     10250.8,
+     19985.5,
+     128.0
+    ],
+    "yaw": 111.2,
+    "set": {
+     "multiplayer data.spawn time": "34",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_rwarthog_1"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     15722.3,
+     22816.7,
+     57.4
+    ],
+    "yaw": 52.6,
+    "set": {
+     "multiplayer data.spawn time": "30",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_3"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     8797.8,
+     20497.8,
+     181.0
+    ],
+    "yaw": 127.1,
+    "set": {
+     "multiplayer data.spawn time": "37",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_4"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     26464.4,
+     52590.8,
+     80.9
+    ],
+    "yaw": -119.5,
+    "set": {
+     "multiplayer data.spawn time": "33",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_warthog_1"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     31071.4,
+     51950.1,
+     75.4
+    ],
+    "yaw": -65.4,
+    "set": {
+     "multiplayer data.spawn time": "40",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_rwarthog_1"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     27342.4,
+     52021.0,
+     59.6
+    ],
+    "yaw": -110.1,
+    "set": {
+     "multiplayer data.spawn time": "36",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_3"
+    }
+   },
+   {
+    "type": "ghost",
+    "pos": [
+     32878.7,
+     51230.2,
+     33.6
+    ],
+    "yaw": -67.1,
+    "set": {
+     "multiplayer data.spawn time": "32",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_ghost_4"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     23837.7,
+     46608.2,
+     42.9
+    ],
+    "yaw": -112.0,
+    "set": {
+     "multiplayer data.spawn time": "39",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_rwarthog_2"
+    }
+   },
+   {
+    "type": "banshee",
+    "pos": [
+     29137.7,
+     49472.9,
+     635.4
+    ],
+    "yaw": -90.0,
+    "set": {
+     "multiplayer data.spawn time": "35",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_banshee_1"
+    }
+   },
+   {
+    "type": "banshee",
+    "pos": [
+     12243.9,
+     23286.7,
+     635.4
+    ],
+    "yaw": 90.0,
+    "set": {
+     "multiplayer data.spawn time": "31",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_banshee_1"
+    }
+   },
+   {
+    "type": "scorpion",
+    "pos": [
+     28319.0,
+     52895.5,
+     192.6
+    ],
+    "yaw": -90.0,
+    "set": {
+     "multiplayer data.spawn time": "38",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_scorpion_2"
+    }
+   },
+   {
+    "type": "scorpion",
+    "pos": [
+     11594.3,
+     19795.9,
+     279.6
+    ],
+    "yaw": 90.0,
+    "set": {
+     "multiplayer data.spawn time": "34",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_scorpion_2"
+    }
+   },
+   {
+    "type": "scorpion",
+    "pos": [
+     34222.8,
+     40470.5,
+     297.0
+    ],
+    "yaw": 180.0,
+    "set": {
+     "multiplayer data.spawn time": "30",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_scorpion_3"
+    }
+   },
+   {
+    "type": "scorpion",
+    "pos": [
+     7405.9,
+     32287.9,
+     838.6
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "37",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_scorpion_3"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     24876.8,
+     35371.9,
+     163.4
+    ],
+    "yaw": -135.0,
+    "set": {
+     "multiplayer data.spawn time": "33",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_rwarthog_3"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     12711.1,
+     39216.4,
+     90.4
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "40",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_rwarthog_3"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     20069.9,
+     21427.6,
+     530.4
+    ],
+    "yaw": 90.0,
+    "set": {
+     "multiplayer data.spawn time": "36",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_warthog_3"
+    }
+   },
+   {
+    "type": "warthog",
+    "pos": [
+     19561.3,
+     53889.4,
+     1222.2
+    ],
+    "yaw": -45.0,
+    "set": {
+     "multiplayer data.spawn time": "32",
+     "multiplayer data.abandonment time": "30",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.spawn flags": "0x4",
+     "object data.placement flags": "0x0",
+     "multiplayer data.megalo label": "ce_warthog_3"
+    }
+   }
+  ],
+  "weapons": [
+   {
+    "type": "shotgun",
+    "pos": [
+     11631.5,
+     24146.9,
+     -71.9
+    ],
+    "yaw": -88.1,
+    "set": {
+     "multiplayer data.spawn time": "30",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "shotgun",
+    "pos": [
+     12811.7,
+     24147.5,
+     -71.9
+    ],
+    "yaw": 90.0,
+    "set": {
+     "multiplayer data.spawn time": "37",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "assault_rifle",
+    "pos": [
+     12231.1,
+     23726.1,
+     -72.2
+    ],
+    "yaw": 180.0,
+    "set": {
+     "multiplayer data.spawn time": "33",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_rifle",
+    "pos": [
+     12239.7,
+     24490.7,
+     -71.9
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "40",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "assault_rifle",
+    "pos": [
+     29128.4,
+     48245.7,
+     -71.9
+    ],
+    "yaw": 180.0,
+    "set": {
+     "multiplayer data.spawn time": "36",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_rifle",
+    "pos": [
+     29129.4,
+     48999.1,
+     -71.9
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "32",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "shotgun",
+    "pos": [
+     29731.6,
+     48620.1,
+     -71.9
+    ],
+    "yaw": 90.0,
+    "set": {
+     "multiplayer data.spawn time": "39",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "shotgun",
+    "pos": [
+     28503.6,
+     48584.5,
+     -71.9
+    ],
+    "yaw": -90.0,
+    "set": {
+     "multiplayer data.spawn time": "35",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "magnum",
+    "pos": [
+     29067.5,
+     49105.0,
+     534.8
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "39",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "magnum",
+    "pos": [
+     12241.0,
+     23683.7,
+     534.8
+    ],
+    "yaw": -180.0,
+    "set": {
+     "multiplayer data.spawn time": "35",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "rocket_launcher",
+    "pos": [
+     22129.1,
+     38508.0,
+     375.4
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "91",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "sniper_rifle",
+    "pos": [
+     13164.4,
+     25061.6,
+     534.8
+    ],
+    "yaw": 135.0,
+    "set": {
+     "multiplayer data.spawn time": "128",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "sniper_rifle",
+    "pos": [
+     28187.2,
+     47674.6,
+     534.8
+    ],
+    "yaw": -45.0,
+    "set": {
+     "multiplayer data.spawn time": "124",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "magnum",
+    "pos": [
+     21285.2,
+     26872.6,
+     1740.3
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "38",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "magnum",
+    "pos": [
+     17604.4,
+     45718.9,
+     1768.4
+    ],
+    "yaw": -0.0,
+    "set": {
+     "multiplayer data.spawn time": "34",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "fuel_rod_gun",
+    "pos": [
+     19192.4,
+     41610.6,
+     611.1
+    ],
+    "yaw": -34.8,
+    "set": {
+     "multiplayer data.spawn time": "120",
+     "object data.placement flags": "0x0"
+    }
+   }
+  ],
+  "equipment": [
+   {
+    "type": "active_camouflage",
+    "pos": [
+     17981.7,
+     35617.3,
+     576.7
+    ],
+    "set": {
+     "multiplayer data.spawn time": "181",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     29131.6,
+     47924.8,
+     534.8
+    ],
+    "set": {
+     "multiplayer data.spawn time": "68",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     29176.7,
+     47981.3,
+     534.8
+    ],
+    "set": {
+     "multiplayer data.spawn time": "64",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     29078.9,
+     47984.7,
+     534.8
+    ],
+    "set": {
+     "multiplayer data.spawn time": "60",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     29129.9,
+     48047.8,
+     534.8
+    ],
+    "set": {
+     "multiplayer data.spawn time": "67",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     12211.1,
+     24735.7,
+     535.0
+    ],
+    "set": {
+     "multiplayer data.spawn time": "63",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     12174.9,
+     24678.2,
+     535.0
+    ],
+    "set": {
+     "multiplayer data.spawn time": "70",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     12256.8,
+     24670.2,
+     535.0
+    ],
+    "set": {
+     "multiplayer data.spawn time": "66",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "frag_grenade",
+    "pos": [
+     12217.1,
+     24606.5,
+     535.0
+    ],
+    "set": {
+     "multiplayer data.spawn time": "62",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "overshield",
+    "pos": [
+     33241.8,
+     33004.1,
+     642.7
+    ],
+    "set": {
+     "multiplayer data.spawn time": "60",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     18962.4,
+     47414.9,
+     1825.9
+    ],
+    "set": {
+     "multiplayer data.spawn time": "67",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     18920.2,
+     47353.3,
+     1832.2
+    ],
+    "set": {
+     "multiplayer data.spawn time": "63",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     19024.1,
+     47357.6,
+     1841.5
+    ],
+    "set": {
+     "multiplayer data.spawn time": "70",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     18981.3,
+     47305.9,
+     1846.2
+    ],
+    "set": {
+     "multiplayer data.spawn time": "66",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     22685.8,
+     23881.6,
+     1755.5
+    ],
+    "set": {
+     "multiplayer data.spawn time": "62",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     22742.7,
+     23837.5,
+     1759.4
+    ],
+    "set": {
+     "multiplayer data.spawn time": "69",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     22747.2,
+     23924.4,
+     1766.3
+    ],
+    "set": {
+     "multiplayer data.spawn time": "65",
+     "object data.placement flags": "0x0"
+    }
+   },
+   {
+    "type": "plasma_grenade",
+    "pos": [
+     22812.6,
+     23884.1,
+     1771.4
+    ],
+    "set": {
+     "multiplayer data.spawn time": "61",
+     "object data.placement flags": "0x0"
+    }
+   }
+  ],
+  "objects": [
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     30020.8,
+     48048.4,
+     824.4
+    ],
+    "rot": [
+     0,
+     -76.1,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     29511.2,
+     47849.2,
+     824.4
+    ],
+    "rot": [
+     0,
+     -90.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28779.7,
+     47763.3,
+     824.3
+    ],
+    "rot": [
+     0,
+     -120.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28009.2,
+     48091.6,
+     824.3
+    ],
+    "rot": [
+     0,
+     -133.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     30231.7,
+     44705.6,
+     347.2
+    ],
+    "rot": [
+     0,
+     -140.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     30772.9,
+     44576.8,
+     393.8
+    ],
+    "rot": [
+     0,
+     -140.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28144.0,
+     49061.4,
+     824.3
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28640.6,
+     49098.0,
+     824.3
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     29654.0,
+     49845.8,
+     824.3
+    ],
+    "rot": [
+     0,
+     57.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     30279.9,
+     49179.7,
+     824.3
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28571.1,
+     49803.8,
+     824.3
+    ],
+    "rot": [
+     0,
+     118.3,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     25200.8,
+     49205.3,
+     336.1
+    ],
+    "rot": [
+     0,
+     -120.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     25649.8,
+     48915.7,
+     321.5
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     26441.4,
+     48053.8,
+     320.0
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     27273.8,
+     46787.1,
+     393.4
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     27986.1,
+     45888.4,
+     498.7
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     29732.7,
+     45121.6,
+     325.3
+    ],
+    "rot": [
+     0,
+     -130.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_red"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     30071.1,
+     45614.3,
+     329.5
+    ],
+    "rot": [
+     0,
+     110.8,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28193.2,
+     45535.4,
+     459.3
+    ],
+    "rot": [
+     0,
+     60.5,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     25982.1,
+     48087.4,
+     299.1
+    ],
+    "rot": [
+     0,
+     20.4,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     25877.9,
+     49290.6,
+     337.7
+    ],
+    "rot": [
+     0,
+     -17.8,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     28189.0,
+     51681.5,
+     343.8
+    ],
+    "rot": [
+     0,
+     -56.2,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     29764.2,
+     51700.2,
+     383.5
+    ],
+    "rot": [
+     0,
+     -98.5,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     32011.9,
+     49441.3,
+     311.4
+    ],
+    "rot": [
+     0,
+     -153.9,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     32154.2,
+     47992.0,
+     366.7
+    ],
+    "rot": [
+     0,
+     161.5,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     31350.4,
+     47219.4,
+     302.6
+    ],
+    "rot": [
+     0,
+     -92.9,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     13385.1,
+     24590.9,
+     824.3
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12661.2,
+     25233.8,
+     824.4
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11620.8,
+     25248.6,
+     824.3
+    ],
+    "rot": [
+     0,
+     114.3,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     13455.9,
+     23615.2,
+     824.4
+    ],
+    "rot": [
+     0,
+     -23.5,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12066.9,
+     27272.6,
+     330.8
+    ],
+    "rot": [
+     0,
+     50.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11590.8,
+     27321.9,
+     315.6
+    ],
+    "rot": [
+     0,
+     50.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12820.5,
+     23162.0,
+     824.3
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12800.0,
+     23592.0,
+     824.4
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11762.5,
+     23308.3,
+     824.3
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11208.0,
+     23434.6,
+     824.4
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     15386.2,
+     26265.5,
+     338.7
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     14888.1,
+     26661.5,
+     328.7
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     14047.0,
+     27037.3,
+     317.8
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12956.1,
+     27593.1,
+     357.8
+    ],
+    "rot": [
+     0,
+     60.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     9312.9,
+     27260.1,
+     343.9
+    ],
+    "rot": [
+     0,
+     57.3,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     13079.1,
+     20654.2,
+     462.1
+    ],
+    "rot": [
+     0,
+     119.5,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     8933.0,
+     24812.3,
+     356.9
+    ],
+    "rot": [
+     0,
+     -12.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12527.8,
+     27517.9,
+     358.2
+    ],
+    "rot": [
+     0,
+     -98.9,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     15868.2,
+     25061.0,
+     340.7
+    ],
+    "rot": [
+     0,
+     -153.4,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     15820.5,
+     23293.6,
+     330.4
+    ],
+    "rot": [
+     0,
+     165.6,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11408.5,
+     20759.3,
+     384.4
+    ],
+    "rot": [
+     0,
+     76.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     9023.0,
+     23272.9,
+     395.5
+    ],
+    "rot": [
+     0,
+     19.6,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11245.8,
+     27494.6,
+     325.9
+    ],
+    "rot": [
+     0,
+     -62.6,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_none"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     9775.1,
+     27097.4,
+     335.0
+    ],
+    "rot": [
+     0,
+     56.5,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12764.5,
+     24696.5,
+     824.4
+    ],
+    "rot": [
+     0,
+     57.9,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11857.6,
+     24715.4,
+     824.3
+    ],
+    "rot": [
+     0,
+     131.4,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11182.0,
+     24640.1,
+     824.4
+    ],
+    "rot": [
+     0,
+     159.9,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     11656.3,
+     22837.4,
+     824.4
+    ],
+    "rot": [
+     0,
+     -109.6,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\spawning\\player_spawn",
+    "group": "scenery",
+    "pos": [
+     12843.2,
+     22876.7,
+     824.3
+    ],
+    "rot": [
+     0,
+     -59.1,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ctf_spawn_blue"
+    }
+   },
+   {
+    "tag": "objects\\multi\\teleporters\\teleporter_sender",
+    "group": "scenery",
+    "pos": [
+     29133.9,
+     47381.7,
+     550.8
+    ],
+    "rot": [
+     0,
+     89.1,
+     0
+    ],
+    "set": {
+     "multiplayer data.teleporter channel": "alpha",
+     "multiplayer data.boundary shape": "cylinder",
+     "multiplayer data.boundary width or radius": "0.35",
+     "multiplayer data.boundary positive height": "0.6",
+     "multiplayer data.boundary negative height": "0.1"
+    }
+   },
+   {
+    "tag": "objects\\multi\\teleporters\\teleporter_sender",
+    "group": "scenery",
+    "pos": [
+     12209.3,
+     25272.8,
+     553.2
+    ],
+    "rot": [
+     0,
+     -89.7,
+     0
+    ],
+    "set": {
+     "multiplayer data.teleporter channel": "bravo",
+     "multiplayer data.boundary shape": "cylinder",
+     "multiplayer data.boundary width or radius": "0.35",
+     "multiplayer data.boundary positive height": "0.6",
+     "multiplayer data.boundary negative height": "0.1"
+    }
+   },
+   {
+    "tag": "objects\\multi\\teleporters\\teleporter_receiver",
+    "group": "scenery",
+    "pos": [
+     25245.9,
+     34907.9,
+     214.0
+    ],
+    "rot": [
+     0,
+     -177.1,
+     0
+    ],
+    "set": {
+     "multiplayer data.teleporter channel": "alpha",
+     "multiplayer data.boundary shape": "cylinder",
+     "multiplayer data.boundary width or radius": "0.35",
+     "multiplayer data.boundary positive height": "0.6",
+     "multiplayer data.boundary negative height": "0.1"
+    }
+   },
+   {
+    "tag": "objects\\multi\\teleporters\\teleporter_receiver",
+    "group": "scenery",
+    "pos": [
+     13348.8,
+     38475.2,
+     73.5
+    ],
+    "rot": [
+     0,
+     9.3,
+     0
+    ],
+    "set": {
+     "multiplayer data.teleporter channel": "bravo",
+     "multiplayer data.boundary shape": "cylinder",
+     "multiplayer data.boundary width or radius": "0.35",
+     "multiplayer data.boundary positive height": "0.6",
+     "multiplayer data.boundary negative height": "0.1"
+    }
+   },
+   {
+    "tag": "objects\\multi\\ctf\\flag_stand",
+    "group": "scenery",
+    "pos": [
+     12265.3,
+     24116.8,
+     -30.5
+    ],
+    "rot": [
+     0,
+     -0.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.megalo label": "ctf_flag_return",
+     "multiplayer data.owner team": "attacker",
+     "multiplayer data.boundary shape": "cylinder",
+     "multiplayer data.boundary width or radius": "1.0",
+     "multiplayer data.boundary positive height": "1.5",
+     "multiplayer data.boundary negative height": "0.5"
+    }
+   },
+   {
+    "tag": "objects\\multi\\ctf\\flag_stand",
+    "group": "scenery",
+    "pos": [
+     29165.6,
+     48600.1,
+     -30.5
+    ],
+    "rot": [
+     0,
+     -0.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.megalo label": "ctf_flag_return",
+     "multiplayer data.owner team": "defender",
+     "multiplayer data.boundary shape": "cylinder",
+     "multiplayer data.boundary width or radius": "1.0",
+     "multiplayer data.boundary positive height": "1.5",
+     "multiplayer data.boundary negative height": "0.5"
+    }
+   },
+   {
+    "tag": "objects\\multi\\powerups\\health_pack_spot",
+    "group": "scenery",
+    "pos": [
+     11246.3,
+     25081.3,
+     519.5
+    ],
+    "rot": [
+     0,
+     -45.2,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ce_health_pack"
+    }
+   },
+   {
+    "tag": "objects\\multi\\powerups\\health_pack_spot",
+    "group": "scenery",
+    "pos": [
+     30087.9,
+     47669.5,
+     519.5
+    ],
+    "rot": [
+     0,
+     135.0,
+     0
+    ],
+    "set": {
+     "multiplayer data.owner team": "neutral",
+     "multiplayer data.megalo label": "ce_health_pack"
+    }
+   }
+  ],
+  "world_bounds": [
+   {
+    "bsp": 8,
+    "min": [
+     0.91,
+     -195.22,
+     -6.28
+    ],
+    "max": [
+     136.9,
+     -40.06,
+     55.0
+    ]
+   }
+  ],
+  "set": {
+   "type": "multiplayer",
+   "zone sets[0].structure design zone flags": "0x0",
+   "zone sets[0].sruntime tructure design zone flags": "0x0",
+   "flags": "0x1"
+  },
+  "map_variant": true,
+  "active_bsps": [
+   8
+  ],
+  "single_bsp": 8,
+  "bots": {
+   "squad": "insertion_cov_elites",
+   "count": 15,
+   "spawns": [
+    {
+     "pos": [
+      30020.8,
+      48048.4,
+      824.4
+     ],
+     "yaw": -76.1
+    },
+    {
+     "pos": [
+      30231.7,
+      44705.6,
+      347.2
+     ],
+     "yaw": -140.0
+    },
+    {
+     "pos": [
+      29654.0,
+      49845.8,
+      824.3
+     ],
+     "yaw": 57.0
+    },
+    {
+     "pos": [
+      25649.8,
+      48915.7,
+      321.5
+     ],
+     "yaw": -130.0
+    },
+    {
+     "pos": [
+      27986.1,
+      45888.4,
+      498.7
+     ],
+     "yaw": -130.0
+    },
+    {
+     "pos": [
+      25982.1,
+      48087.4,
+      299.1
+     ],
+     "yaw": 20.4
+    },
+    {
+     "pos": [
+      32011.9,
+      49441.3,
+      311.4
+     ],
+     "yaw": -153.9
+    },
+    {
+     "pos": [
+      12661.2,
+      25233.8,
+      824.4
+     ],
+     "yaw": 60.0
+    },
+    {
+     "pos": [
+      11590.8,
+      27321.9,
+      315.6
+     ],
+     "yaw": 50.0
+    },
+    {
+     "pos": [
+      11208.0,
+      23434.6,
+      824.4
+     ],
+     "yaw": 60.0
+    },
+    {
+     "pos": [
+      12956.1,
+      27593.1,
+      357.8
+     ],
+     "yaw": 60.0
+    },
+    {
+     "pos": [
+      8933.0,
+      24812.3,
+      356.9
+     ],
+     "yaw": -12.0
+    },
+    {
+     "pos": [
+      11408.5,
+      20759.3,
+      384.4
+     ],
+     "yaw": 76.0
+    },
+    {
+     "pos": [
+      12764.5,
+      24696.5,
+      824.4
+     ],
+     "yaw": 57.9
+    },
+    {
+     "pos": [
+      12843.2,
+      22876.7,
+      824.3
+     ],
+     "yaw": -59.1
+    }
+   ],
+   "spacing": 2.5,
+   "areas": 16,
+   "types": [
+    {
+     "name": "spartan_normal",
+     "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan_normal",
+     "team": "covenant",
+     "weapons": [
+      "assault_rifle",
+      "sniper_rifle",
+      "shotgun",
+      "rocket_launcher",
+      "magnum",
+      "assault_rifle",
+      "plasma_rifle",
+      "needler"
+     ]
+    },
+    {
+     "name": "elite_normal",
+     "character": "objects\\characters\\elite\\ai\\mjolnir_bot_elite_normal",
+     "weapons": [
+      "plasma_rifle",
+      "needler",
+      "energy_sword",
+      "plasma_rifle",
+      "sniper_rifle"
+     ]
+    },
+    {
+     "name": "grunt_normal",
+     "character": "objects\\characters\\grunt\\ai\\mjolnir_bot_grunt_normal",
+     "weapon": "plasma_pistol"
+    },
+    {
+     "name": "jackal_normal",
+     "character": "objects\\characters\\jackal\\ai\\mjolnir_bot_jackal_normal",
+     "weapon": "plasma_pistol"
+    },
+    {
+     "name": "spartan_heroic",
+     "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan_heroic",
+     "team": "covenant",
+     "weapons": [
+      "assault_rifle",
+      "sniper_rifle",
+      "shotgun",
+      "rocket_launcher",
+      "magnum",
+      "assault_rifle",
+      "plasma_rifle",
+      "needler"
+     ]
+    },
+    {
+     "name": "elite_heroic",
+     "character": "objects\\characters\\elite\\ai\\mjolnir_bot_elite_heroic",
+     "weapons": [
+      "plasma_rifle",
+      "needler",
+      "energy_sword",
+      "plasma_rifle",
+      "sniper_rifle"
+     ]
+    },
+    {
+     "name": "grunt_heroic",
+     "character": "objects\\characters\\grunt\\ai\\mjolnir_bot_grunt_heroic",
+     "weapon": "plasma_pistol"
+    },
+    {
+     "name": "jackal_heroic",
+     "character": "objects\\characters\\jackal\\ai\\mjolnir_bot_jackal_heroic",
+     "weapon": "plasma_pistol"
+    },
+    {
+     "name": "spartan_legendary",
+     "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan_legendary",
+     "team": "covenant",
+     "weapons": [
+      "assault_rifle",
+      "sniper_rifle",
+      "shotgun",
+      "rocket_launcher",
+      "magnum",
+      "assault_rifle",
+      "plasma_rifle",
+      "needler"
+     ]
+    },
+    {
+     "name": "elite_legendary",
+     "character": "objects\\characters\\elite\\ai\\mjolnir_bot_elite_legendary",
+     "weapons": [
+      "plasma_rifle",
+      "needler",
+      "energy_sword",
+      "plasma_rifle",
+      "sniper_rifle"
+     ]
+    },
+    {
+     "name": "grunt_legendary",
+     "character": "objects\\characters\\grunt\\ai\\mjolnir_bot_grunt_legendary",
+     "weapon": "plasma_pistol"
+    },
+    {
+     "name": "jackal_legendary",
+     "character": "objects\\characters\\jackal\\ai\\mjolnir_bot_jackal_legendary",
+     "weapon": "plasma_pistol"
+    }
+   ]
+  }
+ }
+}

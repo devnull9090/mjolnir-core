@@ -121,13 +121,14 @@ and deaths (they name the AI -1) and counts the host's.
 ## Making a map with bots
 
 The map needs bot squads and pathfinding in its scenario, so it is baked with
-`blam.bots`. Blood Gulch, from the hub install's own files:
+`blam.bots`. Blood Gulch, from the hub install's own files and
+`examples/levels/bloodgulch_bots.bake.level.json` (the hub level.json with the
+loader-only keys left out, plus the `bots` block the PC 1 tests used):
 
 ```bash
 # the installed BSP, as the bake's --bsp payload
 mjolnir extract --out tags --filter "solo/bgl/"
-# the hub level.json with the loader-only keys left out, plus "bots": {...}
-mjolnir level bake bake.level.json --standalone BGL \
+mjolnir level bake examples/levels/bloodgulch_bots.bake.level.json --standalone BGL \
   --bsp 8=tags/Levels/Halo1/Solo/BGL/_Generated_/BSP_01_1_Start.scenario_structure_bsp \
   --world-object /Game/Levels/Halo1/Solo/BGL/BGL.BGL --out-dir out
 ```
