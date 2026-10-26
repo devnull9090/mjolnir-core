@@ -844,7 +844,7 @@ local function runAs(who, text)
         unban = function(n) said.unbanned = n end,
         blam = function(line) said.blam[#said.blam + 1] = line end,
         bench = function() said.benched = true; return { "Benching." } end,
-        setBots = function(n, kind) said.bots, said.kind = n, kind; return n .. " bot(s)." end,
+        setBots = function(n, kind, level) said.bots, said.kind, said.level = n, kind, level; return n .. " bot(s)." end,
         botCount = function() return 2 end }
     said.answer = table.concat(Commands.run(cx, who, text), " | ")
     return said
@@ -869,10 +869,14 @@ assert(not runAs({ here = false, index = 2 }, "/help").answer:find("/kick", 1, t
 -- /bots is the host's: it sets this match's bots, and alone says how many.
 local botsRun = runAs({ here = true, index = 0 }, "/bots 4")
 eq(botsRun.bots, 4); eq(botsRun.answer, "4 bot(s).")
-eq(runAs({ here = true, index = 0 }, "/bots").answer, "/bots <0-15> [spartans|elites|grunts|jackals|mixed]: 2 now.")
+eq(runAs({ here = true, index = 0 }, "/bots").answer,
+    "/bots <0-15> [spartans|elites|grunts|jackals|mixed] [normal|heroic|legendary]: 2 now.")
+local lev = runAs({ here = true, index = 0 }, "/bots 4 spartans heroic")
+eq(lev.kind, 0); eq(lev.level, 1)
+eq(runAs({ here = true, index = 0 }, "/bots 4 leg").level, 2) -- a level alone, by prefix
 eq(runAs({ here = true, index = 0 }, "/bots 6 eli").kind, 1) -- elites, by prefix
 eq(runAs({ here = true, index = 0 }, "/bots 6").kind, nil)  -- the kind playing stays
-eq(runAs({ here = true, index = 0 }, "/bots 6 dogs").answer, "/bots: no kind called 'dogs'.")
+eq(runAs({ here = true, index = 0 }, "/bots 6 dogs").answer, "/bots: no kind or level called 'dogs'.")
 eq(runAs({ here = false, index = 2 }, "/bots 4").answer, "/bots is for the host.")
 eq(runAs({ here = false, index = 2 }, "/bots 4").bots, nil)
 -- /bench runs where it is typed, for anyone, host or not.

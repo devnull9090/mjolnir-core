@@ -2008,6 +2008,9 @@ impl Baker {
                         .with_context(|| format!("bots: no weapon palette entry matching {want:?}"))?,
                 );
             }
+            if let Some(c) = kind.character.as_deref().filter(|c| c.chars().any(char::is_control)) {
+                bail!("bots: character {c:?} holds a control character (an unescaped \\a?)");
+            }
             let character = match &kind.character {
                 Some(want) => Some(match palette_index(&self.file, "character palette", "reference", want)? {
                     Some(i) => i,

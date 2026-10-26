@@ -187,8 +187,8 @@ function VariantSettings.forMode(settings, mode)
     local out = {}
     for key, value in pairs(settings or {}) do
         -- `vehicles.*` are the vehicle sets (vehicle_sets.lua), and `bots`
-        -- and `bot_type` MJOLNIRHud's bots, not fields.
-        local bots = key == "bots" or key == "bot_type"
+        -- `bot_type` and `bot_level` MJOLNIRHud's bots, not fields.
+        local bots = key == "bots" or key == "bot_type" or key == "bot_level"
         if key:sub(1, 6) ~= "score." and key:sub(1, 9) ~= "vehicles." and not bots then out[key] = value end
     end
     out.score = (settings or {})["score." .. tostring(mode)] or (settings or {}).score

@@ -38,6 +38,13 @@ local CLASSES = {
 Bots.KINDS = { "spartan", "elite", "grunt", "jackal" }
 Bots.MIXED = #Bots.KINDS
 
+--- The host's BOT DIFFICULTY: each level is a set of squads,
+--- `<kind>_<level>_<k>`, playing that level's characters (their accuracy;
+--- tools/level/build_bot_characters.sh). A map baked before levels has
+--- `<kind>_<k>`, and one before kinds `bot_<k>`, which a slot falls back to.
+Bots.LEVELS = { "normal", "heroic", "legendary" }
+Bots.LEGENDARY = 2
+
 Bots.NAMES = {
     "Joshua", "Avery", "Marcus", "Riley", "Elena", "Dominic", "Kara", "Tobias", "Nadia", "Victor",
     "Sienna", "Owen", "Lena", "Mateo", "Priya", "Caleb", "Iris", "Felix", "Hana", "Silas",
@@ -157,7 +164,7 @@ end
 
 --- Start `count` bots. `onSeat(index, name)` is told a bot's seat and name
 --- each time it is placed: on the floor, alive.
-function Bots.begin(count, now, onSeat, kind, isPlayer)
+function Bots.begin(count, now, onSeat, kind, isPlayer, level)
     if not loadDll() then
         log("bots: MJOLNIRLobby's DLL is not there; no bots")
         return false
@@ -166,7 +173,8 @@ function Bots.begin(count, now, onSeat, kind, isPlayer)
     fillPool()
     math.randomseed(os.time())
     state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil, names = shuffled(Bots.NAMES),
-        kind = kind or 0, isPlayer = isPlayer or function() return false end }
+        kind = kind or 0, isPlayer = isPlayer or function() return false end,
+        level = Bots.LEVELS[(level or Bots.LEGENDARY) + 1] or Bots.LEVELS[Bots.LEGENDARY + 1] }
     Bots.resize(count, now)
     log(string.format("bots: %d bot(s) for this match", count))
     return true
@@ -193,7 +201,9 @@ function Bots.resize(count, now)
             or Bots.KINDS[state.kind + 1] or Bots.KINDS[1]
         state.slots[#state.slots + 1] = {
             k = k, index = Bots.BASE + k, name = state.names[(k % #state.names) + 1] .. " (bot)",
-            squad = kind .. "_" .. k, status = "waiting", nextAt = now + 1 + (k - #state.slots) * 0.5,
+            squad = kind .. "_" .. state.level .. "_" .. k,
+            fallbacks = { kind .. "_" .. k, "bot_" .. k },
+            status = "waiting", nextAt = now + 1 + (k - #state.slots) * 0.5,
         }
     end
     if #lines > 0 then script(lines) end
@@ -308,9 +318,9 @@ local function step(now, humans, live, where)
         if now - p.placedAt > PLACE_TIMEOUT then
             p.tries = (p.tries or 0) + 1
             state.placing = nil
-            if p.tries >= 2 and p.squad ~= ("bot_" .. p.k) then
-                -- A map baked before kinds: its squads are bot_<k>.
-                p.squad, p.tries, p.status, p.nextAt = "bot_" .. p.k, 0, "waiting", now
+            if p.tries >= 2 and p.fallbacks and #p.fallbacks > 0 then
+                -- A map baked before levels (or kinds) names its squads so.
+                p.squad, p.tries, p.status, p.nextAt = table.remove(p.fallbacks, 1), 0, "waiting", now
             elseif p.tries >= 2 then
                 p.status = "missing"
                 log(string.format("bots: %s never appeared; this map has no such squad", p.squad))
@@ -362,6 +372,16 @@ function Bots.wantedKind(loaderDir)
     local n = tonumber((f:read("*a") or ""):match("bot_type=(%d+)"))
     f:close()
     return math.min(n or 0, Bots.MIXED)
+end
+
+--- The difficulty the host chose: `bot_level` in the game settings line
+--- (an index into Bots.LEVELS), Legendary without one.
+function Bots.wantedLevel(loaderDir)
+    local f = io.open(loaderDir .. "\\variant_settings.txt", "rb")
+    if not f then return Bots.LEGENDARY end
+    local n = tonumber((f:read("*a") or ""):match("bot_level=(%d+)"))
+    f:close()
+    return math.min(n or Bots.LEGENDARY, #Bots.LEVELS - 1)
 end
 
 --- How many bots the host asked for: `bots` in the game settings line

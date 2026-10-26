@@ -85,6 +85,13 @@ Settings.OPTIONS = {
         help = "What the bots are. MIXED brings every kind in turn.",
     },
     {
+        -- MJOLNIRHud's Bots.LEVELS, in order.
+        id = "bot_level", page = 2, label = "BOT DIFFICULTY",
+        choices = choices({ 0, 1, 2 }, function(n) return ({ "NORMAL", "HEROIC", "LEGENDARY" })[n + 1] end),
+        default = 2,
+        help = "How well the bots aim, as on the campaign's difficulties.",
+    },
+    {
         id = "grenades", page = 3, label = "GRENADES ON MAP",
         choices = choices({ 1, 0 }, yesNo), default = 1,
         help = "Whether the map's grenade pickups appear. Players still spawn with grenades.",
@@ -235,6 +242,7 @@ function Settings.variantLine()
     f.map_flags = map
     f.bots = Settings.value(Settings.option("bots"))
     f.bot_type = Settings.value(Settings.option("bot_type"))
+    f.bot_level = Settings.value(Settings.option("bot_level"))
     -- Each team's vehicle set, and its counts when it is CUSTOM.
     for _, team in ipairs({ "red", "blue" }) do
         local set = Settings.value(Settings.option("vehicles." .. team))
@@ -282,6 +290,7 @@ function Settings.describe(line, mode)
     values.suicide_penalty = f.suicide_seconds
     values.bots = f.bots
     values.bot_type = f.bot_type
+    values.bot_level = f.bot_level
     if f["trait.shields"] then values.shields = f["trait.shields"] == 1 and 0 or 1 end
     if f["trait.camo"] then values.invisible = f["trait.camo"] ~= 0 and 1 or 0 end
     if f.map_flags then

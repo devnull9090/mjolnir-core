@@ -15,11 +15,11 @@ machines' feeds and boards name them and count the same kills.
 | `level bake`, `blam.bots` ([level_format.md](level_format.md)) | bot squads, a zone of firing positions, an objective, AI pathfinding for the map's BSP |
 | `crates/blam-sbsp/src/pathfinding.rs` | the pathfinding tables, from a structure BSP's collision shell |
 | MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game |
-| MJOLNIRLobby `settings.lua` | BOTS and BOT TYPE on the PLAYERS page of the host's game settings: `bots=N;bot_type=K` in the settings line |
-| `tools/level/build_bot_characters.sh` | the bots' characters: the Spartan, and every kind at Legendary accuracy |
+| MJOLNIRLobby `settings.lua` | BOTS, BOT TYPE and BOT DIFFICULTY on the PLAYERS page of the host's game settings: `bots=N;bot_type=K;bot_level=L` in the settings line |
+| `tools/level/build_bot_characters.sh` | the bots' characters: the Spartan, and every kind at each difficulty |
 | MJOLNIRHud `Scripts/bots.lua` | places, names, respawns and directs the bots on the host |
 | MJOLNIRHud `main.lua`, `relay.lua` | bot seats on the board and in the feed, on the host and its clients |
-| MJOLNIRHud `commands.lua` | `/bots <0-15> [kind]`: the host changes this match's bots |
+| MJOLNIRHud `commands.lua` | `/bots <0-15> [kind] [level]`: the host changes this match's bots |
 
 ## Why each is needed
 
@@ -67,26 +67,30 @@ host's BOT TYPE picks one (SPARTANS, ELITES, GRUNTS, JACKALS) or MIXED, which
 takes them in turn; `/bots 6 elites` changes it mid-match. A map baked before
 kinds has `bot_<k>` squads only, which every kind falls back to.
 
-Every kind plays a character of MJOLNIR's own (`tools/level/build_bot_characters.sh`):
-`mjolnir_bot_spartan`, `mjolnir_bot_elite`, `mjolnir_bot_grunt` and
-`mjolnir_bot_jackal`, all with `mjolnir_bot_generic` as their parent.
+Every kind plays a character of MJOLNIR's own at each difficulty level
+(`tools/level/build_bot_characters.sh`): `mjolnir_bot_<kind>_<level>` for
+spartan, elite, grunt and jackal, and normal, heroic and legendary, each with
+`mjolnir_bot_generic_<level>` as its parent. A map bakes a squad set per kind
+and level (`spartan_legendary_<k>`; 180 squads on Blood Gulch) and the host's
+BOT DIFFICULTY (default LEGENDARY) or `/bots 6 elites heroic` picks one. A
+map baked before levels has `<kind>_<k>` squads, which a bot falls back to.
 
 - **Accuracy.** AI aim from per-weapon accuracy bounds and times for normal,
   heroic and legendary. A Megalo match always plays at Normal: the
   simulation reads the difficulty (game options `+0x1e4`) in about fifteen
   places, through two helpers and inline copies, all gated to campaign and
   Firefight, and some of them also scale the players. So the bot characters
-  carry the Legendary values in their Normal slots instead: `mjolnir_bot_generic`
-  is `ai\generic` so tuned, and each bot character tunes its own weapon
-  entries the same way. A difficulty setting would be more squad sets, one
-  per level (heroic, legendary), not a sim patch.
+  carry their level's values in their Normal slots instead:
+  `mjolnir_bot_generic_<level>` is `ai\generic` so tuned, and each bot
+  character tunes its own weapon entries the same way (normal keeps the
+  shipped values). There is no Easy: the characters have no easy accuracy.
 - **Spartans.** No Spartan AI character ships, so `mjolnir_bot_spartan` is the
   Marine's (`trooper`: human weapons, grenades, cover) in the players' own
   body, `objects\characters\spartans\spartans`. Their squads are on the
   Covenant team, since a Marine's own team is the players'.
 
 Every machine in the match needs the characters' containers,
-`pakchunk995-MJOLNIRBOT-<name>_P`, beside the map's.
+`pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15), beside the map's.
 
 ## Identity: which actor is which bot
 

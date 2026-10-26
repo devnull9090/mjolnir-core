@@ -7,9 +7,10 @@ choice gets from the lobby to every machine's simulation. Researched
 SETTINGS shipped in mods-v0.16.0 (PR #146), the hub listing carries it
 since PR #147 (migration 0015), and per-team vehicle sets since mods-v0.19.0
 (be16ef4a). What each setting does today is in the table under "What our
-runtime can change". **Update 2026-10-25:** BOTS (PLAYERS page, 0-15) and BOT
-TYPE (SPARTANS, ELITES, GRUNTS, JACKALS, MIXED) are not variant fields: they
-ride the settings line as `bots=N;bot_type=K` for the host's MJOLNIRHud, and
+runtime can change". **Update 2026-10-25:** BOTS (PLAYERS page, 0-15), BOT
+TYPE (SPARTANS, ELITES, GRUNTS, JACKALS, MIXED) and BOT DIFFICULTY (NORMAL,
+HEROIC, LEGENDARY) are not variant fields: they ride the settings line as
+`bots=N;bot_type=K;bot_level=L` for the host's MJOLNIRHud, and
 the loader's `VariantSettings.forMode` drops them as it drops the vehicle keys
 ([bots.md](bots.md)).
 
