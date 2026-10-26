@@ -10,7 +10,13 @@
 --                readable name, the game's own silhouette for a weapon, what
 --                the keys do to it, and while holding how far out it is
 --   ControlBar   every key, dimmed when it does nothing right now
+--   PaletteSize  in the Monitor, the palette: the category between its keys,
+--                the object Insert places with its picture, and a window of
+--                the category around it (dimmed: the map cannot place one)
 --   Toast        what the last key did, then fades
+--
+-- The palette panel came with CE runtime 1.15.0. With an older HUD a toast
+-- names the selected object instead.
 --
 -- Everything here runs on the game thread. Hud.render returns false when the
 -- widget cannot be made (no container, no player controller yet), and
@@ -30,12 +36,18 @@ local DISTANCE_MIN, DISTANCE_MAX = 1, 60
 local DISTANCE_TRACK = 280
 local CARD_HINTS = 3
 local CONTROLS = 6
+local PALETTE_ROWS = 7
+local ICON_W, ICON_H = 120, 40 -- the icon boxes' size in the widget, the most a picture takes
+local CENTRE = 2 -- EHorizontalAlignment / EVerticalAlignment
 
 local ACCENT = { R = 0.46, G = 0.79, B = 0.94, A = 1 }
 local WHITE = { R = 0.88, G = 0.95, B = 1, A = 1 }
 local GOLD = { R = 1, G = 0.80, B = 0.35, A = 1 }
 local GREEN = { R = 0.45, G = 1, B = 0.62, A = 1 }
 local RETICLE_IDLE = { R = 0.46, G = 0.79, B = 0.94, A = 0.85 }
+local GREY = { R = 0.46, G = 0.61, B = 0.70, A = 1 }
+local ROW_SELECTED = { R = 0.46, G = 0.79, B = 0.94, A = 0.22 }
+local ROW_PLAIN = { R = 0, G = 0, B = 0, A = 0 }
 
 -- Tag groups by four-CC.
 local CATEGORIES = {
@@ -44,13 +56,21 @@ local CATEGORIES = {
     crea = "CREATURE", efsc = "EFFECT", gint = "GIANT", term = "TERMINAL",
 }
 
+-- A palette category by its tag group.
+local SHELVES = {
+    weap = "WEAPONS", vehi = "VEHICLES", scen = "SCENERY", eqip = "EQUIPMENT", bipd = "CHARACTERS",
+    mach = "MACHINES", ctrl = "CONTROLS", bloc = "CRATES",
+}
+
 -- Tag names a plain title-casing would leave odd.
 local NAMES = {
     player_spawn = "Spawn Point", health_pack_spot = "Health Pack", flag_stand = "Flag Stand",
     teleporter_sender = "Teleporter Sender", teleporter_receiver = "Teleporter Receiver",
     teleporter_2way = "Two-Way Teleporter", magnum = "Magnum", smg = "SMG",
     rocket_launcher = "Rocket Launcher", fuel_rod_cannon = "Fuel Rod Gun", active_camouflage = "Active Camo",
-    over_shield = "Overshield", assault_rifle_legacy = "Assault Rifle",
+    over_shield = "Overshield", assault_rifle_legacy = "Assault Rifle", flak_cannon = "Fuel Rod Gun",
+    beam_rifle = "Beam Rifle", assault_rifle_ammo = "Assault Rifle Ammo", pistol_ammo = "Magnum Ammo",
+    sniper_rifle_ammo = "Sniper Ammo", rocket_launcher_ammo = "Rocket Ammo",
 }
 
 -- The game's silhouettes by tag name (the kill feed's catalogue, keyed by tag).
@@ -86,6 +106,7 @@ local missingClass = false
 local loaded = {}
 local toast = { id = nil, generation = 0 }
 local lastTarget = nil
+local lastChoice = nil
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -149,7 +170,8 @@ end
 
 --- A UE4SS key name as the key cap shows it: PAGE_UP -> PG UP.
 function Hud.keyLabel(name)
-    local pretty = { PAGE_UP = "PG UP", PAGE_DOWN = "PG DN", DEL = "DEL", INS = "INS", SPACE = "SPACE" }
+    local pretty = { PAGE_UP = "PG UP", PAGE_DOWN = "PG DN", DEL = "DEL", INS = "INS", SPACE = "SPACE",
+        LEFT_ARROW = "←", RIGHT_ARROW = "→", UP_ARROW = "↑", DOWN_ARROW = "↓" }
     return pretty[name] or (tostring(name):gsub("_", " "))
 end
 
@@ -189,6 +211,20 @@ local function build()
     face(W.DistanceLabel, "Oxanium", "Bold", 160)
     face(W.DistanceValue, "Oxanium", "Bold")
     face(W.ToastText, "NormativePro", "Bold")
+    if valid(W.PaletteSize) then
+        face(W.PaletteTitle, "Oxanium", "Bold", 220)
+        face(W.PaletteCount, "Oxanium", "Bold")
+        face(W.PaletteGroup, "Oxanium", "Bold", 180)
+        face(W.PaletteName, "NormativePro", "Bold")
+        for i = 0, PALETTE_ROWS - 1 do face(W["PaletteRow" .. i .. "Name"], "NormativePro", "Medium") end
+        for _, cap in ipairs({ "PalettePrev", "PaletteNext", "PaletteHint0", "PaletteHint1" }) do
+            face(W[cap .. "Key"], "Oxanium", "Bold")
+            face(W[cap .. "Act"], "Oxanium", "Bold", 120)
+        end
+        -- The category's keys are caps alone.
+        setVisible(W.PalettePrevAct, false)
+        setVisible(W.PaletteNextAct, false)
+    end
     for i = 0, CARD_HINTS - 1 do
         face(W["Target" .. i .. "Key"], "Oxanium", "Bold")
         face(W["Target" .. i .. "Act"], "Oxanium", "Bold", 120)
@@ -217,8 +253,8 @@ local function fillKeys(prefix, count, rows)
     end
 end
 
-local function weaponIcon(tag)
-    local box, image = W.TargetIconBox, W.TargetIcon
+local function weaponIcon(tag, box, image)
+    box, image = box or W.TargetIconBox, image or W.TargetIcon
     local path = ICONS[tag or ""]
     local tex = path and load(path)
     local material = tex and load(ICON_MATERIAL)
@@ -235,6 +271,17 @@ local function weaponIcon(tag)
         mid:SetScalarParameterValue(FName("Empty"), 0)
         mid:SetScalarParameterValue(FName("Equipped"), 1)
         image:SetColorAndOpacity({ R = 1, G = 1, B = 1, A = 1 })
+    end)
+    -- Each silhouette has its own shape (a rifle is long, the Banshee's
+    -- taller than wide): fit it in the box at its own aspect, centred, rather
+    -- than stretch it, so the name beside it stays put.
+    local okSize, w, h = pcall(function() return tex:Blueprint_GetSizeX(), tex:Blueprint_GetSizeY() end)
+    local aspect = (okSize and type(w) == "number" and type(h) == "number" and h > 0) and w / h or ICON_W / ICON_H
+    local width = math.min(ICON_W, ICON_H * aspect)
+    pcall(function()
+        image:SetDesiredSizeOverride({ X = width, Y = width / aspect })
+        image.Slot:SetHorizontalAlignment(CENTRE)
+        image.Slot:SetVerticalAlignment(CENTRE)
     end)
     setVisible(box, ok)
 end
@@ -264,6 +311,11 @@ local function toastFor(last, name)
     if last == "released" then return "DROPPED  " .. name, ACCENT end
     if last == "deleted" then return "DELETED  " .. name, GOLD end
     if last == "duplicated" then return "DUPLICATED  " .. name, GREEN end
+    local placed = last:match("^placed (.+)$")
+    if placed then return "PLACED  " .. Hud.prettyName(placed), GREEN end
+    local refused = last:match("^cannot place (.+)$")
+    if refused then return "THIS MAP CAN'T PLACE ANOTHER  " .. Hud.prettyName(refused), GOLD end
+    if last == "this map has no Forge palette" then return "This map has no Forge palette", GOLD end
     if last:find("palette") then return "This map has no Forge palette entry for that yet", GOLD end
     return string.upper(last), GOLD
 end
@@ -272,14 +324,75 @@ end
 -- Rendering
 --------------------------------------------------------------------------------
 
+-- The rows of `palette` in `row`'s category (one palette, one tag group, as
+-- the DLL counts them), and where `row` is among them.
+local function categoryOf(palette, row)
+    local members, at = {}, nil
+    for _, r in ipairs(palette) do
+        if r.palette == row.palette and r.group == row.group then
+            members[#members + 1] = r
+            if r == row then at = #members end
+        end
+    end
+    return members, at or 1
+end
+
+-- The palette panel, or a toast where the HUD has none (CE runtime 1.14.0).
+local function drawPalette(palette, row, keys, editing)
+    local panel = valid(W.PaletteSize) and W.PaletteSize or nil
+    if not (editing and row) then
+        if panel then setVisible(panel, false) end
+        lastChoice = nil
+        return
+    end
+    local choice = row.palette .. ":" .. row.entry
+    if not panel then
+        if lastChoice and choice ~= lastChoice then
+            showToast(string.format("%s  %s", SHELVES[row.group] or "PALETTE", Hud.prettyName(row.tag)), ACCENT)
+        end
+        lastChoice = choice
+        return
+    end
+    lastChoice = choice
+    local members, at = categoryOf(palette, row)
+    setText(W.PaletteCount, string.format("%d / %d", at, #members))
+    setText(W.PaletteGroup, SHELVES[row.group] or Hud.category(row.group))
+    setText(W.PalettePrevKey, Hud.keyLabel(keys.prev_category))
+    setText(W.PaletteNextKey, Hud.keyLabel(keys.next_category))
+    setText(W.PaletteName, Hud.prettyName(row.tag))
+    setTextColor(W.PaletteName, row.placeable and WHITE or GREY)
+    weaponIcon(row.tag, W.PaletteIconBox, W.PaletteIcon)
+    -- A window of the list with the selection in its middle where it can be.
+    local first = math.max(1, math.min(at - math.floor(PALETTE_ROWS / 2), #members - PALETTE_ROWS + 1))
+    for i = 0, PALETTE_ROWS - 1 do
+        local line = W["PaletteRow" .. i]
+        local r = members[first + i]
+        if r then
+            local selected = first + i == at
+            setText(W["PaletteRow" .. i .. "Name"], Hud.prettyName(r.tag))
+            setTextColor(W["PaletteRow" .. i .. "Name"], selected and WHITE or GREY)
+            pcall(function() line:SetBrushColor(selected and ROW_SELECTED or ROW_PLAIN) end)
+            setOpacity(line, r.placeable and 1 or 0.4)
+            setVisible(line, true)
+        else
+            setVisible(line, false)
+        end
+    end
+    setText(W.PaletteHint0Key, Hud.keyLabel(keys.prev_item) .. " / " .. Hud.keyLabel(keys.next_item))
+    setText(W.PaletteHint1Key, Hud.keyLabel(keys.place))
+    setOpacity(W.PaletteHint1, row.placeable and 1 or 0.35)
+    setVisible(panel, true)
+end
+
 --- deps: { log, pc }.
 function Hud.init(deps)
     ctx = deps
 end
 
 --- Show the editor's state `s` (forge_state.txt's fields), with the key
---- names `keys` and the map's title. False when the widget is not there.
-function Hud.render(s, keys, mapTitle)
+--- names `keys`, the map's title, the palette's rows and the selected one.
+--- False when the widget is not there.
+function Hud.render(s, keys, mapTitle, palette, choice)
     local active = s.forge == "1" and s.player ~= nil and s.player ~= "-1"
     if not active then
         if valid(W) then setVisible(W, false) end
@@ -346,10 +459,13 @@ function Hud.render(s, keys, mapTitle)
             { key = Hud.keyLabel(keys.duplicate), act = "DUPLICATE", on = aiming or holding },
             { key = Hud.keyLabel(keys.delete), act = "DELETE", on = aiming or holding },
             { key = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer), act = "DISTANCE", on = holding },
+            { key = Hud.keyLabel(keys.place), act = "PLACE", on = choice ~= nil and choice.placeable },
         })
     else
         fillKeys("Control", CONTROLS, { { key = Hud.keyLabel(keys.toggle), act = "FORGE MONITOR" } })
     end
+
+    drawPalette(palette or {}, choice, keys, editing)
 
     -- The toast, once per thing the DLL did.
     if s.last_id and s.last_id ~= toast.id then

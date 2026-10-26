@@ -146,6 +146,7 @@ built from `native/frame_times`, reads `stat unit`'s split for it. See
 Halo Reach's Forge, still inside the simulation. In a FORGE game (MJOLNIRLobby's game type of
 that name, host only for now) B turns you into the Monitor and back, V picks up and drops what the
 cursor is on, Page Up and Page Down push a held object out or pull it in, and Delete removes it.
+Insert places a new object from the map's palette, picked with the arrow keys in a palette panel.
 Its native half, built from `native/forge`, turns each key into the engine's own editor request on
 the simulation's thread. See [`docs/forge.md`](docs/forge.md) and
 [`docs/re/forge_engine.md`](docs/re/forge_engine.md).

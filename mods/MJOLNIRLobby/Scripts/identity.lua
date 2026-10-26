@@ -298,6 +298,7 @@ function Identity.init(deps)
     dir, coversDir = deps.modDir, deps.coversDir
     localName, presentNames = deps.localName, deps.presentNames
     isPublic, onBanned, worldContext = deps.isPublic, deps.onBanned, deps.worldContext
+    Identity.onIds = deps.onIds
     writeFile(dir .. "\\identities.txt", "")
 
     -- A client proves itself to the host.
@@ -323,6 +324,7 @@ function Identity.init(deps)
         hostId = f[1] ~= "" and f[1] or nil
         lastIds = now()
         setRoster(decodeRoster(f[2]))
+        if Identity.onIds then pcall(Identity.onIds) end
     end)
 end
 

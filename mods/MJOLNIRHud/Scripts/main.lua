@@ -34,6 +34,7 @@ end
 
 local MOD_DIR = modDirectory()
 local Scoreboard = dofile(MOD_DIR .. "\\Scripts\\scoreboard.lua")
+local publishPresence = dofile(MOD_DIR .. "\\Scripts\\presence_snapshot.lua").new(MOD_DIR)
 local Variant = dofile(MOD_DIR .. "\\Scripts\\variant.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local MatchLog = dofile(MOD_DIR .. "\\Scripts\\matchlog.lua")
@@ -84,6 +85,7 @@ local DEATH_GRACE = 0.4
 --- a fireteam client. Refreshed each tick from the local controller's
 --- BlamPlayerStateComponent (refreshLocalPlayer).
 local LOCAL_PLAYER = 0
+local presencePlayerKnown = false
 
 -- ESlateVisibility
 local VISIBLE = 3        -- HitTestInvisible: drawn, never takes the mouse
@@ -157,7 +159,8 @@ local function refreshLocalPlayer()
     local ok, index = pcall(function()
         return playerController().PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
     end)
-    if ok and type(index) == "number" and index >= 0 then LOCAL_PLAYER = index end
+    presencePlayerKnown = ok and type(index) == "number" and index >= 0
+    if presencePlayerKnown then LOCAL_PLAYER = index end
 end
 
 --- "World /Game/Levels/Halo1/Solo/BGL/BGL.BGL" -> "BGL".
@@ -243,7 +246,7 @@ local nextRosterRefresh = 0
 local function stats(index)
     local p = Match.players[index]
     if not p then
-        p = { index = index, kills = 0, deaths = 0, suicides = 0, captures = 0, name = nil }
+        p = { index = index, kills = 0, rawKills = 0, deaths = 0, suicides = 0, captures = 0, name = nil }
         Match.players[index] = p
     end
     return p
@@ -262,7 +265,19 @@ local function refreshNames()
             if okI and type(index) == "number" and index >= 0 then
                 local okN, name = pcall(function() return ps:GetPlayerName():ToString() end)
                 local p = stats(index)
-                if okN and name and name ~= "" then p.name = name end
+                if okN and name and name ~= "" then
+                    -- A seat someone left, now taken: by them again, their
+                    -- tallies stand; by another player, the seat starts from
+                    -- nothing, as the game's own score does (#236).
+                    if p.arriving and p.leftName and name ~= p.leftName then
+                        Log(string.format("seat %d: %s took %s's seat; its tallies start again", index, name, p.leftName))
+                        p.kills, p.rawKills, p.deaths, p.suicides, p.captures = 0, 0, 0, 0, 0
+                        p.display, p.userId, p.reports, p.team = nil, nil, nil, nil
+                        boardDirty = true
+                    end
+                    if p.arriving then p.arriving, p.leftName = nil, nil end
+                    p.name = name
+                end
                 -- The hub account MJOLNIRLobby resolved for that name, shown
                 -- in its place (docs/player_identity.md). p.name stays the
                 -- in-game name: seats, claims and bans are keyed by it.
@@ -348,6 +363,7 @@ HANDLERS.kill = function(inc)
     -- (blam_megalo Variant::team_slayer); the tallies do the same.
     local point = (betrayal and Match.variant == "team_slayer") and -1 or 1
     stats(killer).kills = stats(killer).kills + point
+    stats(killer).rawKills = (stats(killer).rawKills or 0) + 1
     if Match.variant == "team_slayer" then
         Match.teamKills[#Match.teamKills + 1] = { player = killer, team = teamOf, points = point }
     end
@@ -410,6 +426,8 @@ HANDLERS.death = function(inc)
     local victim = inc.effect
     if type(victim) ~= "number" or victim < 0 then return end
     stats(victim).deaths = stats(victim).deaths + 1
+    -- Dead on the scoreboard until the next spawn (#249).
+    stats(victim).dead = true
     Match.deaths[#Match.deaths + 1] = { victim = victim, at = inc.at, damage = inc.damage }
     if victim == LOCAL_PLAYER then
         Match.dead = true
@@ -465,6 +483,7 @@ end
 
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end
+    if type(inc.cause) == "number" and inc.cause >= 0 then stats(inc.cause).dead = false end
     if inc.cause == LOCAL_PLAYER and not Match.clockEnd then
         clockFrom((Match.mode.timeLimit or 0) * 60 + CLOCK_LAG, inc.at)
     end
@@ -506,7 +525,11 @@ local JOIN_WAIT = 8
 
 HANDLERS.player_joined = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
-    stats(inc.cause).left = false
+    local seat = stats(inc.cause)
+    -- Whose seat this is now is settled by name once its player state has
+    -- one (refreshNames).
+    if seat.left then seat.arriving = true end
+    seat.left = false
     refreshNames()
     Match.joins = Match.joins or {}
     Match.joins[#Match.joins + 1] = { index = inc.cause, at = now() }
@@ -576,6 +599,7 @@ HANDLERS.player_quit = function(inc)
     if type(inc.cause) ~= "number" or inc.cause < 0 then return end
     eventLine(inc.cause, "Left", FEED.words, "left the game")
     stats(inc.cause).left = true
+    stats(inc.cause).leftName = stats(inc.cause).name
     stats(inc.cause).biped = nil
     boardDirty = true
 end
@@ -584,6 +608,7 @@ HANDLERS.player_booted_player = function(inc)
     if type(inc.effect) ~= "number" or inc.effect < 0 then return end
     eventLine(inc.effect, "Kicked", FEED.kicked, "was kicked")
     stats(inc.effect).left = true
+    stats(inc.effect).leftName = stats(inc.effect).name
     stats(inc.effect).biped = nil
     boardDirty = true
 end
@@ -816,7 +841,11 @@ local function animate(t)
     pcall(function() Feed.Respawn:SetRenderScale({ X = s, Y = s }) end)
 end
 
+--- `mjolnir_scoreboard on` keeps the board up (two-PC tests, screenshots).
+local BoardPin = { on = false }
+
 local function boardHeld(pc)
+    if BoardPin.on then return true end
     local held = false
     for _, key in ipairs({ "Tab", "Gamepad_Special_Left" }) do
         local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName(key) }) end)
@@ -917,7 +946,10 @@ local function drawBoard()
                     image:SetVisibility(tex and VISIBLE or 2)
                 end)
             end
-            setText(Board["Marker" .. i], you and "YOU" or "")
+            -- Dead until the next spawn (#249); a player nothing was heard of
+            -- yet (joined mid-match) counts as alive.
+            local dead = p and p.dead
+            setText(Board["Marker" .. i], dead and "DEAD" or (you and "YOU" or ""))
             setText(Board["Score" .. i], p and tostring(score(p)) or (entry.total and tostring(entry.total) or ""))
             setText(Board["Kills" .. i], p and tostring(p.kills) or "")
             setText(Board["Deaths" .. i], p and tostring(p.deaths) or "")
@@ -927,7 +959,9 @@ local function drawBoard()
                 row:SetBrushColor(color)
                 row.Slot:SetPadding({ Left = 0, Top = entry.team and 12 or 2, Right = 0, Bottom = 0 })
                 Board["Stripe" .. i]:SetBrushColor(tint or (you and YOU or ROW_EVEN))
-                Board["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = entry.team and tint or WHITE, ColorUseRule = 0 })
+                local nameTint = entry.team and tint or WHITE
+                if dead then nameTint = { R = nameTint.R, G = nameTint.G, B = nameTint.B, A = 0.45 } end
+                Board["Name" .. i]:SetColorAndOpacity({ SpecifiedColor = nameTint, ColorUseRule = 0 })
             end)
         else
             setVisible(row, false)
@@ -1170,6 +1204,7 @@ local function startMatch(running, world)
         teamKills = {},
         world = world,
         startedAt = now(),
+        presenceStarted = os.time(),
         -- The match log: the host records; a client asks the host for the
         -- match's id to claim its seat.
         logChecked = false,
@@ -1413,6 +1448,7 @@ local function tick()
     end
     if not Match then
         Queue = {}
+        publishPresence(nil, LOCAL_PLAYER)
         return
     end
     hookIncidents()
@@ -1437,6 +1473,7 @@ local function tick()
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
     drain()
+    publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
         Match.demoUntil = nil
@@ -1505,6 +1542,13 @@ local function poll()
     end
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
+
+pcall(RegisterConsoleCommandHandler, "mjolnir_scoreboard", function(_, args, ar)
+    local on = tostring(args and args[1] or ""):lower()
+    BoardPin.on = on == "on" or on == "1"
+    pcall(function() ar:Log("MJOLNIR HUD: scoreboard " .. (BoardPin.on and "kept up" or "on Tab")) end)
+    return true
+end)
 
 pcall(RegisterConsoleCommandHandler, "mjolnir_hitches", function(_, args, ar)
     ExecuteInGameThread(function()

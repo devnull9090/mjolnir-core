@@ -5071,6 +5071,10 @@ local function watch()
     -- The flags' cloth waves, and trails behind a carrier.
     every(33, "flag cloth", Teams.clothTick)
     every(1500, "team armour", Teams.armorTick)
+    -- A player below the map's kill floor dies (kill_floor.lua; host only).
+    every(500, "kill floor", function() if Teams.KillFloor then Teams.KillFloor.tick() end end)
+    -- Halo 2's lifts push this game's own players (lifts.lua).
+    every(500, "lifts", function() if Teams.Lifts then Teams.Lifts.tick() end end)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so
     -- the pass that arms it sweeps for them too, once: a FindAllOf is a
@@ -5911,6 +5915,14 @@ local function loadMegaloSwitch()
 end
 
 local function initialize()
+    -- Kill floors (#234) and Halo 2's lifts (#235), kept on Teams: main.lua
+    -- is at Lua's 200 locals. Both run Blam script through sim_script.lua.
+    Teams.Script = dofile(MOD_DIR .. "\\Scripts\\sim_script.lua")
+    Teams.Script.init(MOD_DIR)
+    Teams.KillFloor = dofile(MOD_DIR .. "\\Scripts\\kill_floor.lua")
+    Teams.KillFloor.init({ Log = Log, getWorld = getWorld, isHost = isHostWorld, Current = Current, Script = Teams.Script })
+    Teams.Lifts = dofile(MOD_DIR .. "\\Scripts\\lifts.lua")
+    Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script })
     Teams.init({
         Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
         hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,

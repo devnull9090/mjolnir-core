@@ -41,6 +41,100 @@
     {
       "product": "cli",
       "productName": "MJOLNIR CLI",
+      "version": "0.6.0",
+      "tag": "cli-v0.6.0",
+      "title": "Forge map variants, Forge palettes, and Halo 2 lifts in converted maps",
+      "date": "2026-10-25",
+      "summary": "The CLI reads and writes Forge map variants (.mvar), bakes a Forge palette into each level, and carries Halo 2's lifts and jump pads into converted maps.",
+      "body": "### Added\n\n- **Forge map variants.** The Megalo crate reads and writes Halo Reach map\n  variant files (`.mvar`) bit for bit, and `examples/mvar_summary` lists what\n  one holds: objects, positions, labels and budgets.\n- **Forge palettes in every baked level.** `mjolnir level bake` writes the\n  scenario's map variant palettes, one per category (weapons, vehicles,\n  equipment, scenery), so MJOLNIRForge can place them.\n- **Halo 2 lifts, jump pads and vents.** `mjolnir cache stage` reads the\n  physics phantoms that push players in Halo 2 maps (pills, boxes and convex\n  shapes, with the marker each pushes along) and writes them to\n  `placement.json` as `lifts`. The level generator puts them in the level\n  file, where MJOLNIRLevelLoader 0.9.4 pushes players with them.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge map variants. The Megalo crate reads and writes Halo Reach map variant files (.mvar) bit for bit, and examples/mvarsummary lists what one holds: objects, positions, labels and budgets.",
+            "Forge palettes in every baked level. mjolnir level bake writes the scenario's map variant palettes, one per category (weapons, vehicles, equipment, scenery), so MJOLNIRForge can place them.",
+            "Halo 2 lifts, jump pads and vents. mjolnir cache stage reads the physics phantoms that push players in Halo 2 maps (pills, boxes and convex shapes, with the marker each pushes along) and writes them to placement.json as lifts. The level generator puts them in the level file, where MJOLNIRLevelLoader 0.9.4 pushes players with them."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.6.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.6.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.6.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.19.0",
+      "tag": "launcher-v0.19.0",
+      "title": "Straight to the main menu: the intro videos are skipped",
+      "date": "2026-10-25",
+      "summary": "The game skips its start-up logo videos and reaches the main menu about 20 seconds sooner. Settings has a switch to turn the videos back on.",
+      "body": "### Added\n\n- **Skip intro videos**, on by default, under Settings > Troubleshooting. The\n  launcher sets the start-up logo movie aside before each launch, so the game\n  goes straight to its title screen (49 s to the main menu became 28 s on a\n  test PC). Turning it off puts the movie back. It also holds when you start\n  the game from Steam, and a game update or a file check that brings the\n  movie back is handled at the next launch.\n\n### Changed\n\n- Dependency updates.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Skip intro videos, on by default, under Settings > Troubleshooting. The launcher sets the start-up logo movie aside before each launch, so the game goes straight to its title screen (49 s to the main menu became 28 s on a test PC). Turning it off puts the movie back. It also holds when you start the game from Steam, and a game update or a file check that brings the movie back is handled at the next launch."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependency updates."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.19.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.19.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.19.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.38.0",
+      "tag": "mods-v0.38.0",
+      "title": "Steadier fireteam matches: no mass drops, no lost sounds, a smooth vote",
+      "date": "2026-10-25",
+      "summary": "Fixes from the 2026-10-24 playtest: team games that ended at load, a mass disconnect, joiner sounds and crashes, kill floors, Halo 2 lifts and a lag-free vote.",
+      "body": "### Fixed\n\n- **CTF and Team Slayer ended the moment the map loaded** with three or more\n  players (MJOLNIRLobby 0.17.2). The third player landed on a team the game\n  type does not have, and the engine ended the match. Players now go red and\n  blue in turn, and a player who joins later takes the smaller team.\n- **A whole fireteam dropped at once** (MJOLNIRLobby 0.17.8). A player whose\n  game dropped and who joined again before the host had closed their old\n  connection was given a second copy of themselves, and the host's game\n  closed every connection. The new join now waits for the old one to go.\n- **A new player inherited the score and kills of the player who left that\n  seat** (MJOLNIRLobby 0.17.3, MJOLNIRHud 0.12.1). Their tallies start at\n  zero; a player who comes back to their own seat keeps theirs.\n- **Players who left and joined a match again heard no reloads or grenades**\n  (MJOLNIRLobby 0.17.6). The lobby took their new game as already set up for\n  sound because it was on the same map.\n- **Joiners could crash when the map changed** (MJOLNIRLobby 0.17.12). The\n  lobby could set up a match's sound a second time, before or on top of the\n  game's own setup. It now waits for the game, and only steps in for a\n  player who joined a match already under way.\n- **The post-game vote screen stuttered** for everyone (MJOLNIRLobby 0.17.7):\n  it redrew every row four times a second and searched the whole game for\n  the players each second. The menus lost a few milliseconds every 1.5 s\n  for the same reason. Both now redraw only what changed.\n- **The vote could pick a map someone in the fireteam does not have**\n  (MJOLNIRLobby 0.17.10), leaving them at the main menu. Each player's game\n  now tells the host which maps it has, and the vote offers only maps\n  everyone has or can download.\n- **Falling into Gephyrophobia's canyon did not kill** (MJOLNIRLevelLoader\n  0.9.3). The game types our matches use have no falling death, so maps with\n  a pit now have a kill floor.\n- **The Killing Spree callout stayed on screen** (MJOLNIRHud 0.12.2) when it\n  came just after a Triple Kill, and the medals behind it never showed.\n\n### Added\n\n- **Halo 2's gravity lifts, jump pads and vents push players**\n  (MJOLNIRLevelLoader 0.9.4), each player's game pushing its own player.\n  Lockout's lift carries you to the top floor as in Halo 2.\n- **The scoreboard shows who is dead** (MJOLNIRHud 0.12.4): DEAD beside their\n  name, dimmed, until they spawn again. `mjolnir_scoreboard on` keeps the\n  board up.\n- **The post-game vote mixes game types** (MJOLNIRLobby 0.17.13): not four\n  Slayers after a Slayer game. Forge is never offered.\n\n### Known issues\n\n- Halo 2 lifts need the Halo 2 maps converted again: a map from before this\n  release has no lift data, and its lifts still do nothing until its next\n  release.\n- Each vote option's own map picture comes with the next CE runtime release;\n  until then the vote shows the one picture it always has.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "CTF and Team Slayer ended the moment the map loaded with three or more players (MJOLNIRLobby 0.17.2). The third player landed on a team the game type does not have, and the engine ended the match. Players now go red and blue in turn, and a player who joins later takes the smaller team.",
+            "A whole fireteam dropped at once (MJOLNIRLobby 0.17.8). A player whose game dropped and who joined again before the host had closed their old connection was given a second copy of themselves, and the host's game closed every connection. The new join now waits for the old one to go.",
+            "A new player inherited the score and kills of the player who left that seat (MJOLNIRLobby 0.17.3, MJOLNIRHud 0.12.1). Their tallies start at zero; a player who comes back to their own seat keeps theirs.",
+            "Players who left and joined a match again heard no reloads or grenades (MJOLNIRLobby 0.17.6). The lobby took their new game as already set up for sound because it was on the same map.",
+            "Joiners could crash when the map changed (MJOLNIRLobby 0.17.12). The lobby could set up a match's sound a second time, before or on top of the game's own setup. It now waits for the game, and only steps in for a player who joined a match already under way.",
+            "The post-game vote screen stuttered for everyone (MJOLNIRLobby 0.17.7): it redrew every row four times a second and searched the whole game for the players each second. The menus lost a few milliseconds every 1.5 s for the same reason. Both now redraw only what changed.",
+            "The vote could pick a map someone in the fireteam does not have (MJOLNIRLobby 0.17.10), leaving them at the main menu. Each player's game now tells the host which maps it has, and the vote offers only maps everyone has or can download.",
+            "Falling into Gephyrophobia's canyon did not kill (MJOLNIRLevelLoader 0.9.3). The game types our matches use have no falling death, so maps with a pit now have a kill floor.",
+            "The Killing Spree callout stayed on screen (MJOLNIRHud 0.12.2) when it came just after a Triple Kill, and the medals behind it never showed."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "Halo 2's gravity lifts, jump pads and vents push players (MJOLNIRLevelLoader 0.9.4), each player's game pushing its own player. Lockout's lift carries you to the top floor as in Halo 2.",
+            "The scoreboard shows who is dead (MJOLNIRHud 0.12.4): DEAD beside their name, dimmed, until they spawn again. mjolnirscoreboard on keeps the board up.",
+            "The post-game vote mixes game types (MJOLNIRLobby 0.17.13): not four Slayers after a Slayer game. Forge is never offered."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Halo 2 lifts need the Halo 2 maps converted again: a map from before this release has no lift data, and its lifts still do nothing until its next release.",
+            "Each vote option's own map picture comes with the next CE runtime release; until then the vote shows the one picture it always has."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.38.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.38.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.38.0"
+    },
+    {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
       "version": "0.5.0",
       "tag": "cli-v0.5.0",
       "title": "Halo 2 maps, every Megalo game type readable, and game types checked before they ship",
@@ -70,6 +164,35 @@
       "path": "/changelog/cli/0.5.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.5.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.5.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.18.0",
+      "tag": "launcher-v0.18.0",
+      "title": "Open public games from Discord",
+      "date": "2026-10-24",
+      "summary": "Discord's Join Game can open MJOLNIR and start Halo Campaign Evolved, using the launcher's usual sign-in, map and update checks.",
+      "body": "### Added\n\n- **Launch from Discord.** Run the updated launcher once to register its\n  Discord launch link. Clicking Join Game on a public MJOLNIR session can\n  then start the game if it is closed. The normal update and file checks\n  run before launch; a game already running is kept open.\n- Works with **code mods 0.36.0**, which publish MJOLNIR Core presence and\n  receive public-session invites. Keep the Discord desktop app running\n  and enable activity sharing. No Discord SDK installation is needed.\n\n### Known issues\n\n- Joining from another Discord account, including a join that starts a\n  closed game, has not yet been verified end to end. Local presence and\n  automated invite handling tests pass.\n- If game startup or required downloads take more than about three minutes,\n  click Join Game again after the game is ready. An invite received while\n  playing waits until you return to the main menu.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Launch from Discord. Run the updated launcher once to register its Discord launch link. Clicking Join Game on a public MJOLNIR session can then start the game if it is closed. The normal update and file checks run before launch; a game already running is kept open.",
+            "Works with code mods 0.36.0, which publish MJOLNIR Core presence and receive public-session invites. Keep the Discord desktop app running and enable activity sharing. No Discord SDK installation is needed."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Joining from another Discord account, including a join that starts a closed game, has not yet been verified end to end. Local presence and automated invite handling tests pass.",
+            "If game startup or required downloads take more than about three minutes, click Join Game again after the game is ready. An invite received while playing waits until you return to the main menu."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.18.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.18.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.18.0"
     },
     {
       "product": "launcher",
@@ -134,6 +257,100 @@
       "path": "/changelog/launcher/0.16.0",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.16.0.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.16.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.37.0",
+      "tag": "mods-v0.37.0",
+      "title": "Reload and grenade sounds for players who join a match under way",
+      "date": "2026-10-24",
+      "summary": "A player who joined a match in progress heard gunfire but no reload, grenade or other sound attached to an object; the lobby now gives their game the audio binding the join skipped.",
+      "body": "### Fixed\n\n- **Silent reloads and grenades for joiners** (MJOLNIRLobby 0.17.1). The\n  game binds its audio layer to a match's audio world from a world listener\n  that runs when a match starts normally. A player who joins a match already\n  under way builds their game another way and that listener never runs, so\n  the engine dropped every object-attached sound before it reached Wwise:\n  reloads, grenade pins and throws, melee, equipment. Gunfire still played\n  because it takes another path. The lobby now performs that bind itself once\n  the joiner's game is running; the host and players who were in the fireteam\n  at the start were never affected and are left alone.\n\n### Added\n\n- A sound tracer for the next audio bug: with `MJOLNIRLobby/native/sound_trace.txt`\n  present when the game starts, every sound the simulation asks for, every\n  Wwise event posted and the audio binds are written to `sound_trace.log`\n  (`docs/re/client_sound_roles.md`).",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Silent reloads and grenades for joiners (MJOLNIRLobby 0.17.1). The game binds its audio layer to a match's audio world from a world listener that runs when a match starts normally. A player who joins a match already under way builds their game another way and that listener never runs, so the engine dropped every object-attached sound before it reached Wwise: reloads, grenade pins and throws, melee, equipment. Gunfire still played because it takes another path. The lobby now performs that bind itself once the joiner's game is running; the host and players who were in the fireteam at the start were never affected and are left alone."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "A sound tracer for the next audio bug: with MJOLNIRLobby/native/soundtrace.txt present when the game starts, every sound the simulation asks for, every Wwise event posted and the audio binds are written to soundtrace.log (docs/re/clientsoundroles.md)."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.37.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.37.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.37.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.36.0",
+      "tag": "mods-v0.36.0",
+      "title": "Share your game and public invites on Discord",
+      "date": "2026-10-24",
+      "summary": "Show your map, game type and observed kills and deaths as MJOLNIR Core on Discord, with Join Game for public sessions that have room.",
+      "body": "### Added\n\n- **Discord Rich Presence** (MJOLNIRLobby 0.17.0 and MJOLNIRHud 0.12.0).\n  Discord shows the current map, game type, observed local kills and deaths,\n  and time in the session. Menus and post-game states clear old match stats.\n- **Join Game for public sessions.** Public sessions with room can show a\n  join action on the host's and participants' profiles. Joining uses the\n  existing MJOLNIR sign-in and map checks. Private, full, offline, stale,\n  and non-joinable sessions do not advertise a join action.\n- Presence reconnects when Discord restarts. To disable it locally, create\n  `MJOLNIRLobby/native/discord_disabled.txt`; remove that file to enable it.\n\n### Changed\n\n- Use **launcher 0.18.0** for Discord invites that need to start the game.\n  Keep Discord desktop open with activity sharing enabled. No Discord SDK\n  download or additional runtime DLL is required.\n\n### Known issues\n\n- Joining from another Discord account has not yet been verified end to end.\n  Local presence and automated public-session and invite tests pass.\n- Kills and deaths count events observed during your local session; joining\n  late cannot reconstruct earlier events.\n- Make a solo session public before starting its match. A private solo\n  match that has already gone offline needs a fresh online session to be\n  joinable.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Discord Rich Presence (MJOLNIRLobby 0.17.0 and MJOLNIRHud 0.12.0). Discord shows the current map, game type, observed local kills and deaths, and time in the session. Menus and post-game states clear old match stats.",
+            "Join Game for public sessions. Public sessions with room can show a join action on the host's and participants' profiles. Joining uses the existing MJOLNIR sign-in and map checks. Private, full, offline, stale, and non-joinable sessions do not advertise a join action.",
+            "Presence reconnects when Discord restarts. To disable it locally, create MJOLNIRLobby/native/discorddisabled.txt; remove that file to enable it."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Use launcher 0.18.0 for Discord invites that need to start the game. Keep Discord desktop open with activity sharing enabled. No Discord SDK download or additional runtime DLL is required."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Joining from another Discord account has not yet been verified end to end. Local presence and automated public-session and invite tests pass.",
+            "Kills and deaths count events observed during your local session; joining late cannot reconstruct earlier events.",
+            "Make a solo session public before starting its match. A private solo match that has already gone offline needs a fresh online session to be joinable."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.36.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.36.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.36.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.35.0",
+      "tag": "mods-v0.35.0",
+      "title": "Choose game types from their own screen",
+      "date": "2026-10-24",
+      "summary": "Browse your map's supported game types with icons and descriptions, see the chosen icon in the lobby, and place objects from Forge's palette.",
+      "body": "### Added\n\n- **Game type picker** (MJOLNIRLobby 0.16.0). GAME TYPE opens a dedicated\n  screen showing the modes available for your map, with matching icons,\n  descriptions and team formats. Preview a mode, then SELECT to apply it.\n  BACK, Escape or controller B keeps your current choice.\n- **Game type icons in the lobby.** The selected mode's icon appears beside\n  its name and changes with your selection.\n- **Forge palette** (MJOLNIRForge 0.2.0). Use the arrow keys to browse the\n  map's weapons, vehicles, equipment and scenery; Insert places the selected\n  object at the cursor, ready to move. N duplicates the target. The Forge\n  HUD shows the category and available objects. Older maps offer the kinds\n  already in their palettes; newly baked maps can include the full arsenal.\n\n### Needs\n\n- Update the **CE runtime to 1.15.0** for the game type screen, lobby icons\n  and Forge palette panel. With an older runtime, GAME TYPE opens the map\n  picker and Forge names the selected palette object in a text note.\n- Forge remains solo, and edits last until the game ends.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Game type picker (MJOLNIRLobby 0.16.0). GAME TYPE opens a dedicated screen showing the modes available for your map, with matching icons, descriptions and team formats. Preview a mode, then SELECT to apply it. BACK, Escape or controller B keeps your current choice.",
+            "Game type icons in the lobby. The selected mode's icon appears beside its name and changes with your selection.",
+            "Forge palette (MJOLNIRForge 0.2.0). Use the arrow keys to browse the map's weapons, vehicles, equipment and scenery; Insert places the selected object at the cursor, ready to move. N duplicates the target. The Forge HUD shows the category and available objects. Older maps offer the kinds already in their palettes; newly baked maps can include the full arsenal."
+          ]
+        },
+        {
+          "heading": "Needs",
+          "items": [
+            "Update the CE runtime to 1.15.0 for the game type screen, lobby icons and Forge palette panel. With an older runtime, GAME TYPE opens the map picker and Forge names the selected palette object in a text note.",
+            "Forge remains solo, and edits last until the game ends."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.35.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.35.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.35.0"
     },
     {
       "product": "mods",

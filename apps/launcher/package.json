@@ -1,7 +1,7 @@
 {
   "name": "launcher",
   "private": true,
-  "version": "0.17.0",
+  "version": "0.19.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,6 +25,12 @@
     "@vitejs/plugin-react": "^4.6.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.3.7"
+  },
+  "pnpm": {
+    "overrides": {
+      "source-map-js": "^1.2.2",
+      "nanoid@3": "^3.3.18"
+    }
   }
 }

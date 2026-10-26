@@ -627,7 +627,9 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
   (none ships).
 - **Map variant palette** (`blam.map_variant`). Objects with multiplayer data
   exist only through the map variant, which is built from the placements whose
-  tags a palette lists. A model variant gets an entry of its own. Grenades,
+  tags a palette lists. A model variant gets an entry of its own. The bake
+  writes a palette per category with every kind the palette map knows, so
+  Forge can place the whole arsenal ([forge.md](forge.md)). Grenades,
   the overshield and camouflage also need the game variant's map options
   (grenades, equipment and powerups on map), which `megalo write` sets.
 - **Vehicles:** every vehicle the CE scenario places (`--game-type all`),

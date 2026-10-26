@@ -2401,6 +2401,8 @@ static volatile LONG inject_request;
 static volatile LONG jip_host_auto;
 static volatile LONG fade_in_pending;
 static void fade_in_tick(void);
+static volatile LONG script_pending;
+static void script_tick(void);
 static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
@@ -2408,6 +2410,8 @@ static unsigned char *watch_globals;
 static unsigned char *sim_game_globals(void);
 static void inject_players(void);
 static int inject_needed(void);
+
+static void seats_tick(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
@@ -2417,6 +2421,7 @@ static void __fastcall hook_main_tick(void) {
         if (g && g[1]) watch_globals = g;
     }
     if (fade_in_pending) fade_in_tick();
+    if (script_pending) script_tick();
     if (InterlockedExchange(&end_game_request, 0)) {
         __try {
             end_game_tick();
@@ -2427,8 +2432,18 @@ static void __fastcall hook_main_tick(void) {
     static unsigned inject_ticks;
     if (jip_host_auto && ++inject_ticks % 30 == 0) {
         __try {
+            seats_tick();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        __try {
             if (inject_needed()) {
-                fireteam_log("inject: a peer in the session has no player in the running game");
+                /* Once every 15 s: a peer waiting on its old connection
+                   (inject_players) is asked for every second. */
+                static DWORD said_needed;
+                if (GetTickCount() - said_needed > 15000) {
+                    said_needed = GetTickCount();
+                    fireteam_log("inject: a peer in the session has no player in the running game");
+                }
                 InterlockedExchange(&inject_request, 1);
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -2983,6 +2998,31 @@ static char __fastcall hook_end_check(unsigned *winner, char *tie, unsigned *rea
     unsigned local_reason = 0;
     unsigned *out = reason ? reason : &local_reason;
     char ends = end_check_trampoline(winner, tie, out);
+    if (ends) {
+        /* Every "end" the engine reaches, once per reason a match, with the
+           game's player entries' teams (options +0x2e0, 0xb0 apart, team at
+           +0xa8): reason 2 is "fewer than two teams active", 4 the game
+           type's own end (Megalo). */
+        static unsigned long long logged_instance;
+        static unsigned logged_reasons;
+        unsigned char *g = sim_game_globals();
+        unsigned long long instance = g ? *(unsigned long long *)(g + 0x18) : 0;
+        if (instance != logged_instance) {
+            logged_instance = instance;
+            logged_reasons = 0;
+        }
+        if (*out < 32 && !(logged_reasons & (1u << *out))) {
+            logged_reasons |= 1u << *out;
+            char teams[200] = "";
+            size_t at = 0;
+            for (int i = 0; g && i < 16; i++)
+                if (g[0x2e0 + i * 0xb0])
+                    at += (size_t)snprintf(teams + at, sizeof teams - at, " %d:t%d", i,
+                                           (signed char)g[0x2e0 + i * 0xb0 + 0xa8]);
+            fireteam_log("game: the engine ends the match: reason %u, winner %d, tie %d; players%s", *out,
+                         winner ? (int)*winner : -1, tie ? *tie : -1, at ? teams : " none");
+        }
+    }
     if (ends && (*out == 0 || *out == 2) && keep_lobby && join_in_progress) {
         static DWORD last;
         if (GetTickCount() - last > 30000) {
@@ -2997,7 +3037,68 @@ static char __fastcall hook_end_check(unsigned *winner, char *tie, unsigned *rea
     return ends;
 }
 
+/* The sim's thread-local block (sim_game_globals is its +0x60): +0x38 is the
+   game engine's globals, whose +0x08/+0x0a/+0x16/+0x18 are team masks. */
+static unsigned char *sim_tls_block(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g) return NULL;
+    static unsigned tls_index = ~0u;
+    if (tls_index == ~0u) {
+        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+        IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+        IMAGE_DATA_DIRECTORY d = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+        tls_index = *(unsigned *)(uintptr_t)((IMAGE_TLS_DIRECTORY64 *)(sim + d.VirtualAddress))->AddressOfIndex;
+    }
+    void **tls_array = (void **)__readgsqword(0x58);
+    return tls_array ? (unsigned char *)tls_array[tls_index] : NULL;
+}
+
+/* The game's end (sim 0x2afa70: winner, end the game, reason; the round end
+   mjolnir_sim_end_game calls), whichever test asked for it: 0x2b1170 ends a
+   game for reason 13 when the engine's team masks disagree (a player on a
+   team the game type does not have, #229), and for 5/6 on score; the end
+   test above gives 0-4.
+   Logged with the team masks and each player's team. */
+typedef void(__fastcall *game_end_t)(unsigned long long winner, char end_game, int reason);
+static game_end_t game_end_trampoline;
+static const unsigned char GAME_END[] = {0x44, 0x89, 0x44, 0x24, 0x18, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41,
+                                         0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x48,
+                                         0x41, 0x8B, 0xF0, 0x8B, 0xD9};
+#define GAME_END_STOLEN 17
+
+static void __fastcall hook_game_end(unsigned long long winner, char end_game, int reason) {
+    char teams[240] = "";
+    unsigned short m8 = 0, ma = 0, m16 = 0, m18 = 0;
+    __try {
+        unsigned char *g = sim_game_globals();
+        unsigned char *block = sim_tls_block();
+        unsigned char *e = block ? *(unsigned char **)(block + 0x38) : NULL;
+        if (e) {
+            m8 = *(unsigned short *)(e + 8);
+            ma = *(unsigned short *)(e + 0xa);
+            m16 = *(unsigned short *)(e + 0x16);
+            m18 = *(unsigned short *)(e + 0x18);
+        }
+        size_t at = 0;
+        for (int i = 0; g && i < 16; i++)
+            if (g[0x2e0 + i * 0xb0])
+                at += (size_t)snprintf(teams + at, sizeof teams - at, " %d:t%d", i,
+                                       (signed char)g[0x2e0 + i * 0xb0 + 0xa8]);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fireteam_log("game: the match ends: reason %d, winner %d, end game %d; team masks +8 %04x +a %04x +16 %04x +18 "
+                 "%04x; players%s",
+                 reason, (int)winner, end_game, m8, ma, m16, m18, teams[0] ? teams : " none");
+    game_end_trampoline(winner, end_game, reason);
+}
+
 static void hook_end_check_once(unsigned char *sim) {
+    if (!game_end_trampoline) {
+        int hits;
+        unsigned char *fn = find_in_module(sim, GAME_END, NULL, sizeof GAME_END, 1, &hits);
+        if (fn) game_end_trampoline = (game_end_t)inline_hook(fn, GAME_END_STOLEN, (void *)hook_game_end);
+        fireteam_log("game: match end %s (%d matches)", game_end_trampoline ? "hooked" : "not found", hits);
+    }
     if (end_check_trampoline) return;
     int hits;
     unsigned char *fn = find_in_module(sim, END_CHECK, NULL, sizeof END_CHECK, 1, &hits);
@@ -3064,6 +3165,239 @@ static int inject_needed(void) {
     return 0;
 }
 
+/* A team game, as the lobby started it (native\team_game.txt, "1"), or as
+   the session's game variant says (+0x63cc present when +0x63c8 is set,
+   +0x2bc bit 0 "teams on"). The variant alone is not enough: at the start
+   it is still the free-for-all one the level loader swaps out as the map
+   loads. */
+static int lobby_team_game(unsigned char *session) {
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%steam_game.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (f) {
+        int c = fgetc(f);
+        fclose(f);
+        if (c == '1') return 1;
+        if (c == '0') return 0;
+    }
+    return session && session[0x63c8] && (session[0x63cc + 0x2bc] & 1);
+}
+
+/* A team game's two teams: red (0) or blue (1), whichever has fewer of the
+   game's other players (options entries, team at +0xa8); red on a tie. A
+   joiner who kept the team number of their slot (2, 3, ...) would be on a
+   team the game type does not have, and the engine ends such a game at once
+   as a draw (sim 0x2b1170, reason 13; #229). */
+static int smaller_team(unsigned char *g, int self) {
+    int count[2] = {0, 0};
+    for (int i = 0; i < 16; i++) {
+        if (i == self || !g[0x2e0 + i * 0xb0]) continue;
+        signed char t = (signed char)g[0x2e0 + i * 0xb0 + 0xa8];
+        if (t == 0 || t == 1) count[t]++;
+    }
+    return count[1] < count[0] ? 1 : 0;
+}
+
+/* The pre-game handler (sim 0x55b2c0) builds the game's player entries from
+   the session's members and publishes them as the players parameter, which
+   the host's game and every client's are built from. A free-for-all numbers
+   its players by slot; a team game keeps the team in each member's entry,
+   and the third player of a fireteam comes in on team 2. Our team game types
+   (team_slayer, ctf) have two teams, so the engine's team test (sim
+   0x2b1170) ends the game on its first update as a draw, reason 13: every
+   team game with three or more players "returned everyone to the lobby"
+   (#229). A detour just before the publish (sim 0x55b803, `lea rcx,
+   [r13+0x44f8]; vzeroupper; call 0x4c1220`) hands the entries (rbp+0x40,
+   0xb0 apart, team at +0xa8) and the session (r13) to teams_balance, which
+   puts the players on red and blue in turn. */
+static const unsigned char PUBLISH_AT[] = {0x83, 0xF9, 0xFF, 0x0F, 0x85, 0xB1, 0xFE, 0xFF, 0xFF, 0x49,
+                                           0x8D, 0x8D, 0xF8, 0x44, 0x00, 0x00, 0xC5, 0xF8, 0x77, 0xE8};
+#define PUBLISH_SKIP 9 /* the cmp/jnz before the detoured lea */
+
+static void __fastcall teams_balance(unsigned char *entries, unsigned char *session) {
+    __try {
+        /* The game variant parameter (+0x63cc) is there when +0x63c8 is set;
+           its +0x2bc bit 0 is "teams on". */
+        if (!lobby_team_game(session)) {
+            static DWORD last;
+            if (GetTickCount() - last > 10000) {
+                last = GetTickCount();
+                fireteam_log("teams: players list published, teams off (variant present %d, flags %02x)",
+                             session[0x63c8], session[0x63cc + 0x2bc]);
+            }
+            return;
+        }
+        char line[200];
+        size_t at = 0;
+        int k = 0;
+        line[0] = 0;
+        for (int i = 0; i < 16; i++) {
+            unsigned char *e = entries + i * 0xb0;
+            if (!e[0]) continue;
+            signed char before = (signed char)e[0xa8];
+            e[0xa8] = (unsigned char)(k++ & 1);
+            at += (size_t)snprintf(line + at, sizeof line - at, " %d:t%d->t%d", i, before, e[0xa8]);
+        }
+        fireteam_log("teams: the game's players go red and blue in turn:%s", line);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("teams: the players list was unreadable; teams left as they were");
+    }
+}
+
+static void teams_balance_once(void) {
+    static int done;
+    if (done) return;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return;
+    done = 1;
+    int hits;
+    unsigned char *at = find_in_module(sim, PUBLISH_AT, NULL, sizeof PUBLISH_AT, 1, &hits);
+    if (!at) {
+        fireteam_log("teams: the players-list publish matched %d times; team games keep the game's numbering", hits);
+        return;
+    }
+    unsigned char *site = at + PUBLISH_SKIP;     /* lea rcx,[r13+0x44f8] */
+    unsigned char *call = site + 10;             /* call rel32 */
+    unsigned char *target = call + 5 + *(int *)(call + 1);
+    unsigned char *resume = call + 5;
+    unsigned char *stub = (unsigned char *)VirtualAlloc(NULL, 128, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!stub) return;
+    unsigned char *p = stub;
+    /* save the volatile registers, 16-byte align with shadow space */
+    static const unsigned char save[] = {0x50, 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53,
+                                         0x48, 0x83, 0xEC, 0x28};
+    memcpy(p, save, sizeof save), p += sizeof save;
+    static const unsigned char args[] = {0x48, 0x8D, 0x4D, 0x40, 0x4C, 0x89, 0xEA}; /* lea rcx,[rbp+0x40]; mov rdx,r13 */
+    memcpy(p, args, sizeof args), p += sizeof args;
+    *p++ = 0x48, *p++ = 0xB8; /* mov rax, imm64 */
+    *(void **)p = (void *)teams_balance, p += 8;
+    *p++ = 0xFF, *p++ = 0xD0; /* call rax */
+    static const unsigned char restore[] = {0x48, 0x83, 0xC4, 0x28, 0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59,
+                                            0x41, 0x58, 0x5A, 0x59, 0x58};
+    memcpy(p, restore, sizeof restore), p += sizeof restore;
+    memcpy(p, site, 10), p += 10; /* lea rcx,[r13+0x44f8]; vzeroupper */
+    *p++ = 0x48, *p++ = 0xB8;
+    *(void **)p = target, p += 8;
+    *p++ = 0xFF, *p++ = 0xD0; /* call the original target */
+    *p++ = 0xFF, *p++ = 0x25, *(int *)p = 0, p += 4;
+    *(void **)p = resume, p += 8; /* jmp back after the call */
+    DWORD old;
+    if (!VirtualProtect(site, 15, PAGE_EXECUTE_READWRITE, &old)) return;
+    unsigned char patch[15];
+    memset(patch, 0x90, sizeof patch);
+    patch[0] = 0xFF, patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = stub;
+    memcpy(site, patch, sizeof patch);
+    VirtualProtect(site, 15, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 15);
+    fireteam_log("teams: a team game's players go red and blue in turn (players list publish at sim+%llx)",
+                 (unsigned long long)(site - sim));
+}
+
+/* The players parameter, as the in-game handler republishes it: machine
+   mask and ids, the local-machine fields cleared, then the entries. */
+static void publish_players(unsigned char *session, unsigned char *g) {
+    memcpy(session + 0x4584, g + 0x26c, 0x6a);
+    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
+    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
+    session[0x4580] = 1;
+    session[0x4578] |= 1;
+    *(unsigned long long *)(session + 0x4528) = 0;
+    typedef void(__fastcall * changed_t)(void *);
+    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+}
+
+/* A seat that changes hands keeps nothing of its last player (#236).
+   A player who leaves a match under way keeps their player record and score;
+   whoever takes the seat next gets both. Two ways: a peer that rejoins on the
+   departed peer's slot is handed the old player record outright (the engine
+   raises player_rejoined, nothing is created), and a joiner put in by
+   inject_players gets a fresh record on an index whose engine score (game
+   engine globals +0x32c0, four shorts a player, sim 0x2adc70) was never
+   cleared. Each seat's player identifier (options entry +0x12, 8 bytes, from
+   the session member's +4) is remembered; when a seat's member or record
+   shows a different one, the seat's engine score is cleared, and a reused
+   record takes the newcomer's identifier and profile and is republished.
+   The same person coming back keeps their score, as the engine intends. */
+static unsigned long long seat_id[16];
+static unsigned seat_known;
+static unsigned long long seat_instance;
+
+static void seat_reset_score(int p) {
+    unsigned char *block = sim_tls_block();
+    unsigned char *e = block ? *(unsigned char **)(block + 0x38) : NULL;
+    if (!e) return;
+    short *score = (short *)(e + 0x32c0 + p * 8);
+    fireteam_log("seats: seat %d's engine score was %d %d %d %d", p, score[0], score[1], score[2], score[3]);
+    memset(score, 0, 8);
+}
+
+static void seats_tick(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1] || !sim_sessions) return;
+    unsigned long long instance = *(unsigned long long *)(g + 0x18);
+    if (instance != seat_instance) {
+        seat_instance = instance;
+        seat_known = 0;
+    }
+    unsigned char *session = NULL;
+    for (int si = 0; si < 2; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (*(int *)(s + 0x5b460) == 6 && *(unsigned *)(s + 0x5c)) session = s;
+    }
+    if (!session) return;
+    unsigned members = *(unsigned *)(session + 0x140c);
+    int republish = 0;
+    /* native\seat_test.txt "<seat>": treat that seat as handed to another
+       player once (the record's identifier is changed), for a test with one
+       account per PC. Removed after use. */
+    char test_path[MAX_PATH];
+    snprintf(test_path, sizeof test_path, "%sseat_test.txt", dir);
+    FILE *tf = fopen(test_path, "r");
+    if (tf) {
+        int t = -1;
+        if (fscanf(tf, "%d", &t) != 1) t = -1;
+        fclose(tf);
+        DeleteFileA(test_path);
+        if (t >= 0 && t < 16 && g[0x2e0 + t * 0xb0]) {
+            *(unsigned long long *)(g + 0x2e0 + t * 0xb0 + 0x12) ^= 1;
+            fireteam_log("seats: test: seat %d's record now carries another identifier", t);
+        }
+    }
+    for (int p = 0; p < 16; p++) {
+        unsigned char *entry = g + 0x2e0 + p * 0xb0;
+        if (!entry[0]) continue;
+        unsigned long long id = *(unsigned long long *)(entry + 0x12);
+        unsigned char *member = session + 0x1410 + p * 0xb0;
+        if ((members & (1u << p)) && *(int *)(member + 0x1c) != -1) {
+            unsigned long long member_id = *(unsigned long long *)(member + 4);
+            if (member_id && member_id != id) {
+                /* A different player was handed this seat's record. */
+                unsigned char team = entry[0xa8];
+                memcpy(entry + 0x12, member + 4, 8);
+                memcpy(entry + 0x20, member + 0x20, 0x90);
+                entry[0xa8] = team;
+                seat_reset_score(p);
+                republish = 1;
+                fireteam_log("seats: seat %d went to another player (%016llx -> %016llx); its score is cleared", p, id,
+                             member_id);
+                id = member_id;
+            }
+        }
+        if ((seat_known & (1u << p)) && seat_id[p] != id) {
+            /* A fresh record on a seat another player used this match. */
+            seat_reset_score(p);
+            fireteam_log("seats: seat %d has a new player (%016llx -> %016llx); its score is cleared", p, seat_id[p],
+                         id);
+        }
+        seat_id[p] = id;
+        seat_known |= 1u << p;
+    }
+    if (republish) publish_players(session, g);
+}
+
 static void inject_players(void) {
     unsigned char *g = sim_game_globals();
     if (!g || !g[1]) {
@@ -3085,8 +3419,30 @@ static void inject_players(void) {
     int added = 0;
     for (int peer = 0; peer < 17; peer++) {
         if (!(peers & (1u << peer)) || (machines & (1u << peer))) continue;
+        /* A player whose game dropped and who joins again before the host
+           has timed out their old connection is two peers with one machine
+           identifier. Added as a second machine, the simulation closed every
+           other connection and disbanded the session: the playtest's mass
+           disconnect (2026-10-24 18:39, machine 4 = machine 3's 0f78fe2c,
+           #233). The new peer waits until the old machine has gone; the
+           inject check runs again every 30 ticks. */
+        unsigned char fresh[16] = {0}; /* the writer copies up to 8 bytes */
+        machine_id(session + 0x60 + peer * 0x128, fresh);
+        int twin = -1;
+        for (int q = 0; q < 17; q++) {
+            if (q != peer && (machines & (1u << q)) && memcmp(g + 0x270 + q * 6, fresh, 6) == 0) twin = q;
+        }
+        if (twin >= 0) {
+            static DWORD said[17];
+            if (GetTickCount() - said[peer] > 15000) {
+                said[peer] = GetTickCount();
+                fireteam_log("inject: peer %d is machine %d again (%08x %04x); waiting for its old connection to close",
+                             peer, twin, *(unsigned *)fresh, *(unsigned short *)(fresh + 4));
+            }
+            continue;
+        }
         unsigned char *id = g + 0x270 + peer * 6;
-        machine_id(session + 0x60 + peer * 0x128, id);
+        memcpy(id, fresh, 6);
         machines |= 1u << peer;
         *(unsigned *)(g + 0x26c) = machines;
         machines_update(machines, g + 0x270);
@@ -3109,9 +3465,8 @@ static void inject_players(void) {
             /* Teams off in the game variant (session +0x63cc, byte +0x2bc
                bit 0): each player is its own team, as the pre-game handler
                numbers them. */
-            if (!(session[0x63cc + 0x2bc] & 1)) entry[0xa8] = (unsigned char)(p & 0xf);
-            else if ((signed char)entry[0xa8] < 0) entry[0xa8] = 0;
-            else if ((signed char)entry[0xa8] > 7) entry[0xa8] = 7;
+            if (!lobby_team_game(session)) entry[0xa8] = (unsigned char)(p & 0xf);
+            else entry[0xa8] = (unsigned char)smaller_team(g, p);
             char made = player_new_jip(p, entry, 1);
             fireteam_log("inject: player %d (peer %d, team %u) created -> %d", p, peer, entry[0xa8], made);
             added++;
@@ -3121,16 +3476,7 @@ static void inject_players(void) {
         fireteam_log("inject: no new player to add (peers %05x, machines %05x, members %05x)", peers, machines, members);
         return;
     }
-    /* The players parameter, as the in-game handler republishes it: machine
-       mask and ids, the local-machine fields cleared, then the entries. */
-    memcpy(session + 0x4584, g + 0x26c, 0x6a);
-    memset(session + 0x4584 + 0x6a, 0, 0x74 - 0x6a);
-    memcpy(session + 0x45f8, g + 0x2e0, 0xb00);
-    session[0x4580] = 1;
-    session[0x4578] |= 1;
-    *(unsigned long long *)(session + 0x4528) = 0;
-    typedef void(__fastcall * changed_t)(void *);
-    (*(changed_t *)*(void **)(session + 0x44f8))(session + 0x44f8);
+    publish_players(session, g);
     log_game_players("after", g);
 }
 
@@ -3183,6 +3529,16 @@ static const unsigned char HS_EVALUATE[] = {0x48, 0x89, 0x54, 0x24, 0x10, 0x56, 
                                             0,    0,    0,    0x48, 0x2B, 0xE0, 0x48, 0x89, 0xAC, 0x24, 0x70, 0x20};
 static const unsigned char HS_EVALUATE_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
+static int find_hs_evaluate(const char *what) {
+    if (hs_evaluate) return 1;
+    int hits = 0;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
+                      : NULL;
+    if (!hs_evaluate) fireteam_log("game: script evaluator not found (%d matches); %s", hits, what);
+    return hs_evaluate != NULL;
+}
+
 static void fade_in_tick(void) {
     static unsigned running_ticks;
     static unsigned long long instance;
@@ -3195,16 +3551,7 @@ static void fade_in_tick(void) {
     if (++running_ticks < 90) return;
     running_ticks = 0;
     InterlockedExchange(&fade_in_pending, 0);
-    if (!hs_evaluate) {
-        int hits = 0;
-        unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
-        hs_evaluate = sim ? (hs_evaluate_t)find_in_module(sim, HS_EVALUATE, HS_EVALUATE_MASK, sizeof HS_EVALUATE, 1, &hits)
-                          : NULL;
-        if (!hs_evaluate) {
-            fireteam_log("game: script evaluator not found (%d matches); the view stays faded", hits);
-            return;
-        }
-    }
+    if (!find_hs_evaluate("the view stays faded")) return;
     int value = -1, type = 0;
     __try {
         hs_evaluate(0, "mjolnir_lobby", "(fade_in 0 0 0 15)", 1, 0, &value, &type);
@@ -3221,6 +3568,67 @@ __declspec(dllexport) int mjolnir_sim_fade_in(void *L) {
     if (!sim || !install_main_tick(sim)) return 0;
     InterlockedExchange(&fade_in_pending, 1);
     fireteam_log("game: fade-in queued");
+    return 0;
+}
+
+/* Script lines for the Lua mods (MJOLNIRLevelLoader's kill floors and lifts),
+   run through the same evaluator on the simulation thread while a game is
+   running. native\script.txt: "<id>\n" then up to SCRIPT_MAX lines;
+   mjolnir_sim_script queues a new id's lines and the next main tick runs
+   them. MJOLNIRBlamConsole does the same for a typed line, but it is a
+   developer mod: a player's game has only this one. */
+#define SCRIPT_MAX 16
+#define SCRIPT_LINE 256
+static SRWLOCK script_lock = SRWLOCK_INIT;
+static char script_lines[SCRIPT_MAX][SCRIPT_LINE];
+static int script_count;
+
+static void script_tick(void) {
+    char lines[SCRIPT_MAX][SCRIPT_LINE];
+    AcquireSRWLockExclusive(&script_lock);
+    int n = script_count;
+    memcpy(lines, script_lines, sizeof lines);
+    script_count = 0;
+    InterlockedExchange(&script_pending, 0);
+    ReleaseSRWLockExclusive(&script_lock);
+    unsigned char *g = sim_game_globals();
+    if (!n || !g || !g[1] || !find_hs_evaluate("script lines dropped")) return;
+    for (int i = 0; i < n; i++) {
+        int value = -1, type = 0;
+        __try {
+            hs_evaluate(0, "mjolnir_lobby", lines[i], 1, 0, &value, &type);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("game: script line faulted (%08lx): %s", GetExceptionCode(), lines[i]);
+        }
+    }
+}
+
+__declspec(dllexport) int mjolnir_sim_script(void *L) {
+    (void)L;
+    static long long last_id = -1;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim || !install_main_tick(sim)) return 0;
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sscript.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    char line[SCRIPT_LINE];
+    long long id = -1;
+    if (fgets(line, sizeof line, f)) id = strtoll(line, NULL, 10);
+    if (id < 0 || id == last_id) {
+        fclose(f);
+        return 0;
+    }
+    last_id = id;
+    AcquireSRWLockExclusive(&script_lock);
+    while (script_count < SCRIPT_MAX && fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0]) strcpy(script_lines[script_count++], line);
+    }
+    if (script_count) InterlockedExchange(&script_pending, 1);
+    ReleaseSRWLockExclusive(&script_lock);
+    fclose(f);
     return 0;
 }
 
@@ -3349,6 +3757,9 @@ __declspec(dllexport) int mjolnir_sim_end_game(void *L) {
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return 0;
     int hits = 0;
+    /* With the match-end log hook in (hook_game_end), the function's first
+       bytes are a jump: go through the hook, which calls the original. */
+    if (!round_end && game_end_trampoline) round_end = (round_end_t)(void *)hook_game_end;
     if (!round_end) {
         round_end = (round_end_t)find_in_module(sim, ROUND_END, NULL, sizeof ROUND_END, 1, &hits);
         if (!round_end) {
@@ -3523,8 +3934,12 @@ static void watch_loading(void) {
 static int inject_prepare(void);
 static unsigned char *joined_session(void);
 
+static void sound_trace_arm(void);
+
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
+    sound_trace_arm();
+    teams_balance_once();
     if (keep_lobby && join_in_progress && !jip_host_auto) {
         if (inject_prepare()) {
             InterlockedExchange(&jip_host_auto, 1);
@@ -4338,6 +4753,580 @@ __declspec(dllexport) int mjolnir_lobby_bind(void *L) {
     fclose(req);
     fclose(reply);
     return 0;
+}
+
+/* --- Sound trace (native\sound_trace.txt) ----------------------------------
+   Players on clients miss reload and grenade sounds that the host hears
+   (docs/re/client_sound_roles.md). While native\sound_trace.txt exists when
+   the first lobby tick runs, four simulation functions are hooked and every
+   call is written to native\sound_trace.log, on the host and on a client:
+
+   - object sound (sim 0x2f8a40): the sim asks the exe to play a sound on an
+     object (animations, effects); logged with the exe's answer (-1: refused).
+   - impulse start (sim 0x2d42f0): the scripted/event sound start (hs
+     sound_impulse_start, and the receive side of sound events 0x16-0x18).
+   - event send (sim 0x5136e0): the host queueing a simulation event for its
+     clients, with its type and first reference. Sound events are 0x16
+     (attached), 0x17 (2D) and 0x18 (positional).
+   - entity ref (sim 0x5013e0): a received event's reference that this
+     machine could not turn into an object, which drops the event silently.
+
+   The mode byte G[0x11] is 5 on a networked host, 4 on a client. */
+typedef unsigned(__fastcall *snd_object_t)(int sound, unsigned object, unsigned short a3, unsigned long long a4,
+                                           unsigned long long a5, float scale);
+typedef void(__fastcall *snd_start_t)(int sound, void *position, unsigned object, unsigned node, float scale,
+                                      void *permutation, void *out);
+typedef void(__fastcall *sim_event_t)(unsigned mask, int type, int refs, long long ref_list, unsigned size,
+                                      void *payload);
+typedef int(__fastcall *entity_object_t)(unsigned long long reference, unsigned mask);
+static snd_object_t snd_object_tramp;
+static snd_start_t snd_start_tramp;
+static sim_event_t sim_event_tramp;
+static entity_object_t entity_object_tramp;
+static FILE *sound_trace_file;
+static CRITICAL_SECTION sound_trace_lock;
+static int sound_trace_state; /* 0 unchecked, 1 armed, -1 off */
+
+static const unsigned char SND_OBJECT[] = {0x66, 0x44, 0x89, 0x44, 0x24, 0x18, 0x53, 0x55, 0x56, 0x57, 0x41, 0x56,
+                                           0x41, 0x57, 0x48, 0x83, 0xEC, 0x78, 0x8B, 0xF2, 0x44, 0x8B, 0xF9, 0x48,
+                                           0xC7, 0xC7, 0xFF, 0xFF, 0xFF, 0xFF};
+#define SND_OBJECT_STOLEN 18
+static const unsigned char SND_START[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x44, 0x89, 0x48, 0x20, 0x44,
+                                          0x89, 0x40, 0x18, 0x48, 0x89, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54,
+                                          0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x68, 0xB9, 0x48, 0x81,
+                                          0xEC, 0xF0, 0x00, 0x00, 0x00};
+#define SND_START_STOLEN 19
+static const unsigned char SIM_EVENT[] = {0x48, 0x89, 0x5C, 0x24, 0x20, 0x44, 0x89, 0x44, 0x24, 0x18, 0x89, 0x54,
+                                          0x24, 0x10, 0x89, 0x4C, 0x24, 0x08, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41,
+                                          0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xEC, 0x70, 0x04, 0x00, 0x00};
+#define SIM_EVENT_STOLEN 18
+static const unsigned char ENTITY_OBJECT[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x57, 0x48,
+                                              0x83, 0xEC, 0x20, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x8B, 0xF9, 0x8B, 0xEA,
+                                              0x3B, 0xCB, 0x74, 0x6E};
+#define ENTITY_OBJECT_STOLEN 15
+
+static int sim_mode(void) {
+    unsigned char *g = sim_game_globals();
+    return g ? g[0x11] : -1;
+}
+
+/* A line of the trace, at most 300 a second (the rest counted and noted). */
+static void sound_trace(const char *fmt, ...) {
+    if (!sound_trace_file) return;
+    static DWORD second;
+    static int in_second, dropped;
+    EnterCriticalSection(&sound_trace_lock);
+    DWORD now = GetTickCount();
+    if (now - second >= 1000) {
+        if (dropped) fprintf(sound_trace_file, "... %d lines not written\n", dropped);
+        second = now;
+        in_second = 0;
+        dropped = 0;
+    }
+    if (++in_second > 300) {
+        dropped++;
+    } else {
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        fprintf(sound_trace_file, "%02d:%02d:%02d.%03d ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(sound_trace_file, fmt, args);
+        va_end(args);
+        fputc('\n', sound_trace_file);
+        fflush(sound_trace_file);
+    }
+    LeaveCriticalSection(&sound_trace_lock);
+}
+
+static unsigned __fastcall hook_snd_object(int sound, unsigned object, unsigned short a3, unsigned long long a4,
+                                           unsigned long long a5, float scale) {
+    unsigned r = snd_object_tramp(sound, object, a3, a4, a5, scale);
+    sound_trace("object sound def %08x obj %08x scale %.2f mode %d -> %d", (unsigned)sound, object, scale, sim_mode(),
+                (int)r);
+    return r;
+}
+
+static void __fastcall hook_snd_start(int sound, void *position, unsigned object, unsigned node, float scale,
+                                      void *permutation, void *out) {
+    sound_trace("impulse start def %08x obj %08x node %d scale %.2f positioned %d mode %d", (unsigned)sound, object,
+                (int)node, scale, position != NULL, sim_mode());
+    snd_start_tramp(sound, position, object, node, scale, permutation, out);
+}
+
+static void __fastcall hook_sim_event(unsigned mask, int type, int refs, long long ref_list, unsigned size,
+                                      void *payload) {
+    unsigned ref0 = refs > 0 && ref_list ? *(unsigned *)ref_list : 0xffffffff;
+    unsigned payload0 = size >= 4 && payload ? *(unsigned *)payload : 0;
+    sound_trace("event send type %#x mask %05x refs %d ref0 %08x size %u payload0 %08x", type, mask, refs, ref0,
+                size, payload0);
+    sim_event_tramp(mask, type, refs, ref_list, size, payload);
+}
+
+static int __fastcall hook_entity_object(unsigned long long reference, unsigned mask) {
+    int r = entity_object_tramp(reference, mask);
+    if (r == -1 && (int)reference != -1)
+        sound_trace("entity ref %08x unresolved (mask %08x) mode %d", (unsigned)reference, mask, sim_mode());
+    return r;
+}
+
+/* The other six wrappers the sim plays sounds through (each fetches the exe
+   audio interface and calls one slot of it): 0x20 with a marker (sim
+   0x2f8f50), 0x28 positional (0x2f8bc0, 0x2f9050), 0x30 2D (0x2f9170,
+   0x2f9240), 0x40 (0x2f9480) and 0x60 (0x2f9550). Float parameters sit in
+   XMM registers, so each hook repeats its wrapper's exact prototype. */
+typedef unsigned(__fastcall *snd_marker_t)(int sound, unsigned object, void *marker, float scale);
+typedef int(__fastcall *snd_positional_t)(unsigned *request, unsigned long long a2, int a3);
+typedef unsigned(__fastcall *snd_at_t)(int sound, void *position, float scale);
+typedef unsigned(__fastcall *snd_2d_t)(int sound, int a2, float scale);
+typedef unsigned(__fastcall *snd_2d_short_t)(int sound, float scale);
+typedef unsigned(__fastcall *snd_slot40_t)(int sound, unsigned object, unsigned a3, unsigned a4);
+typedef unsigned(__fastcall *snd_slot60_t)(int sound, int a2);
+static snd_marker_t snd_marker_tramp;
+static snd_positional_t snd_positional_tramp;
+static snd_at_t snd_at_tramp;
+static snd_2d_t snd_2d_tramp;
+static snd_2d_short_t snd_2d_short_tramp;
+static snd_slot40_t snd_slot40_tramp;
+static snd_slot60_t snd_slot60_tramp;
+
+static unsigned __fastcall hook_snd_marker(int sound, unsigned object, void *marker, float scale) {
+    unsigned r = snd_marker_tramp(sound, object, marker, scale);
+    sound_trace("marker sound def %08x obj %08x scale %.2f mode %d -> %d", (unsigned)sound, object, scale, sim_mode(),
+                (int)r);
+    return r;
+}
+static int __fastcall hook_snd_positional(unsigned *request, unsigned long long a2, int a3) {
+    int r = snd_positional_tramp(request, a2, a3);
+    sound_trace("positional sound def %08x a2 %08x a3 %d mode %d -> %d", request ? request[0] : 0, (unsigned)a2, a3,
+                sim_mode(), r);
+    return r;
+}
+static unsigned __fastcall hook_snd_at(int sound, void *position, float scale) {
+    unsigned r = snd_at_tramp(sound, position, scale);
+    sound_trace("at-position sound def %08x scale %.2f mode %d -> %d", (unsigned)sound, scale, sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_2d(int sound, int a2, float scale) {
+    unsigned r = snd_2d_tramp(sound, a2, scale);
+    sound_trace("2d sound def %08x a2 %d scale %.2f mode %d -> %d", (unsigned)sound, a2, scale, sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_2d_short(int sound, float scale) {
+    unsigned r = snd_2d_short_tramp(sound, scale);
+    sound_trace("2d-short sound def %08x scale %.2f mode %d -> %d", (unsigned)sound, scale, sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_slot40(int sound, unsigned object, unsigned a3, unsigned a4) {
+    unsigned r = snd_slot40_tramp(sound, object, a3, a4);
+    sound_trace("slot40 sound def %08x obj %08x a3 %08x a4 %08x mode %d -> %d", (unsigned)sound, object, a3, a4,
+                sim_mode(), (int)r);
+    return r;
+}
+static unsigned __fastcall hook_snd_slot60(int sound, int a2) {
+    unsigned r = snd_slot60_tramp(sound, a2);
+    sound_trace("slot60 sound def %08x a2 %d mode %d -> %d", (unsigned)sound, a2, sim_mode(), (int)r);
+    return r;
+}
+
+static const unsigned char SND_MARKER[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x78, 0xC5, 0xF8, 0x29,
+                                           0x74, 0x24, 0x60, 0xC5, 0xF8, 0x28, 0xF3, 0x49, 0x8B, 0xE8, 0x8B, 0xFA,
+                                           0x8B, 0xF1, 0x48, 0xC7, 0xC3, 0xFF, 0xFF, 0xFF, 0xFF};
+static const unsigned char SND_POSITIONAL[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x70, 0x18, 0x55,
+                                               0x57, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xA0,
+                                               0x48, 0x81, 0xEC, 0x60, 0x01, 0x00, 0x00};
+static const unsigned char SND_AT[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x81,
+                                       0xEC, 0x80, 0x00, 0x00, 0x00, 0xC5, 0xF8, 0x29, 0x74, 0x24, 0x70, 0xC5, 0xF8,
+                                       0x28, 0xF2, 0x48, 0x8B, 0xF2, 0x8B, 0xF9};
+static const unsigned char SND_2D[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83,
+                                       0xEC, 0x50, 0xC5, 0xF8, 0x29, 0x74, 0x24, 0x40, 0xC5, 0xF8, 0x28, 0xF2, 0x8B,
+                                       0xFA, 0x8B, 0xF1};
+static const unsigned char SND_2D_SHORT[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0xC5, 0xFA, 0x11, 0x4C, 0x24, 0x10, 0x57,
+                                             0x48, 0x83, 0xEC, 0x40, 0x48, 0x63, 0xF9, 0x48, 0xC7, 0xC3, 0xFF, 0xFF,
+                                             0xFF, 0xFF, 0x8B, 0x0D};
+static const unsigned char SND_SLOT40[] = {0x40, 0x53, 0x55, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC,
+                                           0x68, 0x41, 0x8B, 0xE9, 0x45, 0x8B, 0xF0, 0x44, 0x8B, 0xFA, 0x8B, 0xF1,
+                                           0xBB, 0xFF, 0xFF, 0xFF, 0xFF};
+static const unsigned char SND_SLOT60[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48,
+                                           0x83, 0xEC, 0x30, 0x8B, 0xFA, 0x8B, 0xF1, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF,
+                                           0x3B, 0xCB, 0x74, 0x77, 0x3B, 0xD3, 0x74, 0x73};
+
+/* Wwise itself: the exe exports AK::SoundEngine::PostEvent (by id, and by
+   event name), the one door every sound in the game goes through on its way
+   to the mixer, whatever HaloAudio decided before. Hooked by export name, so
+   no pattern; the stolen lengths are CU4's prologues (by id: four spills, a
+   push and the stack frame, 19 bytes; by name: a spill, three pushes and the
+   frame, 14 bytes). */
+typedef unsigned(__fastcall *ak_post_event_t)(unsigned event, unsigned long long game_object, unsigned flags,
+                                              void *callback, void *cookie, unsigned externals, void *external_info,
+                                              unsigned playing_id);
+typedef unsigned(__fastcall *ak_post_event_name_t)(const char *event, unsigned long long game_object, unsigned flags,
+                                                   void *callback, void *cookie, unsigned externals,
+                                                   void *external_info, unsigned playing_id);
+static ak_post_event_t ak_post_event_tramp;
+static ak_post_event_name_t ak_post_event_name_tramp;
+#define AK_POST_EVENT_NAME "?PostEvent@SoundEngine@AK@@YAII_KIP6AXW4AkCallbackType@@PEAUAkCallbackInfo@@@ZPEAXIPEAUAkExternalSourceInfo@@I@Z"
+#define AK_POST_EVENT_BY_NAME_NAME "?PostEvent@SoundEngine@AK@@YAIPEBD_KIP6AXW4AkCallbackType@@PEAUAkCallbackInfo@@@ZPEAXIPEAUAkExternalSourceInfo@@I@Z"
+#define AK_POST_EVENT_STOLEN 19
+#define AK_POST_EVENT_BY_NAME_STOLEN 14
+
+static unsigned __fastcall hook_ak_post_event(unsigned event, unsigned long long game_object, unsigned flags,
+                                              void *callback, void *cookie, unsigned externals, void *external_info,
+                                              unsigned playing_id) {
+    unsigned r = ak_post_event_tramp(event, game_object, flags, callback, cookie, externals, external_info, playing_id);
+    sound_trace("wwise post event %u on %llx flags %x -> playing %u", event, game_object, flags, r);
+    return r;
+}
+
+static unsigned __fastcall hook_ak_post_event_name(const char *event, unsigned long long game_object, unsigned flags,
+                                                   void *callback, void *cookie, unsigned externals,
+                                                   void *external_info, unsigned playing_id) {
+    unsigned r = ak_post_event_name_tramp(event, game_object, flags, callback, cookie, externals, external_info,
+                                          playing_id);
+    sound_trace("wwise post event '%s' on %llx flags %x -> playing %u", event ? event : "", game_object, flags, r);
+    return r;
+}
+
+/* The exe's object-attached play (exe 0x754e7b0), behind the sim's interface
+   slot 0x18: takes the request the sim built (request[1] the sound, [4] the
+   object handle, [8] the scale) and the audio world, and answers 0x24 when
+   the object has no UE actor or emitter, or the sound asset does not resolve
+   (FUN_147545080). Logged with the request and the answer. */
+typedef unsigned long long(__fastcall *exe_object_play_t)(unsigned *request, long long world);
+static exe_object_play_t exe_object_play_tramp;
+static const unsigned char EXE_OBJECT_PLAY[] = {0x40, 0x55, 0x53, 0x56, 0x41, 0x56, 0x48, 0x8D, 0xAC, 0x24, 0xC8,
+                                                0xF6, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0x38, 0x0A, 0x00, 0x00};
+#define EXE_OBJECT_PLAY_STOLEN 14
+
+/* The block the sim's object play is given (`world` below): the audio layer's
+   handle for the Blam game, which the game's start path binds to the current
+   world (FUN_147544b80, from a world listener in the synchronization module)
+   and a joiner's never does. Kept for mjolnir_audio_bind. */
+static volatile long long audio_play_block;
+
+static unsigned long long __fastcall hook_exe_object_play(unsigned *request, long long world) {
+    if (world) audio_play_block = world;
+    unsigned long long r = exe_object_play_tramp(request, world);
+    if (!sound_trace_file) return r; /* installed for the block alone, outside a trace */
+    unsigned r0 = 0, r1 = 0, r4 = 0, r5 = 0, r8 = 0;
+    /* The function's own first three steps, repeated read-only: the world's
+       +0x30 object, the Blam object's UE actor (the tracker at world+0x28,
+       vtable slot 0), and the actor's +0x1b8 component with its +0x90 owner,
+       without which no emitter is made (exe 0x7536dd0). */
+    void *w30 = NULL, *w30_vtable = NULL, *actor = NULL, *comp = NULL, *comp90 = NULL;
+    __try {
+        if (request) {
+            r0 = request[0];
+            r1 = request[1];
+            r4 = request[4];
+            r5 = request[5];
+            r8 = request[8];
+        }
+        if (world) {
+            w30 = *(void **)(world + 0x30);
+            if (w30) w30_vtable = *(void **)w30;
+            long long *tracker = *(long long **)(world + 0x28);
+            if (tracker) {
+                typedef void *(__fastcall * lookup_t)(long long *, unsigned);
+                actor = (*(lookup_t *)(*tracker))(tracker, r4);
+            }
+            if (actor) comp = *(void **)((unsigned char *)actor + 0x1b8);
+            if (comp) comp90 = *(void **)((unsigned char *)comp + 0x90);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    sound_trace("exe object play req %08x sound %08x obj %08x r5 %08x scale %08x -> %llx | world %llx w30 %p "
+                "(vtable %p, exe+%llx) actor %p comp %p comp90 %p",
+                r0, r1, r4, r5, r8, r, world, w30, w30_vtable,
+                w30_vtable ? (unsigned long long)((unsigned char *)w30_vtable - (unsigned char *)GetModuleHandleA(NULL))
+                           : 0ull,
+                actor, comp, comp90);
+    return r;
+}
+
+/* The exe's sound resolve (exe 0x7545080), called by the object play above:
+   asks the asset provider (slot 1 of `provider`'s vtable) for the UE asset of
+   the sim's sound tag, then dispatches on its class (a plain HaloAudioSound,
+   a player variant, a collection; one class is refused). It leaves
+   out+0x880 = 0 when nothing could be played. Logged with the tag, the asset
+   it found, the asset's UClass (Lua names a class from its address) and
+   that flag. */
+typedef long long(__fastcall *exe_resolve_t)(long long out, unsigned long long world, long long *provider,
+                                            unsigned tag, long long a5, long long *a6);
+static exe_resolve_t exe_resolve_tramp;
+static const unsigned char EXE_RESOLVE[] = {0x40, 0x55, 0x53, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x48, 0x8D,
+                                            0x6C, 0x24, 0xC8, 0x48, 0x81, 0xEC, 0x38, 0x01, 0x00, 0x00, 0x48, 0x8B,
+                                            0xBD, 0x98, 0x00, 0x00, 0x00};
+#define EXE_RESOLVE_STOLEN 15
+
+static long long __fastcall hook_exe_resolve(long long out, unsigned long long world, long long *provider,
+                                             unsigned tag, long long a5, long long *a6) {
+    long long r = exe_resolve_tramp(out, world, provider, tag, a5, a6);
+    void *asset = NULL, *cls = NULL;
+    int ok = -1;
+    __try {
+        typedef void *(__fastcall * lookup_t)(long long *, unsigned, int);
+        asset = (*(lookup_t *)(*provider + 8))(provider, tag, 1);
+        if (asset) cls = *(void **)((unsigned char *)asset + 0x10);
+        ok = *(unsigned char *)(out + 0x880);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    sound_trace("exe resolve tag %08x asset %p class %p index %lld -> %d", tag, asset, cls, a5, ok);
+    return r;
+}
+
+/* The bind that fills that +0x60 (exe 0x754c410): `this` is the audio
+   interface subsystem, `owner` the object whose subsystem collection
+   (+0x1b8) holds the audio world object; a null owner clears it. Logged with
+   both pointers, what +0x60 became and the caller's return address, to see
+   when the game's own start path calls it and why a joiner's never does. */
+typedef void(__fastcall *audio_bind_t)(long long self, long long owner);
+static audio_bind_t audio_bind_tramp;
+static const unsigned char AUDIO_BIND[] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00,
+                                           0x00, 0x48, 0x8B, 0x41, 0x60, 0x48, 0x8B, 0xDA, 0x48, 0x8B, 0xF9, 0x48,
+                                           0x85, 0xC0, 0x74, 0x59};
+#define AUDIO_BIND_STOLEN 17
+
+static void __fastcall hook_audio_bind(long long self, long long owner) {
+    audio_bind_tramp(self, owner);
+    long long now = 0, before_self = 0;
+    __try {
+        now = *(long long *)(self + 0x60);
+        before_self = *(long long *)(self - 8);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    /* The whole chain above the bind, as exe offsets, names the game's path
+       (which UE event on a host reaches it, and so what a joiner lacks). */
+    void *frames[16];
+    unsigned short n = RtlCaptureStackBackTrace(0, 16, frames, NULL);
+    char chain[16 * 20] = "";
+    unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+    for (unsigned short i = 0; i < n; i++) {
+        unsigned char *f = (unsigned char *)frames[i];
+        size_t at = strlen(chain);
+        if (f >= exe && f < exe + 0x10000000)
+            snprintf(chain + at, sizeof chain - at, " %llx", (unsigned long long)(f - exe));
+        else
+            snprintf(chain + at, sizeof chain - at, " ?");
+    }
+    sound_trace("audio bind self %llx (self-8 %llx) owner %llx -> +0x60 %llx mode %d chain%s", self, before_self,
+                owner, now, sim_mode(), chain);
+}
+
+/* Experiment: give a joiner the audio bind its game never made.
+   native\audio_bind.txt holds "world <hex> subsystem <hex>" (the match's
+   UWorld and the HaloAudioInterfaceSubSystem, as Lua's GetAddress gives
+   them); mjolnir_audio_bind then does what the game's start path does on a
+   host (exe 0x7544e33): FUN_14754c410(self, subsystem + 0x30), with self the
+   audio game world the registry (exe 0xd577308) resolves for that UWorld
+   (exe 0x751be20 returns self + 0x30). Answers in audio_bind_reply.txt. */
+typedef long long(__fastcall *audio_world_t)(long long registry, long long world);
+static const unsigned char AUDIO_WORLD[] = {0x48, 0x83, 0xEC, 0x28, 0x0F, 0xB6, 0x82, 0x3A, 0x01, 0x00, 0x00, 0x04};
+
+__declspec(dllexport) int mjolnir_audio_bind(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH], reply_path[MAX_PATH];
+    snprintf(path, sizeof path, "%saudio_bind.txt", dir);
+    snprintf(reply_path, sizeof reply_path, "%saudio_bind_reply.txt", dir);
+    FILE *reply = fopen(reply_path, "w");
+    if (!reply) return 0;
+    unsigned long long world = 0, subsystem = 0;
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char line[200];
+        while (fgets(line, sizeof line, f)) {
+            unsigned long long v;
+            if (sscanf(line, "world %llx", &v) == 1) world = v;
+            if (sscanf(line, "subsystem %llx", &v) == 1) subsystem = v;
+        }
+        fclose(f);
+    }
+    unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+    if (!world || !subsystem) {
+        fprintf(reply, "error no world/subsystem in audio_bind.txt\n");
+        fclose(reply);
+        return 0;
+    }
+    if (!exe_object_play_tramp) {
+        fprintf(reply, "error the object play hook is not installed\n");
+        fclose(reply);
+        return 0;
+    }
+    /* The bind's own bytes may already be this DLL's trace hook (a jmp). */
+    if ((memcmp(exe + 0x754c410, AUDIO_BIND, sizeof AUDIO_BIND) != 0 && !audio_bind_tramp) ||
+        memcmp(exe + 0x751be20, AUDIO_WORLD, sizeof AUDIO_WORLD) != 0) {
+        fprintf(reply, "error this is not the CU4 exe the offsets were read from\n");
+        fclose(reply);
+        return 0;
+    }
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) {
+        fprintf(reply, "error no simulation DLL\n");
+        fclose(reply);
+        return 0;
+    }
+    __try {
+        /* The sim's own route to the exe's audio interface (sim 0xcdc0, then
+           FUN_1802f8a40): the shell at *(sim 0x2c40028)+0x10, its vtable slot
+           0xa0, that object's slot 0. The interface object is the `self` the
+           game's start path binds; the registry route gives the UObject. */
+        long long registry = *(long long *)(exe + 0xd577308);
+        long long impl = ((audio_world_t)(exe + 0x751be20))(registry, (long long)world);
+        long long block = audio_play_block;
+        fprintf(reply, "registry impl %llx (subsystem+0x30 = %llx) play block %llx\n", impl,
+                (long long)subsystem + 0x30, block);
+        if (!block) {
+            fprintf(reply, "error the sim has not asked for an object sound yet (no block captured)\n");
+            fclose(reply);
+            return 0;
+        }
+        /* The listener holding the block keeps the UWorld it listens to at
+           +0x78 (0x7b20690 stores it). The block captured last may be an
+           earlier world's (a joiner who left and joined again, before the new
+           world's first object sound): bound or not, it is not this world's,
+           so wait for this world's. Bound means +0x30 set on this world's
+           block (two PCs, 2026-10-25: host and joiner both read +0x78 = the
+           match's UWorld once bound). */
+        long long before = *(long long *)(block + 0x30);
+        long long listening = *(long long *)(block - 0x20 + 0x78);
+        fprintf(reply, "block+0x30 before %llx; listener+0x78 %llx (this world %llx)\n", before, listening,
+                (long long)world);
+        if (listening && listening != (long long)world) {
+            fprintf(reply, "error the captured block is another world's; waiting for this world's first object sound\n");
+            fclose(reply);
+            return 0;
+        }
+        if (before) {
+            fprintf(reply, "already bound\n");
+            fclose(reply);
+            return 0;
+        }
+        /* What the game's world listener (exe 0x7b249f0) does on a host at
+           match start, on its own object, which holds the block at +0x20:
+           listen to the world's object tracker (0x7b20690, so Blam objects
+           reach the audio layer's actor lookup), then wait for pending
+           sound loads, find the audio world for this UWorld, register the
+           block with it and bind the audio interface (0x7544b80). */
+        /* Never the same block twice for one world: a joiner's log showed
+           pairs of forced binds a second apart on one block (2026-10-24),
+           each registering the game's world listener again. */
+        static long long forced_block, forced_world;
+        if (block == forced_block && (long long)world == forced_world) {
+            fprintf(reply, "already bound (forced on this block before)\n");
+            fclose(reply);
+            return 0;
+        }
+        forced_block = block;
+        forced_world = (long long)world;
+        long long listener = block - 0x20;
+        fprintf(reply, "listener %llx: +0x78 world before %llx\n", listener, *(long long *)(listener + 0x78));
+        ((audio_bind_t)(exe + 0x7b20690))(listener, (long long)world);
+        ((audio_bind_t)(exe + 0x7544b80))(block, (long long)world);
+        fprintf(reply, "ok block+0x30 after %llx\n", *(long long *)(block + 0x30));
+        sound_trace("audio bind forced on block %llx: +0x30 %llx -> %llx", block, before, *(long long *)(block + 0x30));
+        fireteam_log("audio: a joiner's audio world bound (block %llx -> %llx); object sounds reach Wwise now", block,
+                     *(long long *)(block + 0x30));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fprintf(reply, "error exception while binding\n");
+    }
+    fclose(reply);
+    return 0;
+}
+
+struct sound_hook {
+    const char *name;
+    const unsigned char *pattern;
+    size_t length, stolen;
+    void *hook;
+    void **trampoline;
+};
+
+/* native\sound_trace.txt may name hooks to leave out ("skip event send,
+   entity ref"): one of them crashed a host in a two-player match
+   (2026-10-25), and leaving hooks out finds which. */
+static char sound_trace_skip[512];
+
+static void sound_trace_hook(unsigned char *sim, const struct sound_hook *h) {
+    if (h->trampoline != (void **)&exe_object_play_tramp && strstr(sound_trace_skip, h->name)) {
+        fireteam_log("sound trace: %s skipped", h->name);
+        return;
+    }
+    int hits;
+    unsigned char *at = find_in_module(sim, h->pattern, NULL, h->length, 1, &hits);
+    if (at) *h->trampoline = inline_hook(at, h->stolen, h->hook);
+    fireteam_log("sound trace: %s %s (%d matches)", h->name, *h->trampoline ? "hooked" : "not hooked", hits);
+}
+
+/* Called from the lobby's tick: hooks once the simulation DLL is loaded, when
+   native\sound_trace.txt exists; otherwise leaves everything alone. */
+static void sound_trace_arm(void) {
+    if (sound_trace_state) return;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return;
+    if (!dir[0]) find_dir();
+    /* Always: the object play hook that remembers the audio layer's block,
+       which mjolnir_audio_bind needs to repair a joiner's sound. */
+    static const struct sound_hook exe_object_hook_always = {"exe object play", EXE_OBJECT_PLAY, sizeof EXE_OBJECT_PLAY,
+                                                             EXE_OBJECT_PLAY_STOLEN, (void *)hook_exe_object_play,
+                                                             (void **)&exe_object_play_tramp};
+    sound_trace_hook((unsigned char *)GetModuleHandleA(NULL), &exe_object_hook_always);
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%ssound_trace.txt", dir);
+    if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
+        sound_trace_state = -1;
+        return;
+    }
+    sound_trace_state = -1;
+    FILE *opts = fopen(path, "r");
+    if (opts) {
+        size_t n = fread(sound_trace_skip, 1, sizeof sound_trace_skip - 1, opts);
+        sound_trace_skip[n] = '\0';
+        fclose(opts);
+        if (strncmp(sound_trace_skip, "skip", 4) != 0) sound_trace_skip[0] = '\0';
+    }
+    snprintf(path, sizeof path, "%ssound_trace.log", dir);
+    FILE *f = fopen(path, "a");
+    if (!f) {
+        fireteam_log("sound trace: cannot open %s", path);
+        return;
+    }
+    InitializeCriticalSection(&sound_trace_lock);
+    sound_trace_file = f;
+    static const struct sound_hook hooks[] = {
+        {"object sound", SND_OBJECT, sizeof SND_OBJECT, SND_OBJECT_STOLEN, (void *)hook_snd_object, (void **)&snd_object_tramp},
+        {"impulse start", SND_START, sizeof SND_START, SND_START_STOLEN, (void *)hook_snd_start, (void **)&snd_start_tramp},
+        {"event send", SIM_EVENT, sizeof SIM_EVENT, SIM_EVENT_STOLEN, (void *)hook_sim_event, (void **)&sim_event_tramp},
+        {"entity ref", ENTITY_OBJECT, sizeof ENTITY_OBJECT, ENTITY_OBJECT_STOLEN, (void *)hook_entity_object,
+         (void **)&entity_object_tramp},
+        {"marker sound", SND_MARKER, sizeof SND_MARKER, 15, (void *)hook_snd_marker, (void **)&snd_marker_tramp},
+        {"positional sound", SND_POSITIONAL, sizeof SND_POSITIONAL, 19, (void *)hook_snd_positional,
+         (void **)&snd_positional_tramp},
+        {"at-position sound", SND_AT, sizeof SND_AT, 18, (void *)hook_snd_at, (void **)&snd_at_tramp},
+        {"2d sound", SND_2D, sizeof SND_2D, 15, (void *)hook_snd_2d, (void **)&snd_2d_tramp},
+        {"2d-short sound", SND_2D_SHORT, sizeof SND_2D_SHORT, 16, (void *)hook_snd_2d_short, (void **)&snd_2d_short_tramp},
+        {"slot40 sound", SND_SLOT40, sizeof SND_SLOT40, 16, (void *)hook_snd_slot40, (void **)&snd_slot40_tramp},
+        {"slot60 sound", SND_SLOT60, sizeof SND_SLOT60, 15, (void *)hook_snd_slot60, (void **)&snd_slot60_tramp},
+    };
+    for (size_t i = 0; i < sizeof hooks / sizeof hooks[0]; i++) sound_trace_hook(sim, &hooks[i]);
+    HMODULE exe = GetModuleHandleA(NULL);
+    static const struct sound_hook exe_resolve_hook = {"exe resolve", EXE_RESOLVE, sizeof EXE_RESOLVE,
+                                                       EXE_RESOLVE_STOLEN, (void *)hook_exe_resolve,
+                                                       (void **)&exe_resolve_tramp};
+    sound_trace_hook((unsigned char *)exe, &exe_resolve_hook);
+    static const struct sound_hook audio_bind_hook = {"audio bind", AUDIO_BIND, sizeof AUDIO_BIND, AUDIO_BIND_STOLEN,
+                                                      (void *)hook_audio_bind, (void **)&audio_bind_tramp};
+    sound_trace_hook((unsigned char *)exe, &audio_bind_hook);
+    unsigned char *post = (unsigned char *)GetProcAddress(exe, AK_POST_EVENT_NAME);
+    if (post) ak_post_event_tramp = (ak_post_event_t)inline_hook(post, AK_POST_EVENT_STOLEN, (void *)hook_ak_post_event);
+    fireteam_log("sound trace: wwise PostEvent %s", ak_post_event_tramp ? "hooked" : "not hooked");
+    post = (unsigned char *)GetProcAddress(exe, AK_POST_EVENT_BY_NAME_NAME);
+    if (post)
+        ak_post_event_name_tramp =
+            (ak_post_event_name_t)inline_hook(post, AK_POST_EVENT_BY_NAME_STOLEN, (void *)hook_ak_post_event_name);
+    fireteam_log("sound trace: wwise PostEvent by name %s", ak_post_event_name_tramp ? "hooked" : "not hooked");
+    sound_trace("trace armed in pid %lu", (unsigned long)GetCurrentProcessId());
+    sound_trace_state = 1;
 }
 
 /* Pinned for the life of the process. The game keeps calling the hooks this

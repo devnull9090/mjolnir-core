@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
-  "summary": "Forge: turn into the Monitor and grab, move, duplicate and delete a map's objects in a FORGE game, using Halo Reach's own Forge engine still inside the simulation.",
+  "version": "0.2.0",
+  "summary": "Forge: turn into the Monitor and grab, move, duplicate, delete and place a map's objects from its palette in a FORGE game, using Halo Reach's own Forge engine still inside the simulation.",
   "category": "multiplayer"
 }

@@ -25,7 +25,7 @@ foreach ($d in "UE4SS_Signatures", "Mods", "MJOLNIRMaps") {
     Copy-Item -Recurse (Join-Path $ue4ss $d) (Join-Path $stage "Win64\ue4ss\$d")
 }
 # Run state and logs are this machine's.
-Get-ChildItem -Recurse (Join-Path $stage "Win64\ue4ss\Mods") -Include *.log, running.txt, pending_variant.txt, last_game.txt, last_match.txt, hub_request.txt, hub_reply_*.txt, join_request.txt, join_reply.txt, lobby_connection.txt |
+Get-ChildItem -Recurse (Join-Path $stage "Win64\ue4ss\Mods") -Include *.log, running.txt, pending_variant.txt, last_game.txt, last_match.txt, hub_request.txt, hub_reply_*.txt, join_request.txt, join_reply.txt, lobby_connection.txt, discord_activity.json, discord_status.txt, discord_disabled.txt, discord_session.txt, discord_match.txt, pending_join.txt, pending_join.discord.tmp |
     Remove-Item -Force
 Get-ChildItem $paks -Filter "*MJOLNIR*" | Copy-Item -Destination (Join-Path $stage "Paks")
 

@@ -384,6 +384,54 @@ def ce_rotation(yaw, pitch, roll):
     return mul(mul(rx, ry), rz)
 
 
+def h2_lifts(placement, to_ue):
+    """Halo 2's lifts, jump pads and vents (placement.json `lifts`, from
+    crate::h2::phantom) in Unreal space for MJOLNIRLevelLoader's lifts.lua:
+    each phantom's shape (planes `n.p + d <= 0` inside, or a pill), the
+    marker it pushes from and along, and its accelerations and top speeds
+    in centimetres (per second, and per second squared), and a bounding
+    sphere (x, y, z, radius) for the loader's nearness test."""
+    out = []
+    for lift in placement.get("lifts") or []:
+        r = ce_rotation(*lift["rot"])
+        s = lift.get("scale") or 1.0
+        t = lift["pos"]
+
+        def point(p):
+            return to_ue([sum(r[k][j] * p[j] * s for j in range(3)) + t[k] for k in range(3)])
+
+        def vector(v):
+            w = [sum(r[k][j] * v[j] for j in range(3)) for k in range(3)]
+            n = math.sqrt(sum(c * c for c in w)) or 1.0
+            return [round(w[0] / n, 4), round(-w[1] / n, 4), round(w[2] / n, 4)]
+
+        for ph in lift["phantoms"]:
+            shape = ph["shape"]
+            if "planes" in shape:
+                planes = []
+                for nx, ny, nz, d in shape["planes"]:
+                    n = vector([nx, ny, nz])
+                    on = point([-d * nx, -d * ny, -d * nz])   # the plane's point nearest the origin
+                    planes.append(n + [round(-sum(n[k] * on[k] for k in range(3)), 1)])
+                ue_shape = {"planes": planes}
+            else:
+                a, b = shape["pill"]
+                ue_shape = {"pill": [point(a), point(b)], "radius": round(shape["radius"] * s * WU_CM, 1)}
+            centre, radius = shape["bounds"]
+            out.append({
+                "asset": lift["asset"],
+                **ue_shape,
+                "bounds": point(centre) + [round(radius * s * WU_CM, 1)],
+                "origin": point(ph["origin"]),
+                "forward": vector(ph["forward"]),
+                "center": [round(x * WU_CM, 1) for x in ph["center"]],
+                "axis": [round(x * WU_CM, 1) for x in ph["axis"]],
+                "direction": [round(x * WU_CM, 1) for x in ph["direction"]],
+                "negates_gravity": ph["negates_gravity"],
+            })
+    return out
+
+
 def flare_decor(placement, texture_root, to_ue):
     """Decor entries for every lens flare on the lights placed objects carry."""
     from ce_material_spec import asset_name
@@ -1624,6 +1672,9 @@ def main():
         # The game's grass, tufts and shore stones (scatter_foliage.py), with
         # a steady breeze for the grass (MJOLNIRLevelLoader Foliage.wind).
         level["foliage"] = {**foliage, "wind": {"dir": [0.9, 0.4], "strength": 0.4}}
+    lifts = h2_lifts(placement, to_ue)
+    if lifts:
+        level["lifts"] = lifts
     if a.sounds:
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)

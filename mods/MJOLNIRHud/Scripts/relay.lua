@@ -30,6 +30,8 @@ local CARRIED = {
     kill = true, suicide = true, death = true, first_blood = true, flag_scored = true,
     player_joined = true, player_rejoined = true, player_quit = true, player_booted_player = true,
     ball_taken = true, hill_controlled = true,
+    -- Who is alive on the scoreboard (#249): a client hears only its own spawns.
+    player_spawn = true,
 }
 
 --- Whether the feed or the tallies need incident `name` on a client.

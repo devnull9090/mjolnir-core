@@ -147,10 +147,23 @@ end
 --- To every connected fireteam client. A controller left over from the
 --- previous world has no player and no player state; a client RPC on one
 --- with no connection would run here, on the host.
+---
+--- For a message the host repeats (REPEATED), the controllers are looked up
+--- again at most every CONTROLLERS_SECONDS: FindAllOf walks every object
+--- (~20 ms), and the host sends the post-game vote every second (#232). A
+--- joiner gets the next one; one gone fails the checks below. Any other
+--- message looks them up as it is sent, so a one-off reaches a new joiner.
+Net.CONTROLLERS_SECONDS = 2
+Net.REPEATED = { vote = true, lobby = true }
+local controllers = { list = {}, at = -100 }
+
 function Net.toClients(verb, ...)
     local msg = compose(verb, ...)
     local sent = 0
-    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+    if not Net.REPEATED[verb] or os.clock() - controllers.at >= Net.CONTROLLERS_SECONDS then
+        controllers.list, controllers.at = FindAllOf("PlayerController") or {}, os.clock()
+    end
+    for _, pc in ipairs(controllers.list) do
         if valid(pc) and not isLocal(pc) then
             local ok = pcall(function()
                 if not (valid(pc.Player) and valid(pc.PlayerState)) then error("not connected") end

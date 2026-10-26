@@ -39,7 +39,9 @@ local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
+SquadPanel.worldAddress = UI.worldAddress
 local Games = dofile(MOD_DIR .. "\\Scripts\\games.lua")
+local Presence = dofile(MOD_DIR .. "\\Scripts\\presence.lua")
 local Matches = dofile(MOD_DIR .. "\\Scripts\\matches.lua")
 local Settings = dofile(MOD_DIR .. "\\Scripts\\settings.lua")
 local MapLive = dofile(MOD_DIR .. "\\Scripts\\maplive.lua")
@@ -48,6 +50,7 @@ local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
+Presence.init({ modDir = MOD_DIR, json = Json, log = log })
 
 local HELPERS = "/Game/UI/Frontend/CampaignMenu/Data/BPFL_CampaignMenuHelpers.Default__BPFL_CampaignMenuHelpers_C"
 local SCENARIOS = "/Game/Blueprints/Campaign/DT_Scenarios.DT_Scenarios"
@@ -275,6 +278,16 @@ local function startGame(map, mode)
     -- The host's game settings, which the loader patches into the variant;
     -- the fireteam got the same line with the lobby (broadcastLobby).
     writeVariantSettings(Settings.variantLine())
+    -- Whether this is a team game, for the native half: the game's variant
+    -- still says free-for-all when the players are numbered (the loader
+    -- swaps in the team variant as the map loads), so without this a third
+    -- player came in on team 2, which the engine ends at once as a draw
+    -- (#229; mjolnir_lobby.c, teams_balance).
+    local tf = io.open(MOD_DIR .. "\\native\\team_game.txt", "w")
+    if tf then
+        tf:write(mode.teams and "1" or "0")
+        tf:close()
+    end
     -- A guest without the map leaves rather than hold everyone's start.
     pcall(Net.toClients, "starting", map.code, (MapLive.release(map.code) or {}).id or "")
     helpers:StartCountdown(setup, pc)
@@ -566,10 +579,14 @@ Live.title = function(code) return (shown(code)) end
 
 --- The screenshot of `code` on `screen` (its MapImage), the note in its place
 --- until it arrives. Screens from an older UI container have no MapImage.
-function Live.showCover(screen, code)
-    local okI, image = pcall(function() return screen.MapImage end)
+--- `field`: the Image (default MapImage; the vote rows' VoteImage0..3), its
+--- note beside it as `<field>Note`. A screen from an older UI container
+--- without it is left alone.
+function Live.showCover(screen, code, field)
+    field = field or "MapImage"
+    local okI, image = pcall(function() return screen[field] end)
     if not (okI and UI.valid(image)) then return end
-    local note = screen.MapImageNote
+    local note = screen[field .. "Note"]
     local tex = code and MapLive.texture(code)
     if tex then
         pcall(function()
@@ -589,7 +606,7 @@ function Live.showCover(screen, code)
         MapLive.cover(code, function(path)
             if not UI.valid(screen) then return end
             if path and MapLive.texture(code) then
-                Live.showCover(screen, code)
+                Live.showCover(screen, code, field)
             else
                 setText(note, "NO SCREENSHOT")
             end
@@ -662,6 +679,7 @@ end)
 --- player's view model (the one that can). BlamCampaignFlowGameSubsystem's
 --- LeaveGame only leaves a match. true when a leave was asked for.
 function Live.leaveFireteam()
+    Games.leavePresence()
     for _, vm in ipairs(FindAllOf("MeteoritePlayerViewModel") or {}) do
         local ok, can = pcall(function() return vm:CanLeaveFireteam() end)
         if ok and can then
@@ -701,6 +719,31 @@ end
 Net.on("mapstate", function(f, sender)
     if not Net.isHost() then return end
     Live.states[sender or "?"] = { code = f[1], stage = f[2], pct = tonumber(f[3] or ""), at = os.time() }
+end)
+
+-- Which maps each fireteam member has, so the post-game vote offers only
+-- games everyone can load (#261: the host's own test conversion was voted
+-- for, and a client without it stayed at the frontend). A client sends its
+-- installed codes when the host's roster arrives, at most every 20 s unless
+-- they change; the host keeps each member's for two minutes.
+Live.memberMaps = {}
+
+function Live.sendMaps()
+    if Net.isHost() then return end
+    local codes = {}
+    for _, map in ipairs(installedMaps()) do codes[#codes + 1] = map.code end
+    table.sort(codes)
+    local text = table.concat(codes, ",")
+    if text == Live.sentMaps and os.time() - (Live.sentMapsAt or 0) < 20 then return end
+    Live.sentMaps, Live.sentMapsAt = text, os.time()
+    Net.toHost("maps", text)
+end
+
+Net.on("maps", function(f, sender)
+    if not Net.isHost() then return end
+    local set = {}
+    for code in (f[1] or ""):gmatch("[%w_]+") do set[code] = true end
+    Live.memberMaps[sender or "?"] = { has = set, at = os.time() }
 end)
 
 local function percent(event)
@@ -1054,6 +1097,10 @@ local function drawLobby()
         "Install the classic maps from the MJOLNIR launcher's Multiplayer page, or a map pack from mjolnircore.com.")
     Live.showCover(Lobby, map and map.code)
     setText(Lobby.ModeTitle, mode and mode.name or "")
+    pcall(function()
+        local shown = Pick.gameType.showIcon(Lobby.ModeIcon, mode)
+        setShown(Lobby.ModeIconBox, shown)
+    end)
     setText(Lobby.ModeDescription, mode and mode.description or "")
     local roster = rosterPlayers()
     local teams = mode and mode.teams
@@ -1202,6 +1249,30 @@ local function openMapSelect()
     MapLive.refresh(function() if UI.valid(Select) then drawSelect() end end)
     pcall(function() Select.Select:SetFocus() end)
 end
+
+-- Keep the game type draft separate from the map picker and hosted game.
+-- Older runtime UI packs can still choose explicitly through CHANGE MAP.
+Pick.gameType = dofile(MOD_DIR .. "\\Scripts\\gametype.lua").new({
+    valid = UI.valid, alive = alive, loadClass = loadClass, pushScreen = pushScreen,
+    sameWidget = function(a, b) return UI.addressOf(a) == UI.addressOf(b) end,
+    current = function() return Game.map, Game.mode end,
+    modesFor = modesFor, isHost = Net.isHost, titleOf = titleOf,
+    showCover = Live.showCover,
+    commit = function(mode)
+        Game.mode = mode
+        saveGame()
+        Games.changed()
+        drawLobby()
+    end,
+    fallback = openMapSelect,
+    focusLobby = function()
+        if alive(Lobby) then
+            drawLobby()
+            pcall(function() Lobby.GameType:SetFocus() end)
+        end
+    end,
+    note = function(message) if alive(Lobby) then setText(Lobby.Status, message) end end,
+})
 
 --- The game's own Friends screen (Platform and Cross-Platform friends, each
 --- with + Invite), as the fireteam panel's INVITE + rows open it: their
@@ -2062,17 +2133,7 @@ local LOBBY_EVENTS = {
         if Net.isHost() then openMapSelect() end
     end,
     gametype = function()
-        if not (Game.map and Net.isHost()) then return end
-        local modes = modesFor(Game.map)
-        if #modes == 0 then return end
-        local next_ = 1
-        for i, m in ipairs(modes) do
-            if Game.mode and m.id == Game.mode.id then next_ = i % #modes + 1 end
-        end
-        Game.mode = modes[next_]
-        saveGame()
-        Games.changed()
-        drawLobby()
+        Pick.gameType.open()
     end,
     listing = function()
         if not Net.isHost() then return end
@@ -2252,7 +2313,8 @@ local function onSettingsEvent(event)
 end
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
-local function onScreenEvent(isLobby, event)
+local function onScreenEvent(isLobby, event, source)
+    if isLobby == "gametype" then return Pick.gameType.onEvent(event, source) end
     if isLobby == "find" then return onFindEvent(event) end
     if isLobby == "settings" then return onSettingsEvent(event) end
     local verb, index = event:match("^(%a+):(%d+)$")
@@ -2284,6 +2346,7 @@ local function hookScreenEvents()
     local specs = { { LOBBY_CLASS, true }, { SELECT_CLASS, false } }
     if hasFindGames() then specs[#specs + 1] = { FIND_CLASS, "find" } end
     if hasGameSettings() then specs[#specs + 1] = { SETTINGS_CLASS, "settings" } end
+    if Pick.gameType.available() then specs[#specs + 1] = { Pick.gameType.class, "gametype" } end
     local all = true
     for _, spec in ipairs(specs) do
         if not screenEvents.hooked[spec[1]] then
@@ -2296,10 +2359,12 @@ local function hookScreenEvents()
                     local okS, screen = pcall(function() return self:get() end)
                     if okS and UI.valid(screen) then Lobby = screen end
                 end
+                local source
+                if spec[2] == "gametype" then pcall(function() source = self:get() end) end
                 -- Off the click: pushing and popping screens inside the
                 -- button's own handler is not safe.
                 ExecuteInGameThread(function()
-                    local okH, err = pcall(onScreenEvent, spec[2], event)
+                    local okH, err = pcall(onScreenEvent, spec[2], event, source)
                     if not okH then log("screen event " .. event .. ": " .. tostring(err)) end
                 end)
             end)
@@ -2566,9 +2631,24 @@ local function readResults()
     return r.code and r or nil
 end
 
+--- The host: whether every member here who said which maps they have has
+--- `code`, or can get it from the hub (a map the host installed from it).
+--- A member who never said (an MJOLNIR Lobby from before) is taken to have it.
+function Live.everyoneCanPlay(code)
+    if MapLive.release(code) then return true end
+    local here = {}
+    for _, p in ipairs(rosterPlayers()) do here[p.name] = true end
+    for name, m in pairs(Live.memberMaps) do
+        if here[name] and os.time() - m.at <= 120 and not m.has[code] then return false end
+    end
+    return true
+end
+
 --- The vote's options: the game just played, then other maps in a random
---- order (with the same game type where the map has it), then the played
---- map's other game types.
+--- order, each with a game type of its own picked at random (Forge never:
+--- a client reads its slot as Slayer), at least one of them another type
+--- than the game just played (#258: every option used to be Slayer after a
+--- Slayer game), then the played map's other game types.
 local function voteOptions(results)
     local options, seen = {}, {}
     local function add(map, mode, again)
@@ -2582,14 +2662,29 @@ local function voteOptions(results)
     add(last, last and modeById(last, results.variant), true)
     local others = {}
     for _, map in ipairs(installedMaps()) do
-        if not last or map.code ~= last.code then others[#others + 1] = map end
+        if (not last or map.code ~= last.code) and Live.everyoneCanPlay(map.code) then others[#others + 1] = map end
     end
     for i = #others, 2, -1 do
         local j = math.random(i)
         others[i], others[j] = others[j], others[i]
     end
+    local played = results and results.variant
+    local mixed = false
     for _, map in ipairs(others) do
-        add(map, modeById(map, results and results.variant) or modesFor(map)[1])
+        local modes, other = {}, {}
+        for _, mode in ipairs(modesFor(map)) do
+            if not mode.forge then
+                modes[#modes + 1] = mode
+                if mode.id ~= played then other[#other + 1] = mode end
+            end
+        end
+        -- The last slot left goes to another type when none is in yet.
+        local pool = (not mixed and #options == VOTE_OPTIONS - 1 and #other > 0) and other or modes
+        local mode = pool[math.random(math.max(1, #pool))]
+        if mode then
+            if mode.id ~= played then mixed = true end
+            add(map, mode)
+        end
     end
     for _, mode in ipairs(last and modesFor(last) or {}) do add(last, mode) end
     return options
@@ -2644,17 +2739,25 @@ end
 
 --- An avatar Image: the account's cached picture, hidden (keeping its
 --- space) until there is one.
+--- False while the account's picture is still to come.
 function Report.showAvatar(image, userId)
-    if not UI.valid(image) then return end
+    if not UI.valid(image) then return true end
     local tex = userId and Identity.avatar(userId)
     pcall(function()
         if tex then image:SetBrushFromTexture(tex, false) end
         image:SetVisibility(tex and 3 or 2) -- HitTestInvisible, Hidden
     end)
+    return tex ~= nil or userId == nil
 end
 
 local function drawResults()
     local s, r = Post.screen, Post.results
+    -- Drawn once per screen and set of results: the rows took up to 35 ms
+    -- and were drawn four times a second, a stutter for everyone while the
+    -- vote was up (#232). Again every two seconds while a hub picture is
+    -- still on its way.
+    if Post.resultsDrawn == r and Post.resultsOn == s and os.clock() < (Post.resultsRetry or math.huge) then return end
+    Post.resultsDrawn, Post.resultsOn, Post.resultsRetry = r, s, nil
     if not r then
         setText(s.Winner, "MATCH OVER")
         setText(s.Summary, "")
@@ -2701,7 +2804,7 @@ local function drawResults()
             -- The hub account's avatar, and a click to report anyone else
             -- with an account (docs/player_identity.md). A screen from an
             -- older UI container has neither.
-            Report.showAvatar(s["Avatar" .. i], p and p.userId)
+            if not Report.showAvatar(s["Avatar" .. i], p and p.userId) then Post.resultsRetry = os.clock() + 2 end
             local reportable = p and not p.you and p.userId ~= nil
             Post.rowPlayers[i] = reportable and p or nil
             pcall(function() s["RowButton" .. i]:SetIsEnabled(reportable and true or false) end)
@@ -2735,6 +2838,28 @@ end
 local function drawVote()
     local s, v = Post.screen, Post.vote
     local host = Net.isHost()
+    -- Drawn when something it shows changes, not on every tick: each draw
+    -- took up to 31 ms (#232). The key holds everything below reads but the
+    -- countdown, which alone changes each second and is set by itself.
+    local key, countdown = { tostring(host) }, nil
+    if v then
+        local next_ = v.chosen and v.options[v.chosen]
+        local waiting, pct = 0, nil
+        if host and next_ then waiting, pct = Live.waitingOn(next_.code) end
+        key = { tostring(host), tostring(v.id), encodeOptions(v.options), table.concat(counts(v), ","),
+            tostring(v.mine), tostring(v.chosen), tostring(v.held), tostring(#rosterPlayers()), tostring(waiting),
+            tostring(pct) }
+        if not (v.chosen or v.held) then
+            countdown = string.format("VOTING ENDS IN %d", math.max(0, math.ceil(v.left or 0)))
+        end
+    end
+    key = table.concat(key, "|")
+    if Post.voteDrawn == key and Post.voteOn == s then
+        if countdown and countdown ~= Post.voteCountdown then setText(s.VoteTimer, countdown) end
+        Post.voteCountdown = countdown
+        return
+    end
+    Post.voteDrawn, Post.voteOn, Post.voteCountdown = key, s, countdown
     setShown(s.Start, host)
     setShown(s.Lobby, host)
     if not v then
@@ -2752,6 +2877,8 @@ local function drawVote()
             voted = voted + (n[i + 1] or 0)
             setText(s["Vote" .. i .. "Label"], optionLabel(o))
             setText(s["VoteCount" .. i], (n[i + 1] or 0) > 0 and tostring(n[i + 1]) or "")
+            -- Each option's own map cover (#258).
+            Live.showCover(s, o.code, "VoteImage" .. i)
             local mine, chosen = v.mine == i + 1, v.chosen == i + 1
             pcall(function()
                 s["Vote" .. i]:SetBackgroundColor((mine or chosen) and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
@@ -3966,6 +4093,11 @@ local function initialize()
         net = Net,
         log = log,
         version = LOBBY_VERSION,
+        world = function()
+            local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+            return ok and tostring(address) or nil
+        end,
+        worldObject = function() return UI.playerController():GetWorld() end,
         -- The game a public listing shows: the lobby's choice, which a start
         -- (from the lobby or the post-game vote) also sets.
         info = function()
@@ -3975,6 +4107,7 @@ local function initialize()
             return {
                 name = name and (name .. "'s game") or "MJOLNIR game",
                 map_code = Game.map.code,
+                world = tostring(UI.playerController():GetWorld():GetAddress()),
                 map_release_id = release.id,
                 map_version = release.version,
                 game_type = Game.mode.id,
@@ -3984,6 +4117,21 @@ local function initialize()
             }
         end,
     })
+    Presence.context(function()
+        local pc = UI.playerController()
+        local worldCode
+        pcall(function()
+            worldCode = pc:GetWorld():GetFullName():match("%.([%w_]+)$")
+            worldCode = worldCode and worldCode:upper()
+        end)
+        return {
+            frontend = inFrontend(), world_code = worldCode,
+            lobby = alive(Lobby) or (Post and alive(Post.screen)),
+            postgame = Post and alive(Post.screen),
+            map_title = Game.map and (Game.map.title or Game.map.code),
+            mode = Game.mode and Game.mode.id,
+        }, Games.presence()
+    end)
     -- Public match history: MJOLNIRHud's records and seat claims, to the hub.
     Matches.init({ modDir = MOD_DIR, games = Games, log = log })
     -- Hub accounts in place of in-game names, proven to the host by tickets
@@ -4002,6 +4150,9 @@ local function initialize()
             return names
         end,
         isPublic = function() return Games.isPublic() end,
+        -- The host's roster comes every few seconds: the client's maps go
+        -- back with it (Live.sendMaps).
+        onIds = function() Live.sendMaps() end,
         onBanned = function(name, why)
             for _, player in ipairs(remotePlayers()) do
                 if player.name == name then kick(player, why) end

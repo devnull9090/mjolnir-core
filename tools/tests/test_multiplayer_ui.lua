@@ -270,6 +270,19 @@ ctf.incident("flag_scored", 1, -1, 0)
 eq(ctf.feed.ScoreRightValue.text, "2") -- updates while the big board is closed
 ctf.hold(true); eq(ctf.board.visibility, 3); eq(ctf.feed.MatchScore.visibility, 1)
 eq(ctf.board.Score2.text, "2")
+-- Who is dead (#249): a death marks the row until that player spawns
+-- again; the local player's own row says DEAD over YOU while it waits.
+eq(ctf.board.Name1.text, "Alpha"); eq(ctf.board.Marker1.text, "")
+ctf.incident("death", -1, 0, 0)
+eq(ctf.board.Marker1.text, "DEAD")
+eq(ctf.board.Name1.tint.SpecifiedColor.A, 0.45)
+ctf.incident("death", -1, 1, 0)
+eq(ctf.board.Marker3.text, "DEAD")
+ctf.incident("player_spawn", 0, -1, 0)
+eq(ctf.board.Marker1.text, ""); eq(ctf.board.Marker3.text, "DEAD")
+ctf.incident("player_spawn", 1, -1, 0)
+eq(ctf.board.Marker3.text, "YOU")
+print("Multiplayer UI: the scoreboard marks the dead until they spawn")
 
 local slayer = runHUD("team_slayer")
 slayer.incident("player_spawn", 0, -1, 0) -- team arrives after the spawn
@@ -446,6 +459,12 @@ print("Multiplayer UI: hub avatars in the feed")
 -- Fireteam clients (Scripts/relay.lua): the host sends the feed's incidents
 -- to every remote player, one message per drain.
 local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
+-- Keep spawn-state updates and objective ownership when merging game-mode work.
+for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled" }) do
+    local events = Relay.decode(Relay.encode({ { name = name, cause = 2, effect = -1, value = 1 } }), 7)
+    assert(events and #events == 1, "missing relayed event: " .. name)
+    eq(events[1].name, name); eq(events[1].cause, 2); eq(events[1].value, 1)
+end
 local wire = Relay.encode({ { name = "kill", cause = 2, effect = 0, value = 0, modifier = 1, damage = DT .. "SniperRifle" },
     { name = "respawn_tick", cause = 0 }, { name = "multikill_x2", cause = 2, effect = -1, value = 0 } })
 eq(wire, "MJOLNIR|feed|kill,2,0,0,1,SniperRifle;multikill_x2,2,-1,0,0,")
@@ -504,6 +523,36 @@ eq(old.feed.Respawn.text, "Respawning")
 old.incident("respawn_tick", 1, -1, 0)
 eq(old.feed.Respawn.text, "Respawn in 3")
 print("Multiplayer UI: an older UI container gets a text feed")
+
+-- The medal callout's queue (Scripts/anim.lua), stepped as the frame does:
+-- a medal that arrives late in the one showing (a Killing Spree 2.1 s into
+-- a Triple Kill) cuts it short and comes up itself, and both end (#242: the
+-- cut pushed the end back on every frame and the Triple Kill stayed).
+do
+    local Anim = dofile("mods/MJOLNIRHud/Scripts/anim.lua")
+    local s = Anim.new()
+    local shown, last = {}, nil
+    for step = 0, 1500 do
+        local t = 5 + step / 100
+        if step == 0 then Anim.callout(s, { title = "TRIPLE KILL" }, t) end
+        if step == 210 then Anim.callout(s, { title = "KILLING SPREE" }, t) end
+        Anim.nextCall(s, t)
+        local c = Anim.callPose(s, t)
+        if c and c.title ~= last then shown[#shown + 1] = { c.title, t } end
+        last = c and c.title
+    end
+    eq(#shown, 2)
+    eq(shown[2][1], "KILLING SPREE")
+    assert(shown[2][2] <= 5 + Anim.CALL_HOLD + Anim.CALL_OUT + 0.01, "the spree waits no longer than the hold")
+    eq(s.call, nil)
+    eq(#s.calls, 0)
+    -- A medal early in the one showing still cuts it to the quick time.
+    s = Anim.new()
+    Anim.callout(s, { title = "DOUBLE KILL" }, 0)
+    Anim.callout(s, { title = "TRIPLE KILL" }, 0.2)
+    assert(math.abs(s.call.endAt - (Anim.CALL_QUICK + Anim.CALL_OUT)) < 1e-9, "cut to the quick time")
+end
+print("Multiplayer UI: a medal late in a callout cuts it short, and both end")
 
 -- The feed's model on its own: poses are a function of the time.
 local Rows = dofile("mods/MJOLNIRHud/Scripts/feed.lua")

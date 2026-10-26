@@ -10,7 +10,7 @@
 
         GET  /status                          game process, bridge heartbeat
         POST /bridge?op=lua|console|ping      a call through the MJOLNIR bridge
-        POST /launch                          start the game through Steam
+        POST /launch                          start the game through Steam (closing a crash reporter left open)
         POST /quit[?force=1]                  close it
         GET  /file?root=R&path=P              read a file
         PUT  /file?root=R&path=P              write one (a loaded DLL is moved
@@ -46,7 +46,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "5"
+$AgentVersion = "7"
 
 # --- Where things are --------------------------------------------------------
 
@@ -275,8 +275,23 @@ function Handle($request, $stream) {
         }
         "POST /launch" {
             if (Get-Game) { Send-Json $stream 200 @{ ok = $false; note = "already running" }; return }
+            # A crash leaves the crash reporter open, and Steam will not start
+            # the game again while it is.
+            $reporters = @(Get-Process CrashReportClient -ErrorAction SilentlyContinue)
+            $reporters | Stop-Process -Force -ErrorAction SilentlyContinue
+            # The start-up logos set aside, as the launcher's "Skip intro
+            # videos" does (?intro=1 keeps them): ~20 s sooner to the menu.
+            $movie = Join-Path $GameDir "Meteorite\Content\Movies\LogoParade.mp4"
+            $aside = "$movie.mjolnir-skip"
+            if ($p["intro"] -eq "1") {
+                if ((Test-Path $aside) -and -not (Test-Path $movie)) { Move-Item $aside $movie }
+            } elseif (Test-Path $movie) {
+                if (Test-Path $aside) { Remove-Item $aside -Force }
+                Move-Item $movie $aside
+            }
             Start-Process "steam://rungameid/2806050"
-            Send-Json $stream 200 @{ ok = $true; note = "launched through Steam" }
+            $note = if ($reporters.Count) { "launched through Steam (closed the crash reporter first)" } else { "launched through Steam" }
+            Send-Json $stream 200 @{ ok = $true; note = $note }
         }
         "POST /quit" {
             $game = Get-Game
