@@ -16,7 +16,7 @@ machines' feeds and boards name them and count the same kills.
 | `crates/blam-sbsp/src/pathfinding.rs` | the pathfinding tables, from a structure BSP's collision shell |
 | MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game |
 | MJOLNIRLobby `settings.lua` | BOTS and BOT TYPE on the PLAYERS page of the host's game settings: `bots=N;bot_type=K` in the settings line |
-| `tools/level/build_bot_characters.sh` | the Spartan bot's character, which the game does not ship |
+| `tools/level/build_bot_characters.sh` | the bots' characters: the Spartan, and every kind at Legendary accuracy |
 | MJOLNIRHud `Scripts/bots.lua` | places, names, respawns and directs the bots on the host |
 | MJOLNIRHud `main.lua`, `relay.lua` | bot seats on the board and in the feed, on the host and its clients |
 | MJOLNIRHud `commands.lua` | `/bots <0-15> [kind]`: the host changes this match's bots |
@@ -67,12 +67,26 @@ host's BOT TYPE picks one (SPARTANS, ELITES, GRUNTS, JACKALS) or MIXED, which
 takes them in turn; `/bots 6 elites` changes it mid-match. A map baked before
 kinds has `bot_<k>` squads only, which every kind falls back to.
 
-Spartan bots are the players' own body, `objects\characters\spartans\spartans`,
-driven by `mjolnir_bot_spartan`: the Marine's character with that unit
-(`tools/level/build_bot_characters.sh`; no Spartan AI character ships). Their
-squads are on the Covenant team, since a Marine's own team is the players'.
-Every machine in the match needs the character's container,
-`pakchunk995-MJOLNIRBOTCHAR_P`, beside the map's.
+Every kind plays a character of MJOLNIR's own (`tools/level/build_bot_characters.sh`):
+`mjolnir_bot_spartan`, `mjolnir_bot_elite`, `mjolnir_bot_grunt` and
+`mjolnir_bot_jackal`, all with `mjolnir_bot_generic` as their parent.
+
+- **Accuracy.** AI aim from per-weapon accuracy bounds and times for normal,
+  heroic and legendary. A Megalo match always plays at Normal: the
+  simulation reads the difficulty (game options `+0x1e4`) in about fifteen
+  places, through two helpers and inline copies, all gated to campaign and
+  Firefight, and some of them also scale the players. So the bot characters
+  carry the Legendary values in their Normal slots instead: `mjolnir_bot_generic`
+  is `ai\generic` so tuned, and each bot character tunes its own weapon
+  entries the same way. A difficulty setting would be more squad sets, one
+  per level (heroic, legendary), not a sim patch.
+- **Spartans.** No Spartan AI character ships, so `mjolnir_bot_spartan` is the
+  Marine's (`trooper`: human weapons, grenades, cover) in the players' own
+  body, `objects\characters\spartans\spartans`. Their squads are on the
+  Covenant team, since a Marine's own team is the players'.
+
+Every machine in the match needs the characters' containers,
+`pakchunk995-MJOLNIRBOT-<name>_P`, beside the map's.
 
 ## Identity: which actor is which bot
 
