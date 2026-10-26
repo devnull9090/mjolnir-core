@@ -94,6 +94,8 @@ def uv_project(obj):
         # Blood Gulch's 1024x256 sheet is an atlas. Use one blue-white
         # capsule (top-left pixels 326,2 to 380,23), not the whole sheet.
         # Split long lenses into repeated lamps at the capsule's aspect ratio.
+        pixels=tuple(obj.get('light_atlas_pixels',(326,2,380,23)))
+        aspect=(pixels[2]-pixels[0])/(pixels[3]-pixels[1])
         vertices,faces=[],[]
         for face in mesh.polygons:
             assert len(face.vertices)==4, obj.name
@@ -102,7 +104,7 @@ def uv_project(obj):
                 points=points[1:]+points[:1]
             length=(points[1]-points[0]).length
             width=(points[3]-points[0]).length
-            count=max(1,round(length/width/(54/21)))
+            count=max(1,round(length/width/aspect))
             for i in range(count):
                 a,b=i/count,(i+1)/count
                 start=len(vertices)
@@ -112,7 +114,7 @@ def uv_project(obj):
         mesh.clear_geometry()
         mesh.from_pydata(vertices,[],faces)
         mesh.update()
-        obj["light_atlas_pixels"]=(326,2,380,23)
+        obj["light_atlas_pixels"]=pixels
     uv = mesh.uv_layers.get("UVMap") or mesh.uv_layers.new(name="UVMap")
     for poly in mesh.polygons:
         mat = mesh.materials[poly.material_index]
@@ -139,7 +141,8 @@ def uv_project(obj):
                     # One complete emblem on each large doorway panel.
                     uv.data[loop].uv = ((0, 0), (1, 0), (1, 1), (0, 1))[corner]
             elif mat == LIGHT:
-                u0,u1,v0,v1=326/1024,380/1024,1-23/256,1-2/256
+                px=obj.get('light_atlas_pixels',(326,2,380,23))
+                u0,u1,v0,v1=px[0]/1024,px[2]/1024,1-px[3]/256,1-px[1]/256
                 uv.data[loop].uv = ((u0,v0),(u1,v0),(u1,v1),(u0,v1))[corner]
             elif mat == PORTAL:
                 # One complete shield mask across the doorway, including its
@@ -519,7 +522,9 @@ for x in (-2.1,0,2.1):
 boolean(platform,box("control_pad_cross_joint",(-3.65,-.06,.52),(3.65,.06,.75),FLOOR))
 
 from perimeter_architecture import build as build_perimeter, ARRIVALS
-build_perimeter(mesh_object,box,prism,bevel_rectangle,boolean,PANELS,FLOOR,LIGHT,PORTAL)
+wall=build_perimeter(mesh_object,box,prism,bevel_rectangle,boolean,PANELS,FLOOR,LIGHT,PORTAL)
+from facility_architecture import build as build_facility
+build_facility(wall,mesh_object,box,prism,bevel_rectangle,boolean,LIGHT,RED,BLUE)
 
 detail_collection=bpy.data.collections.new("DETAIL - Forerunner precision armor (render only)")
 scene.collection.children.link(detail_collection)
@@ -586,6 +591,18 @@ bmesh.ops.dissolve_degenerate(bm, edges=list(bm.edges), dist=0.012)
 bmesh.ops.dissolve_limit(bm, angle_limit=0.0001, verts=list(bm.verts),
                         edges=list(bm.edges), delimit={"MATERIAL"})
 bmesh.ops.triangulate(bm, faces=list(bm.faces))
+# Dissolving a zero-area Boolean sliver can leave a wire edge with no linked
+# faces. Remove that debris without touching the closed surface: boundary
+# edges (one face) and non-manifold junctions (three or more) still fail below.
+wire_edges = [edge for edge in bm.edges if not edge.link_faces]
+surface_faces = len(bm.faces)
+if wire_edges:
+    wire_count = len(wire_edges)
+    bmesh.ops.delete(bm, geom=wire_edges, context="EDGES")
+    loose_vertices = [vertex for vertex in bm.verts if not vertex.link_edges]
+    bmesh.ops.delete(bm, geom=loose_vertices, context="VERTS")
+    assert len(bm.faces) == surface_faces, "Wire cleanup changed the authored surface"
+    print("TST_REMOVED_WIRE_DEBRIS", wire_count, "edges", len(loose_vertices), "vertices")
 bad_edges = [edge for edge in bm.edges if not edge.is_manifold]
 if bad_edges:
     print("TST_NONMANIFOLD_EDGES_METRES",[[tuple(round(c*METERS_PER_CE,5) for c in v.co) for v in e.verts] for e in bad_edges[:20]])
@@ -612,10 +629,10 @@ placements = {
                 # not merely its trunk outside the player route markers.
                 for x,y in [(-17,-15),(-24,12),(32,1)]],
     "vehicles": [{"tag":"vehicles\\warthog\\mp_warthog","position_m":pos(-46,-18,.3),"yaw_degrees":0,"team":0},
-                 {"tag":"vehicles\\warthog\\mp_warthog","position_m":pos(46,18,.3),"yaw_degrees":180,"team":1}],
+                 {"tag":"vehicles\\warthog\\mp_warthog","position_m":pos(38,10,.3),"yaw_degrees":180,"team":1}],
     "spawns": [], "flags": [], "pickups": [],
     "teleporters": [
-        {"channel":0,"from_m":pos(-46,14,.05),"to_m":pos(-12,26,.05),"from_yaw_degrees":0,"to_yaw_degrees":0},
+        {"channel":0,"from_m":pos(-46,14,.05),"to_m":pos(-12,21.5,.05),"from_yaw_degrees":0,"to_yaw_degrees":0},
         {"channel":1,"from_m":pos(46,-14,.05),"to_m":pos(12,-26,.05),"from_yaw_degrees":180,"to_yaw_degrees":180}],
     "lights": [],
     # Authoring intent only. These become supported modes only when their
@@ -651,7 +668,7 @@ placements['structure_review_points'] += [
     {'name':f'{team}_roof_landing_{x}_{y}','position_m':[cx+sign*x,sign*y,6.45]}
     for cx,sign,team in ((-BASE_X,1,'red'),(BASE_X,-1,'blue'))
     for x in (-8.9,-7.75,-6.7,-5.6,-4.5,-3.7) for y in (4.6,6.0,7.2)]
-for x,y in [(-20,-27),(20,27),(-12,8),(12,-8),(-38,10),(38,-10),(-35,-30),(25,26)]:
+for x,y in [(-20,-27),(20,21),(-12,8),(12,-8),(-38,10),(38,-10),(-35,-30),(25,21)]:
     placements["scenery"].append({"tag":"scenery\\rocks\\boulder_granite_medium\\boulder_granite_medium","position_m":pos(x,y),"yaw_degrees":30})
 for team,side in [(0,-1),(1,1)]:
     cx, facing = side*BASE_X, -side
@@ -689,9 +706,12 @@ from perimeter_dressing import document as perimeter_dressing_document
 # Keep the actual submerged pond bed bare in the runtime scatter as well as
 # the preview. The render water plane itself does not exclude grass below it.
 policy_attribute=terrain.data.attributes.get('mjolnir_pcg_policy') or terrain.data.attributes.new('mjolnir_pcg_policy','INT','FACE')
+from terrain_form import facility_contains
 for face in terrain.data.polygons:
     center=face.center*METERS_PER_CE
-    if center.z < WATER_Z and ((center.x-POND_X)/16.5)**2+((center.y-POND_Y)/12.6)**2<1:
+    if facility_contains(center.x,center.y,.5) and center.z < 6.4:
+        policy_attribute.data[face.index].value=1  # NONE: no PCG in enclosed rooms.
+    elif center.z < WATER_Z and ((center.x-POND_X)/16.5)**2+((center.y-POND_Y)/12.6)**2<1:
         policy_attribute.data[face.index].value=1  # NONE
     elif center.y < -36 and center.z > 8 and terrain.data.materials[face.material_index] == CLIFF:
         # Exposed southern crown: rock cladding is allowed, grass is not.
@@ -710,7 +730,10 @@ bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "tst.blend"))
 print("TST_GEOMETRY_SAVED", OUTPUT / "tst.blend")
 sys.path.insert(0, str(ROOT.parents[2] / "tools" / "blender"))
 from mjolnir_level.surface import write_surface_policy
-policy = write_surface_policy(scene, OUTPUT / "tst.surfaces.json")
+policy_path = OUTPUT / "tst.surfaces.json"
+policy_temporary = OUTPUT / "tst.surfaces.json.tmp"
+policy = write_surface_policy(scene, policy_temporary)
+policy_temporary.replace(policy_path)
 print("TST_SURFACE_POLICY", policy["counts"])
 if args.no_export:
     print("TST_NO_EXPORT: source geometry updated; existing JMS/game build unchanged")

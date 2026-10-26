@@ -42,6 +42,14 @@ contested center suitable for Oddball and moving hills. Geometry and objective
 markers do not establish mode support: each advertised mode needs working
 runtime rules and a multiplayer acceptance result.
 
+The current Blender art pass adds an enclosed lower facility beneath the
+balcony: mirrored entrances on the same arena-facing wall connect through
+indoor doglegs around a central pier. Sealed decorative service doors imply
+inaccessible rooms; there is no rear exit or second outdoor area. See the
+[facility authoring notes](art/facility-build.md) for dimensions, excavation,
+native-asset exclusions and the Blender-only validation workflow. This revision
+uses `--no-export`; its facility has not yet been baked or tested in game.
+
 ## Layout goals
 
 - Symmetric base positions and equivalent gameplay distances; scenery can differ.

@@ -11,7 +11,8 @@ native scenery with the [MJOLNIR Blender add-on](../../../tools/blender/mjolnir_
 using runtime tree/rock recipes and local textures. Unreal material graphs and
 wind remain approximate in Blender.
 
-`build_geometry.py`, `terrain_form.py` and `perimeter_architecture.py` are the
+`build_geometry.py`, `terrain_form.py`, `perimeter_architecture.py` and
+`facility_architecture.py` are the
 reproducible geometry source. The current design is an enclosed basin: three
 continuous cliff sides and a full-length northern wall with a 7.2 m balcony.
 Channels 2 and 3 reach sheltered balcony arrivals; channels 4 and 5 return
@@ -19,6 +20,13 @@ through green shield doorways. Ground landing points are separated from the
 senders to prevent immediate return trips. Stepped exits also lead down.
 The balcony floor extends from y=21.8 to 34.7 m. Projecting towers contain
 5.2 m wide, 3.7 m high transverse passages; an outer walk connects the bays.
+
+The [lower facility authoring notes](art/facility-build.md) cover the new
+indoor-only connection beneath that balcony, its mirrored front entrances,
+sealed decorative doors, terrain excavation and native-rock exclusions. This
+facility pass is being reviewed in Blender with `--no-export`; it has not yet
+been baked or tested in game. Its fixed views are `facility-red`,
+`facility-blue`, `facility-interior` and `facility-route`.
 
 Light lenses use the Blood Gulch `mp lights small strips` atlas. The UVs select
 one capsule at pixels (326,2)-(380,23) on the 1024x256 sheet. Long fixtures are

@@ -39,6 +39,11 @@ VIEWS = {
     "portal": {"position": (-48,23.5,9.0), "target": (-48,31.5,9), "lens": 25},
     "red-interior": {"position": (-57.2,5.8,2.15), "target": (-49.8,-3.5,1.9), "lens": 19},
     "blue-interior": {"position": (57.2,-5.8,2.15), "target": (49.8,3.5,1.9), "lens": 19},
+    "facility-red": {"position": (-40,0,2.1), "target": (-52,18.5,4.9), "lens": 35, "aspect": 854/525},
+    "facility-blue": {"position": (40,0,2.1), "target": (52,18.5,4.9), "lens": 35, "aspect": 854/525},
+    "facility-interior": {"position": (-22.5,32.2,1.55), "target": (5,32.2,2.4), "lens": 22, "aspect": 1715/392},
+    "facility-door": {"position": (-12.5,32.3,1.9), "target": (-8.5,38.0,2.3), "lens": 30},
+    "facility-route": {"position": (-43,35.8,1.95), "target": (-29,32.0,2.2), "lens": 22},
     "layout": {"position": (0,-8,140), "target": (0,-8,0), "ortho": 230},
     "pcg": {"position": (0,-134,76), "target": (0,3,2), "lens": 34},
 }
@@ -113,6 +118,10 @@ def material(name,color,roughness=.7,metallic=0):
     shader.inputs["Roughness"].default_value = roughness
     shader.inputs["Metallic"].default_value = metallic
     return mat
+
+def facility_fixture(obj):
+    """Authored facility lenses supply the only new interior light sources."""
+    return bool(obj.get("tst_facility_fixture") or obj.name.lower().startswith("facility_"))
 
 def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None,cliff_albedo=None):
     replacements = {}
@@ -201,17 +210,48 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
                     links.new(noise.outputs["Fac"],ramp.inputs["Fac"])
                     links.new(ramp.outputs["Color"],shader.inputs["Base Color"])
                 if original.name.startswith("dangercanyon_decor_strip_"):
-                    for link in list(shader.inputs["Base Color"].links):
-                        links.remove(link)
-                    shader.inputs["Base Color"].default_value = (.45,.012,.006,1) if "red" in original.name else (.012,.09,.42,1)
                     shader.inputs["Metallic"].default_value = .15
-                    shader.inputs["Emission Color"].default_value = shader.inputs["Base Color"].default_value
-                    shader.inputs["Emission Strength"].default_value = .7
+                    if texture and texture.is_file():
+                        # Emblems and narrow bands share the real CE bitmap;
+                        # source UVs distinguish the complete panel from a
+                        # small coloured patch. Do not flatten both to paint.
+                        team='red' if 'red' in original.name else 'blue'
+                        glow_path=staging/'textures'/f'levels_test_dangercanyon_bitmaps_dangercanyon_strip_{team}_glow.png'
+                        if glow_path.is_file():
+                            glow=nodes.new('ShaderNodeTexImage')
+                            glow.image=bpy.data.images.load(str(glow_path),check_existing=True)
+                            # CE stores this glow mask in the red channel for
+                            # BOTH teams; the shader supplies the team hue.
+                            mask=nodes.new('ShaderNodeSeparateColor'); mask.mode='RGB'
+                            links.new(glow.outputs['Color'],mask.inputs['Color'])
+                            tint=nodes.new('ShaderNodeMixRGB'); tint.blend_type='MULTIPLY'
+                            tint.inputs[0].default_value=1
+                            tint.inputs[2].default_value=(1,.012,.006,1) if team=='red' else (.012,.09,1,1)
+                            links.new(mask.outputs['Red'],tint.inputs[1])
+                            links.new(tint.outputs['Color'],shader.inputs['Emission Color'])
+                            shader.inputs['Emission Strength'].default_value=.7
+                            manifest['texture_references'].append(str(glow_path.resolve()))
+                        bump_path=staging/'textures/levels_test_dangercanyon_bitmaps_dangercanyon_decor_strip_bump.png'
+                        if bump_path.is_file():
+                            relief=nodes.new('ShaderNodeTexImage')
+                            relief.image=bpy.data.images.load(str(bump_path),check_existing=True)
+                            relief.image.colorspace_settings.name='Non-Color'
+                            bump=nodes.new('ShaderNodeBump')
+                            bump.inputs['Strength'].default_value=.18
+                            bump.inputs['Distance'].default_value=.003/METRES_PER_CE
+                            links.new(relief.outputs['Color'],bump.inputs['Height'])
+                            links.new(bump.outputs['Normal'],shader.inputs['Normal'])
+                            manifest['texture_references'].append(str(bump_path.resolve()))
+                    else:
+                        shader.inputs['Base Color'].default_value=(.45,.012,.006,1) if 'red' in original.name else (.012,.09,.42,1)
+                        shader.inputs['Emission Color'].default_value=shader.inputs['Base Color'].default_value
+                        shader.inputs['Emission Strength'].default_value=.7
                 if original.name=="mp lights small strips!":
                     # Keep the atlas visible: a flat emissive preview concealed
                     # incorrect whole-sheet UVs in the first game check.
                     if texture and texture.is_file():
                         cyan=nodes.new('ShaderNodeMixRGB'); cyan.blend_type='MULTIPLY'
+                        cyan.name='CE light atlas tint'
                         cyan.inputs[0].default_value=1
                         cyan.inputs[2].default_value=(.48,.86,1,1)
                         links.new(node.outputs['Color'],cyan.inputs[1])
@@ -445,6 +485,8 @@ def load_model(staging,tag,group,position,yaw,target,manifest):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=str(model))
     imported = set(bpy.data.objects)-before
+    from mjolnir_level.native_scene import bind_ce_teleporter_effects
+    manifest.setdefault('ce_effect_materials',[]).extend(bind_ce_teleporter_effects(imported,staging))
     anchor = bpy.data.objects.new("CE REFERENCE - "+tag.rsplit("\\",1)[-1],None)
     target.objects.link(anchor)
     anchor.location = Vector(position)/METRES_PER_CE
@@ -562,13 +604,17 @@ def lighting(scene,placements,target):
     for lens in list(scene.objects):
         if not lens.get("authored_light_lens"):
             continue
+        enclosed = facility_fixture(lens)
         data = bpy.data.lights.new("PREVIEW wash - "+lens.name,"AREA")
         data.shape = "RECTANGLE"
-        size=lens.get('preview_light_size',(.28,1.35))
+        size=lens.get('preview_light_size',(2.8,.45) if enclosed else (.28,1.35))
         data.size = size[0]/METRES_PER_CE
         data.size_y = size[1]/METRES_PER_CE
-        data.energy = lens.get('preview_light_power',100)/METRES_PER_CE**2
-        data.color = lens.get('preview_light_color',(1.0,.78,.50))
+        # Area-light power scales with area when metres become CE units.
+        # Ceiling fixtures illuminate the enclosed route through real bounces;
+        # no ambient fill or increased exposure disguises missing apertures.
+        data.energy = lens.get('preview_light_power',900 if enclosed else 100)/METRES_PER_CE**2
+        data.color = lens.get('preview_light_color',(.80,.90,1.0) if enclosed else (1.0,.78,.50))
         obj = bpy.data.objects.new(data.name,data)
         target.objects.link(obj)
         obj.location = sum((lens.matrix_world @ v.co for v in lens.data.vertices),Vector())/len(lens.data.vertices)
@@ -576,6 +622,8 @@ def lighting(scene,placements,target):
         obj.location += direction*.025/METRES_PER_CE
         obj.rotation_euler=direction.to_track_quat('-Z','Y').to_euler()
         obj["preview_note"] = "Localized wash at authored shader light lens; not baked game lighting"
+        obj["authored_lens"] = lens.name
+        obj["mjolnir_preview_only"] = True
 
 def layout_overlay(scene,placements):
     """Diagram symbols above the actual map, authored only from placement data."""
@@ -705,6 +753,22 @@ def main():
     bm.free()
     prepare_materials(scene,args.staging,manifest,args.alloy_albedo,args.floor_albedo,args.cliff_albedo)
     for obj in scene.objects:
+        if obj.type=='MESH' and facility_fixture(obj) and obj.get('authored_light_lens') and obj.get('light_atlas_pixels'):
+            # Keep the exported atlas UVs and image-driven emission. Only the
+            # preview radiance changes, so whole-sheet UV mistakes stay visible.
+            for slot in obj.material_slots:
+                mat=slot.material.copy(); slot.material=mat
+                shader=mat.node_tree.nodes.get('Principled BSDF')
+                shader.inputs['Emission Strength'].default_value=obj.get('preview_emission_strength',3.2)
+                if obj.get('facility_status_light'):
+                    # The gold atlas rectangle must retain its actual hue;
+                    # the generic cyan treatment otherwise turns it green.
+                    tint=mat.node_tree.nodes.get('CE light atlas tint')
+                    if tint:
+                        tint.inputs[2].default_value=(1,1,1,1)
+                    else:
+                        # A source-only preview may have no installed CE atlas.
+                        shader.inputs['Emission Color'].default_value=(1,.4,.06,1)
         if obj.type=='MESH' and obj.get('preview_emission_color') and not obj.get('light_atlas_pixels'):
             for slot in obj.material_slots:
                 mat=slot.material.copy(); slot.material=mat
@@ -729,6 +793,8 @@ def main():
     if args.cyborg:
         from mjolnir_level.native import import_reference
         anchor, objects = import_reference(args.cyborg,refs,"CYBORG - ACTUAL SCALE REFERENCE")
+        from mjolnir_level.native_scene import bind_ce_cyborg_materials
+        manifest.setdefault('ce_cyborg_materials',[]).extend(bind_ce_cyborg_materials(objects,args.cyborg.parent.parent))
         anchor.location = Vector((-51,0,.45))/METRES_PER_CE
         anchor.rotation_euler.z = math.radians(135)
         bpy.context.view_layer.update()
@@ -736,6 +802,12 @@ def main():
         manifest["cyborg_reference"] = {"source":str(args.cyborg.resolve()),
             "height_m":round((max(p.z for p in points)-min(p.z for p in points))*METRES_PER_CE,3),
             "note":"Unscaled imported rest-pose model; not the movement collision capsule"}
+        facility_anchor, facility_objects = import_reference(args.cyborg,refs,"CYBORG - FACILITY SCALE REFERENCE")
+        manifest['ce_cyborg_materials'].extend(bind_ce_cyborg_materials(facility_objects,args.cyborg.parent.parent))
+        facility_anchor.location = Vector((-11.5,36.9,.32))/METRES_PER_CE
+        facility_anchor.rotation_euler.z = math.radians(90)
+        manifest['facility_cyborg_reference'] = {'position_m':[-11.5,36.9,.32],
+            'note':'Preview-only actual cyborg model for room scale; no gameplay spawn added.'}
     if args.pcg_assets:
         from mjolnir_level.pcg_scene import load_pcg
         pcg_doc=json.loads(args.pcg_assets.read_text())
@@ -823,6 +895,8 @@ def main():
     scene.render.film_transparent = False
     for name in args.views:
         view = VIEWS[name]
+        # Match the approved concept's individual panels with real camera renders.
+        scene.render.resolution_y = round(args.width/view["aspect"]) if "aspect" in view else args.height
         scene.camera = cameras[name]
         overlay.hide_render = name!="layout"
         scene.render.filepath = str((args.out/(name+".png")).resolve())
@@ -840,10 +914,22 @@ def main():
             for obj,indices in original_indices:
                 for poly,index in zip(obj.data.polygons,indices):
                     poly.material_index = index
-        manifest["views"][name] = {**view,"file":scene.render.filepath,"seconds":round(time.perf_counter()-started,2)}
+        manifest["views"][name] = {**view,"file":scene.render.filepath,
+            "resolution":[scene.render.resolution_x,scene.render.resolution_y],
+            "seconds":round(time.perf_counter()-started,2)}
         print(f"TST_PREVIEW {name}: {scene.render.filepath}",flush=True)
     overlay.hide_render = True
-    scene.camera = cameras["exterior"]
+    scene.camera = cameras["facility-interior"] if 'facility-interior' in args.views else cameras["exterior"]
+    if 'facility-interior' in args.views:
+        scene.render.resolution_y=round(args.width/VIEWS['facility-interior']['aspect'])
+        scene.cycles.preview_samples=16
+        scene.cycles.use_preview_denoising=True
+        for screen in bpy.data.screens:
+            for area in screen.areas:
+                if area.type=='VIEW_3D':
+                    area.spaces.active.region_3d.view_perspective='CAMERA'
+                    area.spaces.active.overlay.show_overlays=False
+                    area.spaces.active.shading.type='RENDERED'
     scene["mjolnir_preview_only"] = True
     scene["preview_source"] = str(source)
     readme = bpy.data.texts.new("README - PREVIEW ONLY")

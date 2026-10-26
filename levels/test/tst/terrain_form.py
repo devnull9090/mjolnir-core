@@ -12,6 +12,42 @@ ARENA_HALF_X, ARENA_HALF_Y = 75, 40
 BASE_X = 54
 POND_X, POND_Y = 36, -23
 
+# The lower facility stays wholly inside the northern map closure (y=40).
+# Shared dimensions keep its floor, excavation and native-dressing exclusions
+# aligned. The sealed architectural floor sits above this earth substrate.
+FACILITY_HALF_X = 53.0
+FACILITY_FRONT_Y, FACILITY_BACK_Y = 24.6, 39.0
+FACILITY_FLOOR_Z, FACILITY_EXCAVATION_Z = .30, .18
+FACILITY_ENTRANCE_X = 48.0
+
+
+def facility_contains(x, y, margin=0.0):
+    """True inside the excavated architectural footprint, in Blender metres."""
+    return (abs(x) <= FACILITY_HALF_X+margin and
+            FACILITY_FRONT_Y-margin <= y <= FACILITY_BACK_Y+margin)
+
+
+def facility_excavation_weight(x, y):
+    """Blend to untouched terrain outside the facility and its short apron."""
+    return ((1-_smooth(FACILITY_HALF_X, FACILITY_HALF_X+2.5, abs(x))) *
+            _smooth(22.0, FACILITY_FRONT_Y, y) *
+            (1-_smooth(FACILITY_BACK_Y, 40.0, y)))
+
+
+def facility_native_exclusion_bounds():
+    """Room and threshold envelopes for native rock bounds, in metres.
+
+    Include the structural ceiling and a modest clearance margin so rocks
+    cannot emerge through the indoor walls. The two approach boxes protect
+    only the entrances; nearby teleporter pads and landscape remain authored.
+    """
+    rooms = [((-FACILITY_HALF_X-.25, FACILITY_FRONT_Y-.25, -.5),
+              (FACILITY_HALF_X+.25, FACILITY_BACK_Y+.25, 6.7))]
+    for side in (-1, 1):
+        x = side*FACILITY_ENTRANCE_X
+        rooms.append(((x-4.2, 21.9, -.5), (x+4.2, FACILITY_FRONT_Y, 4.8)))
+    return tuple(rooms)
+
 
 def _smooth(a, b, value):
     t = max(0.0, min(1.0, (value-a)/(b-a)))
@@ -82,7 +118,9 @@ def height(x, y):
     # Zero means no cliff brush here, not a minimum terrain altitude. Preserve
     # the negative pond bed and subtle dips throughout the playable interior.
     ground += north_talus_height(x, y)
-    return max(ground,cliff) if cliff > 0 else ground
+    result = max(ground,cliff) if cliff > 0 else ground
+    weight = facility_excavation_weight(x, y)
+    return result+(min(result, FACILITY_EXCAVATION_Z)-result)*weight
 
 
 def north_talus_height(x, y):

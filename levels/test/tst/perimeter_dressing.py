@@ -4,7 +4,7 @@ The closed BSP provides the boundary; these actual native cliff meshes supply
 fracture depth and an irregular skyline beyond it. Positions use Unreal cm.
 """
 import math
-from terrain_form import height
+from terrain_form import height, facility_native_exclusion_bounds
 
 CLIFF='/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B.SM_Rock_Uluwatu_Cliff_B'
 ROCK='/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_B/SM_Rock_Uluwatu_Med_B.SM_Rock_Uluwatu_Med_B'
@@ -13,6 +13,53 @@ ROCK_C='/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_C/SM_Rock_Uluwatu_Med_C.SM_R
 STRATA='/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A'
 BROKEN='/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C'
 SHELF='/Game/Env/Bio/Rock/CliffFlat/Rock_CliffFlat_Kit_B/SM_Rock_CliffFlat_Kit_B.SM_Rock_CliffFlat_Kit_B'
+
+# Conservative local LOD0 bounds measured from the installed game's native
+# mesh cache. These numbers are metadata, not redistributed mesh geometry.
+# Axes here are Unreal X/Y/Z in metres; each authored transform below includes
+# yaw, pitch, roll and nonuniform scale before converting to Blender X/-Y/Z.
+NATIVE_LOCAL_BOUNDS = {
+    SHELF: ((-8.76, -17.34, -5.54), (8.10, 17.14, 4.00)),
+    STRATA: ((-18.27, -16.20, -1.25), (15.64, 19.49, 27.44)),
+    BROKEN: ((-13.51, -17.54, -1.43), (12.51, 12.09, 26.94)),
+    ROCK_A: ((-.97, -1.08, -.83), (.61, 1.19, .67)),
+    ROCK: ((-2.03, -1.57, -1.27), (1.42, 1.54, 1.41)),
+    ROCK_C: ((-2.02, -1.69, -1.62), (1.62, 1.25, 2.07)),
+}
+
+
+def native_bounds(item):
+    """Conservative transformed rock AABB, in Blender metres.
+
+    Uses the same Unreal rotation matrix as the native Blender importer. A
+    point-origin filter is insufficient for the 34 m wide native shelf mesh.
+    """
+    lo, hi = NATIVE_LOCAL_BOUNDS[item['mesh']]
+    pitch, yaw, roll = map(math.radians, item.get('rot', (0, 0, 0)))
+    sp, cp, sy, cy, sr, cr = (math.sin(pitch), math.cos(pitch),
+                             math.sin(yaw), math.cos(yaw),
+                             math.sin(roll), math.cos(roll))
+    rows = ((cp*cy, cp*sy, sp),
+            (sr*sp*cy-cr*sy, sr*sp*sy+cr*cy, -sr*cp),
+            (-(cr*sp*cy+sr*sy), cy*sr-cr*sp*sy, cr*cp))
+    scale, position = item.get('scale', (1, 1, 1)), item['pos']
+    corners = []
+    for x in (lo[0], hi[0]):
+        for y in (lo[1], hi[1]):
+            for z in (lo[2], hi[2]):
+                local = (x, y, z)
+                world = [position[i]/100+sum(rows[j][i]*local[j]*scale[j]
+                                             for j in range(3)) for i in range(3)]
+                corners.append((world[0], -world[1], world[2]))
+    return (tuple(min(p[i] for p in corners) for i in range(3)),
+            tuple(max(p[i] for p in corners) for i in range(3)))
+
+
+def intersects_facility(item):
+    """Exclude only native meshes whose actual transformed bounds intrude."""
+    low, high = native_bounds(item)
+    return any(all(high[i] >= lo[i] and low[i] <= hi[i] for i in range(3))
+               for lo, hi in facility_native_exclusion_bounds())
 
 
 def document():
@@ -96,8 +143,24 @@ def document():
                 chip=.34+.08*((i+j)%3)
                 add(ROCK_A,px,py,height(px,py)+.12,
                     (chip*1.3,chip,.32),i*81+j*94,17,-14)
+    # Retain the far northern skyline: move only those oversized backdrop
+    # bounds that reach through the facility rear wall farther behind it.
+    # Ground-level ledge/rubble intersections are removed rather than floating
+    # them above the room. All IDs remain stable across this filtering pass.
+    relocated = []
+    rear_limit = max(hi[1] for _, hi in facility_native_exclusion_bounds())
+    for item in decor:
+        if -item['pos'][1]/100 >= 50 and intersects_facility(item):
+            low, _ = native_bounds(item)
+            offset = max(0, rear_limit+.25-low[1])
+            item['pos'][1] = round(item['pos'][1]-offset*100, 3)
+            relocated.append({'id':item['id'], 'north_setback_m':round(offset, 3)})
+    excluded = [item['id'] for item in decor if intersects_facility(item)]
+    decor = [item for item in decor if item['id'] not in excluded]
     return {'schema_version':1,'coordinates':'unreal_centimetres',
         'note':'Native game geology; same authored transforms feed preview and runtime. No extracted meshes in source.',
+        'facility_excluded_ids':excluded,
+        'facility_relocated_backdrops':relocated,
         'decor':decor,'leaf_cluster_scale':1.43,
         'background_trees':[{'id':f'tst_ridge_tree_{i}_{j}',
              'position_m':[x+(j-1)*2.3,54+1.5*math.sin(i+j*1.7),18+math.cos(i)],

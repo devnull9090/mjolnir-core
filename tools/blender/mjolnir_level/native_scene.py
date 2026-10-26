@@ -7,6 +7,199 @@ from mathutils import Matrix
 from .native import import_reference
 
 
+def bind_ce_teleporter_effects(objects, staging):
+    """Restore CE's additive teleporter layers in imported glTF references.
+
+    glTF's generic BLEND material retains the dust RGB but cannot represent
+    the original Chicago shader's additive green mask. Dust PNG alpha is
+    opaque, so a direct Principled import becomes a dark solid rectangle.
+    This local preview uses transparent-plus-emission layers and the existing
+    UVs/textures. It leaves all geometry and installed game assets untouched;
+    the runtime's scrolling and distortion remain a static approximation.
+    """
+    staging = Path(staging)
+    specs = {
+        'scenery_teleporter_shield_shaders_teleporter_shield': {
+            'label':'teleporter shield',
+            'dust':'scenery_teleporter_shield_bitmaps_teleporter_shield_dust.png',
+            'mask':'scenery_teleporter_shield_bitmaps_teleporter_shield_mask.png',
+            'strength':3.0,
+        },
+        'scenery_teleporter_base_shaders_teleporter_cone': {
+            'label':'teleporter cone',
+            'dust':'scenery_teleporter_base_bitmaps_base_volumetric_dust.png',
+            'tint':(.025,.24,.003,1),
+            'strength':.45,
+        },
+    }
+    reports = []
+    materials = {}
+    for obj in objects:
+        if obj.type != 'MESH':
+            continue
+        for slot in obj.material_slots:
+            original = slot.material
+            if original is None:
+                continue
+            key = next((name for name in specs if original.name == name or
+                        original.name.startswith(name+'.')), None)
+            if key is None:
+                continue
+            spec = specs[key]
+            if key not in materials:
+                textures = {name:(staging/'textures'/spec[name]).resolve(strict=True)
+                            for name in ('dust','mask') if name in spec}
+                # Copies belong to this preview only; never mutate a material
+                # retained by another imported model or the source .blend.
+                mat = bpy.data.materials.new('LOCAL CE PREVIEW - '+spec['label'])
+                mat.use_nodes = True
+                mat.use_backface_culling = False
+                if hasattr(mat,'surface_render_method'):
+                    mat.surface_render_method = 'DITHERED'
+                elif hasattr(mat,'blend_method'):
+                    mat.blend_method = 'BLEND'
+                mat['mjolnir_preview_only'] = True
+                mat['source_shader_tag'] = key
+                mat['reference_material_fidelity'] = 'Static additive CE dust/mask approximation; runtime scrolling not reproduced'
+                nodes, links = mat.node_tree.nodes, mat.node_tree.links
+                nodes.clear()
+                output = nodes.new('ShaderNodeOutputMaterial')
+                uv = nodes.new('ShaderNodeTexCoord')
+                dust = nodes.new('ShaderNodeTexImage')
+                dust.label = 'Original CE dust / original mesh UVs'
+                dust.image = bpy.data.images.load(str(textures['dust']),check_existing=True)
+                links.new(uv.outputs['UV'],dust.inputs['Vector'])
+                color = nodes.new('ShaderNodeMixRGB'); color.blend_type = 'MULTIPLY'
+                color.inputs[0].default_value = 1
+                links.new(dust.outputs['Color'],color.inputs[1])
+                if 'mask' in textures:
+                    mask = nodes.new('ShaderNodeTexImage')
+                    mask.label = 'Original green teleporter mask'
+                    mask.image = bpy.data.images.load(str(textures['mask']),check_existing=True)
+                    links.new(uv.outputs['UV'],mask.inputs['Vector'])
+                    links.new(mask.outputs['Color'],color.inputs[2])
+                else:
+                    color.inputs[2].default_value = spec['tint']
+                emission = nodes.new('ShaderNodeEmission')
+                emission.inputs['Strength'].default_value = spec['strength']
+                links.new(color.outputs[0],emission.inputs['Color'])
+                transparent = nodes.new('ShaderNodeBsdfTransparent')
+                additive = nodes.new('ShaderNodeAddShader')
+                additive.label = 'CE additive effect: black texels stay transparent'
+                links.new(transparent.outputs[0],additive.inputs[0])
+                links.new(emission.outputs[0],additive.inputs[1])
+                links.new(additive.outputs[0],output.inputs['Surface'])
+                materials[key] = mat
+                reports.append({'shader':key,'preview_material':mat.name,
+                                'textures':{name:str(path) for name,path in textures.items()},
+                                'fidelity':mat['reference_material_fidelity']})
+            slot.material = materials[key]
+    return reports
+
+
+def bind_ce_cyborg_materials(objects, staging):
+    """Preview the CE cyborg with its real atlas and multiplayer colour mask.
+
+    PC shader_model packs self-illumination in G, reflectance in B and change
+    colour in A. The imported glTF lacks those terms and paints every slot
+    with the uncoloured base atlas. Olive is an author-selected reference
+    colour; visor reflections use the installed gold cubemap's mean tint and
+    the Blender scene instead of pretending to reproduce CE cube sampling.
+    """
+    staging = Path(staging)
+    prefix = 'characters_cyborg_shaders_'
+    roles = ('armor','visor','light_shield','light_shield_generator')
+    matches = [(obj, slot, role) for obj in objects if obj.type == 'MESH'
+               for slot in obj.material_slots if slot.material
+               for role in roles if slot.material.name == prefix+role or
+               slot.material.name.startswith(prefix+role+'.')]
+    if not matches:
+        return []
+    files = {name:(staging/'textures'/filename).resolve(strict=True) for name,filename in {
+        'base':'characters_cyborg_bitmaps_cyborg.png',
+        'multipurpose':'characters_cyborg_bitmaps_cyborg_multipurpose.png',
+        'visor_reflection':'characters_cyborg_bitmaps_cubemap_mirror_surface__face0.png',
+    }.items()}
+    images = {name:bpy.data.images.load(str(path),check_existing=True) for name,path in files.items()}
+    images['multipurpose'].colorspace_settings.name = 'Non-Color'
+    pixels = images['visor_reflection'].pixels[:]
+    count = len(pixels)//4
+    gold = tuple(sum(pixels[i::4])/count for i in range(3))+(1,)
+    materials = {}
+    reports = []
+    for obj, slot, role in matches:
+        if role not in materials:
+            mat = bpy.data.materials.new('LOCAL CE PREVIEW - cyborg '+role)
+            mat.use_nodes = True
+            mat['mjolnir_preview_only'] = True
+            mat['source_shader_tag'] = prefix+role
+            mat['reference_material_fidelity'] = 'Original atlas/PC multipurpose masks; olive reference colour and approximate scene reflections'
+            nodes, links = mat.node_tree.nodes, mat.node_tree.links
+            shader = nodes.get('Principled BSDF')
+            uv = nodes.new('ShaderNodeTexCoord')
+            base = nodes.new('ShaderNodeTexImage'); base.image = images['base']
+            base.label = 'Original cyborg base / original UVs'
+            links.new(uv.outputs['UV'],base.inputs['Vector'])
+            if role.startswith('light_shield'):
+                # These are the 30+2 small indicator triangles, not a body
+                # shell. Black atlas pixels must not create dark decals.
+                transparent = nodes.new('ShaderNodeBsdfTransparent')
+                emission = nodes.new('ShaderNodeEmission')
+                emission.inputs['Strength'].default_value = .8
+                links.new(base.outputs['Color'],emission.inputs['Color'])
+                add = nodes.new('ShaderNodeAddShader')
+                links.new(transparent.outputs[0],add.inputs[0])
+                links.new(emission.outputs[0],add.inputs[1])
+                links.new(add.outputs[0],nodes.get('Material Output').inputs['Surface'])
+                nodes.remove(shader)
+                if hasattr(mat,'surface_render_method'): mat.surface_render_method = 'DITHERED'
+            else:
+                multi = nodes.new('ShaderNodeTexImage'); multi.image = images['multipurpose']
+                multi.label = 'PC: G emission / B reflection / A team colour'
+                links.new(uv.outputs['UV'],multi.inputs['Vector'])
+                channels = nodes.new('ShaderNodeSeparateColor')
+                links.new(multi.outputs['Color'],channels.inputs[0])
+                if role == 'armor':
+                    colour = nodes.new('ShaderNodeMixRGB')
+                    colour.label = 'Olive armour only where original alpha mask permits'
+                    colour.inputs[1].default_value = (1,1,1,1)
+                    colour.inputs[2].default_value = (.22,.285,.075,1)
+                    links.new(multi.outputs['Alpha'],colour.inputs[0])
+                    tinted = nodes.new('ShaderNodeMixRGB'); tinted.blend_type = 'MULTIPLY'
+                    tinted.inputs[0].default_value = 1
+                    links.new(base.outputs['Color'],tinted.inputs[1])
+                    links.new(colour.outputs[0],tinted.inputs[2])
+                    links.new(tinted.outputs[0],shader.inputs['Base Color'])
+                    rough = nodes.new('ShaderNodeMapRange')
+                    rough.inputs['To Min'].default_value = .78
+                    rough.inputs['To Max'].default_value = .30
+                    links.new(channels.outputs['Blue'],rough.inputs['Value'])
+                    links.new(rough.outputs[0],shader.inputs['Roughness'])
+                    metal = nodes.new('ShaderNodeMath'); metal.operation = 'MULTIPLY'
+                    metal.inputs[1].default_value = .55
+                    links.new(channels.outputs['Blue'],metal.inputs[0])
+                    links.new(metal.outputs[0],shader.inputs['Metallic'])
+                    shader.inputs['Emission Color'].default_value = (.75,.90,1,1)
+                    links.new(channels.outputs['Green'],shader.inputs['Emission Strength'])
+                else:
+                    tint = nodes.new('ShaderNodeMixRGB')
+                    tint.label = 'Gold sampled from original CE visor reflection cubemap'
+                    tint.inputs[0].default_value = .92
+                    tint.inputs[2].default_value = gold
+                    links.new(base.outputs['Color'],tint.inputs[1])
+                    links.new(tint.outputs[0],shader.inputs['Base Color'])
+                    shader.inputs['Metallic'].default_value = .92
+                    shader.inputs['Roughness'].default_value = .18
+                    mat['reflection_reference'] = str(files['visor_reflection'])
+                    mat['reflection_average_rgba'] = gold
+            materials[role] = mat
+            reports.append({'shader':prefix+role,'preview_material':mat.name,
+                            'textures':{k:str(v) for k,v in files.items()},
+                            'fidelity':mat['reference_material_fidelity']})
+        slot.material = materials[role]
+    return reports
+
+
 def bind_material(objects, settings, name):
     if 'slots' in settings:
         # Complete native trees contain separate bark and foliage primitives;

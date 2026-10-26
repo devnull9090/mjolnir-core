@@ -1,5 +1,5 @@
 {
-  "status": "concept-only; facility geometry not implemented",
+  "status": "implemented in Blender authoring source; game export and runtime validation pending",
   "date": "2026-10-26",
   "generator": "built-in image_gen",
   "base_main": "6795a3cb",

@@ -44,8 +44,8 @@
       "tag": "scenery\\rocks\\boulder_granite_medium\\boulder_granite_medium",
       "position_m": [
         20,
-        27,
-        2.51732
+        21,
+        0.08437
       ],
       "yaw_degrees": 30
     },
@@ -98,8 +98,8 @@
       "tag": "scenery\\rocks\\boulder_granite_medium\\boulder_granite_medium",
       "position_m": [
         25,
-        26,
-        2.28925
+        21,
+        0.09862
       ],
       "yaw_degrees": 30
     }
@@ -118,9 +118,9 @@
     {
       "tag": "vehicles\\warthog\\mp_warthog",
       "position_m": [
-        46,
-        18,
-        0.27605
+        38,
+        10,
+        0.37972
       ],
       "yaw_degrees": 180,
       "team": 1
@@ -518,8 +518,8 @@
       ],
       "to_m": [
         -12,
-        26,
-        0.30466
+        21.5,
+        0.87993
       ],
       "from_yaw_degrees": 0,
       "to_yaw_degrees": 0
