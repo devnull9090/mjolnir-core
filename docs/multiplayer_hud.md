@@ -42,7 +42,7 @@ again for the next match.
 | `/ban <player>` | host | kick, and keep them out (`bans.json`) |
 | `/unban <name>` | host | |
 | `/slay <player>` | host | kill a player |
-| `/bots <0-15>` | host | this match's AI bots: the ones playing stay, more join or the last ones leave; alone, how many ([bots.md](bots.md)) |
+| `/bots <0-15> [kind]` | host | this match's AI bots: the ones playing stay, more join or the last ones leave; a kind (`spartans`, `elites`, `grunts`, `jackals`, `mixed`) brings that kind instead; alone, how many ([bots.md](bots.md)) |
 | `/tp <player>` | host | teleport to a player (experimental) |
 | `/bring <player>` | host | teleport a player to you (experimental) |
 

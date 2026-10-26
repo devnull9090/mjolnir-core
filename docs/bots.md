@@ -15,10 +15,11 @@ machines' feeds and boards name them and count the same kills.
 | `level bake`, `blam.bots` ([level_format.md](level_format.md)) | bot squads, a zone of firing positions, an objective, AI pathfinding for the map's BSP |
 | `crates/blam-sbsp/src/pathfinding.rs` | the pathfinding tables, from a structure BSP's collision shell |
 | MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game |
-| MJOLNIRLobby `settings.lua` | BOTS on the PLAYERS page of the host's game settings: `bots=N` in the settings line |
+| MJOLNIRLobby `settings.lua` | BOTS and BOT TYPE on the PLAYERS page of the host's game settings: `bots=N;bot_type=K` in the settings line |
+| `tools/level/build_bot_characters.sh` | the Spartan bot's character, which the game does not ship |
 | MJOLNIRHud `Scripts/bots.lua` | places, names, respawns and directs the bots on the host |
 | MJOLNIRHud `main.lua`, `relay.lua` | bot seats on the board and in the feed, on the host and its clients |
-| MJOLNIRHud `commands.lua` | `/bots <0-15>`: the host changes this match's bots |
+| MJOLNIRHud `commands.lua` | `/bots <0-15> [kind]`: the host changes this match's bots |
 
 ## Why each is needed
 
@@ -50,13 +51,31 @@ kills a player raises the player's `death` (no `Kill`). The HUD gives bot `k`
 the seat 100 + k (the match log records only seats 0-15, so bots never reach
 the hub) and translates -1 to the seat by actor, then counts both ways.
 
+## Kinds of bot
+
+A map offers kinds (`blam.bots.types`), each with `count` squads of its own:
+`spartan_<k>`, `elite_<k>`, `grunt_<k>`, `jackal_<k>` on Blood Gulch. The
+host's BOT TYPE picks one (SPARTANS, ELITES, GRUNTS, JACKALS) or MIXED, which
+takes them in turn; `/bots 6 elites` changes it mid-match. A map baked before
+kinds has `bot_<k>` squads only, which every kind falls back to.
+
+Spartan bots are the players' own body, `objects\characters\spartans\spartans`,
+driven by `mjolnir_bot_spartan`: the Marine's character with that unit
+(`tools/level/build_bot_characters.sh`; no Spartan AI character ships). Their
+squads are on the Covenant team, since a Marine's own team is the players'.
+Every machine in the match needs the character's container,
+`pakchunk995-MJOLNIRBOTCHAR_P`, beside the map's.
+
 ## Identity: which actor is which bot
 
 Bot actors come from a pool (`BP_EliteBipedActor_C` and friends; a pooled one
 waits at the origin), and an erased AI leaves its actor where it stood for the
 next placement to reuse. So bots are placed one at a time, and the bot just
 placed is the actor that came out of the pool, or jumped more than 4 m, since
-its `ai_place`. An actor is that bot's until the `Kill` that names it.
+its `ai_place` (a jump between two scans, 0.25 s apart, which only a teleport
+makes). An actor is that bot's until the `Kill` that names it. A Spartan bot's
+actor is the players' class, `BP_SpartansBipedActor_C`, so an actor a player
+spawned in (their `player_spawn` names it) is never taken for a bot.
 
 `FindAllOf` walks the whole object array (about 23 ms a class): the pools are
 found once when bots start, and actors made later arrive through
@@ -94,7 +113,7 @@ release of each map, baked this way.
 
 ## Not done
 
-- Bots are Elites: no shipped Spartan AI character.
+- Spartan bots all wear the default armour colour.
 - Slayer's own score counts player kills only: the HUD's board counts bot
   kills, but a round does not end when a bot reaches the score.
 - Team games: bots are all on the AI's own team.

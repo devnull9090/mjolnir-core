@@ -20,7 +20,7 @@ end
 
 -- Defaults: the rules MJOLNIR's variants have always had.
 eq(Settings.variantLine(),
-    "bots=0;map_flags=31;respawn_seconds=5;score.ctf=3;score.slayer=25;score.team_slayer=50;suicide_seconds=5;"
+    "bot_type=0;bots=0;map_flags=31;respawn_seconds=5;score.ctf=3;score.slayer=25;score.team_slayer=50;suicide_seconds=5;"
         .. "time_limit=0;trait.camo=0;trait.shields=0;vehicles.blue=0;vehicles.red=0",
     "defaults")
 -- The loader keeps the score of the game type it stages.
@@ -32,6 +32,8 @@ eq(Settings.option("score", "oddball"), nil, "no score option for a game type wi
 -- Bots: on the PLAYERS page, carried for MJOLNIRHud, never a variant field.
 eq(Settings.option("bots").page, 2, "BOTS on the PLAYERS page")
 eq(forCtf.bots, nil, "the loader drops bots")
+eq(forCtf.bot_type, nil, "and the bot type")
+eq(Settings.text(Settings.option("bot_type")), "SPARTANS", "Spartans by default")
 
 -- Stepping wraps both ways.
 local score = Settings.option("score", "slayer")
@@ -49,7 +51,7 @@ for _, id in ipairs({ "time_limit", "shields", "invisible", "grenades", "powerup
 end
 Settings.step(Settings.option("respawn"), -1)
 local line = Settings.variantLine()
-eq(line, "bots=0;map_flags=22;respawn_seconds=0;score.ctf=3;score.slayer=50;score.team_slayer=50;suicide_seconds=5;"
+eq(line, "bot_type=0;bots=0;map_flags=22;respawn_seconds=0;score.ctf=3;score.slayer=50;score.team_slayer=50;suicide_seconds=5;"
     .. "time_limit=5;trait.camo=4;trait.shields=1;vehicles.blue=0;vehicles.red=0", "changed line")
 eq(table.concat(Settings.changes("slayer"), "|"),
     "KILLS TO WIN: 50|TIME LIMIT: 5 MINUTES|RESPAWN TIME: INSTANT|SHIELDS: OFF|INVISIBLE PLAYERS: YES|"

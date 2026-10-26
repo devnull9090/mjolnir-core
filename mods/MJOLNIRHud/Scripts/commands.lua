@@ -24,6 +24,9 @@
 
 local Commands = {}
 
+--- /bots' kinds, as MJOLNIRHud's Bots.KINDS numbers them, then MIXED.
+local BOT_KINDS = { "spartans", "elites", "grunts", "jackals", "mixed" }
+
 Commands.PREFIX = "MJOLNIR|cmd|"
 Commands.ROWS = 6 -- build_mjolnir_ui.py CHAT_SUGGEST_ROWS
 
@@ -39,7 +42,8 @@ local LIST = {
     { name = "ban", who = "host", args = "<player>", help = "Kick a player and keep them out of your games", player = true },
     { name = "unban", who = "host", args = "<name>", help = "Let a banned name join again" },
     { name = "slay", who = "host", args = "<player>", help = "Kill a player", player = true },
-    { name = "bots", who = "host", args = "<0-15>", help = "Add or remove AI bots in this match" },
+    { name = "bots", who = "host", args = "<0-15> [spartans|elites|grunts|jackals|mixed]",
+        help = "Add or remove AI bots in this match, or change what they are" },
     { name = "tp", who = "host", args = "<player>", help = "Teleport to a player (experimental)", player = true },
     { name = "bring", who = "host", args = "<player>", help = "Teleport a player to you (experimental)", player = true },
 }
@@ -185,9 +189,21 @@ function Commands.run(cx, who, text)
         return {}
     end
     if c.name == "bots" then
-        local n = tonumber(rest)
-        if not n or n < 0 then return { "/bots <0-15>: " .. tostring(cx.botCount and cx.botCount() or 0) .. " now." } end
-        return { cx.setBots(n) }
+        local count, word = rest:match("^(%d+)%s*(%a*)$")
+        local n = tonumber(count)
+        if not n then
+            return { "/bots <0-15> [spartans|elites|grunts|jackals|mixed]: "
+                .. tostring(cx.botCount and cx.botCount() or 0) .. " now." }
+        end
+        local kind = nil
+        if word ~= "" then
+            word = string.lower(word)
+            for i, k in ipairs(BOT_KINDS) do
+                if k:sub(1, #word) == word then kind = i - 1 end
+            end
+            if not kind then return { "/bots: no kind called '" .. word .. "'." } end
+        end
+        return { cx.setBots(n, kind) }
     end
     if c.name == "unban" then
         if rest == "" then return { "/unban <name>" } end

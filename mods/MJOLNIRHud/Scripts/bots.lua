@@ -25,10 +25,18 @@ local PLACE_TIMEOUT = 4
 local SCAN_SECONDS = 0.25
 
 --- The AI bipeds a bot can be (the squads' characters').
+--- Spartans are the players' own class: `isPlayer` keeps their bodies out.
 local CLASSES = {
-    "BP_EliteBipedActor_C", "BP_GruntBipedActor_C", "BP_JackalBipedActor_C", "BP_BruteBipedActor_C",
-    "BP_MaleMarineBipedActor_C", "BP_FemaleMarineBipedActor_C",
+    "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C", "BP_GruntBipedActor_C", "BP_JackalBipedActor_C",
+    "BP_BruteBipedActor_C", "BP_MaleMarineBipedActor_C", "BP_FemaleMarineBipedActor_C",
 }
+
+--- The kinds of bot a map baked with `blam.bots.types` offers, as the
+--- host's BOT TYPE setting numbers them (MJOLNIRLobby settings.lua); MIXED
+--- takes them in turn. A map baked before kinds has `bot_<k>` only, which
+--- every kind falls back to.
+Bots.KINDS = { "spartan", "elite", "grunt", "jackal" }
+Bots.MIXED = #Bots.KINDS
 
 Bots.NAMES = {
     "Joshua", "Avery", "Marcus", "Riley", "Elena", "Dominic", "Kara", "Tobias", "Nadia", "Victor",
@@ -149,7 +157,7 @@ end
 
 --- Start `count` bots. `onSeat(index, name)` is told a bot's seat and name
 --- each time it is placed: on the floor, alive.
-function Bots.begin(count, now, onSeat)
+function Bots.begin(count, now, onSeat, kind, isPlayer)
     if not loadDll() then
         log("bots: MJOLNIRLobby's DLL is not there; no bots")
         return false
@@ -157,7 +165,8 @@ function Bots.begin(count, now, onSeat)
     if enable then pcall(enable) end
     fillPool()
     math.randomseed(os.time())
-    state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil, names = shuffled(Bots.NAMES) }
+    state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil, names = shuffled(Bots.NAMES),
+        kind = kind or 0, isPlayer = isPlayer or function() return false end }
     Bots.resize(count, now)
     log(string.format("bots: %d bot(s) for this match", count))
     return true
@@ -175,14 +184,16 @@ function Bots.resize(count, now)
         if state.placing == s then state.placing = nil end
         if s.addr then state.retired[s.addr] = true end
         if s.status ~= "waiting" and s.status ~= "missing" then
-            lines[#lines + 1] = string.format("(ai_erase bot_%d)", s.k)
+            lines[#lines + 1] = string.format("(ai_erase %s)", s.squad)
         end
         if s.seated then removed[#removed + 1] = s.index end
     end
     for k = #state.slots, count - 1 do
+        local kind = state.kind >= Bots.MIXED and Bots.KINDS[k % #Bots.KINDS + 1]
+            or Bots.KINDS[state.kind + 1] or Bots.KINDS[1]
         state.slots[#state.slots + 1] = {
             k = k, index = Bots.BASE + k, name = state.names[(k % #state.names) + 1] .. " (bot)",
-            status = "waiting", nextAt = now + 1 + (k - #state.slots) * 0.5,
+            squad = kind .. "_" .. k, status = "waiting", nextAt = now + 1 + (k - #state.slots) * 0.5,
         }
     end
     if #lines > 0 then script(lines) end
@@ -247,21 +258,17 @@ local function roam(now, humans)
         if s.status == "alive" and now >= (s.roamAt or 0) and #lines < 14 then
             s.roamAt = now + ROAM_MIN + math.random() * (ROAM_MAX - ROAM_MIN)
             if humans > 0 and math.random() < 0.5 then
-                lines[#lines + 1] = string.format("(ai_set_task bot_%d mjolnir_bots hunt)", s.k)
-                lines[#lines + 1] = string.format("(ai_magically_see_object bot_%d (player_get %d))", s.k, math.random(humans) - 1)
+                lines[#lines + 1] = string.format("(ai_set_task %s mjolnir_bots hunt)", s.squad)
+                lines[#lines + 1] = string.format("(ai_magically_see_object %s (player_get %d))", s.squad, math.random(humans) - 1)
             else
-                lines[#lines + 1] = string.format("(ai_set_task bot_%d mjolnir_bots area_%d)", s.k, math.random(Bots.AREAS) - 1)
+                lines[#lines + 1] = string.format("(ai_set_task %s mjolnir_bots area_%d)", s.squad, math.random(Bots.AREAS) - 1)
             end
         end
     end
     if #lines > 0 then script(lines) end
 end
 
---- `humans`: how many human players the match has (`player_get`'s range).
-function Bots.tick(now, humans)
-    if not state or now < state.nextScan then return end
-    state.nextScan = now + SCAN_SECONDS
-    local live, where = liveActors()
+local function step(now, humans, live, where)
     -- A retired actor that went back to the pool may be handed out again.
     for at in pairs(state.retired) do
         if not live[at] then state.retired[at] = nil end
@@ -281,8 +288,11 @@ function Bots.tick(now, humans)
     local p = state.placing
     if p then
         for at, actor in pairs(live) do
+            -- Out of the pool since the ai_place, or teleported (a jump between
+            -- two scans no one runs) onto the spawn.
             local fresh = not p.before[at] and not state.retired[at]
-            if not taken[at] and (fresh or jumped(p.before[at], where[at])) then
+            local teleported = p.before[at] and jumped(state.lastWhere and state.lastWhere[at], where[at])
+            if not taken[at] and (fresh or teleported) and not state.isPlayer(at) then
                 p.status, p.addr, p.actor = "alive", at, actor
                 -- A few seconds to look around where it spawned first.
                 p.roamAt = now + 3 + math.random() * 4
@@ -295,9 +305,12 @@ function Bots.tick(now, humans)
         if now - p.placedAt > PLACE_TIMEOUT then
             p.tries = (p.tries or 0) + 1
             state.placing = nil
-            if p.tries >= 2 then
+            if p.tries >= 2 and p.squad ~= ("bot_" .. p.k) then
+                -- A map baked before kinds: its squads are bot_<k>.
+                p.squad, p.tries, p.status, p.nextAt = "bot_" .. p.k, 0, "waiting", now
+            elseif p.tries >= 2 then
                 p.status = "missing"
-                log(string.format("bots: bot_%d never appeared; this map has no such squad", p.k))
+                log(string.format("bots: %s never appeared; this map has no such squad", p.squad))
             else
                 p.status, p.nextAt = "waiting", now + 1
             end
@@ -306,7 +319,7 @@ function Bots.tick(now, humans)
     end
     for _, s in ipairs(state.slots) do
         if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
-            if script({ string.format("(ai_place bot_%d)", s.k) }) then
+            if script({ string.format("(ai_place %s)", s.squad) }) then
                 -- Whatever is out already is not this bot.
                 s.status, s.placedAt, s.before = "placing", now, where
                 state.placing = s
@@ -314,6 +327,16 @@ function Bots.tick(now, humans)
             return
         end
     end
+end
+
+--- `humans`: how many human players the match has (`player_get`'s range).
+function Bots.tick(now, humans)
+    if not state or now < state.nextScan then return end
+    state.nextScan = now + SCAN_SECONDS
+    local live, where = liveActors()
+    step(now, humans, live, where)
+    -- Where each actor stood this scan, for the next one's teleport test.
+    if state then state.lastWhere = where end
 end
 
 --- The seats of every bot that has been placed, with their names.
@@ -324,6 +347,16 @@ function Bots.seats()
         if s.seated then out[#out + 1] = { index = s.index, name = s.name, alive = s.status == "alive" } end
     end
     return out
+end
+
+--- The kind of bot the host chose: `bot_type` in the game settings line
+--- (an index into Bots.KINDS, or Bots.MIXED), Spartans without one.
+function Bots.wantedKind(loaderDir)
+    local f = io.open(loaderDir .. "\\variant_settings.txt", "rb")
+    if not f then return 0 end
+    local n = tonumber((f:read("*a") or ""):match("bot_type=(%d+)"))
+    f:close()
+    return math.min(n or 0, Bots.MIXED)
 end
 
 --- How many bots the host asked for: `bots` in the game settings line

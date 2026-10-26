@@ -1501,27 +1501,45 @@ local function demoTick()
     DemoRun.steps = #left > 0 and left or nil
 end
 
+--- Whether the actor at `address` is a player's biped (their spawns name
+--- it): a Spartan bot is the players' own class.
+local function isPlayerBiped(address)
+    for index, p in pairs(Match and Match.players or {}) do
+        if index <= 15 and p.biped then
+            local ok, at = pcall(function() return p.biped:GetAddress() end)
+            if ok and at == address then return true end
+        end
+    end
+    return false
+end
+
 --- Bots for this match (Scripts/bots.lua): each gets a seat on the board
 --- under its name, and is alive again each time it is placed (an AI raises
 --- no `player_spawn`).
-local function startBots(count)
+local function startBots(count, kind)
     Bots.stop()
     if not (Match and Match.host) or count <= 0 then return end
     Bots.begin(count, now(), function(index, name)
         local p = stats(index)
         p.name, p.bot, p.dead, p.left = name, true, false, nil
         boardDirty = true
-    end)
+    end, kind or Bots.wantedKind(LOADER_DIR), isPlayerBiped)
 end
 
 --- The host changes how many bots play (`/bots`, `mjolnir_bots`): the ones
 --- playing stay, new ones are placed, the last ones past `count` leave.
 --- Returns what to tell the host.
-local function setBots(count)
+local function setBots(count, kind)
     if not (Match and Match.host) then return "Only the host can change the bots." end
     count = math.max(0, math.min(math.floor(count), 15))
-    if not Bots.active() then
-        startBots(count)
+    if kind or not Bots.active() then
+        -- Another kind: the bots there are leave, the new ones come in.
+        for _, seat in ipairs(Bots.seats()) do
+            local p = stats(seat.index)
+            -- The seat is someone else's when it is taken again.
+            p.left, p.kills, p.rawKills, p.deaths, p.suicides = true, 0, 0, 0, 0
+        end
+        startBots(count, kind)
     else
         for _, index in ipairs(Bots.resize(count, now())) do
             stats(index).left = true

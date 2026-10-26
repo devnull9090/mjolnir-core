@@ -347,6 +347,40 @@ pub struct Bots {
     pub zone: usize,
     #[serde(default)]
     pub objective: usize,
+    /// The kinds of bot the map offers, each with `count` squads of its own
+    /// named `<name>_<k>`: MJOLNIRHud places the kind the host chose. Without
+    /// any, one kind `bot` from the donor squad and `weapon`.
+    #[serde(default)]
+    pub types: Vec<BotType>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotType {
+    /// The squads' name prefix (`spartan` -> `spartan_0` ..).
+    pub name: String,
+    /// The character: a substring of a `character palette` entry's tag path,
+    /// or a character tag's full path (`objects\characters\...`), added to
+    /// the palette when no entry names it. Unset keeps the donor squad's.
+    #[serde(default)]
+    pub character: Option<String>,
+    /// A substring of a weapon palette entry's path; unset, `bots.weapon`.
+    #[serde(default)]
+    pub weapon: Option<String>,
+    /// The squads' team (`covenant`, `berserk_hostile_to_all` ...). A human
+    /// character fights players only on a team that is not theirs.
+    #[serde(default)]
+    pub team: Option<String>,
+}
+
+impl Bots {
+    fn kinds(&self) -> Vec<BotType> {
+        if self.types.is_empty() {
+            vec![BotType { name: "bot".into(), character: None, weapon: None, team: None }]
+        } else {
+            self.types.clone()
+        }
+    }
 }
 
 fn default_bot_spacing() -> f64 {
@@ -1650,7 +1684,7 @@ impl Baker {
             };
             Ok(if cleared { kept } else { before })
         };
-        let squad = base("squads", donor, count)?;
+        let squad = base("squads", donor, count * bots.kinds().len())?;
         let zone = base("zones", bots.zone, 1)?;
         let objective = base("ai objectives", bots.objective, 1)?;
         // The AI reads `ai user hint data[0]` without checking the block has
@@ -1658,8 +1692,11 @@ impl Baker {
         // it): keep one, emptied in `bots_finish`.
         let hint = base("ai user hint data", 0, 1)?;
         println!(
-            "  bots    {count} squad(s) from {:?} (squads[{donor}]), zone from zones[{}], objective from ai objectives[{}]",
-            bots.squad, bots.zone, bots.objective
+            "  bots    {count} squad(s) of {} kind(s) from {:?} (squads[{donor}]), zone from zones[{}], objective from ai objectives[{}]",
+            bots.kinds().len(),
+            bots.squad,
+            bots.zone,
+            bots.objective
         );
         Ok(BotIndices { squad, count, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
     }
@@ -1934,57 +1971,84 @@ impl Baker {
         }
         println!("  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{}", n - 1);
 
-        // The squads: one actor each, standing on its spawn.
-        let weapon = match &bots.weapon {
-            Some(want) => {
-                let n = block_count(&self.file, "weapon palette")?;
-                let names: Vec<String> = (0..n).map(|i| format!("weapon palette[{i}].name")).collect();
-                let i = read_many(&self.file, &names)?
-                    .iter()
-                    .position(|v| v.as_ref().is_some_and(|s| s.display().contains(want.as_str())))
-                    .with_context(|| format!("bots: no weapon palette entry matching {want:?}"))?;
-                Some(i)
-            }
-            None => None,
+        // The squads: one actor each, standing on its spawn, `count` of each
+        // kind.
+        let palette_index = |file: &[u8], palette: &str, field: &str, want: &str| -> Result<Option<usize>> {
+            let n = block_count(file, palette)?;
+            let names: Vec<String> = (0..n).map(|i| format!("{palette}[{i}].{field}")).collect();
+            Ok(read_many(file, &names)?
+                .iter()
+                .position(|v| v.as_ref().is_some_and(|s| s.display().to_lowercase().contains(&want.to_lowercase()))))
         };
-        let keep: Vec<(String, Vec<usize>)> = (0..ix.count)
+        let keep: Vec<(String, Vec<usize>)> = (0..ix.count * bots.kinds().len())
             .flat_map(|i| {
                 let s = format!("squads[{}]", ix.squad + i);
                 [(format!("{s}.spawn points"), vec![0]), (format!("{s}.spawn formations"), vec![])]
             })
             .collect();
         self.file = blockedit::select(&self.file, &keep)?;
-        for i in 0..ix.count {
-            let s = format!("squads[{}]", ix.squad + i);
-            let (pos, yaw) = ix.spawns[i % ix.spawns.len()];
-            let (x, y, z) = ue_to_blam(abs_pos(self.origin, pos));
-            set_fixed_string(&mut self.file, &format!("{s}.name"), &format!("bot_{i}"))?;
-            let mut sets = vec![
-                (format!("{s}.flags"), "0x0".to_string()),
-                (format!("{s}.parent"), "none".to_string()),
-                (format!("{s}.initial zone"), format!("#{}", ix.zone)),
-                (format!("{s}.initial objective"), format!("#{}", ix.objective)),
-                (format!("{s}.initial task"), "#0".to_string()),
-                (format!("{s}.editor folder"), "none".to_string()),
-                (format!("{s}.spawn points[0].position"), format!("({x}, {y}, {})", z + 0.1)),
-                (format!("{s}.spawn points[0].reference frame"), "none".to_string()),
-                (format!("{s}.spawn points[0].structure bsp"), format!("#{bsp}")),
-                (format!("{s}.spawn points[0].facing (yaw, pitch)"), format!("({}, 0)", ue_yaw_to_blam(yaw))),
-            ];
-            if let Some(w) = weapon {
-                sets.push((format!("{s}.spawn points[0].initial weapon"), format!("#{w}")));
+        for (t, kind) in bots.kinds().iter().enumerate() {
+            let weapon = match kind.weapon.as_ref().or(bots.weapon.as_ref()) {
+                Some(want) => Some(
+                    palette_index(&self.file, "weapon palette", "name", want)?
+                        .with_context(|| format!("bots: no weapon palette entry matching {want:?}"))?,
+                ),
+                None => None,
+            };
+            let character = match &kind.character {
+                Some(want) => Some(match palette_index(&self.file, "character palette", "reference", want)? {
+                    Some(i) => i,
+                    None if want.contains('\\') => {
+                        let i = self.add_element("character palette")?;
+                        apply_set(&mut self.file, &format!("character palette[{i}].reference"), &format!("char:{want}"))
+                            .with_context(|| format!("bots: character {want}"))?;
+                        println!("  palette character palette[{i}] <- {want}");
+                        i
+                    }
+                    None => bail!("bots: no character palette entry matching {:?}", want),
+                }),
+                None => None,
+            };
+            for i in 0..ix.count {
+                let s = format!("squads[{}]", ix.squad + t * ix.count + i);
+                let (pos, yaw) = ix.spawns[i % ix.spawns.len()];
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, pos));
+                set_fixed_string(&mut self.file, &format!("{s}.name"), &format!("{}_{i}", kind.name))?;
+                let mut sets = vec![
+                    (format!("{s}.flags"), "0x0".to_string()),
+                    (format!("{s}.parent"), "none".to_string()),
+                    (format!("{s}.initial zone"), format!("#{}", ix.zone)),
+                    (format!("{s}.initial objective"), format!("#{}", ix.objective)),
+                    (format!("{s}.initial task"), "#0".to_string()),
+                    (format!("{s}.editor folder"), "none".to_string()),
+                    (format!("{s}.spawn points[0].position"), format!("({x}, {y}, {})", z + 0.1)),
+                    (format!("{s}.spawn points[0].reference frame"), "none".to_string()),
+                    (format!("{s}.spawn points[0].structure bsp"), format!("#{bsp}")),
+                    (format!("{s}.spawn points[0].facing (yaw, pitch)"), format!("({}, 0)", ue_yaw_to_blam(yaw))),
+                ];
+                if let Some(w) = weapon {
+                    sets.push((format!("{s}.spawn points[0].initial weapon"), format!("#{w}")));
+                }
+                if let Some(c) = character {
+                    sets.push((format!("{s}.spawn points[0].character type"), format!("#{c}")));
+                }
+                if let Some(team) = &kind.team {
+                    sets.push((format!("{s}.team"), team.clone()));
+                }
+                for (field, value) in sets {
+                    apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
+                }
             }
-            for (field, value) in sets {
-                apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
-            }
+            println!(
+                "  bots    {} squad(s) {}_0 .. {}_{}{}{}",
+                ix.count,
+                kind.name,
+                kind.name,
+                ix.count - 1,
+                character.map(|c| format!(", character palette[{c}]")).unwrap_or_default(),
+                weapon.map(|w| format!(", weapon palette[{w}]")).unwrap_or_default()
+            );
         }
-        println!(
-            "  bots    squads[{}..{}] bot_0 .. bot_{}{}",
-            ix.squad,
-            ix.squad + ix.count,
-            ix.count - 1,
-            weapon.map(|w| format!(", weapon palette[{w}]")).unwrap_or_default()
-        );
         Ok(())
     }
 

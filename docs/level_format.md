@@ -254,9 +254,19 @@ fields of the placement, relative to its element
   "spawns": [{ "pos": [x, y, z], "yaw": 0 }], // cycled; default: player_starts
   "weapon": "plasma_rifle",        // a weapon palette entry's path, by substring
   "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048)
-  "areas": 16                      // the firing positions' grid of areas
+  "areas": 16,                     // the firing positions' grid of areas
+  "types": [                       // kinds of bot, `count` squads each: <name>_<k>
+    { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
+      "weapon": "assault_rifle", "team": "covenant" },
+    { "name": "elite", "character": "elite\\ai\\elite", "weapon": "plasma_rifle" }
+  ]
 }
 ```
+
+A type's `character` is a substring of a `character palette` entry, or a full
+character tag path, which the bake adds to the palette; `weapon` falls back to
+`bots.weapon`, and `team` sets the squads' team. Without `types` there is one
+kind, `bot_<k>`, from the donor squad.
 
 The bake clones, before the clears (which keep them): one single-actor squad
 per bot, one zone (`mjolnir_bots`) whose firing positions cover the walkable
