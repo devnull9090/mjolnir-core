@@ -265,7 +265,8 @@ fields of the placement, relative to its element
 
 A type's `character` is a substring of a `character palette` entry, or a full
 character tag path, which the bake adds to the palette; `weapon` falls back to
-`bots.weapon`, and `team` sets the squads' team. Without `types` there is one
+`bots.weapon`, `weapons` (a list) hands its entries out in turn across the
+kind's squads, and `team` sets the squads' team. Without `types` there is one
 kind, `bot_<k>`, from the donor squad.
 
 The bake clones, before the clears (which keep them): one single-actor squad

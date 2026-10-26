@@ -39,11 +39,19 @@ reference per surface naming its sector. Blood Gulch: 2947 sectors, 4930
 links, one connected area of 2828 sectors. No jump, ladder or hint links.
 
 **AI stand still without orders.** They hold firing positions in their task's
-areas until they see someone. The bake gives the objective one task per area,
-and the host's HUD orders each bot every 12-25 s: half the time
-`(ai_set_task bot_k mjolnir_bots area_<r>)` to a random area, otherwise the
-`hunt` task and `(ai_magically_see_object bot_k (player_get n))` on a random
-human player.
+areas until they see someone, and AI far from every player go idle. Each bot
+is forced active when placed (`ai_force_active`), the bake gives the objective
+one task per area and makes `hunt` follow the players (radius 3 wu, every
+player slot), and the host's HUD orders each bot every 8-16 s: three times in
+four the `hunt` task and `(ai_magically_see_object <squad> (player_get n))`
+on a random human player, otherwise `(ai_set_task <squad> mjolnir_bots
+area_<r>)` to a random area.
+
+**Slayer's score ignores bots.** Its kill trigger counts kills of players, so
+the round never ended on bot kills. With bots playing, the host's HUD ends the
+match itself when anyone (bot or player) reaches the score to win, the way the
+game's own `round_over` does: final standings, then the post-game screen. A
+fireteam client gets no `round_over`; it follows the host's travel.
 
 **AI are not players.** Their incidents carry player index -1 and the AI
 biped's actor: a player who kills a bot raises `Kill` (no `death`), a bot that

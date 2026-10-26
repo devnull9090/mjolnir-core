@@ -591,6 +591,24 @@ local function finishMatch(how)
 end
 
 HANDLERS.round_over = function() finishMatch("round over") end
+
+--- With bots the host ends the match itself: Slayer's own script counts kills
+--- of players only, so a score made on bots never ends the round.
+local function botScoreReached()
+    if not (Match and Match.host and Bots.active()) or Match.over then return false end
+    local toWin = Match.mode.toWin or 0
+    if toWin <= 0 then return false end
+    if Match.mode.teams then
+        for _, total in pairs(Scoreboard.totals(Match)) do
+            if total >= toWin then return true end
+        end
+        return false
+    end
+    for _, p in pairs(Match.players) do
+        if not p.left and score(p) >= toWin then return true end
+    end
+    return false
+end
 HANDLERS.game_over = function() finishMatch("game over") end
 
 HANDLERS.player_quit = function(inc)
@@ -744,6 +762,7 @@ local function drain()
         end
     end
     if #Match.medals > 0 then announceMedals() end
+    if botScoreReached() then finishMatch("round over") end
     -- Deaths no kill or suicide line explained: a fall, the guardians.
     local t = now()
     local keep = {}

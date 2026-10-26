@@ -367,6 +367,10 @@ pub struct BotType {
     /// A substring of a weapon palette entry's path; unset, `bots.weapon`.
     #[serde(default)]
     pub weapon: Option<String>,
+    /// Weapons handed out in turn, squad `k` taking the `k`th (cycled): a
+    /// mixed arsenal. Replaces `weapon` when given.
+    #[serde(default)]
+    pub weapons: Vec<String>,
     /// The squads' team (`covenant`, `berserk_hostile_to_all` ...). A human
     /// character fights players only on a team that is not theirs.
     #[serde(default)]
@@ -376,7 +380,7 @@ pub struct BotType {
 impl Bots {
     fn kinds(&self) -> Vec<BotType> {
         if self.types.is_empty() {
-            vec![BotType { name: "bot".into(), character: None, weapon: None, team: None }]
+            vec![BotType { name: "bot".into(), character: None, weapon: None, weapons: Vec::new(), team: None }]
         } else {
             self.types.clone()
         }
@@ -1958,6 +1962,10 @@ impl Baker {
                 (format!("{tp}.flags"), "0x200".to_string()),
                 // The roaming tasks go where their area is, not after player 0.
                 (format!("{tp}.follow"), if t == 0 { "1" } else { "0" }.to_string()),
+                // `hunt` keeps its bots within reach of the players it follows.
+                (format!("{tp}.follow radius"), if t == 0 { "3" } else { "0" }.to_string()),
+                // Every player slot, not the donor's first four.
+                (format!("{tp}.follow players"), if t == 0 { "0xffff" } else { "0x0" }.to_string()),
                 (format!("{tp}.first_child"), "none".to_string()),
                 (format!("{tp}.next_sibling"), if t < n { format!("#{}", t + 1) } else { "none".to_string() }),
                 (format!("{tp}.parent"), "none".to_string()),
@@ -1988,13 +1996,18 @@ impl Baker {
             .collect();
         self.file = blockedit::select(&self.file, &keep)?;
         for (t, kind) in bots.kinds().iter().enumerate() {
-            let weapon = match kind.weapon.as_ref().or(bots.weapon.as_ref()) {
-                Some(want) => Some(
+            let wanted: Vec<&String> = if kind.weapons.is_empty() {
+                kind.weapon.as_ref().or(bots.weapon.as_ref()).into_iter().collect()
+            } else {
+                kind.weapons.iter().collect()
+            };
+            let mut weapons = Vec::new();
+            for want in wanted {
+                weapons.push(
                     palette_index(&self.file, "weapon palette", "name", want)?
                         .with_context(|| format!("bots: no weapon palette entry matching {want:?}"))?,
-                ),
-                None => None,
-            };
+                );
+            }
             let character = match &kind.character {
                 Some(want) => Some(match palette_index(&self.file, "character palette", "reference", want)? {
                     Some(i) => i,
@@ -2026,7 +2039,7 @@ impl Baker {
                     (format!("{s}.spawn points[0].structure bsp"), format!("#{bsp}")),
                     (format!("{s}.spawn points[0].facing (yaw, pitch)"), format!("({}, 0)", ue_yaw_to_blam(yaw))),
                 ];
-                if let Some(w) = weapon {
+                if let Some(w) = weapons.get(i % weapons.len().max(1)) {
                     sets.push((format!("{s}.spawn points[0].initial weapon"), format!("#{w}")));
                 }
                 if let Some(c) = character {
@@ -2046,7 +2059,7 @@ impl Baker {
                 kind.name,
                 ix.count - 1,
                 character.map(|c| format!(", character palette[{c}]")).unwrap_or_default(),
-                weapon.map(|w| format!(", weapon palette[{w}]")).unwrap_or_default()
+                if weapons.is_empty() { String::new() } else { format!(", weapon palette {weapons:?}") }
             );
         }
         Ok(())

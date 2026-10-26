@@ -268,8 +268,17 @@ end
 --- This machine's account, and the matchmaking ban it is under.
 function Identity.me() return me, meBan end
 
+--- "<w>x<h>" of a texture, or nil.
+local avatarSizes = {}
+local function sizeOf(tex)
+    local ok, w, h = pcall(function() return tex:Blueprint_GetSizeX(), tex:Blueprint_GetSizeY() end)
+    return ok and w and h and (w .. "x" .. h) or nil
+end
+
 --- Account `id`'s avatar as a texture, once its file is cached. Kept by
---- name, never by reference, as map covers are (maplive.lua).
+--- name, never by reference, as map covers are (maplive.lua). A name found
+--- again must have the avatar's size: a collected transient texture leaves
+--- its name to the next one imported (a converted map's terrain).
 function Identity.avatar(id)
     if not id then return nil end
     local path = avatarFile(id)
@@ -279,7 +288,7 @@ function Identity.avatar(id)
     end
     if textures[id] then
         local ok, tex = pcall(StaticFindObject, textures[id])
-        if ok and valid(tex) then return tex end
+        if ok and valid(tex) and avatarSizes[id] and sizeOf(tex) == avatarSizes[id] then return tex end
     end
     local krl = StaticFindObject("/Script/Engine.Default__KismetRenderingLibrary")
     local world = worldContext()
@@ -288,6 +297,7 @@ function Identity.avatar(id)
     if not (ok and valid(tex)) then return nil end
     local okName, full = pcall(function() return tex:GetFullName() end)
     textures[id] = okName and full and full:match("^%S+%s+(.+)$") or nil
+    avatarSizes[id] = sizeOf(tex)
     return tex
 end
 

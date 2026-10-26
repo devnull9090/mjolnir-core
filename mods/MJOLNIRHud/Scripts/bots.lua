@@ -246,18 +246,21 @@ function Bots.died(index, now)
 end
 
 --- AI stand at their firing positions until they see someone. A bot is
---- given somewhere to be every so often: half the time a human player it is
+--- given somewhere to be every so often: mostly a human player it is
 --- made aware of, wherever they are (task `hunt`), otherwise one of the
 --- map's areas (task `area_<k>`) to walk to (level.rs bots_finish).
 Bots.AREAS = 16
-local ROAM_MIN, ROAM_MAX = 12, 25
+local ROAM_MIN, ROAM_MAX = 8, 16
+--- How often an order is a hunt (a human player, wherever they are) rather
+--- than a walk to a random area.
+local HUNT_SHARE = 0.75
 
 local function roam(now, humans)
     local lines = {}
     for _, s in ipairs(state.slots) do
         if s.status == "alive" and now >= (s.roamAt or 0) and #lines < 14 then
             s.roamAt = now + ROAM_MIN + math.random() * (ROAM_MAX - ROAM_MIN)
-            if humans > 0 and math.random() < 0.5 then
+            if humans > 0 and math.random() < HUNT_SHARE then
                 lines[#lines + 1] = string.format("(ai_set_task %s mjolnir_bots hunt)", s.squad)
                 lines[#lines + 1] = string.format("(ai_magically_see_object %s (player_get %d))", s.squad, math.random(humans) - 1)
             else
@@ -319,7 +322,9 @@ local function step(now, humans, live, where)
     end
     for _, s in ipairs(state.slots) do
         if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
-            if script({ string.format("(ai_place %s)", s.squad) }) then
+            -- Active wherever it is: AI far from every player otherwise idle, and
+            -- a bot hunting across the map must not.
+            if script({ string.format("(ai_place %s)", s.squad), string.format("(ai_force_active %s true)", s.squad) }) then
                 -- Whatever is out already is not this bot.
                 s.status, s.placedAt, s.before = "placing", now, where
                 state.placing = s
