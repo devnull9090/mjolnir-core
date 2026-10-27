@@ -77,5 +77,11 @@ only the owning local player controller's tick advances the path; remote-player
 ticks are ignored. If ownership cannot be verified, FlyCam stops rather than
 controlling an arbitrary player. This does not intercept player movement input.
 
-The feature is source implementation with offline tests; it still needs a live
-game check on the installed build. It does not record or assemble video itself.
+An in-game private TST beta test verified saved poses, HUD-free framing, and
+eight-second linear and smooth two-point moves and a two-segment path on a
+single local player. The
+linear move was recorded with the experimental helper in
+[`docs/game_automation.md`](../../docs/game_automation.md#silent-local-video-capture-experimental)
+at 1280×720. Multiple simultaneous player controllers, 4K capture and final
+facility lighting still need live checks. FlyCam itself
+does not record or assemble video.

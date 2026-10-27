@@ -290,6 +290,66 @@ failure with exit code zero. Never continue with a stale map. It temporarily
 moves `bitmaps.map` aside to embed lightmaps and restores it in `finally`.
 The resulting cache is `<HEK>/maps/tst.map`.
 
+### Experimental split facility build
+
+The dense facility detail can exceed the classic HEK structure compiler's
+limits. An **experimental** opt-in separates its render-only metal triangles
+into a native mesh while retaining the complementary CE structure and collision.
+This path has not yet been validated end to end in the game. Use a dedicated
+HEK copy and a new output folder; never point it at your existing map outputs.
+It requires Python with NumPy, Blender and the Halo add-on described above.
+
+For example, in PowerShell 7, replace these paths for your machine. The work
+folder must not already exist; the tag copy excludes only the old TST outputs.
+The original kit is read, never modified by this preparation:
+
+```powershell
+$classic = 'C:/haloce/hek'
+$work = 'C:/haloce/ce_conversions/tst-split-example'
+if (Test-Path -LiteralPath $work) { throw "Choose a new work folder: $work" }
+$hek = Join-Path $work 'hek'
+$bundle = Join-Path $work 'bundle'
+New-Item -ItemType Directory -Path $hek,(Join-Path $hek 'maps') | Out-Null
+& robocopy (Join-Path $classic 'tags') (Join-Path $hek 'tags') /E /XJ /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XD (Join-Path $classic 'tags/levels/test/tst')
+if ($LASTEXITCODE -ge 8) { throw 'HEK tag copy failed; inspect the copy before continuing.' }
+foreach ($name in @('tool.exe','ogg.dll','vorbis.dll','vorbisenc.dll','vorbisfile.dll')) {
+    Copy-Item -LiteralPath (Join-Path $classic $name) -Destination (Join-Path $hek $name)
+}
+foreach ($name in @('bitmaps.map','sounds.map','loc.map')) {
+    Copy-Item -LiteralPath (Join-Path $classic "maps/$name") -Destination (Join-Path $hek "maps/$name")
+}
+pwsh -File levels/test/tst/rebuild.ps1 -HekRoot $hek -SplitFacilityDetail -FacilityOutputDir $bundle
+```
+
+Override `-BlenderExe`, `-AddonRoot` and `-MccTagsRoot` when needed. The split
+option requires a fresh full geometry export; it cannot be combined with
+`-SkipGeometry`. It refuses an existing bundle or existing TST build outputs in
+the dedicated HEK. The new bundle contains `authoring/tst.blend`, its owned
+textures and `surfaces.json`, the full original JMS and placements, a separate
+`partition/` with the reduced CE JMS and complementary native glTF/bin,
+`tst.map`, and build evidence. The `.blend` references its bundled textures
+through relative paths. The full authored JMS is never replaced by the reduced
+one. A canonical `tst-facility-ce-build-receipt.json` is created only after
+successful structure, scenario, lightmap and cache stages and receipt checks;
+if the build fails, inspect the bundle and logs rather than reusing a prior map.
+
+After this succeeds, set up the conversion environment in the next section,
+then override its normal map and surface-library paths for this bundle:
+
+```bash
+export BUNDLE="C:/haloce/ce_conversions/tst-split-example/bundle"
+export CE_SURFACE_LIBRARY="$BUNDLE/authoring/surfaces.json"
+export CE_NATIVE_DETAIL="$BUNDLE/partition/tst-facility-detail.gltf"
+export CE_NATIVE_SOURCE_JMS="$BUNDLE/authoring/data/levels/test/tst/models/tst.JMS"
+export CE_NATIVE_BUILD_RECEIPT="$BUNDLE/tst-facility-ce-build-receipt.json"
+bash tools/level/convert_ce_map.sh "$BUNDLE/tst.map" TST C:/haloce/ce_conversions/tst-split-example/converted/TST
+```
+
+The converter verifies the receipt and matching
+material slots before cooking. Keep the map, partition, full JMS, surface
+library and receipt from the same build together. Native placement, lighting,
+collision, performance and multiplayer behavior still require in-game checks.
+
 ## 7. Convert and upgrade a visual milestone
 
 Build the helper executables listed in [the rebuild reference](pipeline_test_map.md#tools-and-rebuild).

@@ -236,7 +236,14 @@ def plan(game, state_path, stage, spec_path, surfaces_path, build_start):
                 raise ValueError(f'Unsafe water state destination: {destination}')
             old = digest(destination) if destination.is_file() else None
             pairs.append((source, destination.resolve(), old, 'map/' + rel.as_posix()))
-    if (stage / 'decals').exists():
+    decals = stage / 'decals'
+    # pack_local_map may create an empty directory even when no decals are
+    # authored. Do not follow a link (including a Windows junction), accept
+    # only a real empty directory, and keep rejecting actual decal content.
+    if decals.is_symlink() or getattr(decals, 'is_junction', lambda: False)():
+        raise ValueError('Staged decals directory is a link')
+    if decals.exists() and (not decals.is_dir() or not within(decals, stage) or
+                            next(decals.iterdir(), None) is not None):
         raise ValueError('This TST helper does not install staged decals; review them separately')
     return game, data, identity, pairs
 

@@ -24,6 +24,8 @@ parser.add_argument("--out-dir", type=Path, default=ROOT,
                     help="Destination for tst.blend, placements.json and optional data/ export")
 parser.add_argument("--no-export", action="store_true",
                     help="Fast Blender geometry iteration; do not load Halo exporter or write JMS")
+parser.add_argument("--bundle-textures", action="store_true",
+                    help="Copy owned texture images into the new output directory")
 args = parser.parse_args(sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else [])
 OUTPUT = args.out_dir.resolve()
 OUTPUT.mkdir(parents=True,exist_ok=True)
@@ -741,7 +743,11 @@ bpy.context.view_layer.update()
 # Keep authored images portable beside the source, including --out-dir runs.
 for image in bpy.data.images:
     if image.source == 'FILE' and image.filepath:
-        image.filepath = bpy.path.relpath(bpy.path.abspath(image.filepath), start=str(OUTPUT)).replace('\\','/')
+        if args.bundle_textures:
+            from bundle_textures import copy_owned_image
+            image.filepath = copy_owned_image(bpy.path.abspath(image.filepath), ROOT, OUTPUT)
+        else:
+            image.filepath = bpy.path.relpath(bpy.path.abspath(image.filepath), start=str(OUTPUT)).replace('\\','/')
 bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "tst.blend"), relative_remap=False)
 print("TST_GEOMETRY_SAVED", OUTPUT / "tst.blend")
 sys.path.insert(0, str(ROOT.parents[2] / "tools" / "blender"))

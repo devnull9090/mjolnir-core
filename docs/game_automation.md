@@ -180,8 +180,10 @@ The foreground check runs every 50 ms, so it is not a privacy boundary: system
 overlays or notifications can appear in the recorded rectangle, and a brief focus
 change may be captured before detection. Review a clip before sharing. Check the
 actual image and frame cadence; requested FPS is not a guarantee, especially for
-4K GDI capture under load. This path has synthetic encoder and safety tests but
-must be verified against the running game and its current display configuration.
+4K GDI capture under load. A private TST beta test recorded a HUD-free moving
+camera at 1280×720 with NVENC and a 30 FPS request; framing was inspected at
+several points. Higher resolutions, sustained frame cadence and other display
+configurations still need verification.
 
 ## Hazards
 

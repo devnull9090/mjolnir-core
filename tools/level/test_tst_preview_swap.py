@@ -1,5 +1,6 @@
 """Synthetic round-trip and failure tests; never touches an installed game."""
 import datetime as dt
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -162,6 +163,80 @@ class PreviewSwapTests(unittest.TestCase):
         self.write(self.stage / (swap.CONTAINERS[4] + '.ucas'), base.read_bytes())
         with self.assertRaisesRegex(ValueError, 'identical to the installed beta'):
             self.install()
+        self.assertFalse(self.backup.exists())
+        self.assert_originals()
+
+    def test_empty_real_decals_directory_is_accepted_without_installing_decals(self):
+        (self.stage / 'decals').mkdir()
+        manifest = swap.read_json(self.install())
+        self.assertFalse(any('decals' in entry['name'] for entry in manifest['files']))
+        self.assertFalse((self.data / 'decals').exists())
+        swap.restore(self.backup, self.state, self.game)
+        self.assert_originals()
+
+    def test_nonempty_decals_directory_is_refused_without_writes(self):
+        self.write(self.stage / 'decals' / 'detail.bin', b'decal')
+        with self.assertRaisesRegex(ValueError, 'does not install staged decals'):
+            self.install()
+        self.assertFalse(self.backup.exists())
+        self.assert_originals()
+
+    def test_decals_subdirectory_is_refused_even_when_empty(self):
+        (self.stage / 'decals' / 'nested').mkdir(parents=True)
+        with self.assertRaisesRegex(ValueError, 'does not install staged decals'):
+            self.install()
+        self.assertFalse(self.backup.exists())
+        self.assert_originals()
+
+    def test_decals_path_as_a_file_is_refused(self):
+        self.write(self.stage / 'decals', b'not a directory')
+        with self.assertRaisesRegex(ValueError, 'does not install staged decals'):
+            self.install()
+        self.assertFalse(self.backup.exists())
+        self.assert_originals()
+
+    def test_decals_junction_is_refused_even_when_empty(self):
+        decals = self.stage / 'decals'
+        decals.mkdir()
+        with mock.patch.object(Path, 'is_junction', lambda path: path == decals):
+            with self.assertRaisesRegex(ValueError, 'decals directory is a link'):
+                self.install()
+        self.assertFalse(self.backup.exists())
+        self.assert_originals()
+
+    def test_decals_symlink_is_refused_even_when_empty(self):
+        target = self.stage / 'empty-target'
+        target.mkdir()
+        decals = self.stage / 'decals'
+        patch = nullcontext()
+        try:
+            decals.symlink_to(target, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            # Windows without Developer Mode cannot create a symlink. Still
+            # exercise the symlink-specific branch without elevated rights.
+            decals.mkdir()
+            original = Path.is_symlink
+            patch = mock.patch.object(Path, 'is_symlink', lambda path: path == decals or original(path))
+        with patch:
+            with self.assertRaisesRegex(ValueError, 'decals directory is a link'):
+                self.install()
+        self.assertFalse(self.backup.exists())
+        self.assert_originals()
+
+    def test_dangling_link_inside_decals_is_refused(self):
+        decals = self.stage / 'decals'
+        decals.mkdir()
+        patch = nullcontext()
+        try:
+            (decals / 'dangling').symlink_to(self.root / 'missing-target')
+        except (OSError, NotImplementedError):
+            # Simulate the directory entry returned for a dangling link.
+            original = Path.iterdir
+            patch = mock.patch.object(Path, 'iterdir', lambda path:
+                iter([decals / 'dangling']) if path == decals else original(path))
+        with patch:
+            with self.assertRaisesRegex(ValueError, 'does not install staged decals'):
+                self.install()
         self.assertFalse(self.backup.exists())
         self.assert_originals()
 

@@ -3,8 +3,10 @@
 The facility implements the approved [indoor-only concept](facility-concept-v3-indoor.png)
 and [design brief](facility-concept.json) in editable Blender source. The R18
 interior art review reached 8.0/10; [actual renders and review notes](review/facility-art-review.md)
-record the result and remaining differences. It has not been exported to JMS,
-baked with HEK, tested in game, or published as a new hub package.
+record the result and remaining differences. An experimental split-detail export
+was baked and viewed in a private game session. Terrain blocks both entrances
+and intrudes into a hallway, so this facility is not yet playable or published.
+See [the experimental conversion notes](../../../../tools/level/TST_NATIVE_DETAIL.md).
 
 ## Layout and source ownership
 
@@ -217,7 +219,7 @@ The CE shader's radiosity power
 is separately authored as 80; it is not a conversion of Blender watts. The
 source floor palette uses the aligned roughness texture documented in
 [the art provenance](README.md). Shared tint, atlas UVs and geometry are
-exported source data; game lighting and visual testing remain later steps.
+exported source data; game lighting and materials still need a full art review.
 
 ## Rebuild and review in Blender
 
@@ -241,6 +243,13 @@ The source records `tst_export_pending`; its geometry is newer than the last
 playable build. Open `levels/test/tst/tst.blend` for authoring, or the output
 `preview.blend` for the local assembled study. The preview selects the interior
 camera when requested; other named cameras remain available.
+
+An experimental opt-in split build keeps dense render-only facility metal in
+an authored native mesh and compiles the complementary collision/structure in
+CE. It creates a new bundle containing the full JMS, a reduced CE JMS, native
+detail, owned textures and a receipt only after verified HEK stages. Prepare a
+dedicated, fresh HEK root and follow the [split-build walkthrough](../../../../docs/custom_map_walkthrough.md#experimental-split-facility-build).
+This is not yet a validated playable facility build.
 
 | View | Review purpose |
 | --- | --- |
@@ -307,6 +316,7 @@ The native clearance check covers authored native rock render meshes, not all
 runtime-generated cliff cladding or PCG instances. These offline checks also do
 not reproduce Unreal's simplified collision, game lighting, multiplayer balance
 or frame time. Review both entrance thresholds, every turn, door recesses and
-material joins in Blender first. No JMS export, HEK bake or in-game validation
-has been performed for this facility revision; those steps remain necessary
+material joins in Blender first. A private in-game preview revealed terrain
+blocking both entrances and intruding into a hallway despite the offline checks.
+Resolve those intersections, then repeat in-game visual and collision checks
 before a playable build or hub update.
