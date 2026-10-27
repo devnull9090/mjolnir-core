@@ -7,11 +7,15 @@ authored geometry; the CE BSP supplies gameplay collision; the Unreal cook
 supplies runtime visuals. Players need the launcher and dependencies, not the
 authoring tools.
 
-**Status: public-beta preparation, October 24, 2026.** The current Blender detail
-pass has been exported and rebuilt through HEK structure, lightmaps, cache,
-conversion and Unreal cooking. The source traversal check passed all 206 samples.
-The release notes record the in-game checks for the downloadable beta. Full-match
-balance testing and a clean-machine authoring rebuild remain follow-up work.
+**Status: October 26, 2026.** The published beta and the current Blender source
+are different revisions. The downloadable beta has passed through HEK structure,
+lightmaps, cache, conversion and Unreal cooking. The new enclosed lower facility
+is a Blender-only design pass with `tst_export_pending=true`; its older JMS and
+game outputs do not contain that addition. See the
+[facility authoring notes](../levels/test/tst/art/facility-build.md) for its
+geometry, inspection workflow and validation limits. The release notes record
+the in-game checks for the downloadable beta. Full-match balance testing and a
+clean-machine authoring rebuild remain follow-up work.
 This branch also includes candidate Oddball/KOTH rules; a map archive alone
 cannot add those to an older code-mod installation.
 
@@ -53,20 +57,26 @@ lights and teleporter pairs. They are annotations and never exported as geometry
 | `build_geometry.py` | Reproducible original geometry, materials, UVs and placement design. |
 | `terrain_form.py` | Shared terrain height and surface classification for the mesh and placements. |
 | `perimeter_architecture.py` | Continuous northern wall, recessed bays, balcony, sheltered teleporter arrivals and exit terraces. |
-| `tst.blend` | Editable source scene, annotated after JMS export. |
+| `facility_architecture.py` / `facility_doors.py` | Enclosed lower passages, structural wedges, blind door niches and source light lenses. |
+| `facility_edge_wear.py` | Restrained wear on selected generated bevel faces, retaining closed editable meshes and the shared surface palette. |
+| `surfaces.json` / `architecture_surfaces.py` | Shared authored PBR finishes, portable image paths and UV projection; optional tangent normals. |
+| `amber_light.json` / `amber_light.py` | Map-owned amber indicator shader derived from an external stock light atlas. |
+| `tst.blend` | Editable source scene with annotations; inspect `tst_export_pending` before using older game outputs. |
 | `data/levels/test/tst/models/tst.JMS` | CE geometry export consumed by HEK. |
 | `placements.json` | Gameplay/scenery/light placements in metres. |
 | `build_scenario.py` | Writes the scenario from the placements and stock dependencies. |
 | `tags/levels/test/tst/tst.scenario` | Authored scenario output. |
 | `annotate_blend.py` | Adds non-exported guides and embedded documentation. |
-| `render_preview.py` | Isolated six-camera Blender design preview, with optional locally available scenery. |
+| `render_preview.py` | Named Blender design cameras, including facility views, with optional locally available scenery. |
 | `inspect_layout.py` | Fast authored-mesh placement clearance checks. |
+| `inspect_facility.py` | Both indoor routes, passage widths, turning areas, enclosure, PCG exclusion and atlas/face-direction checks. |
 | `art/` | Generated visual references and texture candidates, with provenance. |
 | `prepare_runtime.py` | Adds objective markers and compiles candidate rules after conversion. |
 | `rebuild.ps1` | Runs and validates the Blender-to-CE-cache sequence. |
 | `tools/level/ce_upgrade_maps.json` | Conversion directory, scenery/material choices, water, lighting and map chunk. |
 
-Blender uses metres with Z up. CE uses 3.048 metres per world unit. Runtime
+Authoring scripts use metres with Z up; stored Blender/CE geometry uses 3.048
+metres per world unit. Runtime
 Unreal positions use centimetres with the authored Y axis flipped: `[100*x,
 -100*y, 100*z]`. The scripts perform these conversions; do not apply them twice.
 
@@ -97,11 +107,19 @@ portal bevels, layered roofs, recesses, terrain transitions and lighting. Check
 interiors with a player-height camera. Annotated layout views should show
 objective locations, spawn visibility, sightlines and teleporter links.
 
-`render_preview.py` creates all six fixed views and a separate `preview.blend`.
+`render_preview.py` creates the selected named views and a separate `preview.blend`.
 See the [copyable render command](../levels/test/tst/README.md) for local asset
 references and the authored alloy texture option. Use `--views red-interior
 side` to inspect only the surfaces being changed. Its manifest records source
 hashes and local asset references, so a render can be traced to its inputs.
+
+The renderer snapshots each visible authored face before applying stock-material
+preview fallbacks. It then checks the face's surface role, source shader tag,
+topology and exported `UVMap` coordinates before saving the preview. A changed
+assignment or UV fails the run. This guards against older preview styling that
+could replace an authored finish even when its material definition survived.
+The manifest's `authored_surface_preservation` result covers these authored
+faces; installed stock/native material approximations remain outside its scope.
 
 For generated geometry, invoke Blender with `--python build_geometry.py --
 --no-export`; add `--out-dir` to preserve a separate experiment. This skips the
@@ -119,6 +137,11 @@ Preview materials are not proof of runtime shading. Keep preview-only lighting,
 scenery and helpers in separate non-exported collections. At milestones, export
 and test in the game: collision, scoring, networking and performance are only
 validated there.
+
+For changes to this guard, run
+`tools/blender/test_authored_preview_preservation.py` through headless Blender.
+Its six regression tests cover preserved authored data, allowed stock styling,
+and rejected role, shader, UV and material-assignment changes.
 
 For installed-game rocks/trees and a cyborg scale reference, use the
 [MJOLNIR Blender add-on](../tools/blender/mjolnir_level/README.md#native-scenery-in-the-tst-design-preview).
@@ -181,7 +204,7 @@ surface cladding. `perimeter_dressing.py` generates `perimeter_dressing.json`;
 the same file feeds the Blender preview and TST's runtime scenery swap through
 `ce_upgrade_maps.json`. This makes a rock's intended transform inspectable and
 reproducible. `inspect_native_decor.py` checks these render meshes against the
-103 authored player envelopes, including the two roof ramps. Neither check validates Unreal collision shapes,
+206 authored player envelopes, including the two roof ramps. Neither check validates Unreal collision shapes,
 movement, vehicle physics or multiplayer balance.
 
 The southern rock crown has explicit CLIFF face overrides: cladding is allowed
@@ -306,6 +329,14 @@ uses the stock CE fallback tags and loses the material separation. The cook
 owns these shaders under `/Game/MJOLNIR/Maps/TST/SurfaceMaterials`; it does not
 require a private replacement for the shared CE runtime. Classic CE uses the
 stock fallback materials; the authored PBR finish is a MJOLNIR build feature.
+
+The facility finishes also declare `normal_map`, `normal_convention` and
+`normal_strength` (0–1). Use linear tangent-normal data; the example's OpenGL
++Y images are converted once to Unreal's DirectX convention during import.
+Keep those texture paths relative to `surfaces.json`, rebuild the Blender
+source after a palette edit, and verify the exported role assignments. The
+facility source demonstrates these settings; its new cook and game validation
+are still pending.
 
 Conversion produces the collision/scenario, materials and meshes. Upgrade
 adds the Landscape, scenery, swapped-object collision, foliage, water and world.

@@ -17,7 +17,7 @@ Forerunner retaining wall on the north. The generated
 [wall study](art/reference/enclosed_basin_wall_concept.png) explores this change
 over the actual Blender overview. It is a design target, not a runtime capture.
 
-The current enclosed source footprint is 150 × 84 m. Both bases sit at
+The outdoor arena footprint is 150 × 84 m. Both bases sit at
 x=-54/+54 m, four metres inward from the previous layout, making room for
 thicker native cliff formations behind their roof routes. The southern apron
 extends to y=-44 m. Native geometry clearance checks cover starts, objectives,
@@ -44,7 +44,9 @@ runtime rules and a multiplayer acceptance result.
 
 The current Blender art pass adds an enclosed lower facility beneath the
 balcony: mirrored entrances on the same arena-facing wall connect through
-indoor doglegs around a central pier. Sealed decorative service doors imply
+diverging ribbed passages and enclosed cross-passages around structural wedges.
+The enclosed interior extends behind the wall to y=55.5 m; its extra depth
+does not add an outdoor area. Sealed decorative service doors imply
 inaccessible rooms; there is no rear exit or second outdoor area. See the
 [facility authoring notes](art/facility-build.md) for dimensions, excavation,
 native-asset exclusions and the Blender-only validation workflow. This revision

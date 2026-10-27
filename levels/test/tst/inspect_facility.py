@@ -3,7 +3,7 @@
 blender --background --factory-startup --python inspect_facility.py -- \
     --out .dream-loop/blender-preview/facility-check.json
 
-The continuous route is sampled every 20 cm with a 2 m high, 0.4 m radius
+The continuous route is sampled every 20 cm with a 2.4 m high, 0.4 m radius
 cylinder. Boundary probes check roof, rear and side enclosure and the two
 arena-facing openings. This is authored-mesh evidence, not game physics.
 """
@@ -22,19 +22,15 @@ from mathutils.bvhtree import BVHTree
 ROOT = Path(__file__).resolve().parent
 POLICIES = ('AUTO', 'NONE', 'GROUND', 'CLIFF', 'BOTH')
 FLOOR = .30
-HEIGHT = 2.0
+# Match the established layout/native envelope and leave clearance above the
+# actual 2.145 m cyborg reference, rather than checking only a 2 m silhouette.
+HEIGHT = 2.4
 RADIUS = .40
 STEP = .20
 APPROACH_MAX_SLOPE_DEGREES = 15.0
 APPROACH_JOIN_STEP = .02
 APPROACH_MAX_STEP = .05
 ENTRANCE_WIDTH = 8.8
-CENTRAL_PASSAGE_WIDTH = 4.0
-CENTRAL_GATE_WIDTH = 3.0
-MAIN_CEILING = 4.01
-WEST_ROUTE = [(-48,24.9),(-48,35.8),(-36,35.8),(-31,30.5),
-              (-18,30.5),(-8,29.9),(-2,29.9),(-2,32.2)]
-ROUTE = WEST_ROUTE + [(-x,y) for x,y in reversed(WEST_ROUTE)]
 
 
 def arguments():
@@ -61,7 +57,7 @@ def authored_mesh(obj):
             not any('SOURCE' in c.name.upper() or c.get('mjolnir_preview_only') for c in obj.users_collection))
 
 
-def tree(objects, unit):
+def tree(objects, unit, include_sky=False):
     vertices, faces, sources = [], [], []
     depsgraph = bpy.context.evaluated_depsgraph_get()
     for obj in objects:
@@ -72,7 +68,8 @@ def tree(objects, unit):
             vertices.extend((obj.matrix_world @ v.co)*unit for v in mesh.vertices)
             for face in mesh.polygons:
                 mat = mesh.materials[face.material_index] if mesh.materials else None
-                if mat and any(token in mat.name.lower() for token in ('sky','water','teleporter')):
+                excluded=('water','teleporter') if include_sky else ('sky','water','teleporter')
+                if mat and any(token in mat.name.lower() for token in excluded):
                     continue
                 faces.append(tuple(offset+i for i in face.vertices))
                 sources.append({'object':obj.name, 'material':mat.name if mat else None,
@@ -91,39 +88,43 @@ def ray(surface, origin, direction, distance):
 
 
 def inside_solid(surface, point):
-    # The BSP normals face the playable air. A negative signed distance to
-    # the closest boundary places a probe inside a wall/baffle, not the room.
+    # Use the complete closed air boundary, including sky, with normals
+    # facing playable air. A first ray crossing into air has positive dot;
+    # crossing out of air has negative dot. Unlike nearest-face signs this
+    # remains valid at the concave corners of the solid structural wedges.
     origin=Vector(point)
-    nearest,normal,_,distance=surface[0].find_nearest(origin)
-    if nearest is None:
-        return False
-    signed=(origin-nearest).dot(normal)
-    if abs(signed)>1e-5:
-        return signed<0
-    # At a shared edge BVH may return the face tangent to the probe vector
-    # instead of the adjoining ceiling/wall. Resolve that ambiguity using
-    # equally-near faces only; mixed or positive signs remain air/unchecked.
-    # A point on the boundary itself is not silently classified as solid.
+    _,_,_,distance=surface[0].find_nearest(origin)
     if distance<=1e-5:
         return False
-    signs=[]
-    for point,face_normal,_,_ in surface[0].find_nearest_range(origin,distance+1e-5):
-        value=(origin-point).dot(face_normal)
-        if abs(value)>1e-5:
-            signs.append(value)
-    return bool(signs) and all(value<0 for value in signs)
+    votes=[]
+    for direction in ((1,.371,.219),(-.213,1,.417),(.179,-.331,1)):
+        direction=Vector(direction).normalized()
+        hit,normal,_,_=surface[0].ray_cast(origin,direction,1000)
+        if hit is None:
+            votes.append(True)
+        else:
+            dot=normal.dot(direction)
+            if abs(dot)>1e-5: votes.append(dot>0)
+    return bool(votes) and all(votes)
 
 
-def sampled_route():
+def sampled_route(route):
     points = []
-    for a,b in zip(ROUTE,ROUTE[1:]):
+    for a,b in zip(route,route[1:]):
         count = max(1, math.ceil(math.dist(a,b)/STEP))
         points.extend((a[0]+(b[0]-a[0])*i/count, a[1]+(b[1]-a[1])*i/count) for i in range(count))
-    return points+[ROUTE[-1]]
+    return points+[route[-1]]
 
 
 def main():
     args = arguments()
+    sys.path.insert(0,str(ROOT))
+    from facility_architecture import validation_contract
+    from amber_light import load_spec as load_amber_spec
+    contract=validation_contract()
+    amber_spec=load_amber_spec()
+    bounds=contract['bounds']
+    main_ceiling=contract['ceiling_m']
     source = args.blend.resolve(strict=True)
     before = hashlib.sha256(source.read_bytes()).hexdigest()
     bpy.ops.wm.open_mainfile(filepath=str(source),load_ui=False)
@@ -136,6 +137,7 @@ def main():
     if bsp is None:
         raise ValueError('Authored BSP boundary is missing')
     structure = tree([bsp],unit)
+    closed_structure = tree([bsp],unit,include_sky=True)
     visible = tree(objects,unit)
     terrain_source=bpy.data.objects.get('SOURCE_TST_sealed_terrain_and_sky')
     if terrain_source is None:
@@ -148,7 +150,8 @@ def main():
 
     # Check both the physical BSP and finish meshes that could visibly intrude.
     route_checks = []
-    for x,y in sampled_route():
+    route_samples=[(name,*point) for name,path in contract['routes'].items() for point in sampled_route(path)]
+    for route_name,x,y in route_samples:
         position = [round(x,4),round(y,4)]
         floor = ray(structure,(x,y,FLOOR+.12),(0,0,-1),.25)
         finish = ray(visible,(x,y,FLOOR+.12),(0,0,-1),.25)
@@ -181,10 +184,10 @@ def main():
             issue('route_roof_open',xy_m=position)
         elif roof['pcg_policy'] != 'NONE':
             issue('roof_pcg',xy_m=position,hit=roof)
-        rear = ray(structure,(x,y,foot+1.0),(0,1,0),39.05-y)
+        rear = ray(structure,(x,y,foot+1.0),(0,1,0),bounds['back_y']+.05-y)
         if rear is None:
             issue('route_rear_open',xy_m=position)
-        route_checks.append({'xy_m':position,'floor_m':floor['point_m'][2] if floor else None,
+        route_checks.append({'route':route_name,'xy_m':position,'floor_m':floor['point_m'][2] if floor else None,
                              'finish_floor_m':finish['point_m'][2] if finish else None,
                              'roof_m':roof['point_m'][2] if roof else None})
 
@@ -294,75 +297,77 @@ def main():
                           'max_expected_profile_error_m':round(max_profile_error,5),
                           'transitions':transitions,'no_sampled_vertical_step':max_height_change<=APPROACH_MAX_STEP})
 
-    # The central partition must leave genuinely broad bypasses. Intersect
-    # visible clear intervals at ankle, body and head heights, then require a
-    # contiguous 4 m band of level structural floor within that interval.
-    # This measures physical passage width, not merely a clear centre line.
-    central_passages=[]
-    gate_passages=[]
-    passage_specs=[(side,y,(-6,-5.1,-4.2,-3.3,3.3,4.2,5.1,6),CENTRAL_PASSAGE_WIDTH)
-                   for side,y in (('front',29.1),('rear',35.3))]
-    passage_specs.append(('gate',32.2,(-.65,-.48,0,.48,.65),CENTRAL_GATE_WIDTH))
-    for side,center_y,x_positions,required_width in passage_specs:
-        for x in x_positions:
-            sections=[]
-            for height in (.15,.40,1.0,HEIGHT):
-                origin=(x,center_y,FLOOR+height)
-                lo=ray(visible,origin,(0,-1,0),14)
-                hi=ray(visible,origin,(0,1,0),14)
-                if lo is None or hi is None:
-                    issue('central_passage_boundary_missing',side=side,x_m=x,height_m=height,low=lo,high=hi)
-                    continue
-                sections.append({'height_m':height,'low_y_m':lo['point_m'][1],
-                                 'high_y_m':hi['point_m'][1],
-                                 'width_m':round(hi['point_m'][1]-lo['point_m'][1],5),
-                                 'low_object':lo['object'],'high_object':hi['object']})
-            if len(sections)!=4:
+    # Measure each diverging branch perpendicular to its own centreline.
+    # Intersect ankle/body/head clear intervals, then require the promised
+    # contiguous width of level BSP floor and full-height visible clearance.
+    branch_passages=[]
+    cross_section_limit=math.hypot(bounds['half_x']*2,bounds['back_y']-bounds['front_y'])
+    for spec in contract['branch_sections']:
+        x,y=spec['center']
+        nx,ny=spec['normal']
+        length=math.hypot(nx,ny)
+        if length<.99: raise ValueError('Invalid branch section normal')
+        nx,ny=nx/length,ny/length
+        required_width=spec['required_width_m']
+        sections=[]
+        for height in (.15,.40,1.0,HEIGHT):
+            origin=(x,y,FLOOR+height)
+            lo=ray(visible,origin,(-nx,-ny,0),cross_section_limit)
+            hi=ray(visible,origin,(nx,ny,0),cross_section_limit)
+            if lo is None or hi is None:
+                issue('branch_boundary_missing',name=spec['name'],height_m=height,low=lo,high=hi)
                 continue
-            lower=max(section['low_y_m'] for section in sections)+.002
-            upper=min(section['high_y_m'] for section in sections)-.002
-            floor_spans=[]
-            current=[]
-            if upper>lower:
-                steps=max(1,math.ceil((upper-lower)/.025))
-                for i in range(steps+1):
-                    y=lower+(upper-lower)*i/steps
-                    floor=ray(structure,(x,y,FLOOR+.12),(0,0,-1),.25)
-                    level=bool(floor and abs(floor['point_m'][2]-FLOOR)<.015 and floor['normal'][2]>.99)
-                    if level:
-                        current.append(y)
-                    elif current:
-                        floor_spans.append([current[0],current[-1]])
-                        current=[]
-                if current: floor_spans.append([current[0],current[-1]])
-            span=max(floor_spans,key=lambda v:v[1]-v[0]) if floor_spans else None
-            width=span[1]-span[0] if span else 0
-            if width<required_width:
-                issue('central_passage_too_narrow',side=side,x_m=x,
-                      required_width_m=required_width,clear_width_m=round(width,5),
-                      level_floor_span_y_m=span,sections=sections)
-            elif span:
-                band_center=sum(span)/2
-                for i in range(17):
-                    y=band_center-required_width/2+required_width*i/16
-                    hit=ray(visible,(x,y,FLOOR+.08),(0,0,1),HEIGHT-.08)
-                    if hit:
-                        issue('central_full_width_headroom',side=side,xy_m=[x,y],hit=hit)
-                        break
-            target=gate_passages if side=='gate' else central_passages
-            target.append({'side':side,'x_m':x,'body_sections':sections,
-                           'level_floor_span_y_m':span,'clear_width_m':round(width,5)})
+            sections.append({'height_m':height,'low_offset_m':-lo['distance_m'],
+                             'high_offset_m':hi['distance_m'],
+                             'width_m':round(hi['distance_m']+lo['distance_m'],5),
+                             'low_object':lo['object'],'high_object':hi['object']})
+        if len(sections)!=4: continue
+        lower=max(s['low_offset_m'] for s in sections)+.002
+        upper=min(s['high_offset_m'] for s in sections)-.002
+        floor_spans=[]
+        current=[]
+        if upper>lower:
+            steps=max(1,math.ceil((upper-lower)/.025))
+            for i in range(steps+1):
+                offset=lower+(upper-lower)*i/steps
+                floor=ray(structure,(x+nx*offset,y+ny*offset,FLOOR+.12),(0,0,-1),.25)
+                level=bool(floor and abs(floor['point_m'][2]-FLOOR)<.015 and floor['normal'][2]>.99)
+                if level: current.append(offset)
+                elif current:
+                    floor_spans.append([current[0],current[-1]])
+                    current=[]
+            if current: floor_spans.append([current[0],current[-1]])
+        span=max(floor_spans,key=lambda v:v[1]-v[0]) if floor_spans else None
+        width=span[1]-span[0] if span else 0
+        if width<required_width:
+            issue('branch_too_narrow',name=spec['name'],center_m=[x,y],
+                  required_width_m=required_width,clear_width_m=round(width,5),
+                  level_floor_span_offset_m=span,sections=sections)
+        elif span:
+            band_center=sum(span)/2
+            for i in range(33):
+                offset=band_center-required_width/2+required_width*i/32
+                point=(x+nx*offset,y+ny*offset,FLOOR+.08)
+                hit=ray(visible,point,(0,0,1),HEIGHT-.08)
+                if hit:
+                    issue('branch_full_width_headroom',name=spec['name'],point_m=list(point),hit=hit)
+                    break
+        branch_passages.append({**spec,'body_sections':sections,
+                                'level_floor_span_offset_m':span,'clear_width_m':round(width,5)})
 
     # Each change of direction has a full 2 x 2 m turning area, checked on
     # a 10 cm grid, in addition to the route's swept 0.4 m radius envelope.
     # This checks the space after all visible end-cap trim, not BSP alone.
     turning_bays=[]
-    for sign in (-1,1):
+    for bay in contract['turning_bays']:
         samples=0
-        for ix in range(21):
-            x=sign*(.78+ix*.10)
-            for iy in range(21):
-                y=30.2+iy*.10
+        x0,x1=bay['x_span_m']; y0,y1=bay['y_span_m']
+        if min(x1-x0,y1-y0)<2: raise ValueError('Turning bay must be at least 2 x 2 m')
+        nx=math.ceil((x1-x0)/.10); ny=math.ceil((y1-y0)/.10)
+        for ix in range(nx+1):
+            x=x0+(x1-x0)*ix/nx
+            for iy in range(ny+1):
+                y=y0+(y1-y0)*iy/ny
                 floor=ray(structure,(x,y,FLOOR+.12),(0,0,-1),.25)
                 finish=ray(visible,(x,y,FLOOR+.12),(0,0,-1),.25)
                 if not floor or abs(floor['point_m'][2]-FLOOR)>.015 or floor['normal'][2]<.99:
@@ -376,56 +381,88 @@ def main():
                 hit=ray(visible,(x,y,FLOOR+.08),(0,0,1),HEIGHT-.08)
                 if hit:
                     issue('turning_bay_headroom',xy_m=[x,y],hit=hit)
-                if inside_solid(structure,(x,y,FLOOR+1)):
+                if inside_solid(closed_structure,(x,y,FLOOR+1)):
                     issue('turning_bay_inside_solid',xy_m=[x,y])
                 samples+=1
-        turning_bays.append({'side':'west' if sign<0 else 'east',
-                             'x_span_m':sorted([sign*.78,sign*2.78]),'y_span_m':[30.2,32.2],
-                             'clear_area_m':[2,2],'height_m':HEIGHT,'grid_step_m':.10,'sample_count':samples})
+        turning_bays.append({**bay,'clear_area_m':[x1-x0,y1-y0],'height_m':HEIGHT,
+                             'grid_step_m':.10,'sample_count':samples})
 
     # Verify the revised main chamber height independently of the taller
     # entrance vaults. These probes avoid piers and the two exterior portals.
     ceiling_checks=[]
-    for x in (-35,-30,-20,-12,-8,8,12,20,30,35):
-        for y in (30.0,35.5):
-            roof=ray(structure,(x,y,FLOOR+HEIGHT),(0,0,1),4)
-            if roof is None or abs(roof['point_m'][2]-MAIN_CEILING)>.015:
-                issue('main_chamber_ceiling_height',xy_m=[x,y],expected_m=MAIN_CEILING,hit=roof)
-            ceiling_checks.append({'xy_m':[x,y],'ceiling_m':roof['point_m'][2] if roof else None})
+    for x,y in contract['ceiling_points']:
+        roof=ray(structure,(x,y,FLOOR+HEIGHT),(0,0,1),4)
+        if roof is None or abs(roof['point_m'][2]-main_ceiling)>.015:
+            issue('main_chamber_ceiling_height',xy_m=[x,y],expected_m=main_ceiling,hit=roof)
+        ceiling_checks.append({'xy_m':[x,y],'ceiling_m':roof['point_m'][2] if roof else None})
+    cap_checks=[]
+    for cap in contract['closed_caps']:
+        for z in (.8,1.8,2.8):
+            origin=(*cap['origin'][:2],z)
+            hit=ray(structure,origin,cap['direction'],cap['max_distance_m'])
+            if hit is None or hit['pcg_policy']!='NONE':
+                issue('branch_end_not_sealed',name=cap['name'],origin_m=list(origin),hit=hit)
+            cap_checks.append({'name':cap['name'],'origin_m':list(origin),'hit':hit})
 
     # Direct boundary crossings avoid mistaking an internal pier for an outer
     # wall. Sampling resolution is recorded, so the result is not a claim of
     # mathematically exhaustive aperture/collision testing.
     boundary_count = 0
     solid_probe_count = 0
-    for z in (.9,1.8,2.7,3.6,4.4):
-        for i in range(409):
-            x=-51+i*.25
-            if inside_solid(structure,(x,37.7,z)):
-                solid_probe_count += 1
-                continue
-            boundary_count += 1
-            if ray(structure,(x,37.7,z),(0,1,0),1.6) is None:
-                issue('rear_boundary_open',origin_m=[x,37.7,z])
-        for side in (-1,1):
-            for i in range(51):
-                y=25.0+i*.25
-                if inside_solid(structure,(side*51.2,y,z)):
-                    solid_probe_count += 1
-                    continue
-                boundary_count += 1
-                if ray(structure,(side*51.2,y,z),(side,0,0),2.0) is None:
-                    issue('side_boundary_open',origin_m=[side*51.2,y,z])
     roof_count=0
-    for x in range(-50,51,2):
-        for y in range(27,38):
+    surface_offset_checks=[]
+
+    def check_enclosure(kind,origin,direction,distance):
+        nonlocal boundary_count,solid_probe_count,roof_count
+        point=Vector(origin)
+        _,_,_,nearest_distance=closed_structure[0].find_nearest(point)
+        candidates=[point]
+        on_surface=nearest_distance<=1e-5
+        if on_surface:
+            # A tangent ray starting on a wall is not an aperture test. Move
+            # one centimetre toward each distinct adjacent air-facing normal,
+            # including the diagonal at corners, and test every air-side start.
+            normals={tuple(round(v,5) for v in normal):normal for _,normal,_,_
+                     in closed_structure[0].find_nearest_range(point,1e-5)}
+            directions=list(normals.values())
+            combined=sum(directions,Vector())
+            if combined.length>1e-5: directions.append(combined.normalized())
+            candidates=[]
+            for normal in directions:
+                candidate=point+normal*.01
+                _,_,_,separation=closed_structure[0].find_nearest(candidate)
+                if separation>1e-5 and not inside_solid(closed_structure,candidate):
+                    if not any((candidate-old).length<1e-5 for old in candidates): candidates.append(candidate)
+            if not candidates:
+                issue('boundary_air_side_unresolved',probe_kind=kind,origin_m=list(origin))
+                return
+        elif inside_solid(closed_structure,point):
+            solid_probe_count+=1
+            return
+        for candidate in candidates:
+            if kind=='roof_boundary_open': roof_count+=1
+            else: boundary_count+=1
+            hit=ray(structure,candidate,direction,distance)
+            if hit is None:
+                issue(kind,origin_m=list(origin),tested_origin_m=[round(v,5) for v in candidate])
+            if on_surface:
+                surface_offset_checks.append({'probe_kind':kind,'surface_origin_m':list(origin),
+                    'air_origin_m':[round(v,5) for v in candidate],'offset_m':.01,'hit':hit})
+
+    rear_probe=bounds['back_y']-1.35
+    side_probe=bounds['half_x']-1.35
+    for z in (.9,1.8,2.7,3.6,4.4):
+        for i in range(math.floor(2*(bounds['half_x']-.5)/.25)+1):
+            x=-bounds['half_x']+.5+i*.25
+            check_enclosure('rear_boundary_open',(x,rear_probe,z),(0,1,0),1.6)
+        for side in (-1,1):
+            for i in range(math.floor((bounds['back_y']-1-25)/.25)+1):
+                y=25.0+i*.25
+                check_enclosure('side_boundary_open',(side*side_probe,y,z),(side,0,0),2.0)
+    for x in range(-52,53,2):
+        for y in range(26,math.floor(bounds['back_y'])):
             origin=(x,y,2.4)
-            if inside_solid(structure,origin):
-                solid_probe_count += 1
-                continue
-            roof_count += 1
-            if ray(structure,origin,(0,0,1),4.0) is None:
-                issue('roof_boundary_open',origin_m=list(origin))
+            check_enclosure('roof_boundary_open',origin,(0,0,1),4.0)
     opening_rows = []
     for z in (1.3,2.3,3.3):
         samples=[]
@@ -467,7 +504,7 @@ def main():
     structural_faces=0
     for face in bsp.data.polygons:
         c=(bsp.matrix_world @ face.center)*unit
-        if -52<=c.x<=52 and 24.6<=c.y<=39.05 and -.01<=c.z<=5.9:
+        if -bounds['half_x']<=c.x<=bounds['half_x'] and bounds['front_y']<=c.y<=bounds['back_y'] and -.01<=c.z<=6.35:
             structural_faces += 1
             resolved=policy(bsp,bsp.data,face)
             if resolved!='NONE':
@@ -481,6 +518,39 @@ def main():
             continue
         powered=bool(obj.get('authored_light_lens'))
         failures=[]
+        lens_materials=list(obj.data.materials)
+        if (not lens_materials or any(not material or not material.get('tst_light_atlas') or
+                                     not material.get('source_shader_tag') for material in lens_materials)):
+            failures.append('Lens must use an atlas-tagged source shader material')
+        if obj.get('facility_status_light'):
+            if len(lens_materials)!=1 or not lens_materials[0]:
+                failures.append('Sealed-door indicator must use one shared authored amber material')
+            else:
+                material=lens_materials[0]
+                material_color=material.get('authored_light_color',())
+                if (material.name!=amber_spec['material'] or
+                    material.get('source_shader_tag','').replace('\\','/')!=amber_spec['tag'] or
+                    material.get('tst_authored_light')!='amber_light.json' or
+                    len(material_color)!=3 or
+                    any(abs(a-b)>1e-6 for a,b in zip(material_color,amber_spec['color'])) or
+                    tuple(material.get('light_atlas_pixels',()))!=tuple(amber_spec['atlas_pixels']) or
+                    not material.use_backface_culling):
+                    failures.append('Sealed-door indicator differs from the shared amber source specification')
+                color=obj.get('preview_light_color',())
+                spill=amber_spec.get('preview_spill_color',amber_spec['color'])
+                if len(color)!=3 or any(abs(a-b)>1e-6 for a,b in zip(color,spill)):
+                    failures.append('Preview area light differs from the explicit amber spill study')
+        facing=obj.get('face_direction',())
+        min_facing_dot=None
+        if len(facing)!=3 or any(not math.isfinite(v) for v in facing) or sum(v*v for v in facing)<.01:
+            failures.append('Missing or invalid room-facing direction for one-sided light shader')
+        else:
+            expected=Vector(facing).normalized()
+            normal_matrix=obj.matrix_world.to_3x3().inverted().transposed()
+            dots=[(normal_matrix @ face.normal).normalized().dot(expected) for face in obj.data.polygons]
+            min_facing_dot=min(dots) if dots else None
+            if min_facing_dot is None or min_facing_dot<=.5:
+                failures.append('Lens face normal does not face the declared room side (dot must exceed .5)')
         pixels=tuple(obj.get('light_atlas_pixels',()))
         rect_valid=(len(pixels)==4 and all(math.isfinite(v) for v in pixels) and
                     0<=pixels[0]<pixels[2]<=1024 and 0<=pixels[1]<pixels[3]<=256)
@@ -508,16 +578,55 @@ def main():
             if len(size)!=2 or any(not math.isfinite(v) or v<=0 for v in size): failures.append('Invalid area size')
             if len(direction)!=3 or any(not math.isfinite(v) for v in direction) or sum(v*v for v in direction)<.01: failures.append('Invalid light direction')
             if len(color)!=3 or any(not math.isfinite(v) or not 0<=v<=1 for v in color): failures.append('Invalid light color')
+        tangent=obj.get('preview_light_tangent')
+        if tangent is not None:
+            direction=obj.get('preview_light_direction',())
+            if (len(tangent)!=3 or any(not math.isfinite(v) for v in tangent) or
+                abs(Vector(tangent).length-1)>1e-5 or len(direction)!=3 or
+                abs(Vector(tangent).dot(Vector(direction).normalized()))>1e-5):
+                failures.append('AREA long-axis tangent must be unit length and perpendicular to the emission direction')
+        floor_run=obj.name.startswith(('facility_branch_floor_edge_lens','facility_foyer_floor_edge_lens'))
+        if floor_run:
+            group='foyer' if '_foyer_' in obj.name else 'branch'
+            expected_color=(1,.88,.74) if group=='foyer' else (.65,.88,1)
+            if not powered or obj.get('preview_floor_run')!=group or tangent is None:
+                failures.append('Long floor run requires its calibrated upward light and tangent metadata')
+            elif len(tangent)==3 and Vector(tangent).length>.1:
+                axis=Vector(tangent).normalized()
+                transverse=Vector((0,0,1)).cross(axis)
+                points=[(obj.matrix_world@vertex.co)*unit for vertex in obj.data.vertices]
+                along=[point.dot(axis) for point in points]
+                across=[point.dot(transverse) for point in points]
+                length,width=max(along)-min(along),max(across)-min(across)
+                if (abs(obj.get('preview_floor_linear_watts',0)-6)>1e-6 or
+                    abs(obj.get('preview_light_power',0)-6*length)>1e-4):
+                    failures.append('Upward floor run must emit6 authored watts per actual metre')
+                if not (len(size)==2 and abs(size[0]-length)<1e-4 and abs(size[1]-width)<1e-4):
+                    failures.append('Floor AREA rectangle must match actual strip length/width and tangent')
+                if (len(direction)!=3 or (Vector(direction)-Vector((0,0,1))).length>1e-6 or
+                    abs(obj.get('preview_light_spread_degrees',0)-150)>1e-6 or
+                    len(color)!=3 or any(abs(a-b)>1e-6 for a,b in zip(color,expected_color)) or
+                    abs(obj.get('preview_emission_strength',0)-1.6)>1e-6):
+                    failures.append('Floor upwash direction/spread/color or preserved visible-core radiance differs from G2')
+        if obj.name.startswith('facility_wedge_toe_channel') and (powered or obj.get('preview_light_power',0)):
+            failures.append('Decorative toe ribbons must remain unpowered to avoid duplicated floor washes')
         if failures:
             issue('fixture_metadata',object=obj.name,failures=failures)
         fixtures.append({'object':obj.name,'powered':powered,'watts':obj.get('preview_light_power',0),
+                         'materials':[material.name if material else None for material in lens_materials],
+                         'authored_amber':bool(obj.get('facility_status_light')),
+                         'floor_run':obj.get('preview_floor_run'),'long_axis_tangent':list(tangent) if tangent is not None else None,
+                         'face_direction':list(facing),'minimum_face_direction_dot':min_facing_dot,
                          'atlas_pixels':pixels})
     if not any(f['powered'] for f in fixtures):
         issue('powered_fixtures_missing')
+    floor_fixtures=[f for f in fixtures if f['floor_run']]
+    if len(floor_fixtures)!=26:
+        issue('floor_upwash_count',expected=26,actual=len(floor_fixtures))
 
     # Keep the existing native-decor inspector usable on this new route.
-    # Its own envelope is 2.4 m high / .4 m radius and tests real imported
-    # rock render meshes; this report's structural route remains 2 m high.
+    # Its envelope is also 2.4 m high / .4 m radius and tests real imported
+    # rock render meshes independently of this structural route check.
     native_checks=[]
     for group,samples in (('route',route_checks),('approach',approach_checks)):
         for index,sample in enumerate(samples):
@@ -532,13 +641,12 @@ def main():
     report={'source_blend':str(source),'source_sha256':before,'source_unchanged':unchanged,
             'scope':'Authored BSP and visible finish geometry only; no game physics, native decor or runtime lighting evaluation.',
             'player_envelope':{'height_m':HEIGHT,'radius_m':RADIUS,'route_step_m':STEP},
-            'route_waypoints_xy_m':ROUTE,'route_sample_count':len(route_checks),'route':route_checks,
+            'route_waypoints_xy_m':contract['routes'],'route_sample_count':len(route_checks),'route':route_checks,
             'checks':native_checks,
-            'central_passages':{'required_clear_width_m':CENTRAL_PASSAGE_WIDTH,
-                                'height_m':HEIGHT,'floor_sampling_step_m':.025,'cross_sections':central_passages},
-            'central_gate':{'required_clear_width_m':CENTRAL_GATE_WIDTH,'height_m':HEIGHT,
-                            'floor_sampling_step_m':.025,'cross_sections':gate_passages,'turning_bays':turning_bays},
-            'main_chamber':{'ceiling_m':MAIN_CEILING,'clear_height_m':MAIN_CEILING-FLOOR,
+            'spatial_contract':contract,
+            'branch_passages':{'height_m':HEIGHT,'floor_sampling_step_m':.025,'cross_sections':branch_passages,
+                               'turning_bays':turning_bays,'closed_end_faces':cap_checks},
+            'main_chamber':{'ceiling_m':main_ceiling,'clear_height_m':main_ceiling-FLOOR,
                             'ceiling_probes':ceiling_checks},
             'approaches':{'max_allowed_slope_degrees':APPROACH_MAX_SLOPE_DEGREES,
                           'profile':'max(pre-Boolean triangulated terrain, ramp top) before y=24.6; flat .30 m inside',
@@ -547,6 +655,7 @@ def main():
                           'terrain_to_metal_joins':joins},
             'enclosure':{'route_roof_and_rear_checks':len(route_checks),'boundary_probe_count':boundary_count,
                          'roof_grid_probe_count':roof_count,'probes_inside_solid_structure':solid_probe_count,
+                         'on_surface_air_side_probes':surface_offset_checks,
                          'boundary_grid_m':.25,'front_grid_m':.20,'front_opening_rows':opening_rows},
             'nonmanifold_edges':nonmanifold,'facility_objects':len(facility_objects),
             'pcg_none_faces_checked':{'finishes':policy_faces,'structure':structural_faces},

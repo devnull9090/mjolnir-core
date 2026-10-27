@@ -4,6 +4,7 @@ Authored after the collision/detail geometry is built, before Boolean merging.
 The preview keeps these exact materials instead of substituting another look.
 """
 import json
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -63,6 +64,29 @@ def blender_material(role, detail=False):
     remap.inputs["To Max"].default_value = spec["roughness"][1]
     links.new(rough.outputs["Color"], remap.inputs["Value"])
     links.new(remap.outputs["Result"], shader.inputs["Roughness"])
+    if "normal_map" in spec:
+        convention = spec.get("normal_convention", "opengl")
+        if convention not in ("opengl", "directx"):
+            raise ValueError(f"Invalid normal_convention for {role}: {convention}")
+        texture = nodes.new("ShaderNodeTexImage")
+        texture.label = "Authored tangent normal (" + convention + ")"
+        texture.image = bpy.data.images.load(str(ROOT / spec["normal_map"]), check_existing=True)
+        texture.image.colorspace_settings.name = "Non-Color"
+        links.new(uv.outputs["UV"], texture.inputs["Vector"])
+        normal = nodes.new("ShaderNodeNormalMap")
+        normal.space = "TANGENT"
+        normal.uv_map = "UVMap"
+        # Blender 5.1 handles the encoded Y convention explicitly. UE flips
+        # OpenGL green during normal-texture import; neither graph double-flips.
+        normal.convention = convention.upper()
+        strength = spec.get("normal_strength", 1.0)
+        if isinstance(strength, bool) or not isinstance(strength, (int, float)) or not math.isfinite(strength) or not 0 <= strength <= 1:
+            raise ValueError(f"Invalid normal_strength for {role}: {strength}")
+        normal.inputs["Strength"].default_value = strength
+        links.new(texture.outputs["Color"], normal.inputs["Color"])
+        links.new(normal.outputs["Normal"], shader.inputs["Normal"])
+        mat["normal_map_convention"] = convention
+        mat["normal_map_strength"] = float(strength)
     mat.diffuse_color = (*(min(.95, .27*t) for t in spec["tint"]), 1)
     return mat
 
@@ -76,6 +100,7 @@ def assign(scene):
         detail = bool(obj.get("mjolnir_render_detail"))
         original = list(obj.data.materials)
         slots = {}
+        explicitly_assigned = False
         def index(role):
             if role not in slots:
                 slots[role] = len(obj.data.materials)
@@ -88,6 +113,15 @@ def assign(scene):
         inset = any(word in obj.name for word in ("dark_", "recess", "inlay", "gasket"))
         for face in obj.data.polygons:
             mat = original[face.material_index]
+            explicit = mat.get("tst_surface_role")
+            if explicit:
+                if explicit not in SURFACES:
+                    raise RuntimeError(f"Unknown explicit architectural finish: {explicit} on {obj.name}")
+                # Count actual assigned faces, not unused material slots.
+                # Facility-specific roles retain their authored UV/tint choice.
+                counts[explicit] = counts.get(explicit, 0) + 1
+                explicitly_assigned = True
+                continue
             source = mat.get("tst_detail_material", mat.name)
             if source not in ("metal panels generic ext", "metal plate floor ext"):
                 continue
@@ -111,7 +145,7 @@ def assign(scene):
                     role = "edge"
             face.material_index = index(role)
             counts[role] = counts.get(role, 0) + 1
-        if slots:
+        if slots or explicitly_assigned:
             obj["tst_exported_surfaces"] = True
     missing = set(SURFACES) - set(counts)
     if missing:

@@ -10,12 +10,15 @@ import math
 import os
 from pathlib import Path
 import sys
+import time
 
 import bpy
 import bmesh
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from amber_light import load_spec as load_amber_spec, mark_material as mark_amber_material
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 parser.add_argument("--out-dir", type=Path, default=ROOT,
                     help="Destination for tst.blend, placements.json and optional data/ export")
@@ -61,6 +64,10 @@ RED = material("dangercanyon_decor_strip_red!", (.55, .035, .015), .5)
 BLUE = material("dangercanyon_decor_strip_blue!", (.025, .15, .65), .5)
 LIGHT = material("mp lights small strips!", (1.0,.80,.50), .35)
 LIGHT["source_shader_tag"] = r"levels\test\bloodgulch\shaders\mp lights small strips"
+LIGHT["tst_light_atlas"] = True
+AMBER_SPEC = load_amber_spec()
+AMBER_LIGHT = material(AMBER_SPEC["material"], AMBER_SPEC["color"], .35)
+mark_amber_material(AMBER_LIGHT, AMBER_SPEC)
 PORTAL = material("example_tutorial_teleporter!", (.12,.8,.05), .3)
 PORTAL["source_shader_tag"] = r"levels\test\tutorial\shaders\example_tutorial_teleporter"
 WATER = material("tst_water!", (.055, .22, .23), .15)
@@ -68,7 +75,7 @@ SKY = material("+sky", (.27, .50, .70))
 
 # Authoring permissions survive separately from shader names. Face overrides
 # painted with the MJOLNIR add-on can refine these material defaults.
-for mat in (PANELS, FLOOR, RED, BLUE, LIGHT, PORTAL, WATER, SKY):
+for mat in (PANELS, FLOOR, RED, BLUE, LIGHT, AMBER_LIGHT, PORTAL, WATER, SKY):
     mat["mjolnir_pcg_policy"] = "NONE"
 GROUND["mjolnir_pcg_policy"] = "GROUND"
 CLIFF["mjolnir_pcg_policy"] = "BOTH"  # cliff faces plus turf on suitable tops
@@ -90,11 +97,11 @@ def mesh_object(name, vertices, faces, mats, indices=None):
 def uv_project(obj):
     mesh = obj.data
     mesh.update()
-    if len(mesh.materials)==1 and mesh.materials[0]==LIGHT:
+    if len(mesh.materials)==1 and mesh.materials[0].get('tst_light_atlas'):
         # Blood Gulch's 1024x256 sheet is an atlas. Use one blue-white
         # capsule (top-left pixels 326,2 to 380,23), not the whole sheet.
         # Split long lenses into repeated lamps at the capsule's aspect ratio.
-        pixels=tuple(obj.get('light_atlas_pixels',(326,2,380,23)))
+        pixels=tuple(obj.get('light_atlas_pixels',mesh.materials[0].get('light_atlas_pixels',(326,2,380,23))))
         aspect=(pixels[2]-pixels[0])/(pixels[3]-pixels[1])
         vertices,faces=[],[]
         for face in mesh.polygons:
@@ -140,9 +147,10 @@ def uv_project(obj):
                 else:
                     # One complete emblem on each large doorway panel.
                     uv.data[loop].uv = ((0, 0), (1, 0), (1, 1), (0, 1))[corner]
-            elif mat == LIGHT:
-                px=obj.get('light_atlas_pixels',(326,2,380,23))
-                u0,u1,v0,v1=px[0]/1024,px[2]/1024,1-px[3]/256,1-px[1]/256
+            elif mat.get('tst_light_atlas'):
+                px=obj.get('light_atlas_pixels',mat.get('light_atlas_pixels',(326,2,380,23)))
+                width,height=mat.get('light_atlas_size',(1024,256))
+                u0,u1,v0,v1=px[0]/width,px[2]/width,1-px[3]/height,1-px[1]/height
                 uv.data[loop].uv = ((u0,v0),(u1,v0),(u1,v1),(u0,v1))[corner]
             elif mat == PORTAL:
                 # One complete shield mask across the doorway, including its
@@ -524,8 +532,9 @@ boolean(platform,box("control_pad_cross_joint",(-3.65,-.06,.52),(3.65,.06,.75),F
 from perimeter_architecture import build as build_perimeter, ARRIVALS
 wall=build_perimeter(mesh_object,box,prism,bevel_rectangle,boolean,PANELS,FLOOR,LIGHT,PORTAL)
 from facility_architecture import build as build_facility
-build_facility(wall,mesh_object,box,prism,bevel_rectangle,boolean,LIGHT,RED,BLUE)
+build_facility(wall,mesh_object,box,prism,bevel_rectangle,boolean,LIGHT,RED,BLUE,AMBER_LIGHT)
 
+from facility_edge_wear import prepare as prepare_facility_edge_wear, apply as apply_facility_edge_wear
 detail_collection=bpy.data.collections.new("DETAIL - Forerunner precision armor (render only)")
 scene.collection.children.link(detail_collection)
 for obj in list(scene.objects):
@@ -534,7 +543,9 @@ for obj in list(scene.objects):
         bevel=obj.modifiers.new('Precision armor edge chamfer','BEVEL')
         bevel.width=obj.get('precision_bevel_m',.045)/METERS_PER_CE; bevel.segments=1
         bevel.affect='EDGES'; bevel.limit_method='ANGLE'
+        prepare_facility_edge_wear(obj,bevel,METERS_PER_CE)
         bpy.ops.object.modifier_apply(modifier=bevel.name)
+        apply_facility_edge_wear(obj,METERS_PER_CE)
         detail_mesh=bmesh.new(); detail_mesh.from_mesh(obj.data)
         bad_edges=sum(not edge.is_manifold for edge in detail_mesh.edges)
         detail_mesh.free()
@@ -574,6 +585,11 @@ bm.from_mesh(terrain.data)
 bmesh.ops.reverse_faces(bm, faces=list(bm.faces))
 bm.to_mesh(terrain.data)
 bm.free()
+from terrain_form import FACILITY_AIR_EXTENSION
+# The original outdoor air volume ends at y=40. Extend air only inside the
+# new facility's closed outer envelope, then subtract its walls/floor/roof
+# below. This exposes the deeper indoor branches without opening rear sky.
+boolean(terrain,box('facility_contained_air_extension',*FACILITY_AIR_EXTENSION,PANELS),'UNION')
 for obj in list(scene.objects):
     if not obj.name.startswith("SOURCE_") and obj.name.endswith(("_base_shell", "_gameplay_solid")):
         boolean(terrain, obj)
@@ -725,15 +741,23 @@ bpy.context.view_layer.update()
 # Keep authored images portable beside the source, including --out-dir runs.
 for image in bpy.data.images:
     if image.source == 'FILE' and image.filepath:
-        image.filepath = '//' + os.path.relpath(bpy.path.abspath(image.filepath), OUTPUT).replace('\\', '/')
-bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "tst.blend"))
+        image.filepath = bpy.path.relpath(bpy.path.abspath(image.filepath), start=str(OUTPUT)).replace('\\','/')
+bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT / "tst.blend"), relative_remap=False)
 print("TST_GEOMETRY_SAVED", OUTPUT / "tst.blend")
 sys.path.insert(0, str(ROOT.parents[2] / "tools" / "blender"))
 from mjolnir_level.surface import write_surface_policy
 policy_path = OUTPUT / "tst.surfaces.json"
 policy_temporary = OUTPUT / "tst.surfaces.json.tmp"
 policy = write_surface_policy(scene, policy_temporary)
-policy_temporary.replace(policy_path)
+for attempt in range(5):
+    try:
+        policy_temporary.replace(policy_path)
+        break
+    except PermissionError:
+        # Windows indexers/viewers can briefly hold the destination open.
+        # Keep the previous complete policy if the sharing lock persists.
+        if attempt==4: raise
+        time.sleep(.1*(2**attempt))
 print("TST_SURFACE_POLICY", policy["counts"])
 if args.no_export:
     print("TST_NO_EXPORT: source geometry updated; existing JMS/game build unchanged")

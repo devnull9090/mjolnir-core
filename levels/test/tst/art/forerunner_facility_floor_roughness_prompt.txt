@@ -1,0 +1,13 @@
+Generated 2026-10-26 using the built-in image_gen tool.
+Input: textures/forerunner_facility_floor_albedo.png (owned source image).
+Output: textures/forerunner_facility_floor_roughness.png.
+Sixteen unique 2-metre plates in an 8-metre repeat, used only by facility_floor.
+The albedo is sRGB; roughness and OpenGL +Y tangent normals are Non-Color data.
+Selected Blender study: roughness 0.18–0.70, metallic 0.30, normal strength 0.60.
+Exact generation prompt follows; numeric target values in the prompt are artistic direction, not measured output guarantees.
+
+Use case: precise-object-edit.
+Asset type: physically based LINEAR GRAYSCALE ROUGHNESS DATA MAP.
+Input image is the exact 8-metre-square four-by-four floor ALBEDO. Preserve every seam coordinate and the sixteen plates; derive corresponding roughness, not a shaded copy.
+Output only grayscale surface roughness data: dark is smooth, light is rough. Main intact plate material is RGB130–140. Large IRREGULAR PATCHES of smoother worn exposed aggregate should be RGB83–100, covering approximately35% of each plate; matte abraded islands RGB153–166 cover15%. Use the existing albedo abrasion locations as guides but create solid coherent irregular regions about0.3–1 metre across, with quiet interiors, not an outline-only pattern. Include both firm chipped boundaries (1–3pixels) and a few softer boundaries(6–12pixels). Adjacent plates have different asymmetric shapes and directions. Break broad highlights into several unequal patches. Crisp material variation must survive distant viewing. Small shallow wear detail is secondary, with restrained few-percent modulation. Thin seams are matteRGB170.
+No simulated lighting, no bevel shading, no shadows, no specular glints, no dark dirt painted into crevices. Do not render noisy granite, cotton clouds, diagonal brush bands, radial swirls or outlines of every granule. This is a flat roughness texture, not an image of the floor. Exactly square, seamless edges, four by four orthogonal plates at25%,50%,75%; no text or border.

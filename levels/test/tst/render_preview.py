@@ -19,9 +19,12 @@ import sys
 import time
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from amber_light import load_spec as load_amber_spec
+AMBER_SPEC = load_amber_spec()
 REPO = ROOT.parents[2]
 METRES_PER_CE = 3.048
 VIEWS = {
@@ -39,16 +42,17 @@ VIEWS = {
     "portal": {"position": (-48,23.5,9.0), "target": (-48,31.5,9), "lens": 25},
     "red-interior": {"position": (-57.2,5.8,2.15), "target": (-49.8,-3.5,1.9), "lens": 19},
     "blue-interior": {"position": (57.2,-5.8,2.15), "target": (49.8,3.5,1.9), "lens": 19},
-    "facility-red": {"position": (-40,0,2.1), "target": (-52,18.5,4.9), "lens": 35, "aspect": 854/525},
-    "facility-blue": {"position": (40,0,2.1), "target": (52,18.5,4.9), "lens": 35, "aspect": 854/525},
-    "facility-interior": {"position": (-22.5,32.2,1.55), "target": (5,32.2,2.4), "lens": 22, "aspect": 1715/392},
-    "facility-door": {"position": (-12.5,32.3,1.9), "target": (-8.5,38.0,2.3), "lens": 30},
-    "facility-route": {"position": (-43,35.8,1.95), "target": (-29,32.0,2.2), "lens": 22},
+    "facility-red": {"position": (-34,-10,2.1), "target": (-53,18,5.5), "lens": 35, "aspect": 854/525},
+    "facility-blue": {"position": (34,-10,2.1), "target": (53,18,5.5), "lens": 35, "aspect": 854/525},
+    "facility-interior": {"position": (-7.5,40,1.55), "target": (20,40,2.4), "lens": 22, "aspect": 1715/392},
+    "facility-door": {"position": (-1,40,1.9), "target": (3,47,2.0), "lens": 30},
+    "facility-route": {"position": (-40,51.5,1.9), "target": (-18,46.8,2.0), "lens": 24},
     "layout": {"position": (0,-8,140), "target": (0,-8,0), "ortho": 230},
     "pcg": {"position": (0,-134,76), "target": (0,3,2), "lens": 34},
 }
 MATERIAL_TEXTURES = {
     "mp lights small strips!": "levels_test_bloodgulch_bitmaps_mp_lights_small_strips.png",
+    AMBER_SPEC["material"]: AMBER_SPEC["atlas_texture"],
     "example_tutorial_teleporter!": "scenery_teleporter_shield_bitmaps_teleporter_shield_dust.png",
     "beach": "levels_b30_bitmaps_beach.png",
     "tst_cliffs": "levels_b30_bitmaps_cliffs.png",
@@ -123,6 +127,56 @@ def facility_fixture(obj):
     """Authored facility lenses supply the only new interior light sources."""
     return bool(obj.get("tst_facility_fixture") or obj.name.lower().startswith("facility_"))
 
+def snapshot_authored_surfaces(scene):
+    """Capture used exported roles and UVs before any preview-only styling.
+
+    Call after the intentional sky-face removal so terrain polygon indices are
+    stable. Stock CE/native approximation materials have no authored role and
+    are excluded. Hidden construction copies are not preview geometry.
+    """
+    snapshot={}
+    for obj in scene.objects:
+        if obj.type!='MESH' or obj.hide_render or obj.name.startswith('SOURCE_'):
+            continue
+        rows=[]
+        uv=obj.data.uv_layers.get('UVMap')
+        for face in obj.data.polygons:
+            mat=obj.data.materials[face.material_index]
+            if not mat or not mat.get('tst_surface_role'):
+                continue
+            if uv is None:
+                raise RuntimeError('Authored surface has no exported UVMap: '+obj.name)
+            rows.append((face.index,tuple(face.vertices),mat['tst_surface_role'],
+                         mat.get('source_shader_tag'),
+                         tuple(tuple(uv.data[index].uv) for index in face.loop_indices)))
+        if rows:
+            snapshot[obj.name]=(len(obj.data.vertices),len(obj.data.polygons),rows)
+    return snapshot
+
+def assert_authored_surfaces(scene,snapshot):
+    """Fail if a later fallback changes exported face finishes or UVs."""
+    checked=0;changes=[]
+    for name,(vertex_count,face_count,rows) in snapshot.items():
+        obj=scene.objects.get(name)
+        if obj is None or obj.type!='MESH' or len(obj.data.vertices)!=vertex_count or len(obj.data.polygons)!=face_count:
+            changes.append({'object':name,'kind':'missing_object_or_changed_topology'})
+            continue
+        uv=obj.data.uv_layers.get('UVMap')
+        for index,vertices,role,tag,coords in rows:
+            face=obj.data.polygons[index]
+            mat=obj.data.materials[face.material_index]
+            checked+=1
+            current_coords=tuple(tuple(uv.data[i].uv) for i in face.loop_indices) if uv else None
+            if (tuple(face.vertices)!=vertices or mat is None or
+                mat.get('tst_surface_role')!=role or mat.get('source_shader_tag')!=tag or current_coords!=coords):
+                changes.append({'object':name,'face':index,'kind':'authored_surface_changed'})
+    result={'checked_objects':len(snapshot),'checked_faces':checked,
+            'changed_faces':len(changes),'passed':not changes,
+            'scope':'Used authored face roles, source shader tags, topology and exported UVMap; stock/native approximations excluded.'}
+    if changes:
+        raise RuntimeError('Preview changed authored surfaces: '+json.dumps({**result,'first_changes':changes[:12]}))
+    return result
+
 def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None,cliff_albedo=None):
     replacements = {}
     for obj in scene.objects:
@@ -138,7 +192,9 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
                 if original['tst_surface_role'] not in manifest['exported_surface_roles']:
                     manifest['exported_surface_roles'].append(original['tst_surface_role'])
                     surface = json.loads((ROOT/'surfaces.json').read_text())['surfaces'][original['tst_surface_role']]
-                    for key in ('albedo', 'roughness_map'):
+                    for key in ('albedo', 'roughness_map', 'normal_map'):
+                        if key not in surface:
+                            continue
                         path = str((ROOT/surface[key]).resolve())
                         if path not in manifest['texture_references']:
                             manifest['texture_references'].append(path)
@@ -246,18 +302,53 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
                         shader.inputs['Base Color'].default_value=(.45,.012,.006,1) if 'red' in original.name else (.012,.09,.42,1)
                         shader.inputs['Emission Color'].default_value=shader.inputs['Base Color'].default_value
                         shader.inputs['Emission Strength'].default_value=.7
-                if original.name=="mp lights small strips!":
+                if original.get('tst_light_atlas') or original.name=="mp lights small strips!":
                     # Keep the atlas visible: a flat emissive preview concealed
                     # incorrect whole-sheet UVs in the first game check.
                     if texture and texture.is_file():
                         cyan=nodes.new('ShaderNodeMixRGB'); cyan.blend_type='MULTIPLY'
                         cyan.name='CE light atlas tint'
                         cyan.inputs[0].default_value=1
-                        cyan.inputs[2].default_value=(.48,.86,1,1)
+                        authored_color=original.get('authored_light_color')
+                        cyan.inputs[2].default_value=(*authored_color,1) if authored_color else (.48,.86,1,1)
                         links.new(node.outputs['Color'],cyan.inputs[1])
                         links.new(cyan.outputs['Color'],shader.inputs['Base Color'])
-                        links.new(cyan.outputs['Color'],shader.inputs['Emission Color'])
+                        if authored_color:
+                            # The derived CE shader uses the SAME atlas as its
+                            # self-illumination mask: red * primary amber, then
+                            # multiplied by the atlas base. Retain that detail.
+                            channels=nodes.new('ShaderNodeSeparateColor')
+                            channels.mode='RGB'
+                            links.new(node.outputs['Color'],channels.inputs['Color'])
+                            emission=nodes.new('ShaderNodeMixRGB'); emission.blend_type='MULTIPLY'
+                            emission.name='Authored CE primary self-illumination'
+                            emission.inputs[0].default_value=1
+                            links.new(cyan.outputs['Color'],emission.inputs[1])
+                            links.new(channels.outputs['Red'],emission.inputs[2])
+                            links.new(emission.outputs['Color'],shader.inputs['Emission Color'])
+                            manifest['authored_amber_light']={
+                                'source':'amber_light.json', 'tag':original['source_shader_tag'],
+                                'material_color':list(authored_color), 'primary_on_off':list(authored_color),
+                                'self_illumination_map':'unchanged stock atlas, red channel',
+                                'preview_note':'Shared source hue and atlas; physical lighting/exposure remain approximate'}
+                        else:
+                            links.new(cyan.outputs['Color'],shader.inputs['Emission Color'])
                     shader.inputs["Emission Strength"].default_value = 1.6
+                    if original.get('tst_authored_light') and not (texture and texture.is_file()):
+                        shader.inputs['Emission Color'].default_value=(*original['authored_light_color'],1)
+                    # The stock CE shader is single-sided. Match it in Cycles
+                    # as well as the viewport so reversed source faces cannot
+                    # look correct here and disappear after game export.
+                    mat.use_backface_culling = True
+                    geometry = nodes.new('ShaderNodeNewGeometry')
+                    transparent = nodes.new('ShaderNodeBsdfTransparent')
+                    sided = nodes.new('ShaderNodeMixShader')
+                    sided.label = 'Stock CE light: room-facing side only'
+                    links.new(geometry.outputs['Backfacing'],sided.inputs[0])
+                    links.new(shader.outputs['BSDF'],sided.inputs[1])
+                    links.new(transparent.outputs[0],sided.inputs[2])
+                    links.new(sided.outputs[0],nodes.get('Material Output').inputs['Surface'])
+                    manifest['stock_light_single_sided'] = True
                 if original.name=="example_tutorial_teleporter!":
                     if texture and texture.is_file():
                         # Static study of the stock Chicago dust + green mask
@@ -380,6 +471,8 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
             index=len(obj.data.materials); obj.data.materials.append(recess if inset and obj.get('mjolnir_render_detail') else dark)
             for face in obj.data.polygons:
                 source_mat=obj.data.materials[face.material_index]
+                if source_mat and source_mat.get('tst_surface_role'):
+                    continue
                 if source_mat and source_mat.name=="PREVIEW - metal plate floor ext" and (abs(face.normal.z)<.75 or obj.get('mjolnir_render_detail')):
                     face.material_index=index
 
@@ -423,6 +516,12 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
                 elif name.startswith(('tower_side_fitted_armor_leaf','parapet_fitted_cap_plate')): style='inset'
                 elif name.startswith(('parapet_charcoal_insert','arrival_inner_jamb_liner','parapet_clasp_fitted_crown','arrival_jamb_fitted_dark_insert')): style='charcoal'
                 else: continue
+                # Legacy preview finishes apply only to stock fallback faces.
+                # Authored roles already carry their exported finish and UVs;
+                # avoid even adding an active preview UV map for those parts.
+                if all(obj.data.materials[face.material_index].get('tst_surface_role')
+                       for face in obj.data.polygons):
+                    continue
                 main=max(obj.data.polygons,key=lambda p:p.area)
                 normal_axis=max(range(3),key=lambda a:abs(main.normal[a]))
                 axes=[a for a in range(3) if a!=normal_axis]
@@ -443,6 +542,8 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
                 groove_index=len(obj.data.materials); obj.data.materials.append(recess)
                 for face in obj.data.polygons:
                     previous=obj.data.materials[face.material_index]
+                    if previous.get('tst_surface_role'):
+                        continue
                     if obj.get('engraved_armor') and previous in (dark,recess): face.material_index=groove_index
                     else:
                         threshold=.6 if name.startswith('parapet_clasp_fitted_crown_wrap') else .985
@@ -470,7 +571,10 @@ def prepare_materials(scene,staging,manifest,alloy_albedo=None,floor_albedo=None
                 if sum(obj.name.encode())%4==0: continue
                 slot=len(obj.data.materials); obj.data.materials.append(wear)
                 for face in obj.data.polygons:
-                    if obj.data.materials[face.material_index]==recess: continue
+                    previous=obj.data.materials[face.material_index]
+                    # The initial material-slot guard is insufficient: these
+                    # later face assignments must preserve authored roles too.
+                    if previous.get('tst_surface_role') or previous==recess: continue
                     verts=[obj.data.vertices[v].co for v in face.vertices]
                     perimeter=sum((b-a).length for a,b in zip(verts,verts[1:]+verts[:1]))
                     width=2*face.area*METRES_PER_CE/max(perimeter,1e-8)
@@ -542,7 +646,7 @@ def lighting(scene,placements,target):
     blend=nodes.new('ShaderNodeMixRGB'); blend.inputs[2].default_value=(12,12,12,1)
     links.new(mask.outputs[0],blend.inputs[0]); links.new(sky.outputs['Color'],blend.inputs[1])
     links.new(blend.outputs[0],nodes['Background'].inputs['Color'])
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = .12
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = .14
     # Separate the camera backdrop from illumination for this finite enclosed
     # map preview; the distant ground context is outside the authored level.
     camera_color=nodes.new('ShaderNodeMixRGB')
@@ -561,8 +665,8 @@ def lighting(scene,placements,target):
     links.new(mix.outputs[0],nodes['World Output'].inputs['Surface'])
     scene.world = world
     data = bpy.data.lights.new("PREVIEW - afternoon sun","SUN")
-    data.energy = 5.4
-    data.color = (1,.94,.82)
+    data.energy = 4.6
+    data.color = (1,.91,.78)
     data.angle = math.radians(3)
     sun = bpy.data.objects.new(data.name,data)
     target.objects.link(sun)
@@ -615,12 +719,32 @@ def lighting(scene,placements,target):
         # no ambient fill or increased exposure disguises missing apertures.
         data.energy = lens.get('preview_light_power',900 if enclosed else 100)/METRES_PER_CE**2
         data.color = lens.get('preview_light_color',(.80,.90,1.0) if enclosed else (1.0,.78,.50))
+        data.spread = math.radians(lens.get('preview_light_spread_degrees',180))
         obj = bpy.data.objects.new(data.name,data)
         target.objects.link(obj)
         obj.location = sum((lens.matrix_world @ v.co for v in lens.data.vertices),Vector())/len(lens.data.vertices)
         direction=Vector(lens.get('preview_light_direction',(0,0,-1))).normalized()
         obj.location += direction*.025/METRES_PER_CE
-        obj.rotation_euler=direction.to_track_quat('-Z','Y').to_euler()
+        tangent=lens.get('preview_light_tangent')
+        if tangent is not None:
+            x=Vector(tangent)
+            if x.length<.99 or abs(x.normalized().dot(direction))>1e-5:
+                raise ValueError('Invalid AREA-light long-axis tangent: '+lens.name)
+            x.normalize()
+            z=-direction
+            y=z.cross(x).normalized()
+            obj.rotation_euler=Matrix((x,y,z)).transposed().to_euler()
+            # Long atlas lenses consist of many repeated quads. Bound them
+            # in the authored light frame instead of accumulating float32
+            # vertex sums; the physical run remains one rectangular source.
+            points=[lens.matrix_world@vertex.co for vertex in lens.data.vertices]
+            center=Vector()
+            for axis in (x,y,direction):
+                values=[point.dot(axis) for point in points]
+                center+=axis*((min(values)+max(values))*.5)
+            obj.location=center+direction*.025/METRES_PER_CE
+        else:
+            obj.rotation_euler=direction.to_track_quat('-Z','Y').to_euler()
         obj["preview_note"] = "Localized wash at authored shader light lens; not baked game lighting"
         obj["authored_lens"] = lens.name
         obj["mjolnir_preview_only"] = True
@@ -751,7 +875,9 @@ def main():
     bmesh.ops.delete(bm,geom=sky_faces,context="FACES")
     bm.to_mesh(terrain.data)
     bm.free()
+    authored_surfaces=snapshot_authored_surfaces(scene)
     prepare_materials(scene,args.staging,manifest,args.alloy_albedo,args.floor_albedo,args.cliff_albedo)
+    manifest['authored_surface_preservation']=assert_authored_surfaces(scene,authored_surfaces)
     for obj in scene.objects:
         if obj.type=='MESH' and facility_fixture(obj) and obj.get('authored_light_lens') and obj.get('light_atlas_pixels'):
             # Keep the exported atlas UVs and image-driven emission. Only the
@@ -760,7 +886,7 @@ def main():
                 mat=slot.material.copy(); slot.material=mat
                 shader=mat.node_tree.nodes.get('Principled BSDF')
                 shader.inputs['Emission Strength'].default_value=obj.get('preview_emission_strength',3.2)
-                if obj.get('facility_status_light'):
+                if obj.get('facility_status_light') and not mat.get('tst_authored_light'):
                     # The gold atlas rectangle must retain its actual hue;
                     # the generic cyan treatment otherwise turns it green.
                     tint=mat.node_tree.nodes.get('CE light atlas tint')
@@ -804,9 +930,9 @@ def main():
             "note":"Unscaled imported rest-pose model; not the movement collision capsule"}
         facility_anchor, facility_objects = import_reference(args.cyborg,refs,"CYBORG - FACILITY SCALE REFERENCE")
         manifest['ce_cyborg_materials'].extend(bind_ce_cyborg_materials(facility_objects,args.cyborg.parent.parent))
-        facility_anchor.location = Vector((-11.5,36.9,.32))/METRES_PER_CE
+        facility_anchor.location = Vector((7.0,46.0,.32))/METRES_PER_CE
         facility_anchor.rotation_euler.z = math.radians(90)
-        manifest['facility_cyborg_reference'] = {'position_m':[-11.5,36.9,.32],
+        manifest['facility_cyborg_reference'] = {'position_m':[7.0,46.0,.32],
             'note':'Preview-only actual cyborg model for room scale; no gameplay spawn added.'}
     if args.pcg_assets:
         from mjolnir_level.pcg_scene import load_pcg
@@ -942,10 +1068,18 @@ def main():
         "Switch scene camera between PREVIEW CAMERA objects; enable both\n"
         "render/viewport visibility on gameplay layout overlay for the layout view.\n"
         "Preview materials and fixture illumination are not in-game evidence.\n")
+    manifest['authored_surface_preservation']=assert_authored_surfaces(scene,authored_surfaces)
     bpy.ops.wm.save_as_mainfile(filepath=str(preview_file),check_existing=False)
     manifest["preview_blend"] = str(preview_file)
     manifest["actual_engine"] = scene.render.engine
+    surface_library = ROOT/'surfaces.json'
+    manifest['source_surface_library'] = {
+        'path':str(surface_library.resolve()),
+        'sha256':digest(surface_library),
+        'surfaces':json.loads(surface_library.read_text())['surfaces'],
+        'scope':'Authored role materials are retained from the source blend; rebuild geometry after editing this library.'}
     manifest["material_study"] = {
+        "scope":"Fallback preview graphs for stock CE slots only. Authored tst_surface_role materials retain their source graphs; their definitions are recorded in source_surface_library.",
         "authored_albedo":str(args.alloy_albedo.resolve()) if args.alloy_albedo else None,
         "floor_albedo":str(args.floor_albedo.resolve()) if args.floor_albedo else None,
         "cliff_albedo":str(args.cliff_albedo.resolve()) if args.cliff_albedo else None,
@@ -955,9 +1089,9 @@ def main():
         "structural_core_multiplier":[.65,.68,.72], "recess_multiplier":[.24,.27,.30],
         "roughness":"armor 0.23-0.43; floor 0.34-0.48 from generated Non-Color abrasion image (albedo fallback)","metallic":{"armor":.96,"floor":.72},"normal_map":"none; 0.8 mm estimated abrasion bump plus 8 mm shader bevel",
         "fitted_plates":"Dedicated preview UVs map one generated edge-worn image per part; CE UVs retained. Pale/inset/charcoal reflectance variants.",
-        "export_assignments":"Existing CE material slots retained; light lens uses mp lights small strips! (Blood Gulch). Preview graphs are not exported.",
+        "export_assignments":"Authored architectural roles share source materials and UVs. Stock light lenses use the Blood Gulch atlas with single-sided faces. Fallback preview graphs are not exported.",
         "terrain":"Installed CE grass/soil detail and actual source UV mask; see surface_detail_study. Native rock normals/AO plus approximate layered weathering.",
-        "light_study":"Authored fixture studies scaled to CE units; 320W panel uplights, 100W downward alcove wash; not a game bake.",
+        "light_study":"Local area lights read each authored lens's power, size, direction and color metadata, scaled to CE units; not a game bake.",
         "environment":"Southwest daylight key and physical sky illumination/reflections; procedural camera clouds. Enclosed coastal map preview. Ocean context hidden."
     }
     manifest["source_unchanged"] = source_hash==digest(source) and placements_hash==digest(placements_path)

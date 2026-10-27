@@ -1,0 +1,11 @@
+Generated 2026-10-26 using the built-in image_gen tool.
+Input: textures/forerunner_facility_floor_albedo.png (owned source image).
+Output: textures/forerunner_facility_floor_normal.png.
+Sixteen unique 2-metre plates in an 8-metre repeat, used only by facility_floor.
+The albedo is sRGB; roughness and OpenGL +Y tangent normals are Non-Color data.
+Selected Blender study: roughness 0.18–0.70, metallic 0.30, normal strength 0.60.
+Exact generation prompt follows; numeric target values in the prompt are artistic direction, not measured output guarantees.
+
+Use case: precise-object-edit.
+Asset type: OpenGL +Y TANGENT-SPACE NORMAL texture, matching the input owned floor albedo exactly.
+Input is an 8-metre-square four-by-four floor-plate albedo. Preserve the exact sixteen plate boundaries and corresponding abrasion. Output a real tangent-space normal DATA MAP, not a colored albedo. Flat unbroken surfaces are RGB128,128,255. Each plate must be macroscopically flat with zero broad tilt, waves, bulges, cloudy ripples, or biased normals. Encode only shallow pitted wear, small interrupted scratches and clean hairline seam recesses. The irregular worn patches may have slightly different small-scale grain but no large crater or bump. Micro-relief is shallow and restrained: typically red/green within118–138, rare seam edge excursions104–152; blue remains high. Flat plate regions retain neutral purple. Match input seam positions exactly at0%,25%,50%,75%,100%, half-seam along edges for tiling. OpenGL convention +Y upward. Orthographic full bleed square, no shading, text, lighting or border.

@@ -12,13 +12,15 @@ ARENA_HALF_X, ARENA_HALF_Y = 75, 40
 BASE_X = 54
 POND_X, POND_Y = 36, -23
 
-# The lower facility stays wholly inside the northern map closure (y=40).
-# Shared dimensions keep its floor, excavation and native-dressing exclusions
-# aligned. The sealed architectural floor sits above this earth substrate.
-FACILITY_HALF_X = 53.0
-FACILITY_FRONT_Y, FACILITY_BACK_Y = 24.6, 39.0
+# The sealed facility extends behind the original northern terrain closure.
+# Its extra playable air is contained inside its architectural outer walls;
+# the outdoor terrain and sky boundary still end at y=40. Shared dimensions
+# keep excavation, native clearance and the contained air extension aligned.
+FACILITY_HALF_X = 53.5
+FACILITY_FRONT_Y, FACILITY_BACK_Y = 24.6, 55.5
 FACILITY_FLOOR_Z, FACILITY_EXCAVATION_Z = .30, .18
 FACILITY_ENTRANCE_X = 48.0
+FACILITY_AIR_EXTENSION = ((-53.0,24.7,-.5),(53.0,55.0,6.2))
 
 
 def facility_contains(x, y, margin=0.0):
@@ -31,7 +33,7 @@ def facility_excavation_weight(x, y):
     """Blend to untouched terrain outside the facility and its short apron."""
     return ((1-_smooth(FACILITY_HALF_X, FACILITY_HALF_X+2.5, abs(x))) *
             _smooth(22.0, FACILITY_FRONT_Y, y) *
-            (1-_smooth(FACILITY_BACK_Y, 40.0, y)))
+            (1-_smooth(FACILITY_BACK_Y, FACILITY_BACK_Y+1.0, y)))
 
 
 def facility_native_exclusion_bounds():

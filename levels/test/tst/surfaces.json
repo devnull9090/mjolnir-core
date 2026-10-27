@@ -63,16 +63,16 @@
       "tag": "levels/test/tst/shaders/tst_metal_floor",
       "fallback": "metal plate floor ext",
       "albedo": "art/textures/forerunner_floor_albedo.png",
-      "roughness_map": "art/textures/forerunner_titanium_roughness.png",
+      "roughness_map": "art/textures/forerunner_floor_roughness.png",
       "tint": [
-        1.05,
-        1.05,
-        1.0
+        0.84,
+        0.84,
+        0.8
       ],
-      "metallic": 0.72,
+      "metallic": 0.62,
       "roughness": [
-        0.34,
-        0.48
+        0.3,
+        0.65
       ],
       "tile_m": 4,
       "soften": 0.08
@@ -152,6 +152,94 @@
       ],
       "tile_m": 2.4,
       "soften": 0.1
+    },
+    "facility_armor": {
+      "shader": "tst_metal_facility_armor",
+      "tag": "levels/test/tst/shaders/tst_metal_facility_armor",
+      "fallback": "metal panels generic ext",
+      "albedo": "art/textures/forerunner_titanium_worn_albedo.png",
+      "roughness_map": "art/textures/forerunner_titanium_roughness.png",
+      "tint": [
+        1.74,
+        1.4205882352941173,
+        1.016111111111111
+      ],
+      "metallic": 0.18,
+      "roughness": [
+        0.23,
+        0.43
+      ],
+      "tile_m": 2.4,
+      "soften": 0.1,
+      "normal_convention": "opengl",
+      "normal_map": "art/textures/forerunner_facility_normal.png",
+      "normal_strength": 0.45
+    },
+    "facility_structure": {
+      "shader": "tst_metal_facility_structure",
+      "tag": "levels/test/tst/shaders/tst_metal_facility_structure",
+      "fallback": "metal panels generic ext",
+      "albedo": "art/textures/forerunner_titanium_worn_albedo.png",
+      "roughness_map": "art/textures/forerunner_titanium_roughness.png",
+      "tint": [
+        0.78,
+        0.7,
+        0.59
+      ],
+      "metallic": 0.1,
+      "roughness": [
+        0.29,
+        0.49
+      ],
+      "tile_m": 2.4,
+      "soften": 0.1,
+      "normal_convention": "opengl",
+      "normal_map": "art/textures/forerunner_facility_normal.png",
+      "normal_strength": 0.45
+    },
+    "facility_recess": {
+      "shader": "tst_metal_facility_recess",
+      "tag": "levels/test/tst/shaders/tst_metal_facility_recess",
+      "fallback": "metal panels generic ext",
+      "albedo": "art/textures/forerunner_titanium_worn_albedo.png",
+      "roughness_map": "art/textures/forerunner_titanium_roughness.png",
+      "tint": [
+        0.24,
+        0.27,
+        0.3
+      ],
+      "metallic": 0.25,
+      "roughness": [
+        0.34,
+        0.54
+      ],
+      "tile_m": 2.4,
+      "soften": 0.1,
+      "normal_convention": "opengl",
+      "normal_map": "art/textures/forerunner_facility_normal.png",
+      "normal_strength": 0.45
+    },
+    "facility_floor": {
+      "shader": "tst_metal_facility_floor",
+      "tag": "levels/test/tst/shaders/tst_metal_facility_floor",
+      "fallback": "metal plate floor ext",
+      "albedo": "art/textures/forerunner_facility_floor_albedo.png",
+      "roughness_map": "art/textures/forerunner_facility_floor_roughness.png",
+      "tint": [
+        0.84,
+        0.84,
+        0.8
+      ],
+      "metallic": 0.3,
+      "roughness": [
+        0.18,
+        0.7
+      ],
+      "tile_m": 8,
+      "soften": 0.08,
+      "normal_convention": "opengl",
+      "normal_map": "art/textures/forerunner_facility_floor_normal.png",
+      "normal_strength": 0.6
     }
   }
 }

@@ -163,3 +163,82 @@ slots. The Blender preview retains these source materials. Lighting, water
 and native landscape preview shading still differ between renderers. The
 old Blender-only bevel shader, random per-object tints and estimated bump
 are not exported promises; the actual mesh bevels are preserved.
+
+The facility pass fixes a later preview fallback that could replace authored
+face assignments despite retaining the source material definitions. Preview
+styling now skips those faces. A before/after check enforces their surface roles,
+source shader tags, topology and exported `UVMap`; its result is recorded as
+`authored_surface_preservation` in the render manifest. Stock/native material
+approximations are excluded. This verifies the owned source finishes in the
+Blender preview, not their eventual cooked appearance.
+
+The October 26 enclosed-facility pass adds
+`textures/forerunner_floor_roughness.png`, a built-in imagegen edit aligned to
+the existing floor albedo. Its [complete prompt and provenance](forerunner_floor_roughness_prompt.txt)
+are included. Broad worn/matte patches replace the floor's uniform brushed-metal
+roughness. The shared floor role now uses this linear texture, a 0.30–0.65
+roughness range, 0.62 metallic value and darker tint. These are source palette
+changes for the next export; the published beta is unchanged.
+
+The enclosed facility also adds `forerunner_facility_normal.png` and
+`forerunner_floor_normal.png`, generated with the built-in image tool from the
+owned worn-titanium and floor albedos. Exact prompts and input/output provenance
+are in [the architectural normal record](forerunner_facility_normal_prompt.txt)
+and [the floor normal record](forerunner_floor_normal_prompt.txt). These are
+OpenGL +Y tangent normal maps, used as linear data at restrained strength.
+Four facility-only finishes add worn relief and warmer structure while leaving
+the eight exterior finishes intact. Blender and native material authoring
+share their texture paths, UVs, tint, roughness, metallic value and normal
+strength; native import converts the normal convention once. The source now
+declares twelve architectural roles. The facility has not yet been cooked or
+tested in game.
+
+`textures/forerunner_floor_wear_roughness.png` refines the facility-only floor
+wear with firmer irregular transitions between worn and matte patches. Its
+[exact built-in imagegen prompt](forerunner_floor_wear_roughness_prompt.txt)
+records the existing albedo reference. It uses the same UV alignment and
+linear data treatment; the exterior floor retains the earlier roughness map.
+
+The final facility floor replaces that four-plate study with sixteen varied
+2m plates in an 8m repeat: `forerunner_facility_floor_albedo.png`,
+`forerunner_facility_floor_roughness.png` and
+`forerunner_facility_floor_normal.png`. Built-in imagegen produced the owned
+albedo, then aligned roughness and OpenGL tangent normals. Their complete
+prompts and input/output records are saved separately:
+[albedo](forerunner_facility_floor_albedo_prompt.txt),
+[roughness](forerunner_facility_floor_roughness_prompt.txt) and
+[normal](forerunner_facility_floor_normal_prompt.txt).
+
+Isolated Cycles tests showed the corridor bands persist with flat material
+channels: repeated fixtures create both direct light/shadow and reflection
+rhythms. The selected material therefore combines less repetitive wear with
+a 0.30 metallic value and a 0.18–0.70 roughness range. Firm irregular smoother
+patches break up the reflection without changing the accepted lighting.
+The source UV scale, maps and scalar settings are shared with native material
+authoring. Earlier four-plate normal/roughness files remain documented study
+assets; the facility palette now references this sixteen-plate set.
+
+The facility's amber maintenance indicators are authored geometry and shader
+parameters, not generated texture art. [`../amber_light.json`](../amber_light.json)
+records their shared RGB, atlas selection and map-owned material name;
+[`../amber_light.py`](../amber_light.py) derives and verifies
+`../tags/levels/test/tst/shaders/tst_lights_amber.shader_environment` from the
+installed Blood Gulch light shader. Its base and self-illumination map both
+reference the unchanged external `mp lights small strips` atlas. No stock
+bitmap is copied into the community source. Constant primary self-illumination
+and material color supply the amber hue in both source and native conversion.
+
+Eight sealed-door core lamps and eight physical wall-mounted jamb indicators
+use this material with the original atlas UV rectangle and one-sided faces.
+Their Blender area lights, emitter strength and exposure are a lighting study;
+they are not calibrated CE radiosity or evidence of runtime lighting parity.
+The facility has visible downward fixtures and end-wall washers, with no
+concealed ceiling uplights. See [the facility build guide](facility-build.md)
+for the current dimensions, powers and rebuild path.
+
+The completed Blender-stage facility pass has five actual Cycles renders in
+[`review/`](review/facility-art-review.md), with the interior art verdict,
+remaining concept differences and a source-hashed validation record. These
+images are rendered geometry, not imagegen replacements. The assembled local
+preview contains installed-game references and is not distributed; the owned
+source geometry, selected textures and generation prompts are included here.

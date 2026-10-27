@@ -1,0 +1,1268 @@
+{
+  "schema": 1,
+  "packaged_utc": "2026-10-27T03:09:48.082261+00:00",
+  "scope": "Actual Blender renders and authored-mesh validation only; no game runtime evidence.",
+  "source": {
+    "path": "levels/test/tst/tst.blend",
+    "sha256": "f403a49b17d3769fbf642ac6db5d3298285e9f4bf9beab3b9b99f79c732e0c51",
+    "unchanged_by_preview": true,
+    "export_pending": true
+  },
+  "game_launch": false,
+  "hek_bake": false,
+  "jms_export": false,
+  "game_export": false,
+  "runtime_fps": "untested",
+  "facility": {
+    "route_count": 2,
+    "route_samples": 1470,
+    "player_envelope": {
+      "height_m": 2.4,
+      "radius_m": 0.4,
+      "route_step_m": 0.2
+    },
+    "route_minimum_roof_clearance_m": 3.698,
+    "branch_section_count": 24,
+    "minimum_branch_width_m": 4.46268,
+    "required_branch_widths_m": [
+      4.2
+    ],
+    "turning_bays": [
+      {
+        "name": "concourse_-1_35",
+        "x_span_m": [
+          -41,
+          -39
+        ],
+        "y_span_m": [
+          35,
+          37
+        ],
+        "clear_area_m": [
+          2,
+          2
+        ],
+        "height_m": 2.4,
+        "grid_step_m": 0.1,
+        "sample_count": 441
+      },
+      {
+        "name": "concourse_-1_48",
+        "x_span_m": [
+          -41,
+          -39
+        ],
+        "y_span_m": [
+          48,
+          50
+        ],
+        "clear_area_m": [
+          2,
+          2
+        ],
+        "height_m": 2.4,
+        "grid_step_m": 0.1,
+        "sample_count": 441
+      },
+      {
+        "name": "concourse_1_35",
+        "x_span_m": [
+          39,
+          41
+        ],
+        "y_span_m": [
+          35,
+          37
+        ],
+        "clear_area_m": [
+          2,
+          2
+        ],
+        "height_m": 2.4,
+        "grid_step_m": 0.1,
+        "sample_count": 441
+      },
+      {
+        "name": "concourse_1_48",
+        "x_span_m": [
+          39,
+          41
+        ],
+        "y_span_m": [
+          48,
+          50
+        ],
+        "clear_area_m": [
+          2,
+          2
+        ],
+        "height_m": 2.4,
+        "grid_step_m": 0.1,
+        "sample_count": 441
+      }
+    ],
+    "closed_end_probe_count": 12,
+    "main_ceiling_m": 4.01,
+    "main_clear_height_m": 3.71,
+    "ceiling_probe_count": 33,
+    "enclosure": {
+      "route_roof_and_rear_checks": 1470,
+      "boundary_probe_count": 1416,
+      "roof_grid_probe_count": 895,
+      "probes_inside_solid_structure": 2541,
+      "boundary_grid_m": 0.25,
+      "front_grid_m": 0.2,
+      "front_opening_rows": [
+        {
+          "height_m": 1.3,
+          "open_spans_x_m": [
+            [
+              -52.3,
+              -43.7
+            ],
+            [
+              43.7,
+              52.3
+            ]
+          ],
+          "expected_width_m": 8.8
+        },
+        {
+          "height_m": 2.3,
+          "open_spans_x_m": [
+            [
+              -52.3,
+              -43.7
+            ],
+            [
+              43.7,
+              52.3
+            ]
+          ],
+          "expected_width_m": 8.8
+        },
+        {
+          "height_m": 3.3,
+          "open_spans_x_m": [
+            [
+              -52.3,
+              -43.7
+            ],
+            [
+              43.7,
+              52.3
+            ]
+          ],
+          "expected_width_m": 8.8
+        }
+      ],
+      "on_surface_air_side_probe_count": 32
+    },
+    "bounds_m": {
+      "half_x": 53.5,
+      "front_y": 24.6,
+      "back_y": 55.5
+    },
+    "approach_samples": 32,
+    "nonmanifold_edges": 0,
+    "pcg_none_faces_checked": {
+      "finishes": 63220,
+      "structure": 1345
+    },
+    "issue_count": 0
+  },
+  "fixtures": {
+    "count": 162,
+    "powered_count": 152,
+    "amber_count": 16,
+    "minimum_face_direction_dot": 0.7071067690849304,
+    "atlas_regions": [
+      [
+        326,
+        2,
+        380,
+        23
+      ],
+      [
+        755,
+        186,
+        786,
+        201
+      ]
+    ],
+    "calibrated_ceiling_washers": [
+      {
+        "object": "facility_foyer_pier_wash_lens",
+        "reference_m": [
+          -5.400000095367432,
+          40.0,
+          3.7799999713897705
+        ],
+        "actual_area_center_m": [
+          -5.40000057220459,
+          40.0,
+          3.7800004482269287
+        ],
+        "power_w": 1.8
+      },
+      {
+        "object": "facility_foyer_wall_wash_lens",
+        "reference_m": [
+          -3.0,
+          35.20000076293945,
+          3.7799999713897705
+        ],
+        "actual_area_center_m": [
+          -3.0,
+          35.20000457763672,
+          3.7799999713897705
+        ],
+        "power_w": 12.0
+      },
+      {
+        "object": "facility_foyer_wall_wash_lens.001",
+        "reference_m": [
+          -3.0,
+          44.79999923706055,
+          3.7799999713897705
+        ],
+        "actual_area_center_m": [
+          -3.0,
+          44.79999923706055,
+          3.7799999713897705
+        ],
+        "power_w": 12.0
+      },
+      {
+        "object": "facility_foyer_upper_beam_wash_lens",
+        "reference_m": [
+          -6.400000095367432,
+          35.400001525878906,
+          3.7200000286102295
+        ],
+        "actual_area_center_m": [
+          -6.40000057220459,
+          35.40000534057617,
+          3.7200002670288086
+        ],
+        "power_w": 2.0
+      },
+      {
+        "object": "facility_foyer_upper_beam_wash_lens.001",
+        "reference_m": [
+          -6.400000095367432,
+          44.599998474121094,
+          3.7200000286102295
+        ],
+        "actual_area_center_m": [
+          -6.40000057220459,
+          44.600006103515625,
+          3.7200002670288086
+        ],
+        "power_w": 2.0
+      },
+      {
+        "object": "facility_foyer_pier_wash_lens.001",
+        "reference_m": [
+          5.400000095367432,
+          40.0,
+          3.7799999713897705
+        ],
+        "actual_area_center_m": [
+          5.40000057220459,
+          40.0,
+          3.7800004482269287
+        ],
+        "power_w": 1.8
+      },
+      {
+        "object": "facility_foyer_wall_wash_lens.002",
+        "reference_m": [
+          3.0,
+          35.20000076293945,
+          3.7799999713897705
+        ],
+        "actual_area_center_m": [
+          3.0,
+          35.20000457763672,
+          3.7799999713897705
+        ],
+        "power_w": 12.0
+      },
+      {
+        "object": "facility_foyer_wall_wash_lens.003",
+        "reference_m": [
+          3.0,
+          44.79999923706055,
+          3.7799999713897705
+        ],
+        "actual_area_center_m": [
+          3.0,
+          44.79999923706055,
+          3.7799999713897705
+        ],
+        "power_w": 12.0
+      },
+      {
+        "object": "facility_foyer_upper_beam_wash_lens.002",
+        "reference_m": [
+          6.400000095367432,
+          35.400001525878906,
+          3.7200000286102295
+        ],
+        "actual_area_center_m": [
+          6.40000057220459,
+          35.40000915527344,
+          3.7199997901916504
+        ],
+        "power_w": 2.0
+      },
+      {
+        "object": "facility_foyer_upper_beam_wash_lens.003",
+        "reference_m": [
+          6.400000095367432,
+          44.599998474121094,
+          3.7200000286102295
+        ],
+        "actual_area_center_m": [
+          6.40000057220459,
+          44.600006103515625,
+          3.7199997901916504
+        ],
+        "power_w": 2.0
+      }
+    ],
+    "floor_upwash_count": 26,
+    "floor_upwash_total_watts": 1831.1964120380171,
+    "floor_upwash": [
+      {
+        "lens": "facility_branch_floor_edge_lens",
+        "power_w": 40.3999077229343,
+        "tangent": [
+          0.9673721790313721,
+          0.25335973501205444,
+          0.0
+        ],
+        "size_m": [
+          6.733317953822383,
+          0.043999691934728
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -8.080389962258905e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.001",
+        "power_w": 46.69990521815482,
+        "tangent": [
+          0.9673721790313721,
+          0.25335946679115295,
+          0.0
+        ],
+        "size_m": [
+          7.783317536359136,
+          0.04399993353062157
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -2.31034261655369e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.002",
+        "power_w": 84.84966217854945,
+        "tangent": [
+          -0.9307515025138855,
+          -0.3656523823738098,
+          0.0
+        ],
+        "size_m": [
+          14.141610363091575,
+          0.04400133859694284
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.0003416560929985629
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.003",
+        "power_w": 84.84965570455282,
+        "tangent": [
+          -0.9307515025138855,
+          -0.3656524419784546,
+          0.0
+        ],
+        "size_m": [
+          14.141609284092135,
+          0.04399956328147951
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.00010262864356931634
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.004",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400062523829084
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -3.7206072250883793e-10
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.005",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400062523829084
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": 1.9069765720899912e-06
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.006",
+        "power_w": 46.69990521815482,
+        "tangent": [
+          -0.9673721790313721,
+          0.25335946679115295,
+          0.0
+        ],
+        "size_m": [
+          7.783317536359136,
+          0.04399993353062157
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -2.6560495562509556e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.007",
+        "power_w": 40.3999077229343,
+        "tangent": [
+          -0.9673721790313721,
+          0.25335973501205444,
+          0.0
+        ],
+        "size_m": [
+          6.733317953822383,
+          0.043999691934728
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -7.698920235696405e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.008",
+        "power_w": 84.84965570455282,
+        "tangent": [
+          -0.9307515025138855,
+          0.3656524419784546,
+          0.0
+        ],
+        "size_m": [
+          14.141609284092135,
+          0.04400133859694284
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.00010752904832082855
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.009",
+        "power_w": 84.84966217854945,
+        "tangent": [
+          -0.9307515025138855,
+          0.3656523823738098,
+          0.0
+        ],
+        "size_m": [
+          14.141610363091575,
+          0.04400133859694284
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.0001046680253716098
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.010",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400253279363122
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -1.6535315477961277e-10
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.011",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400253279363122
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -1.6535315477961277e-10
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.012",
+        "power_w": 46.69990521815482,
+        "tangent": [
+          0.9673721790313721,
+          -0.25335946679115295,
+          0.0
+        ],
+        "size_m": [
+          7.783317536359136,
+          0.04399993353062157
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -2.31034261655369e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.013",
+        "power_w": 40.3999077229343,
+        "tangent": [
+          0.9673721790313721,
+          -0.25335973501205444,
+          0.0
+        ],
+        "size_m": [
+          6.733317953822383,
+          0.043999691934728
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -8.080389962258905e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.014",
+        "power_w": 84.84965570455282,
+        "tangent": [
+          -0.9307515025138855,
+          0.3656524419784546,
+          0.0
+        ],
+        "size_m": [
+          14.141609284092135,
+          0.04399956328147951
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.00010262864356931634
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.015",
+        "power_w": 84.84966217854945,
+        "tangent": [
+          0.9307515025138855,
+          -0.3656523823738098,
+          0.0
+        ],
+        "size_m": [
+          14.141610363091575,
+          0.04400133859694284
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.0003416560929985629
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.016",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400062523829084
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": 1.9069765720899912e-06
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.017",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400062523829084
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -3.7206072250883793e-10
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.018",
+        "power_w": 40.3999077229343,
+        "tangent": [
+          -0.9673721790313721,
+          -0.25335973501205444,
+          0.0
+        ],
+        "size_m": [
+          6.733317953822383,
+          0.043999691934728
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -7.698920235696405e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.019",
+        "power_w": 46.69990521815482,
+        "tangent": [
+          -0.9673721790313721,
+          -0.25335946679115295,
+          0.0
+        ],
+        "size_m": [
+          7.783317536359136,
+          0.04399993353062157
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -2.6560495562509556e-05
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.020",
+        "power_w": 84.84966217854945,
+        "tangent": [
+          0.9307515025138855,
+          0.3656523823738098,
+          0.0
+        ],
+        "size_m": [
+          14.141610363091575,
+          0.04400133859694284
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.0001046680253716098
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.021",
+        "power_w": 84.84965570455282,
+        "tangent": [
+          0.9307515025138855,
+          0.3656524419784546,
+          0.0
+        ],
+        "size_m": [
+          14.141609284092135,
+          0.04400133859694284
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -0.00010752904832082855
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.022",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400253279363122
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -1.6535315477961277e-10
+      },
+      {
+        "lens": "facility_branch_floor_edge_lens.023",
+        "power_w": 77.3999866574298,
+        "tangent": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          12.899997776238301,
+          0.04400253279363122
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -1.6535315477961277e-10
+      },
+      {
+        "lens": "facility_foyer_floor_edge_lens",
+        "power_w": 92.39999774090653,
+        "tangent": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          15.39999962348442,
+          0.04399871760024878
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -7.630056001219077e-06
+      },
+      {
+        "lens": "facility_foyer_floor_edge_lens.001",
+        "power_w": 92.39999774090653,
+        "tangent": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "size_m": [
+          15.39999962348442,
+          0.04399871760024878
+        ],
+        "visible_emission_strength": 1.6,
+        "study_width_approximation_delta_m": -3.8153587355940766e-06
+      }
+    ],
+    "photometry": "Blender AREA powers and spread are authoring approximations; game light bake remains unvalidated."
+  },
+  "materials": {
+    "surface_library": "levels/test/tst/surfaces.json",
+    "sha256": "3c8d768e35c45c796741c9711f3254d720c8aa1073073ccd54f3e7d53f0b5b8d",
+    "role_count": 12,
+    "settings": [
+      {
+        "role": "armor",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_armor",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.96
+      },
+      {
+        "role": "edge",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_edge",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.96
+      },
+      {
+        "role": "facility_armor",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_facility_armor",
+        "normal_map": "levels/test/tst/art/textures/forerunner_facility_normal.png",
+        "normal_strength": 0.45,
+        "normal_convention": "opengl",
+        "metallic": 0.18
+      },
+      {
+        "role": "facility_floor",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_facility_floor",
+        "normal_map": "levels/test/tst/art/textures/forerunner_facility_floor_normal.png",
+        "normal_strength": 0.6,
+        "normal_convention": "opengl",
+        "metallic": 0.3
+      },
+      {
+        "role": "facility_recess",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_facility_recess",
+        "normal_map": "levels/test/tst/art/textures/forerunner_facility_normal.png",
+        "normal_strength": 0.45,
+        "normal_convention": "opengl",
+        "metallic": 0.25
+      },
+      {
+        "role": "facility_structure",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_facility_structure",
+        "normal_map": "levels/test/tst/art/textures/forerunner_facility_normal.png",
+        "normal_strength": 0.45,
+        "normal_convention": "opengl",
+        "metallic": 0.1
+      },
+      {
+        "role": "fitted_charcoal",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_fitted_charcoal",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.96
+      },
+      {
+        "role": "fitted_inset",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_fitted_inset",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.96
+      },
+      {
+        "role": "fitted_pale",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_fitted_pale",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.96
+      },
+      {
+        "role": "floor",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_floor",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.62
+      },
+      {
+        "role": "recess",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_recess",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.85
+      },
+      {
+        "role": "structure",
+        "shader_tag": "levels/test/tst/shaders/tst_metal_structure",
+        "normal_map": null,
+        "normal_strength": null,
+        "normal_convention": null,
+        "metallic": 0.96
+      }
+    ],
+    "authored_face_preservation": {
+      "checked_objects": 1496,
+      "checked_faces": 97244,
+      "changed_faces": 0,
+      "passed": true,
+      "scope": "Used authored face roles, source shader tags, topology and exported UVMap; stock/native approximations excluded."
+    },
+    "bevel_wear_assemblies": {
+      "branch_ribs": {
+        "bevel_area_m2": 14.206259538241715,
+        "worn_area_m2": 2.3170973789949625,
+        "objects": 56,
+        "weighted_worn_fraction": 0.16310397348137887
+      },
+      "coffer_borders": {
+        "bevel_area_m2": 11.81795494222501,
+        "worn_area_m2": 1.9227071906671045,
+        "objects": 36,
+        "weighted_worn_fraction": 0.16269373170457438
+      },
+      "facility_service_foyer_front_west": {
+        "bevel_area_m2": 2.403066955597066,
+        "worn_area_m2": 0.3987717639757257,
+        "objects": 12,
+        "weighted_worn_fraction": 0.1659428436011459
+      },
+      "facility_service_foyer_front_east": {
+        "bevel_area_m2": 2.4030743892403263,
+        "worn_area_m2": 0.36541941285051416,
+        "objects": 12,
+        "weighted_worn_fraction": 0.1520632962869005
+      },
+      "facility_service_foyer_rear_west": {
+        "bevel_area_m2": 2.403079183573733,
+        "worn_area_m2": 0.37151855358485775,
+        "objects": 12,
+        "weighted_worn_fraction": 0.1546010452441084
+      },
+      "facility_service_foyer_rear_east": {
+        "bevel_area_m2": 2.4030825411318273,
+        "worn_area_m2": 0.385692047726132,
+        "objects": 12,
+        "weighted_worn_fraction": 0.16049887639085214
+      }
+    },
+    "source_parity_issues": 0,
+    "preview_parity_issues": 0
+  },
+  "original_layout": {
+    "checks": 206,
+    "player_preview": {
+      "height_m": 2.4,
+      "radius_m": 0.4
+    },
+    "issue_count": 0,
+    "enclosure_missing_degrees_at_9m": []
+  },
+  "native_clearance": {
+    "original": {
+      "scope": "Native authored rock render meshes versus 0.4 m radius / 2.4 m player envelopes; excludes UE collision simplification and simulation",
+      "markers": 206,
+      "native_instances": 121,
+      "broadphase_candidates": 35,
+      "issues": []
+    },
+    "facility": {
+      "scope": "Native authored rock render meshes versus 0.4 m radius / 2.4 m player envelopes; excludes UE collision simplification and simulation",
+      "markers": 1502,
+      "native_instances": 121,
+      "broadphase_candidates": 0,
+      "issues": []
+    }
+  },
+  "architecture": {
+    "scope": "Blender geometry only; reflection of all tower armor surfaces and conservative full native field-tree bounds (excludes distant ridge saplings)",
+    "panel_reflection_axis_y_m": 28.8,
+    "panel_vertices_checked": 4044,
+    "panel_max_reflection_error_m": 0.0005033,
+    "native_tree_parts_checked": 210,
+    "canopy_max_y_m": 20.086,
+    "metalwork_front_y_m": 21.58,
+    "canopy_to_metalwork_gap_m": 1.494,
+    "rail_modules_checked": 192,
+    "rail_clasp_overlaps": []
+  },
+  "render": {
+    "engine": "CYCLES",
+    "device": "OPTIX: NVIDIA GeForce RTX 5090",
+    "samples": 96,
+    "images": [
+      {
+        "path": "levels/test/tst/art/review/facility-red.png",
+        "sha256": "ed735ad3054de57c8ed13d4ae8f628fa416a16b5b9331493fe33ada1c714aef7",
+        "resolution": [
+          1715,
+          1054
+        ],
+        "render_seconds": 9.28,
+        "camera_m": {
+          "position": [
+            -34,
+            -10,
+            2.1
+          ],
+          "target": [
+            -53,
+            18,
+            5.5
+          ],
+          "lens_mm": 35
+        }
+      },
+      {
+        "path": "levels/test/tst/art/review/facility-blue.png",
+        "sha256": "10a77d549df07188d470448d0dc3e006c7f29ee349ab59f3c68086a982b8eed3",
+        "resolution": [
+          1715,
+          1054
+        ],
+        "render_seconds": 7.96,
+        "camera_m": {
+          "position": [
+            34,
+            -10,
+            2.1
+          ],
+          "target": [
+            53,
+            18,
+            5.5
+          ],
+          "lens_mm": 35
+        }
+      },
+      {
+        "path": "levels/test/tst/art/review/facility-interior.png",
+        "sha256": "fa32352ef0b71ad995c4c194eb323ce3a6789b9b55752be2797a232763e23d85",
+        "resolution": [
+          1715,
+          392
+        ],
+        "render_seconds": 4.79,
+        "camera_m": {
+          "position": [
+            -7.5,
+            40,
+            1.55
+          ],
+          "target": [
+            20,
+            40,
+            2.4
+          ],
+          "lens_mm": 22
+        }
+      },
+      {
+        "path": "levels/test/tst/art/review/facility-route.png",
+        "sha256": "54adda9eb13f119719a989e7f0cd2699f293150471fe7086c4bfb8221a6abea6",
+        "resolution": [
+          1715,
+          965
+        ],
+        "render_seconds": 7.44,
+        "camera_m": {
+          "position": [
+            -40,
+            51.5,
+            1.9
+          ],
+          "target": [
+            -18,
+            46.8,
+            2.0
+          ],
+          "lens_mm": 24
+        }
+      },
+      {
+        "path": "levels/test/tst/art/review/facility-door.png",
+        "sha256": "ff1ec58f584173242eb96ab27f70dec2aea6d5c6f715a0414dc3034aaa609944",
+        "resolution": [
+          1715,
+          965
+        ],
+        "render_seconds": 7.15,
+        "camera_m": {
+          "position": [
+            -1,
+            40,
+            1.9
+          ],
+          "target": [
+            3,
+            47,
+            2.0
+          ],
+          "lens_mm": 30
+        }
+      }
+    ],
+    "native_assets_note": "Installed-game reference assets are local preview dependencies and are not included in this review package."
+  },
+  "owned_asset_provenance": [
+    {
+      "path": "levels/test/tst/art/textures/forerunner_facility_floor_albedo.png",
+      "sha256": "7d6175f5c735920bca9b815c355cd77c7242cbd54db2ab2dd5cdf02bd3d74d34",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "facility_floor",
+          "map": "albedo"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_facility_floor_normal.png",
+      "sha256": "dd80d8739cbd13d0d8ce730123218e4e81e207852a371ab319f43bae29aca7a0",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "facility_floor",
+          "map": "normal_map"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_facility_floor_roughness.png",
+      "sha256": "0f409d0adcdf720b156e2149578d3d8455942d121ee440256256250e00f299cf",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "facility_floor",
+          "map": "roughness_map"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_facility_normal.png",
+      "sha256": "2806de70cc42f313fb2811947444c5f2450907f998eee20f89376178ab8a9870",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "facility_armor",
+          "map": "normal_map"
+        },
+        {
+          "role": "facility_structure",
+          "map": "normal_map"
+        },
+        {
+          "role": "facility_recess",
+          "map": "normal_map"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_fitted_plate_albedo.png",
+      "sha256": "56269122418eca58ba0447d749e77e61e384d23b01494d7b7af2fcf2993de674",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "fitted_pale",
+          "map": "albedo"
+        },
+        {
+          "role": "fitted_inset",
+          "map": "albedo"
+        },
+        {
+          "role": "fitted_charcoal",
+          "map": "albedo"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_floor_albedo.png",
+      "sha256": "7803176741aedbe94061980842d5db2831c731c1495d44e4ad087230ca6e6cf9",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "floor",
+          "map": "albedo"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_floor_roughness.png",
+      "sha256": "65011afa8c651061b009dc7500773a60ff5fc695a776842ba030e5c5356235fc",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "floor",
+          "map": "roughness_map"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_titanium_albedo.png",
+      "sha256": "61ca4929cf23ab9d5dfd45d4f3897718657304ef54e0dee898f972c4fb2d3e1c",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "armor",
+          "map": "albedo"
+        },
+        {
+          "role": "structure",
+          "map": "albedo"
+        },
+        {
+          "role": "recess",
+          "map": "albedo"
+        },
+        {
+          "role": "edge",
+          "map": "albedo"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_titanium_roughness.png",
+      "sha256": "4d2e86e1cb8d1846b85cf9a26c128937f4fe72bacdb1b3015d5df32f592ef247",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "armor",
+          "map": "roughness_map"
+        },
+        {
+          "role": "structure",
+          "map": "roughness_map"
+        },
+        {
+          "role": "recess",
+          "map": "roughness_map"
+        },
+        {
+          "role": "fitted_pale",
+          "map": "roughness_map"
+        },
+        {
+          "role": "fitted_inset",
+          "map": "roughness_map"
+        },
+        {
+          "role": "fitted_charcoal",
+          "map": "roughness_map"
+        },
+        {
+          "role": "edge",
+          "map": "roughness_map"
+        },
+        {
+          "role": "facility_armor",
+          "map": "roughness_map"
+        },
+        {
+          "role": "facility_structure",
+          "map": "roughness_map"
+        },
+        {
+          "role": "facility_recess",
+          "map": "roughness_map"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/forerunner_titanium_worn_albedo.png",
+      "sha256": "8993f3485597000a20655a5cbe526080f784865af567922492e45ad1564e9670",
+      "use": "authored_source",
+      "provenance_document": "levels/test/tst/art/README.md",
+      "surface_uses": [
+        {
+          "role": "facility_armor",
+          "map": "albedo"
+        },
+        {
+          "role": "facility_structure",
+          "map": "albedo"
+        },
+        {
+          "role": "facility_recess",
+          "map": "albedo"
+        }
+      ]
+    },
+    {
+      "path": "levels/test/tst/art/textures/coastal_granite_albedo.png",
+      "sha256": "94bbfbf13fe52f944ea5b40383d5cee57dc403946545ca62476fe78c97809d6f",
+      "use": "preview_only",
+      "provenance_document": "levels/test/tst/art/README.md"
+    },
+    {
+      "path": "levels/test/tst/art/textures/coastal_granite_lichen_albedo.png",
+      "sha256": "a8f4ba621c979e15e621d98be0de89631cda2668fb92207caa2b6b4b8e1ca07a",
+      "use": "preview_only",
+      "provenance_document": "levels/test/tst/art/README.md"
+    },
+    {
+      "path": "levels/test/tst/art/textures/coastal_meadow_albedo.png",
+      "sha256": "f7fdceb4eda70e42c8818b014a94f52b95d86e8e9f7bab59edf324c78a308189",
+      "use": "preview_only",
+      "provenance_document": "levels/test/tst/art/README.md"
+    }
+  ],
+  "provenance_documents": [
+    {
+      "path": "levels/test/tst/art/README.md",
+      "sha256": "b20ebc5f45352cbfd2a39963f68837494629d4a45bfbfe7e9e15cd16d7c2a848"
+    },
+    {
+      "path": "levels/test/tst/art/facility-concept.json",
+      "sha256": "469be229970bfa702b2f4e04b5577a2d5ac3a9e63b3e422d7dc4229600c5fac1"
+    }
+  ],
+  "report_sha256": {
+    "facility-check.json": "f50bceee0f73eb8b66462aec96db780d12ee44207d5b83e1faed8ab96262514c",
+    "layout-check.json": "d0a8f0d449e78a89b61f345869e9dfb12f226efcfefc87d9f80635641ff06cd5",
+    "native-clearance.json": "885f848d824356c0b7811358aa24386cdf34eeeda505759e7df57dd3c844de7f",
+    "facility-native-clearance.json": "308ee635fdd37cd11d192f7c6c67f63e4c3d7dd52676d5633a50ff479c3668bd",
+    "architecture-check.json": "135f30e73ddaa729a590a5146d12f04e165639d29c0dfe113df3b45d32e5c3e3",
+    "preview-manifest.json": "1c300a4fcf2de495c258125db264825306ab4e446d1e80253c7ef902326df293",
+    "source-portability.json": "b2c3fb5d250670ac57a26c05e5e5af4ed881af9fbbb9c8532407b2745111e9e9",
+    "preview-surface-parity.json": "337c50024a1a57ba5892e910869d4609566a255b8f649657695b554e6c226d7c"
+  }
+}

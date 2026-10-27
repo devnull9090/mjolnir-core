@@ -1,6 +1,6 @@
 """Add inspectable, non-exported placement guides to the generated TST scene.
 
-Run after build_geometry.py has exported JMS::
+Run after build_geometry.py, including a source-only --no-export build::
 
     blender --background --factory-startup --python annotate_blend.py
     blender --background --factory-startup --python annotate_blend.py -- --out inspect.blend
@@ -51,6 +51,9 @@ shared runtime dressing sampler on current triangles, checks placements and
 renders fixed views. Open .dream-loop/blender-preview/native-current/preview.blend
 for that complete local study. Keep tst.blend as the clean authoring source.
 Use -RebuildGeometry only when regenerating from scripts, as it replaces edits.
+To inspect the enclosed facility from PowerShell, use:
+  & ./levels/test/tst/preview-native.ps1 -Views @('facility-interior',
+      'facility-route','facility-door','facility-red','facility-blue')
 perimeter_dressing.py/json records native rock and ridge-tree placements shared
 with the runtime upgrade. Preview shaders approximate Unreal materials.
 Do not distribute the extracted cache or preview.blend in community sources.
@@ -59,7 +62,9 @@ UNITS
 Authoring scripts and placements.json use metres. Mesh coordinates in this
 file use CE world units: 1 Blender unit = 1 CE unit = 3.048 metres. Scene unit
 scale is 3.048. The CE JMS exporter uses scale_enum="1" (x100). Do not apply an
-extra metre-to-centimetre scale. The map is about 150 by 84 metres.
+extra metre-to-centimetre scale. The outdoor arena remains about 150 by 84
+metres. The sealed indoor facility extends north to y=55.5 m; this extra air
+is contained inside the architectural walls, floor and roof.
 
 OUTLINER
 TST_sealed_terrain_and_sky is the merged gameplay BSP air boundary.
@@ -77,12 +82,19 @@ tag, modes and other placement data. Arrow direction is the placement yaw.
 
 AUTHORITATIVE SOURCES
 build_geometry.py creates terrain, bases, meshes, JMS and placements.json.
+facility_architecture.py builds the enclosed diverging hallways and their
+editable fitted finishes; facility_doors.py builds the sealed service doors.
+facility_edge_wear.py refines selected generated bevel faces after beveling.
+Read art/facility-build.md for the design, shared materials and validation.
 build_scenario.py turns placements.json into the CE scenario.
 rebuild.ps1 performs the validated CE structure/lightmaps/cache pipeline.
-annotate_blend.py adds this inspection layer AFTER the JMS export.
+annotate_blend.py adds this inspection layer after source generation. A
+--no-export build saves the source without changing JMS or the game build.
+When the scene property tst_export_pending is true, the older JMS does not
+contain the current facility changes; the source still needs export/bake.
 
-To make repeatable geometry or placement changes, edit build_geometry.py and
-regenerate. A full rebuild overwrites tst.blend and placements.json. Save hand
+To make repeatable geometry or placement changes, edit the relevant generator
+and regenerate. A full rebuild overwrites tst.blend and placements.json. Save hand
 experiments to a separate .blend before regenerating. Moving a guide here does
 not change placements.json or the game. Direct scenario-only JSON edits need
 the skip-geometry rebuild route, and will be replaced by the next full build.
@@ -292,7 +304,13 @@ def main():
     if any(obj.type not in {"EMPTY", "CAMERA"} or obj.parent for obj in preview.all_objects):
         raise RuntimeError("Inspection guides must stay non-mesh and unparented")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    bpy.ops.wm.save_as_mainfile(filepath=str(destination))
+    # Resolve against the opened source first, then relativize to the actual
+    # save destination. No image content is changed and no game cache is packed.
+    for image in bpy.data.images:
+        if image.source == 'FILE' and image.filepath:
+            absolute=bpy.path.abspath(image.filepath)
+            image.filepath=bpy.path.relpath(absolute,start=str(destination.parent)).replace('\\','/')
+    bpy.ops.wm.save_as_mainfile(filepath=str(destination),relative_remap=False)
     print(f"TST_ANNOTATED {destination}: {len(preview.all_objects)} non-mesh guides; {mesh_count} meshes unchanged")
 
 

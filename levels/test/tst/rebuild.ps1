@@ -41,6 +41,8 @@ $WaterSource = Join-Path $TagsRoot 'levels\b30\shaders\water.shader_transparent_
 $WaterTarget = Join-Path $TagsRoot 'levels\test\tst\shaders\tst_water.shader_transparent_water'
 $CliffSource = Join-Path $TagsRoot 'levels\b30\shaders\cliffs.shader_environment'
 $CliffTarget = Join-Path $TagsRoot 'levels\test\tst\shaders\tst_cliffs.shader_environment'
+$AmberSource = Join-Path $SourceRoot 'tags\levels\test\tst\shaders\tst_lights_amber.shader_environment'
+$AmberTarget = Join-Path $TagsRoot 'levels\test\tst\shaders\tst_lights_amber.shader_environment'
 $StockInputs = @(
     'levels\b30\shaders\beach.shader_environment',
     'levels\b30\shaders\cliffs.shader_environment',
@@ -55,6 +57,9 @@ $RunLogs = Join-Path $LogRoot ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'
 foreach ($Required in @($ToolExe, $WaterSource,
         (Join-Path $AddonRoot 'file_tag\tag_interface\tag_interface.py'),
         (Join-Path $SourceRoot 'build_scenario.py'),
+        (Join-Path $SourceRoot 'amber_light.py'),
+        (Join-Path $SourceRoot 'amber_light.json'),
+        (Join-Path $TagsRoot 'levels\test\bloodgulch\shaders\mp lights small strips.shader_environment'),
         (Join-Path $SourceRoot 'annotate_blend.py'),
         (Join-Path $SourceRoot 'terrain_form.py'),
         (Join-Path $SourceRoot 'perimeter_architecture.py'),
@@ -238,6 +243,13 @@ try {
         if (-not (Test-Path -LiteralPath $Fallback)) { throw "Missing stock metal shader: $Fallback" }
         Copy-Item -LiteralPath $Fallback -Destination $Target -Force
     }
+
+    # Derive the status-lens color in a real CE shader, preserving the stock
+    # atlas references. Generate/read-back in source first, then stage for HEK.
+    Invoke-RebuildStage -Name 'amber-shader' -Executable $PythonExe -Arguments @(
+        '-B', (Join-Path $SourceRoot 'amber_light.py'), '--hek', $HekRoot,
+        '--addon', $AddonRoot, '--output', $AmberSource) -ExpectedFile $AmberSource
+    Copy-Item -LiteralPath $AmberSource -Destination $AmberTarget -Force
 
     Invoke-RebuildStage -Name 'structure' -Executable $ToolExe -WorkingDirectory $HekRoot `
         -Arguments @('structure', 'levels\test\tst', 'tst') -ExpectedFile $BspFile -HekStage

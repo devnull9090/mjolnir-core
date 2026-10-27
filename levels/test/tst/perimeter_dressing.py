@@ -155,11 +155,15 @@ def document():
             offset = max(0, rear_limit+.25-low[1])
             item['pos'][1] = round(item['pos'][1]-offset*100, 3)
             relocated.append({'id':item['id'], 'north_setback_m':round(offset, 3)})
-    excluded = [item['id'] for item in decor if intersects_facility(item)]
+    excluded_items = [item for item in decor if intersects_facility(item)]
+    excluded = [item['id'] for item in excluded_items]
     decor = [item for item in decor if item['id'] not in excluded]
     return {'schema_version':1,'coordinates':'unreal_centimetres',
         'note':'Native game geology; same authored transforms feed preview and runtime. No extracted meshes in source.',
         'facility_excluded_ids':excluded,
+        'facility_exclusion_bounds_m':facility_native_exclusion_bounds(),
+        'facility_excluded_native_bounds':[{'id':item['id'],'bounds_m':native_bounds(item)}
+                                           for item in excluded_items],
         'facility_relocated_backdrops':relocated,
         'decor':decor,'leaf_cluster_scale':1.43,
         'background_trees':[{'id':f'tst_ridge_tree_{i}_{j}',
