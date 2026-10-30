@@ -401,7 +401,7 @@ local SETTINGS_CLASS = UI_ROOT .. "WBP_MJOLNIRGameSettings.WBP_MJOLNIRGameSettin
 local SETTINGS_PAGES = 5    -- page buttons in the cooked screen
 local SETTINGS_ROWS = 12    -- option rows in the cooked screen
 local MAP_BUTTONS = 80
-local MODE_BUTTONS = 5
+local MODE_BUTTONS = 6    -- game type tiles (an older UI container has five rows)
 local ROSTER_ROWS = 16
 local GAME_ROWS = 40
 local LAST_GAME = MOD_DIR .. "\\last_game.txt"
@@ -433,7 +433,73 @@ local Pick = { map = nil, mode = nil }   -- the map select's choice, until SELEC
 Pick.filters = { game = nil, source = nil, installedOnly = false }
 Pick.GAMES = { "halo1", "halo2" }
 Pick.GAME_NAMES = { halo1 = "HALO CE", halo2 = "HALO 2" }
+Pick.GAME_BADGES = { halo1 = "CE", halo2 = "H2" }
 Pick.SOURCES = { "official", "community" }
+-- The search box (SearchBox, in a UI container from mods-v0.39.0 on): the
+-- words typed, lowercased. A map matches when every word is in its title,
+-- its code or its game's names.
+Pick.query = ""
+Pick.GAME_WORDS = { halo1 = "halo ce combat evolved", halo2 = "halo 2 h2" }
+Pick.GOLD = { R = 1.0, G = 0.80, B = 0.35, A = 1 }
+Pick.GREY = { R = 0.46, G = 0.61, B = 0.70, A = 1 }
+
+--- The game of `map`: its installed record's, else the hub's listing's.
+function Pick.gameOf(map)
+    local listing = MapLive.cached(map.code)
+    return map.game or (listing and listing.game)
+end
+
+--- How well `map` matches every word of `words` (more is better), or nil:
+--- a word starting the title counts most, then one starting a word of it,
+--- then one anywhere in it, then one in the code or the game's names.
+function Pick.score(map, words)
+    local title = titleOf(map):lower()
+    local rest = " " .. tostring(map.code):lower() .. " " .. (Pick.GAME_WORDS[Pick.gameOf(map) or ""] or "")
+    local score = 0
+    for _, word in ipairs(words) do
+        local at = title:find(word, 1, true)
+        if at == 1 then
+            score = score + 4
+        elseif at and title:sub(at - 1, at - 1):match("[%s%-]") then
+            score = score + 3
+        elseif at then
+            score = score + 2
+        elseif rest:find(word, 1, true) then
+            score = score + 1
+        else
+            return nil
+        end
+    end
+    return score
+end
+
+--- A map's facts from its hub listing: its game, size, players and
+--- vehicles ("HALO 2  /  MEDIUM  /  4-12 PLAYERS"), or for the lobby's tile
+--- (`brief`) its game and players; its game alone until the hub answers.
+function Pick.facts(map, brief)
+    local m = MapLive.cached(map.code) or {}
+    local parts = {}
+    local game = Pick.GAME_NAMES[Pick.gameOf(map) or ""]
+    if game then parts[#parts + 1] = game end
+    if not brief and type(m.size) == "string" and m.size ~= "" then parts[#parts + 1] = string.upper(m.size) end
+    local lo, hi = tonumber(m.players_min), tonumber(m.players_max)
+    if lo and hi then parts[#parts + 1] = (lo == hi and tostring(hi) or (lo .. "-" .. hi)) .. " PLAYERS" end
+    if not brief and m.vehicles == true then parts[#parts + 1] = "VEHICLES" end
+    return table.concat(parts, "  /  ")
+end
+
+--- A game type's match format, as its picker shows it.
+function Pick.format(mode)
+    if not mode then return "" end
+    return mode.forge and "SANDBOX  /  SOLO HOST" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+end
+
+--- Whether `screen` has the widget `name` (an older UI container lacks the
+--- newer ones).
+function Pick.has(screen, name)
+    local ok, w = pcall(function() return screen[name] end)
+    return ok and UI.valid(w)
+end
 
 --- A chip's next value: nil (ALL), then each choice, then ALL again.
 function Pick.cycle(choices, current)
@@ -456,20 +522,38 @@ function Pick.list()
         return true
     end
     local out, have = {}, {}
-    for _, map in ipairs(installedMaps()) do
+    for _, map in ipairs(Pick.installed or installedMaps()) do
         have[map.code] = true
         if keep(MapLive.cached(map.code), map) then out[#out + 1] = map end
     end
+    table.sort(out, function(a, b) return titleOf(a) < titleOf(b) end)
     if not f.installedOnly then
         local missing = {}
         for _, listing in ipairs(MapLive.listings()) do
             if not have[listing.code] and keep(listing) then
                 missing[#missing + 1] = { code = listing.code, title = listing.title, description = listing.summary,
-                    modes = listing.modes, missing = true }
+                    modes = listing.modes, game = listing.game, missing = true }
             end
         end
         table.sort(missing, function(a, b) return titleOf(a) < titleOf(b) end)
         for _, map in ipairs(missing) do out[#out + 1] = map end
+    end
+    -- The search: the matching maps, best first, in list order otherwise.
+    Pick.total = #out
+    local words = {}
+    for word in Pick.query:gmatch("%S+") do words[#words + 1] = word end
+    if #words > 0 then
+        local scored = {}
+        for i, map in ipairs(out) do
+            local score = Pick.score(map, words)
+            if score then scored[#scored + 1] = { map = map, score = score, order = i } end
+        end
+        table.sort(scored, function(a, b)
+            if a.score ~= b.score then return a.score > b.score end
+            return a.order < b.order
+        end)
+        out = {}
+        for _, s in ipairs(scored) do out[#out + 1] = s.map end
     end
     Pick.shown = out
     return out
@@ -1085,6 +1169,43 @@ local function rosterPlayers()
     return roster
 end
 
+Pick.RULE_ROWS = 5   -- lines of the lobby card's settings, two settings a line
+
+--- The lobby card's game settings ("LABEL: VALUE" lines) in its grid: two
+--- columns of at most RULE_ROWS lines (`Rule<i>`, column A's first), the
+--- last saying how many more there are; STANDARD RULES when none is
+--- changed. The card keeps its height.
+function Pick.drawRules(rules)
+    local n = #rules
+    local rows = math.min(Pick.RULE_ROWS, math.ceil(n / 2))
+    local cells = {}
+    for i = 1, math.min(n, rows * 2) do cells[i] = rules[i] end
+    if n > rows * 2 then cells[rows * 2] = string.format("+%d MORE", n - rows * 2 + 1) end
+    setShown(Lobby.RulesBox, true)
+    setShown(Lobby.Rules, false)
+    setShown(Lobby.RulesNone, n == 0)
+    setShown(Lobby.RulesGrid, n > 0)
+    for slot = 0, Pick.RULE_ROWS * 2 - 1 do
+        local column, line = math.floor(slot / Pick.RULE_ROWS), slot % Pick.RULE_ROWS
+        local cell = line < rows and cells[column * rows + line + 1] or nil
+        setShown(Lobby["Rule" .. slot], cell ~= nil)
+        if cell then
+            local label, value = cell:match("^(.-):%s*(.*)$")
+            setText(Lobby["Rule" .. slot .. "Label"], label or cell)
+            setText(Lobby["Rule" .. slot .. "Value"], value or "")
+        end
+    end
+end
+
+--- The map select's game type caption, beside the tiles: what the hovered
+--- tile's mode is, else the chosen one's (an older UI container has only
+--- the description).
+function Pick.caption(mode)
+    setText(Select.ModeName, mode and mode.name or "")
+    setText(Select.ModeDescription, mode and mode.description or "No game type is installed for this map.")
+    setText(Select.ModeFormat, Pick.format(mode))
+end
+
 local function drawLobby()
     if not UI.valid(Lobby) then return end
     local map, mode = Game.map, Game.mode
@@ -1096,6 +1217,15 @@ local function drawLobby()
         or map.description) or
         "Install the classic maps from the MJOLNIR launcher's Multiplayer page, or a map pack from mjolnircore.com.")
     Live.showCover(Lobby, map and map.code)
+    -- The map tile's line (a UI container from mods-v0.39.0 on): its facts,
+    -- or in gold why this PC cannot play it yet.
+    local behind = map and (map.missing or map.update)
+    setText(Lobby.MapMeta, not map and "" or (map.missing and "NOT INSTALLED ON THIS PC")
+        or (map.update and ("THE HOST HAS V" .. tostring(map.update.version or "?") .. ", YOU HAVE V"
+            .. tostring(map.update.have or "?"))) or Pick.facts(map, true))
+    pcall(function()
+        Lobby.MapMeta:SetColorAndOpacity({ SpecifiedColor = behind and Pick.GOLD or Pick.GREY, ColorUseRule = 0 })
+    end)
     setText(Lobby.ModeTitle, mode and mode.name or "")
     pcall(function()
         local shown = Pick.gameType.showIcon(Lobby.ModeIcon, mode)
@@ -1105,11 +1235,19 @@ local function drawLobby()
     local roster = rosterPlayers()
     local teams = mode and mode.teams
     setText(Lobby.PlayersHeading, "PLAYERS  /  " .. tostring(#roster))
-    setText(Lobby.MatchFormat, teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+    setText(Lobby.MatchFormat, Pick.format(mode))
     setText(Lobby.TeamHint, teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
     -- A fireteam client sees the host's choice; only the host changes it or
     -- starts the game.
     local host = Net.isHost()
+    -- The card's tiles open their pickers for the host and only show for a
+    -- fireteam client (HitTestInvisible); CHANGE marks the ones that open.
+    for _, key in ipairs({ "MapTile", "ModeTile", "RulesButton" }) do
+        pcall(function() Lobby[key]:SetVisibility(host and 0 or 3) end)
+    end
+    setShown(Lobby.MapTileChange, host)
+    setShown(Lobby.ModeTileChange, host)
+    setShown(Lobby.RulesChange, host and hasGameSettings())
     pcall(function() Lobby.Start:SetIsEnabled(host and map ~= nil and mode ~= nil) end)
     for _, key in ipairs({ "Start", "ChangeMap", "GameType", "Listing" }) do setShown(Lobby[key], host) end
     -- A fireteam client without the host's map: START becomes its download.
@@ -1131,10 +1269,20 @@ local function drawLobby()
     setShown(Lobby.GameSettings, host and hasGameSettings())
     local modeId = mode and mode.id
     local rules = host and Settings.changes(modeId) or Settings.describe(clientRules, modeId)
-    setText(Lobby.Rules, #rules > 0 and table.concat(rules, "\n") or "")
-    setShown(Lobby.RulesBox, #rules > 0)
+    if Pick.has(Lobby, "RulesGrid") then
+        Pick.drawRules(rules)
+    else
+        setText(Lobby.Rules, #rules > 0 and table.concat(rules, "\n") or "")
+        setShown(Lobby.RulesBox, #rules > 0)
+    end
     setShown(Lobby.FindGames, hasFindGames())
     local status = host and Games.status() or ""
+    -- A fireteam client that cannot play the host's map yet: what START
+    -- (DOWNLOAD MAP or UPDATE MAP) does about it.
+    if fetch then
+        status = map.missing and "THIS MAP IS NOT ON THIS PC   /   DOWNLOAD MAP INSTALLS IT WITHOUT LEAVING THE GAME"
+            or "UPDATE MAP INSTALLS THE HOST'S VERSION WITHOUT LEAVING THE GAME"
+    end
     -- The host: who is still getting the map.
     local waiting, pct = 0, nil
     if host and map then waiting, pct = Live.waitingOn(map.code) end
@@ -1176,22 +1324,32 @@ end
 local function showDetails(map)
     if not (UI.valid(Select) and map) then return end
     setText(Select.MapTitle, titleOf(map))
-    setText(Select.MapDescription, map.missing and ("NOT INSTALLED: SELECT DOWNLOADS IT.  " .. (map.description or ""))
-        or map.description)
+    setText(Select.MapTags, Pick.facts(map))
+    -- The hub's summary says what the map is; the installed record says
+    -- only where it came from.
+    local listing = MapLive.cached(map.code)
+    local about = (listing and listing.summary) or map.description or ""
+    setText(Select.MapDescription, map.missing and ("NOT INSTALLED: SELECT DOWNLOADS IT.  " .. about) or about)
     Live.showCover(Select, map.code)
     setText(Select.MapMeta, Live.metaLine(map.code))
     local modes = modesFor(map)
+    local picked = Pick.map and Pick.map.code == map.code and Pick.mode or nil
     for i = 0, MODE_BUTTONS - 1 do
         local mode, button = modes[i + 1], Select["Mode" .. i]
         setShown(button, mode ~= nil)
         if mode then
-            setText(Select["Mode" .. i .. "Label"], mode.name)
-            local chosen = Pick.map and Pick.map.code == map.code and Pick.mode == mode
+            local label = Select["Mode" .. i .. "Label"]
+            setText(label, mode.name)
+            local chosen = picked == mode
             pcall(function() button:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND) end)
+            pcall(function() label:SetColorAndOpacity({ SpecifiedColor = chosen and ACCENT or WHITE, ColorUseRule = 0 }) end)
+            -- A tile's icon, and the bar under the chosen one (an older UI
+            -- container has rows of text).
+            pcall(function() Pick.gameType.showIcon(Select["Mode" .. i .. "Icon"], mode) end)
+            pcall(function() Select["Mode" .. i .. "Mark"]:SetVisibility(chosen and 3 or 2) end)
         end
     end
-    local shown = (Pick.map and Pick.map.code == map.code and Pick.mode) or modes[1]
-    setText(Select.ModeDescription, shown and shown.description or "No game type is installed for this map.")
+    Pick.caption(picked or modes[1])
 end
 
 local function drawSelect()
@@ -1200,18 +1358,30 @@ local function drawSelect()
     local maps = Pick.list()
     local missing = 0
     for _, map in ipairs(maps) do if map.missing then missing = missing + 1 end end
+    -- A UI container with a row's game and tag says DOWNLOAD there; an older
+    -- one in the label.
+    local tagged = Pick.has(Select, "Map0Tag")
     for i = 0, MAP_BUTTONS - 1 do
         local map, button = maps[i + 1], Select["Map" .. i]
         setShown(button, map ~= nil)
         if map then
             local label = Select["Map" .. i .. "Label"]
-            setText(label, titleOf(map) .. (map.missing and "   /   DOWNLOAD" or ""))
+            setText(label, titleOf(map) .. ((map.missing and not tagged) and "   /   DOWNLOAD" or ""))
             local chosen = Pick.map and Pick.map.code == map.code
             local colour = chosen and ACCENT or (map.missing and { R = 0.6, G = 0.66, B = 0.72, A = 1 } or WHITE)
             pcall(function()
                 button:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
                 label:SetColorAndOpacity({ SpecifiedColor = colour, ColorUseRule = 0 })
             end)
+            if tagged then
+                local current = Game.map and Game.map.code == map.code
+                setText(Select["Map" .. i .. "Game"], Pick.GAME_BADGES[Pick.gameOf(map) or ""] or "")
+                local tag = Select["Map" .. i .. "Tag"]
+                setText(tag, map.missing and "DOWNLOAD" or (current and "CURRENT" or ""))
+                pcall(function()
+                    tag:SetColorAndOpacity({ SpecifiedColor = map.missing and Pick.GOLD or ACCENT, ColorUseRule = 0 })
+                end)
+            end
         end
     end
     -- The chips (a runtime pack from before them has none: these do nothing).
@@ -1222,8 +1392,20 @@ local function drawSelect()
     for key, on in pairs({ Game = f.game ~= nil, Source = f.source ~= nil, Installed = f.installedOnly }) do
         pcall(function() Select["Filter" .. key]:SetBackgroundColor(on and SELECTED_BACKGROUND or NORMAL_BACKGROUND) end)
     end
-    setText(Select.ListCount, string.format("MAPS   /   %d", #maps)
-        .. (missing > 0 and string.format("   /   %d TO DOWNLOAD", missing) or ""))
+    if Pick.query == "" then
+        setText(Select.ListCount, string.format("MAPS   /   %d", #maps)
+            .. (missing > 0 and string.format("   /   %d TO DOWNLOAD", missing) or ""))
+    elseif #maps == 0 then
+        setText(Select.ListCount, string.format("NO MAP MATCHES \"%s\"", string.upper(Pick.query)))
+    else
+        setText(Select.ListCount, string.format("%d OF %d MAPS MATCH", #maps, Pick.total or #maps))
+    end
+    if Pick.has(Select, "SearchBox") then
+        setShown(Select.SearchClear, Pick.query ~= "")
+        setText(Select.Status, (Pick.query ~= "" and Pick.map)
+            and ("ENTER SELECTS " .. titleOf(Pick.map))
+            or "TYPE TO SEARCH   /   ENTER OR DOUBLE-CLICK TO SELECT")
+    end
     showDetails(Pick.map)
 end
 
@@ -1239,15 +1421,31 @@ end
 
 local function openMapSelect()
     Pick.map, Pick.mode = Game.map, Game.mode
+    -- A fresh search, and the installed maps read once for it rather than
+    -- on every key.
+    Pick.query, Pick.clickAt, Pick.installed = "", nil, installedMaps()
     Select = pushScreen(SELECT_CLASS)
     if not Select then
         log("map select: could not push " .. SELECT_CLASS)
         return
     end
     drawSelect()
+    -- The chosen map's row in view (the middle of the list), wherever it is.
+    for i, map in ipairs(Pick.shown or {}) do
+        if Pick.map and map.code == Pick.map.code then
+            pcall(function() Select.MapList:ScrollWidgetIntoView(Select["Map" .. (i - 1)], false, 2, 0) end)
+            break
+        end
+    end
     -- The hub's maps, for the rows of maps this PC does not have.
     MapLive.refresh(function() if UI.valid(Select) then drawSelect() end end)
-    pcall(function() Select.Select:SetFocus() end)
+    -- Typing searches straight away; a UI container from before the search
+    -- box focuses SELECT.
+    local searching = pcall(function()
+        Select.SearchBox:SetText(FText(""))
+        Select.SearchBox:SetKeyboardFocus()
+    end)
+    if not searching then pcall(function() Select.Select:SetFocus() end) end
 end
 
 -- Keep the game type draft separate from the map picker and hosted game.
@@ -2179,7 +2377,8 @@ local SELECT_EVENTS = {
                 action = "DOWNLOAD",
                 readyText = "Installed.",
                 onReady = function()
-                    for _, map in ipairs(installedMaps()) do
+                    Pick.installed = installedMaps()
+                    for _, map in ipairs(Pick.installed) do
                         if map.code == code then
                             Pick.map, Pick.mode = map, nil
                             for _, m in ipairs(modesFor(map)) do
@@ -2215,6 +2414,34 @@ local SELECT_EVENTS = {
         drawSelect()
     end,
 }
+
+-- The search box: each change narrows the list and picks its best match,
+-- so SELECT (and ENTER) takes the map the details show.
+SELECT_EVENTS.search = function()
+    local ok, text = pcall(function() return Select.SearchBox:GetText():ToString() end)
+    local query = ok and tostring(text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if query == Pick.query then return end
+    Pick.query = query
+    local best = query ~= "" and Pick.list()[1]
+    if best then pickMap(best) else drawSelect() end
+    pcall(function() Select.MapList:ScrollToStart() end)
+end
+-- Committed: ENTER, or the focus leaving the box. Only ENTER leaves the
+-- box focused (it keeps its focus on commit), and selects.
+SELECT_EVENTS.searched = function()
+    local ok, focused = pcall(function()
+        return Select.SearchBox:HasKeyboardFocus() or Select.SearchBox:HasFocusedDescendants()
+    end)
+    if ok and focused and Pick.map and Pick.mode then SELECT_EVENTS.select() end
+end
+SELECT_EVENTS.search_clear = function()
+    pcall(function()
+        Select.SearchBox:SetText(FText(""))
+        Select.SearchBox:SetKeyboardFocus()
+    end)
+    Pick.query = ""
+    drawSelect()
+end
 
 -------------------------------------------------------------------------------
 -- GAME SETTINGS
@@ -2321,15 +2548,28 @@ local function onScreenEvent(isLobby, event, source)
     if verb then
         local i = tonumber(index) + 1
         if verb == "map" then
-            pickMap((Pick.shown or installedMaps())[i])
+            local map = (Pick.shown or installedMaps())[i]
+            -- A second click on the same map within half a second selects it.
+            local again = map and Pick.map and Pick.map.code == map.code and Pick.clickAt
+                and os.clock() - Pick.clickAt < 0.5
+            Pick.clickAt = os.clock()
+            pickMap(map)
+            if again then SELECT_EVENTS.select() end
         elseif verb == "hover" then
             showDetails((Pick.shown or installedMaps())[i])
+        elseif verb == "unhover" then
+            -- Leaving a row: the chosen map's details again.
+            showDetails(Pick.map)
         elseif verb == "mode" and Pick.map then
             local mode = modesFor(Pick.map)[i]
             if mode then
                 Pick.mode = mode
                 showDetails(Pick.map)
             end
+        elseif verb == "modehover" and Pick.map then
+            Pick.caption(modesFor(Pick.map)[i])
+        elseif verb == "modeunhover" and Pick.map then
+            Pick.caption(Pick.mode)
         end
         return
     end

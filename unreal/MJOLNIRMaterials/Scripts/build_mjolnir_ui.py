@@ -14,7 +14,8 @@ Writes, under /Game/MJOLNIR/UI:
   WBP_MJOLNIRScoreboard  the multiplayer scoreboard
   WBP_MJOLNIRLobby       the host's lobby (MJOLNIRLobby): map, game type,
                          players, START GAME
-  WBP_MJOLNIRMapSelect   the map list, a map's details and its game types
+  WBP_MJOLNIRMapSelect   map search, the map list, a map's details and its
+                         game types as tiles
   WBP_MJOLNIRGameTypeSelect  the current map's supported modes, with icons,
                          descriptions and an explicit SELECT / BACK choice
   WBP_MJOLNIRFindGames   public games from the hub: filter chips, a sortable
@@ -539,7 +540,6 @@ LINE = (0.24, 0.49, 0.63, 0.45)
 RED = (1.0, 0.32, 0.28, 1.0)
 BLUE = (0.3, 0.65, 1.0, 1.0)
 MAP_BUTTONS = 80
-MODE_BUTTONS = 5
 GAME_TYPE_BUTTONS = 6     # five competitive modes plus Forge
 ROSTER_ROWS = 16
 ROSTER_AVATAR = 32
@@ -681,6 +681,49 @@ def max_players_row(bp, parent):
             ("MaxPlayersUp", "OnClicked", "maxup")]
 
 
+LOBBY_TILE = (404, 227)   # the lobby's map and game type pictures: 16:9, two across the card
+RULE_ROWS = 5             # lines of the lobby card's game settings, two settings a line
+
+
+def lobby_tile(bp, key, parent, padding):
+    """One of the lobby card's two tiles: a flat Button `key` holding the
+    VerticalBox `<key>Stack`, which the caller fills (a picture, then
+    tile_words)."""
+    button = widget(bp, unreal.Button, key, parent)
+    flat_style(button, (0.02, 0.05, 0.075, 0.5), (0.10, 0.27, 0.36, 0.75), (0.16, 0.40, 0.52, 0.9))
+    fill(button, 1)
+    button.get_editor_property("slot").set_padding(unreal.Margin(*padding))
+    stack = widget(bp, unreal.VerticalBox, key + "Stack", key)
+    slot = stack.get_editor_property("slot")
+    slot.set_padding(unreal.Margin(0, 0, 0, 0))
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+    return button
+
+
+def tile_words(bp, key, kicker_name, kicker, title_name, line_name, line_color):
+    """A lobby tile's words under its picture: the kicker beside
+    `<key>Change` (CHANGE, collapsed until Lua shows it to the host), the
+    title, and a line under it."""
+    words = widget(bp, unreal.VerticalBox, key + "Words", key + "Stack")
+    words.get_editor_property("slot").set_padding(unreal.Margin(18, 14, 18, 16))
+    head = widget(bp, unreal.HorizontalBox, key + "Head", words.get_name())
+    label = widget(bp, unreal.TextBlock, kicker_name, head.get_name())
+    text_style(label, kicker, 18, ACCENT)
+    fill(label, 1)
+    change = widget(bp, unreal.TextBlock, key + "Change", head.get_name())
+    text_style(change, "CHANGE", 16, GREY)
+    change.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    title = widget(bp, unreal.TextBlock, title_name, words.get_name())
+    text_style(title, "", 32, WHITE)
+    wrapped(title)
+    gap(title, top=8)
+    line = widget(bp, unreal.TextBlock, line_name, words.get_name())
+    text_style(line, "", 19, line_color)
+    wrapped(line)
+    gap(line, top=6)
+
+
 def build_lobby():
     """The host's lobby: the map and game type, the players, START,
     INVITE FRIENDS (the game's own Friends screen, cross-platform), PRIVATE /
@@ -706,60 +749,89 @@ def build_lobby():
         if key == "Listing":
             events += max_players_row(bp, "Menu")
 
+    # The card: the map and the game type side by side, then the game
+    # settings. Each part is a flat button the host clicks to change it
+    # (CHANGE MAP's, GAME TYPE's and GAME SETTINGS' events, so an older
+    # MJOLNIRLobby answers them too); Lua makes a fireteam client's
+    # HitTestInvisible, and shows their CHANGE marks to the host only. The
+    # card's height no longer grows with the settings: Lua writes at most
+    # five lines of two columns, the last saying how many more.
     card = panel(bp, "Card", "Root")
     place(card, (0.28, 0.28), (0.0, 0.0))
     sized(bp, "CardSize", "Card", width=840)
     widget(bp, unreal.VerticalBox, "CardStack", "CardSize")
     gap(rule(bp, "MapRule", "CardStack", ACCENT, 2), bottom=24)
-    # The map's hub screenshot beside its kicker and title.
-    head = widget(bp, unreal.HorizontalBox, "MapHead", "CardStack")
-    head_text = widget(bp, unreal.VerticalBox, "MapHeadText", "MapHead")
-    fill(head_text, 1)
-    label = widget(bp, unreal.TextBlock, "MapKicker", "MapHeadText")
-    text_style(label, "MISSION AREA", 18, ACCENT)
-    gap(label, bottom=12)
-    map_title = widget(bp, unreal.TextBlock, "MapTitle", "MapHeadText")
-    text_style(map_title, "BLOOD GULCH", 46, WHITE)
-    wrapped(map_title)
-    shot = map_image(bp, "MapImage", "MapHead", 320, 180)
-    shot.get_editor_property("slot").set_padding(unreal.Margin(24, 0, 0, 0))
-    description = widget(bp, unreal.TextBlock, "MapDescription", "CardStack")
-    text_style(description, "", 24, GREY)
-    wrapped(description)
-    gap(description, top=20, bottom=32)
-    gap(rule(bp, "ModeRule", "CardStack"), bottom=26)
-    mode_head = widget(bp, unreal.HorizontalBox, "ModeHead", "CardStack")
-    gap(mode_head, bottom=16)
-    # The same glyph as the picker. Lua shows the whole emblem only after
-    # its texture loads, leaving the text layout intact on older installs.
-    mode_icon_box = sized(bp, "ModeIconBox", mode_head.get_name(), width=100, height=100)
-    middle(mode_icon_box)
-    mode_icon_box.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 24, 0))
+    widget(bp, unreal.HorizontalBox, "Tiles", "CardStack")
+    lobby_tile(bp, "MapTile", "Tiles", (0, 0, 16, 0))
+    events.append(("MapTile", "OnClicked", "changemap"))
+    map_image(bp, "MapImage", "MapTileStack", *LOBBY_TILE)
+    tile_words(bp, "MapTile", "MapKicker", "MAP", "MapTitle", "MapMeta", GREY)
+    lobby_tile(bp, "ModeTile", "Tiles", (16, 0, 0, 0))
+    events.append(("ModeTile", "OnClicked", "gametype"))
+    # The picker's glyph on a dark field the size of the map's picture. Lua
+    # shows the emblem only once its texture loads.
+    art = sized(bp, "ModeArtSize", "ModeTileStack", *LOBBY_TILE)
+    frame = widget(bp, unreal.Overlay, "ModeArt", art.get_name())
+    back = widget(bp, unreal.Border, "ModeArtBack", frame.get_name())
+    back.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.0, 0.0, 0.45))
+    slot = back.get_editor_property("slot")
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+    mode_icon_box = sized(bp, "ModeIconBox", frame.get_name(), width=170, height=170)
+    slot = mode_icon_box.get_editor_property("slot")
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
     mode_icon_box.set_visibility(unreal.SlateVisibility.COLLAPSED)
-    emblem = rounded(widget(bp, unreal.Border, "ModeEmblem", mode_icon_box.get_name()), 50,
-                     (0.06, 0.16, 0.22, 0.60), padding=14)
+    emblem = rounded(widget(bp, unreal.Border, "ModeEmblem", mode_icon_box.get_name()), 85,
+                     (0.06, 0.16, 0.22, 0.60), padding=24)
     icon = widget(bp, unreal.Image, "ModeIcon", emblem.get_name())
     icon.set_visibility(unreal.SlateVisibility.HIDDEN)
-    mode_words = widget(bp, unreal.VerticalBox, "ModeWords", mode_head.get_name())
-    fill(mode_words, 1)
-    middle(mode_words)
-    text_style(widget(bp, unreal.TextBlock, "ModeKicker", mode_words.get_name()), "GAME TYPE", 18, ACCENT)
-    mode = widget(bp, unreal.TextBlock, "ModeTitle", mode_words.get_name())
-    text_style(mode, "SLAYER", 34, WHITE)
-    gap(mode, top=12)
-    wrapped(mode)
-    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", "CardStack")
-    text_style(mode_description, "", 24, GREY)
-    wrapped(mode_description)
-    gap(rule(bp, "FormatRule", "CardStack"), top=32, bottom=20)
-    text_style(widget(bp, unreal.TextBlock, "MatchFormat", "CardStack"), "FREE FOR ALL", 20, ACCENT)
-    # The game settings away from the defaults, one per line; Lua hides the
-    # box when there are none.
-    rules_box = widget(bp, unreal.VerticalBox, "RulesBox", "CardStack")
-    gap(rules_box, top=24)
+    tile_words(bp, "ModeTile", "ModeKicker", "GAME TYPE", "ModeTitle", "MatchFormat", ACCENT)
+
+    gap(rule(bp, "RulesRule", "CardStack"), top=26, bottom=12)
+    rules_button = widget(bp, unreal.Button, "RulesButton", "CardStack")
+    flat_style(rules_button, (0, 0, 0, 0), (0.10, 0.27, 0.36, 0.45), (0.16, 0.40, 0.52, 0.7),
+               padding=(18, 12, 18, 14))
+    events.append(("RulesButton", "OnClicked", "gamesettings"))
+    rules_box = widget(bp, unreal.VerticalBox, "RulesBox", "RulesButton")
+    rules_box.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
     rules_box.set_visibility(unreal.SlateVisibility.COLLAPSED)
-    gap(rule(bp, "RulesRule", "RulesBox"), bottom=18)
-    text_style(widget(bp, unreal.TextBlock, "RulesKicker", "RulesBox"), "GAME SETTINGS", 18, ACCENT)
+    head = widget(bp, unreal.HorizontalBox, "RulesHead", "RulesBox")
+    kicker = widget(bp, unreal.TextBlock, "RulesKicker", head.get_name())
+    text_style(kicker, "GAME SETTINGS", 18, ACCENT)
+    fill(kicker, 1)
+    change = widget(bp, unreal.TextBlock, "RulesChange", head.get_name())
+    text_style(change, "CHANGE", 16, GREY)
+    change.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    none = widget(bp, unreal.TextBlock, "RulesNone", "RulesBox")
+    text_style(none, "STANDARD RULES", 21, WHITE)
+    gap(none, top=10)
+    none.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    # Two columns of RULE_ROWS lines, `Rule<i>` (column A's 0-4, B's 5-9):
+    # a label that gives way (an ellipsis) to its value, so a long value
+    # (ROCKET WARTHOGS) is never cut. Lua shows the lines it fills.
+    grid = widget(bp, unreal.HorizontalBox, "RulesGrid", "RulesBox")
+    gap(grid, top=10)
+    grid.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for side, first in (("A", 0), ("B", RULE_ROWS)):
+        size = column(bp, f"RulesColumn{side}Size", grid.get_name(), 394 if side == "A" else None)
+        if side == "B":
+            size.get_editor_property("slot").set_padding(unreal.Margin(16, 0, 0, 0))
+        lines = widget(bp, unreal.VerticalBox, f"RulesColumn{side}", size.get_name())
+        for i in range(first, first + RULE_ROWS):
+            line = widget(bp, unreal.HorizontalBox, f"Rule{i}", lines.get_name())
+            gap(line, bottom=4)
+            line.set_visibility(unreal.SlateVisibility.COLLAPSED)
+            label = widget(bp, unreal.TextBlock, f"Rule{i}Label", line.get_name())
+            text_style(label, "", 19, GREY)
+            label.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+            fill(label, 1)
+            middle(label)
+            value = widget(bp, unreal.TextBlock, f"Rule{i}Value", line.get_name())
+            text_style(value, "", 19, WHITE)
+            value.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 8, 0))
+            middle(value)
+    # The settings one per line, as an older MJOLNIRLobby fills them.
     rules = widget(bp, unreal.TextBlock, "Rules", "RulesBox")
     text_style(rules, "", 22, WHITE)
     wrapped(rules)
@@ -821,92 +893,195 @@ def build_lobby():
     finish_screen(bp, name)
 
 
+MODE_TILES = 6     # every game type: the five competitive modes and Forge
+MODE_TILE = 132    # a game type tile's side
+
+
 def build_map_select():
-    """Every installed map and the hub's maps not installed (MJOLNIRLobby
-    marks those DOWNLOAD), filter chips for the game, the source and
-    installed maps, a map's details and game types, and SELECT."""
+    """Every installed map and the hub's maps not installed, a search box
+    and filter chips over the list, and the chosen map's details: its
+    screenshot, facts and game types as a row of tiles.
+
+    The left column: `SearchBox` (an EditableTextBox: its OnTextChanged and
+    OnTextCommitted call MJ_Event("search") and MJ_Event("searched"), and
+    Lua reads its text), `SearchClear`, the chips, `ListCount` and the rows
+    `Map<i>` (`Map<i>Label`, the game `Map<i>Game`, `Map<i>Tag`: DOWNLOAD,
+    UPDATE or CURRENT; hovering previews a map, leaving puts the chosen one
+    back). The right panel has a fixed size, so nothing in it reaches SELECT
+    and BACK at its foot: `MapImage`, `MapTitle`, `MapTags`, a clipped
+    `MapDescription`, `MapMeta`, the tiles `Mode<i>` (`Mode<i>Icon`,
+    `Mode<i>Label`, `Mode<i>Mark` under the chosen one) and, beside them,
+    the hovered or chosen game type's `ModeName`, `ModeDescription` and
+    `ModeFormat`.
+
+    The names an older MJOLNIRLobby fills (Map<i>, Map<i>Label, Mode<i>,
+    Mode<i>Label, MapTitle, MapDescription, MapMeta, MapImage,
+    ModeDescription, the chips, ListCount, Select, Back) are kept."""
     name = "WBP_MJOLNIRMapSelect"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     screen_canvas(bp)
     screen_header(bp, "SELECT MAP", "CUSTOM GAME")
     events = []
 
-    # Cycling chips (a caption and a value), as FIND GAMES' are; the count of
-    # rows beside them. Lua fills the values and colours the chips.
-    bar = widget(bp, unreal.HorizontalBox, "Filters", "Root")
-    place(bar, (0.06, 0.205), (0.0, 0.0))
+    browse = sized(bp, "BrowseSize", "Root", width=680, height=940)
+    place(browse, (0.06, 0.208), (0.0, 0.0))
+    widget(bp, unreal.VerticalBox, "Browse", "BrowseSize")
+    bar = rounded(widget(bp, unreal.Border, "SearchBar", "Browse"), 8, (0.005, 0.018, 0.03, 0.82))
+    bar.set_editor_property("padding", unreal.Margin(18, 4, 6, 4))
+    gap(bar, bottom=14)
+    row = widget(bp, unreal.HorizontalBox, "SearchRow", bar.get_name())
+    box = widget(bp, unreal.EditableTextBox, "SearchBox", row.get_name())
+    box.set_editor_property("hint_text", unreal.Text("SEARCH MAPS"))
+    box.set_editor_property("clear_keyboard_focus_on_commit", False)
+    text_input_style(box, 24)
+    fill(box, 1)
+    middle(box)
+    clear = widget(bp, unreal.Button, "SearchClear", row.get_name())
+    flat_style(clear, (0, 0, 0, 0), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95), padding=(14, 8, 14, 8))
+    middle(clear)
+    clear.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    text_style(widget(bp, unreal.TextBlock, "SearchClearLabel", clear.get_name()), "CLEAR", 16, GREY)
+    events += [("SearchBox", "OnTextChanged", "search"), ("SearchBox", "OnTextCommitted", "searched"),
+               ("SearchClear", "OnClicked", "search_clear")]
+
+    # Cycling chips (a caption and a value), as FIND GAMES' are. Lua fills
+    # the values and colours the chips.
+    chips = widget(bp, unreal.HorizontalBox, "Filters", "Browse")
+    gap(chips, bottom=12)
     for key, label in (("Game", "GAME"), ("Source", "SOURCE"), ("Installed", "SHOW")):
         chip = widget(bp, unreal.Button, f"Filter{key}", "Filters")
         flat_style(chip, (0.02, 0.05, 0.075, 0.55), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95),
-                   padding=(18, 11, 20, 11))
+                   padding=(16, 10, 18, 10))
         chip.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
         inner = widget(bp, unreal.HorizontalBox, f"Filter{key}Row", chip.get_name())
         unpadded(inner)
         caption = widget(bp, unreal.TextBlock, f"Filter{key}Caption", inner.get_name())
-        text_style(caption, label, 17, ACCENT)
+        text_style(caption, label, 16, ACCENT)
         middle(caption)
         value = widget(bp, unreal.TextBlock, f"Filter{key}Value", inner.get_name())
-        text_style(value, "ALL", 21, WHITE)
-        value.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 0, 0))
+        text_style(value, "ALL", 20, WHITE)
+        value.get_editor_property("slot").set_padding(unreal.Margin(10, 0, 0, 0))
         middle(value)
         events.append((chip.get_name(), "OnClicked", f"filter:{key.lower()}"))
-    count = widget(bp, unreal.TextBlock, "ListCount", "Filters")
+    count = widget(bp, unreal.TextBlock, "ListCount", "Browse")
     text_style(count, "MAPS", 18, GREY)
-    count.get_editor_property("slot").set_padding(unreal.Margin(20, 0, 0, 0))
-    middle(count)
+    gap(count, bottom=10)
 
-    list_panel = panel(bp, "ListPanel", "Root", padding=(16, 16, 16, 16))
-    place(list_panel, (0.06, 0.265), (0.0, 0.0))
-    sized(bp, "ListSize", "ListPanel", width=520, height=740)
-    widget(bp, unreal.ScrollBox, "MapList", "ListSize")
+    list_panel = panel(bp, "ListPanel", "Browse", padding=(10, 10, 10, 10))
+    fill(list_panel, 1)
+    scroll = widget(bp, unreal.ScrollBox, "MapList", list_panel.get_name())
+    slim_scroll(scroll, "MapList")
     for i in range(MAP_BUTTONS):
-        gap(menu_button(bp, f"Map{i}", "", "MapList", size=25), bottom=5)
-        events += [(f"Map{i}", "OnClicked", f"map:{i}"), (f"Map{i}", "OnHovered", f"hover:{i}")]
+        button = widget(bp, unreal.Button, f"Map{i}", "MapList")
+        flat_style(button, (0.02, 0.05, 0.075, 0.42), (0.08, 0.22, 0.30, 0.6), (0.14, 0.34, 0.44, 0.85),
+                   padding=(18, 11, 18, 11))
+        gap(button, bottom=4)
+        line = widget(bp, unreal.HorizontalBox, f"Map{i}Row", button.get_name())
+        unpadded(line)
+        line.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        label = widget(bp, unreal.TextBlock, f"Map{i}Label", line.get_name())
+        text_style(label, "", 24, WHITE)
+        label.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        fill(label, 1)
+        middle(label)
+        for key, color in (("Game", GREY), ("Tag", GOLD)):
+            note = widget(bp, unreal.TextBlock, f"Map{i}{key}", line.get_name())
+            text_style(note, "", 16, color)
+            note.get_editor_property("slot").set_padding(unreal.Margin(14, 0, 0, 0))
+            middle(note)
+        events += [(f"Map{i}", "OnClicked", f"map:{i}"), (f"Map{i}", "OnHovered", f"hover:{i}"),
+                   (f"Map{i}", "OnUnhovered", f"unhover:{i}")]
 
-    details = panel(bp, "Details", "Root")
-    place(details, (0.32, 0.265), (0.0, 0.0))
-    sized(bp, "DetailsSize", "Details", width=1430)
-    widget(bp, unreal.HorizontalBox, "DetailsColumns", "DetailsSize")
-    sized(bp, "DetailsLeftSize", "DetailsColumns", width=780)
-    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsLeftSize")
-    side = widget(bp, unreal.VerticalBox, "DetailsSide", "DetailsColumns")
-    side.get_editor_property("slot").set_padding(unreal.Margin(40, 0, 0, 0))
-    gap(rule(bp, "SideRule", "DetailsSide", ACCENT, 2), bottom=24)
-    map_image(bp, "MapImage", "DetailsSide", 600, 338)
-    meta_size = sized(bp, "MapMetaSize", "DetailsSide", width=600)
-    gap(meta_size, top=14)
-    meta = widget(bp, unreal.TextBlock, "MapMeta", "MapMetaSize")
-    text_style(meta, "", 21, GREY)
-    wrapped(meta)
-    gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=24)
-    title = widget(bp, unreal.TextBlock, "MapTitle", "DetailsStack")
-    text_style(title, "", 48, WHITE)
+    details = panel(bp, "Details", "Root", padding=(36, 30, 36, 30))
+    place(details, (0.345, 0.208), (0.0, 0.0))
+    sized(bp, "DetailsSize", "Details", width=1452, height=880)
+    widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
+    gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=26)
+    hero = widget(bp, unreal.HorizontalBox, "Hero", "DetailsStack")
+    map_image(bp, "MapImage", hero.get_name(), 864, 486)
+    info_size = sized(bp, "InfoSize", hero.get_name(), width=548, height=486)
+    info_size.get_editor_property("slot").set_padding(unreal.Margin(40, 0, 0, 0))
+    info_size.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    widget(bp, unreal.VerticalBox, "Info", info_size.get_name())
+    title = widget(bp, unreal.TextBlock, "MapTitle", "Info")
+    text_style(title, "", 44, WHITE)
     wrapped(title)
-    description = widget(bp, unreal.TextBlock, "MapDescription", "DetailsStack")
-    text_style(description, "", 28)
+    tags = widget(bp, unreal.TextBlock, "MapTags", "Info")
+    text_style(tags, "", 19, ACCENT)
+    wrapped(tags)
+    gap(tags, top=10)
+    about = widget(bp, unreal.SizeBox, "MapDescriptionSize", "Info")
+    about.set_max_desired_height(196)
+    about.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    gap(about, top=18)
+    description = widget(bp, unreal.TextBlock, "MapDescription", about.get_name())
+    text_style(description, "", 23, WHITE)
     wrapped(description)
-    gap(description, top=8, bottom=30)
-    heading = widget(bp, unreal.TextBlock, "ModesHeading", "DetailsStack")
-    text_style(heading, "GAME TYPE", 28, ACCENT)
-    gap(heading, bottom=12)
-    # Vertical options never run beyond the card when all five modes exist.
-    widget(bp, unreal.VerticalBox, "Modes", "DetailsStack")
-    for i in range(MODE_BUTTONS):
-        button = menu_button(bp, f"Mode{i}", "", "Modes", size=24)
-        gap(button, bottom=6)
-        events.append((f"Mode{i}", "OnClicked", f"mode:{i}"))
-    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", "DetailsStack")
-    text_style(mode_description, "", 26, GREY)
-    wrapped(mode_description)
-    gap(mode_description, top=16)
+    fill(widget(bp, unreal.Spacer, "InfoSpace", "Info"), 1)
+    meta = widget(bp, unreal.TextBlock, "MapMeta", "Info")
+    text_style(meta, "", 18, GREY)
+    wrapped(meta)
 
-    actions = widget(bp, unreal.HorizontalBox, "Actions", "Root")
-    place(actions, (0.32, 0.79), (0.0, 0.0))
+    gap(rule(bp, "ModesRule", "DetailsStack"), top=30, bottom=22)
+    modes = widget(bp, unreal.HorizontalBox, "ModesRow", "DetailsStack")
+    tiles = widget(bp, unreal.VerticalBox, "ModesColumn", modes.get_name())
+    heading = widget(bp, unreal.TextBlock, "ModesHeading", tiles.get_name())
+    text_style(heading, "GAME TYPE", 20, ACCENT)
+    gap(heading, bottom=12)
+    widget(bp, unreal.HorizontalBox, "Modes", tiles.get_name())
+    for i in range(MODE_TILES):
+        key = f"Mode{i}"
+        button = widget(bp, unreal.Button, key, "Modes")
+        flat_style(button, (0.025, 0.06, 0.09, 0.42), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95))
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12, 0))
+        button.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        size = sized(bp, key + "Size", key, width=MODE_TILE, height=MODE_TILE)
+        unpadded(size)
+        stack = widget(bp, unreal.VerticalBox, key + "Stack", size.get_name())
+        icon_size = sized(bp, key + "IconSize", stack.get_name(), width=60, height=60)
+        slot = icon_size.get_editor_property("slot")
+        slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+        slot.set_padding(unreal.Margin(0, 16, 0, 0))
+        # Hidden, not collapsed: the label stays put while the texture loads.
+        image = widget(bp, unreal.Image, key + "Icon", icon_size.get_name())
+        image.set_visibility(unreal.SlateVisibility.HIDDEN)
+        label = widget(bp, unreal.TextBlock, key + "Label", stack.get_name())
+        text_style(label, "", 15, WHITE)
+        label.set_editor_property("justification", unreal.TextJustify.CENTER)
+        wrapped(label)
+        label.get_editor_property("slot").set_padding(unreal.Margin(6, 10, 6, 0))
+        fill(widget(bp, unreal.Spacer, key + "Space", stack.get_name()), 1)
+        mark = sized(bp, key + "MarkSize", stack.get_name(), height=4)
+        ink = widget(bp, unreal.Border, key + "Mark", mark.get_name())
+        ink.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
+        ink.set_visibility(unreal.SlateVisibility.HIDDEN)
+        events += [(key, "OnClicked", f"mode:{i}"), (key, "OnHovered", f"modehover:{i}"),
+                   (key, "OnUnhovered", f"modeunhover:{i}")]
+    caption = widget(bp, unreal.VerticalBox, "ModeCaption", modes.get_name())
+    fill(caption, 1)
+    # Level with the tiles, under the heading; two lines of description at
+    # most, so the row never reaches the actions.
+    caption.get_editor_property("slot").set_padding(unreal.Margin(24, 40, 0, 0))
+    mode_name = widget(bp, unreal.TextBlock, "ModeName", caption.get_name())
+    text_style(mode_name, "", 26, WHITE)
+    about_mode = widget(bp, unreal.SizeBox, "ModeDescriptionSize", caption.get_name())
+    about_mode.set_max_desired_height(66)
+    about_mode.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    gap(about_mode, top=8)
+    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", about_mode.get_name())
+    text_style(mode_description, "", 20, GREY)
+    wrapped(mode_description)
+    mode_format = widget(bp, unreal.TextBlock, "ModeFormat", caption.get_name())
+    text_style(mode_format, "", 17, ACCENT)
+    gap(mode_format, top=8)
+
+    fill(widget(bp, unreal.Spacer, "DetailsSpace", "DetailsStack"), 1)
+    actions = widget(bp, unreal.HorizontalBox, "Actions", "DetailsStack")
     for key, label in (("Select", "SELECT"), ("Back", "BACK")):
-        button = menu_button(bp, key, label, "Actions")
-        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 20, 0))
+        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", key.lower()))
-    text_style(footer(bp), "CHOOSE A MAP AND GAME TYPE   /   SELECT TO CONFIRM", 22, GREY)
+    text_style(footer(bp), "TYPE TO SEARCH   /   ENTER OR DOUBLE-CLICK TO SELECT", 22, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1130,6 +1305,34 @@ def unpadded(w):
     w.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 0, 0))
 
 
+def slim_scroll(scroll, name):
+    """A list's scroll bar: SCROLLBAR thin, a flat accent thumb on a faint
+    track instead of the stock white bar, and focus changes scrolled to."""
+    for prop, value in (("scrollbar_thickness", unreal.Vector2D(SCROLLBAR[0], SCROLLBAR[0])),
+                        ("scrollbar_padding", unreal.Margin(SCROLLBAR[1], 0, 0, 0)),
+                        ("scroll_when_focus_changes", unreal.ScrollWhenFocusChanges.ANIMATED_SCROLL)):
+        try:
+            scroll.set_editor_property(prop, value)
+        except Exception as e:  # an engine without the property: default look
+            unreal.log_warning(f"MJOLNIR UI: {name}.{prop}: {e}")
+    try:
+        bar = scroll.get_editor_property("widget_bar_style")
+        for prop, rgba in (("normal_thumb_image", (0.46, 0.79, 0.94, 0.45)),
+                           ("hovered_thumb_image", (0.46, 0.79, 0.94, 0.8)),
+                           ("dragged_thumb_image", (0.46, 0.79, 0.94, 1.0)),
+                           ("vertical_background_image", (0.0, 0.0, 0.0, 0.3)),
+                           ("vertical_top_slot_image", (0.0, 0.0, 0.0, 0.3)),
+                           ("vertical_bottom_slot_image", (0.0, 0.0, 0.0, 0.3))):
+            brush = bar.get_editor_property(prop)
+            brush.set_editor_property("resource_object", None)
+            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*rgba)))
+            bar.set_editor_property(prop, brush)
+        scroll.set_editor_property("widget_bar_style", bar)
+    except Exception as e:
+        unreal.log_warning(f"MJOLNIR UI: {name} scroll bar style: {e}")
+
+
 def build_find_games():
     """Public games from the hub as a server table: filter chips, sortable
     columns, rows that line up, and the chosen game's details with JOIN and
@@ -1216,30 +1419,7 @@ def build_find_games():
     rows = sized(bp, "RowsSize", "ListStack", height=700)
     rows.get_editor_property("slot").set_padding(unreal.Margin(10, 8, 10, 10))
     scroll = widget(bp, unreal.ScrollBox, "GameList", "RowsSize")
-    for prop, value in (("scrollbar_thickness", unreal.Vector2D(SCROLLBAR[0], SCROLLBAR[0])),
-                        ("scrollbar_padding", unreal.Margin(SCROLLBAR[1], 0, 0, 0)),
-                        ("scroll_when_focus_changes", unreal.ScrollWhenFocusChanges.ANIMATED_SCROLL)):
-        try:
-            scroll.set_editor_property(prop, value)
-        except Exception as e:  # an engine without the property: default look
-            unreal.log_warning(f"MJOLNIR UI: GameList.{prop}: {e}")
-    # A flat accent thumb on a faint track, instead of the stock white bar.
-    try:
-        bar = scroll.get_editor_property("widget_bar_style")
-        for prop, rgba in (("normal_thumb_image", (0.46, 0.79, 0.94, 0.45)),
-                           ("hovered_thumb_image", (0.46, 0.79, 0.94, 0.8)),
-                           ("dragged_thumb_image", (0.46, 0.79, 0.94, 1.0)),
-                           ("vertical_background_image", (0.0, 0.0, 0.0, 0.3)),
-                           ("vertical_top_slot_image", (0.0, 0.0, 0.0, 0.3)),
-                           ("vertical_bottom_slot_image", (0.0, 0.0, 0.0, 0.3))):
-            brush = bar.get_editor_property(prop)
-            brush.set_editor_property("resource_object", None)
-            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
-            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*rgba)))
-            bar.set_editor_property(prop, brush)
-        scroll.set_editor_property("widget_bar_style", bar)
-    except Exception as e:
-        unreal.log_warning(f"MJOLNIR UI: GameList scroll bar style: {e}")
+    slim_scroll(scroll, "GameList")
     empty = widget(bp, unreal.TextBlock, "Empty", "GameList")
     text_style(empty, "", 26, GREY)
     wrapped(empty)
@@ -1796,7 +1976,9 @@ def chat_line(bp, i):
         w.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
 
 
-def chat_input_style(box):
+def text_input_style(box, size=24):
+    """An EditableTextBox with no box of its own (its Border is the field),
+    white text at `size`."""
     try:
         style = box.get_editor_property("widget_style")
         for state in ("background_image_normal", "background_image_hovered", "background_image_focused",
@@ -1810,12 +1992,13 @@ def chat_input_style(box):
         style.set_editor_property("padding", unreal.Margin(4, 6, 4, 6))
         inner = style.get_editor_property("text_style")
         font = inner.get_editor_property("font")
-        font.set_editor_property("size", 24)
+        font.set_editor_property("size", size)
         inner.set_editor_property("font", font)
         style.set_editor_property("text_style", inner)
         box.set_editor_property("widget_style", style)
     except Exception as e:  # a style field this engine lacks: the stock look
-        unreal.log_warning(f"MJOLNIR UI: chat input style: {e}")
+        unreal.log_warning(f"MJOLNIR UI: text input style: {e}")
+
 
 
 def build_chat():
@@ -1885,7 +2068,7 @@ def build_chat():
     box = widget(bp, unreal.EditableTextBox, "ChatInput", row.get_name())
     box.set_editor_property("hint_text", unreal.Text("Say something"))
     box.set_editor_property("clear_keyboard_focus_on_commit", False)
-    chat_input_style(box)
+    text_input_style(box, 24)
     fill(box, 1)
     middle(box)
 

@@ -263,13 +263,17 @@ function Settings.variantLine()
 end
 
 --- The settings away from their defaults for game type `mode`, as
---- "LABEL: VALUE" lines (the lobby card's rules).
+--- "LABEL: VALUE" lines (the lobby card's rules). A team's vehicles are
+--- named with the team ("RED VEHICLES", "BLUE GHOSTS"), since both pages
+--- use the same labels.
 function Settings.changes(mode)
     local out = {}
     for _, o in ipairs(Settings.OPTIONS) do
         local opt = Settings.option(o.id, mode)
         if opt and shown(opt) and Settings.value(opt) ~= opt.default then
-            out[#out + 1] = opt.label .. ": " .. Settings.text(opt)
+            local team = opt.team or opt.id:match("^vehicles%.(%a+)$")
+            local label = team and (team:upper() .. " " .. (opt.team and opt.label or "VEHICLES")) or opt.label
+            out[#out + 1] = label .. ": " .. Settings.text(opt)
         end
     end
     return out

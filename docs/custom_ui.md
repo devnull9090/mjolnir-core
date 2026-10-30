@@ -147,6 +147,12 @@ w:SetVisibility(1)                          -- Collapsed; never RemoveFromParent
   bubble up to the game viewport, which feeds the simulation, so while the
   box is open the game is in UI-only input (`SetInputMode_UIOnlyEx`;
   `mods/MJOLNIRHud/Scripts/chat.lua`).
+- A delegate with parameters binds like `OnClicked`: the map select's
+  search box sends `MJ_Event("search")` from `OnTextChanged` and
+  `MJ_Event("searched")` from `OnTextCommitted` (`bind_event_to_function`
+  drops the parameters), and Lua reads `GetText()`. On a menu screen the
+  frontend has no simulation to feed, so the box needs no input mode of its
+  own; Escape still pops the screen while it has focus.
 
 ## Screens on the game's menu stack
 

@@ -83,7 +83,8 @@ local vline = Settings.variantLine()
 assert(vline:find("vehicles.red=8", 1, true) and vline:find("vehicles.red.ghost=2", 1, true)
     and vline:find("vehicles.red.warthog=0", 1, true) and vline:find("vehicles.blue=1", 1, true)
     and not vline:find("vehicles.blue.", 1, true), "vehicle keys in the line: " .. vline)
-eq(table.concat(Settings.changes("slayer"), "|"), "VEHICLE SET: CUSTOM|GHOSTS: 2|VEHICLE SET: NONE", "vehicle changes")
+eq(table.concat(Settings.changes("slayer"), "|"), "RED VEHICLES: CUSTOM|RED GHOSTS: 2|BLUE VEHICLES: NONE",
+    "vehicle changes, named with their team")
 eq(table.concat(Settings.describe(vline, "slayer"), "|"), table.concat(Settings.changes("slayer"), "|"),
     "describe(vehicle line)")
 Settings.reset()
