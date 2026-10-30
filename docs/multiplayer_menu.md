@@ -104,6 +104,10 @@ hides the main menu beneath, and Back (Escape, B) pops them
   settings are buttons for the host, with the events of CHANGE MAP, GAME
   TYPE and GAME SETTINGS; a fireteam client's are HitTestInvisible. An older
   UI container keeps the one-column card with each part's description.
+  JOIN THE DISCORD, beside the MJOLNIR CORE emblem at the top right (every
+  menu screen has the emblem), opens MJOLNIR's Discord invite
+  (`KismetSystemLibrary:LaunchURL`: the browser, or the Discord app, opens
+  beside the game) and writes the link in the footer.
   A fireteam client without the host's map, or with another release of it,
   sees START GAME as DOWNLOAD MAP or UPDATE MAP (since mods-v0.20.0;
   [live_map_install.md](live_map_install.md)).
@@ -170,8 +174,10 @@ icon textures hide the lobby emblem and do not prevent mode selection.
 
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
 `invite`, `changemap`, `gametype`, `gamesettings`, `listing`, `maxdown`,
-`maxup`, `maxplayers`, `findgames`, `back`, `select`, `map:<i>`,
-`hover:<i>`, `unhover:<i>`, `mode:<i>`, `filter:game`, `filter:source`, `filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
+`maxup`, `maxplayers`, `findgames`, `discord`, `back`, `select`, `map:<i>`,
+`hover:<i>`, `unhover:<i>`, `mode:<i>`, `modehover:<i>`, `modeunhover:<i>`,
+`search`, `searched`, `search_clear`, `filter:game`, `filter:source`,
+`filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
 as `game:<i>`, `sort:<column>` and `reset`). Lua hooks it and handles the
 event off the click, in `ExecuteInGameThread`. No native delegate binding is involved. Only the
 injected fallback MULTIPLAYER button still needs it (next section).

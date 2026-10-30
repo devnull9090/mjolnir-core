@@ -109,6 +109,11 @@ powershell -File tools/ue/cook.ps1     # also writes pakchunk984-Windows
 `PAL_MJOLNIR_UI` puts `/Game/MJOLNIR/UI` in chunk 984. Install the staged
 `pakchunk984-Windows.{utoc,ucas,pak}` as `pakchunk984-MJOLNIRUI-Windows.*`.
 
+The MJOLNIR CORE emblem at the top right of every menu screen
+(`screen_header`) is `Art/Brand/Logo.png`, made from the hub's own logo by
+`python tools/ue/brand_logo.py` (cropped, centred, 256 pixels). It is
+imported with mips, since 720p draws it at about a third of that.
+
 The Forge HUD (`WBP_MJOLNIRForge`, [forge.md](forge.md)) is built by the same
 script but lives in `/Game/MJOLNIR/ForgeUI` with its own glyphs
 (`Art/ForgeIcons`, `T_MJForge_*`) and its own label, `PAL_MJOLNIR_ForgeUI`,

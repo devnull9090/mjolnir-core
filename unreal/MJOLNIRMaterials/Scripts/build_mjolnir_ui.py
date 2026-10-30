@@ -30,6 +30,8 @@ Writes, under /Game/MJOLNIR/UI:
                          box you type in (MJOLNIRHud Scripts/chat.lua)
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
+  Brand/T_MJBrand_Logo   the MJOLNIR CORE emblem at the top right of every
+                         menu screen (tools/ue/brand_logo.py)
   PAL_MJOLNIR_UI    the label that puts the folder in chunk 984
                      (pakchunk984-MJOLNIRUI).
   WBP_MJOLNIRForge  the Forge HUD (mods/MJOLNIRForge), in /Game/MJOLNIR/ForgeUI
@@ -181,7 +183,7 @@ def finish(bp, name, root=None):
 ICON_ROOT = f"{ROOT}/Icons"
 
 
-def import_hud_icons(art="HudIcons", root=ICON_ROOT, prefix="T_MJHud_"):
+def import_hud_icons(art="HudIcons", root=ICON_ROOT, prefix="T_MJHud_", mips=False):
     src = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), "Art", art)
     names = sorted(os.path.splitext(f)[0] for f in os.listdir(src) if f.lower().endswith(".png"))
     tasks = []
@@ -202,7 +204,10 @@ def import_hud_icons(art="HudIcons", root=ICON_ROOT, prefix="T_MJHud_"):
             fail(f"icon {n} did not import")
         tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_EDITOR_ICON)
         tex.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_UI)
-        tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+        # A picture drawn well below its size (the emblem at 720p) needs its
+        # mips; the glyphs are drawn at about theirs.
+        tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_SIMPLE_AVERAGE if mips
+                                else unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
         tex.set_editor_property("never_stream", True)
         tex.set_editor_property("srgb", True)
         eal.save_loaded_asset(tex)
@@ -617,7 +622,19 @@ def bind_events(bp, events):
             fail(f"{name}.{delegate}")
 
 
-def screen_header(bp, title, subtitle):
+# The MJOLNIR CORE emblem (tools/ue/brand_logo.py), imported before the
+# screens are built: T_MJBrand_<Name> under /Game/MJOLNIR/UI/Brand.
+BRAND = {}
+BRAND_LOGO = 190   # the emblem's side at the top right of every menu screen
+DISCORD = (0.345, 0.396, 0.949)   # Discord's own blurple, for its button
+
+
+def screen_header(bp, title, subtitle, discord=False):
+    """The screen's title at the top left, and at the top right `Brand`:
+    the MJOLNIR CORE emblem (`Logo`), with `discord` the lobby's JOIN THE
+    DISCORD button (`Discord`, collapsed until MJOLNIRLobby shows it and
+    writes its link in `DiscordLink`; its click is MJ_Event("discord"))
+    beside it. Every right-hand panel starts below 0.25, under the emblem."""
     shade = widget(bp, unreal.Border, "Shade", "Root")
     shade.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.008, 0.02, 0.40))
     stretch(shade)
@@ -629,6 +646,25 @@ def screen_header(bp, title, subtitle):
     gap(heading, top=10, bottom=18)
     sized(bp, "HeaderRuleWidth", "Header", width=225)
     rule(bp, "HeaderRule", "HeaderRuleWidth", ACCENT, 3)
+    brand = widget(bp, unreal.HorizontalBox, "Brand", "Root")
+    place(brand, (0.94, 0.045), (1.0, 0.0))
+    if discord:
+        button = widget(bp, unreal.Button, "Discord", brand.get_name())
+        flat_style(button, (*DISCORD, 0.30), (*DISCORD, 0.65), (*DISCORD, 0.9), padding=(26, 14, 28, 14))
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 28, 0))
+        middle(button)
+        button.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        words = widget(bp, unreal.VerticalBox, "DiscordWords", button.get_name())
+        text_style(widget(bp, unreal.TextBlock, "DiscordLabel", words.get_name()), "JOIN THE DISCORD", 22, WHITE)
+        link = widget(bp, unreal.TextBlock, "DiscordLink", words.get_name())
+        text_style(link, "", 16, (0.78, 0.81, 1.0, 1.0))
+        gap(link, top=4)
+    logo = sized(bp, "LogoSize", brand.get_name(), width=BRAND_LOGO, height=BRAND_LOGO)
+    middle(logo)
+    image = widget(bp, unreal.Image, "Logo", logo.get_name())
+    if BRAND.get("Logo"):
+        image.set_brush_from_texture(BRAND["Logo"], False)
+    image.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
 
 
 def footer(bp):
@@ -731,13 +767,13 @@ def build_lobby():
     name = "WBP_MJOLNIRLobby"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
     screen_canvas(bp)
-    screen_header(bp, "MULTIPLAYER", "CUSTOM GAME")
+    screen_header(bp, "MULTIPLAYER", "CUSTOM GAME", discord=True)
 
     menu = sized(bp, "MenuSize", "Root", width=470)
     place(menu, (0.06, 0.28), (0.0, 0.0))
     widget(bp, unreal.VerticalBox, "Menu", "MenuSize")
     gap(rule(bp, "MenuRule", "Menu", ACCENT, 2), bottom=12)
-    events = []
+    events = [("Discord", "OnClicked", "discord")]
     # Listing: the host's game private (fireteam and invites only) or
     # public (listed on the hub for FIND GAMES); Lua sets its label.
     # GameSettings: the host's game settings (WBP_MJOLNIRGameSettings).
@@ -2366,6 +2402,7 @@ def build_label():
     eal.save_loaded_asset(label)
 
 
+BRAND.update(import_hud_icons("Brand", f"{ROOT}/Brand", "T_MJBrand_", mips=True))
 build_hello()
 build_kill_feed(import_hud_icons())
 build_scoreboard()

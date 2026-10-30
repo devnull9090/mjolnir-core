@@ -442,6 +442,9 @@ Pick.query = ""
 Pick.GAME_WORDS = { halo1 = "halo ce combat evolved", halo2 = "halo 2 h2" }
 Pick.GOLD = { R = 1.0, G = 0.80, B = 0.35, A = 1 }
 Pick.GREY = { R = 0.46, G = 0.61, B = 0.70, A = 1 }
+-- MJOLNIR's Discord, as the hub and the launcher link it (the lobby's JOIN
+-- THE DISCORD button; hub/src/lib/marketing.ts).
+Pick.DISCORD = "https://discord.gg/9gxYZsByW9"
 
 --- The game of `map`: its installed record's, else the hub's listing's.
 function Pick.gameOf(map)
@@ -1248,6 +1251,10 @@ local function drawLobby()
     setShown(Lobby.MapTileChange, host)
     setShown(Lobby.ModeTileChange, host)
     setShown(Lobby.RulesChange, host and hasGameSettings())
+    -- JOIN THE DISCORD, beside the emblem (a UI container from mods-v0.39.0
+    -- on); everyone in the fireteam has it.
+    setShown(Lobby.Discord, true)
+    setText(Lobby.DiscordLink, (Pick.DISCORD:gsub("^https://", "")))
     pcall(function() Lobby.Start:SetIsEnabled(host and map ~= nil and mode ~= nil) end)
     for _, key in ipairs({ "Start", "ChangeMap", "GameType", "Listing" }) do setShown(Lobby[key], host) end
     -- A fireteam client without the host's map: START becomes its download.
@@ -2296,6 +2303,15 @@ end
 
 local LOBBY_EVENTS = {
     invite = openFriends,
+    -- The browser (or the Discord app, which takes the link) opens beside
+    -- the game; the footer gives the link for a PC that has neither.
+    discord = function()
+        local ok = pcall(function()
+            StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):LaunchURL(Pick.DISCORD)
+        end)
+        setText(Lobby.Status, (ok and "OPENING MJOLNIR'S DISCORD   /   " or "JOIN MJOLNIR'S DISCORD AT   ")
+            .. Pick.DISCORD:gsub("^https://", ""))
+    end,
     start = function()
         -- A fireteam client's START is DOWNLOAD MAP when it lacks the host's.
         if not Net.isHost() and Game.map and (Game.map.missing or Game.map.update) then
