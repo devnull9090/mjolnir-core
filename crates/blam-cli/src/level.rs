@@ -1764,15 +1764,33 @@ impl Baker {
                 [x as f32, y as f32, z as f32]
             })
             .collect();
-        let mut components: Vec<usize> = spawn_wu
+        // Only the walkable ground most spawns share: a bot placed on a piece
+        // the pathfinding does not join to it could never leave it. (Every
+        // Blood Gulch start is on one piece.)
+        let spawn_components: Vec<Option<usize>> = spawn_wu
             .iter()
-            .filter_map(|p| pf.sector_at(&shell, *p).map(|(s, _)| pf.component[s]))
+            .map(|p| pf.sector_at(&shell, *p).map(|(s, _)| pf.component[s]))
             .collect();
-        components.sort();
-        components.dedup();
-        if components.is_empty() {
-            bail!("bots: no spawn stands on a walkable surface");
+        let mut tally: BTreeMap<usize, usize> = BTreeMap::new();
+        for c in spawn_components.iter().flatten() {
+            *tally.entry(*c).or_default() += 1;
         }
+        let Some((&main, &on_main)) = tally.iter().max_by_key(|(c, n)| (**n, std::cmp::Reverse(**c))) else {
+            bail!("bots: no spawn stands on a walkable surface");
+        };
+        let components = vec![main];
+        let spawns: Vec<([f64; 3], f64)> = ix
+            .spawns
+            .iter()
+            .zip(&spawn_components)
+            .filter(|(_, c)| **c == Some(main))
+            .map(|(s, _)| *s)
+            .collect();
+        println!(
+            "  bots    {on_main} of {} spawn(s) on the main walkable ground (component {main} of {} the spawns stand on)",
+            ix.spawns.len(),
+            tally.len()
+        );
         let mut spacing = bots.spacing as f32;
         let mut fps = pf.firing_positions(&shell, spacing, &components, 0.0);
         while fps.len() > 2048 {
@@ -2030,7 +2048,7 @@ impl Baker {
             };
             for i in 0..ix.count {
                 let s = format!("squads[{}]", ix.squad + t * ix.count + i);
-                let (pos, yaw) = ix.spawns[i % ix.spawns.len()];
+                let (pos, yaw) = spawns[i % spawns.len()];
                 let (x, y, z) = ue_to_blam(abs_pos(self.origin, pos));
                 set_fixed_string(&mut self.file, &format!("{s}.name"), &format!("{}_{i}", kind.name))?;
                 let mut sets = vec![
