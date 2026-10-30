@@ -1081,7 +1081,9 @@ def build_map_select():
         button = menu_button(bp, key, label, actions.get_name(), size=28)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", key.lower()))
-    text_style(footer(bp), "TYPE TO SEARCH   /   ENTER OR DOUBLE-CLICK TO SELECT", 22, GREY)
+    # MJOLNIRLobby from mods-v0.39.0 on writes the search hint here; an
+    # older one cannot search, so the cooked line does not offer it.
+    text_style(footer(bp), "CHOOSE A MAP AND GAME TYPE   /   SELECT TO CONFIRM", 22, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
