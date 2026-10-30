@@ -619,6 +619,8 @@ local function pushScreen(classPath)
     local ok, screen = pcall(function() return layout.ContentStack:BP_AddWidget(cls) end)
     if not (ok and UI.valid(screen)) then return nil end
     setText(screen.Watermark, BuildLine.text(MODS_DIR))
+    -- The emblem opens the site (Pick.openSite); it is cooked unclickable.
+    pcall(function() screen.LogoButton:SetVisibility(0) end)
     return screen
 end
 
@@ -969,6 +971,7 @@ local EVENTS = {
     end,
 }
 EVENTS.back = EVENTS.cancel
+EVENTS.logo = function() Pick.openSite(Dl.screen, "map-download") end
 
 local function hook()
     if Dl.hooked ~= nil then return Dl.hooked end
@@ -1170,6 +1173,28 @@ local function rosterPlayers()
         end)
     end)
     return roster
+end
+
+-- The hub's site, which the emblem at the top right of every MJOLNIR screen
+-- opens. The tags tell its analytics (Google Analytics reads utm_*) that the
+-- visit came from the game: source game, medium menu, campaign logo, and
+-- the screen it was clicked on as content (lobby, map-select ...).
+Pick.SITE = "https://mjolnircore.com/"
+
+--- Open `url` beside the game: the browser, or the app that takes the link.
+function Pick.launch(url)
+    return (pcall(function()
+        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):LaunchURL(url)
+    end))
+end
+
+--- The site, from the emblem on `screen` (`content` names the screen); its
+--- footer says so.
+function Pick.openSite(screen, content)
+    local url = Pick.SITE .. "?utm_source=game&utm_medium=menu&utm_campaign=logo&utm_content=" .. content
+    local ok = Pick.launch(url)
+    log((ok and "opened " or "could not open ") .. url)
+    setText(screen and screen.Status, ok and "OPENING MJOLNIRCORE.COM" or "VISIT MJOLNIRCORE.COM")
 end
 
 Pick.RULE_ROWS = 5   -- lines of the lobby card's settings, two settings a line
@@ -2306,11 +2331,8 @@ local LOBBY_EVENTS = {
     -- The browser (or the Discord app, which takes the link) opens beside
     -- the game; the footer gives the link for a PC that has neither.
     discord = function()
-        local ok = pcall(function()
-            StaticFindObject("/Script/Engine.Default__KismetSystemLibrary"):LaunchURL(Pick.DISCORD)
-        end)
-        setText(Lobby.Status, (ok and "OPENING MJOLNIR'S DISCORD   /   " or "JOIN MJOLNIR'S DISCORD AT   ")
-            .. Pick.DISCORD:gsub("^https://", ""))
+        setText(Lobby.Status, (Pick.launch(Pick.DISCORD) and "OPENING MJOLNIR'S DISCORD   /   "
+            or "JOIN MJOLNIR'S DISCORD AT   ") .. Pick.DISCORD:gsub("^https://", ""))
     end,
     start = function()
         -- A fireteam client's START is DOWNLOAD MAP when it lacks the host's.
@@ -2557,6 +2579,14 @@ end
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
 local function onScreenEvent(isLobby, event, source)
+    if event == "logo" then
+        local screens = { [true] = { Lobby, "lobby" }, [false] = { Select, "map-select" },
+            find = { Find, "find-games" }, settings = { Tweak.screen, "game-settings" },
+            gametype = { source, "game-type" } }
+        local s = screens[isLobby]
+        if s then Pick.openSite(s[1], s[2]) end
+        return
+    end
     if isLobby == "gametype" then return Pick.gameType.onEvent(event, source) end
     if isLobby == "find" then return onFindEvent(event) end
     if isLobby == "settings" then return onSettingsEvent(event) end
@@ -2647,6 +2677,7 @@ local function adoptLobby(screen)
     Lobby = screen
     hookScreenEvents()
     setText(Lobby.Watermark, BuildLine.text(MODS_DIR))
+    pcall(function() Lobby.LogoButton:SetVisibility(0) end)
     -- The cooked footer warns, in gold, that the mods are not running; the
     -- status lines below replace it, in the footer's usual grey.
     pcall(function()
@@ -3314,7 +3345,9 @@ local function hookPostGame()
                 local okH, err = pcall(function()
                     local v = Post and Post.vote
                     local index = tonumber(event:match("^vote:(%d+)$") or "")
-                    if index and v and not v.chosen and v.options[index + 1] then
+                    if event == "logo" then
+                        Pick.openSite(Post and Post.screen, "post-game")
+                    elseif index and v and not v.chosen and v.options[index + 1] then
                         v.mine = index + 1
                         Net.toHost("ballot", v.id, index + 1)
                         drawPostGame()

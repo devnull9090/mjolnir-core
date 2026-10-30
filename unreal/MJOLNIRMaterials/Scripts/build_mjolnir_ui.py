@@ -631,10 +631,14 @@ DISCORD = (0.345, 0.396, 0.949)   # Discord's own blurple, for its button
 
 def screen_header(bp, title, subtitle, discord=False):
     """The screen's title at the top left, and at the top right `Brand`:
-    the MJOLNIR CORE emblem (`Logo`), with `discord` the lobby's JOIN THE
-    DISCORD button (`Discord`, collapsed until MJOLNIRLobby shows it and
-    writes its link in `DiscordLink`; its click is MJ_Event("discord"))
-    beside it. Every right-hand panel starts below 0.25, under the emblem."""
+    the MJOLNIR CORE emblem (`Logo`, in the button `LogoButton`, whose click
+    is MJ_Event("logo"): finish_screen binds it), with `discord` the lobby's
+    JOIN THE DISCORD button (`Discord`, collapsed until MJOLNIRLobby shows
+    it and writes its link in `DiscordLink`; its click is
+    MJ_Event("discord")) beside it. The emblem's button is HitTestInvisible
+    until MJOLNIRLobby makes it clickable, so an older one, which opens
+    nothing, shows no button. Every right-hand panel starts below 0.25,
+    under the emblem."""
     shade = widget(bp, unreal.Border, "Shade", "Root")
     shade.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.008, 0.02, 0.40))
     stretch(shade)
@@ -659,8 +663,14 @@ def screen_header(bp, title, subtitle, discord=False):
         link = widget(bp, unreal.TextBlock, "DiscordLink", words.get_name())
         text_style(link, "", 16, (0.78, 0.81, 1.0, 1.0))
         gap(link, top=4)
-    logo = sized(bp, "LogoSize", brand.get_name(), width=BRAND_LOGO, height=BRAND_LOGO)
-    middle(logo)
+    # A round glow behind the emblem while the mouse is on it.
+    button = widget(bp, unreal.Button, "LogoButton", brand.get_name())
+    rounded_style(button, BRAND_LOGO / 2 + 8, (0, 0, 0, 0), (*ACCENT[:3], 0.16), (*ACCENT[:3], 0.3),
+                  padding=(8, 8, 8, 8))
+    middle(button)
+    button.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+    logo = sized(bp, "LogoSize", button.get_name(), width=BRAND_LOGO, height=BRAND_LOGO)
+    unpadded(logo)
     image = widget(bp, unreal.Image, "Logo", logo.get_name())
     if BRAND.get("Logo"):
         image.set_brush_from_texture(BRAND["Logo"], False)
@@ -680,6 +690,9 @@ def footer(bp):
 
 
 def finish_screen(bp, name):
+    # Every menu screen's emblem (screen_header) opens the hub's site.
+    if not ui.bind_event_to_function(bp, "LogoButton", "OnClicked", "MJ_Event", "logo"):
+        fail(f"{name}: LogoButton.OnClicked")
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile")
     # Back pops the screen off the stack (CommonActivatableWidget's default
@@ -1264,6 +1277,22 @@ def flat_style(button, normal, hovered, pressed, padding=(0, 0, 0, 0)):
         style.set_editor_property(state, brush)
     style.set_editor_property("normal_padding", unreal.Margin(*padding))
     style.set_editor_property("pressed_padding", unreal.Margin(*padding))
+    button.set_editor_property("widget_style", style)
+
+
+def rounded_style(button, radius, normal, hovered, pressed, padding=(0, 0, 0, 0)):
+    """flat_style with each state drawn as a box of corner `radius`."""
+    flat_style(button, normal, hovered, pressed, padding)
+    style = button.get_editor_property("widget_style")
+    for state in ("normal", "hovered", "pressed", "disabled"):
+        brush = style.get_editor_property(state)
+        brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.ROUNDED_BOX)
+        outline = brush.get_editor_property("outline_settings")
+        outline.set_editor_property("corner_radii", unreal.Vector4(radius, radius, radius, radius))
+        outline.set_editor_property("rounding_type", unreal.SlateBrushRoundingType.FIXED_RADIUS)
+        outline.set_editor_property("width", 0.0)
+        brush.set_editor_property("outline_settings", outline)
+        style.set_editor_property(state, brush)
     button.set_editor_property("widget_style", style)
 
 

@@ -104,10 +104,16 @@ hides the main menu beneath, and Back (Escape, B) pops them
   settings are buttons for the host, with the events of CHANGE MAP, GAME
   TYPE and GAME SETTINGS; a fireteam client's are HitTestInvisible. An older
   UI container keeps the one-column card with each part's description.
-  JOIN THE DISCORD, beside the MJOLNIR CORE emblem at the top right (every
-  menu screen has the emblem), opens MJOLNIR's Discord invite
-  (`KismetSystemLibrary:LaunchURL`: the browser, or the Discord app, opens
-  beside the game) and writes the link in the footer.
+  JOIN THE DISCORD, beside the MJOLNIR CORE emblem at the top right, opens
+  MJOLNIR's Discord invite (`KismetSystemLibrary:LaunchURL`: the browser, or
+  the Discord app, opens beside the game) and writes the link in the footer.
+  Every menu screen has the emblem, and clicking it opens mjolnircore.com
+  tagged for the hub's Google Analytics as a visit from the game:
+  `?utm_source=game&utm_medium=menu&utm_campaign=logo&utm_content=<screen>`,
+  the screen being `lobby`, `map-select`, `game-type`, `game-settings`,
+  `find-games`, `post-game` or `map-download` (`Pick.openSite`; UE4SS.log
+  records the link). The emblem's button is cooked HitTestInvisible and made
+  clickable by `pushScreen`, so with an older MJOLNIRLobby it only shows.
   A fireteam client without the host's map, or with another release of it,
   sees START GAME as DOWNLOAD MAP or UPDATE MAP (since mods-v0.20.0;
   [live_map_install.md](live_map_install.md)).
@@ -174,7 +180,8 @@ icon textures hide the lobby emblem and do not prevent mode selection.
 
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
 `invite`, `changemap`, `gametype`, `gamesettings`, `listing`, `maxdown`,
-`maxup`, `maxplayers`, `findgames`, `discord`, `back`, `select`, `map:<i>`,
+`maxup`, `maxplayers`, `findgames`, `discord`, `logo` (every screen),
+`back`, `select`, `map:<i>`,
 `hover:<i>`, `unhover:<i>`, `mode:<i>`, `modehover:<i>`, `modeunhover:<i>`,
 `search`, `searched`, `search_clear`, `filter:game`, `filter:source`,
 `filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
