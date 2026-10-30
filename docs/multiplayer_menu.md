@@ -90,12 +90,30 @@ into `pakchunk984-MJOLNIRUI`
 hides the main menu beneath, and Back (Escape, B) pops them
 (`bIsBackHandler`).
 
-- **The lobby:** the map and game type, a description of each, the players
-  (the frontend's player states), and START GAME, INVITE FRIENDS, CHANGE
-  MAP, GAME TYPE (opens the current map's mode picker), GAME SETTINGS (host only, since
-  mods-v0.16.0; [host_game_settings.md](host_game_settings.md)), PRIVATE /
-  PUBLIC GAME, MAX PLAYERS (2 to 16, host only;
-  [fireteam_join_and_cap.md](fireteam_join_and_cap.md)), FIND GAMES and BACK.
+- **The lobby:** the players (the frontend's player states), START GAME,
+  INVITE FRIENDS, CHANGE MAP, GAME TYPE (opens the current map's mode
+  picker), GAME SETTINGS (host only, since mods-v0.16.0;
+  [host_game_settings.md](host_game_settings.md)), PRIVATE / PUBLIC GAME,
+  MAX PLAYERS (2 to 16, host only;
+  [fireteam_join_and_cap.md](fireteam_join_and_cap.md)), FIND GAMES and BACK,
+  and a card with what the game will be. Since mods-v0.39.0 (with CE
+  runtime 1.16.0's UI container) the card is two tiles, the map (its
+  screenshot, name, game and players) and the game type (its icon, name and
+  format), over the game settings away from the defaults in two columns of
+  at most five lines, the last saying how many more. The tiles and the
+  settings are buttons for the host, with the events of CHANGE MAP, GAME
+  TYPE and GAME SETTINGS; a fireteam client's are HitTestInvisible. An older
+  UI container keeps the one-column card with each part's description.
+  JOIN THE DISCORD, beside the MJOLNIR CORE emblem at the top right, opens
+  MJOLNIR's Discord invite (`KismetSystemLibrary:LaunchURL`: the browser, or
+  the Discord app, opens beside the game) and writes the link in the footer.
+  Every menu screen has the emblem, and clicking it opens mjolnircore.com
+  tagged for the hub's Google Analytics as a visit from the game:
+  `?utm_source=game&utm_medium=menu&utm_campaign=logo&utm_content=<screen>`,
+  the screen being `lobby`, `map-select`, `game-type`, `game-settings`,
+  `find-games`, `post-game` or `map-download` (`Pick.openSite`; UE4SS.log
+  records the link). The emblem's button is cooked HitTestInvisible and made
+  clickable by `pushScreen`, so with an older MJOLNIRLobby it only shows.
   A fireteam client without the host's map, or with another release of it,
   sees START GAME as DOWNLOAD MAP or UPDATE MAP (since mods-v0.20.0;
   [live_map_install.md](live_map_install.md)).
@@ -118,10 +136,24 @@ hides the main menu beneath, and Back (Escape, B) pops them
   (`MapLive.listings`, the cached `GET /maps`). Chips above it narrow the
   list by game (the hub's `game`: Halo CE or Halo 2), by source (official
   or community) and to installed maps; a map the hub does not list passes
-  only the ALL choices. Hovering a map previews its details and game types;
-  clicking picks it. A game type button picks the mode, and SELECT returns
-  to the lobby with both, or, for a map not installed, opens the download
-  screen and picks the map once it is in.
+  only the ALL choices. Hovering a map previews its details and game types,
+  and leaving it shows the chosen map again; clicking picks it. A game type
+  picks the mode, and SELECT returns to the lobby with both, or, for a map
+  not installed, opens the download screen and picks the map once it is in.
+  Since mods-v0.39.0 (CE runtime 1.16.0's UI container):
+  - A search box over the list has the focus when the screen opens. Every
+    word typed must be in a map's title, code or game's names ("ce", "halo
+    2"); the best matches come first (a word starting the title, then one
+    starting a word of it) and the best is picked as you type, so ENTER
+    selects it (`Pick.score`). Only ENTER leaves the box focused when it
+    commits, which tells it from the focus moving away. CLEAR empties it.
+  - Rows are sorted by title and show the map's game (CE or H2) and DOWNLOAD
+    or CURRENT (the map the lobby has). A second click on the same row within
+    half a second selects it.
+  - The details panel has a fixed size, with SELECT and BACK at its foot:
+    the screenshot, the title, the hub listing's facts (game, size, players,
+    vehicles) and summary, the author line, and the game types as a row of
+    icon tiles. Hovering a tile describes its mode beside the row.
 - **The game type select:** the host's current map and its available modes,
   with an icon, description and match format for each. The current mode is
   marked CURRENT and focused when the screen opens. Hover previews a mode;
@@ -148,8 +180,11 @@ icon textures hide the lobby emblem and do not prevent mode selection.
 
 Each button's own graph calls the widget's `MJ_Event(<event>)`: `start`,
 `invite`, `changemap`, `gametype`, `gamesettings`, `listing`, `maxdown`,
-`maxup`, `maxplayers`, `findgames`, `back`, `select`, `map:<i>`,
-`hover:<i>`, `unhover:<i>`, `mode:<i>`, `filter:game`, `filter:source`, `filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
+`maxup`, `maxplayers`, `findgames`, `discord`, `logo` (every screen),
+`back`, `select`, `map:<i>`,
+`hover:<i>`, `unhover:<i>`, `mode:<i>`, `modehover:<i>`, `modeunhover:<i>`,
+`search`, `searched`, `search_clear`, `filter:game`, `filter:source`,
+`filter:installed` (FIND GAMES and GAME SETTINGS send their own, such
 as `game:<i>`, `sort:<column>` and `reset`). Lua hooks it and handles the
 event off the click, in `ExecuteInGameThread`. No native delegate binding is involved. Only the
 injected fallback MULTIPLAYER button still needs it (next section).

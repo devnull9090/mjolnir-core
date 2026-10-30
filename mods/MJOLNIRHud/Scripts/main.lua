@@ -46,12 +46,14 @@ local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
+local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
+Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
 
 --- The match log must never break the HUD: a failure in it is logged, and
 --- the feed, the board and the end of the match go on.
@@ -294,9 +296,22 @@ local function refreshNames()
     end)
 end
 
+--- A fireteam client asks its host for the bots' names (Relay.BOTS_ASK)
+--- when it meets a bot seat it cannot name; a few times at most.
+local function askBotNames()
+    if not Match or Match.host or Match.botsHeard then return end
+    local t = now()
+    if t < (Match.nextBotAsk or 0) or (Match.botAsks or 0) >= 5 then return end
+    Match.nextBotAsk = t + 3
+    Match.botAsks = (Match.botAsks or 0) + 1
+    local pc = playerController()
+    if pc then pcall(function() pc:ServerExecRPC(Relay.BOTS_ASK) end) end
+end
+
 local function nameOf(index)
     if type(index) ~= "number" or index < 0 then return nil end
     local p = stats(index)
+    if not p.name and Bots.isBot(index) then askBotNames() end
     if not p.name then refreshNames() end
     return p.display or p.name or ("Player " .. tostring(index + 1))
 end
@@ -576,6 +591,24 @@ local function finishMatch(how)
 end
 
 HANDLERS.round_over = function() finishMatch("round over") end
+
+--- With bots the host ends the match itself: Slayer's own script counts kills
+--- of players only, so a score made on bots never ends the round.
+local function botScoreReached()
+    if not (Match and Match.host and Bots.active()) or Match.over then return false end
+    local toWin = Match.mode.toWin or 0
+    if toWin <= 0 then return false end
+    if Match.mode.teams then
+        for _, total in pairs(Scoreboard.totals(Match)) do
+            if total >= toWin then return true end
+        end
+        return false
+    end
+    for _, p in pairs(Match.players) do
+        if not p.left and score(p) >= toWin then return true end
+    end
+    return false
+end
 HANDLERS.game_over = function() finishMatch("game over") end
 
 HANDLERS.player_quit = function(inc)
@@ -636,15 +669,60 @@ local function hookIncidents()
     if incidentHooked then Log("incident hook armed") end
 end
 
+--- What the simulation says differently for an AI: a player who kills a bot
+--- raises `Kill` but no `death`, and a bot that kills a player raises the
+--- player's `death` but no `Kill`.
+local function botIncident(inc)
+    if inc.name == "kill" and Bots.isBot(inc.effect) then
+        local p = stats(inc.effect)
+        p.deaths = p.deaths + 1
+        p.dead = true
+        Bots.died(inc.effect, now())
+        boardDirty = true
+    elseif inc.name == "death" and Bots.isBot(inc.cause) and type(inc.effect) == "number" and inc.effect >= 0 then
+        HANDLERS.kill(inc)
+    end
+end
+
+--- The bots' names to each fireteam player who has not had them yet: a new
+--- name (a bot placed for the first time) or a player who just arrived.
+local function syncBotNames()
+    if not (Match and Match.host and Bots.active()) then return end
+    local seats = Bots.seats()
+    if #seats == 0 then return end
+    local message = Relay.encodeBots(seats)
+    pcall(Relay.syncBots, message, message)
+end
+
 local function drain()
     local queued = Queue
     Queue = {}
     local outgoing = {}
+    local held = {}
     for _, inc in ipairs(queued) do
+        -- A client's first bot line waits (3 s at most) for the bots' names.
+        local unnamed = Match and not Match.host and not Match.botsHeard and inc.relayed
+            and (Bots.isBot(inc.cause) or Bots.isBot(inc.effect)) and now() - (inc.at or 0) < 3
+        if unnamed then
+            askBotNames()
+            held[#held + 1] = inc
+            goto continue
+        end
         -- A host ignores the relay it sends (its own ClientMessage hook sees
         -- it); anyone takes an incident once, from its handler or a relay
         -- (Scripts/relay.lua).
         local skip = not Match or (inc.relayed and Match.host)
+        -- A client with bots in its match hears a bot's kills and deaths
+        -- from the host by seat; its own copies name the AI as -1.
+        if not skip and not inc.relayed and not Match.host and Match.botsHeard
+            and (inc.name == "kill" or inc.name == "death") and (inc.cause == -1 or inc.effect == -1) then
+            skip = true
+        end
+        if not skip and Bots.active() then
+            -- An AI's incidents name it by player index -1 and its biped.
+            if inc.cause == -1 then inc.cause = Bots.seatOf(inc.biped) or -1 end
+            if inc.effect == -1 then inc.effect = Bots.seatOf(inc.victimBiped) or -1 end
+        end
         if not skip and Relay.carried(inc.name) then
             skip = Relay.seen(Match.recent, inc)
             if not skip and not inc.relayed and Match.host and not Match.over then outgoing[#outgoing + 1] = inc end
@@ -664,9 +742,17 @@ local function drain()
             local ok, err = pcall(handler, inc)
             if not ok then Log("incident " .. inc.name .. ": " .. tostring(err)) end
         end
+        if not skip and not Match.over then
+            local ok, err = pcall(botIncident, inc)
+            if not ok then Log("bots: " .. tostring(err)) end
+        end
+        ::continue::
     end
+    for _, inc in ipairs(held) do Queue[#Queue + 1] = inc end
     if not Match then return end
     if #outgoing > 0 then
+        -- A joiner has the bots' names before the first line that needs them.
+        syncBotNames()
         local ok, sent = pcall(Relay.send, outgoing)
         if not ok then
             Log("relay: " .. tostring(sent))
@@ -676,6 +762,7 @@ local function drain()
         end
     end
     if #Match.medals > 0 then announceMedals() end
+    if botScoreReached() then finishMatch("round over") end
     -- Deaths no kill or suicide line explained: a fall, the guardians.
     local t = now()
     local keep = {}
@@ -705,7 +792,29 @@ end
 --- What a fireteam client hears from its host: the feed's incidents
 --- (Scripts/relay.lua), and the medals MJOLNIRLevelLoader relays for their
 --- sounds (from a host whose HUD is older). drain takes each incident once.
+--- The host's bot names (Relay.syncBots sends them once): kept until this
+--- machine's match is up, which can be after the host sees it arrive.
+local HeardBots = nil
+
+local function applyBotNames()
+    if not (HeardBots and Match) or Match.host then return end
+    for seat, name in pairs(HeardBots) do
+        local p = stats(seat)
+        if p.name ~= name then
+            p.name, p.bot = name, true
+            boardDirty = true
+        end
+    end
+    Match.botsHeard = true
+end
+
 local function relayed(text)
+    local roster = Relay.decodeBots(text)
+    if roster then
+        HeardBots = roster
+        applyBotNames()
+        return
+    end
     local batch = Relay.decode(text, now())
     if batch then
         for _, inc in ipairs(batch) do
@@ -980,6 +1089,17 @@ local function hookMatchLog()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
             if okM and Chat.heardSay(self:get(), text) then return end
+            -- A fireteam player asking for the bots' names (Relay.BOTS_ASK).
+            if okM and text == Relay.BOTS_ASK then
+                local asker = self:get()
+                ExecuteInGameThread(function()
+                    if not (Match and Match.host and Bots.active() and asker:IsValid()) then return end
+                    local seats = Bots.seats()
+                    if #seats == 0 then return end
+                    pcall(function() asker:ClientMessage(Relay.encodeBots(seats), FName("MJOLNIR"), 0) end)
+                end)
+                return
+            end
             if not okM or text ~= ASK or not MatchLog.recording() then return end
             local pc = self:get()
             -- Off the RPC, as MJOLNIRLobby answers its messages.
@@ -1198,6 +1318,9 @@ local function startMatch(running, world)
     boardDirty = true
     nextRosterRefresh = 0
     Log("match: " .. running.code .. " " .. tostring(running.variant))
+    -- Bot names heard while this match was still loading (a host's next
+    -- match replaces them as soon as it is up).
+    applyBotNames()
 end
 
 --- The widgets, once the map's world is up: created too early (while the
@@ -1333,6 +1456,7 @@ local function endMatch()
     if Match and MatchLog.recording() then
         logSafely("finish", MatchLog.finish, Match, Scoreboard, LOCAL_PLAYER, "abandoned", now())
     end
+    Bots.stop()
     widgetTries = 0
     if Feed and Feed:IsValid() then setVisible(Feed, false) end
     if Board and Board:IsValid() then setVisible(Board, false) end
@@ -1396,6 +1520,65 @@ local function demoTick()
     DemoRun.steps = #left > 0 and left or nil
 end
 
+--- Whether the actor at `address` is a player's biped (their spawns name
+--- it): a Spartan bot is the players' own class.
+local function isPlayerBiped(address)
+    for index, p in pairs(Match and Match.players or {}) do
+        if index <= 15 and p.biped then
+            local ok, at = pcall(function() return p.biped:GetAddress() end)
+            if ok and at == address then return true end
+        end
+    end
+    return false
+end
+
+--- Bots for this match (Scripts/bots.lua): each gets a seat on the board
+--- under its name, and is alive again each time it is placed (an AI raises
+--- no `player_spawn`).
+local function startBots(count, kind, level)
+    Bots.stop()
+    if not (Match and Match.host) or count <= 0 then return end
+    Bots.begin(count, now(), function(index, name)
+        local p = stats(index)
+        p.name, p.bot, p.dead, p.left = name, true, false, nil
+        boardDirty = true
+    end, kind or Bots.wantedKind(LOADER_DIR), isPlayerBiped, level or Bots.wantedLevel(LOADER_DIR))
+end
+
+--- The host changes how many bots play (`/bots`, `mjolnir_bots`): the ones
+--- playing stay, new ones are placed, the last ones past `count` leave.
+--- Returns what to tell the host.
+local function setBots(count, kind, level)
+    if not (Match and Match.host) then return "Only the host can change the bots." end
+    count = math.max(0, math.min(math.floor(count), 15))
+    if kind or level or not Bots.active() then
+        -- Another kind or level: the bots there are leave, the new ones come in.
+        for _, seat in ipairs(Bots.seats()) do
+            local p = stats(seat.index)
+            -- The seat is someone else's when it is taken again.
+            p.left, p.kills, p.rawKills, p.deaths, p.suicides = true, 0, 0, 0, 0
+        end
+        startBots(count, kind, level)
+    else
+        for _, index in ipairs(Bots.resize(count, now())) do
+            stats(index).left = true
+        end
+        if count == 0 then Bots.stop() end
+    end
+    boardDirty = true
+    if count == 0 then return "No bots." end
+    return string.format("%d bot(s). Maps built without bot squads have none.", count)
+end
+
+--- `mjolnir_bots <n>`: this match's bots, as `/bots <n>` in chat sets them
+--- (the host's game settings set the number each match starts with).
+pcall(RegisterConsoleCommandHandler, "mjolnir_bots", function(_, args, ar)
+    local n = tonumber(args and args[1]) or 0
+    ExecuteInGameThread(function() Log("bots: " .. setBots(n)) end)
+    pcall(function() ar:Log("MJOLNIR HUD: " .. n .. " bot(s)") end)
+    return true
+end)
+
 pcall(RegisterConsoleCommandHandler, "mjolnir_feed_demo", function(_, _, ar)
     local Demo = dofile(MOD_DIR .. "\\Scripts\\demo.lua")
     ExecuteInGameThread(function()
@@ -1444,6 +1627,20 @@ local function tick()
     if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then
         Match.relayArmed = true
         pcall(Relay.arm)
+    end
+    if Match.host and not Match.botsChecked and now() - Match.startedAt > 3 then
+        Match.botsChecked = true
+        startBots(Bots.wanted(LOADER_DIR))
+    end
+    local humans = 0
+    for index, p in pairs(Match.players) do
+        if index >= 0 and index <= 15 and not p.left then humans = humans + 1 end
+    end
+    local okBots, errBots = pcall(Bots.tick, now(), humans)
+    if not okBots then Log("bots: " .. tostring(errBots)) end
+    if now() >= (Match.nextBotRoster or 0) then
+        Match.nextBotRoster = now() + 1
+        syncBotNames()
     end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1
@@ -1612,7 +1809,8 @@ Chat.init({
     players = function()
         local out = {}
         for index, p in pairs(Match and Match.players or {}) do
-            if p.name and not p.left then out[#out + 1] = { index = index, name = p.name, display = p.display } end
+            -- Bots are not players to kick or teleport to.
+            if p.name and not p.left and not p.bot then out[#out + 1] = { index = index, name = p.name, display = p.display } end
         end
         return out
     end,
@@ -1628,6 +1826,8 @@ Chat.init({
     queue = MatchLog.queue,
     hidden = function() return HudHidden end,
     bench = Bench.chat,
+    setBots = setBots,
+    botCount = function() return Bots.count() end,
 })
 logSafely("init", MatchLog.init, {
     modDir = MOD_DIR,

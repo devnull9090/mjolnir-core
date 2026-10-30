@@ -68,6 +68,30 @@ Settings.OPTIONS = {
         help = "Every player is permanently camouflaged.",
     },
     {
+        -- AI bots (docs/bots.md), on maps baked with bot squads; MJOLNIRHud
+        -- reads `bots` from the settings line on the host.
+        id = "bots", page = 2, label = "BOTS",
+        choices = choices({ 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15 }, function(n) return n == 0 and "NONE" or tostring(n) end),
+        default = 0,
+        help = "AI players that join the match, on maps built for them. They do not take a player's seat.",
+    },
+    {
+        -- MJOLNIRHud's Bots.KINDS, in order, then MIXED.
+        id = "bot_type", page = 2, label = "BOT TYPE",
+        choices = choices({ 0, 1, 2, 3, 4 }, function(n)
+            return ({ "SPARTANS", "ELITES", "GRUNTS", "JACKALS", "MIXED" })[n + 1]
+        end),
+        default = 0,
+        help = "What the bots are. MIXED brings every kind in turn.",
+    },
+    {
+        -- MJOLNIRHud's Bots.LEVELS, in order.
+        id = "bot_level", page = 2, label = "BOT DIFFICULTY",
+        choices = choices({ 0, 1, 2 }, function(n) return ({ "NORMAL", "HEROIC", "LEGENDARY" })[n + 1] end),
+        default = 2,
+        help = "How well the bots aim, as on the campaign's difficulties.",
+    },
+    {
         id = "grenades", page = 3, label = "GRENADES ON MAP",
         choices = choices({ 1, 0 }, yesNo), default = 1,
         help = "Whether the map's grenade pickups appear. Players still spawn with grenades.",
@@ -216,6 +240,9 @@ function Settings.variantLine()
     if Settings.value(Settings.option("grenades")) == 0 then map = map - MAP_GRENADES end
     if Settings.value(Settings.option("powerups")) == 0 then map = map - MAP_POWERUPS end
     f.map_flags = map
+    f.bots = Settings.value(Settings.option("bots"))
+    f.bot_type = Settings.value(Settings.option("bot_type"))
+    f.bot_level = Settings.value(Settings.option("bot_level"))
     -- Each team's vehicle set, and its counts when it is CUSTOM.
     for _, team in ipairs({ "red", "blue" }) do
         local set = Settings.value(Settings.option("vehicles." .. team))
@@ -236,13 +263,17 @@ function Settings.variantLine()
 end
 
 --- The settings away from their defaults for game type `mode`, as
---- "LABEL: VALUE" lines (the lobby card's rules).
+--- "LABEL: VALUE" lines (the lobby card's rules). A team's vehicles are
+--- named with the team ("RED VEHICLES", "BLUE GHOSTS"), since both pages
+--- use the same labels.
 function Settings.changes(mode)
     local out = {}
     for _, o in ipairs(Settings.OPTIONS) do
         local opt = Settings.option(o.id, mode)
         if opt and shown(opt) and Settings.value(opt) ~= opt.default then
-            out[#out + 1] = opt.label .. ": " .. Settings.text(opt)
+            local team = opt.team or opt.id:match("^vehicles%.(%a+)$")
+            local label = team and (team:upper() .. " " .. (opt.team and opt.label or "VEHICLES")) or opt.label
+            out[#out + 1] = label .. ": " .. Settings.text(opt)
         end
     end
     return out
@@ -261,6 +292,9 @@ function Settings.describe(line, mode)
     values.time_limit = f.time_limit
     values.respawn = f.respawn_seconds
     values.suicide_penalty = f.suicide_seconds
+    values.bots = f.bots
+    values.bot_type = f.bot_type
+    values.bot_level = f.bot_level
     if f["trait.shields"] then values.shields = f["trait.shields"] == 1 and 0 or 1 end
     if f["trait.camo"] then values.invisible = f["trait.camo"] ~= 0 and 1 or 0 end
     if f.map_flags then

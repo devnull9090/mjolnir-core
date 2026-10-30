@@ -310,6 +310,89 @@ pub struct BlamSection {
     /// built for index 0 (`level collision --bsp-index 0`).
     #[serde(default)]
     pub single_bsp: Option<usize>,
+    /// AI bots for a multiplayer game (docs/bots.md): one single-actor squad
+    /// per bot cloned from a canvas squad, one zone of firing positions over
+    /// the walkable ground, one objective that sends them after the players,
+    /// and AI pathfinding generated from the kept BSP's collision.
+    #[serde(default)]
+    pub bots: Option<Bots>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Bots {
+    /// The canvas squad each bot squad is cloned from, by name: its character
+    /// palette entry, team and designer cell come with it.
+    pub squad: String,
+    /// How many bot squads, `bot_0` .. `bot_<n-1>`. Defaults to one per spawn.
+    #[serde(default)]
+    pub count: Option<usize>,
+    /// Where each bot squad stands when placed (cycled). Defaults to the
+    /// level's player starts.
+    #[serde(default)]
+    pub spawns: Vec<PlayerStart>,
+    /// The bots' weapon: a substring of a weapon palette entry's tag path
+    /// (`plasma_rifle`). Unset keeps the donor's.
+    #[serde(default)]
+    pub weapon: Option<String>,
+    /// Firing position grid spacing, Halo wu; widened until the zone's 2048
+    /// limit holds.
+    #[serde(default = "default_bot_spacing")]
+    pub spacing: f64,
+    /// How many areas the firing positions are split into (a grid).
+    #[serde(default = "default_bot_areas")]
+    pub areas: usize,
+    /// The canvas zone and objective the bots' own are cloned from.
+    #[serde(default)]
+    pub zone: usize,
+    #[serde(default)]
+    pub objective: usize,
+    /// The kinds of bot the map offers, each with `count` squads of its own
+    /// named `<name>_<k>`: MJOLNIRHud places the kind the host chose. Without
+    /// any, one kind `bot` from the donor squad and `weapon`.
+    #[serde(default)]
+    pub types: Vec<BotType>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotType {
+    /// The squads' name prefix (`spartan` -> `spartan_0` ..).
+    pub name: String,
+    /// The character: a substring of a `character palette` entry's tag path,
+    /// or a character tag's full path (`objects\characters\...`), added to
+    /// the palette when no entry names it. Unset keeps the donor squad's.
+    #[serde(default)]
+    pub character: Option<String>,
+    /// A substring of a weapon palette entry's path; unset, `bots.weapon`.
+    #[serde(default)]
+    pub weapon: Option<String>,
+    /// Weapons handed out in turn, squad `k` taking the `k`th (cycled): a
+    /// mixed arsenal. Replaces `weapon` when given.
+    #[serde(default)]
+    pub weapons: Vec<String>,
+    /// The squads' team (`covenant`, `berserk_hostile_to_all` ...). A human
+    /// character fights players only on a team that is not theirs.
+    #[serde(default)]
+    pub team: Option<String>,
+}
+
+impl Bots {
+    fn kinds(&self) -> Vec<BotType> {
+        if self.types.is_empty() {
+            vec![BotType { name: "bot".into(), character: None, weapon: None, weapons: Vec::new(), team: None }]
+        } else {
+            self.types.clone()
+        }
+    }
+}
+
+fn default_bot_spacing() -> f64 {
+    2.5
+}
+
+fn default_bot_areas() -> usize {
+    16
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -649,6 +732,66 @@ fn block_count_at(file: &[u8], path: &str) -> Result<usize> {
     let l = tag.layout()?;
     let root = tag.read_data(&l)?;
     Ok(blockedit::find_block(&l, file, &root, path)?.block.count as usize)
+}
+
+/// The element size of the block at any path.
+fn block_element_size(file: &[u8], path: &str) -> Result<usize> {
+    let tag = TagFile::parse(file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let root = tag.read_data(&l)?;
+    Ok(blockedit::find_block(&l, file, &root, path)?.block.element_size as usize)
+}
+
+/// Byte offsets of fields within one element (`element` names it, `zones[0]
+/// .firing positions[0]`), relative to its first field, which `fields[0]`
+/// must be.
+fn field_offsets(file: &[u8], element: &str, fields: &[&str]) -> Result<Vec<usize>> {
+    let tag = TagFile::parse(file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let root = tag.read_data(&l)?;
+    let at = |f: &str| -> Result<usize> {
+        Ok(blam_tag::patch::resolve(&l, file, &root, &format!("{element}.{f}"))
+            .with_context(|| format!("{element}.{f}"))?
+            .file_offset)
+    };
+    let base = at(fields[0])?;
+    fields.iter().map(|f| Ok(at(f)? - base)).collect()
+}
+
+fn put_i16(e: &mut [u8], at: usize, v: i16) {
+    e[at..at + 2].copy_from_slice(&v.to_le_bytes());
+}
+
+fn put_f32s(e: &mut [u8], at: usize, v: &[f32]) {
+    for (i, f) in v.iter().enumerate() {
+        e[at + 4 * i..at + 4 * i + 4].copy_from_slice(&f.to_le_bytes());
+    }
+}
+
+/// Write a fixed-length `string` field (zero-padded; the last byte stays 0).
+fn set_fixed_string(file: &mut [u8], path: &str, text: &str) -> Result<()> {
+    let tag = TagFile::parse(file, Some(file.len()))?;
+    let l = tag.layout()?;
+    let root = tag.read_data(&l)?;
+    let target = blam_tag::patch::resolve(&l, file, &root, path)?;
+    let size = l.field_size(&target.field).unwrap_or(0) as usize;
+    if target.type_name != "string" || size == 0 || text.len() >= size {
+        bail!("{path} ({}, {size} bytes) cannot hold {text:?}", target.type_name);
+    }
+    let at = target.file_offset;
+    file[at..at + size].fill(0);
+    file[at..at + text.len()].copy_from_slice(text.as_bytes());
+    Ok(())
+}
+
+/// Where `bots_clone` put the bots' blocks, as indices after the clears.
+struct BotIndices {
+    squad: usize,
+    count: usize,
+    zone: usize,
+    objective: usize,
+    hint: usize,
+    spawns: Vec<([f64; 3], f64)>,
 }
 
 // -----------------------------------------------------------------------------
@@ -1515,6 +1658,437 @@ impl Baker {
         Ok(())
     }
 
+    /// Clone the bots' squads, zone and objective from the canvas's own, before
+    /// the clears (which keep this bake's appends). Returns the indices they
+    /// will have once the clears have run.
+    fn bots_clone(&mut self, bots: &Bots, starts: &[PlayerStart], clear: &Clear) -> Result<BotIndices> {
+        let spawns = if bots.spawns.is_empty() { starts } else { &bots.spawns };
+        if spawns.is_empty() {
+            bail!("bots: no spawns and no player starts to stand them on");
+        }
+        let count = bots.count.unwrap_or(spawns.len());
+        let squads = block_count(&self.file, "squads")?;
+        let names: Vec<String> = (0..squads).map(|i| format!("squads[{i}].name")).collect();
+        let donor = read_many(&self.file, &names)?
+            .iter()
+            .position(|v| v.as_ref().is_some_and(|s| s.display().trim_matches('"') == bots.squad))
+            .with_context(|| format!("bots: the canvas has no squad named {:?}", bots.squad))?;
+        let mut base = |name: &'static str, donor: usize, copies: usize| -> Result<usize> {
+            let before = block_count(&self.file, name)?;
+            if donor >= before {
+                bail!("bots: {name}[{donor}] is past the canvas's {before}");
+            }
+            let (out, _) = blockedit::resize(&self.file, name, &[Op::CloneAppend { donor, copies }])?;
+            self.file = out;
+            let kept = *self.added.get(name).unwrap_or(&0);
+            *self.added.entry(name).or_default() += copies;
+            let cleared = match name {
+                "squads" => clear.squads,
+                _ => clear.blocks.iter().any(|b| b == name),
+            };
+            Ok(if cleared { kept } else { before })
+        };
+        let squad = base("squads", donor, count * bots.kinds().len())?;
+        let zone = base("zones", bots.zone, 1)?;
+        let objective = base("ai objectives", bots.objective, 1)?;
+        // The AI reads `ai user hint data[0]` without checking the block has
+        // an element (sim+0x16d020 faulted on Blood Gulch, whose bake clears
+        // it): keep one, emptied in `bots_finish`.
+        let hint = base("ai user hint data", 0, 1)?;
+        println!(
+            "  bots    {count} squad(s) of {} kind(s) from {:?} (squads[{donor}]), zone from zones[{}], objective from ai objectives[{}]",
+            bots.kinds().len(),
+            bots.squad,
+            bots.zone,
+            bots.objective
+        );
+        Ok(BotIndices { squad, count, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
+    }
+
+    /// Point the cloned squads, zone and objective at each other and at the
+    /// map, and write the BSP's generated pathfinding. Runs after
+    /// `single_bsp`, with `bsp` the BSP's final index and `sbsp` its payload.
+    fn bots_finish(&mut self, bots: &Bots, ix: &BotIndices, bsp: usize, sbsp: &[u8]) -> Result<()> {
+        use blam_sbsp::pathfinding::{self, Pathfinding};
+        let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+        let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+        pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+        let instances = pathfinding::instance_count(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+
+        // The tables. One `instanced geometry refs` entry per instance, none
+        // with a pathfinding object.
+        let pfp = format!("ai pathfinding data[{bsp}]");
+        let igr = block_element_size(&self.file, &format!("{pfp}.instanced geometry refs"))?;
+        let mut none = vec![0u8; igr];
+        none[..2].copy_from_slice(&(-1i16).to_le_bytes());
+        let table = |name: &str, count: usize, elements: Vec<u8>| blockedit::NestedReplace {
+            path: format!("{pfp}.{name}"),
+            count: count as u32,
+            elements,
+            wrappers: None,
+        };
+        let mut edits = vec![
+            table("sectors", pf.sectors.len(), pf.sectors_bytes()),
+            table("links", pf.links.len(), pf.links_bytes()),
+            table("bsp2d refs", pf.refs.len(), pf.refs_bytes()),
+            table("bsp2d nodes", 0, Vec::new()),
+            table("vertices", pf.vertices.len(), pf.vertices_bytes()),
+            table("instanced geometry refs", instances, none.repeat(instances)),
+        ];
+        for name in ["object refs", "pathfinding hints", "giant pathfinding data", "seams", "jump seams", "doors"] {
+            edits.push(table(name, 0, Vec::new()));
+        }
+        self.file = blockedit::replace_nested(&self.file, &edits)?;
+        let flags_path = format!("structure bsps[{bsp}].flags");
+        let flags = match read_value(&self.file, &flags_path)? {
+            Scalar::Flags { raw, .. } => raw as u32,
+            other => bail!("{flags_path} reads as {}", other.display()),
+        };
+        // `no default structure pathfinding` off: the shell's refs count.
+        apply_set(&mut self.file, &flags_path, &format!("{:#x}", flags & !0x8))?;
+        println!(
+            "  bots    pathfinding[{bsp}]: {} sector(s), {} link(s), {} vertices, {} surface ref(s), {} instance ref(s)",
+            pf.sectors.len(),
+            pf.links.len(),
+            pf.vertices.len(),
+            pf.refs.len(),
+            instances
+        );
+
+        // Firing positions over the ground the spawns stand on.
+        let spawn_wu: Vec<[f32; 3]> = ix
+            .spawns
+            .iter()
+            .map(|(pos, _)| {
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, *pos));
+                [x as f32, y as f32, z as f32]
+            })
+            .collect();
+        // Only the walkable ground most spawns share: a bot placed on a piece
+        // the pathfinding does not join to it could never leave it. (Every
+        // Blood Gulch start is on one piece.)
+        let spawn_components: Vec<Option<usize>> = spawn_wu
+            .iter()
+            .map(|p| pf.sector_at(&shell, *p).map(|(s, _)| pf.component[s]))
+            .collect();
+        let mut tally: BTreeMap<usize, usize> = BTreeMap::new();
+        for c in spawn_components.iter().flatten() {
+            *tally.entry(*c).or_default() += 1;
+        }
+        let Some((&main, &on_main)) = tally.iter().max_by_key(|(c, n)| (**n, std::cmp::Reverse(**c))) else {
+            bail!("bots: no spawn stands on a walkable surface");
+        };
+        let components = vec![main];
+        let spawns: Vec<([f64; 3], f64)> = ix
+            .spawns
+            .iter()
+            .zip(&spawn_components)
+            .filter(|(_, c)| **c == Some(main))
+            .map(|(s, _)| *s)
+            .collect();
+        println!(
+            "  bots    {on_main} of {} spawn(s) on the main walkable ground (component {main} of {} the spawns stand on)",
+            ix.spawns.len(),
+            tally.len()
+        );
+        let mut spacing = bots.spacing as f32;
+        let mut fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+        while fps.len() > 2048 {
+            spacing *= 1.15;
+            fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+        }
+        if fps.is_empty() {
+            bail!("bots: no firing positions");
+        }
+        // Areas: a grid over the positions' extent, empty cells dropped.
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for f in &fps {
+            x0 = x0.min(f.point[0]);
+            y0 = y0.min(f.point[1]);
+            x1 = x1.max(f.point[0]);
+            y1 = y1.max(f.point[1]);
+        }
+        let side = (bots.areas.clamp(1, 32) as f32).sqrt().ceil() as usize;
+        let cell = |f: &pathfinding::FiringPosition| {
+            let cx = (((f.point[0] - x0) / (x1 - x0 + 1e-3)) * side as f32) as usize;
+            let cy = (((f.point[1] - y0) / (y1 - y0 + 1e-3)) * side as f32) as usize;
+            cy.min(side - 1) * side + cx.min(side - 1)
+        };
+        let mut cells: BTreeMap<usize, Vec<pathfinding::FiringPosition>> = BTreeMap::new();
+        for f in fps {
+            cells.entry(cell(&f)).or_default().push(f);
+        }
+        let areas: Vec<Vec<pathfinding::FiringPosition>> = cells.into_values().collect();
+
+        let zp = format!("zones[{}]", ix.zone);
+        let fpp = format!("{zp}.firing positions");
+        let fp_size = block_element_size(&self.file, &fpp)?;
+        let (donor_fp, _) = blockedit::element_with_wrapper(&self.file, &fpp, 0)?;
+        let off = field_offsets(
+            &self.file,
+            &format!("{fpp}[0]"),
+            &["position (local)", "reference frame", "structure bsp", "flags", "posture flags", "area", "cluster index", "bsp index", "sector index", "normal", "facing"],
+        )?;
+        let mut elements = Vec::new();
+        for (a, members) in areas.iter().enumerate() {
+            for f in members {
+                let mut e = donor_fp.clone();
+                put_f32s(&mut e, off[0], &f.point);
+                put_i16(&mut e, off[1], -1);
+                put_i16(&mut e, off[2], bsp as i16);
+                // open | ground point | automatically generated
+                put_i16(&mut e, off[3], 0x141);
+                put_i16(&mut e, off[4], 0);
+                put_i16(&mut e, off[5], a as i16);
+                put_i16(&mut e, off[6], 0);
+                put_i16(&mut e, off[7], bsp as i16);
+                put_i16(&mut e, off[8], f.sector as i16);
+                let yaw = f.normal[1].atan2(f.normal[0]);
+                let pitch = f.normal[2].clamp(-1.0, 1.0).asin();
+                put_f32s(&mut e, off[9], &[yaw, pitch]);
+                put_f32s(&mut e, off[10], &[0.0]);
+                debug_assert_eq!(e.len(), fp_size);
+                elements.extend_from_slice(&e);
+            }
+        }
+        let total: usize = areas.iter().map(Vec::len).sum();
+        let ap = format!("{zp}.areas");
+        let (donor_area, donor_wrapper) = blockedit::element_with_wrapper(&self.file, &ap, 0)?;
+        self.file = blockedit::replace_nested(
+            &self.file,
+            &[
+                blockedit::NestedReplace { path: fpp.clone(), count: total as u32, elements, wrappers: None },
+                blockedit::NestedReplace {
+                    path: ap.clone(),
+                    count: areas.len() as u32,
+                    elements: donor_area.repeat(areas.len()),
+                    wrappers: Some(vec![donor_wrapper; areas.len()]),
+                },
+            ],
+        )?;
+        let empties: Vec<blockedit::NestedReplace> = (0..areas.len())
+            .flat_map(|k| ["points", "flight_hints"].map(|b| blockedit::NestedReplace {
+                path: format!("{ap}[{k}].{b}"),
+                count: 0,
+                elements: Vec::new(),
+                wrappers: None,
+            }))
+            .collect();
+        self.file = blockedit::replace_nested(&self.file, &empties)?;
+        set_fixed_string(&mut self.file, &format!("{zp}.name"), "mjolnir_bots")?;
+        apply_set(&mut self.file, &format!("{zp}.runtime bsp flags"), &format!("{:#x}", 1u32 << bsp))?;
+        let mut start = 0usize;
+        for (k, members) in areas.iter().enumerate() {
+            let a = format!("{ap}[{k}]");
+            let n = members.len() as f32;
+            let mut mean = [0f32; 3];
+            for f in members {
+                for (m, p) in mean.iter_mut().zip(f.point) {
+                    *m += p / n;
+                }
+            }
+            let var = members
+                .iter()
+                .map(|f| (0..3).map(|i| (f.point[i] - mean[i]).powi(2)).sum::<f32>())
+                .sum::<f32>()
+                / n;
+            set_fixed_string(&mut self.file, &format!("{a}.name"), &format!("bots_area_{k}"))?;
+            for (field, value) in [
+                ("runtime relative mean point", format!("({}, {}, {})", mean[0], mean[1], mean[2])),
+                ("runtime standard deviation", format!("{}", var.sqrt())),
+                ("runtime starting index", format!("{start}")),
+                ("runtime count", format!("{}", members.len())),
+                ("bsp index", format!("#{bsp}")),
+                ("structure index", "none".to_string()),
+            ] {
+                apply_set(&mut self.file, &format!("{a}.{field}"), &value)
+                    .with_context(|| format!("{a}.{field} = {value}"))?;
+            }
+            start += members.len();
+        }
+        println!(
+            "  bots    zone {:?}: {total} firing position(s) at {spacing:.2} wu in {} area(s)",
+            "mjolnir_bots",
+            areas.len()
+        );
+
+        // The user hints: none of the canvas's, which name its BSPs.
+        let hp = format!("ai user hint data[{}]", ix.hint);
+        let empty = |path: String| blockedit::NestedReplace { path, count: 0, elements: Vec::new(), wrappers: None };
+        let mut hints: Vec<blockedit::NestedReplace> = [
+            "line segment geometry", "parallelogram geometry", "jump hints", "climb hints", "well hints",
+            "flight hints", "volume avoidance hints", "spline hints", "cookie cutters",
+        ]
+        .iter()
+        .map(|b| empty(format!("{hp}.{b}")))
+        .collect();
+        for (block, inner) in [("giant hints", &["giant sector hints", "giant rail hints"][..]), ("flood hints", &["flood sector hints"][..])] {
+            if block_count_at(&self.file, &format!("{hp}.{block}"))? > 0 {
+                hints.extend(inner.iter().map(|b| empty(format!("{hp}.{block}[0].{b}"))));
+            }
+        }
+        self.file = blockedit::replace_nested(&self.file, &hints)?;
+
+        // The objective `mjolnir_bots`: task `hunt` over every area, where the
+        // bots start, then a task `area_<k>` per area, which MJOLNIRHud sends a
+        // bot to (`ai_set_task`) to roam the map. Every task sees the players.
+        let n = areas.len();
+        let op = format!("ai objectives[{}]", ix.objective);
+        self.file = blockedit::select(
+            &self.file,
+            &[(format!("{op}.tasks"), vec![0; n + 1]), (format!("{op}.opposing objectives"), vec![])],
+        )?;
+        let tap0 = format!("{op}.tasks[0].areas");
+        let ta_size = block_element_size(&self.file, &tap0)?;
+        let (donor_ta, _) = blockedit::element_with_wrapper(&self.file, &tap0, 0)?;
+        let toff = field_offsets(&self.file, &format!("{tap0}[0]"), &["area type", "zone", "area", "connection flags 0", "connection flags 1"])?;
+        let every: u32 = if n >= 32 { u32::MAX } else { (1u32 << n) - 1 };
+        let area_entry = |k: usize| {
+            let mut e = donor_ta.clone();
+            put_i16(&mut e, toff[0], 0);
+            put_i16(&mut e, toff[1], ix.zone as i16);
+            put_i16(&mut e, toff[2], k as i16);
+            e[toff[3]..toff[3] + 4].copy_from_slice(&every.to_le_bytes());
+            debug_assert_eq!(e.len(), ta_size);
+            e
+        };
+        let mut task_areas = vec![blockedit::NestedReplace {
+            path: tap0,
+            count: n as u32,
+            elements: (0..n).flat_map(area_entry).collect(),
+            wrappers: None,
+        }];
+        for k in 0..n {
+            task_areas.push(blockedit::NestedReplace {
+                path: format!("{op}.tasks[{}].areas", k + 1),
+                count: 1,
+                elements: area_entry(k),
+                wrappers: None,
+            });
+        }
+        self.file = blockedit::replace_nested(&self.file, &task_areas)?;
+        let mut sets = vec![
+            (format!("{op}.name"), "mjolnir_bots".to_string()),
+            (format!("{op}.zone index"), format!("#{}", ix.zone)),
+            (format!("{op}.first task index"), "#0".to_string()),
+        ];
+        for t in 0..=n {
+            let tp = format!("{op}.tasks[{t}]");
+            let name = if t == 0 { "hunt".to_string() } else { format!("area_{}", t - 1) };
+            sets.extend([
+                (format!("{tp}.name"), name),
+                (format!("{tp}.flags"), "0x200".to_string()),
+                // The roaming tasks go where their area is, not after player 0.
+                (format!("{tp}.follow"), if t == 0 { "1" } else { "0" }.to_string()),
+                // `hunt` keeps its bots within reach of the players it follows.
+                (format!("{tp}.follow radius"), if t == 0 { "3" } else { "0" }.to_string()),
+                // Every player slot, not the donor's first four.
+                (format!("{tp}.follow players"), if t == 0 { "0xffff" } else { "0x0" }.to_string()),
+                (format!("{tp}.first_child"), "none".to_string()),
+                (format!("{tp}.next_sibling"), if t < n { format!("#{}", t + 1) } else { "none".to_string() }),
+                (format!("{tp}.parent"), "none".to_string()),
+                (format!("{tp}.filter"), "0".to_string()),
+                (format!("{tp}.filter flags"), "0x0".to_string()),
+                (format!("{tp}.Squad group filter"), "none".to_string()),
+            ]);
+        }
+        for (field, value) in sets {
+            apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
+        }
+        println!("  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{}", n - 1);
+
+        // The squads: one actor each, standing on its spawn, `count` of each
+        // kind.
+        let palette_index = |file: &[u8], palette: &str, field: &str, want: &str| -> Result<Option<usize>> {
+            let n = block_count(file, palette)?;
+            let names: Vec<String> = (0..n).map(|i| format!("{palette}[{i}].{field}")).collect();
+            Ok(read_many(file, &names)?
+                .iter()
+                .position(|v| v.as_ref().is_some_and(|s| s.display().to_lowercase().contains(&want.to_lowercase()))))
+        };
+        let keep: Vec<(String, Vec<usize>)> = (0..ix.count * bots.kinds().len())
+            .flat_map(|i| {
+                let s = format!("squads[{}]", ix.squad + i);
+                [(format!("{s}.spawn points"), vec![0]), (format!("{s}.spawn formations"), vec![])]
+            })
+            .collect();
+        self.file = blockedit::select(&self.file, &keep)?;
+        for (t, kind) in bots.kinds().iter().enumerate() {
+            let wanted: Vec<&String> = if kind.weapons.is_empty() {
+                kind.weapon.as_ref().or(bots.weapon.as_ref()).into_iter().collect()
+            } else {
+                kind.weapons.iter().collect()
+            };
+            // One arsenal serves every map (defs/level/bots.json): a weapon the
+            // map's palette lacks is left out of the turn, and with none left
+            // the donor's stays.
+            let mut weapons = Vec::new();
+            for want in wanted {
+                match palette_index(&self.file, "weapon palette", "name", want)? {
+                    Some(w) => weapons.push(w),
+                    None => println!("  note    bots: {}: no weapon palette entry matching {want:?}, left out", kind.name),
+                }
+            }
+            if let Some(c) = kind.character.as_deref().filter(|c| c.chars().any(char::is_control)) {
+                bail!("bots: character {c:?} holds a control character (an unescaped \\a?)");
+            }
+            let character = match &kind.character {
+                Some(want) => Some(match palette_index(&self.file, "character palette", "reference", want)? {
+                    Some(i) => i,
+                    None if want.contains('\\') => {
+                        let i = self.add_element("character palette")?;
+                        apply_set(&mut self.file, &format!("character palette[{i}].reference"), &format!("char:{want}"))
+                            .with_context(|| format!("bots: character {want}"))?;
+                        println!("  palette character palette[{i}] <- {want}");
+                        i
+                    }
+                    None => bail!("bots: no character palette entry matching {:?}", want),
+                }),
+                None => None,
+            };
+            for i in 0..ix.count {
+                let s = format!("squads[{}]", ix.squad + t * ix.count + i);
+                let (pos, yaw) = spawns[i % spawns.len()];
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, pos));
+                set_fixed_string(&mut self.file, &format!("{s}.name"), &format!("{}_{i}", kind.name))?;
+                let mut sets = vec![
+                    (format!("{s}.flags"), "0x0".to_string()),
+                    (format!("{s}.parent"), "none".to_string()),
+                    (format!("{s}.initial zone"), format!("#{}", ix.zone)),
+                    (format!("{s}.initial objective"), format!("#{}", ix.objective)),
+                    (format!("{s}.initial task"), "#0".to_string()),
+                    (format!("{s}.editor folder"), "none".to_string()),
+                    (format!("{s}.spawn points[0].position"), format!("({x}, {y}, {})", z + 0.1)),
+                    (format!("{s}.spawn points[0].reference frame"), "none".to_string()),
+                    (format!("{s}.spawn points[0].structure bsp"), format!("#{bsp}")),
+                    (format!("{s}.spawn points[0].facing (yaw, pitch)"), format!("({}, 0)", ue_yaw_to_blam(yaw))),
+                ];
+                if let Some(w) = weapons.get(i % weapons.len().max(1)) {
+                    sets.push((format!("{s}.spawn points[0].initial weapon"), format!("#{w}")));
+                }
+                if let Some(c) = character {
+                    sets.push((format!("{s}.spawn points[0].character type"), format!("#{c}")));
+                }
+                if let Some(team) = &kind.team {
+                    sets.push((format!("{s}.team"), team.clone()));
+                }
+                for (field, value) in sets {
+                    apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
+                }
+            }
+            println!(
+                "  bots    {} squad(s) {}_0 .. {}_{}{}{}",
+                ix.count,
+                kind.name,
+                kind.name,
+                ix.count - 1,
+                character.map(|c| format!(", character palette[{c}]")).unwrap_or_default(),
+                if weapons.is_empty() { String::new() } else { format!(", weapon palette {weapons:?}") }
+            );
+        }
+        Ok(())
+    }
+
     /// Drop the host mission's own placements, keeping this bake's appends.
     /// Runs AFTER the placement passes so their donors still existed.
     fn clears(&mut self, clear: &Clear) -> Result<()> {
@@ -1610,6 +2184,10 @@ fn bake(a: BakeArgs) -> Result<()> {
         &map.equipment,
     )?;
     baker.objects(&level.blam.objects)?;
+    let bots = match &level.blam.bots {
+        Some(b) => Some(baker.bots_clone(b, &level.blam.player_starts, &level.blam.clear)?),
+        None => None,
+    };
     baker.clears(&level.blam.clear)?;
     if level.blam.map_variant {
         // Equipment too: grenades, the overshield and camouflage are created
@@ -1794,6 +2372,24 @@ fn bake(a: BakeArgs) -> Result<()> {
 
     if let Some(keep) = level.blam.single_bsp {
         baker.single_bsp(keep)?;
+    }
+    if let (Some(b), Some(ix)) = (&level.blam.bots, &bots) {
+        // The bots walk the BSP the level plays on: its `--bsp` payload.
+        let canvas_bsp = level
+            .blam
+            .single_bsp
+            .or_else(|| level.blam.active_bsps.first().copied())
+            .context("bots: name the level's BSP with single_bsp or active_bsps")?;
+        let payload = a
+            .bsps
+            .iter()
+            .filter_map(|s| s.split_once('='))
+            .find(|(i, _)| i.parse::<usize>().ok() == Some(canvas_bsp))
+            .map(|(_, p)| p)
+            .with_context(|| format!("bots: --bsp {canvas_bsp}=<payload> is needed to generate pathfinding"))?;
+        let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {payload}"))?;
+        let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
+        baker.bots_finish(b, ix, bsp, &sbsp)?;
     }
 
     // The map's own Unreal world, when one is given: the bare level renamed

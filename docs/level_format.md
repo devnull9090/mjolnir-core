@@ -245,6 +245,42 @@ A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
 fields of the placement, relative to its element
 (`"multiplayer data.owner team": "neutral"`).
 
+### `blam.bots` — AI bots ([bots.md](bots.md))
+
+```jsonc
+"bots": {
+  "squad": "insertion_cov_elites", // the canvas squad each bot is cloned from
+  "count": 15,                     // squads bot_0 .. bot_14 (default: one per spawn)
+  "spawns": [{ "pos": [x, y, z], "yaw": 0 }], // cycled; default: player_starts
+  "weapon": "plasma_rifle",        // a weapon palette entry's path, by substring
+  "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048)
+  "areas": 16,                     // the firing positions' grid of areas
+  "types": [                       // kinds of bot, `count` squads each: <name>_<k>
+    { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
+      "weapon": "assault_rifle", "team": "covenant" },
+    { "name": "elite", "character": "elite\\ai\\elite", "weapon": "plasma_rifle" }
+  ]
+}
+```
+
+A type's `character` is a substring of a `character palette` entry, or a full
+character tag path, which the bake adds to the palette; `weapon` falls back to
+`bots.weapon`, `weapons` (a list) hands its entries out in turn across the
+kind's squads, and `team` sets the squads' team. Without `types` there is one
+kind, `bot_<k>`, from the donor squad.
+
+The bake clones, before the clears (which keep them): one single-actor squad
+per bot, one zone (`mjolnir_bots`) whose firing positions cover the walkable
+ground the spawns stand on, one objective (`mjolnir_bots`: task `hunt` over
+every area, then `area_<k>` per area, all with `magic player sight`), and one
+`ai user hint data` element with every hint list emptied: the AI reads element
+0 without checking the block has one, and a map that cleared it crashed.
+
+After `single_bsp` it writes the kept BSP's `ai pathfinding data`, generated
+from the `--bsp` payload's collision shell (`blam_sbsp::pathfinding`), and
+clears that BSP's `no default structure pathfinding` flag. So `bots` needs the
+level's BSP named by `single_bsp` (or `active_bsps`) and given with `--bsp`.
+
 ### `multiplayer`
 
 Top-level `"multiplayer": true` asks MJOLNIRLevelLoader to start the level
