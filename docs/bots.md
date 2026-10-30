@@ -169,3 +169,13 @@ so is a container with more than one BSP or world.
   kills, but a round does not end when a bot reaches the score.
 - Team games: bots are all on the AI's own team.
 - No jump or ladder links, so bots do not use teleporters or man cannons.
+- No step links: a floor surface joins the next only across a shared edge,
+  so a riser of any height (a wall) splits the ground. Night Lockout's
+  floors are cut by about 200 risers under 0.1 wu and its 33 starts stand on
+  22 separate pieces, so it has no bots (`add_bots.py` stops at "no firing
+  positions"). It also needs `battle_rifle` in `defs/level/palette-map.json`,
+  which would put the battle rifle in every other map's Forge palette.
+- Some converted shells keep a copy of the vertices along each seam between
+  pieces (13 of the 48 hub maps), so surfaces there end on open edges that
+  never join. Welding them halves those maps' island counts but leaves the
+  main ground the bots stand on unchanged.
