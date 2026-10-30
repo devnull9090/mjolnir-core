@@ -90,7 +90,8 @@ map baked before levels has `<kind>_<k>` squads, which a bot falls back to.
   Covenant team, since a Marine's own team is the players'.
 
 Every machine in the match needs the characters' containers,
-`pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15), beside the map's.
+`pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15). They ship in the CE runtime
+pack from 1.16.0, which every map with bots requires.
 
 ## Identity: which actor is which bot
 
@@ -135,8 +136,31 @@ mjolnir level bake examples/levels/bloodgulch_bots.bake.level.json --standalone 
 
 Every machine in the match needs the same scenario. The test install put the
 result beside the hub's as `pakchunk997-MJOLNIRBOTS-BGL_9_P` (the `_9_P`
-outranks the hub release's containers). Shipping bots on hub maps means a new
-release of each map, baked this way.
+outranks the hub release's containers).
+
+### Giving a published map bots
+
+Bots cannot be added at run time: the simulation reads the squads, zone,
+objective and pathfinding from the scenario when the map loads. But nothing
+except the scenario changes, so a published map pack is all it takes:
+
+```bash
+HCE_PAKS=".../Meteorite/Content/Paks"   python tools/level/add_bots.py ce-blood-gulch-2.1.0.mjolnir --runtime ^1.16.0 --sign
+```
+
+For each pack, `tools/level/add_bots.py` takes the map container's BSP and
+world out of the pack, bakes the shipped level file (less the keys only the
+loader reads) with `defs/level/bots.json` as `blam.bots`, and packs the next
+minor version with the new map container in place of the old. The bots stand
+on the map's own player starts. It stops unless every other container, and
+every package of the map container but the scenario, comes out
+byte-identical. Rebaking also brings the map's Forge palettes up to the
+current bake's (the only other difference from a 2.1.0 scenario).
+`--bake-only` rebakes and checks without packing.
+
+A weapon in `bots.json` that a map's palette lacks is left out of that
+map's turn. A map whose level file already has `blam.bots` is refused, and
+so is a container with more than one BSP or world.
 
 ## Not done
 

@@ -39,6 +39,46 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.39.0",
+      "tag": "mods-v0.39.0",
+      "title": "Bots",
+      "date": "2026-10-29",
+      "summary": "The host can fill a match with AI bots that have names, show on the scoreboard and kill feed, and hunt players across the map.",
+      "body": "### Added\n\n- **Bots in multiplayer matches** (MJOLNIRHud 0.13.0, MJOLNIRLobby 0.18.0).\n  The host sets BOTS (0 to 15), BOT TYPE (Spartans, Elites, Grunts, Jackals\n  or a mix) and BOT DIFFICULTY (Normal, Heroic or Legendary) on the PLAYERS\n  page of the game settings. Each bot gets a name such as \"Nadia (bot)\",\n  shows on the scoreboard and in the kill feed like a player, respawns 5 s\n  after it dies, and every few seconds either hunts a player or moves to\n  another part of the map. Spartan bots wear the classic armour and carry a\n  mixed arsenal, sniper rifle and rocket launcher included.\n- **`/bots <0-15> [kind] [level]`** in match chat (host): change the bots\n  during a match, for example `/bots 6 elites heroic`.\n- **Every player in a fireteam sees the bots' names.** The host sends them\n  when a player first meets a bot, and again whenever the bots change.\n\n### Fixed\n\n- **A match with bots ended at the score to win** (MJOLNIRHud 0.13.0): the\n  game type only counted kills of players, so a playtest ran on to 37 of 25.\n- **The scoreboard, kill feed and chat could show a terrain texture instead\n  of a player's avatar** (MJOLNIRHud 0.13.0, MJOLNIRLobby 0.18.0) on the\n  remastered maps.\n- **The pause menu named \"Assault on the Control Room\"** on every converted\n  map (MJOLNIRLobby 0.18.0). It now shows the map's own name.\n- **The bot settings no longer make the level loader drop the host's game\n  settings** (MJOLNIRLevelLoader 0.9.5).\n\n### Known issues\n\n- Bots need the maps released with them and CE runtime 1.16.0, which has the\n  bots' characters. A map from before has no bots, and the BOTS setting does\n  nothing on it.\n- Bots walk, but do not jump, take lifts or use teleporters, so on maps with\n  floors joined only that way (Lockout, Boarding Action) they stay near where\n  they spawn.\n- Bots are always on the AI's own side in team games, not on red or blue.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Bots in multiplayer matches (MJOLNIRHud 0.13.0, MJOLNIRLobby 0.18.0). The host sets BOTS (0 to 15), BOT TYPE (Spartans, Elites, Grunts, Jackals or a mix) and BOT DIFFICULTY (Normal, Heroic or Legendary) on the PLAYERS page of the game settings. Each bot gets a name such as \"Nadia (bot)\", shows on the scoreboard and in the kill feed like a player, respawns 5 s after it dies, and every few seconds either hunts a player or moves to another part of the map. Spartan bots wear the classic armour and carry a mixed arsenal, sniper rifle and rocket launcher included.",
+            "/bots <0-15> [kind] [level] in match chat (host): change the bots during a match, for example /bots 6 elites heroic.",
+            "Every player in a fireteam sees the bots' names. The host sends them when a player first meets a bot, and again whenever the bots change."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A match with bots ended at the score to win (MJOLNIRHud 0.13.0): the game type only counted kills of players, so a playtest ran on to 37 of 25.",
+            "The scoreboard, kill feed and chat could show a terrain texture instead of a player's avatar (MJOLNIRHud 0.13.0, MJOLNIRLobby 0.18.0) on the remastered maps.",
+            "The pause menu named \"Assault on the Control Room\" on every converted map (MJOLNIRLobby 0.18.0). It now shows the map's own name.",
+            "The bot settings no longer make the level loader drop the host's game settings (MJOLNIRLevelLoader 0.9.5)."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Bots need the maps released with them and CE runtime 1.16.0, which has the bots' characters. A map from before has no bots, and the BOTS setting does nothing on it.",
+            "Bots walk, but do not jump, take lifts or use teleporters, so on maps with floors joined only that way (Lockout, Boarding Action) they stay near where they spawn.",
+            "Bots are always on the AI's own side in team games, not on red or blue."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.39.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.39.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.39.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.6.0",

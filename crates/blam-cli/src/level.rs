@@ -2001,12 +2001,15 @@ impl Baker {
             } else {
                 kind.weapons.iter().collect()
             };
+            // One arsenal serves every map (defs/level/bots.json): a weapon the
+            // map's palette lacks is left out of the turn, and with none left
+            // the donor's stays.
             let mut weapons = Vec::new();
             for want in wanted {
-                weapons.push(
-                    palette_index(&self.file, "weapon palette", "name", want)?
-                        .with_context(|| format!("bots: no weapon palette entry matching {want:?}"))?,
-                );
+                match palette_index(&self.file, "weapon palette", "name", want)? {
+                    Some(w) => weapons.push(w),
+                    None => println!("  note    bots: {}: no weapon palette entry matching {want:?}, left out", kind.name),
+                }
             }
             if let Some(c) = kind.character.as_deref().filter(|c| c.chars().any(char::is_control)) {
                 bail!("bots: character {c:?} holds a control character (an unescaped \\a?)");
