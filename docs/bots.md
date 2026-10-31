@@ -290,6 +290,13 @@ so is a container with more than one BSP or world.
   covenant (red) or flood (blue) instead of no campaign team. Nothing else
   seen reads it in a Megalo game (player against player follows the
   multiplayer teams), but only Blood Gulch Team Slayer has been played so.
+- Not yet seen in a whole match with the fix: what a side's bots do after a
+  player of that side shoots one (the AI turns on a betrayer in campaign,
+  which until now no one could see, since every bot shot every player
+  anyway); whether bots now follow players of their side as allies do in
+  campaign; and why, in one isolated run, a flood grunt and a covenant elite
+  of the two sides stood 4 wu apart without fighting while the elite killed
+  the host.
 - Free for All: every bot is covenant, so bots never fight each other.
 - A bot that falls or kills itself gets no suicide on the board.
 - A bot respawns on the start it first used; maps with more starts than

@@ -3750,7 +3750,9 @@ static unsigned player_set;
    here goes back to -1 once its player is on no such team, the table is
    empty or the game is over. The players table (TLS 0x30) is a data array:
    datum size at +0x20, bound at +0x44, data at +0x50, in-use bitmap at
-   +0x58, a datum's salt in its first word. */
+   +0x58, a datum's salt in its first word. A record the engine's own player
+   walk skips (+4 bit 1) is still written here, from whatever team it last
+   had. */
 static void teams_players(int on) {
     unsigned char *players = sim_tls_slot(0x30);
     if (!players) return;
