@@ -15,7 +15,7 @@ team.
 
 | Where | What |
 |---|---|
-| `level bake`, `blam.bots` ([level_format.md](level_format.md)) | bot squads, a zone of firing positions, an objective, AI pathfinding for the map's BSP |
+| `level bake`, `blam.bots` ([level_format.md](level_format.md)) | bot squads, a zone of firing positions, an objective, AI pathfinding for the map's BSP; `<CODE>.bots.json`, where the squads stand |
 | `crates/blam-sbsp/src/pathfinding.rs` | the pathfinding tables, from a structure BSP's collision shell |
 | MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game |
 | MJOLNIRLobby's DLL, `mjolnir_bots_teams` | in a team game, gives AI units the multiplayer team of their side |
@@ -80,13 +80,39 @@ target in a team game.
 
 **Where bots spawn.** On the map's own player starts. The bake stands each
 bot squad on one of the starts on the ground the bots walk (`bots_finish`),
-so a bot appears where a player would. Squad `k` takes the `k`-th start
-farthest first: the first start, then each time the one farthest from those
-already taken. A level lists its starts a base at a time, so taken in the
-level's order (as before 2026-10-31) the first eight bots on Blood Gulch all
-stood at one base and fought there. Each squad has that one start, though,
-so a bot always comes back where it first spawned, and a map with more starts
-than squads (15 per kind) never uses the rest.
+so a bot appears where a player would. Squad `k` of every kind takes the
+`k`-th start farthest first: the first start, then each time the one
+farthest from those already taken. A level lists its starts a base at a
+time, so taken in the level's order (as before 2026-10-31) the first eight
+bots on Blood Gulch all stood at one base and fought there. A map with more
+starts than squads (15 per kind) never uses the rest.
+
+The bake also writes where each squad stands, `<CODE>.bots.json` (Unreal cm,
+by squad index), which the map's pack carries beside its level file
+(`map/bots.json`, installed to `ue4ss/MJOLNIRMaps/<CODE>/`; a test install's
+goes to MJOLNIRLevelLoader's `levels/`). With it, the host's HUD picks a bot's
+squad each time it places the bot, so the bot comes in where its side is.
+A side has no base of its own: a converted map's player spawns are all
+neutral, and on Blood Gulch Team Slayer the red host's first spawn landed at
+the south base in one match and the north in another. So the HUD does what
+the game's respawns do for players, in order:
+
+1. a free squad of the bot's kind (none another bot out holds);
+2. never within 2 wu of anyone;
+3. with an enemy about, a start no enemy is within 25 wu of, or failing that
+   the starts farthest from the enemies (within 10 wu of the farthest);
+4. with its side about and the enemies clear, the starts nearest one of its
+   side (within 8 wu of the nearest);
+5. with no one about, its own squad `k` (the farthest-first order);
+   otherwise one of what is left at random.
+
+In Free for All everyone is an enemy, so a bot comes in away from all of
+them. The first bots wait up to 5 s for the humans' first spawn. A bot's
+weapon is its squad's (`weapons[k % n]` of its kind), so it changes from life
+to life. On Blood Gulch Team Slayer (PC 1, 2026-10-31) the red host spawned
+at the north base: the three red bots came in beside him and the five blue
+bots at the south base. A map without the file (every map published before
+it) keeps squad `k` for bot `k`, as before.
 
 **Why bots stand still.** Seen on Night Lockout and Blood Gulch: a bot sent
 to `hunt` a player it cannot reach (on ground the pathfinding does not join)
@@ -271,10 +297,10 @@ HCE_PAKS=".../Meteorite/Content/Paks"   python tools/level/add_bots.py ce-blood-
 For each pack, `tools/level/add_bots.py` takes the map container's BSP and
 world out of the pack, bakes the shipped level file (less the keys only the
 loader reads) with `defs/level/bots.json` as `blam.bots`, and packs the next
-minor version with the new map container in place of the old. The bots stand
-on the map's own player starts. It stops unless every other container, and
-every package of the map container but the scenario, comes out
-byte-identical. Rebaking also brings the map's Forge palettes up to the
+minor version with the new map container in place of the old, and the bake's
+`<CODE>.bots.json` as `map/bots.json`. The bots stand on the map's own player
+starts. It stops unless every other container, and every package of the map
+container but the scenario, comes out byte-identical. Rebaking also brings the map's Forge palettes up to the
 current bake's (the only other difference from a 2.1.0 scenario).
 `--bake-only` rebakes and checks without packing.
 
@@ -287,9 +313,8 @@ so is a container with more than one BSP or world.
 - Spartan bots all wear the default armour colour.
 - Slayer's own score counts player kills only: the HUD's board counts bot
   kills, but a round does not end when a bot reaches the score.
-- Team games: a bot spawns on its squad's start whichever side it plays
-  for, not at its side's base, and keeps its side when players join or
-  leave (the teams can end uneven). A fireteam client's view of the sides
+- Team games: a bot keeps its side when players join or leave (the teams
+  can end uneven). A fireteam client's view of the sides
   (the roster's letters, its own copy of the units' teams) is not tested on
   two PCs.
 - Players' campaign teams: in a team game with bots a player's unit is
@@ -305,8 +330,15 @@ so is a container with more than one BSP or world.
   the host.
 - Free for All: every bot is covenant, so bots never fight each other.
 - A bot that falls or kills itself gets no suicide on the board.
-- A bot respawns on the start it first used; maps with more starts than
-  squads leave the rest unused.
+- Maps with more starts than squads (15) leave the rest unused. A map
+  published before 2026-10-31 has no `map/bots.json`, so each bot comes back
+  on the start it first used, whichever side is there.
+- Some bots stand still for minutes under the HUD's orders, cause unknown
+  (Blood Gulch, 2026-10-31). Elites came to rest in or on a base within 4 wu
+  of its flag three times, twice after coming in on the deck above it; one
+  walked off after five minutes. A blue Spartan stood at its own base for
+  four minutes. Spartans, grunts and jackals placed on the same deck starts
+  left them.
 - The HUD sends bots to hunt players they cannot reach. A map published
   before 2026-10-31 still has as many area tasks as it baked areas, so some
   of the HUD's roaming orders go nowhere until it is rebaked.

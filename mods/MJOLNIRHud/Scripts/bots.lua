@@ -72,7 +72,7 @@ Bots.SIDES = {
 }
 
 local state = nil
-local dllDir = nil
+local dllDir, mapsDir, levelsDir = nil, nil, nil
 local enable, run, setTeams = nil, nil, nil
 local scriptId = os.time() + 7000
 local log = function() end
@@ -80,7 +80,33 @@ local log = function() end
 --- `modsDir`: ue4ss\Mods; MJOLNIRLobby's DLL sits in MJOLNIRLobby\native.
 function Bots.init(modsDir, logFn)
     dllDir = modsDir .. "\\MJOLNIRLobby\\native\\"
+    mapsDir = (modsDir:match("^(.*)\\[^\\]*$") or modsDir) .. "\\MJOLNIRMaps\\"
+    levelsDir = modsDir .. "\\MJOLNIRLevelLoader\\levels\\"
     log = logFn or log
+end
+
+--- Where the map's bot squads stand, by squad index (every kind's squad `k`
+--- on start `k`), in Unreal cm: the bake's `bots.json` beside the level
+--- file, in MJOLNIRMaps\<CODE>\ for a map pack and in MJOLNIRLevelLoader's
+--- levels\ for a test install (the launcher prunes MJOLNIRMaps of files no
+--- release ships). nil for a map baked before the file.
+local function readStarts(code)
+    if type(code) ~= "string" or code == "" then return nil end
+    for _, path in ipairs({ mapsDir .. code .. "\\bots.json", levelsDir .. code .. ".bots.json" }) do
+        local f = io.open(path, "rb")
+        if f then
+            local text = f:read("*a") or ""
+            f:close()
+            local starts = {}
+            local list = text:match('"starts"%s*:%s*(%b[])') or ""
+            local n = "([-%d.eE+]+)"
+            for x, y, z in list:gmatch("%[%s*" .. n .. "%s*,%s*" .. n .. "%s*,%s*" .. n .. "%s*%]") do
+                starts[#starts + 1] = { tonumber(x), tonumber(y), tonumber(z) }
+            end
+            if #starts > 0 then return starts end
+        end
+    end
+    return nil
 end
 
 local function loadDll()
@@ -200,6 +226,7 @@ end
 ---   onKill       onKill(killer, victim, death): a bot killed a bot, which
 ---                no incident reports; `death` is { by, actor, damage,
 ---                modifier }, the two actors and the incident's damage fields
+---   map          the map's code, whose bots.json says where its squads stand
 function Bots.begin(count, now, onSeat, opts)
     opts = opts or {}
     if not loadDll() then
@@ -217,9 +244,12 @@ function Bots.begin(count, now, onSeat, opts)
     state = { slots = {}, onSeat = onSeat, onKill = opts.onKill or function() end, retired = {}, nextScan = 0,
         placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
         isPlayer = opts.isPlayer or function() return false end, teams = opts.teams and true or false,
-        level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1] }
+        level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1],
+        starts = readStarts(opts.map), began = now }
     Bots.resize(count, now)
-    log(string.format("bots: %d bot(s) for this match%s", count, opts.teams and ", on red and blue" or ""))
+    log(string.format("bots: %d bot(s) for this match%s; %s", count, opts.teams and ", on red and blue" or "",
+        state.starts and string.format("each placed on the best of %d starts", #state.starts)
+            or "no bots.json: each keeps its squad's start"))
     return true
 end
 
@@ -234,7 +264,8 @@ function Bots.resize(count, now)
         local s = table.remove(state.slots)
         if state.placing == s then state.placing = nil end
         if s.addr then state.retired[s.addr] = true end
-        if s.status ~= "waiting" and s.status ~= "missing" then
+        -- A dead bot's squad may be another bot's by now.
+        if s.status == "alive" or s.status == "placing" then
             lines[#lines + 1] = string.format("(ai_erase %s)", s.squad)
         end
         if s.seated then removed[#removed + 1] = s.index end
@@ -242,10 +273,14 @@ function Bots.resize(count, now)
     for k = #state.slots, count - 1 do
         local kind = state.kind >= Bots.MIXED and Bots.KINDS[k % #Bots.KINDS + 1]
             or Bots.KINDS[state.kind + 1] or Bots.KINDS[1]
+        -- A slot's squad is `<family>_<j>`: `j` is picked at each placement
+        -- (pickSquad), `k` on a map without bots.json. Older maps name their
+        -- squads `<kind>_<k>` (before levels) or `bot_<k>` (before kinds).
+        local family = kind .. "_" .. state.level
         state.slots[#state.slots + 1] = {
             k = k, index = Bots.BASE + k, name = state.names[(k % #state.names) + 1] .. " (bot)",
-            squad = kind .. "_" .. state.level .. "_" .. k,
-            fallbacks = { kind .. "_" .. k, "bot_" .. k },
+            family = family, primary = family, j = k, squad = family .. "_" .. k,
+            fallbacks = { kind, "bot" },
             status = "waiting", nextAt = now + 1 + (k - #state.slots) * 0.5,
         }
     end
@@ -418,6 +453,112 @@ local function chooseSide(humans)
     return "Blue"
 end
 
+--- Where a bot comes in, from the map's bots.json (docs/bots.md "Where bots
+--- spawn"). A side has no base of its own: a converted map's player spawns
+--- are neutral, and a team game's first spawn lands at either end. So a bot
+--- comes in where its side is, as the game's own respawns bring players in:
+--- clear of its enemies, then near its side. In order:
+---   1. a free squad of its kind (none another bot out holds);
+---   2. never onto anyone (CROWD_CM);
+---   3. with an enemy about: a start no enemy is within DANGER_CM of, or
+---      failing that the ones farthest from the enemies (within SPREAD_CM);
+---   4. with its side about, and enemies all clear: the starts nearest one of
+---      its side (within NEAR_CM of the nearest);
+---   5. with no one about at all, its own squad `k`, the bake's farthest-first
+---      order; otherwise one of what is left at random.
+local WU = 30.48 * 10
+local CROWD_CM = 2 * WU
+local DANGER_CM = 25 * WU
+local SPREAD_CM = 10 * WU
+local NEAR_CM = 8 * WU
+--- The first bots wait this long for the humans' first spawn: placed before a
+--- human is known, a bot could come in beside an enemy.
+local HUMANS_WAIT = 5
+
+local function position(actor)
+    local ok, l = pcall(function()
+        if not (actor and actor:IsValid()) then return nil end
+        return actor:K2_GetActorLocation()
+    end)
+    return ok and l and { l.X, l.Y, l.Z } or nil
+end
+
+local function nearest(p, list)
+    local best = math.huge
+    for _, q in ipairs(list) do
+        local dx, dy, dz = p[1] - q[1], p[2] - q[2], p[3] - q[3]
+        best = math.min(best, dx * dx + dy * dy + dz * dz)
+    end
+    return math.sqrt(best)
+end
+
+local function filter(list, test)
+    local out = {}
+    for _, j in ipairs(list) do
+        if test(j) then out[#out + 1] = j end
+    end
+    return out
+end
+
+--- The squad index slot `s` is placed on.
+local function pickSquad(s, humans, at)
+    local starts = state.starts
+    if not starts or s.family ~= s.primary then return s.k end
+    local taken = {}
+    for _, o in ipairs(state.slots) do
+        if o ~= s and o.family == s.family and (o.status == "alive" or o.status == "placing") then taken[o.j] = true end
+    end
+    local free = {}
+    for j = 0, #starts - 1 do
+        if not taken[j] and not (s.bad and s.bad[j]) then free[#free + 1] = j end
+    end
+    if #free == 0 then return nil end
+
+    local everyone, enemies, friends = {}, {}, {}
+    local function add(p, side)
+        if not p then return end
+        everyone[#everyone + 1] = p
+        if not state.teams or (side and side ~= s.side) then
+            enemies[#enemies + 1] = p
+        elseif side then
+            friends[#friends + 1] = p
+        end
+    end
+    for _, h in ipairs(humans) do
+        -- A human whose side is not known yet is no one's enemy or friend.
+        if h.biped and not h.dead then add(position(h.biped), state.teams and h.team or nil) end
+    end
+    for _, o in ipairs(state.slots) do
+        if o ~= s and o.status == "alive" then add(at[o.addr], o.side) end
+    end
+    local function from(j, list) return nearest(starts[j + 1], list) end
+
+    local picks = filter(free, function(j) return from(j, everyone) >= CROWD_CM end)
+    if #picks == 0 then picks = free end
+    local clear = true
+    if #enemies > 0 then
+        local safe = filter(picks, function(j) return from(j, enemies) >= DANGER_CM end)
+        if #safe > 0 then
+            picks = safe
+        else
+            clear = false
+            local far = 0
+            for _, j in ipairs(picks) do far = math.max(far, from(j, enemies)) end
+            picks = filter(picks, function(j) return from(j, enemies) >= far - SPREAD_CM end)
+        end
+    end
+    if clear and #friends > 0 then
+        local close = math.huge
+        for _, j in ipairs(picks) do close = math.min(close, from(j, friends)) end
+        picks = filter(picks, function(j) return from(j, friends) <= close + NEAR_CM end)
+    elseif #everyone == 0 then
+        for _, j in ipairs(picks) do
+            if j == s.k then return j end
+        end
+    end
+    return picks[math.random(#picks)]
+end
+
 local function step(now, humans, live, where)
     -- A retired actor that went back to the pool may be handed out again.
     for at in pairs(state.retired) do
@@ -445,6 +586,8 @@ local function step(now, humans, live, where)
             local teleported = p.before[at] and jumped(state.lastWhere and state.lastWhere[at], where[at])
             if not taken[at] and (fresh or teleported) and not state.isPlayer(at) then
                 p.status, p.addr, p.actor = "alive", at, actor
+                -- Failed tries count toward one placement only.
+                p.tries, p.bad = 0, nil
                 -- A few seconds to look around where it spawned first.
                 p.roamAt = now + 3 + math.random() * 4
                 state.placing = nil
@@ -456,9 +599,20 @@ local function step(now, humans, live, where)
         if now - p.placedAt > PLACE_TIMEOUT then
             p.tries = (p.tries or 0) + 1
             state.placing = nil
-            if p.tries >= 2 and p.fallbacks and #p.fallbacks > 0 then
+            if state.starts and p.family == p.primary then
+                -- The map's bots.json lists this squad, so the map has it: another
+                -- one next time.
+                p.bad = p.bad or {}
+                p.bad[p.j] = true
+                if p.tries >= 4 then
+                    p.status = "missing"
+                    log(string.format("bots: %s never appeared, nor three other squads", p.squad))
+                else
+                    p.status, p.nextAt = "waiting", now + 1
+                end
+            elseif p.tries >= 2 and #p.fallbacks > 0 then
                 -- A map baked before levels (or kinds) names its squads so.
-                p.squad, p.tries, p.status, p.nextAt = table.remove(p.fallbacks, 1), 0, "waiting", now
+                p.family, p.tries, p.status, p.nextAt = table.remove(p.fallbacks, 1), 0, "waiting", now
             elseif p.tries >= 2 then
                 p.status = "missing"
                 log(string.format("bots: %s never appeared; this map has no such squad", p.squad))
@@ -468,11 +622,29 @@ local function step(now, humans, live, where)
         end
         return
     end
+    -- The first bots wait for the humans' first spawn, for a few seconds.
+    if state.starts and now - state.began < HUMANS_WAIT then
+        for _, h in ipairs(humans) do
+            if not h.biped and not h.dead then return end
+        end
+    end
     for _, s in ipairs(state.slots) do
         if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
             -- A side is chosen when a bot is first placed, when the humans'
             -- sides are known, and kept for the match.
             if state.teams and not s.side then s.side = chooseSide(humans) end
+            local j = pickSquad(s, humans, where)
+            if not j then
+                s.status = "missing"
+                log(string.format("bots: no %s squad left for %s", s.family, s.name))
+                return
+            end
+            s.j, s.squad = j, s.family .. "_" .. j
+            if state.starts then
+                local start = state.starts[j + 1]
+                log(string.format("bots: %s%s comes in on %s at (%.0f, %.0f)", s.name,
+                    s.side and (" (" .. s.side .. ")") or "", s.squad, start and start[1] or 0, start and start[2] or 0))
+            end
             -- The squad's team before it is placed, which its new actor takes:
             -- placed covenant and moved after, a blue bot was red for a tick,
             -- and a blue Spartan could keep the red armour MJOLNIRLevelLoader
@@ -493,9 +665,10 @@ local function step(now, humans, live, where)
     end
 end
 
---- `humans`: the match's human players in seat order, each `{ nth, team }`:
---- `player_get <nth>` is that player (it counts the players there are), and
---- `team` is "Red", "Blue" or nil.
+--- `humans`: the match's human players in seat order, each `{ nth, team,
+--- biped, dead }`: `player_get <nth>` is that player (it counts the players
+--- there are), `team` is "Red", "Blue" or nil, and `biped` their biped's actor
+--- since they last spawned.
 function Bots.tick(now, humans)
     if not state or now < state.nextScan then return end
     state.nextScan = now + SCAN_SECONDS
