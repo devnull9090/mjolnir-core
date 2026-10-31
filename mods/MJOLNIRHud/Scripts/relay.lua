@@ -147,26 +147,34 @@ end
 --- The host's bots (Scripts/bots.lua) by seat, for the clients' feed and
 --- board, which hear bot seats in the relayed incidents. A client asks for
 --- it (BOTS_ASK) when its match starts; the host also sends it to everyone
---- when it changes:
----   MJOLNIR|bots|100=Desmond (bot);101=Kira (bot)
+--- when it changes. In a team game a seat carries its side's letter, which
+--- a client from before sides skips:
+---   MJOLNIR|bots|R100=Desmond (bot);B101=Kira (bot)
 Relay.BOTS = "MJOLNIR|bots|"
 --- What a client sends its host (ServerExecRPC) to be told the roster.
 Relay.BOTS_ASK = "MJOLNIR|bots?"
 
+local SIDE_LETTER = { Red = "R", Blue = "B" }
+local LETTER_SIDE = { R = "Red", B = "Blue" }
+
 function Relay.encodeBots(seats)
     local items = {}
     for _, s in ipairs(seats) do
-        items[#items + 1] = string.format("%d=%s", s.index, (tostring(s.name):gsub("[;=|]", "")))
+        items[#items + 1] = string.format("%s%d=%s", SIDE_LETTER[s.side] or "", s.index, (tostring(s.name):gsub("[;=|]", "")))
     end
     return Relay.BOTS .. table.concat(items, ";")
 end
 
---- `{ [seat] = name }`, or nil when `text` is not a bot roster.
+--- `{ [seat] = name }` and `{ [seat] = "Red" | "Blue" }`, or nil when `text`
+--- is not a bot roster.
 function Relay.decodeBots(text)
     if type(text) ~= "string" or text:sub(1, #Relay.BOTS) ~= Relay.BOTS then return nil end
-    local out = {}
-    for seat, name in text:sub(#Relay.BOTS + 1):gmatch("(%d+)=([^;]+)") do out[tonumber(seat)] = name end
-    return out
+    local names, sides = {}, {}
+    for letter, seat, name in text:sub(#Relay.BOTS + 1):gmatch("([RB]?)(%d+)=([^;]+)") do
+        names[tonumber(seat)] = name
+        sides[tonumber(seat)] = LETTER_SIDE[letter]
+    end
+    return names, sides
 end
 
 --- Sends the bot roster `message` (version `version`) to each remote player

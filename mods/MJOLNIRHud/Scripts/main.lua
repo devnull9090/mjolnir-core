@@ -794,14 +794,17 @@ end
 --- sounds (from a host whose HUD is older). drain takes each incident once.
 --- The host's bot names (Relay.syncBots sends them once): kept until this
 --- machine's match is up, which can be after the host sees it arrive.
-local HeardBots = nil
+local HeardBots, HeardSides = nil, nil
 
 local function applyBotNames()
     if not (HeardBots and Match) or Match.host then return end
     for seat, name in pairs(HeardBots) do
         local p = stats(seat)
-        if p.name ~= name then
+        local side = HeardSides and HeardSides[seat]
+        if p.name ~= name or (side and p.team ~= side) then
             p.name, p.bot = name, true
+            -- A relayed line carries no biped to read a bot's side from.
+            if side then p.team = side end
             boardDirty = true
         end
     end
@@ -809,9 +812,9 @@ local function applyBotNames()
 end
 
 local function relayed(text)
-    local roster = Relay.decodeBots(text)
+    local roster, sides = Relay.decodeBots(text)
     if roster then
-        HeardBots = roster
+        HeardBots, HeardSides = roster, sides
         applyBotNames()
         return
     end
@@ -1532,17 +1535,29 @@ local function isPlayerBiped(address)
     return false
 end
 
+--- A bot killed a bot: the simulation raises no incident when an AI kills an
+--- AI, so the HUD queues the `Kill` it would have, by seat, with the two
+--- bipeds and the damage it read from the victim's actor.
+local function botKill(killer, victim, death)
+    if not Match or #Queue >= 64 then return end
+    Queue[#Queue + 1] = { name = "kill", cause = killer, effect = victim, at = now(), biped = death.by,
+        victimBiped = death.actor, damage = death.damage, modifier = death.modifier }
+end
+
 --- Bots for this match (Scripts/bots.lua): each gets a seat on the board
 --- under its name, and is alive again each time it is placed (an AI raises
---- no `player_spawn`).
+--- no `player_spawn`). In a team game it plays for a side, which its biped
+--- reports too once it has one.
 local function startBots(count, kind, level)
     Bots.stop()
     if not (Match and Match.host) or count <= 0 then return end
-    Bots.begin(count, now(), function(index, name)
+    Bots.begin(count, now(), function(index, name, side)
         local p = stats(index)
         p.name, p.bot, p.dead, p.left = name, true, false, nil
+        if side then p.team = side end
         boardDirty = true
-    end, kind or Bots.wantedKind(LOADER_DIR), isPlayerBiped, level or Bots.wantedLevel(LOADER_DIR))
+    end, { kind = kind or Bots.wantedKind(LOADER_DIR), level = level or Bots.wantedLevel(LOADER_DIR),
+        isPlayer = isPlayerBiped, teams = Match.mode.teams, onKill = botKill })
 end
 
 --- The host changes how many bots play (`/bots`, `mjolnir_bots`): the ones
@@ -1632,9 +1647,11 @@ local function tick()
         Match.botsChecked = true
         startBots(Bots.wanted(LOADER_DIR))
     end
-    local humans = 0
-    for index, p in pairs(Match.players) do
-        if index >= 0 and index <= 15 and not p.left then humans = humans + 1 end
+    -- The humans in seat order: `player_get <n>` is the nth player there is.
+    local humans = {}
+    for index = 0, 15 do
+        local p = Match.players[index]
+        if p and not p.left then humans[#humans + 1] = { nth = #humans, team = Scoreboard.team(p.team) } end
     end
     local okBots, errBots = pcall(Bots.tick, now(), humans)
     if not okBots then Log("bots: " .. tostring(errBots)) end
