@@ -1,0 +1,15 @@
+{
+  "description": "Experimental restrained runtime pools, aligned with existing facility ceiling lenses. Positions are authoring metres; intensity is multiplied by the level light scale. Validate in game before release.",
+  "required_surfaces": ["facility_armor", "facility_floor"],
+  "required_slot_fragments": ["tst_metal_facility_armor", "tst_metal_facility_floor"],
+  "lights": [
+    {"name": "facility red foyer washer", "position_m": [-3, 35.2, 3.5], "colour": [1.0, 0.88, 0.76], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility blue foyer washer", "position_m": [3, 35.2, 3.5], "colour": [1.0, 0.88, 0.76], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility red front branch", "position_m": [-13.501, 34.655, 3.5], "colour": [0.82, 0.91, 1.0], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility red rear branch", "position_m": [-13.501, 45.345, 3.5], "colour": [0.82, 0.91, 1.0], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility blue front branch", "position_m": [13.501, 34.655, 3.5], "colour": [0.82, 0.91, 1.0], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility blue rear branch", "position_m": [13.501, 45.345, 3.5], "colour": [0.82, 0.91, 1.0], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility red vestibule", "position_m": [-48, 30.2, 4.2], "colour": [1.0, 0.88, 0.76], "intensity": 0.12, "radius_cm": 650, "falloff": 4},
+    {"name": "facility blue vestibule", "position_m": [48, 30.2, 4.2], "colour": [1.0, 0.88, 0.76], "intensity": 0.12, "radius_cm": 650, "falloff": 4}
+  ]
+}

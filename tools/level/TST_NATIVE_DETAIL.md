@@ -3,11 +3,12 @@
 The full Blender-exported TST JMS exceeds the classic CE BSP render-cluster
 limit. A local diagnostic compiled its structure after moving the facility's
 render-only metal triangles into a separate native mesh. This path preserves
-all selected triangles and the complementary CE geometry. A private in-game
-preview loaded the facility materials, lights and water, but terrain visibly
-blocks both entrances and intrudes into a hallway. This is **not a playable or
-release-ready build**; fix the terrain intersection and retest collision,
-lighting, shadows and performance before publishing.
+all selected triangles and the complementary CE geometry. An early private
+in-game preview exposed an older duplicate cliff mesh blocking the entrances.
+A later preview using matching post-upgrade cooked assets cleared both sides
+and was walked from red to blue. The newer entry and panel cleanup still needs
+a fresh game build and collision, lighting, shadow and performance checks
+before publishing.
 
 1. Export the full TST JMS from the authored Blender source. Keep that file:
    both outputs must come from the same export.

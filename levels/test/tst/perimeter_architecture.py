@@ -390,11 +390,15 @@ def build(mesh_object, box, prism, bevel_rectangle, boolean, panels, floor, ligh
                     v.co.x=transverse_warp(v.co.x*3.048,v.co.z*3.048)/3.048
             transverse_warp=None
 
-    # Clasp brackets break up the balcony edge, preserving the two exit gaps.
-    for a,b in ((-69,-37),(-29,29),(37,69)):
-        add(prism("balcony_parapet",bevel_rectangle(a,21.85,b,22.55,.22),7.08,8.25,panels))
+    # Close the two former stepped-exit gaps after removing their blocky
+    # exterior terraces. The paired teleporter returns still reach the ground.
+    # The short new sections overlap the adjacent BSP body by 12 cm for a
+    # reliable union, while the visible armor remains inside its own bay.
+    for a,b in ((-69,-37),(-37,-29),(-29,29),(29,37),(37,69)):
+        join = .12 if (a,b) in ((-37,-29),(29,37)) else 0
+        add(prism("balcony_parapet",bevel_rectangle(a-join,21.85,b+join,22.55,.22),7.08,8.25,panels))
         # Armor caps, large dark recesses and narrow inner borders are true
-        # geometry. The 12.9 m deck and the two intentional exits stay intact.
+        # geometry. The broad deck and sheltered teleporters stay intact.
         # Reserve a real assembly bay for the central support. No long cap or
         # decorative insert may pass through it, even on the arena-facing side.
         clasp_x=(a+b)/2
@@ -530,7 +534,4 @@ def build(mesh_object, box, prism, bevel_rectangle, boolean, panels, floor, ligh
         shield["mjolnir_pcg_policy"]="NONE"
         shield["noncolliding_portal"]=True
 
-    for x in (-33,33):
-        add(prism("upper_exit_terrace",bevel_rectangle(x-3.5,18.4,x+3.5,22.4,.5),-.5,4.8,floor))
-        add(prism("lower_exit_terrace",bevel_rectangle(x-3.5,15.1,x+3.5,18.8,.5),-.5,2.4,panels))
     return wall

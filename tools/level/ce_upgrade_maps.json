@@ -5,6 +5,7 @@
   "conversion": "C:/haloce/ce_conversions/community/TST",
   "surface_policy": "levels/test/tst/tst.surfaces.json",
   "authored_decor": "levels/test/tst/perimeter_dressing.json",
+  "authored_lights": "levels/test/tst/facility_runtime_lights.json",
   "foliage_scale": {"grass": 0.42}, "foliage_density": {"grass": 4.0},
   "foliage_cluster": {"grass": [12.0, 0.10, 0.60]},
   "level": "tst.level.json", "sbsp": "tst.sbsp",

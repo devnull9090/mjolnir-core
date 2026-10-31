@@ -675,9 +675,7 @@ placements["structure_review_points"] = [
     {"name":f"balcony_walk_{x}","position_m":[x,24.0,7.25]}
     for x in range(-66,67,3)] + [
     {"name":f"tower_passage_{cx}_{dx}_{y}","position_m":[cx+dx,y,7.25]}
-    for cx in (-33.0,0,33.0) for dx in range(-6,7,2) for y in (27.0,28.8,30.5)] + [
-    {"name":f"exit_step_{x}_{z}","position_m":[x,y,z+.05]}
-    for x in (-33,33) for y,z in ((20,4.8),(16.5,2.4))]
+    for cx in (-33.0,0,33.0) for dx in range(-6,7,2) for y in (27.0,28.8,30.5)]
 placements['structure_review_points'] += [
     {'name':f'{team}_roof_ramp_{y}',
      'position_m':[cx-sign*7.75,sign*y,.05+min(6.4,-.15+6.55*(y+13)/17)]}

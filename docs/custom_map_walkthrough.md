@@ -466,9 +466,13 @@ existing archives are not overwritten. Inspect the world, landscape, meshes,
 textures, registration, level file, foliage, decals and referenced water state.
 
 TST's `map_mesh_chunk: true` puts generated cliff, river, capture-bed and shadow
-meshes under `/Game/MJOLNIR/Maps/TST/Generated` in its own map chunk. Their unique
-package paths prevent an older shared runtime mesh from overriding them. Verify
-these paths in the packaged containers, not just the editor scene.
+meshes under `/Game/MJOLNIR/Maps/TST/Generated`. A conversion cook and the later
+landscape cook can both contain the same paths: if the first contains older
+geometry, the game can load it over the new mesh. The upgrade therefore saves
+the post-editor map cook, compares generated meshes across the cooked chunks,
+and binds the snapshot to the conversion and landscape inputs. Packaging uses
+that verified snapshot. Keep inputs unchanged during the build, and inspect the
+result in game: a receipt cannot prove arbitrary files came from a given cook.
 
 Before packaging water, host the map, wait for `flux: river filled`, then run
 `mjolnir_flux_bake`. Close the game and rerun `--release-beta --stages assemble`

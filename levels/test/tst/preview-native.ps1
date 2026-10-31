@@ -39,5 +39,8 @@ try {
     $render+=@('--views')+$Views
     Run-Stage 'render' $BlenderExe $render
     Run-Stage 'architecture-check' $BlenderExe ($base+@('levels/test/tst/inspect_architecture.py','--','--blend',"$Out/preview.blend",'--out',"$Out/architecture-check.json"))
+    if ($Views -contains 'facility-panel-bays') {
+        Run-Stage 'panel-perspective' $BlenderExe ($base+@('levels/test/tst/inspect_panel_perspective.py','--','--blend',"$Out/preview.blend",'--out',"$Out/panel-perspective-check.json"))
+    }
     Write-Host "TST preview ready: $Out/preview.blend"
 } finally { Pop-Location }

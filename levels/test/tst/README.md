@@ -17,7 +17,8 @@ reproducible geometry source. The current design is an enclosed basin: three
 continuous cliff sides and a full-length northern wall with a 7.2 m balcony.
 Channels 2 and 3 reach sheltered balcony arrivals; channels 4 and 5 return
 through green shield doorways. Ground landing points are separated from the
-senders to prevent immediate return trips. Stepped exits also lead down.
+senders to prevent immediate return trips. The former blocky stepped exits
+have been removed and their parapet gaps closed; use the return shields to descend.
 The balcony floor extends from y=21.8 to 34.7 m. Projecting towers contain
 5.2 m wide, 3.7 m high transverse passages; an outer walk connects the bays.
 
@@ -38,8 +39,8 @@ The doorway surfaces use the stock tutorial teleporter shader, which layers
 the original CE teleporter shield dust and mask textures. They are render-only;
 scenario sender/receiver flags supply the actual teleport behavior.
 Continuous irregular talus joins the rock formations below the wall, with
-protected saddles around stairs and gameplay markers. The pond has an authored
-shallow shelf and earth bank; these are source terrain, not decorative overlays.
+protected saddles around gameplay markers and former terrace locations. The
+pond has an authored shallow shelf and earth bank; these are source terrain, not decorative overlays.
 Running `rebuild.ps1`
 regenerates the Blender scene, JMS and placements, then compiles the CE cache.
 It overwrites hand edits to those generated files. For hand editing, save a
@@ -62,11 +63,11 @@ For fast structural checks, run Blender without HEK or Unreal:
 ```
 
 It checks floor support, a 2.4 m headroom envelope and 0.4 m radial clearance
-at starts, flags, teleporter endpoints, balcony samples and exit terraces. It
+at starts, flags, teleporter endpoints and balcony samples. It
 also casts 360 horizontal rays at 9 m to check enclosure without PCG. Inspect
-the JSON report in `.dream-loop/blender-preview/`. The perimeter pass passes
-all 206 locations (including roof ramps) and every enclosure direction. This is
-an authored-structure check, not certification of scenery/game collision.
+the JSON report in `.dream-loop/blender-preview/`. Regenerate the report after
+any geometry revision. This is an authored-structure check, not certification
+of scenery/game collision.
 
 For repeatable visual reviews, render the fixed cameras:
 
@@ -113,6 +114,24 @@ isolated ground/water material study; `render_preview.py` copies the scene and
 adds its lights. These preview shaders are not exported. The `native-current`
 output folder contains `preview.blend`, images, logs, source hashes and both
 structure/native-rock clearance reports.
+
+Include `facility-panel-bays` in the preview's `-Views` to automatically check
+the player view where a hall panel previously appeared behind an illuminated
+support. To run the check independently on such an assembled preview:
+
+```powershell
+& 'C:/Program Files/Blender Foundation/Blender 5.1/blender.exe' `
+  --background --factory-startup --python-exit-code 1 `
+  --python levels/test/tst/inspect_panel_perspective.py -- `
+  --blend .dream-loop/blender-preview/native-current/preview.blend `
+  --out .dream-loop/blender-preview/native-current/panel-perspective-check.json
+```
+
+The inspector rejects a moved reference camera or support and fails if its
+annotated sightline hits a branch panel between the support and the structural
+wall. It reports the ray hits and source hash without saving the preview. This
+checks one Blender viewpoint; inspect the other turns and test the cooked game
+separately.
 
 ### Forerunner architecture study
 

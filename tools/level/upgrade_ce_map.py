@@ -36,6 +36,7 @@ Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
 from cooked_map_container import cooked_map_container
+from owned_map_cook import snapshot_owned_cook, verified_owned_cook
 import glob
 import json
 import math
@@ -1591,7 +1592,7 @@ def stage_assemble(code, m, p):
     pulses = bake_pulses(level)
     if pulses:
         print(f"  {code}: {pulses} flare pulse(s) in the material")
-    lights = ce_lights(p)
+    lights = ce_lights(p) + authored_map_lights(m, p)
     if lights:
         level["lights"] = lights
     decals, files = ce_decals(p)
@@ -1629,6 +1630,68 @@ LIGHT_UNITS = 600.0 / 256.0 / 3.0
 LIGHT_FALLOFF = 4.0
 LIGHT_RADIUS = 1500.0
 LIGHT_STEP = 30.0
+
+
+def authored_map_lights(m, p):
+    """Additional map-owned lights in authoring metres, guarded by surface roles.
+
+    The Blender preview's area lights are not game lights. This optional file
+    associates a small set of runtime point lights with the visible fixtures.
+    Older conversions that lack the declared facility roles do not receive
+    these lights. The loader applies environment.light_scale to intensity.
+    """
+    source = m.get("authored_lights")
+    if not source:
+        return []
+    with open(os.path.join(REPO, source), encoding="utf-8") as f:
+        doc = json.load(f)
+    spec_path = os.path.join(p["conv"], "materials.spec.json")
+    if not os.path.isfile(spec_path):
+        return []
+    with open(spec_path, encoding="utf-8") as f:
+        spec = json.load(f)
+    surfaces = spec.get("authored_surfaces") or {}
+    required = doc.get("required_surfaces")
+    if not isinstance(required, list) or not required or not all(isinstance(s, str) and s for s in required):
+        raise ValueError("authored lights require a non-empty surface-role guard")
+    if not all(s in surfaces for s in required):
+        return []
+    fragments = doc.get("required_slot_fragments")
+    if not isinstance(fragments, list) or not fragments or not all(isinstance(s, str) and s for s in fragments):
+        raise ValueError("authored lights require a non-empty material-slot guard")
+    slot_names = [s.get("name", "") for s in spec.get("slots", []) if isinstance(s, dict)]
+    if not all(any(fragment in name for name in slot_names) for fragment in fragments):
+        return []
+    records = doc.get("lights")
+    if not isinstance(records, list):
+        raise ValueError("authored lights must be a list")
+
+    def number(value, label):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"invalid authored light {label}")
+        return float(value)
+
+    out, names = [], set()
+    for item in records:
+        if not isinstance(item, dict):
+            raise ValueError("authored light must be an object")
+        name = item.get("name")
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError("authored light names must be unique non-empty strings")
+        names.add(name)
+        pos, colour = item.get("position_m"), item.get("colour")
+        if not isinstance(pos, list) or len(pos) != 3 or not isinstance(colour, list) or len(colour) != 3:
+            raise ValueError("authored light position and colour must have three components")
+        x, y, z = (number(v, "position") for v in pos)
+        rgb = [number(v, "colour") for v in colour]
+        intensity = number(item.get("intensity"), "intensity")
+        radius = number(item.get("radius_cm"), "radius")
+        falloff = number(item.get("falloff"), "falloff")
+        if not all(0 <= c <= 1 for c in rgb) or intensity <= 0 or radius <= 0 or falloff <= 0:
+            raise ValueError("authored light colour/intensity/radius/falloff out of range")
+        out.append({"name": name, "pos": [round(x * 100, 1), round(-y * 100, 1), round(z * 100, 1)],
+                    "colour": rgb, "intensity": intensity, "falloff": falloff, "radius": radius})
+    return out
 
 
 def ray_room(v0, e1, e2, origin, d, start=1e-3):
@@ -2090,7 +2153,8 @@ def local_install_plan(code, m, p, *, shared=True):
     containers = [(os.path.join(source, f"pakchunk997-MJOLNIRMAP-{code}_P"), None),
                   (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
                    f"pakchunk986-MJOLNIRMESH-{code}_P"),
-                  (str(cooked_map_container(p["conv"], code)), None)]
+                  (str(verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk")
+                       else cooked_map_container(p["conv"], code)), None)]
     if not m.get("indoor"):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), None))
     if m.get("native_rock_materials"):
@@ -2130,6 +2194,8 @@ def install_local(code, plan):
 
 
 def stage_install(code, m, p):
+    if m.get('map_mesh_chunk'):
+        sys.exit(f'{code}: direct hub install would leave a stale map cook; use the verified map package or preview swap')
     require_game_closed()
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     if m.get("indoor"):
@@ -2213,6 +2279,9 @@ def main():
     if bad:
         sys.exit(f"unknown: {bad}")
     maps = {c: config[c] for c in a.maps}
+    if "cook" in stages and any(m.get("map_mesh_chunk") for m in maps.values()):
+        if "editor" not in stages or a.no_masters:
+            sys.exit("Map-owned generated meshes require editor and cook in the same run; omit --no-masters.")
     if a.release_beta and "TST" in maps:
         # The public 0.9.0 loader does not implement physical skylight or
         # atmosphere_sun. Use the authored CE sky and its ordinary lighting
@@ -2245,8 +2314,15 @@ def main():
             build_cliffs(maps, ps)
         if stage == "cook":
             stage_cook(list(maps.values()))
+            for code, m in maps.items():
+                if m.get("map_mesh_chunk"):
+                    cli = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
+                    snap = snapshot_owned_cook(code, m, ps[code]["work"], STAGED, cli)
+                    print(f"  {code}: verified map cook snapshot {snap}")
             continue
         if stage == "install":
+            if not a.local_install and any(m.get("map_mesh_chunk") for m in maps.values()):
+                sys.exit('Map-owned generated meshes require a verified map package or preview swap; direct hub install is unsafe.')
             require_game_closed()
             plans = {c: local_install_plan(c, m, ps[c], shared=not a.release_beta)
                      for c, m in maps.items()} if a.local_install else {}

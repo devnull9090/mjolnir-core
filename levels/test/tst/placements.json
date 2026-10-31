@@ -1620,38 +1620,6 @@
       ]
     },
     {
-      "name": "exit_step_-33_4.8",
-      "position_m": [
-        -33,
-        20,
-        4.85
-      ]
-    },
-    {
-      "name": "exit_step_-33_2.4",
-      "position_m": [
-        -33,
-        16.5,
-        2.4499999999999997
-      ]
-    },
-    {
-      "name": "exit_step_33_4.8",
-      "position_m": [
-        33,
-        20,
-        4.85
-      ]
-    },
-    {
-      "name": "exit_step_33_2.4",
-      "position_m": [
-        33,
-        16.5,
-        2.4499999999999997
-      ]
-    },
-    {
       "name": "red_roof_ramp_-12",
       "position_m": [
         -61.75,

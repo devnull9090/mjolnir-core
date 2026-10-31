@@ -47,6 +47,13 @@ VIEWS = {
     "facility-interior": {"position": (-7.5,40,1.55), "target": (20,40,2.4), "lens": 22, "aspect": 1715/392},
     "facility-door": {"position": (-1,40,1.9), "target": (3,47,2.0), "lens": 30},
     "facility-route": {"position": (-40,51.5,1.9), "target": (-18,46.8,2.0), "lens": 24},
+    "facility-entry-red-inside": {"position": (-48,38.8,1.8), "target": (-48,25,2.3), "lens": 20},
+    "facility-entry-blue-inside": {"position": (48,38.8,1.8), "target": (48,25,2.3), "lens": 20},
+    "facility-panel-bays": {"position": (-30,28.5,1.8), "target": (-19,32.8,1.9), "lens": 25},
+    "facility-turn-red": {"position": (-40,35,1.8), "target": (-43.8,29,2), "lens": 24},
+    "facility-turn-blue": {"position": (40,35,1.8), "target": (43.8,29,2), "lens": 24},
+    "facility-former-riser-red": {"position": (-26,6,2.5), "target": (-33,19,2.5), "lens": 28},
+    "facility-former-riser-blue": {"position": (26,6,2.5), "target": (33,19,2.5), "lens": 28},
     "layout": {"position": (0,-8,140), "target": (0,-8,0), "ortho": 230},
     "pcg": {"position": (0,-134,76), "target": (0,3,2), "lens": 34},
 }

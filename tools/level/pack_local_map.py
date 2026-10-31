@@ -5,6 +5,7 @@ The staging folder is retained beside the archive so authors can inspect it.
 """
 import argparse
 from cooked_map_container import cooked_map_container
+from owned_map_cook import verified_owned_cook
 import json
 import os
 from pathlib import Path
@@ -30,8 +31,12 @@ def prepare(code, config, work, staging):
         raise ValueError("Registration code does not match the requested map")
     copies = [(level_path, f"{code.lower()}.level.json"),
               (registration, f"{code}.registration.json")]
+    # A conversion cook may contain a stale copy of a map-owned generated
+    # cliff. Ship the verified cook made after the upgrade editor pass instead.
+    cook = (verified_owned_cook(code, config, upgraded) if config.get("map_mesh_chunk")
+            else cooked_map_container(conv, code))
     containers = [
-        (cooked_map_container(conv, code), None),
+        (cook, None),
         (Path(config.get("mesh_container", conv / f"pakchunk986-MJOLNIRMESH-{code}_P")),
          f"pakchunk986-MJOLNIRMESH-{code}_P"),
         (bake / f"pakchunk997-MJOLNIRMAP-{code}_P", None),

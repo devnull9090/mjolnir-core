@@ -3,10 +3,11 @@
 The facility implements the approved [indoor-only concept](facility-concept-v3-indoor.png)
 and [design brief](facility-concept.json) in editable Blender source. The R18
 interior art review reached 8.0/10; [actual renders and review notes](review/facility-art-review.md)
-record the result and remaining differences. An experimental split-detail export
-was baked and viewed in a private game session. Terrain blocks both entrances
-and intrudes into a hallway, so this facility is not yet playable or published.
-See [the experimental conversion notes](../../../../tools/level/TST_NATIVE_DETAIL.md).
+record that earlier result and its remaining differences. A private in-game
+preview exposed an outdated duplicate cliff mesh; a corrected test package
+cleared both entrances and was walked from red to blue. The subsequent entry,
+panel and riser cleanup has been checked in Blender and still needs a fresh
+game build. See [the experimental conversion notes](../../../../tools/level/TST_NATIVE_DETAIL.md).
 
 ## Layout and source ownership
 
@@ -35,12 +36,12 @@ their team's side. The visible end faces are solid walls; the traversable
 connection turns before them. This makes a substantial interior facility
 without adding another outdoor section.
 
-Each blind end is a closed corner assembly: one continuous inset contour
-wraps across a sidewall, short faceted corner, and cap. An 8cm border and
-reveal surround broad mineral infill, replacing separate dark slots. From the
-foyer the branch is seen obliquely, so the visible face wraps around this real corner.
-It does not use a shifted false wall to imitate the concept's perspective.
-The enclosed lateral turn stays open before the end assembly.
+Each blind end has separate inset fields on its sidewall and cap, so their
+frames stop before the turn rather than crossing the wall. A fitted triangular
+return joins the underlying BSP at the corner to seal the narrow opening the
+vestibule cut left there. The enclosed lateral turn stays open before the end
+assembly. Ceiling-mounted cassettes replace vestibule arches whose jambs
+previously intersected the wall and route.
 
 The original terrain air volume ends at y=40. Before subtracting the facility's
 solid structure, the builder joins a second positive-air volume wholly inside
@@ -260,12 +261,19 @@ This is not yet a validated playable facility build.
 
 ## Validation status and limits
 
-R18 passes the offline geometry and material checks with zero reported issues
+The earlier R18 passes the offline geometry and material checks with zero reported issues
 for source SHA-256
 `f403a49b17d3769fbf642ac6db5d3298285e9f4bf9beab3b9b99f79c732e0c51`.
 Its full reports are local artifacts under
 `.dream-loop/blender-preview/facility-r18/`. Geometry checks do not by themselves
 establish visual approval or runtime correctness.
+The later entry-cleanup preview is under
+`.dream-loop/blender-preview/facility-panel-corrected/`; its checks found zero
+issues in 1,470 route samples, 48 BSP-only corner probes, manifold inspection,
+native-rock clearance and 162 fixture checks. An initial panel audit missed
+a visible overlap at an angled join; the panels were then set back on both
+sides of the ribs, and narrow bays left empty. The annotated viewpoint and a
+reverse view were reviewed again; game rendering remains to be checked.
 The portable [validation record](review/facility-validation.json) includes
 the measured results, source/image hashes and owned-asset provenance.
 
@@ -316,7 +324,7 @@ The native clearance check covers authored native rock render meshes, not all
 runtime-generated cliff cladding or PCG instances. These offline checks also do
 not reproduce Unreal's simplified collision, game lighting, multiplayer balance
 or frame time. Review both entrance thresholds, every turn, door recesses and
-material joins in Blender first. A private in-game preview revealed terrain
-blocking both entrances and intruding into a hallway despite the offline checks.
-Resolve those intersections, then repeat in-game visual and collision checks
-before a playable build or hub update.
+material joins in Blender first. The earlier private game build revealed a
+stale duplicate cliff that crossed both entrances despite the offline checks;
+the corrected package cleared it. Repeat game visual, projectile and player
+collision checks on the newer entry-cleanup build before a hub update.

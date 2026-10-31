@@ -404,6 +404,23 @@ def main():
                 issue('branch_end_not_sealed',name=cap['name'],origin_m=list(origin),hit=hit)
             cap_checks.append({'name':cap['name'],'origin_m':list(origin),'hit':hit})
 
+    # Probe the actual BSP, not visible detail. The entrance vestibule used
+    # to leave a 20 cm projectile slit alongside each front blind cap. Check
+    # the measured aperture at multiple heights and the mirrored rear turns.
+    corner_seal=[]
+    for side in (-1,1):
+        for rear in (False,True):
+            start_y=48.0 if rear else 32.0
+            direction=(0,1 if rear else -1,0)
+            y_min,y_max=(53.8,54.7) if rear else (25.8,26.6)
+            for x in (43.65,43.70,43.75):
+                for z in (1.0,1.5,2.4,3.4):
+                    origin=(side*x,start_y,z)
+                    hit=ray(structure,origin,direction,8.0)
+                    if hit is None or not y_min<=hit['point_m'][1]<=y_max or hit['pcg_policy']!='NONE':
+                        issue('corner_bsp_unsealed',origin_m=list(origin),hit=hit)
+                    corner_seal.append({'origin_m':list(origin),'hit':hit})
+
     # Direct boundary crossings avoid mistaking an internal pier for an outer
     # wall. Sampling resolution is recorded, so the result is not a claim of
     # mathematically exhaustive aperture/collision testing.
@@ -645,7 +662,8 @@ def main():
             'checks':native_checks,
             'spatial_contract':contract,
             'branch_passages':{'height_m':HEIGHT,'floor_sampling_step_m':.025,'cross_sections':branch_passages,
-                               'turning_bays':turning_bays,'closed_end_faces':cap_checks},
+                               'turning_bays':turning_bays,'closed_end_faces':cap_checks,
+                               'corner_bsp_seal_probes':corner_seal},
             'main_chamber':{'ceiling_m':main_ceiling,'clear_height_m':main_ceiling-FLOOR,
                             'ceiling_probes':ceiling_checks},
             'approaches':{'max_allowed_slope_degrees':APPROACH_MAX_SLOPE_DEGREES,

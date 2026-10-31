@@ -9,6 +9,7 @@ from architecture_surfaces import blender_material
 
 FLOOR_Z = .30
 INTERIOR_CEILING_Z = 4.01
+CORNER_RETURN_Z = (FLOOR_Z, INTERIOR_CEILING_Z + .005)
 HALF_X, FRONT_Y, BACK_Y = 53.5, 24.6, 55.5
 FRONT_BRANCH = [(7.6,36.2),(16,34),(30,28.5),(43.8,28.5)]
 BRANCH_PROFILE = [(-2.25,.30),(2.25,.30),(2.6,.65),(2.6,3.46),
@@ -19,6 +20,17 @@ RIB_INNER = [(-2.15,.30),(2.15,.30),(2.40,.65),(2.40,3.30),
 
 def branch_path(side=1, rear=False):
     return [(side*x,80-y if rear else y) for x,y in FRONT_BRANCH]
+
+
+def blind_end_corner_plan(side, rear):
+    """Footprint sealing the vestibule/sidewall junction, in world metres."""
+    if side not in (-1, 1):
+        raise ValueError('side must be -1 or 1')
+    wall_y, inward = (54.5, -1) if rear else (26.0, 1)
+    # Deliberately overlap the wall and cap instead of relying on touching
+    # coplanar faces: the BSP Boolean must produce one sealed collision shell.
+    return [(side*43.25,wall_y-inward*.15),(side*43.85,wall_y-inward*.15),
+            (side*43.85,wall_y+inward*.55)]
 
 
 def validation_contract():
@@ -259,6 +271,17 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
         for ya,yb in ((25.8,31.2),(48.8,54.2)):
             xa,xb=sorted((side*43.8,side*44.6))
             boolean(wall,box('facility_blind_end_cap',(xa,ya,.30),(xb,yb,4.2),solid['structure']),'UNION')
+        # Join the corner return to the BSP itself: a decorative cover alone
+        # conceals the narrow outdoor slit but cannot stop projectiles.
+        for rear in (False,True):
+            corner=prism('facility_blind_end_corner_solid',blind_end_corner_plan(side,rear),
+                         *CORNER_RETURN_Z,solid['structure'])
+            # Mirroring reverses footprint winding on two of the turns.
+            # Orient every cutter outwards before the exact BSP union.
+            bm=bmesh.new(); bm.from_mesh(corner.data)
+            bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))
+            bm.to_mesh(corner.data); bm.free()
+            boolean(wall,corner,'UNION')
     boolean(wall,box('facility_floor',(-53,25,-.45),(53,55,.30),solid['floor']),'UNION')
 
     # Arena portals: three nested chamfered frames, structural returns and
@@ -283,11 +306,19 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
                   direction=(0,-1,0),size=(.12,1.02))
         lamp('portal_lintel_lens',[(cx-2.45,24.0,5.08),(cx+2.45,24.0,5.08),
              (cx+2.45,24.0,5.19),(cx-2.45,24.0,5.19)],230,(0,-.7,-.7),(4.9,.12))
-        # A short rhythm of vaults makes the 90-degree interior turn visible.
+        # The entry vault opens sideways into the cross-concourse. Full arch
+        # jambs here either cut into the blind-end wall or stand in the open
+        # turn, depending on which side is viewed. Keep the exterior portal
+        # frame, but express the vestibule rhythm with flush roof cassettes:
+        # they stop inside the flat 4.50 m ceiling of the 8.8 m BSP opening.
+        # No leg or bevel projects into the traversable lateral connection.
+        # These pieces already use final world metres; the legacy exterior
+        # arch scale applied below must not be applied a second time.
         for y in (27.1,30.2,33.3):
-            ring('vestibule_rib',arch(3.90,4.85,.95),arch(3.60,4.55,.90),y,y+.26,role='fitted_inset')
-            lamp('vestibule_ceiling_lens',[(cx-1.8,y+.02,4.50),(cx+1.8,y+.02,4.50),
-                 (cx+1.8,y+.19,4.50),(cx-1.8,y+.19,4.50)],700*.70,size=(3.6,.20),
+            block('entry_vault_ceiling_cassette',
+                  (cx-2.02,y,4.40),(cx+2.02,y+.26,4.505),'fitted_inset',.012)
+            lamp('entry_vault_ceiling_lens',[(cx-1.8,y+.035,4.395),(cx+1.8,y+.035,4.395),
+                 (cx+1.8,y+.225,4.395),(cx-1.8,y+.225,4.395)],700*.70,size=(3.6,.19),
                  color=(1,.88,.73),spread=180)
 
 
@@ -326,13 +357,10 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
                     lamp('branch_ceiling_lens',points,260*.56,size=(.18,1.6),color=(1,.84,.68),spread=90)
                 # Quiet fitted wall fields between the strong transverse
                 # ribs have cut-corner relief and narrow double reveals.
-                for center in (length*.30,length*.72):
-                    half=min(1.55,length*.17)
-                    # These fitted skins belong to structural walls. The
-                    # final bay opens sideways into the concourse, so stop
-                    # the panel field cleanly before its wall disappears.
-                    ends=[local_point(a,t,n,s,0,0)[0] for s in (center-half,center+half)]
-                    if max(abs(x) for x in ends)>=37.1: continue
+                from facility_panel_layout import branch_panel_bays
+                for panel_start,panel_end in branch_panel_bays(length,active_stations,a[0],t[0]):
+                    center=(panel_start+panel_end)/2
+                    half=(panel_end-panel_start)/2
                     for edge in (-1,1):
                         wa,wb=sorted((edge*2.53,edge*2.60))
                         poly=bevel_rectangle(center-half,.88,center+half,3.25,.24)
@@ -401,70 +429,29 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
         floor_ribbon('wedge_toe_channel',toe,[.044,.025,.025,.025,.025,.044])
         for rear in (False,True):
             cy=51.5 if rear else 28.5
-            # One continuous unwrapped contour follows the actual closed
-            # sidewall, diagonal corner and cap. No vertical frame divides
-            # the corner into dark slots; all backing and turns stay put.
+            # The vestibule opens through the corner of this return. The
+            # old continuous frame crossed that seam and became half buried
+            # in the jamb on one view. Use two distinct fitted panels, each
+            # wholly supported by a single solid face, with a quiet break at
+            # the turn. The opposing end is mirrored from the same bounds.
             wall_y,inward=(54.5,-1) if rear else (26.0,1)
-            path=[(side*39.10,wall_y),(side*43.30,wall_y),
-                  (side*43.80,wall_y+inward*.50),
-                  (side*43.80,cy+inward*2.52)]
-            distances=[0.0]; normals=[]
-            for start,end in zip(path,path[1:]):
-                dx,dy=end[0]-start[0],end[1]-start[1]
-                length=math.hypot(dx,dy)
-                distances.append(distances[-1]+length)
-                normals.append((-dy/length*side*inward,dx/length*side*inward))
-            offsets=[normals[0]]
-            for n0,n1 in zip(normals,normals[1:]):
-                scale=1/(1+n0[0]*n1[0]+n0[1]*n1[1])
-                offsets.append(((n0[0]+n1[0])*scale,(n0[1]+n1[1])*scale))
-            offsets.append(normals[-1])
-
-            def clip_u(poly,bound,keep_greater):
-                result=[]
-                for p0,p1 in zip(poly,poly[1:]+poly[:1]):
-                    inside0=(p0[0]>=bound) if keep_greater else (p0[0]<=bound)
-                    inside1=(p1[0]>=bound) if keep_greater else (p1[0]<=bound)
-                    if inside0: result.append(p0)
-                    if inside0!=inside1:
-                        f=(bound-p0[0])/(p1[0]-p0[0])
-                        result.append((bound,p0[1]+f*(p1[1]-p0[1])))
-                return result
-
-            span=distances[-1]
-            # 80 mm outer border and 80 mm recessed contour remain the
-            # same width around the corner. The warm mineral infill covers
-            # about 67% of the assembly; the old black central fields go.
+            x0,x1=sorted((side*39.10,side*43.10))
+            cap_x=side*43.80
             for label,inset,near,far,role in (
                     ('backing',0,.012,.035,'armor'),
                     ('frame',.08,.036,.060,'structure'),
-                    ('reveal',.38,.061,.078,'recess'),
-                    ('infill',.46,.079,.095,'structure')):
-                outline=bevel_rectangle(inset,.34+inset,span-inset,3.97-inset,.26)
-                for segment,(start,end) in enumerate(zip(path,path[1:])):
-                    poly=clip_u(clip_u(outline,distances[segment],True),distances[segment+1],False)
-                    if len(poly)<3: continue
-                    def wrapped(u,z,depth):
-                        f=(u-distances[segment])/(distances[segment+1]-distances[segment])
-                        offset=tuple(offsets[segment][i]*(1-f)+offsets[segment+1][i]*f for i in (0,1))
-                        return (start[0]+(end[0]-start[0])*f+offset[0]*depth,
-                                start[1]+(end[1]-start[1])*f+offset[1]*depth,z)
-                    count=len(poly)
-                    vertices=[wrapped(u,z,depth) for depth in (near,far) for u,z in poly]
-                    faces=[tuple(range(count)),tuple(reversed(range(count,2*count)))]
-                    faces += [(i,i+count,(i+1)%count+count,(i+1)%count) for i in range(count)]
-                    obj=detail(close_mesh('blind_end_wrapping_'+label,vertices,faces,mats[role]),.008)
-                    obj['terminal_contour']='Continuous 80 mm border around existing closed corner; route unchanged.'
-            # A restrained 0.5 m faceted corner return joins the sidewall to
-            # the cap. It is attached to both solids and floor/ceiling, well
-            # beyond the existing 2 x 2 m turning squares at |x|39..41.
-            plan=[(side*43.30,wall_y),(side*43.80,wall_y),
-                  (side*43.80,wall_y+inward*.50)]
-            corner=prism('facility_blind_end_corner_return',plan,.30,4.015,mats['structure'])
-            bm=bmesh.new(); bm.from_mesh(corner.data)
-            bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))
-            bm.to_mesh(corner.data); bm.free()
-            detail(corner,.022)
+                    ('reveal',.18,.061,.078,'recess'),
+                    ('infill',.26,.079,.095,'structure')):
+                y0,y1=sorted((wall_y+inward*near,wall_y+inward*far))
+                obj=plate('blind_end_side_'+label,
+                          bevel_rectangle(x0+inset,.40+inset,x1-inset,3.90-inset,.22),
+                          y0,y1,role,bevel=.008)
+                obj['terminal_contour']='Fitted entirely to the solid concourse sidewall; separate from turn.'
+                a,b=sorted((cap_x-side*near,cap_x-side*far))
+                obj=plate('blind_end_cap_'+label,
+                          bevel_rectangle(cy-1.85+inset,.40+inset,cy+1.85-inset,3.90-inset,.22),
+                          a,b,role,'x',.008)
+                obj['terminal_contour']='Fitted entirely to the blind cap; separate from sidewall.'
             # A small roof-mounted wall washer reveals the actual blind end
             # after the side passage opens into the concourse. Its inclined
             # front aims at the cap rather than bleaching the ceiling. The

@@ -27,14 +27,15 @@ an in-game test.
 The wall spans the 150 m northern boundary and rises 24 m, with a taller central
 spine. An inset balcony has a 7.2 m floor, sheltered arrivals at x=-48/+48 m,
 segmented parapets and offset sightline screens. New one-way channels 2 and 3
-connect ground pads at (-44,22) and (44,22) to these alcoves. Two exit terraces
-descend through 4.8 m and 2.4 m levels. Their fall damage, teleporter behavior,
-visibility from flags, and competitive value require in-game playtests.
+connect ground pads at (-44,22) and (44,22) to these alcoves. Separate return
+shields lead back down. The blocky stepped exits have been removed and their
+parapet gaps closed; teleporter behavior, visibility from flags, and competitive
+value still require in-game playtests.
 
 The cliff foundation closes the arena even with PCG disabled. Rock surfaces
 permit ground/cliff dressing subject to existing slope and clearance rules;
-the wall, balcony, screens and terraces use NONE. The northern tree and one
-rock were moved clear of the new terraces. No power weapon or objective has
+the wall, balcony and screens use NONE. The northern tree and one
+rock were moved clear of the former terrace area. No power weapon or objective has
 been added to the balcony before its sightlines are tested.
 
 Primary target: 4v4 CTF and Slayer, with distributed neutral starts and a
