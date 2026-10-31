@@ -327,30 +327,28 @@ is the object's index, the same as `live objects` prints). A unit killed by
 
 Measured on Blood Gulch, Team Slayer, PC 1, 2026-10-31, with eight HUD bots
 and the host idle, positions read every second with `mjolnir live objects`.
+Two different things kept bots still for minutes.
 
-**What a frozen bot looks like.** A blue Spartan (squad
-`spartan_legendary_5`) stood at (27.82, -97.41, 1.43) for five and a half
-minutes: position to 0.01 wu and facing (158.4°) the same in every sample, at
-full health, then shot down to 65% without moving or turning. It stood on
-plain ground of the map's one walkable area, beside a firing position. Yet:
+### A sleeping body
+
+A blue Spartan (squad `spartan_legendary_5`) stood at (27.82, -97.41, 1.43)
+for five and a half minutes: position to 0.01 wu and facing (158.4°) the same
+in every sample, at full health, then shot down to 65% without moving or
+turning. It stood on plain ground of the map's one walkable area. Yet:
 
 - **Its AI was running.** Its actor (the actor array `[TLS+0x28]`, 0xd10
   bytes; a unit names its actor at `+0x1ac`, an actor its squad index at
   `+0x3c`) changed 22 of its 4-byte fields in 3 s.
 - **Orders reached it.** `ai_set_task` changed its squad's task (the squad
-  array `[TLS+0x58]`, 0xec bytes: task index at `+0x96` and `+0x9a`, the tick
-  it was set at `+0x9c`).
+  array `[TLS+0x58]`, 0xec bytes: task index at `+0x96` and `+0x9a`, 0 for
+  `hunt` and k + 1 for `area_k`; the tick it was set at `+0x9c`).
 - **Nothing an AI script call does moved it**: `ai_set_task` to areas near
   and far, `ai_force_active` (sim+0x1c5070), `ai_braindead false`.
   `ai_allow_dormant` is compiled out (it shares the no-op evaluator
   sim+0x1b1c10), as are the globals `havok_disable_deactivation` and
   `havok_deactivation_reference_distance`.
 - **`(object_wake_physics (ai_get_unit spartan_legendary_5))` did**: it
-  walked off within a second.
-
-A watcher that woke any bot unchanged for 30 s caught more the same way: a
-jackal frozen on the south base's lower floor (93.22, -161.84, -0.29) for
-over two minutes moved a second after its wake.
+  walked off within a second and fought on.
 
 **What the wake does.** `object_wake_physics`'s evaluator (sim+0x1b5950)
 calls sim+0x5a5eb0 on the object. For an object with Havok physics (object
@@ -358,16 +356,75 @@ data `+0xdc` bit 0x100, physics index `+0xcc`), it activates each of its
 rigid bodies (sim+0x70b520 clears the body's deactivation counters at
 `+0x162` and `+0x164` and wakes its simulation island), clears `+0xdc` bit
 0x400 and marks the object and its parents active (sim+0x59f470: bit 2 of the
-object table entry's flags). The frozen jackal's rigid body differed from a
-moving bot's there: `+0x164` 0xc000 where the moving one had 0x4000, and its
-island's activity fields (`+0x10` to `+0x1f`) zero. So the body was asleep in
-the physics, and the AI's own movement does not wake it.
+object table entry's flags).
 
-**Not found**: what puts an AI's body to sleep, and why players' bodies stay
-awake. Every frozen bot seen was far from the only human (90-100 wu).
+**Every still body sleeps.** A watcher that read four bots still for 30 s
+found the same state in each: `+0xdc` 0x8500 (bit 0x400 set), the rigid
+body's `+0x164` 0xc000, its island's activity fields (`+0x10` to `+0x1f`)
+zero, where moving bots had 0x8100, 0x4000 and live fields. The idle host's
+body sleeps too. So a sleeping body is the normal state of anything standing
+still; what went wrong with the Spartan is that its AI, wanting to move,
+never woke it. Why not is not known.
+
+### The flag rooms
+
+Blood Gulch's bases have a lower floor (z -0.29) under the deck (z 1.70),
+where the flag stands, open to the deck through a hole in its middle and to
+the outside through a ramp at each end. The bots that stood longest were
+there, on both bases, and waking them did not help:
+
+- a blue jackal stood still on the south base's lower floor for the whole of
+  a 15-minute log (it had been in the room at least 9 minutes before), and a
+  red grunt on the north base's for 10;
+- woken and ordered every 2 s to an area with no firing position in the
+  room, for 30 s, each walked about the room and stopped: the grunt at the
+  foot of the north exit ramp, where it turned back, the jackal in a corner.
+  In the next match a jackal in the north room walked 0.5 wu up the north
+  exit ramp (z -0.19) and turned back the same way;
+- the red Spartan and earlier elites that came to rest there stopped in
+  corners beside the side ramps.
+
+The generated pathfinding joins the room to the rest of the map: the room's
+floor and its exit ramps are walkable sectors of the map's one connected
+area, and the fewest-sector route out runs up an exit ramp
+(`crates/blam-sbsp/examples/pf_where.rs`, `route`). The trapped grunt and
+jackal each held a path in their actors (four floor-level points 0x1c apart
+from `+0x8c8`) that runs around the flag on its east side from one end of
+the room to the other, which neither followed; it did not change with their
+orders. The sector an actor stands on is not stored in its actor or unit
+record as a sector or surface index, or as a pointer into the `sectors`
+block (all three searched for eight actors), so where the simulation thinks
+a trapped bot is was not read. Leads not yet tested: four weapons lie on the
+floor around each flag (an assault rifle, a plasma rifle and two shotguns,
+one to each side), the east shotgun on that path; the room is the only
+ground on the map under another floor.
+
+### Elites in the side doorways
+
+The ramp from each base's deck down to a side door (sectors 1823 and 1902 on
+the north base, 1824 and 1903 on the south) climbs 1.57 wu over 2.6 wu and
+passes under the door's lintel, a slab whose underside is at z 1.50. At the
+lintel's inner edge the ramp is at z 0.68, leaving 0.82 wu; an elite stands
+0.8 wu (`elite_ai` biped, `height standing`), lifted about 0.03 more by the
+slope, against 0.65 for the Spartan, 0.7 for the jackal and 0.55 for the
+grunt. An elite walking down from the deck therefore stops with its centre
+one radius (0.18) short of the edge. Seen twice at exactly that spot: on
+the south base's west ramp at (91.5, -159.5, 0.83) for five minutes, and on
+the north base's east ramp at (44.18, -79.26, 0.83), facing the door, its
+position twitching by a few hundredths across the ramp and its facing by a
+few degrees, x fixed, until it turned back up and jumped off the deck's rim.
+The generated pathfinding has no idea of headroom: Bungie's sector flags
+include `crouchable` (0x400), never set by the bake. Whether the AI crouches
+through a sector so flagged is not known: setting it live on the ramp's
+sector came too late, the elite had already left.
 
 ## Open
 
+- **Havok proxies**: the simulation keeps 16 (`havok proxies`,
+  `[TLS+0x268]`, 0x50 bytes each, the object's handle at `+0x44`). On Blood
+  Gulch its four Warthogs hold one each and every live biped one: 13 with
+  eight bots and a host. Twelve or more bots with one player would need more
+  than 16; what a biped without one does is not known (not tried).
 - **Players' campaign team elsewhere**: what else in a Megalo game reads a
   player's campaign byte now that team games with bots set it (none seen;
   player against player uses the multiplayer teams).
