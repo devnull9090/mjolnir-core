@@ -7,6 +7,8 @@
 //!       the fewest-sector route between two points, link by link
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> links x,y,z
 //!       every link of the floor sector under a point, and hints naming them
+//!   cargo run -p blam-sbsp --example pf_where -- <sbsp> cut <sector,...> x,y,z ...
+//!       the component under each point with those sectors left out
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> headroom x0,y0,x1,y1 <limit>
 //!       floor sectors in a box with less than `limit` wu under a ceiling
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> surf <sector | sNNN surface> ...
@@ -21,6 +23,15 @@ use std::collections::{HashMap, VecDeque};
 fn point(s: &str) -> [f32; 3] {
     let v: Vec<f32> = s.split(',').map(|s| s.parse().unwrap()).collect();
     [v[0], v[1], v[2]]
+}
+
+fn root(parent: &mut [usize], x: usize) -> usize {
+    let mut r = x;
+    while parent[r] != r {
+        r = parent[r];
+    }
+    parent[x] = r;
+    r
 }
 
 /// z of `surface`'s plane at (x, y) when (x, y) lies inside its polygon.
@@ -127,6 +138,39 @@ fn main() {
                         h.kind, l.left, l.right
                     );
                 }
+            }
+        }
+        return;
+    }
+    if a.get(1).map(String::as_str) == Some("cut") {
+        // Components over the links that touch none of the given sectors:
+        // what leaving them out of the pathfinding would strand.
+        let cut: Vec<usize> = a[2].split(',').map(|s| s.parse().unwrap()).collect();
+        let mut parent: Vec<usize> = (0..pf.sectors.len()).collect();
+        for l in &pf.links {
+            let (s, t) = (l.left as usize, l.right);
+            if t < 0 || cut.contains(&s) || cut.contains(&(t as usize)) {
+                continue;
+            }
+            let (x, y) = (root(&mut parent, s), root(&mut parent, t as usize));
+            if x != y {
+                parent[x] = y;
+            }
+        }
+        let mut size: HashMap<usize, usize> = HashMap::new();
+        for s in 0..pf.sectors.len() {
+            *size.entry(root(&mut parent, s)).or_default() += 1;
+        }
+        for p in &a[3..] {
+            match pf.sector_at(&c, point(p)) {
+                Some((s, z)) => {
+                    let k = root(&mut parent, s);
+                    println!(
+                        "{p}: sector {s} floor z {z:.2}, in a component of {} sectors",
+                        size[&k]
+                    );
+                }
+                None => println!("{p}: no floor sector below"),
             }
         }
         return;
