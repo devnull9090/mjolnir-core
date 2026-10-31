@@ -35,6 +35,8 @@ then rebuilds the shared registration and menu with `mjolnir level register`.
 Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
+from cooked_map_container import cooked_map_container
+from owned_map_cook import snapshot_owned_cook, verified_owned_cook
 import glob
 import json
 import math
@@ -133,6 +135,14 @@ def sea_height(level):
         if isinstance(item, dict) and "_Water." in str(item.get("mesh", "")) and item.get("pos"):
             return item["pos"][2] + origin[2]
     return None
+
+
+def generated_mesh(code, m, suffix):
+    # A runtime release can contain an older CETrial mesh with the same name.
+    # Give independently released maps their own package IDs, not mount-order overrides.
+    root = f"/Game/MJOLNIR/Maps/{code}/Generated" if m.get("map_mesh_chunk") else "/Game/MJOLNIR/CETrial"
+    name = f"SM_{code}_{suffix}"
+    return f"{root}/{name}.{name}"
 
 
 def paths(code, m, work):
@@ -540,6 +550,11 @@ def stage_foliage(code, m, p):
            os.path.join(p["scene"], "materials.spec.json"), os.path.join(p["foliage"], "foliage.json"),
            "--bin", os.path.join(p["foliage"], "foliage.bin"), "--offset", "0,0,0", "--lift", str(FOLIAGE_LIFT),
            "--edge", os.path.join(p["land"], "landscape.json"), "--swapped-rocks"]
+    if m.get("surface_policy"):
+        policy = os.path.join(REPO, m["surface_policy"])
+        if not os.path.isfile(policy):
+            raise FileNotFoundError(f"Missing authored PCG permissions: {policy}")
+        cmd += ["--surface-policy", policy]
     sea = sea_height(level)
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
@@ -548,6 +563,11 @@ def stage_foliage(code, m, p):
         cmd += ["--detail", f"{name}={cls}"]
     for rule, tint in (m.get("tints") or {}).items():
         cmd += ["--rule-tint", f"{rule}={tint}"]
+    for field, option in (("foliage_scale", "--rule-scale"), ("foliage_density", "--rule-density")):
+        for rule, factor in (m.get(field) or {}).items():
+            cmd += [option, f"{rule}={factor}"]
+    for rule, cluster in (m.get("foliage_cluster") or {}).items():
+        cmd += ["--rule-cluster", f"{rule}=" + ",".join(str(v) for v in cluster)]
     if m.get("biome"):
         cmd += ["--biome", m["biome"]]
     if m.get("biome") == "snow":
@@ -577,6 +597,7 @@ def stage_swap(code, m, p):
                "--staging", staging(p)]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
+              + (["--authored-decor", os.path.join(REPO,m["authored_decor"])] if m.get("authored_decor") else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
     # The grass up to each swapped rock's own hull (the foliage stage left
@@ -631,11 +652,13 @@ def bake_sbsp(m, p):
 
 def stage_editor(code, m, p):
     if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
-        sys.exit(f"{code}: rock_roughness requires bake_foliage")
+        sys.exit(f"{code}: rock overrides require bake_foliage")
     if m.get("indoor"):
         print(f"  {code}: indoor, no landscape world")
         return
     env = {"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"], "MJ_LANDSCAPE_CHUNK": str(m["chunk"])}
+    if m.get("ambient_cubemap"):
+        env["MJ_AMBIENT_CUBEMAP"] = json.dumps(m["ambient_cubemap"])
     # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
     # in the world here (tools/level/foliage_bake.py) instead of by the
     # loader at runtime; assemble then marks the level file's foliage `baked`.
@@ -645,7 +668,8 @@ def stage_editor(code, m, p):
         print("  " + run([sys.executable, os.path.join(HERE, "foliage_bake.py"), p["work"], spec, "--paks", PAKS,
                           "--origin", ",".join(str(v) for v in origin),
                           "--mjolnir", os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))]
-                         + (["--rock-roughness", str(m["rock_roughness"])] if m.get("rock_roughness") is not None else [])).strip().splitlines()[-1][:160])
+                         + (["--rock-roughness", str(m["rock_roughness"])] if m.get("rock_roughness") is not None else [])
+                         + (["--rock-palette", m["rock_palette"]] if m.get("rock_palette") else [])).strip().splitlines()[-1][:160])
         env["MJ_FOLIAGE"] = spec
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env=env)
@@ -776,7 +800,9 @@ def build_cliffs(maps, ps):
     if not specs:
         return
     powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_cliffs.py"],
-               env={"MJ_CLIFF_MESHES": ";".join(specs)})
+               env={"MJ_CLIFF_MESHES": ";".join(specs),
+                    "MJ_MAP_MESH_CHUNKS": json.dumps({code: m["chunk"] for code, m in maps.items()
+                                                       if m.get("map_mesh_chunk")})})
     log = open(os.path.join(PROJECT, "Saved_build_ce_cliffs.log"), encoding="utf-8", errors="replace").read()
     built = [l.split("MJOLNIR cliffs: ", 1)[1] for l in log.splitlines() if "MJOLNIR cliffs: " in l]
     if not built or built[-1] != "built" or "Traceback" in log or len(built) != len(specs) + 1:
@@ -817,6 +843,25 @@ def stage_bake(code, m, p):
     if not os.path.exists(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.utoc")):
         sys.exit(f"{code}: no map container baked:\n{out[-2000:]}")
     print(f"  {code}: map container baked")
+    if m.get("native_rock_materials"):
+        # Editor stand-ins cannot supply the native layered material's cached
+        # shader data. Replace only map-owned MICs with full native clones.
+        spec = json.load(open(os.path.join(p["work"], "foliage_bake", "spec.json"), encoding="utf-8"))
+        entries = []
+        for decor in spec["decor"]:
+            material = decor.get("material")
+            if material:
+                entries.append({"source": material["parent"].split(".")[0],
+                    "target": f"/Game/MJOLNIR/Landscape/{m['landscape']}/MI_{m['landscape']}_{decor['id']}",
+                    "scalars": material.get("scalars", {}), "vectors": material.get("vectors", {})})
+        manifest = os.path.join(p["work"], "native_materials.json")
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump(entries, f, indent=1)
+        clone = os.path.join(tool_env["EXAMPLES"], "native_material_clone.exe")
+        if not os.path.isfile(clone):
+            sys.exit("Build native_material_clone first: cargo build -p blam-pack --example native_material_clone")
+        print("  " + run([clone, PAKS, manifest, p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"]).strip())
+
 
 
 def scene_reach(p):
@@ -931,6 +976,10 @@ def horizon_skirt(code, m, p, level):
     # hairline of sky showed down each seam from above.
     o = 0.0 if custom else 2000.0
     rects = [(-R, -R, lo[0], R), (hi[0], -R, R, R), (lo[0] - o, -R, hi[0] + o, lo[1]), (lo[0] - o, hi[1], hi[0] + o, R)]
+    if hz.get("continuous"):
+        # A submerged ocean floor can use one square. This avoids stretched
+        # tangent frames and reflection seams between very long thin strips.
+        rects = [(-R, -R, R, R)]
     out = []
     for i, (x0, y0, x1, y1) in enumerate(rects):
         # The ground's maps tiled at the map's own size: one copy over a
@@ -943,7 +992,7 @@ def horizon_skirt(code, m, p, level):
                     "pos": [round((x0 + x1) / 2 - origin[0]), round((y0 + y1) / 2 - origin[1]), round(z - origin[2])],
                     "scale": [round((x1 - x0) / 100.0, 1), round((y1 - y0) / 100.0, 1), 1.0],
                     "materials": [strip], "cast_shadow": False})
-    print(f"  horizon: 4 strip(s) round {((hi - lo) / 100).round()} m at {z / 100:g} m, out {R / 100000:g} km")
+    print(f"  horizon: {len(rects)} plane(s) round {((hi - lo) / 100).round()} m at {z / 100:g} m, out {R / 100000:g} km")
     return out
 
 
@@ -1280,6 +1329,10 @@ def stage_assemble(code, m, p):
     land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
     fol = None if m.get("indoor") else json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))
     level = json.load(open(p["level"], encoding="utf-8"))
+    # Retain CE lighting metadata while replacing the rendered sky mesh.
+    if m.get("sky_mesh") is False:
+        level["decor"] = [item for item in level.get("decor", [])
+                          if f"/SM_{code}_Sky." not in str(item.get("mesh", ""))]
     level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
     # The masters this pipeline builds read the deformation map's centre from
     # the game's globals (FootFromMPC): the loader stops following it.
@@ -1302,7 +1355,7 @@ def stage_assemble(code, m, p):
     plasma = os.path.join(p["work"], "plasma_mesh.json")
     if os.path.exists(plasma):
         spec = json.load(open(plasma, encoding="utf-8"))
-        level["slot_meshes"] = [{"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_Plasma.SM_{code}_Plasma",
+        level["slot_meshes"] = [{"mesh": generated_mesh(code, m, "Plasma"),
                                  "item": spec["item"], "slots": spec["slots"]}]
     river = os.path.join(p["work"], "river_mesh.json")
     # `rivers.flux_only`: the river is Fluid Flux's alone; CE's stream (its
@@ -1310,7 +1363,7 @@ def stage_assemble(code, m, p):
     if m.get("rivers") and os.path.exists(river) and not m["rivers"].get("flux_only"):
         spec = json.load(open(river, encoding="utf-8"))
         level.setdefault("slot_meshes", []).append({
-            "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_River.SM_{code}_River", "item": spec["item"],
+            "mesh": generated_mesh(code, m, "River"), "item": spec["item"],
             "slots": spec["slots"]})
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
@@ -1323,10 +1376,10 @@ def stage_assemble(code, m, p):
             # `tess` as an object: the map's own over TESS (Rat Race's
             # tunnels: a wall pushed 30 cm into a 3 m passage).
             own = m["tess"] if isinstance(m.get("tess"), dict) else {}
-            cliff["tess"] = dict(TESS, **own, mesh=f"/Game/MJOLNIR/CETrial/SM_{code}_CliffTess.SM_{code}_CliffTess",
+            cliff["tess"] = dict(TESS, **own, mesh=generated_mesh(code, m, "CliffTess"),
                                  item=spec["item"], slots=spec["slots"])
     if os.path.exists(os.path.join(p["work"], "shadow_shell.json")):
-        level["shadow_shell"] = {"mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_ShadowShell.SM_{code}_ShadowShell"}
+        level["shadow_shell"] = {"mesh": generated_mesh(code, m, "ShadowShell")}
     if fol:
         level["foliage"] = {"file": "foliage.bin", "wind": WIND, "groups": list(fol["groups"])}
         shutil.copyfile(os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "foliage.bin"))
@@ -1379,7 +1432,7 @@ def stage_assemble(code, m, p):
         if m["flux"].get("bed") and os.path.exists(os.path.join(p["work"], "flux_bed.json")):
             origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
             level["decor"].append({"id": f"{code.lower()}_flux_bed",
-                                   "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_FluxBed.SM_{code}_FluxBed",
+                                   "mesh": generated_mesh(code, m, "FluxBed"),
                                    "pos": [-origin[0], -origin[1], -origin[2]],
                                    "materials": [BED_MATERIAL], "capture_only": True, "cast_shadow": False})
             level["flux"]["ground"] = [f"{code.lower()}_flux_bed"]
@@ -1406,7 +1459,7 @@ def stage_assemble(code, m, p):
         if m["flux"]["coast"].get("ground_mesh") and os.path.exists(os.path.join(p["work"], "flux_ground.json")):
             origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
             level["decor"].append({"id": f"{code.lower()}_flux_ground",
-                                   "mesh": f"/Game/MJOLNIR/CETrial/SM_{code}_FluxGround.SM_{code}_FluxGround",
+                                   "mesh": generated_mesh(code, m, "FluxGround"),
                                    "pos": [-origin[0], -origin[1], -origin[2]],
                                    "materials": [BED_MATERIAL], "capture_only": True, "cast_shadow": False})
             flux["ground"] = [f"{code.lower()}_flux_ground"]
@@ -1448,11 +1501,11 @@ def stage_assemble(code, m, p):
                     mats[i] = HIDDEN
                     hidden += 1
         swapped_decor = swap["decor"]
-        if m.get("rock_roughness") is not None:
+        if m.get("rock_roughness") is not None or m.get("rock_palette"):
             if not m.get("bake_foliage"):
-                sys.exit(f"{code}: rock_roughness requires bake_foliage")
+                sys.exit(f"{code}: rock overrides require bake_foliage")
             from foliage_bake import runtime_decor
-            swapped_decor = runtime_decor(swapped_decor, m["rock_roughness"])
+            swapped_decor = runtime_decor(swapped_decor, m.get("rock_roughness"), m.get("rock_palette"))
             print(f"  {code}: {len(swap['decor']) - len(swapped_decor)} rock MIC(s) kept entirely in the baked world")
         level["decor"] = (level.get("decor") or []) + swapped_decor
         if swap.get("effects"):
@@ -1539,7 +1592,7 @@ def stage_assemble(code, m, p):
     pulses = bake_pulses(level)
     if pulses:
         print(f"  {code}: {pulses} flare pulse(s) in the material")
-    lights = ce_lights(p)
+    lights = ce_lights(p) + authored_map_lights(m, p)
     if lights:
         level["lights"] = lights
     decals, files = ce_decals(p)
@@ -1577,6 +1630,68 @@ LIGHT_UNITS = 600.0 / 256.0 / 3.0
 LIGHT_FALLOFF = 4.0
 LIGHT_RADIUS = 1500.0
 LIGHT_STEP = 30.0
+
+
+def authored_map_lights(m, p):
+    """Additional map-owned lights in authoring metres, guarded by surface roles.
+
+    The Blender preview's area lights are not game lights. This optional file
+    associates a small set of runtime point lights with the visible fixtures.
+    Older conversions that lack the declared facility roles do not receive
+    these lights. The loader applies environment.light_scale to intensity.
+    """
+    source = m.get("authored_lights")
+    if not source:
+        return []
+    with open(os.path.join(REPO, source), encoding="utf-8") as f:
+        doc = json.load(f)
+    spec_path = os.path.join(p["conv"], "materials.spec.json")
+    if not os.path.isfile(spec_path):
+        return []
+    with open(spec_path, encoding="utf-8") as f:
+        spec = json.load(f)
+    surfaces = spec.get("authored_surfaces") or {}
+    required = doc.get("required_surfaces")
+    if not isinstance(required, list) or not required or not all(isinstance(s, str) and s for s in required):
+        raise ValueError("authored lights require a non-empty surface-role guard")
+    if not all(s in surfaces for s in required):
+        return []
+    fragments = doc.get("required_slot_fragments")
+    if not isinstance(fragments, list) or not fragments or not all(isinstance(s, str) and s for s in fragments):
+        raise ValueError("authored lights require a non-empty material-slot guard")
+    slot_names = [s.get("name", "") for s in spec.get("slots", []) if isinstance(s, dict)]
+    if not all(any(fragment in name for name in slot_names) for fragment in fragments):
+        return []
+    records = doc.get("lights")
+    if not isinstance(records, list):
+        raise ValueError("authored lights must be a list")
+
+    def number(value, label):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"invalid authored light {label}")
+        return float(value)
+
+    out, names = [], set()
+    for item in records:
+        if not isinstance(item, dict):
+            raise ValueError("authored light must be an object")
+        name = item.get("name")
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError("authored light names must be unique non-empty strings")
+        names.add(name)
+        pos, colour = item.get("position_m"), item.get("colour")
+        if not isinstance(pos, list) or len(pos) != 3 or not isinstance(colour, list) or len(colour) != 3:
+            raise ValueError("authored light position and colour must have three components")
+        x, y, z = (number(v, "position") for v in pos)
+        rgb = [number(v, "colour") for v in colour]
+        intensity = number(item.get("intensity"), "intensity")
+        radius = number(item.get("radius_cm"), "radius")
+        falloff = number(item.get("falloff"), "falloff")
+        if not all(0 <= c <= 1 for c in rgb) or intensity <= 0 or radius <= 0 or falloff <= 0:
+            raise ValueError("authored light colour/intensity/radius/falloff out of range")
+        out.append({"name": name, "pos": [round(x * 100, 1), round(-y * 100, 1), round(z * 100, 1)],
+                    "colour": rgb, "intensity": intensity, "falloff": falloff, "radius": radius})
+    return out
 
 
 def ray_room(v0, e1, e2, origin, d, start=1e-3):
@@ -1983,7 +2098,7 @@ def require_game_closed():
         sys.exit("close the game before installing")
 
 
-def local_install_plan(code, m, p):
+def local_install_plan(code, m, p, *, shared=True):
     """Validate a fresh local install before any files in the game change.
 
     Use the map-pack data layout so `level register` merges this map with
@@ -2038,9 +2153,12 @@ def local_install_plan(code, m, p):
     containers = [(os.path.join(source, f"pakchunk997-MJOLNIRMAP-{code}_P"), None),
                   (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
                    f"pakchunk986-MJOLNIRMESH-{code}_P"),
-                  (os.path.join(p["conv"], f"pakchunk985-MJOLNIRCOOK-{code}_P"), None)]
+                  (str(verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk")
+                       else cooked_map_container(p["conv"], code)), None)]
     if not m.get("indoor"):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), None))
+    if m.get("native_rock_materials"):
+        containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), None))
     for base, name in containers:
         dest = os.path.join(PAKS, name or os.path.basename(base))
         files += [(f"{base}.{e}", f"{dest}.{e}") for e in ("utoc", "ucas")]
@@ -2050,9 +2168,17 @@ def local_install_plan(code, m, p):
     for f in glob.glob(os.path.join(p["work"], "decals", "*")):
         if os.path.isfile(f):
             files.append((f, os.path.join(data, "decals", os.path.basename(f))))
+    if (level.get("flux") or {}).get("state"):
+        state_dir = os.path.join(p["work"], "flux_state")
+        required.append(os.path.join(state_dir, "state.json"))
+        for root, _, names in os.walk(state_dir):
+            for name in names:
+                src = os.path.join(root, name)
+                files.append((src, os.path.join(data, "flux_state", os.path.relpath(src, state_dir))))
     # install_shared runs first, after every map's plan has passed.
-    required += [os.path.join(STAGED, f"pakchunk983-Windows.{e}") for e in ("utoc", "ucas")]
-    required.append(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
+    if shared:
+        required += [os.path.join(STAGED, f"pakchunk983-Windows.{e}") for e in ("utoc", "ucas")]
+        required.append(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
     missing = [f for f in required + [src for src, _ in files] if not os.path.isfile(f)]
     if missing:
         sys.exit(f"{code}: local install is incomplete:\n  " + "\n  ".join(missing))
@@ -2068,6 +2194,8 @@ def install_local(code, plan):
 
 
 def stage_install(code, m, p):
+    if m.get('map_mesh_chunk'):
+        sys.exit(f'{code}: direct hub install would leave a stale map cook; use the verified map package or preview swap')
     require_game_closed()
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     if m.get("indoor"):
@@ -2139,6 +2267,8 @@ def main():
     install.add_argument("--local-install", action="store_true", help="add the install stage for a fresh local map (no hub)")
     ap.add_argument("--work", default="C:/haloce/ce_conversions/upgrade")
     ap.add_argument("--no-masters", action="store_true", help="skip rebuilding the trial masters in the editor stage")
+    ap.add_argument("--release-beta", action="store_true",
+                    help="TST: use only the published loader sky controls for the public beta")
     a = ap.parse_args()
     with open(CONFIG, encoding="utf-8") as f:
         config = json.load(f)
@@ -2149,6 +2279,25 @@ def main():
     if bad:
         sys.exit(f"unknown: {bad}")
     maps = {c: config[c] for c in a.maps}
+    if "cook" in stages and any(m.get("map_mesh_chunk") for m in maps.values()):
+        if "editor" not in stages or a.no_masters:
+            sys.exit("Map-owned generated meshes require editor and cook in the same run; omit --no-masters.")
+    if a.release_beta and "TST" in maps:
+        # The public 0.9.0 loader does not implement physical skylight or
+        # atmosphere_sun. Use the authored CE sky and its ordinary lighting
+        # path, without requiring an unreleased Lua script on players' PCs.
+        m = maps["TST"]
+        m["sky_mesh"] = True
+        # Stable ambient fill: published loader realtime sky capture is disabled.
+        m["ambient_cubemap"] = {"asset": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water",
+                                "intensity": 0.65, "tint": [1.0, 0.9, 0.7, 1.0]}
+        env = m["environment"]
+        env["atmosphere"] = False
+        env["sun"].pop("atmosphere_sun", None)
+        env["skylight"].pop("physical", None)
+        env["skylight"]["intensity"] = 0.0
+        env["skylight"]["color"] = [0.98, 0.99, 1.0]
+        env["post"]["exposure_bias"] = -0.4
     ps = {c: paths(c, m, a.work) for c, m in maps.items()}
     for p in ps.values():
         os.makedirs(p["work"], exist_ok=True)
@@ -2165,11 +2314,20 @@ def main():
             build_cliffs(maps, ps)
         if stage == "cook":
             stage_cook(list(maps.values()))
+            for code, m in maps.items():
+                if m.get("map_mesh_chunk"):
+                    cli = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
+                    snap = snapshot_owned_cook(code, m, ps[code]["work"], STAGED, cli)
+                    print(f"  {code}: verified map cook snapshot {snap}")
             continue
         if stage == "install":
+            if not a.local_install and any(m.get("map_mesh_chunk") for m in maps.values()):
+                sys.exit('Map-owned generated meshes require a verified map package or preview swap; direct hub install is unsafe.')
             require_game_closed()
-            plans = {c: local_install_plan(c, m, ps[c]) for c, m in maps.items()} if a.local_install else {}
-            install_shared()
+            plans = {c: local_install_plan(c, m, ps[c], shared=not a.release_beta)
+                     for c, m in maps.items()} if a.local_install else {}
+            if not (a.release_beta and a.local_install):
+                install_shared()
             if a.local_install:
                 for c, plan in plans.items():
                     install_local(c, plan)

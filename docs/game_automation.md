@@ -142,6 +142,49 @@ Screenshots default to **800 px wide**, from a game launched at 1280x720. Cost s
 so the difference between 800 and 1600 is four times the tokens for the same frame; 800 is still
 comfortably enough to read HUD counters. Raise `max_width` for genuinely small text.
 
+### Silent local video capture (experimental)
+
+For a moving-camera study, `tools/mcp/game/record_game.py` records the visible game
+client rectangle to a local MP4. It uses FFmpeg's `gdigrab` desktop source because
+this game's D3D12 world is not reliably present in window-DC capture. It selects
+the game's `UnrealWindow` by class and process, as `capture.ps1` does, and checks
+that the window remains in the foreground at the same position and size. It
+does not change OBS, stream, capture audio, or draw the pointer. The existing
+MJOLNIRFlyCam F8 control hides the HUD and first-person rig for clean footage;
+F8 again restores them.
+
+Install the optional FFmpeg executable only in the ignored working directory,
+then create a new destination for each take:
+
+```powershell
+python -m pip install --target .dream-loop/video-deps imageio-ffmpeg==0.6.0
+New-Item -ItemType Directory -Force .dream-loop/video-test | Out-Null
+python tools/mcp/game/record_game.py .dream-loop/video-test/shot-001.mp4 `
+  --duration 10 --fps 60 --encoder h264_nvenc --start-delay 5 `
+  --ready-file .dream-loop/video-test/shot-001.ready.json
+```
+
+Switch to the game during the five-second delay and leave it visible and in
+front until recording ends. Use `--encoder libx264` on a machine without a
+working NVIDIA encoder. An explicit `--ffmpeg` path or a PATH installation may
+be used instead of `video-deps`. The optional ready file is created only after
+the first encoded frame; a camera driver can wait for that file before starting
+its path. Use a fresh ready-file name per take and confirm the recorder is still
+running: a ready file left by an interrupted take is not proof of success.
+
+Output and ready files must not already exist. The recorder writes a uniquely
+named partial MP4 first and publishes the requested name only after FFmpeg exits
+successfully and a frame can be decoded. Losing focus, minimizing, moving or
+resizing the game stops the recording and leaves the partial file for diagnosis.
+The foreground check runs every 50 ms, so it is not a privacy boundary: system
+overlays or notifications can appear in the recorded rectangle, and a brief focus
+change may be captured before detection. Review a clip before sharing. Check the
+actual image and frame cadence; requested FPS is not a guarantee, especially for
+4K GDI capture under load. A private TST beta test recorded a HUD-free moving
+camera at 1280×720 with NVENC and a 30 FPS request; framing was inspected at
+several points. Higher resolutions, sustained frame cadence and other display
+configurations still need verification.
+
 ## Hazards
 
 **`open` from the frontend menu crashes the game — and solo-to-solo travel does too.**

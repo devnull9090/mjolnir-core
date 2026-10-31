@@ -3,6 +3,7 @@
 
     ce_material_spec.py <staging dir> <map name> <spec.json> [scene.gltf ...] [--code CODE]
                         [--bake DIR] [--lightmaps DIR]
+                        [--surface-library JSON] [--authored-extra-gltf FILE]
 
 With --lightmaps, a lightmap page is taken from that directory (`mjolnir
 level lightmaps`: the shipped page's name at a multiple of its size) when it
@@ -33,6 +34,10 @@ smaller levels to neutral grey, which a regenerated chain would not.
 The spec also lists the mesh slots in slot order: `{"name": <slot name>,
 "pattern": "<gltf material>$", "material": <runtime material>}`, for
 mesh_rewrite's --material and the level file.
+
+`--authored-extra-gltf` adds a separate native render-only mesh's slots from
+its explicit authored `extras.halo.tag_path` values. It requires the surface
+library and never substitutes guessed CE shader data for an unknown tag.
 """
 import glob
 import json
@@ -150,6 +155,10 @@ def asset_name(prefix, stem):
 def cook_chunk(code):
     """The cook chunk of a map's own packages: one per code, never 988 (the
     masters and their shader library) or a shipped chunk."""
+    # TST has authored shaders. Published launchers recognize 9xx MJOLNIR
+    # containers, so reserve an unused chunk until general chunk IDs are supported.
+    if code.upper() == "TST":
+        return 968
     return 10000 + int(code, 36)
 
 
@@ -650,8 +659,83 @@ def gltf_boxes(scene):
     return boxes, (lo, hi)
 
 
+def add_authored_extra_slots(path, library, materials, slots, gltf_materials):
+    """Add explicit, validated native-only roles before applying the palette.
+
+    These faces bypass CE's BSP, so their shaders need not occur in the CE
+    staging's materials.json. They still must name an exact map-owned tag and
+    have a real primitive; unreferenced or unknown materials cannot make the
+    palette's required-role check pass. Existing CE slots are never replaced.
+    """
+    if not library:
+        raise ValueError("--authored-extra-gltf requires --surface-library")
+    from authored_surfaces import load_library
+    by_tag = {entry['tag'] for entry in load_library(library).values()}
+    with open(path, encoding='utf-8') as stream:
+        extra = json.load(stream)
+    extra_materials = extra.get('materials') if isinstance(extra, dict) else None
+    meshes = extra.get('meshes') if isinstance(extra, dict) else None
+    if not isinstance(extra_materials, list) or not extra_materials or not isinstance(meshes, list):
+        raise ValueError('Authored extra glTF needs materials and meshes')
+    used = set()
+    for mesh in meshes:
+        if not isinstance(mesh, dict) or not isinstance(mesh.get('primitives'), list):
+            raise ValueError('Invalid authored extra glTF mesh')
+        for primitive in mesh['primitives']:
+            index = primitive.get('material') if isinstance(primitive, dict) else None
+            if type(index) is not int or not 0 <= index < len(extra_materials):
+                raise ValueError('Authored extra primitive has no valid material')
+            used.add(index)
+    if used != set(range(len(extra_materials))):
+        raise ValueError('Every authored extra material must be used by a primitive')
+
+    names = {str(mat.get('name', '')).lower() for mat in gltf_materials}
+    slot_names = {str(slot.get('name', '')).lower() for slot in slots}
+    pending = []
+    for mat in extra_materials:
+        if not isinstance(mat, dict):
+            raise ValueError('Invalid authored extra material')
+        name = mat.get('name')
+        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name):
+            raise ValueError('Authored extra material needs a safe, nonempty name')
+        key = name.lower()
+        slot_name = asset_name('', name)
+        if key in names or slot_name.lower() in slot_names:
+            raise ValueError('Authored extra material name collides with another slot: ' + name)
+        extras = mat.get('extras')
+        halo = extras.get('halo') if isinstance(extras, dict) else None
+        tag = halo.get('tag_path') if isinstance(halo, dict) else None
+        if not isinstance(tag, str) or tag.replace(chr(92), '/').lower() not in by_tag:
+            raise ValueError('Authored extra material must name an exact library tag: ' + name)
+        names.add(key)
+        slot_names.add(slot_name.lower())
+        pending.append((mat, name, slot_name))
+
+    # Validate the complete input before changing any existing list.
+    for mat, name, slot_name in pending:
+        gltf_materials.append(mat)
+        materials.append({'name': slot_name})
+        slots.append({'name': slot_name, 'pattern': name.lower() + '$', 'material': {}})
+
+
 def main():
     args = sys.argv[1:]
+    surface_library = None
+    if "--surface-library" in args:
+        i = args.index("--surface-library")
+        surface_library = args[i + 1]
+        del args[i:i + 2]
+    authored_extra = None
+    if '--authored-extra-gltf' in args:
+        if args.count('--authored-extra-gltf') != 1:
+            raise ValueError('Specify --authored-extra-gltf at most once')
+        i = args.index('--authored-extra-gltf')
+        if i + 1 >= len(args):
+            raise ValueError('--authored-extra-gltf needs a file')
+        authored_extra = args[i + 1]
+        del args[i:i + 2]
+        if not surface_library:
+            raise ValueError('--authored-extra-gltf requires --surface-library')
     code = None
     if "--code" in args:
         i = args.index("--code")
@@ -923,7 +1007,14 @@ def main():
         t = os.path.splitext(os.path.basename(png))[0]
         textures.setdefault(t, {"file": os.path.abspath(png), "name": t, "sunmask": True})
 
+    if authored_extra:
+        add_authored_extra_slots(authored_extra, surface_library, materials, slots, gltf['materials'])
+    authored = {}
+    if surface_library:
+        from authored_surfaces import apply_library
+        authored = apply_library(surface_library, root, materials, slots, gltf["materials"], textures)
     json.dump({"root": root, "chunk": cook_chunk(code) if code else None,
+               "authored_surfaces": authored,
                "textures": list(textures.values()), "materials": materials, "slots": slots},
               open(dest, "w", encoding="utf-8"), indent=1)
     print(f"{name}: {len(textures)} texture(s), {len(materials)} material(s) -> {dest}")

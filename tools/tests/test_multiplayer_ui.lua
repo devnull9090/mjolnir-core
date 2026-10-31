@@ -239,6 +239,18 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         end }
 end
 
+-- Timed objectives display simulation totals, ignoring duplicate/older snapshots.
+for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled" }) do
+    local timed = runHUD(mode)
+    timed.incident(event, 1, -1, 7)
+    eq(timed.feed.ScoreLeftValue.text, "7", mode .. " score")
+    timed.incident(event, 1, -1, 7)
+    timed.incident(event, 1, -1, 6)
+    eq(timed.feed.ScoreLeftValue.text, "7", mode .. " duplicate/old snapshot")
+    timed.incident(event, 1, -1, 8)
+    eq(timed.feed.ScoreLeftValue.text, "8", mode .. " next second")
+end
+
 local ctf = runHUD("ctf")
 eq(ctf.board.Name0.text, "RED TEAM  /  0")
 eq(ctf.board.Name2.text, "AWAITING ASSIGNMENT  /  3")
@@ -447,6 +459,12 @@ print("Multiplayer UI: hub avatars in the feed")
 -- Fireteam clients (Scripts/relay.lua): the host sends the feed's incidents
 -- to every remote player, one message per drain.
 local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
+-- Keep spawn-state updates and objective ownership when merging game-mode work.
+for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled" }) do
+    local events = Relay.decode(Relay.encode({ { name = name, cause = 2, effect = -1, value = 1 } }), 7)
+    assert(events and #events == 1, "missing relayed event: " .. name)
+    eq(events[1].name, name); eq(events[1].cause, 2); eq(events[1].value, 1)
+end
 local wire = Relay.encode({ { name = "kill", cause = 2, effect = 0, value = 0, modifier = 1, damage = DT .. "SniperRifle" },
     { name = "respawn_tick", cause = 0 }, { name = "multikill_x2", cause = 2, effect = -1, value = 0 } })
 eq(wire, "MJOLNIR|feed|kill,2,0,0,1,SniperRifle;multikill_x2,2,-1,0,0,")

@@ -79,6 +79,30 @@ for t in spec["textures"]:
     tasks.append(task)
 assets.import_asset_tasks(tasks)
 
+
+def configure_authored_texture(tex, texture_spec):
+    """Keep color, scalar data and tangent normals distinct on every reimport."""
+    tex.set_editor_property("srgb", texture_spec["srgb"])
+    if texture_spec.get("normal_map"):
+        if texture_spec["srgb"] or texture_spec.get("compression") != "normalmap":
+            raise ValueError("Authored normal maps require linear normalmap compression")
+        convention = texture_spec.get("normal_convention")
+        if convention not in ("opengl", "directx"):
+            raise ValueError("Authored normal map is missing a valid source convention")
+        flip = convention == "opengl"
+        if texture_spec.get("flip_green_channel") != flip:
+            raise ValueError("Authored normal green-channel metadata is inconsistent")
+        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
+        tex.set_editor_property("flip_green_channel", flip)
+    else:
+        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_DEFAULT
+                                if texture_spec["srgb"] else unreal.TextureCompressionSettings.TC_MASKS)
+        # A reimport may reuse an asset that previously carried a normal map.
+        tex.set_editor_property("flip_green_channel", False)
+    tex.set_editor_property("never_stream", False)
+    tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_FROM_TEXTURE_GROUP)
+
+
 textures = {}
 for t in spec["textures"]:
     tex = unreal.load_asset(f"{tex_dir}/{t['name']}")
@@ -114,6 +138,8 @@ for t in spec["textures"]:
         tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
         tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
         tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+    if t.get("authored_pbr"):
+        configure_authored_texture(tex, t)
     eal.save_loaded_asset(tex)
     textures[t["name"]] = tex
 
@@ -131,4 +157,75 @@ for path in eal.list_assets(mat_dir, recursive=True, include_folder=False) if ea
     eal.delete_asset(path.split(".")[0])
 
 shutil.rmtree(renamed, ignore_errors=True)
+
+
+# Map-owned masters; no dependency on an unpublished shared runtime shader.
+# UV0 and palette values are identical to Blender's authored surface graph.
+def build_authored_surface(role, surface):
+    name = "M_Authored_" + role
+    path = f"{root}/SurfaceMaterials"
+    material = unreal.load_asset(f"{path}/{name}")
+    if material is None:
+        material = assets.create_asset(name, path, unreal.Material, unreal.MaterialFactoryNew())
+    mel.delete_all_material_expressions(material)
+    material.set_editor_property("two_sided", False)
+    def node(cls, **props):
+        result = mel.create_material_expression(material, cls)
+        for key,value in props.items(): result.set_editor_property(key, value)
+        return result
+    def connect(source, output, target, pin):
+        if not mel.connect_material_expressions(source, output, target, pin):
+            raise RuntimeError(f"Authored surface connection failed: {role} / {pin}")
+    def output(source, pin, prop):
+        if not mel.connect_material_property(source, pin, prop):
+            raise RuntimeError(f"Authored surface output failed: {role}")
+    def inputs(names):
+        result = []
+        for name in names:
+            entry = unreal.CustomInput()
+            entry.set_editor_property("input_name", name)
+            result.append(entry)
+        return result
+    albedo = node(unreal.MaterialExpressionTextureSample, texture=unreal.load_asset(surface["albedo_asset"]), sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    rough = node(unreal.MaterialExpressionTextureSample, texture=unreal.load_asset(surface["roughness_map_asset"]), sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+    tone = node(unreal.MaterialExpressionCustom, code="return lerp(Base, 0.32.xxx, Soften) * Tint;", output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    tone.set_editor_property("inputs", inputs(("Base", "Soften", "Tint")))
+    connect(albedo, "RGB", tone, "Base")
+    connect(node(unreal.MaterialExpressionConstant, r=surface["soften"]), "", tone, "Soften")
+    connect(node(unreal.MaterialExpressionConstant3Vector, constant=unreal.LinearColor(*surface["tint"],1)), "", tone, "Tint")
+    output(tone, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    remap = node(unreal.MaterialExpressionCustom, code="return lerp(Low, High, saturate((Rough - 0.30) / 0.30));", output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    remap.set_editor_property("inputs", inputs(("Rough", "Low", "High")))
+    connect(rough, "R", remap, "Rough")
+    connect(node(unreal.MaterialExpressionConstant, r=surface["roughness"][0]), "", remap, "Low")
+    connect(node(unreal.MaterialExpressionConstant, r=surface["roughness"][1]), "", remap, "High")
+    output(remap, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    output(node(unreal.MaterialExpressionConstant, r=surface["metallic"]), "", unreal.MaterialProperty.MP_METALLIC)
+    if surface.get("normal_map_asset"):
+        material.set_editor_property("tangent_space_normal", True)
+        normal = node(unreal.MaterialExpressionTextureSample,
+                      texture=unreal.load_asset(surface["normal_map_asset"]),
+                      sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL)
+        # TC_NORMALMAP plus the import's flip_green_channel already yields
+        # signed DirectX tangent normals; no 2*x-1 remap. For strength [0,1],
+        # Blender blends the flat tangent normal toward the decoded normal
+        # and normalizes. Keep the full-strength graph unchanged.
+        strength = surface.get("normal_strength", 1.0)
+        if strength == 1.0:
+            output(normal, "RGB", unreal.MaterialProperty.MP_NORMAL)
+        else:
+            blend = node(unreal.MaterialExpressionCustom,
+                         code="return normalize(lerp(float3(0.0, 0.0, 1.0), N, Strength));",
+                         output_type=unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+            blend.set_editor_property("inputs", inputs(("N", "Strength")))
+            connect(normal, "RGB", blend, "N")
+            connect(node(unreal.MaterialExpressionConstant, r=strength), "", blend, "Strength")
+            output(blend, "", unreal.MaterialProperty.MP_NORMAL)
+    mel.recompile_material(material)
+    eal.save_loaded_asset(material)
+
+for role,surface in spec.get("authored_surfaces", {}).items():
+    build_authored_surface(role, surface)
+unreal.log(f"MJOLNIR authored PBR surfaces: {len(spec.get('authored_surfaces', {}))}")
+
 unreal.log(f"MJOLNIR CE level: {len(textures)} texture(s) under {root}")

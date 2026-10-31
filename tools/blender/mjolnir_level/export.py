@@ -25,7 +25,8 @@ def _round(v):
 
 def _pos(obj):
     l = obj.matrix_world.translation
-    return [_round(l.x * 100.0), _round(-l.y * 100.0), _round(l.z * 100.0)]
+    scale = bpy.context.scene.unit_settings.scale_length * 100.0
+    return [_round(l.x * scale), _round(-l.y * scale), _round(l.z * scale)]
 
 
 def _rot(obj):
@@ -87,6 +88,8 @@ def build_level(scene):
     problems = []
 
     for obj in scene.objects:
+        if obj.get("mjolnir_preview_only"):
+            continue
         m = getattr(obj, "mjolnir", None)
         if m is None or m.kind == "NONE":
             continue

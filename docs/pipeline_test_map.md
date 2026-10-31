@@ -1,5 +1,11 @@
 # TST: CE pipeline test map
 
+**Expanded community version (October 20):** see the current
+[source README](../levels/test/tst/README.md), [design brief](../levels/test/tst/DESIGN.md),
+and [Blender-to-hub walkthrough](custom_map_walkthrough.md). The record below
+describes the original 120-by-60-metre test build. The new source is 150 by 80 m;
+its visual iteration now uses Blender renders before milestone game builds.
+
 TST is a small, authored CTF/Slayer map for checking the complete Blender →
 classic HEK → CE conversion → Unreal upgrade → local game pipeline. Its CE
 cache builds successfully as of 2026-10-19. The first build loaded and spawned

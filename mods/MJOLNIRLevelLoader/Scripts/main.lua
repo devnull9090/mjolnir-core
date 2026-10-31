@@ -1562,7 +1562,7 @@ local function spawnEnvironment(world)
             pcall(function()
                 actor:K2_SetActorRotation({ Pitch = sun.pitch or -50.0, Yaw = sun.yaw or 30.0, Roll = 0 }, false)
             end)
-            pcall(function() c:SetAtmosphereSunLight(false) end)
+            pcall(function() c:SetAtmosphereSunLight(sun.atmosphere_sun == true) end)
             if type(sun.color) == "table" then
                 -- bSRGB true: the component keeps an 8-bit colour the renderer
                 -- decodes as sRGB, so the linear colour the level names must be
@@ -1580,7 +1580,9 @@ local function spawnEnvironment(world)
         local c = actor.LightComponent
         c.Mobility = MOBILITY_MOVABLE
         c.bRealTimeCapture = true
-        c:SetIntensity((skylight.intensity or 3.0) * k)
+        -- A physical atmosphere already captures the scaled sun radiance.
+        -- Multiplying its capture by k again washes native foliage white.
+        c:SetIntensity((skylight.intensity or 3.0) * (skylight.physical and 1 or k))
         if type(skylight.color) == "table" then
             c:SetLightColor({ R = skylight.color[1], G = skylight.color[2], B = skylight.color[3], A = 1.0 })
         end
@@ -2252,6 +2254,10 @@ local function hookIncidents()
                 local i = incident:get()
                 return i.Name:ToString(), i.CausePlayerAbsoluteIndex, i.CustomValue, i.EffectPlayerAbsoluteIndex
             end)
+            -- Positive values are timed-objective score snapshots for the
+            -- HUD, not another pickup/control announcement every second.
+            if okI and (name == "ball_taken" or name == "hill_controlled")
+                and type(value) == "number" and value > 0 then return end
             -- Flag incidents and the end of a round count without sounds
             -- too: they place the flags and reset them (teams.lua).
             if not (okI and name) or not (next(EventWaves) or name:find("^flag_") or name == "round_over") then return end
@@ -5464,7 +5470,7 @@ local function setLightScale(args)
     local sun, sky, post = actor("__sun"), actor("__sky"), actor("__post")
     local sunEnv, skyEnv = env.sun or {}, env.skylight or {}
     if sun then pcall(function() sun.LightComponent:SetIntensity((sunEnv.intensity or 8.0) * k) end) end
-    if sky then pcall(function() sky.LightComponent:SetIntensity((skyEnv.intensity or 3.0) * k) end) end
+    if sky then pcall(function() sky.LightComponent:SetIntensity((skyEnv.intensity or 3.0) * (skyEnv.physical and 1 or k)) end) end
     for i, l in ipairs(type(Current.level.lights) == "table" and Current.level.lights or {}) do
         local a = actor("__light_" .. i)
         if a then pcall(function() a.LightComponent:SetIntensity((tonumber(l.intensity) or 25) * k) end) end

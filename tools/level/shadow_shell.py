@@ -57,7 +57,10 @@ def main():
         if not isinstance(m, dict) or m in hide or slot in cut:
             return False
         parent = str(m.get("parent") or "")
-        return "M_CE_Environment" in parent and "Masked" not in parent
+        # Authored surface-library masters are opaque Default Lit materials.
+        # Their hulls need the same sealed shadow backing as CE metal.
+        return (("M_CE_Environment" in parent and "Masked" not in parent)
+                or "/SurfaceMaterials/M_Authored_" in parent)
 
     doc = json.load(open(a.scene, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(a.scene), doc["buffers"][0]["uri"]), "rb").read()

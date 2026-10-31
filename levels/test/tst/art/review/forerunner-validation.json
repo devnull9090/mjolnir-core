@@ -1,0 +1,134 @@
+{
+  "revision": "forerunner-r16",
+  "scope": "Blender architecture and material study only; no game launch, bake, export or upload",
+  "source_blend": "levels/test/tst/tst.blend",
+  "source_sha256": "46e331afc2e42c2bad19cdd73712b86aca9163a7140d1a098172303aee2a7a21",
+  "placements_sha256": "83af73cef5516b0bfd3bc4d66ec969b0f520cfd26b964269728f4dbf46ac0e89",
+  "preview_preserved_source": true,
+  "geometry_audit": {
+    "detail_objects": 403,
+    "detail_triangles": 46516,
+    "detail_nonmanifold": [],
+    "detail_policy_issues": [],
+    "atlas_fixtures": 71,
+    "atlas_faces": 232,
+    "atlas_uv_issues": [],
+    "engraved_objects": 14,
+    "engraving_recess_faces": 1579,
+    "missing_engraving": [],
+    "export_pending": true
+  },
+  "layout_issue_count": 0,
+  "enclosure_missing_degrees_at_9m": [],
+  "native_clearance": {
+    "scope": "Native authored rock render meshes versus 0.4 m radius / 2.4 m player envelopes; excludes UE collision simplification and simulation",
+    "markers": 206,
+    "native_instances": 154,
+    "broadphase_candidates": 46,
+    "issues": []
+  },
+  "render": {
+    "engine": "CYCLES",
+    "device": "OPTIX: NVIDIA GeForce RTX 5090",
+    "samples": 96,
+    "resolution": [
+      1672,
+      941
+    ],
+    "seconds_per_view": {
+      "rail-joint": 7.64,
+      "blue-roof-access": 6.72,
+      "red-roof-access": 6.78,
+      "balcony": 5.94,
+      "exterior": 6.33,
+      "topdown": 6.46,
+      "blue-ramp-approach": 6.66
+    }
+  },
+  "missing_reference_assets": [],
+  "runtime_validation": "Pending by user request; offline timing is not gameplay FPS",
+  "architecture_check": {
+    "scope": "Blender geometry only; reflection of all tower armor surfaces and conservative full native field-tree bounds (excludes distant ridge saplings)",
+    "panel_reflection_axis_y_m": 28.8,
+    "panel_vertices_checked": 4044,
+    "panel_max_reflection_error_m": 0.0005033,
+    "native_tree_parts_checked": 210,
+    "canopy_max_y_m": 20.086,
+    "metalwork_front_y_m": 21.58,
+    "canopy_to_metalwork_gap_m": 1.494,
+    "rail_modules_checked": 192,
+    "rail_clasp_overlaps": [],
+    "northernmost_parts": [
+      {
+        "instance": "NATIVE - leaves 63",
+        "object": "SM_Tree_Maned_Kuenovo_branch_01_LOD0",
+        "low": [
+          -29.37376594543457,
+          14.791893005371094,
+          8.85886001586914
+        ],
+        "high": [
+          -24.334932327270508,
+          20.085983276367188,
+          12.656172752380371
+        ]
+      },
+      {
+        "instance": "NATIVE - leaves 69",
+        "object": "SM_Tree_Maned_Kuenovo_branch_01_LOD0",
+        "low": [
+          -29.1313419342041,
+          13.905441284179688,
+          8.868631362915039
+        ],
+        "high": [
+          -22.967004776000977,
+          20.054168701171875,
+          12.627212524414062
+        ]
+      },
+      {
+        "instance": "NATIVE - leaves 87",
+        "object": "SM_Tree_Maned_Kuenovo_branch_01_LOD0",
+        "low": [
+          -30.971378326416016,
+          13.64322280883789,
+          8.891338348388672
+        ],
+        "high": [
+          -24.6014347076416,
+          19.84183692932129,
+          12.968098640441895
+        ]
+      },
+      {
+        "instance": "NATIVE - leaves 60",
+        "object": "SM_Tree_Maned_Kuenovo_branch_01_LOD0",
+        "low": [
+          -24.002395629882812,
+          14.252549171447754,
+          8.759682655334473
+        ],
+        "high": [
+          -18.632238388061523,
+          19.715917587280273,
+          12.557025909423828
+        ]
+      },
+      {
+        "instance": "NATIVE - leaves 93",
+        "object": "SM_Tree_Maned_Kuenovo_branch_01_LOD0",
+        "low": [
+          -26.378873825073242,
+          13.852922439575195,
+          8.56003189086914
+        ],
+        "high": [
+          -20.857328414916992,
+          19.45693588256836,
+          12.109630584716797
+        ]
+      }
+    ]
+  }
+}
