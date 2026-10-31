@@ -64,8 +64,10 @@ the lower level to kill the idle player.
 **AI stand still without orders.** They hold firing positions in their task's
 areas until they see someone, and AI far from every player go idle. Each bot
 is forced active when placed (`ai_force_active`), the bake gives the objective
-one task per area and makes `hunt` follow the players (radius 3 wu, every
-player slot), and the host's HUD orders each bot every 8-16 s: three times in
+the tasks `area_0` .. `area_15` (a map with fewer areas repeats them, one
+with more shares them out, so every task the HUD names is there) and makes
+`hunt` follow the players (radius 3 wu, every player slot), and the host's
+HUD orders each bot every 8-16 s: three times in
 four after an enemy, otherwise `(ai_set_task <squad> mjolnir_bots
 area_<r>)` to a random area. An enemy human is hunted: the `hunt` task and
 `(ai_magically_see_object <squad> (player_get n))`, where `n` counts the
@@ -77,19 +79,23 @@ a bot is no player, so it gets an area walk and `(ai_magically_see <squad>
 target in a team game.
 
 **Where bots spawn.** On the map's own player starts. The bake stands each
-bot squad on one of the level's starts, taken in turn from the starts on the
-ground the bots walk (`bots_finish`), so a bot appears where a player would.
-Each squad has that one start, though, so a bot always comes back where it
-first spawned, and a map with more starts than squads (15 per kind) never
-uses the rest.
+bot squad on one of the starts on the ground the bots walk (`bots_finish`),
+so a bot appears where a player would. Squad `k` takes the `k`-th start
+farthest first: the first start, then each time the one farthest from those
+already taken. A level lists its starts a base at a time, so taken in the
+level's order (as before 2026-10-31) the first eight bots on Blood Gulch all
+stood at one base and fought there. Each squad has that one start, though,
+so a bot always comes back where it first spawned, and a map with more starts
+than squads (15 per kind) never uses the rest.
 
 **Why bots stand still.** Seen on Night Lockout and Blood Gulch: a bot sent
 to `hunt` a player it cannot reach (on ground the pathfinding does not join)
-waits at the nearest point; the HUD picks `area_<r>` from 0-15 while most
-maps bake fewer areas, so those orders go nowhere; and on narrow ground
-`hunt`'s 3 wu radius found no firing position to stand on until the bake
-narrowed the grid there. An AI with no target holds its task's positions:
-the simulation's own `search` follows a target it lost, it does not roam.
+waits at the nearest point; the HUD picked `area_<r>` from 0-15 while most
+maps baked fewer areas, so those orders went nowhere (every map bakes all
+sixteen tasks since 2026-10-31); and on narrow ground `hunt`'s 3 wu radius
+found no firing position to stand on until the bake narrowed the grid there.
+An AI with no target holds its task's positions: the simulation's own
+`search` follows a target it lost, it does not roam.
 
 **Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
 [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
@@ -301,8 +307,9 @@ so is a container with more than one BSP or world.
 - A bot that falls or kills itself gets no suicide on the board.
 - A bot respawns on the start it first used; maps with more starts than
   squads leave the rest unused.
-- The HUD orders bots to `area_0`..`area_15` whatever the map baked, and
-  sends them to hunt players they cannot reach.
+- The HUD sends bots to hunt players they cannot reach. A map published
+  before 2026-10-31 still has as many area tasks as it baked areas, so some
+  of the HUD's roaming orders go nowhere until it is rebaked.
 - No jump, hoist or ladder links, so bots do not use teleporters, lifts or
   man cannons, and ground reached only that way stays apart. Night Lockout's
   two levels meet only by drops and jumps: its bots play the lower one (16
