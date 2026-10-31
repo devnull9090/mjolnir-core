@@ -28,6 +28,24 @@
 //! touches, stays a ledge. Where two steps do not join, each keeps its own
 //! link along their edge.
 //!
+//! **Cracks.** Converted maps are often built of separate slabs: a floor ends
+//! in its slab's own side face, and the next slab's floor starts edge to edge
+//! with it, a hair inside it, or across a crack, never sharing an edge. B40
+//! joins sectors on separate geometry the same way it would here, with
+//! *intersection links*: each sector keeps its own boundary link along the
+//! seam, flagged `sector intersection link` and given a hint of its own (type
+//! `intersection link`, data `(joining link, 0, 0, 0)`), and the two hints
+//! name one two-sided link appended after all the others, which runs along
+//! the first sector's link (its vertices, its `forward link`) and carries the
+//! second's `forward link` as its `reverse link`. A sector's `hint index`
+//! heads a chain (`next hint index`) of exactly its own links' hints. Two
+//! floor edges become such a seam where both drop away (nothing beyond, or a
+//! surface no higher than the edge), they run opposite ways within
+//! [`CRACK_WIDTH`] of each other and less than [`STEP_HEIGHT`] apart in
+//! height, and overlap by [`CRACK_OVERLAP`]; each link is first cut at the
+//! overlap's ends, so the seam is exactly the stretch both floors share.
+//! Floors on either side of a wall never pair: their edges rise into it.
+//!
 //! The scenario's `structure bsps[i].flags` bit `no default structure
 //! pathfinding` (0x8) must be clear for the shell's refs to count; B40 sets it
 //! because its own sectors all lie on instanced geometry.
@@ -39,10 +57,15 @@ pub const SECTOR_FLOOR: u16 = 0x11;
 /// `sector walkable | sector step`, B40's flags for a riser short enough to
 /// walk over; [`step_flags`] adds the wall it faces.
 pub const SECTOR_STEP: u16 = 0x1001;
+/// `sector intersection link`: a boundary link whose hint names the link
+/// that joins its sector to one on other geometry.
+pub const LINK_INTERSECTION: u16 = 0x2;
 /// `sector link wall base`: the far side of the edge is a wall.
 pub const LINK_WALL_BASE: u16 = 0x40;
 /// `sector link ledge`: the far side drops away or is open.
 pub const LINK_LEDGE: u16 = 0x80;
+/// The `pathfinding hints` type `intersection link`.
+pub const HINT_INTERSECTION: i16 = 0;
 
 /// The steepest floor an AI walks: a normal at most ~49 degrees off vertical.
 pub const WALKABLE_NZ: f32 = 0.65;
@@ -51,6 +74,13 @@ pub const WALKABLE_NZ: f32 = 0.65;
 /// bounds start at 0.1 wu (anything taller is a hoist or a jump), as does
 /// `max jump down height down`. B40's own steps rise 0.007 to 0.078 wu.
 pub const STEP_HEIGHT: f32 = 0.1;
+
+/// How far apart two floors' dropping edges may lie, across a crack or into
+/// each other, and still be one seam to walk over. Night Lockout's slabs
+/// meet edge to edge, overlap by 0.01 or leave cracks up to about this.
+pub const CRACK_WIDTH: f32 = 0.1;
+/// The shortest stretch two floors' edges must share to be a seam.
+pub const CRACK_OVERLAP: f32 = 0.05;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Sector {
@@ -78,6 +108,14 @@ pub struct Link {
     pub right: i16,
 }
 
+/// A `pathfinding hints` element.
+#[derive(Debug, Clone, Copy)]
+pub struct Hint {
+    pub kind: i16,
+    pub next: i16,
+    pub data: [i32; 4],
+}
+
 /// A point an AI may choose to stand at in combat, on a walkable surface.
 #[derive(Debug, Clone, Copy)]
 pub struct FiringPosition {
@@ -93,6 +131,9 @@ pub struct Pathfinding {
     /// One per shell surface: the sector, or -1.
     pub refs: Vec<i32>,
     pub vertices: Vec<[f32; 3]>,
+    pub hints: Vec<Hint>,
+    /// Crack seams left out to keep the indices within 16 bits.
+    pub cracks_dropped: usize,
     /// The sector each shell surface became, if any.
     pub surface_sector: Vec<Option<usize>>,
     /// Sector index -> its shell surface.
@@ -332,8 +373,15 @@ impl Pathfinding {
                 .map_err(|_| "more than 32767 pathfinding vertices".to_string())
         };
         let mut verts = Vec::new();
+        // The surface across each link with nothing to its right (-1: none).
+        let mut far = Vec::with_capacity(plan.len());
         for &(e, carries) in &plan {
             let edge = &c.edges[e];
+            far.push(match carries {
+                Carries::Both => None,
+                Carries::Left => Some(edge.right),
+                Carries::Right => Some(edge.left),
+            });
             // In edge terms: `forward` continues the left surface's ring,
             // `reverse` the right's.
             let (start, end, ls, rs, lnext, rnext, flags) = match carries {
@@ -386,6 +434,7 @@ impl Pathfinding {
             pf.links.push(link);
         }
         pf.vertices = verts;
+        pf.join_cracks(c, &far)?;
 
         // Components over sector-to-sector links.
         let mut parent: Vec<usize> = (0..pf.sectors.len()).collect();
@@ -404,6 +453,327 @@ impl Pathfinding {
             .map(|s| find(&mut parent, s))
             .collect();
         Ok(pf)
+    }
+
+    /// Join floors across cracks with intersection links (the module docs
+    /// say how). `far[k]` is the surface across link `k`'s edge (-1: none)
+    /// for each link with nothing to its right.
+    fn join_cracks(&mut self, c: &Collision, far: &[Option<i32>]) -> Result<(), String> {
+        /// A floor link whose edge drops away, as a 2D segment.
+        struct Seg {
+            link: usize,
+            a: [f32; 3],
+            b: [f32; 3],
+            u: [f32; 2],
+            len: f32,
+        }
+        /// Two segments' shared stretch, in each one's distance from its
+        /// start.
+        struct Seam {
+            i: usize,
+            j: usize,
+            ti: [f32; 2],
+            tj: [f32; 2],
+            score: f32,
+        }
+        let mut segs = Vec::new();
+        for (k, l) in self.links.iter().enumerate() {
+            let Some(far) = far[k] else { continue };
+            if !self.sectors[l.left as usize].is_floor() {
+                continue;
+            }
+            let (a, b) = (self.vertices[l.v1 as usize], self.vertices[l.v2 as usize]);
+            let top = a[2].max(b[2]);
+            if far >= 0 && z_range(c, far as usize).is_none_or(|r| r[1] > top + 0.01) {
+                continue;
+            }
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len > 1e-4 {
+                let u = [dx / len, dy / len];
+                segs.push(Seg {
+                    link: k,
+                    a,
+                    b,
+                    u,
+                    len,
+                });
+            }
+        }
+        let at = |s: &Seg, t: f32| {
+            let f = t / s.len;
+            [0, 1, 2].map(|k| s.a[k] + (s.b[k] - s.a[k]) * f)
+        };
+
+        // Segments by 1 wu cell, sampled along their length.
+        let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> = Default::default();
+        for (i, s) in segs.iter().enumerate() {
+            let mut cells = Vec::new();
+            for n in 0..=(s.len / 0.5).ceil() as usize {
+                let p = at(s, (n as f32 * 0.5).min(s.len));
+                for dx in [-CRACK_WIDTH, CRACK_WIDTH] {
+                    for dy in [-CRACK_WIDTH, CRACK_WIDTH] {
+                        cells.push(((p[0] + dx).floor() as i32, (p[1] + dy).floor() as i32));
+                    }
+                }
+            }
+            cells.sort_unstable();
+            cells.dedup();
+            for cell in cells {
+                grid.entry(cell).or_default().push(i);
+            }
+        }
+        let seam = |i: usize, j: usize| -> Option<Seam> {
+            let (p, q) = (&segs[i], &segs[j]);
+            if self.links[p.link].left == self.links[q.link].left
+                || p.u[0] * q.u[0] + p.u[1] * q.u[1] > -0.98
+            {
+                return None;
+            }
+            // Where q runs along p, in p's distance.
+            let t = |x: [f32; 3]| (x[0] - p.a[0]) * p.u[0] + (x[1] - p.a[1]) * p.u[1];
+            let (ta, tb) = (t(q.a), t(q.b));
+            let (lo, hi) = (ta.min(tb).max(0.0), ta.max(tb).min(p.len));
+            if hi - lo < CRACK_OVERLAP {
+                return None;
+            }
+            // q's distance at p's ends of the stretch; q runs the other way.
+            let on_q = |s: f32| {
+                let x = at(p, s);
+                ((x[0] - q.a[0]) * q.u[0] + (x[1] - q.a[1]) * q.u[1]).clamp(0.0, q.len)
+            };
+            let (qa, qb) = (on_q(lo), on_q(hi));
+            // How far q lies outside p's floor (to its right) at both ends,
+            // and how far apart in height.
+            let out = |x: [f32; 3]| (x[0] - p.a[0]) * p.u[1] - (x[1] - p.a[1]) * p.u[0];
+            let (oa, ob) = (out(at(q, qa)), out(at(q, qb)));
+            let dz = (at(p, lo)[2] - at(q, qa)[2])
+                .abs()
+                .max((at(p, hi)[2] - at(q, qb)[2]).abs());
+            if oa.abs().max(ob.abs()) > CRACK_WIDTH || dz >= STEP_HEIGHT {
+                return None;
+            }
+            let score = (oa.abs() + ob.abs()) / 2.0 + dz;
+            Some(Seam {
+                i,
+                j,
+                ti: [lo, hi],
+                tj: [qb, qa],
+                score,
+            })
+        };
+        let mut found = Vec::new();
+        let mut tried = std::collections::HashSet::new();
+        for cell in grid.values() {
+            for (x, &i) in cell.iter().enumerate() {
+                for &j in &cell[x + 1..] {
+                    if tried.insert((i.min(j), i.max(j))) {
+                        found.extend(seam(i, j));
+                    }
+                }
+            }
+        }
+
+        // Closest first; a stretch of a link takes one seam.
+        found.sort_by(|a, b| a.score.total_cmp(&b.score));
+        let mut taken: Vec<Vec<[f32; 2]>> = vec![Vec::new(); segs.len()];
+        let clash = |list: &[[f32; 2]], r: [f32; 2]| {
+            list.iter()
+                .any(|q| r[0] < q[1] - 1e-4 && q[0] < r[1] - 1e-4)
+        };
+        let mut seams = Vec::new();
+        for s in found {
+            if !clash(&taken[s.i], s.ti) && !clash(&taken[s.j], s.tj) {
+                taken[s.i].push(s.ti);
+                taken[s.j].push(s.tj);
+                seams.push(s);
+            }
+        }
+        // Where each segment is cut: the seams' ends inside it.
+        let cuts = |seams: &[Seam]| {
+            let mut cuts = vec![Vec::new(); segs.len()];
+            for s in seams {
+                for (k, r) in [(s.i, s.ti), (s.j, s.tj)] {
+                    cuts[k].extend(
+                        r.into_iter()
+                            .filter(|&t| t > 1e-4 && t < segs[k].len - 1e-4),
+                    );
+                }
+            }
+            for c in &mut cuts {
+                c.sort_by(f32::total_cmp);
+                c.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+            }
+            cuts
+        };
+        // The 16-bit link and vertex indices: past them, the shortest seams
+        // go first.
+        loop {
+            let n: usize = cuts(&seams).iter().map(Vec::len).sum();
+            if self.links.len() + n + seams.len() <= 32767 && self.vertices.len() + n <= 32767 {
+                break;
+            }
+            seams.sort_by(|a, b| (b.ti[1] - b.ti[0]).total_cmp(&(a.ti[1] - a.ti[0])));
+            let drop = (seams.len() / 8).max(1);
+            seams.truncate(seams.len() - drop);
+            self.cracks_dropped += drop;
+        }
+
+        // Cut each segment's link into pieces at its cuts: the first keeps
+        // its index (what led to it still does), the others are appended,
+        // and the last goes on where the link went.
+        let cuts = cuts(&seams);
+        let mut pieces: Vec<Vec<([f32; 2], usize)>> = vec![Vec::new(); segs.len()];
+        for (k, s) in segs.iter().enumerate() {
+            let link = self.links[s.link];
+            let mut ts = vec![0.0];
+            ts.extend(&cuts[k]);
+            ts.push(s.len);
+            let mut verts = vec![link.v1];
+            for &t in &cuts[k] {
+                verts.push(self.vertices.len() as i16);
+                self.vertices.push(at(s, t));
+            }
+            verts.push(link.v2);
+            let mut ids = vec![s.link];
+            for _ in 2..ts.len() {
+                ids.push(self.links.len());
+                self.links.push(link);
+            }
+            for m in 0..ids.len() {
+                let piece = &mut self.links[ids[m]];
+                piece.v1 = verts[m];
+                piece.v2 = verts[m + 1];
+                piece.forward = ids.get(m + 1).map_or(link.forward, |&id| id as i16);
+                pieces[k].push(([ts[m], ts[m + 1]], ids[m]));
+            }
+        }
+        let piece = |k: usize, r: [f32; 2]| {
+            pieces[k]
+                .iter()
+                .find(|(p, _)| (p[0] - r[0]).abs() < 1e-3 && (p[1] - r[1]).abs() < 1e-3)
+                .map(|&(_, id)| id)
+                .ok_or_else(|| format!("crack seam lost its piece of link {}", segs[k].link))
+        };
+
+        // The joining links, after every other, and a hint per seam end.
+        let first = self.links.len();
+        for (n, s) in seams.iter().enumerate() {
+            let (ui, uj) = (piece(s.i, s.ti)?, piece(s.j, s.tj)?);
+            let (li, lj) = (self.links[ui], self.links[uj]);
+            for u in [ui, uj] {
+                self.links[u].flags = LINK_INTERSECTION;
+                self.links[u].hint = self.hints.len() as i16;
+                self.hints.push(Hint {
+                    kind: HINT_INTERSECTION,
+                    next: -1,
+                    data: [(first + n) as i32, 0, 0, 0],
+                });
+            }
+            self.links.push(Link {
+                v1: li.v1,
+                v2: li.v2,
+                flags: 0,
+                hint: -1,
+                forward: li.forward,
+                reverse: lj.forward,
+                left: li.left,
+                right: lj.left,
+            });
+        }
+        // Each sector's hint chain: its links' hints, around its ring.
+        for s in 0..self.sectors.len() {
+            let mut chain = Vec::new();
+            let first = self.sectors[s].first_link;
+            let mut l = first;
+            for _ in 0..4096 {
+                if l < 0 {
+                    break;
+                }
+                let link = self.links[l as usize];
+                if link.hint >= 0 {
+                    chain.push(link.hint);
+                }
+                let next = if link.left as usize == s {
+                    link.forward
+                } else {
+                    link.reverse
+                };
+                l = next as i32;
+                if l == first {
+                    break;
+                }
+            }
+            for w in chain.windows(2) {
+                self.hints[w[0] as usize].next = w[1];
+            }
+            self.sectors[s].hint = chain.first().copied().unwrap_or(-1);
+        }
+        Ok(())
+    }
+
+    /// Check the intersection links as the simulation reads them: each
+    /// flagged link's hint names a link joining its sector that carries the
+    /// sector's ring on where it does (and runs along it, for its left
+    /// sector), and each sector's hint chain is exactly its own links' hints.
+    pub fn check_hints(&self) -> Result<(), String> {
+        for (k, l) in self.links.iter().enumerate() {
+            if l.flags & LINK_INTERSECTION == 0 {
+                if l.hint >= 0 {
+                    return Err(format!("link {k}: a hint but no intersection flag"));
+                }
+                continue;
+            }
+            let h = usize::try_from(l.hint)
+                .ok()
+                .and_then(|h| self.hints.get(h))
+                .ok_or_else(|| format!("link {k}: no hint"))?;
+            let t = usize::try_from(h.data[0])
+                .ok()
+                .and_then(|t| self.links.get(t))
+                .ok_or_else(|| format!("link {k}: hint {} names no link", l.hint))?;
+            let ok = if t.left == l.left {
+                t.forward == l.forward && (t.v1, t.v2) == (l.v1, l.v2)
+            } else {
+                t.right == l.left && t.reverse == l.forward
+            };
+            if h.kind != HINT_INTERSECTION || l.right >= 0 || !ok {
+                return Err(format!("link {k}: hint {} does not join it", l.hint));
+            }
+        }
+        for (s, sector) in self.sectors.iter().enumerate() {
+            let mut own = Vec::new();
+            let mut l = sector.first_link;
+            for _ in 0..4096 {
+                let link = &self.links[l as usize];
+                if link.hint >= 0 {
+                    own.push(link.hint);
+                }
+                let next = if link.left as usize == s {
+                    link.forward
+                } else {
+                    link.reverse
+                };
+                l = next as i32;
+                if l < 0 || l == sector.first_link {
+                    break;
+                }
+            }
+            let mut chain = Vec::new();
+            let mut h = sector.hint;
+            while h >= 0 && chain.len() <= self.hints.len() {
+                chain.push(h);
+                h = self.hints[h as usize].next;
+            }
+            own.sort_unstable();
+            chain.sort_unstable();
+            if own != chain {
+                return Err(format!(
+                    "sector {s}: hint chain {chain:?}, its links' hints {own:?}"
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Walk every sector's link ring the way the simulation does and check
@@ -556,6 +926,18 @@ impl Pathfinding {
 
     pub fn refs_bytes(&self) -> Vec<u8> {
         self.refs.iter().flat_map(|r| r.to_le_bytes()).collect()
+    }
+
+    pub fn hints_bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(self.hints.len() * 20);
+        for h in &self.hints {
+            b.extend_from_slice(&h.kind.to_le_bytes());
+            b.extend_from_slice(&h.next.to_le_bytes());
+            for d in h.data {
+                b.extend_from_slice(&d.to_le_bytes());
+            }
+        }
+        b
     }
 
     pub fn vertices_bytes(&self) -> Vec<u8> {
@@ -907,6 +1289,99 @@ mod tests {
         assert!(surface_normal(&c, 1)[0] > 0.99);
         let pf = Pathfinding::build(&c).unwrap();
         assert_eq!(pf.refs, vec![0, -1]);
+    }
+
+    /// Two slabs, each a floor with its side face hanging 0.08 below it: one
+    /// over x 0..1, y `a`, at z 0, the other over x `1 + gap`..2, y `b`, at
+    /// z `dz`. `up` makes the side faces walls rising 1 wu instead. Surfaces:
+    /// floor, face, floor, face.
+    fn slabs(gap: f32, dz: f32, a: [f32; 2], b: [f32; 2], up: bool) -> Collision {
+        let h = if up { 1.0 } else { -0.08 };
+        let x = 1.0 + gap;
+        let points = [
+            [0.0, a[0], 0.0],
+            [1.0, a[0], 0.0],
+            [1.0, a[1], 0.0],
+            [0.0, a[1], 0.0],
+            [1.0, a[0], h],
+            [1.0, a[1], h],
+            [x, b[0], dz],
+            [2.0, b[0], dz],
+            [2.0, b[1], dz],
+            [x, b[1], dz],
+            [x, b[0], dz + h],
+            [x, b[1], dz + h],
+        ];
+        shell(
+            &points,
+            &[&[0, 1, 2, 3], &[2, 1, 4, 5], &[6, 7, 8, 9], &[6, 9, 11, 10]],
+        )
+    }
+
+    fn joined(c: &Collision) -> bool {
+        let pf = Pathfinding::build(c).unwrap();
+        pf.check_rings().unwrap();
+        pf.check_hints().unwrap();
+        assert_eq!(pf.refs, vec![0, -1, 1, -1]);
+        pf.component[0] == pf.component[1]
+    }
+
+    #[test]
+    fn slabs_edge_to_edge_join_through_an_intersection_link() {
+        let c = slabs(0.0, 0.0, [0.0, 1.0], [0.0, 1.0], false);
+        let pf = Pathfinding::build(&c).unwrap();
+        pf.check_rings().unwrap();
+        pf.check_hints().unwrap();
+        assert_eq!(pf.refs, vec![0, -1, 1, -1]);
+        assert_eq!(pf.component[0], pf.component[1]);
+        // Each floor's link along the seam is an intersection link with a
+        // hint of its own; both name the joining link, appended last.
+        let users: Vec<_> = pf
+            .links
+            .iter()
+            .filter(|l| l.flags == LINK_INTERSECTION)
+            .collect();
+        assert_eq!(users.len(), 2);
+        assert!(users.iter().all(|l| l.right == -1 && l.hint >= 0));
+        assert_eq!(pf.hints.len(), 2);
+        let t = pf.links.len() - 1;
+        assert!(pf
+            .hints
+            .iter()
+            .all(|h| h.kind == 0 && h.data == [t as i32, 0, 0, 0]));
+        assert_eq!((pf.links[t].left, pf.links[t].right), (0, 1));
+        assert_eq!(
+            [pf.sectors[0].hint, pf.sectors[1].hint],
+            [users[0].hint, users[1].hint]
+        );
+    }
+
+    #[test]
+    fn floors_join_across_a_crack_or_an_overlap_within_a_step() {
+        assert!(joined(&slabs(0.05, 0.08, [0.0, 1.0], [0.0, 1.0], false)));
+        assert!(joined(&slabs(-0.01, 0.0, [0.0, 1.0], [0.0, 1.0], false)));
+        assert!(!joined(&slabs(0.15, 0.0, [0.0, 1.0], [0.0, 1.0], false)));
+        assert!(!joined(&slabs(0.05, 0.12, [0.0, 1.0], [0.0, 1.0], false)));
+    }
+
+    #[test]
+    fn floors_either_side_of_a_wall_do_not_join() {
+        assert!(!joined(&slabs(0.05, 0.0, [0.0, 1.0], [0.0, 1.0], true)));
+    }
+
+    #[test]
+    fn a_long_edge_is_cut_where_a_short_one_meets_it() {
+        // The first slab's edge runs y 0..2, the second's y 0.5..1.
+        let c = slabs(0.0, 0.0, [0.0, 2.0], [0.5, 1.0], false);
+        assert!(joined(&c));
+        let pf = Pathfinding::build(&c).unwrap();
+        // The long link became three pieces around the first floor.
+        let ring = pf.links.iter().filter(|l| l.left == 0).count();
+        assert_eq!(ring, 4 + 2 + 1); // its edges, two more pieces, the seam
+        let t = pf.links.last().unwrap();
+        let mut ends = [pf.vertices[t.v1 as usize], pf.vertices[t.v2 as usize]];
+        ends.sort_by(|a, b| a[1].total_cmp(&b[1]));
+        assert_eq!(ends, [[1.0, 0.5, 0.0], [1.0, 1.0, 0.0]]);
     }
 
     #[test]

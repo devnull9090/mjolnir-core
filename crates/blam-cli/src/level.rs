@@ -1715,6 +1715,7 @@ impl Baker {
         let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
         let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
         pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+        pf.check_hints().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
         let instances = pathfinding::instance_count(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
 
         // The tables. One `instanced geometry refs` entry per instance, none
@@ -1735,9 +1736,10 @@ impl Baker {
             table("bsp2d refs", pf.refs.len(), pf.refs_bytes()),
             table("bsp2d nodes", 0, Vec::new()),
             table("vertices", pf.vertices.len(), pf.vertices_bytes()),
+            table("pathfinding hints", pf.hints.len(), pf.hints_bytes()),
             table("instanced geometry refs", instances, none.repeat(instances)),
         ];
-        for name in ["object refs", "pathfinding hints", "giant pathfinding data", "seams", "jump seams", "doors"] {
+        for name in ["object refs", "giant pathfinding data", "seams", "jump seams", "doors"] {
             edits.push(table(name, 0, Vec::new()));
         }
         self.file = blockedit::replace_nested(&self.file, &edits)?;
@@ -1749,14 +1751,21 @@ impl Baker {
         // `no default structure pathfinding` off: the shell's refs count.
         apply_set(&mut self.file, &flags_path, &format!("{:#x}", flags & !0x8))?;
         println!(
-            "  bots    pathfinding[{bsp}]: {} sector(s) ({} step(s)), {} link(s), {} vertices, {} surface ref(s), {} instance ref(s)",
+            "  bots    pathfinding[{bsp}]: {} sector(s) ({} step(s)), {} link(s) ({} crack seam(s)), {} vertices, {} surface ref(s), {} instance ref(s)",
             pf.sectors.len(),
             pf.sectors.iter().filter(|s| !s.is_floor()).count(),
             pf.links.len(),
+            pf.hints.len() / 2,
             pf.vertices.len(),
             pf.refs.len(),
             instances
         );
+        if pf.cracks_dropped > 0 {
+            println!(
+                "  note    bots: {} crack seam(s) left out, the shortest, to keep the links within 16-bit indices",
+                pf.cracks_dropped
+            );
+        }
 
         // Firing positions over the ground the spawns stand on.
         let spawn_wu: Vec<[f32; 3]> = ix
