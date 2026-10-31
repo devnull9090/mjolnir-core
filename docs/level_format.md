@@ -232,7 +232,8 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
 - `map_variant`: `true` adds the `map variant palettes`: one per category
   (weapons, vehicles, equipment, scenery), listing every tag the level places
   and every kind `defs/level/palette-map.json` knows (not the pelican, space
-  banshee or seraph), with no quota. Under a multiplayer (Megalo) engine,
+  banshee, seraph or battle rifle, unless the level places one), with no
+  quota. Under a multiplayer (Megalo) engine,
   objects whose tags carry multiplayer data exist only through the map
   variant, which the simulation builds from the palette-listed placements; in
   Forge the palettes are what the Monitor places from

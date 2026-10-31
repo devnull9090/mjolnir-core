@@ -492,7 +492,9 @@ was always full and duplicate never worked. The bake now writes a palette per
 category (weapons, vehicles, equipment, scenery) listing every kind
 `defs/level/palette-map.json` knows, placed or not, with no quota
 (`crates/blam-cli/src/level.rs`, `map_variant_palettes`). The campaign-only
-pelican, space banshee and seraph are left out (no multiplayer data).
+pelican, space banshee and seraph are left out (no multiplayer data), and so
+is the battle rifle, which no stock canvas carries; a map whose level places
+one of them lists it.
 For maps baked the old way the Forge DLL lifts those quotas in memory: one
 palette whose every entry has a quota above 0 gets 0 in each.
 

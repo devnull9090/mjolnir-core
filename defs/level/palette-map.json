@@ -25,7 +25,8 @@
     "beam_rifle": "objects\\weapons\\rifle\\beam_rifle\\beam_rifle",
     "skull": "objects\\weapons\\multiplayer\\skull\\skull",
     "shotgun": "objects\\weapons\\rifle\\shotgun\\shotgun",
-    "fuel_rod_gun": "objects\\weapons\\support_high\\flak_cannon\\flak_cannon"
+    "fuel_rod_gun": "objects\\weapons\\support_high\\flak_cannon\\flak_cannon",
+    "battle_rifle": "objects\\weapons\\rifle\\battle_rifle\\battle_rifle"
   },
   "equipment": {
     "frag_grenade": "objects\\weapons\\grenade\\frag_grenade\\frag_grenade",

@@ -490,9 +490,11 @@ fn palette_map() -> Result<PaletteMap> {
     serde_json::from_str(PALETTE_MAP).context("parsing the built-in palette map")
 }
 
-/// Palette-map kinds left out of a map's Forge palettes: campaign-only
-/// vehicles with no multiplayer data, which the sandbox cannot create.
-const FORGE_UNPLACEABLE: [&str; 3] = ["pelican", "space_banshee", "seraph"];
+/// Palette-map kinds a map's Forge palettes list only where the level places
+/// one: the campaign-only vehicles, which have no multiplayer data so the
+/// sandbox cannot create them, and the battle rifle, which no stock canvas
+/// carries (Night Lockout places one).
+const FORGE_WHERE_PLACED: [&str; 4] = ["pelican", "space_banshee", "seraph", "battle_rifle"];
 
 const SCENARIOS: [&str; 13] = [
     "A15", "A30", "A50", "B30", "B40", "C10", "C20", "C45", "D20", "D40", "E10", "E20", "E30",
@@ -2194,8 +2196,8 @@ fn bake(a: BakeArgs) -> Result<()> {
         // only through the map variant as well (they never appeared on Blood
         // Gulch while the palette listed vehicles and weapons alone). Every
         // kind the palette map knows is listed, placed or not, so Forge can
-        // place the whole arsenal; the campaign-only flyers have no
-        // multiplayer data, so the sandbox could never create them.
+        // place the whole arsenal, except those `FORGE_WHERE_PLACED` keeps
+        // to the maps that place them.
         let mut palettes = Vec::new();
         for (category, items, table, group) in [
             ("weapons", &level.blam.weapons, &map.weapons, "weap"),
@@ -2216,7 +2218,7 @@ fn bake(a: BakeArgs) -> Result<()> {
                 }
             }
             for (kind, path) in table.iter() {
-                if !FORGE_UNPLACEABLE.contains(&kind.as_str()) {
+                if !FORGE_WHERE_PLACED.contains(&kind.as_str()) {
                     tags.entry((format!("{group}:{path}"), String::new()))
                         .or_default();
                 }
