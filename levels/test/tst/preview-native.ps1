@@ -42,5 +42,11 @@ try {
     if ($Views -contains 'facility-panel-bays') {
         Run-Stage 'panel-perspective' $BlenderExe ($base+@('levels/test/tst/inspect_panel_perspective.py','--','--blend',"$Out/preview.blend",'--out',"$Out/panel-perspective-check.json"))
     }
+    $EntryViews = @()
+    if ($Views -contains 'facility-entry-red-inside') { $EntryViews += 'red' }
+    if ($Views -contains 'facility-entry-blue-inside') { $EntryViews += 'blue' }
+    if ($EntryViews.Count -gt 0) {
+        Run-Stage 'entry-perspective' $BlenderExe ($base+@('levels/test/tst/inspect_entry_perspective.py','--','--blend',"$Out/preview.blend",'--out',"$Out/entry-perspective-check.json",'--views')+$EntryViews)
+    }
     Write-Host "TST preview ready: $Out/preview.blend"
 } finally { Pop-Location }

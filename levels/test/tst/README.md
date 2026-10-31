@@ -133,6 +133,23 @@ wall. It reports the ray hits and source hash without saving the preview. This
 checks one Blender viewpoint; inspect the other turns and test the cooked game
 separately.
 
+Include `facility-entry-red-inside` and/or `facility-entry-blue-inside` in
+`-Views` to check that the corresponding entrance side panel is visible from
+that saved camera instead of disappearing behind the jamb. Run it separately:
+
+```powershell
+& 'C:/Program Files/Blender Foundation/Blender 5.1/blender.exe' `
+  --background --factory-startup --python-exit-code 1 `
+  --python levels/test/tst/inspect_entry_perspective.py -- `
+  --blend .dream-loop/blender-preview/native-current/preview.blend `
+  --out .dream-loop/blender-preview/native-current/entry-perspective-check.json `
+  --views red blue
+```
+
+The inspector samples nine rays per selected entrance camera across the panel
+and verifies the camera and source hash without saving the preview. It checks
+those sampled views only; inspect other angles and test the cooked game too.
+
 ### Forerunner architecture study
 
 The [reference research and exact imagegen prompts](art/forerunner-pass.md)

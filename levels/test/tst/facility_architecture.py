@@ -435,7 +435,10 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
             # wholly supported by a single solid face, with a quiet break at
             # the turn. The opposing end is mirrored from the same bounds.
             wall_y,inward=(54.5,-1) if rear else (26.0,1)
-            x0,x1=sorted((side*39.10,side*43.10))
+            # Keep this side field out of the entrance sightline through the
+            # turn: a full-width field is physically clear of the cap but its
+            # near end appears to disappear into the jamb from the vestibule.
+            x0,x1=sorted((side*39.10,side*40.55))
             cap_x=side*43.80
             for label,inset,near,far,role in (
                     ('backing',0,.012,.035,'armor'),
