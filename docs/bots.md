@@ -6,7 +6,10 @@ fireteam client sees them through the simulation's own replication.
 
 Proven on Blood Gulch on 2026-10-25, host and one joiner on two PCs: the bots
 walk the map, fight the players and each other, die and respawn, and both
-machines' feeds and boards name them and count the same kills.
+machines' feeds and boards name them and count the same kills. In team games
+they play for red and blue (PC 1, 2026-10-31): the two sides fight each other,
+a bot leaves the players of its own side alone, and its kills score for its
+team.
 
 ## The pieces
 
@@ -15,6 +18,7 @@ machines' feeds and boards name them and count the same kills.
 | `level bake`, `blam.bots` ([level_format.md](level_format.md)) | bot squads, a zone of firing positions, an objective, AI pathfinding for the map's BSP |
 | `crates/blam-sbsp/src/pathfinding.rs` | the pathfinding tables, from a structure BSP's collision shell |
 | MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game |
+| MJOLNIRLobby's DLL, `mjolnir_bots_teams` | in a team game, gives AI units the multiplayer team of their side |
 | MJOLNIRLobby `settings.lua` | BOTS, BOT TYPE and BOT DIFFICULTY on the PLAYERS page of the host's game settings: `bots=N;bot_type=K;bot_level=L` in the settings line |
 | `tools/level/build_bot_characters.sh` | the bots' characters: the Spartan, and every kind at each difficulty |
 | MJOLNIRHud `Scripts/bots.lua` | places, names, respawns and directs the bots on the host |
@@ -62,9 +66,15 @@ areas until they see someone, and AI far from every player go idle. Each bot
 is forced active when placed (`ai_force_active`), the bake gives the objective
 one task per area and makes `hunt` follow the players (radius 3 wu, every
 player slot), and the host's HUD orders each bot every 8-16 s: three times in
-four the `hunt` task and `(ai_magically_see_object <squad> (player_get n))`
-on a random human player, otherwise `(ai_set_task <squad> mjolnir_bots
-area_<r>)` to a random area.
+four after an enemy, otherwise `(ai_set_task <squad> mjolnir_bots
+area_<r>)` to a random area. An enemy human is hunted: the `hunt` task and
+`(ai_magically_see_object <squad> (player_get n))`, where `n` counts the
+players there are (`player_get` returns the nth player in the players
+table, not a seat), so the HUD passes the target's rank among the humans in
+seat order. In a team game an enemy is anyone on the other side, a bot too:
+a bot is no player, so it gets an area walk and `(ai_magically_see <squad>
+<enemy squad>)`. A human whose side the HUD has not read yet is no one's
+target in a team game.
 
 **Where bots spawn.** On the map's own player starts. The bake stands each
 bot squad on one of the level's starts, taken in turn from the starts on the
@@ -84,18 +94,55 @@ the simulation's own `search` follows a target it lost, it does not roam.
 **Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
 [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
 Every unit carries a campaign team and a multiplayer team. A player's unit
-is on red or blue with no campaign team; a bot's is on its squad's campaign
-team (covenant) with no multiplayer team, which the simulation sets again
-every tick. In a Megalo game a unit with no multiplayer team is everyone's
-enemy, so **today's bots attack red and blue players alike, in any game
-type**. Bot against bot is decided by campaign teams instead: bots of one
-team never fight each other, so in Free for All the bots leave each other
-alone; covenant, flood, sentinel and heretic bots do fight one another.
-`ai_set_team` works in a match, but no script function gives an AI unit a
-multiplayer team (`mp_ai_allegiance` is compiled out, `ai_allegiance` gated
-to campaign). With the simulation's store patched to give AI units one, a
-covenant bot on red walked up to a red player without firing and blue bots
-killed him: the Megalo team rule takes over.
+is on red or blue with no campaign team; the simulation puts a bot's on its
+squad's campaign team (covenant) with no multiplayer team, every tick. In a
+Megalo game a unit with no multiplayer team is everyone's enemy, and bot
+against bot is decided by campaign teams: bots of one team never fight each
+other (covenant, flood, sentinel and heretic bots do fight one another).
+That is how bots play Free for All: every one covenant, attacking every
+player and leaving the other bots alone. No script function gives an AI unit
+a multiplayer team (`mp_ai_allegiance` is compiled out, `ai_allegiance` gated
+to campaign).
+
+**Red and blue bots.** In a team game each bot plays for a side.
+MJOLNIRLobby's DLL (`mjolnir_bots_teams`) turns the unit update's `or dx,
+0xff00` (multiplayer team -1) into a call to a few bytes of its own that look
+the multiplayer team up by campaign team, in a table the HUD writes
+(`native\bot_teams.txt`: covenant 3 plays for red 0, flood 8 for blue 1). A
+bot's squad is put on its side's team (`ai_set_team`: covenant for red,
+flood for blue) before its `ai_place`, and the new actor takes it. Moved
+after placing, a blue bot was red for a tick, and a blue Spartan could keep
+the red armour MJOLNIRLevelLoader tinted it as it appeared (seen on PC 1).
+Red and blue bots fight on sight and bots of one side leave each other
+alone, and the game's damage code knows the sides: a red bot's hit on a red
+player is flagged friendly (`bDamagedByFriendly`), and a player's kill of a
+bot on their side raises `kill_betrayal`.
+
+**Players get their side's campaign team too.** An AI picks its enemies by
+campaign teams alone: when it notices a unit it marks it an enemy if either
+campaign team is -1 or the allegiance matrix says so, and never asks the
+Megalo team rule
+([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#how-an-ai-picks-its-enemies)).
+A player's unit has campaign team -1 in a Megalo game, so before this every
+bot took every player for an enemy: in an isolated run a red bot killed the
+red host who walked up to it, as covenant, as sentinel and as human. A
+player's unit copies its pair from the player every tick, so while the
+table is in, the DLL gives each player on red the covenant campaign team and
+each player on blue flood. A red bot then sees a red player as one of its
+own and a blue player as an enemy. Tested isolated on Blood Gulch
+(2026-10-31, PC 1, nobody at the keyboard): a red covenant grunt beside the
+red host held fire for 35 s; with the table turned around (flood red,
+covenant blue) a grunt moved to flood before its placement held fire beside
+the host, now flood, and a covenant elite placed beside them took the host's
+shields in seconds.
+
+The DLL changes the code on the simulation thread between ticks, puts
+it back when the HUD clears the table (the match ends), and on its own once
+the game is not a Megalo one; Free for All leaves it alone. A bot's side is
+chosen when it is first placed, for the side with fewer players (humans and
+bots); on a tie the side with fewer humans, as a human plays better than a
+bot; then blue. It keeps that side for the match, and the board files it
+there (its biped reports the side too, so kills of it read right).
 
 **Slayer's score ignores bots.** Its kill trigger counts kills of players, so
 the round never ended on bot kills. With bots playing, the host's HUD ends the
@@ -104,10 +151,24 @@ game's own `round_over` does: final standings, then the post-game screen. A
 fireteam client gets no `round_over`; it follows the host's travel.
 
 **AI are not players.** Their incidents carry player index -1 and the AI
-biped's actor: a player who kills a bot raises `Kill` (no `death`), a bot that
-kills a player raises the player's `death` (no `Kill`). The HUD gives bot `k`
+biped's actor: a player who kills a bot raises `Kill` (no `death`), or
+`kill_betrayal` and no `Kill` when the bot is on their side; a bot that kills
+a player raises the player's `death` (no `Kill`). The HUD gives bot `k`
 the seat 100 + k (the match log records only seats 0-15, so bots never reach
-the hub) and translates -1 to the seat by actor, then counts both ways.
+the hub) and translates -1 to the seat by actor, then counts both ways (a
+`kill_betrayal` of a bot as a kill: -1 in Team Slayer).
+
+**A bot killed by a bot raises nothing**: no `Kill`, no `death`, only kill
+medals such as `first_blood` with no seats. Its body stays an actor where it
+fell, so the HUD would have counted it alive and never placed it again. The
+HUD reads each bot's unit on its actor instead (`BlamObjectDamage:IsDead()`,
+every 0.25 s), and the actor's blueprint keeps each hit's aftermath
+(`Blam Aftermath Result`: the damage owner's actor, the damage type and
+modifier the incidents carry, and `bBodyDepleted` on the killing blow). When
+the owner is another bot, the HUD queues the `Kill` the game would have
+raised: the feed, the board, the team score and the fireteam's clients all
+have it. A bot that dies with no player's `Kill` naming it within 2 s (a
+fall, its own grenade) waits out the respawn time with no line.
 
 ## Kinds of bot
 
@@ -166,8 +227,11 @@ A client hears bot seats in the host's relayed incidents
 meets a seat it cannot name it asks (`ServerExecRPC "MJOLNIR|bots?"`), holding
 those lines up to 3 s; the host answers that player alone with
 `MJOLNIR|bots|100=Nadia (bot);101=...`, and tells every player once when its
-bots change. Once it has the roster, a client drops its own copies of AI kills
-and deaths (they name the AI -1) and counts the host's.
+bots change. In a team game each seat carries its side's letter
+(`R100=Nadia (bot);B101=...`), which a client from before sides skips: a
+relayed line has no biped to read the side from. Once it has the roster, a
+client drops its own copies of AI kills and deaths (they name the AI -1) and
+counts the host's.
 
 ## Making a map with bots
 
@@ -217,13 +281,24 @@ so is a container with more than one BSP or world.
 - Spartan bots all wear the default armour colour.
 - Slayer's own score counts player kills only: the HUD's board counts bot
   kills, but a round does not end when a bot reaches the score.
-- Team games: bots have no multiplayer team, so they attack both teams'
-  players, and the board files them under red or blue by armour colour
-  (a bot "betrays" a player it was never allied with). Red and blue bots need
-  AI units given a multiplayer team (a patch to the unit update in
-  MJOLNIRLobby's DLL) and mutually hostile campaign teams per side.
-- Free for All: every bot is covenant, so bots never fight each other; and a
-  bot killed by a bot reaches no board.
+- Team games: a bot spawns on its squad's start whichever side it plays
+  for, not at its side's base, and keeps its side when players join or
+  leave (the teams can end uneven). A fireteam client's view of the sides
+  (the roster's letters, its own copy of the units' teams) is not tested on
+  two PCs.
+- Players' campaign teams: in a team game with bots a player's unit is
+  covenant (red) or flood (blue) instead of no campaign team. Nothing else
+  seen reads it in a Megalo game (player against player follows the
+  multiplayer teams), but only Blood Gulch Team Slayer has been played so.
+- Not yet seen in a whole match with the fix: what a side's bots do after a
+  player of that side shoots one (the AI turns on a betrayer in campaign,
+  which until now no one could see, since every bot shot every player
+  anyway); whether bots now follow players of their side as allies do in
+  campaign; and why, in one isolated run, a flood grunt and a covenant elite
+  of the two sides stood 4 wu apart without fighting while the elite killed
+  the host.
+- Free for All: every bot is covenant, so bots never fight each other.
+- A bot that falls or kills itself gets no suicide on the board.
 - A bot respawns on the start it first used; maps with more starts than
   squads leave the rest unused.
 - The HUD orders bots to `area_0`..`area_15` whatever the map baked, and

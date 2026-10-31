@@ -185,12 +185,15 @@ two **multiplayer** teams when both sides have one, and otherwise fall back:
 
 Measured in Team Slayer:
 
-- **Bots and players.** A bot's multiplayer team is -1, so every bot is
-  every player's enemy, red or blue alike. With the store above patched in
-  the running game to give AI units a multiplayer team (`mov dh, dl; sub dh,
-  3`: covenant becomes red), a covenant bot walked up to the red player and
-  never fired, and the bots made blue (`brute`) killed him. So once an AI
-  unit has a multiplayer team, the Megalo team rule decides.
+- **Bots and players.** With no multiplayer team, a covenant bot attacks
+  every player, red or blue alike, and flood, sentinel, heretic, berserk,
+  brute, mule and spare bots ignore players. With the store above patched to
+  give AI units a multiplayer team, bots made blue (`brute`) killed the red
+  player. A single first sighting of a covenant bot on red walking up to the
+  red player without firing did not reproduce: see the isolated runs under
+  "Red and blue bots" below. An AI unit with a multiplayer team, whichever,
+  attacked every player, because an AI picks enemies by campaign teams and a
+  player's is -1 (see "How an AI picks its enemies").
 - **Bot and bot.** Decided by campaign teams, multiplayer teams or not: two
   covenant bots never fight; covenant and flood fought at once (one dead in
   under a minute); covenant, flood, sentinel and heretic bots all fought one
@@ -206,13 +209,125 @@ pair (team, -1), and later `ai_place`s of the squad take the team too.
 arguments and returns); `player_override_team` is a stub. Nothing a script
 can call gives an AI unit a multiplayer team.
 
-**The board.** MJOLNIRHud sorts a bot into red or blue by its biped's colour
-when an incident names it, so a bot with no team can land on the player's
-side and its kills of that player count as betrayals (-1). A bot killed by
-another bot raises nothing the board counts: bots' deaths stay 0.
+**The board, before sides.** MJOLNIRHud sorts a bot into red or blue by its
+biped's colour when an incident names it, so a bot with no team could land on
+the player's side and its kills of that player counted as betrayals (-1).
+
+### Red and blue bots (MJOLNIRLobby's DLL)
+
+`mjolnir_bots_teams` replaces the store's `or dx, 0xff00` (5 bytes) with
+`call` to a stub allocated within rel32 reach of the simulation DLL:
+
+```text
+push rcx; push rax
+lea  rcx, [rip+0x17]        ; a 256-byte table, 32 bytes in
+movzx eax, dl               ; the actor's campaign team
+mov  dh, [rcx+rax]          ; its multiplayer team, 0xff for none
+pop rax; pop rcx; ret
+```
+
+Flags and `edx` are dead after the store (it jumps to a call whose callee
+loads `edx` first), so the stub need not keep the `or`'s flags. The table
+comes from `native\bot_teams.txt` (`<campaign> <multiplayer>` per line;
+the HUD writes `3 0` and `8 1`); a team the file does not name stays 0xff,
+so only the bots' own teams change. The call goes in and out on the
+simulation thread at the main tick, while the table is not empty and the
+game options' mode byte is 3; the file emptied, or any other mode, puts the
+five bytes back. A one-hit byte search finds the store, as for `ai_place`.
+
+Measured on Blood Gulch, Team Slayer, PC 1: `3 -1` installs the call with no
+change (bots stay 3/-1), `3 0` makes them 3/0 on the next tick, and an empty
+file puts `66 81 ca 00 ff` back. With the HUD choosing sides (covenant red,
+flood blue), a host on red and eight bots split red 3, blue 5; the units read
+3/0 and 8/1; red and blue bots fought at once, and the bipeds' own team
+(`BlamGameTeam`, read by the board) said `EBlamMultiplayerTeam::Red` and
+`Blue` to match.
+
+**Friendly fire, isolated** (2026-10-31): no HUD bots, the table set by hand,
+one grunt placed by script on red (multiplayer team 0) at the far base, the
+red host walked up to it with no other AI on the map and no shot fired. As
+covenant (`3 0`), as sentinel (`9 0`) and as human (`2 0`), the grunt opened
+fire within a second or two of the host coming near and killed him. The hit
+records on the host's actor name that grunt with `bDamagedByFriendly` set,
+and no incident came before the first hit. So the damage code calls these
+hits friendly while the AI chooses the player as a target anyway: the
+actor's choice of target does not run through the team test above (see the
+next section). Fixed by giving players their side's campaign team; the same
+isolated runs then held fire (below).
+
+### How an AI picks its enemies
+
+Read in Ghidra, 2026-10-31.
+
+- **The perception record.** When an actor notices an object (sim
+  0x7ade0) it makes a record of 0xb0 bytes (`[TLS+0x70]`): `+0xac` the
+  object, `+0x2c` its team, `+0x2e` enemy, `+0x2f` friend. For a unit the team
+  is the unit's **campaign** byte (`+0x1ba`), and the flags come from campaign
+  teams alone: enemy when either side's team is -1, none when both are the
+  same, otherwise the allied matrix (`[TLS+0x130]+0x184`) decides; friend is
+  the friend matrix (`+0x144`). No game mode check, no multiplayer team.
+  `ai_set_team` (sim+0x1c55a0) recomputes every record the same way after it
+  sets the squad's actors (sim+0x59870: actor `+0x2c`, unit pair `(team, -1)`).
+  Other AI code (sim+0x177710, +0x10e560, +0x12f270, +0x117790, +0x105060
+  and more) calls the campaign test sim+0x26b920, which is the same rule.
+- **A player's unit.** The unit update (sim+0x5f6c60) copies a player's
+  unit pair from the player (`[TLS+0x30]` table, datum 0x4b0: `+0xac`
+  campaign, `+0xad` multiplayer) every tick. In a Megalo game the campaign
+  byte is -1, so every AI marked every player an enemy, whatever the
+  multiplayer teams: the 2026-10-30/31 runs where bots of any campaign team
+  with a multiplayer team shot the host.
+- **The Megalo rule.** The team tests (sim+0x26b670 friend, +0x26b710
+  enemy) ask the game engine (vtable `+0x1b8` through sim+0x20bab0) when both
+  multiplayer teams are set. The engines sit in a table at sim+0xbd5210 by
+  type (1 sandbox, 2 megalo, 3 campaign, 4 survival); Megalo's `+0x1b8` is
+  sim+0x3ff050: in a team game it maps each team to a designator
+  (sim+0x408c50), equal designators are not enemies and designator 8 is
+  nobody's enemy; without teams it compares the players on those teams. The
+  damage code goes this way, which is why a red bot's hit on the red host was
+  flagged friendly.
+
+**The fix.** While the bot team table is in, the lobby DLL writes each
+player's `+0xac` from their multiplayer team (red covenant, blue flood: the
+table read backwards) on the simulation thread each tick, and puts back only
+a byte it wrote (by the player's salt and the value). Isolated, Blood Gulch,
+PC 1: a red covenant grunt beside the red host (now 3/0) held fire 35 s;
+with the table turned around (`8 0`, `3 1`) a grunt moved to flood before
+its `ai_place` held fire beside the host (now 8/0), so a squad set before
+placing also perceives as its new team; a covenant elite (3/1) placed beside
+them took the host's shields in seconds (`bDamagedByFriendly=false`).
+
+`ai_set_team` before a squad's first `ai_place` works too: a squad never
+placed, set to flood and then placed, came out 8/1 with no second call. The
+HUD sets each squad's team before placing it, because placed covenant and
+moved after, a blue bot spent a tick on red, long enough for
+MJOLNIRLevelLoader to tint a blue Spartan's armour red as it appeared.
+
+**`player_get n`** (evaluator sim+0x1b21e0) asks sim+0x187880 for the nth
+valid datum of the players table, counting from 0 in table order, and
+returns that player's unit (`+0x28`). So `n` is a rank among the players
+there are, not an absolute index: the same thing only while no seat below
+is empty.
+
+**A kill no incident reports.** When an AI kills an AI the game raises no
+`Kill` and no `death` (both are about players), only kill medals such as
+`first_blood`, with cause and effect -1. The UE side does know:
+`BlamObjectDamageComponent` has `IsDead()` and an `OnDamageAftermath`
+delegate, and the bipeds' base blueprint (`BP_BaseBipedActor_C`,
+`OnBipedDamageAftermath`) keeps the latest `BlamDamageAftermathResult` in
+the actor's `Blam Aftermath Result`: `DamageOwner.DamageOwnerObject` (the
+attacker's biped actor), `DamagedObject`, `DamageReportingInfo` (the same
+`Type`/`Modifier` the incidents carry), and `Flags` (`bBodyDepleted` on the
+killing blow, `bDamagedByFriendly`, `bKilledInstantly`, ...). A body stays
+an actor where it fell, and its components stay active until the simulation
+deletes the corpse (`BlamObjectSynchronization.BlamObjectGameStateIdentifier`
+is the object's index, the same as `live objects` prints). A unit killed by
+`unit_kill` takes no damage, so its aftermath is an older hit's.
 
 ## Open
 
+- **Players' campaign team elsewhere**: what else in a Megalo game reads a
+  player's campaign byte now that team games with bots set it (none seen;
+  player against player uses the multiplayer teams).
 - **Megalo score**: Slayer's kill trigger fires on a *player* killed, so AI
   kills likely do not score; a score-to-win end needs the HUD's own count or
   a variant change.

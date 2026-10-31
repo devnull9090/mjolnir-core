@@ -3,8 +3,9 @@
 -- A map baked with `blam.bots` carries one single-actor squad per bot,
 -- `bot_0` .. `bot_<n-1>`, a zone of firing positions and AI pathfinding
 -- (crates/blam-cli/src/level.rs). MJOLNIRLobby's DLL lets `ai_place` work in
--- a Megalo game (mjolnir_bots_enable) and runs the script lines on the
--- simulation thread (mjolnir_sim_script).
+-- a Megalo game (mjolnir_bots_enable), runs the script lines on the
+-- simulation thread (mjolnir_sim_script) and, in a team game, gives the bots
+-- a multiplayer team (mjolnir_bots_teams).
 --
 -- AI are not players: their incidents carry player index -1 and the AI
 -- biped's actor. Each bot gets a seat of its own here, BOT_BASE + k, which
@@ -58,9 +59,21 @@ Bots.NAMES = {
     "Knox", "Elsa", "Rocco", "Thea", "Sterling", "Juno", "Vaughn", "Odette", "Beckett", "Saoirse",
 }
 
+--- In a team game each bot plays for a side: a campaign team its bots are
+--- moved to (`ai_set_team`) and the multiplayer team that campaign team plays
+--- for. MJOLNIRLobby's DLL reads the pairs from native\bot_teams.txt both ways:
+--- an AI unit takes the multiplayer team of its campaign team, and a player
+--- the campaign team of their multiplayer team, since an AI picks its enemies
+--- by campaign teams alone (docs/re/ai_in_multiplayer.md "How an AI picks its
+--- enemies"). Covenant is the squads' own team.
+Bots.SIDES = {
+    Red = { team = "covenant", campaign = 3, multiplayer = 0 },
+    Blue = { team = "flood", campaign = 8, multiplayer = 1 },
+}
+
 local state = nil
 local dllDir = nil
-local enable, run = nil, nil
+local enable, run, setTeams = nil, nil, nil
 local scriptId = os.time() + 7000
 local log = function() end
 
@@ -73,9 +86,25 @@ end
 local function loadDll()
     if run ~= nil then return run ~= false end
     local ok = package and package.loadlib
-    enable = ok and package.loadlib(dllDir .. "mjolnir_lobby.dll", "mjolnir_bots_enable") or false
-    run = ok and package.loadlib(dllDir .. "mjolnir_lobby.dll", "mjolnir_sim_script") or false
+    local dll = dllDir .. "mjolnir_lobby.dll"
+    enable = ok and package.loadlib(dll, "mjolnir_bots_enable") or false
+    run = ok and package.loadlib(dll, "mjolnir_sim_script") or false
+    setTeams = ok and package.loadlib(dll, "mjolnir_bots_teams") or false
     return run ~= false
+end
+
+--- Each side's campaign team plays for its multiplayer team (`on`), or the
+--- DLL puts the simulation's own code back.
+local function teamTable(on)
+    if not (loadDll() and setTeams) then return false end
+    local f = io.open(dllDir .. "bot_teams.txt", "wb")
+    if not f then return false end
+    if on then
+        for _, side in pairs(Bots.SIDES) do f:write(string.format("%d %d\n", side.campaign, side.multiplayer)) end
+    end
+    f:close()
+    pcall(setTeams)
+    return true
 end
 
 --- Run script lines on the simulation thread (MJOLNIRLevelLoader's
@@ -162,21 +191,35 @@ local function shuffled(list)
     return out
 end
 
---- Start `count` bots. `onSeat(index, name)` is told a bot's seat and name
---- each time it is placed: on the floor, alive.
-function Bots.begin(count, now, onSeat, kind, isPlayer, level)
+--- Start `count` bots. `onSeat(index, name, side)` is told a bot's seat,
+--- name and side ("Red" or "Blue" in a team game) each time it is placed:
+--- on the floor, alive. `opts`:
+---   kind, level  the host's BOT TYPE and BOT DIFFICULTY (Bots.KINDS, LEVELS)
+---   isPlayer     isPlayer(address): whether an actor is a player's biped
+---   teams        a team game: each bot plays for red or blue
+---   onKill       onKill(killer, victim, death): a bot killed a bot, which
+---                no incident reports; `death` is { by, actor, damage,
+---                modifier }, the two actors and the incident's damage fields
+function Bots.begin(count, now, onSeat, opts)
+    opts = opts or {}
     if not loadDll() then
         log("bots: MJOLNIRLobby's DLL is not there; no bots")
         return false
     end
     if enable then pcall(enable) end
+    -- A free-for-all clears what a team game before it asked for.
+    if not teamTable(opts.teams) and opts.teams then
+        log("bots: MJOLNIRLobby's DLL cannot give bots a team; they fight both sides")
+    end
     fillPool()
     math.randomseed(os.time())
-    state = { slots = {}, onSeat = onSeat, retired = {}, nextScan = 0, placing = nil, names = shuffled(Bots.NAMES),
-        kind = kind or 0, isPlayer = isPlayer or function() return false end,
-        level = Bots.LEVELS[(level or Bots.LEGENDARY) + 1] or Bots.LEVELS[Bots.LEGENDARY + 1] }
+    local level = opts.level or Bots.LEGENDARY
+    state = { slots = {}, onSeat = onSeat, onKill = opts.onKill or function() end, retired = {}, nextScan = 0,
+        placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
+        isPlayer = opts.isPlayer or function() return false end, teams = opts.teams and true or false,
+        level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1] }
     Bots.resize(count, now)
-    log(string.format("bots: %d bot(s) for this match", count))
+    log(string.format("bots: %d bot(s) for this match%s", count, opts.teams and ", on red and blue" or ""))
     return true
 end
 
@@ -215,9 +258,13 @@ function Bots.count()
     return state and #state.slots or 0
 end
 
---- No more bots: every one placed is erased.
+--- No more bots: every one placed is erased, and AI units have no
+--- multiplayer team again.
 function Bots.stop()
-    if state then Bots.resize(0, 0) end
+    if state then
+        Bots.resize(0, 0)
+        if state.teams then teamTable(false) end
+    end
     state = nil
 end
 
@@ -245,40 +292,130 @@ function Bots.seatOf(actor)
     return nil
 end
 
---- A bot died (its `Kill` incident): back on the floor after the respawn
---- time, as a player is.
-function Bots.died(index, now)
-    local s = slotOf(index)
-    if not s or s.status ~= "alive" then return end
+--- Off the floor until the respawn time has passed, as a player is. Its
+--- body stays an actor of the pool's until a placement takes it again.
+local function bury(s, now)
     if s.addr then state.retired[s.addr] = true end
-    s.status, s.addr, s.actor = "dead", nil, nil
+    s.status, s.addr, s.actor, s.deadAt = "dead", nil, nil, nil
     s.nextAt = now + Bots.RESPAWN_SECONDS
 end
 
+--- A bot died (its `Kill` incident, or the HUD's own for a bot's kill).
+function Bots.died(index, now)
+    local s = slotOf(index)
+    if not s or s.status ~= "alive" then return end
+    bury(s, now)
+end
+
+--- How long a bot's death waits for a player's `Kill` to name it before it
+--- is taken for one no incident reports (a fall, its own grenade).
+local UNCLAIMED_SECONDS = 2
+
+--- Whether a bot's unit is dead and, when the blow that killed it is the
+--- last damage its actor took, who dealt it. The simulation reports no
+--- incident when an AI kills an AI; the actor's blueprint keeps each hit's
+--- aftermath (`Blam Aftermath Result`: the damage owner, the incident's
+--- damage fields, and `bBodyDepleted` on the killing blow).
+local function deathOf(actor)
+    local okDead, dead = pcall(function() return actor.BlamObjectDamage:IsDead() end)
+    if not (okDead and dead) then return nil end
+    local death = { actor = actor }
+    pcall(function()
+        local r = actor["Blam Aftermath Result"]
+        if not r.Flags.bBodyDepleted then return end
+        death.by = r.DamageOwner.DamageOwnerObject
+        death.modifier = r.DamageReportingInfo.Modifier
+        death.damage = r.DamageReportingInfo.Type.TagName:ToString()
+    end)
+    return death
+end
+
+--- Bots dead with no incident to say so. Read before any is buried, so two
+--- bots that kill each other in one scan both find their killer.
+local function deaths(now, live)
+    local found = {}
+    for _, s in ipairs(state.slots) do
+        if s.status == "alive" and live[s.addr] then
+            local death = deathOf(s.actor)
+            if death then found[#found + 1] = { slot = s, death = death } else s.deadAt = nil end
+        end
+    end
+    local byAddress = {}
+    for _, s in ipairs(state.slots) do
+        if s.status == "alive" then byAddress[s.addr] = s end
+    end
+    for _, d in ipairs(found) do
+        local s = d.slot
+        s.deadAt = s.deadAt or now
+        local killer = d.death.by and byAddress[address(d.death.by)]
+        if killer and killer ~= s then
+            pcall(state.onKill, killer.index, s.index, d.death)
+            bury(s, now)
+        elseif now - s.deadAt >= UNCLAIMED_SECONDS then
+            bury(s, now)
+        end
+    end
+end
+
 --- AI stand at their firing positions until they see someone. A bot is
---- given somewhere to be every so often: mostly a human player it is
---- made aware of, wherever they are (task `hunt`), otherwise one of the
---- map's areas (task `area_<k>`) to walk to (level.rs bots_finish).
+--- given somewhere to be every so often: mostly an enemy it is made aware
+--- of, otherwise one of the map's areas (task `area_<k>`) to walk to
+--- (level.rs bots_finish). An enemy human is hunted (task `hunt`, which
+--- keeps near the players); an enemy bot, in a team game, is not a player,
+--- so the bot walks to an area knowing where that bot is.
 Bots.AREAS = 16
 local ROAM_MIN, ROAM_MAX = 8, 16
---- How often an order is a hunt (a human player, wherever they are) rather
---- than a walk to a random area.
+--- How often an order is a hunt (an enemy, wherever they are) rather than a
+--- walk to a random area.
 local HUNT_SHARE = 0.75
+
+--- Someone for bot `s` to go after: a human player (as `player_get` counts
+--- them) or, in a team game, a bot of the other side (its squad). A human
+--- whose side is not known yet is no one's enemy in a team game.
+local function pickEnemy(s, humans)
+    local enemies = {}
+    for _, h in ipairs(humans) do
+        if not s.side or (h.team and h.team ~= s.side) then enemies[#enemies + 1] = { nth = h.nth } end
+    end
+    if s.side then
+        for _, o in ipairs(state.slots) do
+            if o.status == "alive" and o.side and o.side ~= s.side then enemies[#enemies + 1] = { squad = o.squad } end
+        end
+    end
+    return #enemies > 0 and enemies[math.random(#enemies)] or nil
+end
 
 local function roam(now, humans)
     local lines = {}
     for _, s in ipairs(state.slots) do
         if s.status == "alive" and now >= (s.roamAt or 0) and #lines < 14 then
             s.roamAt = now + ROAM_MIN + math.random() * (ROAM_MAX - ROAM_MIN)
-            if humans > 0 and math.random() < HUNT_SHARE then
+            local enemy = math.random() < HUNT_SHARE and pickEnemy(s, humans) or nil
+            if enemy and enemy.nth then
                 lines[#lines + 1] = string.format("(ai_set_task %s mjolnir_bots hunt)", s.squad)
-                lines[#lines + 1] = string.format("(ai_magically_see_object %s (player_get %d))", s.squad, math.random(humans) - 1)
+                lines[#lines + 1] = string.format("(ai_magically_see_object %s (player_get %d))", s.squad, enemy.nth)
             else
                 lines[#lines + 1] = string.format("(ai_set_task %s mjolnir_bots area_%d)", s.squad, math.random(Bots.AREAS) - 1)
+                if enemy then lines[#lines + 1] = string.format("(ai_magically_see %s %s)", s.squad, enemy.squad) end
             end
         end
     end
     if #lines > 0 then script(lines) end
+end
+
+--- The side with fewer players, humans and bots; on a tie, the one with
+--- fewer humans (a human plays better than a bot), else Blue.
+local function chooseSide(humans)
+    local all, people = { Red = 0, Blue = 0 }, { Red = 0, Blue = 0 }
+    for _, h in ipairs(humans) do
+        if all[h.team] then all[h.team], people[h.team] = all[h.team] + 1, people[h.team] + 1 end
+    end
+    for _, s in ipairs(state.slots) do
+        if s.side then all[s.side] = all[s.side] + 1 end
+    end
+    if all.Red ~= all.Blue then return all.Red < all.Blue and "Red" or "Blue" end
+    if people.Red ~= people.Blue then return people.Red < people.Blue and "Red" or "Blue" end
+    return "Blue"
 end
 
 local function step(now, humans, live, where)
@@ -291,13 +428,14 @@ local function step(now, humans, live, where)
         if s.status == "alive" then
             if not live[s.addr] then
                 -- Gone without a kill we saw (a fall out of the world).
-                s.status, s.addr, s.actor, s.nextAt = "dead", nil, nil, now + Bots.RESPAWN_SECONDS
+                bury(s, now)
             else
                 taken[s.addr] = true
             end
         end
     end
-    if not state.placing then roam(now, humans or 0) end
+    deaths(now, live)
+    if not state.placing then roam(now, humans) end
     local p = state.placing
     if p then
         for at, actor in pairs(live) do
@@ -311,7 +449,7 @@ local function step(now, humans, live, where)
                 p.roamAt = now + 3 + math.random() * 4
                 state.placing = nil
                 p.seated = true
-                pcall(state.onSeat, p.index, p.name)
+                pcall(state.onSeat, p.index, p.name, p.side)
                 return
             end
         end
@@ -332,9 +470,20 @@ local function step(now, humans, live, where)
     end
     for _, s in ipairs(state.slots) do
         if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
+            -- A side is chosen when a bot is first placed, when the humans'
+            -- sides are known, and kept for the match.
+            if state.teams and not s.side then s.side = chooseSide(humans) end
+            -- The squad's team before it is placed, which its new actor takes:
+            -- placed covenant and moved after, a blue bot was red for a tick,
+            -- and a blue Spartan could keep the red armour MJOLNIRLevelLoader
+            -- tinted it as it appeared.
+            local lines = {}
+            if s.side then lines[1] = string.format("(ai_set_team %s %s)", s.squad, Bots.SIDES[s.side].team) end
+            lines[#lines + 1] = string.format("(ai_place %s)", s.squad)
             -- Active wherever it is: AI far from every player otherwise idle, and
             -- a bot hunting across the map must not.
-            if script({ string.format("(ai_place %s)", s.squad), string.format("(ai_force_active %s true)", s.squad) }) then
+            lines[#lines + 1] = string.format("(ai_force_active %s true)", s.squad)
+            if script(lines) then
                 -- Whatever is out already is not this bot.
                 s.status, s.placedAt, s.before = "placing", now, where
                 state.placing = s
@@ -344,22 +493,24 @@ local function step(now, humans, live, where)
     end
 end
 
---- `humans`: how many human players the match has (`player_get`'s range).
+--- `humans`: the match's human players in seat order, each `{ nth, team }`:
+--- `player_get <nth>` is that player (it counts the players there are), and
+--- `team` is "Red", "Blue" or nil.
 function Bots.tick(now, humans)
     if not state or now < state.nextScan then return end
     state.nextScan = now + SCAN_SECONDS
     local live, where = liveActors()
-    step(now, humans, live, where)
+    step(now, humans or {}, live, where)
     -- Where each actor stood this scan, for the next one's teleport test.
     if state then state.lastWhere = where end
 end
 
---- The seats of every bot that has been placed, with their names.
+--- The seats of every bot that has been placed, with their names and sides.
 function Bots.seats()
     local out = {}
     if not state then return out end
     for _, s in ipairs(state.slots) do
-        if s.seated then out[#out + 1] = { index = s.index, name = s.name, alive = s.status == "alive" } end
+        if s.seated then out[#out + 1] = { index = s.index, name = s.name, alive = s.status == "alive", side = s.side } end
     end
     return out
 end
