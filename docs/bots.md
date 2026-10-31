@@ -36,7 +36,26 @@ within about 49 degrees of up, not breakable) is a sector, every collision
 edge touching one is a link, oriented so its walkable side is on the left (CE's
 winged edges are already the rings the sim walks), and the shell gets one 2D
 reference per surface naming its sector. Blood Gulch: 2947 sectors, 4930
-links, one connected area of 2828 sectors. No jump, ladder or hint links.
+links, one connected area of 2828 sectors.
+
+Two things cut a converted map's ground that the edges alone miss, and the
+bake handles both the way B40's own data does
+([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#steps-and-seams-in-bungies-pathfinding)):
+
+- **Steps.** A riser under 0.1 wu (where the AI globals' hoist step begins)
+  between two floors becomes a step sector, walkable, linked to both. Short
+  bands of a taller riser, or a slab's side face hanging below its floor, do
+  not.
+- **Cracks.** Maps built of separate slabs meet floor to floor without
+  sharing an edge: edge to edge, overlapping a hair, or across a crack. Two
+  floor edges that both drop away, face each other within 0.1 wu and lie
+  less than a step apart in height join through an *intersection link*, a
+  hint on each floor's edge naming a link that joins the two.
+
+Neither is a jump, a hoist, a ladder or a teleporter: ground those reach
+stays apart. On Night Lockout (PC 1, 2026-10-30) bots walked back and forth
+across its slab seams (two bots, 14 crossings in two minutes) and one crossed
+the lower level to kill the idle player.
 
 **AI stand still without orders.** They hold firing positions in their task's
 areas until they see someone, and AI far from every player go idle. Each bot
@@ -46,6 +65,37 @@ player slot), and the host's HUD orders each bot every 8-16 s: three times in
 four the `hunt` task and `(ai_magically_see_object <squad> (player_get n))`
 on a random human player, otherwise `(ai_set_task <squad> mjolnir_bots
 area_<r>)` to a random area.
+
+**Where bots spawn.** On the map's own player starts. The bake stands each
+bot squad on one of the level's starts, taken in turn from the starts on the
+ground the bots walk (`bots_finish`), so a bot appears where a player would.
+Each squad has that one start, though, so a bot always comes back where it
+first spawned, and a map with more starts than squads (15 per kind) never
+uses the rest.
+
+**Why bots stand still.** Seen on Night Lockout and Blood Gulch: a bot sent
+to `hunt` a player it cannot reach (on ground the pathfinding does not join)
+waits at the nearest point; the HUD picks `area_<r>` from 0-15 while most
+maps bake fewer areas, so those orders go nowhere; and on narrow ground
+`hunt`'s 3 wu radius found no firing position to stand on until the bake
+narrowed the grid there. An AI with no target holds its task's positions:
+the simulation's own `search` follows a target it lost, it does not roam.
+
+**Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
+[re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
+Every unit carries a campaign team and a multiplayer team. A player's unit
+is on red or blue with no campaign team; a bot's is on its squad's campaign
+team (covenant) with no multiplayer team, which the simulation sets again
+every tick. In a Megalo game a unit with no multiplayer team is everyone's
+enemy, so **today's bots attack red and blue players alike, in any game
+type**. Bot against bot is decided by campaign teams instead: bots of one
+team never fight each other, so in Free for All the bots leave each other
+alone; covenant, flood, sentinel and heretic bots do fight one another.
+`ai_set_team` works in a match, but no script function gives an AI unit a
+multiplayer team (`mp_ai_allegiance` is compiled out, `ai_allegiance` gated
+to campaign). With the simulation's store patched to give AI units one, a
+covenant bot on red walked up to a red player without firing and blue bots
+killed him: the Megalo team rule takes over.
 
 **Slayer's score ignores bots.** Its kill trigger counts kills of players, so
 the round never ended on bot kills. With bots playing, the host's HUD ends the
@@ -167,15 +217,21 @@ so is a container with more than one BSP or world.
 - Spartan bots all wear the default armour colour.
 - Slayer's own score counts player kills only: the HUD's board counts bot
   kills, but a round does not end when a bot reaches the score.
-- Team games: bots are all on the AI's own team.
-- No jump or ladder links, so bots do not use teleporters or man cannons.
-- No step links: a floor surface joins the next only across a shared edge,
-  so a riser of any height (a wall) splits the ground. Night Lockout's
-  floors are cut by about 200 risers under 0.1 wu and its 33 starts stand on
-  22 separate pieces, so it has no bots (`add_bots.py` stops at "no firing
-  positions"). It also needs `battle_rifle` in `defs/level/palette-map.json`,
-  which would put the battle rifle in every other map's Forge palette.
+- Team games: bots have no multiplayer team, so they attack both teams'
+  players, and the board files them under red or blue by armour colour
+  (a bot "betrays" a player it was never allied with). Red and blue bots need
+  AI units given a multiplayer team (a patch to the unit update in
+  MJOLNIRLobby's DLL) and mutually hostile campaign teams per side.
+- Free for All: every bot is covenant, so bots never fight each other; and a
+  bot killed by a bot reaches no board.
+- A bot respawns on the start it first used; maps with more starts than
+  squads leave the rest unused.
+- The HUD orders bots to `area_0`..`area_15` whatever the map baked, and
+  sends them to hunt players they cannot reach.
+- No jump, hoist or ladder links, so bots do not use teleporters, lifts or
+  man cannons, and ground reached only that way stays apart. Night Lockout's
+  two levels meet only by drops and jumps: its bots play the lower one (16
+  of its 33 starts; the upper level holds 14).
 - Some converted shells keep a copy of the vertices along each seam between
-  pieces (13 of the 48 hub maps), so surfaces there end on open edges that
-  never join. Welding them halves those maps' island counts but leaves the
-  main ground the bots stand on unchanged.
+  pieces (13 of the 48 hub maps). Those seams are cracks of width 0 now and
+  join like any other.

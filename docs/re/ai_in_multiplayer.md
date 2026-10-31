@@ -93,6 +93,124 @@ Answered since:
   Gulch, whose bake had cleared the block). The bots lane keeps one element,
   every hint list emptied.
 
+## Steps and seams in Bungie's pathfinding
+
+Read off the shipped scenarios with `pf_dump <scenario> <sbsp> <bsp> raw`
+(and `risers`, `shell` for a converted shell) on 2026-10-30, to let bots
+cross the lips and cracks of converted maps (`blam_sbsp::pathfinding`).
+
+**Flag names** come from the tag definitions (`defs/hce/tag-definitions.json`).
+Sector flags: walkable 0x1, breakable 0x2, mobile 0x4, bsp source 0x8, floor
+0x10, ceiling 0x20, wall north 0x40, south 0x80, east 0x100, west 0x200,
+crouchable 0x400, aligned 0x800, step 0x1000, interior, rail, user. Link
+flags: from collision edge 0x1, intersection link 0x2, bsp2d creation error
+0x4, topology error 0x8, chain error 0x10, threshold 0x20, wall base 0x40,
+ledge 0x80, leanable 0x100 (low 0x200, high 0x400), start corner 0x800, end
+corner 0x1000, seam 0x2000.
+
+**Steps.** Across B40, A30, A50, B30, C10 and D20 (about 150,000 sectors)
+the only sectors that are not `walkable | floor` (0x11, or 0x15 on objects)
+are steps: `walkable | step | wall <one direction>`, no floor bit. A short
+riser is a sector of its own, linked to the floor above and below through
+its edges (flags none or threshold). Most are on one object B40 repeats in
+every BSP (rises 0.007 to 0.078 wu, sloped up to nz 0.49); four lie on
+structure, pure vertical risers of 0.03 and 0.04 wu with normal (-1, 0, 0)
+flagged `walkable | wall west | aligned | step` (0x1a01). So -x is west; the
+generator takes +y as north. The shipped `ai_globals` say where a step ends:
+`hoist step` is (0.1, 0.4) wu and `max jump down height down` 0.1, so a rise
+under 0.1 wu is walked, anything taller hoisted or jumped.
+
+**Intersection links** join sectors on separate geometry (every B40 instance
+boundary; 194 hints in BSP 8 alone, all of type 0 `intersection link`):
+
+- each sector keeps its own boundary link along the seam (`right sector`
+  -1), flagged `intersection link` (0x2, most often alone) with a hint of its
+  own: no hint serves two links;
+- the hint is `(type 0, next, data (joining link, 0, 0, 0))`; about one in
+  five carries `data1 = 1` and two more numbers (a piece and an index, it
+  seems) that the zero form does without;
+- both hints name one two-sided link, all of them after the regular links:
+  its vertices are the first link's (`left sector` the first's sector), its
+  `forward link` is the first link's, its `reverse link` the second link's
+  `forward link`, flags 0 or threshold, no hint. It is in neither ring;
+- a sector's `hint index` heads a chain (`next hint index`) of exactly the
+  hints of its own ring's links (632 of 632 sectors in BSP 8), -1 without.
+
+The B40 pieces' seams coincide exactly. Converted maps built of slabs leave
+cracks: Night Lockout's floors end in their slab's own side face, with the
+next slab's floor edge to edge, 0.01 wu inside or up to about 0.1 wu away.
+The generator joins two floor edges that both drop away, run opposite ways
+within 0.1 wu and lie less than a step apart in height, cutting each link at
+the shared stretch's ends first so the joining link spans exactly it.
+
+**Player starts** in the hub maps' level files stand 1.0 wu above their
+floor (every start of Night Lockout, Blood Gulch and Boarding Action; with
+the spawn lookup allowing 0.25 wu, no hub map loses a start).
+
+## Teams in a Megalo match
+
+Read with Ghidra (`C:\ghidra_proj\sim\HaloSim.gpr`, headless GhidraMCP on
+port 8089) and measured live on Blood Gulch in Team Slayer, 2026-10-30,
+with `mjolnir live objects`, which now prints each unit's team pair.
+
+**A unit has a team pair** at datum `+0x1ba`: a campaign team (the squad
+enum: default 0, player 1, human 2, covenant 3, brute 4, mule 5, spare 6,
+covenant_player 7, flood 8, sentinel 9, heretic 10, prophet 11, guilty 12,
+berserk_hostile_to_all 13) and a multiplayer team (red 0, blue 1, ...; -1
+for none). `unit_get_team_index` (sim+0x1bacc0) returns the first byte.
+Measured: a player's unit is **-1/0** (no campaign team, red); every bot is
+**3/-1** (covenant, no multiplayer team).
+
+**The unit update sets the pair every tick** (sim+0x5f6c60): from the
+controlling player's pair (players array `+0xac`) for a player's unit; for
+an AI's unit, `actor+0x2c | 0xff00` at sim+0x5f87bf..0x5f87c9:
+
+```text
+5f87bf  0f b6 54 08 2c        movzx edx, byte [rax+rcx+0x2c]   ; actor campaign team
+5f87c4  66 81 ca 00 ff        or    dx, 0xff00                  ; multiplayer team -1
+5f87c9  66 41 89 97 ba 01 00 00  mov [r15+0x1ba], dx
+```
+
+A multiplayer team written into a bot's unit from outside is back to -1
+within 50 ms.
+
+**Who is an enemy.** The team tests (sim+0x26b670 friend, +0x26b710
+enemy, +0x26b7a0, +0x26b920 by campaign team) branch on the game options'
+mode byte (`[TLS+0x60]+0x10`). In campaign and Firefight they compare
+campaign teams through the allegiance matrices at `[TLS+0x130]+0x144` and
+`+0x184` (16 rows of 16 bits; `ai_allegiance` edits them). In a Megalo game
+(mode 3) they ask the game engine (vtable `+0x1b8`, sim+0x20bab0) about the
+two **multiplayer** teams when both sides have one, and otherwise fall back:
++0x26b710 says enemy, +0x26b670 friend.
+
+Measured in Team Slayer:
+
+- **Bots and players.** A bot's multiplayer team is -1, so every bot is
+  every player's enemy, red or blue alike. With the store above patched in
+  the running game to give AI units a multiplayer team (`mov dh, dl; sub dh,
+  3`: covenant becomes red), a covenant bot walked up to the red player and
+  never fired, and the bots made blue (`brute`) killed him. So once an AI
+  unit has a multiplayer team, the Megalo team rule decides.
+- **Bot and bot.** Decided by campaign teams, multiplayer teams or not: two
+  covenant bots never fight; covenant and flood fought at once (one dead in
+  under a minute); covenant, flood, sentinel and heretic bots all fought one
+  another. `berserk_hostile_to_all` set with `ai_set_team` did not make two
+  bots of that team fight.
+
+**Script functions.** `ai_set_team` (sim+0x1c55a0) works in a Megalo game:
+it writes each actor's team (`+0xe7`, the actor datum `+0x2c`) and the unit's
+pair (team, -1), and later `ai_place`s of the squad take the team too.
+`ai_allegiance` (sim+0x1c3790) has the same campaign/Firefight gate as
+`ai_place` and does nothing in a Megalo game. `mp_ai_allegiance` and
+`mp_allegiance` share a no-op evaluator (sim+0x1b1c10: it evaluates its
+arguments and returns); `player_override_team` is a stub. Nothing a script
+can call gives an AI unit a multiplayer team.
+
+**The board.** MJOLNIRHud sorts a bot into red or blue by its biped's colour
+when an incident names it, so a bot with no team can land on the player's
+side and its kills of that player count as betrayals (-1). A bot killed by
+another bot raises nothing the board counts: bots' deaths stay 0.
+
 ## Open
 
 - **Megalo score**: Slayer's kill trigger fires on a *player* killed, so AI

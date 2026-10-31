@@ -336,7 +336,8 @@ pub struct Bots {
     #[serde(default)]
     pub weapon: Option<String>,
     /// Firing position grid spacing, Halo wu; widened until the zone's 2048
-    /// limit holds.
+    /// limit holds, or narrowed (to 1 wu at most) until each area can have
+    /// eight.
     #[serde(default = "default_bot_spacing")]
     pub spacing: f64,
     /// How many areas the firing positions are split into (a grid).
@@ -394,6 +395,11 @@ fn default_bot_spacing() -> f64 {
 fn default_bot_areas() -> usize {
     16
 }
+
+/// The finest grid the bots' firing positions narrow to, wu.
+const BOT_SPACING_MIN: f32 = 1.0;
+/// The firing positions per area the grid narrows to give, where it can.
+const BOT_POSITIONS_PER_AREA: usize = 8;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -490,9 +496,11 @@ fn palette_map() -> Result<PaletteMap> {
     serde_json::from_str(PALETTE_MAP).context("parsing the built-in palette map")
 }
 
-/// Palette-map kinds left out of a map's Forge palettes: campaign-only
-/// vehicles with no multiplayer data, which the sandbox cannot create.
-const FORGE_UNPLACEABLE: [&str; 3] = ["pelican", "space_banshee", "seraph"];
+/// Palette-map kinds a map's Forge palettes list only where the level places
+/// one: the campaign-only vehicles, which have no multiplayer data so the
+/// sandbox cannot create them, and the battle rifle, which no stock canvas
+/// carries (Night Lockout places one).
+const FORGE_WHERE_PLACED: [&str; 4] = ["pelican", "space_banshee", "seraph", "battle_rifle"];
 
 const SCENARIOS: [&str; 13] = [
     "A15", "A30", "A50", "B30", "B40", "C10", "C20", "C45", "D20", "D40", "E10", "E20", "E30",
@@ -1713,6 +1721,7 @@ impl Baker {
         let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
         let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
         pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+        pf.check_hints().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
         let instances = pathfinding::instance_count(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
 
         // The tables. One `instanced geometry refs` entry per instance, none
@@ -1733,9 +1742,10 @@ impl Baker {
             table("bsp2d refs", pf.refs.len(), pf.refs_bytes()),
             table("bsp2d nodes", 0, Vec::new()),
             table("vertices", pf.vertices.len(), pf.vertices_bytes()),
+            table("pathfinding hints", pf.hints.len(), pf.hints_bytes()),
             table("instanced geometry refs", instances, none.repeat(instances)),
         ];
-        for name in ["object refs", "pathfinding hints", "giant pathfinding data", "seams", "jump seams", "doors"] {
+        for name in ["object refs", "giant pathfinding data", "seams", "jump seams", "doors"] {
             edits.push(table(name, 0, Vec::new()));
         }
         self.file = blockedit::replace_nested(&self.file, &edits)?;
@@ -1747,13 +1757,21 @@ impl Baker {
         // `no default structure pathfinding` off: the shell's refs count.
         apply_set(&mut self.file, &flags_path, &format!("{:#x}", flags & !0x8))?;
         println!(
-            "  bots    pathfinding[{bsp}]: {} sector(s), {} link(s), {} vertices, {} surface ref(s), {} instance ref(s)",
+            "  bots    pathfinding[{bsp}]: {} sector(s) ({} step(s)), {} link(s) ({} crack seam(s)), {} vertices, {} surface ref(s), {} instance ref(s)",
             pf.sectors.len(),
+            pf.sectors.iter().filter(|s| !s.is_floor()).count(),
             pf.links.len(),
+            pf.hints.len() / 2,
             pf.vertices.len(),
             pf.refs.len(),
             instances
         );
+        if pf.cracks_dropped > 0 {
+            println!(
+                "  note    bots: {} crack seam(s) left out, the shortest, to keep the links within 16-bit indices",
+                pf.cracks_dropped
+            );
+        }
 
         // Firing positions over the ground the spawns stand on.
         let spawn_wu: Vec<[f32; 3]> = ix
@@ -1796,6 +1814,18 @@ impl Baker {
         while fps.len() > 2048 {
             spacing *= 1.15;
             fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+        }
+        // Narrow ground falls between the grid's points (Night Lockout's
+        // walkways had 12 at 2.5 wu): a finer grid, down to 1 wu, while the
+        // areas would have fewer than eight positions each.
+        let want = bots.areas.clamp(1, 32) * BOT_POSITIONS_PER_AREA;
+        while fps.len() < want && spacing > BOT_SPACING_MIN {
+            let finer_spacing = (spacing / 1.25).max(BOT_SPACING_MIN);
+            let finer = pf.firing_positions(&shell, finer_spacing, &components, 0.0);
+            if finer.len() > 2048 {
+                break;
+            }
+            (spacing, fps) = (finer_spacing, finer);
         }
         if fps.is_empty() {
             bail!("bots: no firing positions");
@@ -2194,8 +2224,8 @@ fn bake(a: BakeArgs) -> Result<()> {
         // only through the map variant as well (they never appeared on Blood
         // Gulch while the palette listed vehicles and weapons alone). Every
         // kind the palette map knows is listed, placed or not, so Forge can
-        // place the whole arsenal; the campaign-only flyers have no
-        // multiplayer data, so the sandbox could never create them.
+        // place the whole arsenal, except those `FORGE_WHERE_PLACED` keeps
+        // to the maps that place them.
         let mut palettes = Vec::new();
         for (category, items, table, group) in [
             ("weapons", &level.blam.weapons, &map.weapons, "weap"),
@@ -2216,7 +2246,7 @@ fn bake(a: BakeArgs) -> Result<()> {
                 }
             }
             for (kind, path) in table.iter() {
-                if !FORGE_UNPLACEABLE.contains(&kind.as_str()) {
+                if !FORGE_WHERE_PLACED.contains(&kind.as_str()) {
                     tags.entry((format!("{group}:{path}"), String::new()))
                         .or_default();
                 }
