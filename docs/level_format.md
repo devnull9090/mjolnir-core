@@ -254,7 +254,8 @@ fields of the placement, relative to its element
   "count": 15,                     // squads bot_0 .. bot_14 (default: one per spawn)
   "spawns": [{ "pos": [x, y, z], "yaw": 0 }], // cycled; default: player_starts
   "weapon": "plasma_rifle",        // a weapon palette entry's path, by substring
-  "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048)
+  "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048,
+                                   // narrowed to 1 wu for 8 per area)
   "areas": 16,                     // the firing positions' grid of areas
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
@@ -272,7 +273,8 @@ kind, `bot_<k>`, from the donor squad.
 
 The bake clones, before the clears (which keep them): one single-actor squad
 per bot, one zone (`mjolnir_bots`) whose firing positions cover the walkable
-ground the spawns stand on, one objective (`mjolnir_bots`: task `hunt` over
+ground the spawns stand on (a `spacing` grid, finer down to 1 wu where narrow
+ground leaves fewer than eight per area), one objective (`mjolnir_bots`: task `hunt` over
 every area, then `area_<k>` per area, all with `magic player sight`), and one
 `ai user hint data` element with every hint list emptied: the AI reads element
 0 without checking the block has one, and a map that cleared it crashed.

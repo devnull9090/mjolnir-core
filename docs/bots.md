@@ -190,8 +190,7 @@ so is a container with more than one BSP or world.
 - No jump, hoist or ladder links, so bots do not use teleporters, lifts or
   man cannons, and ground reached only that way stays apart. Night Lockout's
   two levels meet only by drops and jumps: its bots play the lower one (16
-  of its 33 starts; the upper level holds 14). Its walkways are narrower than
-  the 2.5 wu firing-position grid, so it gets only 12 positions.
+  of its 33 starts; the upper level holds 14).
 - Some converted shells keep a copy of the vertices along each seam between
   pieces (13 of the 48 hub maps). Those seams are cracks of width 0 now and
   join like any other.

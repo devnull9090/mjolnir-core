@@ -336,7 +336,8 @@ pub struct Bots {
     #[serde(default)]
     pub weapon: Option<String>,
     /// Firing position grid spacing, Halo wu; widened until the zone's 2048
-    /// limit holds.
+    /// limit holds, or narrowed (to 1 wu at most) until each area can have
+    /// eight.
     #[serde(default = "default_bot_spacing")]
     pub spacing: f64,
     /// How many areas the firing positions are split into (a grid).
@@ -394,6 +395,11 @@ fn default_bot_spacing() -> f64 {
 fn default_bot_areas() -> usize {
     16
 }
+
+/// The finest grid the bots' firing positions narrow to, wu.
+const BOT_SPACING_MIN: f32 = 1.0;
+/// The firing positions per area the grid narrows to give, where it can.
+const BOT_POSITIONS_PER_AREA: usize = 8;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1808,6 +1814,18 @@ impl Baker {
         while fps.len() > 2048 {
             spacing *= 1.15;
             fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+        }
+        // Narrow ground falls between the grid's points (Night Lockout's
+        // walkways had 12 at 2.5 wu): a finer grid, down to 1 wu, while the
+        // areas would have fewer than eight positions each.
+        let want = bots.areas.clamp(1, 32) * BOT_POSITIONS_PER_AREA;
+        while fps.len() < want && spacing > BOT_SPACING_MIN {
+            let finer_spacing = (spacing / 1.25).max(BOT_SPACING_MIN);
+            let finer = pf.firing_positions(&shell, finer_spacing, &components, 0.0);
+            if finer.len() > 2048 {
+                break;
+            }
+            (spacing, fps) = (finer_spacing, finer);
         }
         if fps.is_empty() {
             bail!("bots: no firing positions");
