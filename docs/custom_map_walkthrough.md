@@ -56,7 +56,7 @@ lights and teleporter pairs. They are annotations and never exported as geometry
 |---|---|
 | `build_geometry.py` | Reproducible original geometry, materials, UVs and placement design. |
 | `terrain_form.py` | Shared terrain height and surface classification for the mesh and placements. |
-| `perimeter_architecture.py` | Continuous northern wall, recessed bays, balcony, sheltered teleporter arrivals and exit terraces. |
+| `perimeter_architecture.py` | Continuous northern wall, recessed bays, balcony and sheltered teleporter arrivals. |
 | `facility_architecture.py` / `facility_doors.py` | Enclosed lower passages, structural wedges, blind door niches and source light lenses. |
 | `facility_edge_wear.py` | Restrained wear on selected generated bevel faces, retaining closed editable meshes and the shared surface palette. |
 | `surfaces.json` / `architecture_surfaces.py` | Shared authored PBR finishes, portable image paths and UV projection; optional tangent normals. |
