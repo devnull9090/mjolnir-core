@@ -12,7 +12,9 @@ rebuilding: the bake runs from the pack alone, the way the map was baked
 pack's world>`), with the level file the pack ships less the keys only the
 loader reads, plus `blam.bots`. Every other container, and every package of
 the map container but the scenario, must come out byte-identical; the script
-checks that and stops otherwise. The shipped level file is packed unchanged.
+checks that and stops otherwise. The shipped level file is packed unchanged,
+and the bake's `<CODE>.bots.json` (where the bot squads stand, which
+MJOLNIRHud reads) goes beside it as `map/bots.json`.
 
 Work goes to <work>/<CODE>/; packs to <out>/<slug>-<version>.mjolnir.
 Set HCE_PAKS to the game's Meteorite/Content/Paks (the canvas scenario).
@@ -91,7 +93,8 @@ def one(pack, a, defaults):
     unpacked = os.path.join(w, "pack")
     z.extractall(unpacked)
     names = z.namelist()
-    known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json"}
+    known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json",
+             "map/bots.json"}
     level = json.load(open(os.path.join(unpacked, "map", "level.json"), encoding="utf-8"))
     foliage = (level.get("foliage") or {}).get("file")
     for n in names:
@@ -147,6 +150,9 @@ def one(pack, a, defaults):
     for line in log.splitlines():
         if line.lstrip().startswith(("bots", "note")):
             print("  " + line.strip())
+    bots_file = os.path.join(w, "bake", f"{code}.bots.json")
+    if not os.path.exists(bots_file):
+        sys.exit(f"{code}: the bake wrote no {code}.bots.json")
 
     # Only the scenario may differ.
     built = container_dir(w, "built", os.path.join(w, "bake", stem), stub)
@@ -181,6 +187,7 @@ def one(pack, a, defaults):
             shutil.copyfile(os.path.join(content, f"{s}.{e}"), os.path.join(to, f"{s}.{e}"))
     shutil.copyfile(os.path.join(unpacked, "map", "level.json"), os.path.join(stage, f"{code.lower()}.level.json"))
     shutil.copyfile(os.path.join(unpacked, "map", "registration.json"), os.path.join(stage, f"{code}.registration.json"))
+    shutil.copyfile(bots_file, os.path.join(stage, f"{code}.bots.json"))
     if foliage:
         shutil.copyfile(os.path.join(unpacked, "map", foliage), os.path.join(stage, foliage))
     if os.path.isdir(os.path.join(unpacked, "map", "decals")):
@@ -203,13 +210,16 @@ def one(pack, a, defaults):
         cmd.append("--sign")
     run(cmd)
 
-    # The new pack holds what the old one did, the map container and
-    # manifest aside.
+    # The new pack holds what the old one did, the map container, the bots'
+    # starts and the manifest aside.
     nz = zipfile.ZipFile(archive)
     old = {n: z.getinfo(n).CRC for n in names if n not in ("mjolnir.json", "signature.json")}
     got = {n: nz.getinfo(n).CRC for n in nz.namelist() if n not in ("mjolnir.json", "signature.json")}
     changed = {n for n in set(old) | set(got) if old.get(n) != got.get(n)}
-    if f"content/{stem}.ucas" not in changed or changed - {f"content/{stem}.ucas", f"content/{stem}.utoc"}:
+    if "map/bots.json" not in got:
+        sys.exit(f"{code}: the new pack has no map/bots.json")
+    if f"content/{stem}.ucas" not in changed or changed - {f"content/{stem}.ucas", f"content/{stem}.utoc",
+                                                             "map/bots.json"}:
         sys.exit(f"{code}: the new pack differs from the old in {changed}")
     print(f"  {archive}: {os.path.getsize(archive) / 2 ** 20:.1f} MiB", flush=True)
     return archive
