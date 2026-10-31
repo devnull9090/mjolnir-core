@@ -93,6 +93,59 @@ Answered since:
   Gulch, whose bake had cleared the block). The bots lane keeps one element,
   every hint list emptied.
 
+## Steps and seams in Bungie's pathfinding
+
+Read off the shipped scenarios with `pf_dump <scenario> <sbsp> <bsp> raw`
+(and `risers`, `shell` for a converted shell) on 2026-10-30, to let bots
+cross the lips and cracks of converted maps (`blam_sbsp::pathfinding`).
+
+**Flag names** come from the tag definitions (`defs/hce/tag-definitions.json`).
+Sector flags: walkable 0x1, breakable 0x2, mobile 0x4, bsp source 0x8, floor
+0x10, ceiling 0x20, wall north 0x40, south 0x80, east 0x100, west 0x200,
+crouchable 0x400, aligned 0x800, step 0x1000, interior, rail, user. Link
+flags: from collision edge 0x1, intersection link 0x2, bsp2d creation error
+0x4, topology error 0x8, chain error 0x10, threshold 0x20, wall base 0x40,
+ledge 0x80, leanable 0x100 (low 0x200, high 0x400), start corner 0x800, end
+corner 0x1000, seam 0x2000.
+
+**Steps.** Across B40, A30, A50, B30, C10 and D20 (about 150,000 sectors)
+the only sectors that are not `walkable | floor` (0x11, or 0x15 on objects)
+are steps: `walkable | step | wall <one direction>`, no floor bit. A short
+riser is a sector of its own, linked to the floor above and below through
+its edges (flags none or threshold). Most are on one object B40 repeats in
+every BSP (rises 0.007 to 0.078 wu, sloped up to nz 0.49); four lie on
+structure, pure vertical risers of 0.03 and 0.04 wu with normal (-1, 0, 0)
+flagged `walkable | wall west | aligned | step` (0x1a01). So -x is west; the
+generator takes +y as north. The shipped `ai_globals` say where a step ends:
+`hoist step` is (0.1, 0.4) wu and `max jump down height down` 0.1, so a rise
+under 0.1 wu is walked, anything taller hoisted or jumped.
+
+**Intersection links** join sectors on separate geometry (every B40 instance
+boundary; 194 hints in BSP 8 alone, all of type 0 `intersection link`):
+
+- each sector keeps its own boundary link along the seam (`right sector`
+  -1), flagged `intersection link` (0x2, most often alone) with a hint of its
+  own: no hint serves two links;
+- the hint is `(type 0, next, data (joining link, 0, 0, 0))`; about one in
+  five carries `data1 = 1` and two more numbers (a piece and an index, it
+  seems) that the zero form does without;
+- both hints name one two-sided link, all of them after the regular links:
+  its vertices are the first link's (`left sector` the first's sector), its
+  `forward link` is the first link's, its `reverse link` the second link's
+  `forward link`, flags 0 or threshold, no hint. It is in neither ring;
+- a sector's `hint index` heads a chain (`next hint index`) of exactly the
+  hints of its own ring's links (632 of 632 sectors in BSP 8), -1 without.
+
+The B40 pieces' seams coincide exactly. Converted maps built of slabs leave
+cracks: Night Lockout's floors end in their slab's own side face, with the
+next slab's floor edge to edge, 0.01 wu inside or up to about 0.1 wu away.
+The generator joins two floor edges that both drop away, run opposite ways
+within 0.1 wu and lie less than a step apart in height, cutting each link at
+the shared stretch's ends first so the joining link spans exactly it.
+
+**Player starts** in every hub map's level file stand 1.0 wu above their
+floor (Night Lockout, Blood Gulch, Boarding Action: all of them).
+
 ## Open
 
 - **Megalo score**: Slayer's kill trigger fires on a *player* killed, so AI

@@ -36,7 +36,26 @@ within about 49 degrees of up, not breakable) is a sector, every collision
 edge touching one is a link, oriented so its walkable side is on the left (CE's
 winged edges are already the rings the sim walks), and the shell gets one 2D
 reference per surface naming its sector. Blood Gulch: 2947 sectors, 4930
-links, one connected area of 2828 sectors. No jump, ladder or hint links.
+links, one connected area of 2828 sectors.
+
+Two things cut a converted map's ground that the edges alone miss, and the
+bake handles both the way B40's own data does
+([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#steps-and-seams-in-bungies-pathfinding)):
+
+- **Steps.** A riser under 0.1 wu (where the AI globals' hoist step begins)
+  between two floors becomes a step sector, walkable, linked to both. Short
+  bands of a taller riser, or a slab's side face hanging below its floor, do
+  not.
+- **Cracks.** Maps built of separate slabs meet floor to floor without
+  sharing an edge: edge to edge, overlapping a hair, or across a crack. Two
+  floor edges that both drop away, face each other within 0.1 wu and lie
+  less than a step apart in height join through an *intersection link*, a
+  hint on each floor's edge naming a link that joins the two.
+
+Neither is a jump, a hoist, a ladder or a teleporter: ground those reach
+stays apart. On Night Lockout (PC 1, 2026-10-30) bots walked back and forth
+across its slab seams (two bots, 14 crossings in two minutes) and one crossed
+the lower level to kill the idle player.
 
 **AI stand still without orders.** They hold firing positions in their task's
 areas until they see someone, and AI far from every player go idle. Each bot
@@ -168,14 +187,11 @@ so is a container with more than one BSP or world.
 - Slayer's own score counts player kills only: the HUD's board counts bot
   kills, but a round does not end when a bot reaches the score.
 - Team games: bots are all on the AI's own team.
-- No jump or ladder links, so bots do not use teleporters or man cannons.
-- No step links: a floor surface joins the next only across a shared edge,
-  so a riser of any height (a wall) splits the ground. Night Lockout's
-  floors are cut by about 200 risers under 0.1 wu and its 33 starts stand on
-  22 separate pieces, so it has no bots (`add_bots.py` stops at "no firing
-  positions"). It also needs `battle_rifle` in `defs/level/palette-map.json`,
-  which would put the battle rifle in every other map's Forge palette.
+- No jump, hoist or ladder links, so bots do not use teleporters, lifts or
+  man cannons, and ground reached only that way stays apart. Night Lockout's
+  two levels meet only by drops and jumps: its bots play the lower one (16
+  of its 33 starts; the upper level holds 14). Its walkways are narrower than
+  the 2.5 wu firing-position grid, so it gets only 12 positions.
 - Some converted shells keep a copy of the vertices along each seam between
-  pieces (13 of the 48 hub maps), so surfaces there end on open edges that
-  never join. Welding them halves those maps' island counts but leaves the
-  main ground the bots stand on unchanged.
+  pieces (13 of the 48 hub maps). Those seams are cracks of width 0 now and
+  join like any other.
