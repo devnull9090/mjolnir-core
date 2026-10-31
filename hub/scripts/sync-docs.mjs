@@ -34,6 +34,7 @@ const ORDER = [
   "hub_architecture.md",
   "mod_authoring_design.md",
   "level_format.md",
+  "bots.md",
   "ce_map_conversion.md",
   "map_distribution.md",
   "mod_signing_design.md",

@@ -147,6 +147,70 @@ the shared stretch's ends first so the joining link spans exactly it.
 floor (every start of Night Lockout, Blood Gulch and Boarding Action; with
 the spawn lookup allowing 0.25 wu, no hub map loses a start).
 
+## Teams in a Megalo match
+
+Read with Ghidra (`C:\ghidra_proj\sim\HaloSim.gpr`, headless GhidraMCP on
+port 8089) and measured live on Blood Gulch in Team Slayer, 2026-10-30,
+with `mjolnir live objects`, which now prints each unit's team pair.
+
+**A unit has a team pair** at datum `+0x1ba`: a campaign team (the squad
+enum: default 0, player 1, human 2, covenant 3, brute 4, mule 5, spare 6,
+covenant_player 7, flood 8, sentinel 9, heretic 10, prophet 11, guilty 12,
+berserk_hostile_to_all 13) and a multiplayer team (red 0, blue 1, ...; -1
+for none). `unit_get_team_index` (sim+0x1bacc0) returns the first byte.
+Measured: a player's unit is **-1/0** (no campaign team, red); every bot is
+**3/-1** (covenant, no multiplayer team).
+
+**The unit update sets the pair every tick** (sim+0x5f6c60): from the
+controlling player's pair (players array `+0xac`) for a player's unit; for
+an AI's unit, `actor+0x2c | 0xff00` at sim+0x5f87bf..0x5f87c9:
+
+```text
+5f87bf  0f b6 54 08 2c        movzx edx, byte [rax+rcx+0x2c]   ; actor campaign team
+5f87c4  66 81 ca 00 ff        or    dx, 0xff00                  ; multiplayer team -1
+5f87c9  66 41 89 97 ba 01 00 00  mov [r15+0x1ba], dx
+```
+
+A multiplayer team written into a bot's unit from outside is back to -1
+within 50 ms.
+
+**Who is an enemy.** The team tests (sim+0x26b670 friend, +0x26b710
+enemy, +0x26b7a0, +0x26b920 by campaign team) branch on the game options'
+mode byte (`[TLS+0x60]+0x10`). In campaign and Firefight they compare
+campaign teams through the allegiance matrices at `[TLS+0x130]+0x144` and
+`+0x184` (16 rows of 16 bits; `ai_allegiance` edits them). In a Megalo game
+(mode 3) they ask the game engine (vtable `+0x1b8`, sim+0x20bab0) about the
+two **multiplayer** teams when both sides have one, and otherwise fall back:
++0x26b710 says enemy, +0x26b670 friend.
+
+Measured in Team Slayer:
+
+- **Bots and players.** A bot's multiplayer team is -1, so every bot is
+  every player's enemy, red or blue alike. With the store above patched in
+  the running game to give AI units a multiplayer team (`mov dh, dl; sub dh,
+  3`: covenant becomes red), a covenant bot walked up to the red player and
+  never fired, and the bots made blue (`brute`) killed him. So once an AI
+  unit has a multiplayer team, the Megalo team rule decides.
+- **Bot and bot.** Decided by campaign teams, multiplayer teams or not: two
+  covenant bots never fight; covenant and flood fought at once (one dead in
+  under a minute); covenant, flood, sentinel and heretic bots all fought one
+  another. `berserk_hostile_to_all` set with `ai_set_team` did not make two
+  bots of that team fight.
+
+**Script functions.** `ai_set_team` (sim+0x1c55a0) works in a Megalo game:
+it writes each actor's team (`+0xe7`, the actor datum `+0x2c`) and the unit's
+pair (team, -1), and later `ai_place`s of the squad take the team too.
+`ai_allegiance` (sim+0x1c3790) has the same campaign/Firefight gate as
+`ai_place` and does nothing in a Megalo game. `mp_ai_allegiance` and
+`mp_allegiance` share a no-op evaluator (sim+0x1b1c10: it evaluates its
+arguments and returns); `player_override_team` is a stub. Nothing a script
+can call gives an AI unit a multiplayer team.
+
+**The board.** MJOLNIRHud sorts a bot into red or blue by its biped's colour
+when an incident names it, so a bot with no team can land on the player's
+side and its kills of that player count as betrayals (-1). A bot killed by
+another bot raises nothing the board counts: bots' deaths stay 0.
+
 ## Open
 
 - **Megalo score**: Slayer's kill trigger fires on a *player* killed, so AI
