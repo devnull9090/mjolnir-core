@@ -2403,6 +2403,8 @@ static volatile LONG fade_in_pending;
 static void fade_in_tick(void);
 static volatile LONG script_pending;
 static void script_tick(void);
+static volatile LONG teams_pending, teams_installed, team_wanted_count;
+static void teams_tick(void);
 static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
@@ -2422,6 +2424,13 @@ static void __fastcall hook_main_tick(void) {
     }
     if (fade_in_pending) fade_in_tick();
     if (script_pending) script_tick();
+    if (teams_pending || teams_installed || team_wanted_count) {
+        __try {
+            teams_tick();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("bots: teams faulted (%08lx)", GetExceptionCode());
+        }
+    }
     if (InterlockedExchange(&end_game_request, 0)) {
         __try {
             end_game_tick();
@@ -3682,6 +3691,127 @@ __declspec(dllexport) int mjolnir_bots_enable(void *L) {
     FlushInstructionCache(GetCurrentProcess(), found + AI_PLACE_JZ, 1);
     fireteam_log("bots: ai_place places squads in multiplayer games (sim+%llx)",
                  (unsigned long long)(found + AI_PLACE_JZ - sim));
+    return 0;
+}
+
+/* Red and blue bots (docs/bots.md; docs/re/ai_in_multiplayer.md "Teams in a
+   Megalo match"). Every tick the unit update gives an AI's unit the team pair
+   (actor team, -1): no multiplayer team, and in a Megalo game a unit without
+   one is every player's enemy, so a bot attacks red and blue alike. Here the
+   store's `or dx, 0xff00` becomes a call to a few bytes of our own that take
+   the multiplayer team from a table indexed by the campaign team
+   (native\bot_teams.txt: "<campaign team> <multiplayer team>" per line, -1
+   for none). Teams the table does not name keep -1, so only the bots' own
+   teams change; an empty file puts the store back. Found by its bytes,
+   changed on the simulation thread between ticks, and undone there once the
+   game is no longer a Megalo one, whatever the HUD does. */
+static const unsigned char AI_UNIT_TEAM[] = {0x0F, 0xB6, 0x54, 0x08, 0x2C, 0x66, 0x81, 0xCA, 0x00,
+                                             0xFF, 0x66, 0x41, 0x89, 0x97, 0xBA, 0x01, 0x00, 0x00};
+#define AI_UNIT_TEAM_OR 5
+#define AI_UNIT_TEAM_OR_LENGTH 5
+/* push rcx; push rax; lea rcx, [table]; movzx eax, dl; mov dh, [rcx+rax];
+   pop rax; pop rcx; ret. The table sits TEAM_TABLE bytes in. */
+static const unsigned char TEAM_CAVE[] = {0x51, 0x50, 0x48, 0x8D, 0x0D, 0x17, 0x00, 0x00, 0x00, 0x0F,
+                                          0xB6, 0xC2, 0x8A, 0x34, 0x01, 0x58, 0x59, 0xC3};
+#define TEAM_TABLE 32
+static unsigned char *team_site, *team_cave;
+static SRWLOCK team_lock = SRWLOCK_INIT;
+static unsigned char team_wanted[256];
+
+/* Somewhere within a rel32 call of `from`. */
+static unsigned char *alloc_near(unsigned char *from, size_t size) {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    uintptr_t step = si.dwAllocationGranularity, base = (uintptr_t)from & ~(step - 1);
+    for (uintptr_t d = step; d < 0x70000000; d += step) {
+        void *p = VirtualAlloc((void *)(base - d), size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+        if (!p) p = VirtualAlloc((void *)(base + d), size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+        if (p) return (unsigned char *)p;
+    }
+    return NULL;
+}
+
+static void team_site_write(const unsigned char *bytes) {
+    DWORD old;
+    if (!VirtualProtect(team_site, AI_UNIT_TEAM_OR_LENGTH, PAGE_EXECUTE_READWRITE, &old)) return;
+    memcpy(team_site, bytes, AI_UNIT_TEAM_OR_LENGTH);
+    VirtualProtect(team_site, AI_UNIT_TEAM_OR_LENGTH, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), team_site, AI_UNIT_TEAM_OR_LENGTH);
+}
+
+/* On the simulation thread, between ticks: the call in while the HUD has
+   asked for teams and the game is a Megalo one, the store as it ships
+   otherwise; a new table goes into the cave when the HUD changes it. */
+static void teams_tick(void) {
+    unsigned char *g = sim_game_globals();
+    LONG want = team_wanted_count && g && g[0x10] == 3;
+    LONG changed = InterlockedExchange(&teams_pending, 0);
+    if (want != teams_installed || (want && changed)) {
+        if (want) {
+            AcquireSRWLockShared(&team_lock);
+            memcpy(team_cave + TEAM_TABLE, team_wanted, sizeof team_wanted);
+            ReleaseSRWLockShared(&team_lock);
+        }
+        if (want == teams_installed) return;
+        if (want) {
+            unsigned char call[AI_UNIT_TEAM_OR_LENGTH] = {0xE8};
+            *(int *)(call + 1) = (int)(team_cave - (team_site + AI_UNIT_TEAM_OR_LENGTH));
+            team_site_write(call);
+            unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+            fireteam_log("bots: AI units take a multiplayer team from their campaign team (sim+%llx, %ld team(s))",
+                         (unsigned long long)(team_site - sim), team_wanted_count);
+        } else {
+            team_site_write(AI_UNIT_TEAM + AI_UNIT_TEAM_OR);
+            fireteam_log("bots: AI units have no multiplayer team again");
+        }
+        InterlockedExchange(&teams_installed, want);
+    }
+}
+
+/* native\bot_teams.txt, then the next tick installs or removes the table. */
+__declspec(dllexport) int mjolnir_bots_teams(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim || !install_main_tick(sim)) return 0;
+    if (!team_cave) {
+        int hits;
+        unsigned char *at = find_in_module(sim, AI_UNIT_TEAM, NULL, sizeof AI_UNIT_TEAM, 1, &hits);
+        if (!at) {
+            fireteam_log("bots: the unit team store matched %d times, left alone (bots keep no team)", hits);
+            return 0;
+        }
+        unsigned char *cave = alloc_near(at, 4096);
+        if (!cave) {
+            fireteam_log("bots: no memory within reach of the unit team store; bots keep no team");
+            return 0;
+        }
+        memcpy(cave, TEAM_CAVE, sizeof TEAM_CAVE);
+        memset(cave + TEAM_TABLE, 0xFF, sizeof team_wanted);
+        team_site = at + AI_UNIT_TEAM_OR;
+        team_cave = cave;
+    }
+    unsigned char table[256];
+    memset(table, 0xFF, sizeof table);
+    int count = 0;
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sbot_teams.txt", dir);
+    FILE *f = fopen(path, "r");
+    if (f) {
+        int campaign, multiplayer;
+        while (fscanf(f, "%d %d", &campaign, &multiplayer) == 2) {
+            if (campaign >= 0 && campaign < 256 && multiplayer >= -1 && multiplayer < 8) {
+                table[campaign] = (unsigned char)multiplayer;
+                count++;
+            }
+        }
+        fclose(f);
+    }
+    AcquireSRWLockExclusive(&team_lock);
+    memcpy(team_wanted, table, sizeof table);
+    team_wanted_count = count;
+    ReleaseSRWLockExclusive(&team_lock);
+    InterlockedExchange(&teams_pending, 1);
     return 0;
 }
 
