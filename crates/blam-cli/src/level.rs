@@ -1749,8 +1749,9 @@ impl Baker {
         // `no default structure pathfinding` off: the shell's refs count.
         apply_set(&mut self.file, &flags_path, &format!("{:#x}", flags & !0x8))?;
         println!(
-            "  bots    pathfinding[{bsp}]: {} sector(s), {} link(s), {} vertices, {} surface ref(s), {} instance ref(s)",
+            "  bots    pathfinding[{bsp}]: {} sector(s) ({} step(s)), {} link(s), {} vertices, {} surface ref(s), {} instance ref(s)",
             pf.sectors.len(),
+            pf.sectors.iter().filter(|s| !s.is_floor()).count(),
             pf.links.len(),
             pf.vertices.len(),
             pf.refs.len(),

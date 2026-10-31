@@ -258,6 +258,135 @@ fn main() {
             let v: Vec<i16> = (0..inn.min(60)).map(|i| i16_at(ig, i * is)).collect();
             println!("instanced geometry refs first: {v:?}");
         }
+        "risers" => {
+            // Unwalkable surfaces that share an edge with a walkable one, by
+            // height (z extent) and facing.
+            use blam_sbsp::pathfinding::{surface_normal, WALKABLE_NZ};
+            let walk = |s: i32| {
+                s >= 0 && {
+                    let x = &c.surfaces[s as usize];
+                    x.first_edge >= 0
+                        && x.flags & 0x8 == 0
+                        && surface_normal(&c, s as usize)[2] >= WALKABLE_NZ
+                }
+            };
+            let bounds = [0.005f32, 0.01, 0.02, 0.05, 0.1, 0.2, 0.4, f32::MAX];
+            let mut hist = vec![[0usize; 3]; bounds.len()];
+            let mut corners = std::collections::BTreeMap::new();
+            for s in 0..c.surfaces.len() {
+                if walk(s as i32) || c.surfaces[s].first_edge < 0 {
+                    continue;
+                }
+                let touches = c.edges.iter().any(|e| {
+                    (e.left == s as i32 && walk(e.right)) || (e.right == s as i32 && walk(e.left))
+                });
+                if !touches {
+                    continue;
+                }
+                let poly = unpack16::polygon(&c, s);
+                let (lo, hi) = poly.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+                    (lo.min(p[2]), hi.max(p[2]))
+                });
+                let nz = surface_normal(&c, s)[2];
+                let facing = if nz < -0.3 {
+                    2
+                } else if nz < 0.05 {
+                    1
+                } else {
+                    0
+                };
+                let b = bounds.iter().position(|&x| hi - lo < x).unwrap();
+                hist[b][facing] += 1;
+                if hi - lo < 0.1 {
+                    *corners.entry(poly.len()).or_insert(0usize) += 1;
+                }
+            }
+            println!("risers bordering a floor, by height: [sloped up, vertical, facing down]");
+            for (b, h) in bounds.iter().zip(&hist) {
+                println!("  < {b:>6}: {h:?}");
+            }
+            println!("corners of those under 0.1: {corners:?}");
+        }
+        "shell" => {
+            // The collision shell and the pathfinding generated from it, as
+            // lines: `S <surface> <nx> <ny> <nz> <flags> <sector or -1>
+            // <component or -1>`, `E <edge> <start> <end> <forward>
+            // <reverse> <left> <right>`, `V <vertex> <x> <y> <z>`.
+            use blam_sbsp::pathfinding::{surface_normal, Pathfinding};
+            let pf = Pathfinding::build(&c).expect("build");
+            for (s, x) in c.surfaces.iter().enumerate() {
+                let n = surface_normal(&c, s);
+                let sector = pf.surface_sector[s];
+                println!(
+                    "S {s} {} {} {} {:#x} {} {}",
+                    n[0],
+                    n[1],
+                    n[2],
+                    x.flags,
+                    sector.map_or(-1, |k| k as i64),
+                    sector.map_or(-1, |k| pf.component[k] as i64)
+                );
+            }
+            for (i, e) in c.edges.iter().enumerate() {
+                println!(
+                    "E {i} {} {} {} {} {} {}",
+                    e.start, e.end, e.forward, e.reverse, e.left, e.right
+                );
+            }
+            for (i, v) in c.vertices.iter().enumerate() {
+                println!("V {i} {} {} {}", v.point[0], v.point[1], v.point[2]);
+            }
+        }
+        "raw" => {
+            // The tables as lines: `s <i> <flags> <hint> <first link>`,
+            // `l <i> <v1> <v2> <flags> <hint> <forward> <reverse> <left>
+            // <right>`, `v <i> <x> <y> <z>`.
+            for i in 0..sn {
+                println!(
+                    "s {i} {:#x} {} {}",
+                    u16_at(sec, i * ss),
+                    i16_at(sec, i * ss + 2),
+                    i32_at(sec, i * ss + 4)
+                );
+            }
+            for i in 0..ln {
+                let o = i * ls;
+                println!(
+                    "l {i} {} {} {:#x} {} {} {} {} {}",
+                    i16_at(lnk, o),
+                    i16_at(lnk, o + 2),
+                    u16_at(lnk, o + 4),
+                    i16_at(lnk, o + 6),
+                    i16_at(lnk, o + 8),
+                    i16_at(lnk, o + 10),
+                    i16_at(lnk, o + 12),
+                    i16_at(lnk, o + 14)
+                );
+            }
+            for i in 0..vn {
+                println!(
+                    "v {i} {} {} {}",
+                    f32_at(ver, i * vs),
+                    f32_at(ver, i * vs + 4),
+                    f32_at(ver, i * vs + 8)
+                );
+            }
+            // `h <i> <type> <next> <data 0..3>`
+            if let Ok((hin, hs, hn)) = blk("pathfinding hints") {
+                for i in 0..hn {
+                    let o = i * hs;
+                    println!(
+                        "h {i} {} {} {} {} {} {}",
+                        i16_at(hin, o),
+                        i16_at(hin, o + 2),
+                        i32_at(hin, o + 4),
+                        i32_at(hin, o + 8),
+                        i32_at(hin, o + 12),
+                        i32_at(hin, o + 16)
+                    );
+                }
+            }
+        }
         "refs" => {
             let o: usize = a[4].parse().unwrap();
             let f = find_block(
