@@ -252,7 +252,8 @@ fields of the placement, relative to its element
 "bots": {
   "squad": "insertion_cov_elites", // the canvas squad each bot is cloned from
   "count": 15,                     // squads bot_0 .. bot_14 (default: one per spawn)
-  "spawns": [{ "pos": [x, y, z], "yaw": 0 }], // cycled; default: player_starts
+  "spawns": [{ "pos": [x, y, z], "yaw": 0 }], // default: player_starts; those on the
+                                   // main ground, cycled farthest first
   "weapon": "plasma_rifle",        // a weapon palette entry's path, by substring
   "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048,
                                    // narrowed to 1 wu for 8 per area)
@@ -275,7 +276,8 @@ The bake clones, before the clears (which keep them): one single-actor squad
 per bot, one zone (`mjolnir_bots`) whose firing positions cover the walkable
 ground the spawns stand on (a `spacing` grid, finer down to 1 wu where narrow
 ground leaves fewer than eight per area), one objective (`mjolnir_bots`: task `hunt` over
-every area, then `area_<k>` per area, all with `magic player sight`), and one
+every area, then `area_0` .. `area_15` sharing the areas out, all with `magic player
+sight`; MJOLNIRHud orders bots to those sixteen whatever the map has), and one
 `ai user hint data` element with every hint list emptied: the AI reads element
 0 without checking the block has one, and a map that cleared it crashed.
 

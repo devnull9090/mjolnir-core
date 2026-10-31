@@ -396,6 +396,53 @@ fn default_bot_areas() -> usize {
     16
 }
 
+/// The area tasks the bots' objective always has, `area_0` .. `area_15`:
+/// MJOLNIRHud sends a roaming bot to a random one of them (`Bots.AREAS` in
+/// Scripts/bots.lua) whatever the map baked, so a map with fewer areas
+/// repeats them and one with more shares them out.
+const BOT_AREA_TASKS: usize = 16;
+
+/// The areas task `area_<task>` covers, of `areas` (at least one): every
+/// area whose index is `task` modulo the task count or, on a map with fewer
+/// areas than tasks, the area at `task` modulo the area count.
+fn area_task_members(task: usize, areas: usize) -> Vec<usize> {
+    let shared: Vec<usize> = (task..areas).step_by(BOT_AREA_TASKS).collect();
+    if shared.is_empty() {
+        vec![task % areas]
+    } else {
+        shared
+    }
+}
+
+/// The order the bots' squads take `points` (the spawns) in: the first, then
+/// each time the one farthest from all those already taken. A level lists its
+/// starts a base at a time, so in its own order the first bots of a match all
+/// stood at one base.
+fn spread_order(points: &[[f64; 3]]) -> Vec<usize> {
+    let mut order = Vec::with_capacity(points.len());
+    // Each untaken point's distance to the nearest taken one; None once taken.
+    let mut nearest: Vec<Option<f64>> = vec![Some(f64::INFINITY); points.len()];
+    let mut next = (!points.is_empty()).then_some(0);
+    while let Some(taken) = next {
+        order.push(taken);
+        nearest[taken] = None;
+        for (i, p) in points.iter().enumerate() {
+            if let Some(d) = nearest[i] {
+                let dd: f64 = (0..3).map(|k| (p[k] - points[taken][k]).powi(2)).sum();
+                nearest[i] = Some(d.min(dd));
+            }
+        }
+        // The farthest; on a tie the earliest.
+        next = nearest
+            .iter()
+            .enumerate()
+            .filter_map(|(i, d)| d.map(|d| (i, d)))
+            .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
+            .map(|(i, _)| i);
+    }
+    order
+}
+
 /// The finest grid the bots' firing positions narrow to, wu.
 const BOT_SPACING_MIN: f32 = 1.0;
 /// The firing positions per area the grid narrows to give, where it can.
@@ -1809,6 +1856,10 @@ impl Baker {
             ix.spawns.len(),
             tally.len()
         );
+        // Squad k stands on the k-th of these: farthest first, so a match's
+        // first bots spread over the map.
+        let points: Vec<[f64; 3]> = spawns.iter().map(|(p, _)| *p).collect();
+        let spawns: Vec<([f64; 3], f64)> = spread_order(&points).into_iter().map(|i| spawns[i]).collect();
         let mut spacing = bots.spacing as f32;
         let mut fps = pf.firing_positions(&shell, spacing, &components, 0.0);
         while fps.len() > 2048 {
@@ -1960,13 +2011,14 @@ impl Baker {
         self.file = blockedit::replace_nested(&self.file, &hints)?;
 
         // The objective `mjolnir_bots`: task `hunt` over every area, where the
-        // bots start, then a task `area_<k>` per area, which MJOLNIRHud sends a
-        // bot to (`ai_set_task`) to roam the map. Every task sees the players.
+        // bots start, then the tasks `area_0` .. `area_15`, each over its share
+        // of the areas, which MJOLNIRHud sends a bot to (`ai_set_task`) to roam
+        // the map. Every task sees the players.
         let n = areas.len();
         let op = format!("ai objectives[{}]", ix.objective);
         self.file = blockedit::select(
             &self.file,
-            &[(format!("{op}.tasks"), vec![0; n + 1]), (format!("{op}.opposing objectives"), vec![])],
+            &[(format!("{op}.tasks"), vec![0; BOT_AREA_TASKS + 1]), (format!("{op}.opposing objectives"), vec![])],
         )?;
         let tap0 = format!("{op}.tasks[0].areas");
         let ta_size = block_element_size(&self.file, &tap0)?;
@@ -1988,11 +2040,12 @@ impl Baker {
             elements: (0..n).flat_map(area_entry).collect(),
             wrappers: None,
         }];
-        for k in 0..n {
+        for k in 0..BOT_AREA_TASKS {
+            let members = area_task_members(k, n);
             task_areas.push(blockedit::NestedReplace {
                 path: format!("{op}.tasks[{}].areas", k + 1),
-                count: 1,
-                elements: area_entry(k),
+                count: members.len() as u32,
+                elements: members.iter().flat_map(|&a| area_entry(a)).collect(),
                 wrappers: None,
             });
         }
@@ -2002,7 +2055,7 @@ impl Baker {
             (format!("{op}.zone index"), format!("#{}", ix.zone)),
             (format!("{op}.first task index"), "#0".to_string()),
         ];
-        for t in 0..=n {
+        for t in 0..=BOT_AREA_TASKS {
             let tp = format!("{op}.tasks[{t}]");
             let name = if t == 0 { "hunt".to_string() } else { format!("area_{}", t - 1) };
             sets.extend([
@@ -2015,7 +2068,7 @@ impl Baker {
                 // Every player slot, not the donor's first four.
                 (format!("{tp}.follow players"), if t == 0 { "0xffff" } else { "0x0" }.to_string()),
                 (format!("{tp}.first_child"), "none".to_string()),
-                (format!("{tp}.next_sibling"), if t < n { format!("#{}", t + 1) } else { "none".to_string() }),
+                (format!("{tp}.next_sibling"), if t < BOT_AREA_TASKS { format!("#{}", t + 1) } else { "none".to_string() }),
                 (format!("{tp}.parent"), "none".to_string()),
                 (format!("{tp}.filter"), "0".to_string()),
                 (format!("{tp}.filter flags"), "0x0".to_string()),
@@ -2025,7 +2078,10 @@ impl Baker {
         for (field, value) in sets {
             apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
         }
-        println!("  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{}", n - 1);
+        println!(
+            "  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{} sharing them",
+            BOT_AREA_TASKS - 1
+        );
 
         // The squads: one actor each, standing on its spawn, `count` of each
         // kind.
@@ -3166,4 +3222,49 @@ fn slot_named(usmap: &ue_asset::Usmap, class: &str, want: &str) -> Result<u16> {
         }
     }
     bail!("{class} has no property {want}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_area_task_names_an_area() {
+        // Fewer areas than tasks: each task one area, all areas reached.
+        let few: Vec<Vec<usize>> = (0..BOT_AREA_TASKS).map(|k| area_task_members(k, 5)).collect();
+        assert!(few.iter().all(|m| m.len() == 1 && m[0] < 5));
+        for a in 0..5 {
+            assert!(few.iter().any(|m| m[0] == a));
+        }
+        // More areas than tasks: shared out, each area in exactly one task.
+        let many: Vec<Vec<usize>> = (0..BOT_AREA_TASKS).map(|k| area_task_members(k, 25)).collect();
+        let mut seen: Vec<usize> = many.concat();
+        seen.sort_unstable();
+        assert_eq!(seen, (0..25).collect::<Vec<_>>());
+        // A single area serves every task.
+        assert!((0..BOT_AREA_TASKS).all(|k| area_task_members(k, 1) == vec![0]));
+    }
+
+    #[test]
+    fn spawns_are_taken_farthest_first() {
+        // Two bases of three starts each, listed a base at a time.
+        let points = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [100.0, 0.0, 0.0],
+            [101.0, 0.0, 0.0],
+            [100.0, 1.0, 0.0],
+        ];
+        let order = spread_order(&points);
+        assert_eq!(order.len(), points.len());
+        // The first two bots stand at different bases.
+        assert_eq!(order[0], 0);
+        assert!(order[1] >= 3);
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..points.len()).collect::<Vec<_>>());
+        assert!(spread_order(&[]).is_empty());
+        assert_eq!(spread_order(&[[5.0, 5.0, 5.0], [5.0, 5.0, 5.0]]), vec![0, 1]);
+    }
 }
