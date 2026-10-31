@@ -7,9 +7,9 @@ fireteam client sees them through the simulation's own replication.
 Proven on Blood Gulch on 2026-10-25, host and one joiner on two PCs: the bots
 walk the map, fight the players and each other, die and respawn, and both
 machines' feeds and boards name them and count the same kills. In team games
-they play for red and blue (PC 1, 2026-10-30): the two sides fight each other
-and a bot's kills score for its team, but a bot still shoots the players of
-its own side.
+they play for red and blue (PC 1, 2026-10-31): the two sides fight each other,
+a bot leaves the players of its own side alone, and its kills score for its
+team.
 
 ## The pieces
 
@@ -118,16 +118,23 @@ alone, and the game's damage code knows the sides: a red bot's hit on a red
 player is flagged friendly (`bDamagedByFriendly`), and a player's kill of a
 bot on their side raises `kill_betrayal`.
 
-**The AI's own choice of target does not follow the sides.** In an isolated
-run on Blood Gulch (2026-10-31, PC 1: one red bot, the red host walking up to
-it, no other AI, nobody firing) the red bot killed the host, and so did the
-same bot made sentinel and made human. With the earlier runs: an AI unit with
-a multiplayer team, whichever, attacks every player; with none, only a
-covenant one does. So in a team game every bot shoots every player, as the
-shipped covenant bots already did. Sides fix the board, the colours and bot
-against bot, not friendly fire, and the table stays on because without it a
-flood (blue) bot would ignore players altogether. (One earlier observation,
-a red bot walking up to the red player without firing, did not reproduce.)
+**Players get their side's campaign team too.** An AI picks its enemies by
+campaign teams alone: when it notices a unit it marks it an enemy if either
+campaign team is -1 or the allegiance matrix says so, and never asks the
+Megalo team rule
+([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#how-an-ai-picks-its-enemies)).
+A player's unit has campaign team -1 in a Megalo game, so before this every
+bot took every player for an enemy: in an isolated run a red bot killed the
+red host who walked up to it, as covenant, as sentinel and as human. A
+player's unit copies its pair from the player every tick, so while the
+table is in, the DLL gives each player on red the covenant campaign team and
+each player on blue flood. A red bot then sees a red player as one of its
+own and a blue player as an enemy. Tested isolated on Blood Gulch
+(2026-10-31, PC 1, nobody at the keyboard): a red covenant grunt beside the
+red host held fire for 35 s; with the table turned around (flood red,
+covenant blue) a grunt moved to flood before its placement held fire beside
+the host, now flood, and a covenant elite placed beside them took the host's
+shields in seconds.
 
 The DLL changes the code on the simulation thread between ticks, puts
 it back when the HUD clears the table (the match ends), and on its own once
@@ -279,9 +286,10 @@ so is a container with more than one BSP or world.
   leave (the teams can end uneven). A fireteam client's view of the sides
   (the roster's letters, its own copy of the units' teams) is not tested on
   two PCs.
-- Friendly fire: bots shoot the players of their own side. The cause is in
-  the AI's target choice, which does not use the team test the damage code
-  uses ([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#open)).
+- Players' campaign teams: in a team game with bots a player's unit is
+  covenant (red) or flood (blue) instead of no campaign team. Nothing else
+  seen reads it in a Megalo game (player against player follows the
+  multiplayer teams), but only Blood Gulch Team Slayer has been played so.
 - Free for All: every bot is covenant, so bots never fight each other.
 - A bot that falls or kills itself gets no suicide on the board.
 - A bot respawns on the start it first used; maps with more starts than

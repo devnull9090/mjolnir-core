@@ -59,13 +59,13 @@ Bots.NAMES = {
     "Knox", "Elsa", "Rocco", "Thea", "Sterling", "Juno", "Vaughn", "Odette", "Beckett", "Saoirse",
 }
 
---- In a team game each bot plays for a side. The simulation gives an AI's
---- unit no multiplayer team, which in a Megalo game makes it every player's
---- enemy; MJOLNIRLobby's DLL gives AI units the multiplayer team their
---- campaign team maps to in native\bot_teams.txt. So a side is a campaign
---- team its bots are moved to (`ai_set_team`) and the multiplayer team that
---- campaign team plays for (docs/re/ai_in_multiplayer.md "Teams in a Megalo
---- match"). Covenant is the squads' own team.
+--- In a team game each bot plays for a side: a campaign team its bots are
+--- moved to (`ai_set_team`) and the multiplayer team that campaign team plays
+--- for. MJOLNIRLobby's DLL reads the pairs from native\bot_teams.txt both ways:
+--- an AI unit takes the multiplayer team of its campaign team, and a player
+--- the campaign team of their multiplayer team, since an AI picks its enemies
+--- by campaign teams alone (docs/re/ai_in_multiplayer.md "How an AI picks its
+--- enemies"). Covenant is the squads' own team.
 Bots.SIDES = {
     Red = { team = "covenant", campaign = 3, multiplayer = 0 },
     Blue = { team = "flood", campaign = 8, multiplayer = 1 },
