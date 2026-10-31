@@ -884,7 +884,10 @@ impl Pathfinding {
         out
     }
 
-    /// The floor sector under (x, y) closest below or at `z + 1`.
+    /// The floor sector under (x, y) closest below or at `z + 0.25`. A
+    /// level's player starts stand 1 wu above their floor (every hub map's
+    /// do), so a floor further up, a bridge or a balcony overhead, is not
+    /// the one a start stands on.
     pub fn sector_at(&self, c: &Collision, p: [f32; 3]) -> Option<(usize, f32)> {
         let mut best: Option<(usize, f32)> = None;
         for (sector, &surface) in self.sector_surface.iter().enumerate() {
@@ -892,7 +895,7 @@ impl Pathfinding {
                 continue;
             }
             if let Some(z) = Self::surface_z(c, surface, p[0], p[1]) {
-                if z <= p[2] + 1.0 && best.is_none_or(|(_, bz)| z > bz) {
+                if z <= p[2] + 0.25 && best.is_none_or(|(_, bz)| z > bz) {
                     best = Some((sector, z));
                 }
             }
@@ -1382,6 +1385,25 @@ mod tests {
         let mut ends = [pf.vertices[t.v1 as usize], pf.vertices[t.v2 as usize]];
         ends.sort_by(|a, b| a[1].total_cmp(&b[1]));
         assert_eq!(ends, [[1.0, 0.5, 0.0], [1.0, 1.0, 0.0]]);
+    }
+
+    #[test]
+    fn a_start_stands_on_the_floor_below_not_a_bridge_above() {
+        // The floor at z 0, a bridge over it at z 1.5; starts sit 1 wu up.
+        let points = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.5],
+            [1.0, 0.0, 1.5],
+            [1.0, 1.0, 1.5],
+            [0.0, 1.0, 1.5],
+        ];
+        let c = shell(&points, &[&[0, 1, 2, 3], &[4, 5, 6, 7]]);
+        let pf = Pathfinding::build(&c).unwrap();
+        assert_eq!(pf.sector_at(&c, [0.5, 0.5, 1.0]).map(|(s, _)| s), Some(0));
+        assert_eq!(pf.sector_at(&c, [0.5, 0.5, 2.5]).map(|(s, _)| s), Some(1));
     }
 
     #[test]
