@@ -206,10 +206,60 @@ pair (team, -1), and later `ai_place`s of the squad take the team too.
 arguments and returns); `player_override_team` is a stub. Nothing a script
 can call gives an AI unit a multiplayer team.
 
-**The board.** MJOLNIRHud sorts a bot into red or blue by its biped's colour
-when an incident names it, so a bot with no team can land on the player's
-side and its kills of that player count as betrayals (-1). A bot killed by
-another bot raises nothing the board counts: bots' deaths stay 0.
+**The board, before sides.** MJOLNIRHud sorts a bot into red or blue by its
+biped's colour when an incident names it, so a bot with no team could land on
+the player's side and its kills of that player counted as betrayals (-1).
+
+### Red and blue bots (MJOLNIRLobby's DLL)
+
+`mjolnir_bots_teams` replaces the store's `or dx, 0xff00` (5 bytes) with
+`call` to a stub allocated within rel32 reach of the simulation DLL:
+
+```text
+push rcx; push rax
+lea  rcx, [rip+0x17]        ; a 256-byte table, 32 bytes in
+movzx eax, dl               ; the actor's campaign team
+mov  dh, [rcx+rax]          ; its multiplayer team, 0xff for none
+pop rax; pop rcx; ret
+```
+
+Flags and `edx` are dead after the store (it jumps to a call whose callee
+loads `edx` first), so the stub need not keep the `or`'s flags. The table
+comes from `native\bot_teams.txt` (`<campaign> <multiplayer>` per line;
+the HUD writes `3 0` and `8 1`); a team the file does not name stays 0xff,
+so only the bots' own teams change. The call goes in and out on the
+simulation thread at the main tick, while the table is not empty and the
+game options' mode byte is 3; the file emptied, or any other mode, puts the
+five bytes back. A one-hit byte search finds the store, as for `ai_place`.
+
+Measured on Blood Gulch, Team Slayer, PC 1: `3 -1` installs the call with no
+change (bots stay 3/-1), `3 0` makes them 3/0 on the next tick, and an empty
+file puts `66 81 ca 00 ff` back. With the HUD choosing sides (covenant red,
+flood blue), a host on red and eight bots split red 3, blue 5; the units read
+3/0 and 8/1; red and blue bots fought at once, and the bipeds' own team
+(`BlamGameTeam`, read by the board) said `EBlamMultiplayerTeam::Red` and
+`Blue` to match.
+
+**`player_get n`** (evaluator sim+0x1b21e0) asks sim+0x187880 for the nth
+valid datum of the players table, counting from 0 in table order, and
+returns that player's unit (`+0x28`). So `n` is a rank among the players
+there are, not an absolute index: the same thing only while no seat below
+is empty.
+
+**A kill no incident reports.** When an AI kills an AI the game raises no
+`Kill` and no `death` (both are about players), only kill medals such as
+`first_blood`, with cause and effect -1. The UE side does know:
+`BlamObjectDamageComponent` has `IsDead()` and an `OnDamageAftermath`
+delegate, and the bipeds' base blueprint (`BP_BaseBipedActor_C`,
+`OnBipedDamageAftermath`) keeps the latest `BlamDamageAftermathResult` in
+the actor's `Blam Aftermath Result`: `DamageOwner.DamageOwnerObject` (the
+attacker's biped actor), `DamagedObject`, `DamageReportingInfo` (the same
+`Type`/`Modifier` the incidents carry), and `Flags` (`bBodyDepleted` on the
+killing blow, `bDamagedByFriendly`, `bKilledInstantly`, ...). A body stays
+an actor where it fell, and its components stay active until the simulation
+deletes the corpse (`BlamObjectSynchronization.BlamObjectGameStateIdentifier`
+is the object's index, the same as `live objects` prints). A unit killed by
+`unit_kill` takes no damage, so its aftermath is an older hit's.
 
 ## Open
 
