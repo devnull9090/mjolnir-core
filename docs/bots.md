@@ -334,8 +334,8 @@ so is a container with more than one BSP or world.
   published before 2026-10-31 has no `map/bots.json`, so each bot comes back
   on the start it first used, whichever side is there.
 - Some bots stand still for minutes under the HUD's orders, cause unknown
-  (Blood Gulch, 2026-10-31). Elites came to rest on a base's lower floor
-  by the flag three times, twice after coming in on the deck above it; one
+  (Blood Gulch, 2026-10-31). Elites came to rest in or on a base within 4 wu
+  of its flag three times, twice after coming in on the deck above it; one
   walked off after five minutes. A blue Spartan stood at its own base for
   four minutes. Spartans, grunts and jackals placed on the same deck starts
   left them.

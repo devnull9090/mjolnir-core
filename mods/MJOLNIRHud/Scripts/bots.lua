@@ -586,6 +586,8 @@ local function step(now, humans, live, where)
             local teleported = p.before[at] and jumped(state.lastWhere and state.lastWhere[at], where[at])
             if not taken[at] and (fresh or teleported) and not state.isPlayer(at) then
                 p.status, p.addr, p.actor = "alive", at, actor
+                -- Failed tries count toward one placement only.
+                p.tries, p.bad = 0, nil
                 -- A few seconds to look around where it spawned first.
                 p.roamAt = now + 3 + math.random() * 4
                 state.placing = nil
