@@ -722,6 +722,10 @@ local function drain()
             -- An AI's incidents name it by player index -1 and its biped.
             if inc.cause == -1 then inc.cause = Bots.seatOf(inc.biped) or -1 end
             if inc.effect == -1 then inc.effect = Bots.seatOf(inc.victimBiped) or -1 end
+            -- A player who kills a bot of their own side raises `kill_betrayal`
+            -- and no `Kill` (Team Slayer on Blood Gulch, 2026-10-30): it is
+            -- the kill the board counts, as a betrayal.
+            if inc.name == "kill_betrayal" and Bots.isBot(inc.effect) then inc.name = "kill" end
         end
         if not skip and Relay.carried(inc.name) then
             skip = Relay.seen(Match.recent, inc)

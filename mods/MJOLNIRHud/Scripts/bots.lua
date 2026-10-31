@@ -473,8 +473,13 @@ local function step(now, humans, live, where)
             -- A side is chosen when a bot is first placed, when the humans'
             -- sides are known, and kept for the match.
             if state.teams and not s.side then s.side = chooseSide(humans) end
-            local lines = { string.format("(ai_place %s)", s.squad) }
-            if s.side then lines[#lines + 1] = string.format("(ai_set_team %s %s)", s.squad, Bots.SIDES[s.side].team) end
+            -- The squad's team before it is placed, which its new actor takes:
+            -- placed covenant and moved after, a blue bot was red for a tick,
+            -- and a blue Spartan could keep the red armour MJOLNIRLevelLoader
+            -- tinted it as it appeared.
+            local lines = {}
+            if s.side then lines[1] = string.format("(ai_set_team %s %s)", s.squad, Bots.SIDES[s.side].team) end
+            lines[#lines + 1] = string.format("(ai_place %s)", s.squad)
             -- Active wherever it is: AI far from every player otherwise idle, and
             -- a bot hunting across the map must not.
             lines[#lines + 1] = string.format("(ai_force_active %s true)", s.squad)
