@@ -67,7 +67,8 @@ is forced active when placed (`ai_force_active`), the bake gives the objective
 the tasks `area_0` .. `area_15` (a map with fewer areas repeats them, one
 with more shares them out, so every task the HUD names is there) and makes
 `hunt` follow the players (radius 3 wu, every player slot), and the host's
-HUD orders each bot every 8-16 s: three times in
+HUD orders each bot every 8-16 s, waking its body first (see "Bots frozen
+in place" below): three times in
 four after an enemy, otherwise `(ai_set_task <squad> mjolnir_bots
 area_<r>)` to a random area. An enemy human is hunted: the `hunt` task and
 `(ai_magically_see_object <squad> (player_get n))`, where `n` counts the
@@ -122,6 +123,33 @@ sixteen tasks since 2026-10-31); and on narrow ground `hunt`'s 3 wu radius
 found no firing position to stand on until the bake narrowed the grid there.
 An AI with no target holds its task's positions: the simulation's own
 `search` follows a target it lost, it does not roam.
+
+**Bots frozen in place.** Three things kept bots still for minutes on Blood
+Gulch (PC 1, 2026-10-31,
+[re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#bots-frozen-in-place)):
+
+- **A sleeping body.** A bot's body falls asleep in the physics when it
+  stands still, as anyone's does, and sometimes its AI does not wake it
+  again: the AI goes on thinking and its squad takes every order, but the
+  body neither moves nor turns, not even when shot. A Spartan stood so on
+  open ground for five and a half minutes. `ai_force_active` does not wake a
+  body; `(object_wake_physics (ai_get_unit <squad>))` does, and the Spartan
+  walked off within a second of it. So every order the HUD gives a bot
+  starts with that line, and a bot whose body stays asleep waits for its
+  next order (8-16 s), not for minutes.
+- **The flag rooms.** No bot on the lower floor under a base's deck, by
+  the flag, was seen to find its way out. Ordered anywhere, one walks about
+  the room, to a corner or a little way up an exit ramp, turns back and
+  stops; a jackal stayed over half an hour, a grunt over 20 minutes. Bots
+  walk in through the exits (and elites drop in through the hole in the
+  deck), so the rooms can collect bots over a match. Waking them changes
+  nothing. Not fixed; the cause is not known.
+- **Elites in the side doorways.** The ramp from a base's deck down to each
+  side door passes under the door's lintel, 0.82 wu above the ramp at its
+  inner edge, and an elite is 0.8 wu tall. An elite walking down jams its
+  head there, facing the door, twitching, and stays until it turns back (one
+  stood five minutes). Spartans, grunts and jackals pass under it. Elites
+  mostly jump off the deck's rim instead. Not fixed.
 
 **Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
 [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
@@ -333,12 +361,11 @@ so is a container with more than one BSP or world.
 - Maps with more starts than squads (15) leave the rest unused. A map
   published before 2026-10-31 has no `map/bots.json`, so each bot comes back
   on the start it first used, whichever side is there.
-- Some bots stand still for minutes under the HUD's orders, cause unknown
-  (Blood Gulch, 2026-10-31). Elites came to rest in or on a base within 4 wu
-  of its flag three times, twice after coming in on the deck above it; one
-  walked off after five minutes. A blue Spartan stood at its own base for
-  four minutes. Spartans, grunts and jackals placed on the same deck starts
-  left them.
+- Bots on Blood Gulch's flag-room floors, under the decks, were not seen to
+  find their way out, and elites jam under the side doors' lintels ("Bots frozen in
+  place" above). The generated pathfinding knows nothing of headroom, so a
+  doorway too low for an elite is open to it. Other maps are not checked.
+- Why a bot's AI sometimes leaves its sleeping body asleep is not known.
 - The HUD sends bots to hunt players they cannot reach. A map published
   before 2026-10-31 still has as many area tasks as it baked areas, so some
   of the HUD's roaming orders go nowhere until it is rebaked.
