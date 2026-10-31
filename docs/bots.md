@@ -8,7 +8,8 @@ Proven on Blood Gulch on 2026-10-25, host and one joiner on two PCs: the bots
 walk the map, fight the players and each other, die and respawn, and both
 machines' feeds and boards name them and count the same kills. In team games
 they play for red and blue (PC 1, 2026-10-30): the two sides fight each other
-and a bot's kills score for its team.
+and a bot's kills score for its team, but a bot still shoots the players of
+its own side.
 
 ## The pieces
 
@@ -112,14 +113,22 @@ bot's squad is put on its side's team (`ai_set_team`: covenant for red,
 flood for blue) before its `ai_place`, and the new actor takes it. Moved
 after placing, a blue bot was red for a tick, and a blue Spartan could keep
 the red armour MJOLNIRLevelLoader tinted it as it appeared (seen on PC 1).
-With a multiplayer team on both units the Megalo team rule
-decides who is an enemy: red and blue bots fight on sight, bots of one side
-leave each other alone, and the game calls a player's kill of a bot on their
-own side a betrayal (`kill_betrayal`). Before the HUD had sides, the same
-table set by hand had a red bot walk up to the red player without firing
-([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
-A player who betrays gets the game's own answer: on Blood Gulch the host
-killed a red bot, and red bots then shot and killed him.
+Red and blue bots fight on sight and bots of one side leave each other
+alone, and the game's damage code knows the sides: a red bot's hit on a red
+player is flagged friendly (`bDamagedByFriendly`), and a player's kill of a
+bot on their side raises `kill_betrayal`.
+
+**The AI's own choice of target does not follow the sides.** In an isolated
+run on Blood Gulch (2026-10-31, PC 1: one red bot, the red host walking up to
+it, no other AI, nobody firing) the red bot killed the host, and so did the
+same bot made sentinel and made human. With the earlier runs: an AI unit with
+a multiplayer team, whichever, attacks every player; with none, only a
+covenant one does. So in a team game every bot shoots every player, as the
+shipped covenant bots already did. Sides fix the board, the colours and bot
+against bot, not friendly fire, and the table stays on because without it a
+flood (blue) bot would ignore players altogether. (One earlier observation,
+a red bot walking up to the red player without firing, did not reproduce.)
+
 The DLL changes the code on the simulation thread between ticks, puts
 it back when the HUD clears the table (the match ends), and on its own once
 the game is not a Megalo one; Free for All leaves it alone. A bot's side is
@@ -270,10 +279,9 @@ so is a container with more than one BSP or world.
   leave (the teams can end uneven). A fireteam client's view of the sides
   (the roster's letters, its own copy of the units' teams) is not tested on
   two PCs.
-- Friendly fire with the HUD's sides: no PC 1 run has yet had a red bot
-  beside an idle red player with nothing else going on (the runs had a
-  player at the keyboard, or blue bots in the line of fire). Every hit on the
-  host recorded so far came from the other side or followed a betrayal.
+- Friendly fire: bots shoot the players of their own side. The cause is in
+  the AI's target choice, which does not use the team test the damage code
+  uses ([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#open)).
 - Free for All: every bot is covenant, so bots never fight each other.
 - A bot that falls or kills itself gets no suicide on the board.
 - A bot respawns on the start it first used; maps with more starts than

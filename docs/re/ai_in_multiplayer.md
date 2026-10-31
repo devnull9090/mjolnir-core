@@ -185,12 +185,14 @@ two **multiplayer** teams when both sides have one, and otherwise fall back:
 
 Measured in Team Slayer:
 
-- **Bots and players.** A bot's multiplayer team is -1, so every bot is
-  every player's enemy, red or blue alike. With the store above patched in
-  the running game to give AI units a multiplayer team (`mov dh, dl; sub dh,
-  3`: covenant becomes red), a covenant bot walked up to the red player and
-  never fired, and the bots made blue (`brute`) killed him. So once an AI
-  unit has a multiplayer team, the Megalo team rule decides.
+- **Bots and players.** With no multiplayer team, a covenant bot attacks
+  every player, red or blue alike, and flood, sentinel, heretic, berserk,
+  brute, mule and spare bots ignore players. With the store above patched to
+  give AI units a multiplayer team, bots made blue (`brute`) killed the red
+  player. A single first sighting of a covenant bot on red walking up to the
+  red player without firing did not reproduce: see the isolated runs under
+  "Red and blue bots" below. An AI unit with a multiplayer team, whichever,
+  attacks every player.
 - **Bot and bot.** Decided by campaign teams, multiplayer teams or not: two
   covenant bots never fight; covenant and flood fought at once (one dead in
   under a minute); covenant, flood, sentinel and heretic bots all fought one
@@ -240,6 +242,19 @@ flood blue), a host on red and eight bots split red 3, blue 5; the units read
 (`BlamGameTeam`, read by the board) said `EBlamMultiplayerTeam::Red` and
 `Blue` to match.
 
+**Friendly fire, isolated** (2026-10-31): no HUD bots, the table set by hand,
+one grunt placed by script on red (multiplayer team 0) at the far base, the
+red host walked up to it with no other AI on the map and no shot fired. As
+covenant (`3 0`), as sentinel (`9 0`) and as human (`2 0`), the grunt opened
+fire within a second or two of the host coming near and killed him. The hit
+records on the host's actor name that grunt with `bDamagedByFriendly` set,
+and no incident came before the first hit. So the damage code calls these
+hits friendly while the AI chooses the player as a target anyway: the
+actor's choice of target does not run through the team test above, or runs
+it on other inputs (a player's unit carries campaign team -1). Every bot with
+a multiplayer team shoots every player; the HUD keeps the table on in team
+games regardless, since without it a flood (blue) bot ignores players.
+
 `ai_set_team` before a squad's first `ai_place` works too: a squad never
 placed, set to flood and then placed, came out 8/1 with no second call. The
 HUD sets each squad's team before placing it, because placed covenant and
@@ -269,6 +284,13 @@ is the object's index, the same as `live objects` prints). A unit killed by
 
 ## Open
 
+- **Bots shoot their own side**: why an AI unit with a multiplayer team
+  targets every player. Next in Ghidra: the engine's team relationship
+  (vtable `+0x1b8`, sim+0x20bab0) and its callers sim+0x26b670/+0x26b710,
+  what each side passes (unit `+0x1ba` campaign, `+0x1bb` multiplayer, or the
+  player's team in the players table), reads of `+0x1ba`/`+0x1bb` from actor
+  perception and target code rather than object and damage code, and the
+  path that sets `bDamagedByFriendly`, for contrast.
 - **Megalo score**: Slayer's kill trigger fires on a *player* killed, so AI
   kills likely do not score; a score-to-win end needs the HUD's own count or
   a variant change.
