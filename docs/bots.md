@@ -7,8 +7,8 @@ fireteam client sees them through the simulation's own replication.
 Proven on Blood Gulch on 2026-10-25, host and one joiner on two PCs: the bots
 walk the map, fight the players and each other, die and respawn, and both
 machines' feeds and boards name them and count the same kills. In team games
-they play for red and blue (PC 1, 2026-10-30): a bot leaves its own side
-alone and its kills score for its team.
+they play for red and blue (PC 1, 2026-10-30): the two sides fight each other
+and a bot's kills score for its team.
 
 ## The pieces
 
@@ -108,10 +108,19 @@ MJOLNIRLobby's DLL (`mjolnir_bots_teams`) turns the unit update's `or dx,
 0xff00` (multiplayer team -1) into a call to a few bytes of its own that look
 the multiplayer team up by campaign team, in a table the HUD writes
 (`native\bot_teams.txt`: covenant 3 plays for red 0, flood 8 for blue 1). A
-red bot is placed and kept covenant, a blue one moved to flood
-(`ai_set_team`). With a multiplayer team on both units the Megalo team rule
-decides: a bot leaves its own side alone, players and bots, and fights the
-other. The DLL changes the code on the simulation thread between ticks, puts
+bot's squad is put on its side's team (`ai_set_team`: covenant for red,
+flood for blue) before its `ai_place`, and the new actor takes it. Moved
+after placing, a blue bot was red for a tick, and a blue Spartan could keep
+the red armour MJOLNIRLevelLoader tinted it as it appeared (seen on PC 1).
+With a multiplayer team on both units the Megalo team rule
+decides who is an enemy: red and blue bots fight on sight, bots of one side
+leave each other alone, and the game calls a player's kill of a bot on their
+own side a betrayal (`kill_betrayal`). Before the HUD had sides, the same
+table set by hand had a red bot walk up to the red player without firing
+([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
+A player who betrays gets the game's own answer: on Blood Gulch the host
+killed a red bot, and red bots then shot and killed him.
+The DLL changes the code on the simulation thread between ticks, puts
 it back when the HUD clears the table (the match ends), and on its own once
 the game is not a Megalo one; Free for All leaves it alone. A bot's side is
 chosen when it is first placed, for the side with fewer players (humans and
@@ -126,10 +135,12 @@ game's own `round_over` does: final standings, then the post-game screen. A
 fireteam client gets no `round_over`; it follows the host's travel.
 
 **AI are not players.** Their incidents carry player index -1 and the AI
-biped's actor: a player who kills a bot raises `Kill` (no `death`), a bot that
-kills a player raises the player's `death` (no `Kill`). The HUD gives bot `k`
+biped's actor: a player who kills a bot raises `Kill` (no `death`), or
+`kill_betrayal` and no `Kill` when the bot is on their side; a bot that kills
+a player raises the player's `death` (no `Kill`). The HUD gives bot `k`
 the seat 100 + k (the match log records only seats 0-15, so bots never reach
-the hub) and translates -1 to the seat by actor, then counts both ways.
+the hub) and translates -1 to the seat by actor, then counts both ways (a
+`kill_betrayal` of a bot as a kill: -1 in Team Slayer).
 
 **A bot killed by a bot raises nothing**: no `Kill`, no `death`, only kill
 medals such as `first_blood` with no seats. Its body stays an actor where it
@@ -259,6 +270,10 @@ so is a container with more than one BSP or world.
   leave (the teams can end uneven). A fireteam client's view of the sides
   (the roster's letters, its own copy of the units' teams) is not tested on
   two PCs.
+- Friendly fire with the HUD's sides: no PC 1 run has yet had a red bot
+  beside an idle red player with nothing else going on (the runs had a
+  player at the keyboard, or blue bots in the line of fire). Every hit on the
+  host recorded so far came from the other side or followed a betrayal.
 - Free for All: every bot is covenant, so bots never fight each other.
 - A bot that falls or kills itself gets no suicide on the board.
 - A bot respawns on the start it first used; maps with more starts than

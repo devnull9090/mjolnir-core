@@ -240,6 +240,12 @@ flood blue), a host on red and eight bots split red 3, blue 5; the units read
 (`BlamGameTeam`, read by the board) said `EBlamMultiplayerTeam::Red` and
 `Blue` to match.
 
+`ai_set_team` before a squad's first `ai_place` works too: a squad never
+placed, set to flood and then placed, came out 8/1 with no second call. The
+HUD sets each squad's team before placing it, because placed covenant and
+moved after, a blue bot spent a tick on red, long enough for
+MJOLNIRLevelLoader to tint a blue Spartan's armour red as it appeared.
+
 **`player_get n`** (evaluator sim+0x1b21e0) asks sim+0x187880 for the nth
 valid datum of the players table, counting from 0 in table order, and
 returns that player's unit (`+0x28`). So `n` is a rank among the players
