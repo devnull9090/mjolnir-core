@@ -2991,12 +2991,22 @@ local function decodeOptions(text)
     return options
 end
 
+--- An option as one line ("AGAIN  /  BLOOD GULCH  /  TEAM SLAYER"), then
+--- its parts: the map's title, the game type's name, the game type (for its
+--- icon) and whether this PC lacks the map.
 local function optionLabel(o)
     local map = mapByCode(o.code)
     local mode = modeById(map, o.mode)
-    local label = (map and titleOf(map) or Live.title(o.code)) .. "  /  " .. (mode and mode.name or string.upper(o.mode))
+    if not mode then
+        -- A map this PC lacks: the game type by its id, for its name and icon.
+        for _, m in ipairs(MODES) do
+            if m.id == o.mode then mode = m end
+        end
+    end
+    local title, typeName = map and titleOf(map) or Live.title(o.code), mode and mode.name or modeName(o.mode)
+    local label = title .. "  /  " .. typeName
     if not map then label = label .. "  /  DOWNLOAD" end
-    return o.again and ("AGAIN  /  " .. label) or label
+    return o.again and ("AGAIN  /  " .. label) or label, title, typeName, mode or { id = o.mode }, map == nil
 end
 
 local function counts(v)
@@ -3125,10 +3135,50 @@ end
 local function drawVote()
     local s, v = Post.screen, Post.vote
     local host = Net.isHost()
+    -- A UI container built with MJOLNIRLobby 0.19.0 or later shows each
+    -- option as a tile (its cover, its game type's icon, its votes as a
+    -- number and a bar) under a clock and a bar that drains; an older one as
+    -- a line of text under "VOTING ENDS IN 12" (docs/multiplayer_postgame.md).
+    local tiles = UI.valid(s.VoteMode0)
+    local BAR, SHARE = 900, 432   -- build_mjolnir_ui.py: VOTE_WIDTH, VOTE_COVER's width
+    -- The seconds left: the host's own clock; a fireteam client's from the
+    -- host's last message (once a second), run on since.
+    local left = 0
+    if v then
+        left = v.left or 0
+        if v.leftAt and not v.held then left = left - (os.clock() - v.leftAt) end
+        left = math.max(0, left)
+    end
+    local countdown = v and v.options and not v.chosen and math.ceil(left) or nil
+    -- The countdown on its own, each tick: the seconds and the bar (gold for
+    -- the last five, grey while a report holds the vote).
+    local function clock()
+        if not tiles then
+            if countdown and not v.held and countdown ~= Post.voteCountdown then
+                setText(s.VoteTimer, string.format("VOTING ENDS IN %d", countdown))
+            end
+        elseif countdown then
+            if countdown ~= Post.voteCountdown then
+                setText(s.VoteSeconds, tostring(countdown))
+                local late = countdown <= 5
+                pcall(function()
+                    s.VoteSeconds:SetColorAndOpacity({ SpecifiedColor = v.held and Pick.GREY or (late and GOLD or WHITE),
+                        ColorUseRule = 0 })
+                    s.VoteBarFill:SetBrushColor(v.held and Pick.GREY or (late and GOLD or ACCENT))
+                end)
+            end
+            local width = math.floor(BAR * math.min(1, left / VOTE_SECONDS))
+            if width ~= Post.voteBar then
+                Post.voteBar = width
+                pcall(function() s.VoteBarFillSize:SetWidthOverride(width) end)
+            end
+        end
+        Post.voteCountdown = countdown
+    end
     -- Drawn when something it shows changes, not on every tick: each draw
     -- took up to 31 ms (#232). The key holds everything below reads but the
-    -- countdown, which alone changes each second and is set by itself.
-    local key, countdown = { tostring(host) }, nil
+    -- countdown, which clock() keeps up by itself.
+    local key = { tostring(host) }
     if v then
         local next_ = v.chosen and v.options[v.chosen]
         local waiting, pct = 0, nil
@@ -3136,70 +3186,108 @@ local function drawVote()
         key = { tostring(host), tostring(v.id), encodeOptions(v.options), table.concat(counts(v), ","),
             tostring(v.mine), tostring(v.chosen), tostring(v.held), tostring(#rosterPlayers()), tostring(waiting),
             tostring(pct) }
-        if not (v.chosen or v.held) then
-            countdown = string.format("VOTING ENDS IN %d", math.max(0, math.ceil(v.left or 0)))
-        end
     end
     key = table.concat(key, "|")
     if Post.voteDrawn == key and Post.voteOn == s then
-        if countdown and countdown ~= Post.voteCountdown then setText(s.VoteTimer, countdown) end
-        Post.voteCountdown = countdown
+        clock()
         return
     end
-    Post.voteDrawn, Post.voteOn, Post.voteCountdown = key, s, countdown
+    Post.voteDrawn, Post.voteOn, Post.voteCountdown, Post.voteBar = key, s, nil, nil
     setShown(s.Start, host)
     setShown(s.Lobby, host)
     if not v then
         setText(s.VoteTimer, host and "NO OTHER GAMES INSTALLED" or "WAITING FOR THE HOST")
         for i = 0, VOTE_OPTIONS - 1 do setShown(s["VoteRow" .. i], false) end
         setText(s.VoteHint, "")
+        if tiles then
+            setText(s.VoteTally, "")
+            setShown(s.VoteClockSize, false)
+            setShown(s.VoteBarSize, false)
+        end
         return
     end
     local n = counts(v)
     local voted = 0
+    for i = 1, #v.options do voted = voted + (n[i] or 0) end
     for i = 0, VOTE_OPTIONS - 1 do
         local o = v.options[i + 1]
         setShown(s["VoteRow" .. i], o ~= nil)
         if o then
-            voted = voted + (n[i + 1] or 0)
-            setText(s["Vote" .. i .. "Label"], optionLabel(o))
-            setText(s["VoteCount" .. i], (n[i + 1] or 0) > 0 and tostring(n[i + 1]) or "")
+            local c = n[i + 1] or 0
+            setText(s["VoteCount" .. i], c > 0 and tostring(c) or "")
             -- Each option's own map cover (#258).
             Live.showCover(s, o.code, "VoteImage" .. i)
             local mine, chosen = v.mine == i + 1, v.chosen == i + 1
-            pcall(function()
-                s["Vote" .. i]:SetBackgroundColor((mine or chosen) and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
-                s["Vote" .. i .. "Label"]:SetColorAndOpacity({
-                    SpecifiedColor = chosen and GOLD or (mine and ACCENT or WHITE), ColorUseRule = 0 })
-                s["Vote" .. i]:SetIsEnabled(v.chosen == nil)
-            end)
+            if tiles then
+                local _, title, typeName, mode, missing = optionLabel(o)
+                setText(s["Vote" .. i .. "Label"], title)
+                setText(s["VoteMode" .. i], typeName)
+                setShown(s["VoteEmblemSize" .. i], Pick.gameType.showIcon(s["VoteModeIcon" .. i], mode))
+                -- The pill: why this option stands out, if it does.
+                local tag = (chosen and "NEXT GAME") or (o.again and "PLAY AGAIN") or (missing and "DOWNLOAD") or nil
+                setText(s["VoteTagText" .. i], tag)
+                pcall(function()
+                    s["VoteTag" .. i]:SetVisibility(tag and 3 or 1) -- HitTestInvisible, Collapsed
+                    s["VoteTag" .. i]:SetBrushColor(tag == "DOWNLOAD" and ACCENT or GOLD)
+                    s["VoteMine" .. i]:SetVisibility(mine and 3 or 1)
+                    s["VoteShareSize" .. i]:SetWidthOverride(voted > 0 and math.floor(SHARE * c / voted) or 0)
+                    -- A gold ring round the winner, a blue one round your
+                    -- vote. Once the vote is decided the others fade, and
+                    -- no tile takes the mouse (disabling the buttons would
+                    -- grey the winner's cover too).
+                    s["VoteRow" .. i]:SetBrushColor(chosen and GOLD or (mine and ACCENT) or { R = 0, G = 0, B = 0, A = 0 })
+                    s["VoteRow" .. i]:SetRenderOpacity((v.chosen and not chosen) and 0.35 or 1)
+                    s["Vote" .. i]:SetVisibility(v.chosen and 3 or 0)
+                    s["Vote" .. i .. "Label"]:SetColorAndOpacity({ SpecifiedColor = chosen and GOLD or WHITE,
+                        ColorUseRule = 0 })
+                end)
+            else
+                setText(s["Vote" .. i .. "Label"], (optionLabel(o)))
+                pcall(function()
+                    s["Vote" .. i]:SetBackgroundColor((mine or chosen) and SELECTED_BACKGROUND or NORMAL_BACKGROUND)
+                    s["Vote" .. i .. "Label"]:SetColorAndOpacity({
+                        SpecifiedColor = chosen and GOLD or (mine and ACCENT or WHITE), ColorUseRule = 0 })
+                    s["Vote" .. i]:SetIsEnabled(v.chosen == nil)
+                end)
+            end
         end
     end
-    if v.chosen and v.options[v.chosen] then
-        setText(s.VoteTimer, "NEXT  /  " .. optionLabel(v.options[v.chosen]))
+    local players = math.max(#rosterPlayers(), voted)
+    local next_ = v.chosen and v.options[v.chosen]
+    if tiles then
+        local timer = v.held and "VOTING PAUSED" or "CAST YOUR VOTE"
+        if next_ then
+            local _, title, typeName = optionLabel(next_)
+            timer = title .. "  /  " .. typeName
+        end
+        setText(s.VoteTimer, timer)
+        setText(s.VoteTally, v.held and "A PLAYER IS FILING A REPORT" or string.format("%d OF %d VOTED", voted, players))
+        setShown(s.VoteClockSize, next_ == nil)
+        setShown(s.VoteBarSize, next_ == nil)
+    elseif next_ then
+        setText(s.VoteTimer, "NEXT  /  " .. optionLabel(next_))
     elseif v.held then
         setText(s.VoteTimer, "VOTING PAUSED  /  A PLAYER IS FILING A REPORT")
-    else
-        setText(s.VoteTimer, string.format("VOTING ENDS IN %d", math.max(0, math.ceil(v.left or 0))))
     end
-    setText(s.VoteHint, host and
-        "Everyone in the fireteam votes. START NOW plays the leading game; LOBBY ends the vote so you can pick by hand." or
+    clock()
+    setText(s.VoteHint, host and "START NOW plays the leading game. LOBBY lets you pick by hand." or
         "Vote for the next game. The host starts it when voting ends.")
     pcall(function()
         s.Start:SetIsEnabled(v.chosen == nil)
         s.Lobby:SetIsEnabled(v.chosen == nil)
     end)
-    local players = math.max(#rosterPlayers(), voted)
-    local next_ = v.chosen and v.options[v.chosen]
     local waiting, pct = 0, nil
     if host and next_ then waiting, pct = Live.waitingOn(next_.code) end
     if waiting > 0 then
         setText(s.Status, string.format("WAITING FOR %d PLAYER%s TO DOWNLOAD %s%s", waiting, waiting == 1 and "" or "S",
             Live.title(next_.code), pct and string.format(" (%d%%)", pct) or ""))
+    elseif v.chosen then
+        setText(s.Status, "STARTING THE NEXT GAME   /   THE FIRETEAM TRAVELS TOGETHER")
     else
-        setText(s.Status, v.chosen and "STARTING THE NEXT GAME   /   THE FIRETEAM TRAVELS TOGETHER" or
-            string.format("%d OF %d VOTED", voted, players))
+        -- The tiles' header counts the votes itself.
+        setText(s.Status, tiles and "" or string.format("%d OF %d VOTED", voted, players))
     end
+    if tiles then return end
     -- The leading game's screenshot (the chosen one once the vote ends).
     local lead, best = nil, -1
     for i, o in ipairs(v.options) do
@@ -3536,7 +3624,7 @@ Net.on("vote", function(f)
         Post.vote = { id = id }
     end
     local v = Post.vote
-    v.left = tonumber(f[2] or "") or 0
+    v.left, v.leftAt = tonumber(f[2] or "") or 0, os.clock()
     v.options = decodeOptions(f[3])
     local n = {}
     for c in (f[4] or ""):gmatch("(%d+)") do n[#n + 1] = tonumber(c) end
