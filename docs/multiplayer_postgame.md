@@ -3,7 +3,7 @@
 A custom game ends with everyone still together: the final standings in the
 map, then a post-game screen on the menu where the fireteam votes on the next
 game, and the host starts it. Nobody leaves the fireteam. Status as of
-2026-10-02; updated 2026-10-21.
+2026-10-02; updated 2026-10-31.
 
 ## What the game does on its own, and why we don't use it
 
@@ -60,6 +60,35 @@ reaches `game_over`, and the host ends the match itself.
 
 Each machine shows its own standings. They agree because every machine
 counted the same incidents ([multiplayer_hud.md](multiplayer_hud.md)).
+
+## The vote panel
+
+Since MJOLNIRLobby 0.19.0 and the chunk-984 UI container cooked with it
+(which ships in the CE runtime pack, 2026-10-31), the options are a
+two-by-two grid of tiles, each of them the button you vote with:
+
+- the map's hub screenshot, and over its foot a band with the game type's
+  icon (the game type picker's, `T_MJMode_*`), the map, the game type and the
+  votes so far;
+- a gold bar along the bottom edge, the option's share of the votes;
+- pills for PLAY AGAIN (the game just played), DOWNLOAD (a map this PC lacks)
+  and YOUR VOTE, and a blue ring round your vote.
+
+Above the tiles: how many have voted, the seconds left on a disc, and a bar
+that drains. Both turn gold for the last five seconds and grey while a
+report holds the vote. When the vote is decided, the winner gets a gold ring
+and NEXT GAME, the others fade, and the header names the next game.
+
+Every text in a tile is clipped to it, so a long map name ends in an
+ellipsis. The screen before wrote each option on one line ("AGAIN / BLOOD
+GULCH / TEAM SLAYER"), which ran out of the panel. The tallies moved from
+the footer into the vote's header, and the leading game's screenshot above
+the options went, since every tile has its own.
+
+The two halves still mix either way (checked in game, 2026-10-31). An older
+MJOLNIRLobby on the new UI writes its one-line labels into the tiles, cut
+short with an ellipsis. This MJOLNIRLobby on an older UI container (one with
+no `VoteMode0`) draws the old lines.
 
 ## Messages between the host and its fireteam
 
@@ -125,5 +154,9 @@ run it locally.
   that joins mid-match is not handled yet. **Update 2026-10-21:** since
   mods-v0.12.0 (PR #130) a client can join a public match under way; a
   private game still refuses a join mid-match.
+- The vote's tiles (2026-10-31) were checked on one PC, as the host only.
+  A fireteam client's view (its clock runs on from the host's last message),
+  the DOWNLOAD pill for a map the client lacks, and the grey clock while a
+  report holds the vote still need [two_pc_test.md](two_pc_test.md), Phase 4.
 - The tallies are HUD-side. Reading the Megalo score itself would make a
   client's standings authoritative.
