@@ -398,11 +398,19 @@ end
 --- (level.rs bots_finish). An enemy human is hunted (task `hunt`, which
 --- keeps near the players); an enemy bot, in a team game, is not a player,
 --- so the bot walks to an area knowing where that bot is.
+---
+--- Each order wakes the bot's body first. A bot's physics can fall asleep
+--- where it stands: its AI goes on thinking and taking orders, but the body
+--- neither moves nor turns, even when shot, until something wakes it
+--- (docs/bots.md "Why bots stand still"; seen for minutes on Blood Gulch).
 Bots.AREAS = 16
 local ROAM_MIN, ROAM_MAX = 8, 16
 --- How often an order is a hunt (an enemy, wherever they are) rather than a
 --- walk to a random area.
 local HUNT_SHARE = 0.75
+--- The most lines one round of orders sends: the DLL runs at most 16 lines a
+--- tick, and a placement in the same step adds three.
+local ROAM_LINES = 13
 
 --- Someone for bot `s` to go after: a human player (as `player_get` counts
 --- them) or, in a team game, a bot of the other side (its squad). A human
@@ -423,9 +431,10 @@ end
 local function roam(now, humans)
     local lines = {}
     for _, s in ipairs(state.slots) do
-        if s.status == "alive" and now >= (s.roamAt or 0) and #lines < 14 then
+        if s.status == "alive" and now >= (s.roamAt or 0) and #lines + 3 <= ROAM_LINES then
             s.roamAt = now + ROAM_MIN + math.random() * (ROAM_MAX - ROAM_MIN)
             local enemy = math.random() < HUNT_SHARE and pickEnemy(s, humans) or nil
+            lines[#lines + 1] = string.format("(object_wake_physics (ai_get_unit %s))", s.squad)
             if enemy and enemy.nth then
                 lines[#lines + 1] = string.format("(ai_set_task %s mjolnir_bots hunt)", s.squad)
                 lines[#lines + 1] = string.format("(ai_magically_see_object %s (player_get %d))", s.squad, enemy.nth)
