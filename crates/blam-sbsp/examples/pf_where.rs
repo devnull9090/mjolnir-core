@@ -5,6 +5,8 @@
 //!       the floor sector under each point and its connected component
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> route x,y,z x,y,z
 //!       the fewest-sector route between two points, link by link
+//!   cargo run -p blam-sbsp --example pf_where -- <sbsp> links x,y,z
+//!       every link of the floor sector under a point, and hints naming them
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> headroom x0,y0,x1,y1 <limit>
 //!       floor sectors in a box with less than `limit` wu under a ceiling
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> surf <sector | sNNN surface> ...
@@ -98,6 +100,37 @@ fn main() {
     let bsp = std::fs::read(&a[0]).expect("sbsp");
     let c = shell_collision(&bsp).expect("shell");
     let pf = Pathfinding::build(&c).expect("build");
+    if a.get(1).map(String::as_str) == Some("links") {
+        // Every link of the floor sector under a point: flags, the sector
+        // across, the hint and the edge.
+        let (s, _) = pf.sector_at(&c, point(&a[2])).expect("no floor sector");
+        println!(
+            "sector {s} flags {:#x} hint {}",
+            pf.sectors[s].flags, pf.sectors[s].hint
+        );
+        for (i, l) in pf.links.iter().enumerate() {
+            if l.left as usize != s && l.right as i64 != s as i64 {
+                continue;
+            }
+            let (p, q) = (pf.vertices[l.v1 as usize], pf.vertices[l.v2 as usize]);
+            println!(
+                "  link {i}: left {} right {} flags {:#x} hint {} ({:.2},{:.2},{:.2})-({:.2},{:.2},{:.2})",
+                l.left, l.right, l.flags, l.hint, p[0], p[1], p[2], q[0], q[1], q[2]
+            );
+        }
+        for (i, h) in pf.hints.iter().enumerate() {
+            let joined = h.data[0];
+            if let Some(l) = usize::try_from(joined).ok().and_then(|j| pf.links.get(j)) {
+                if l.left as usize == s || l.right as i64 == s as i64 {
+                    println!(
+                        "  hint {i}: kind {} joins link {joined} ({} <-> {})",
+                        h.kind, l.left, l.right
+                    );
+                }
+            }
+        }
+        return;
+    }
     if a.get(1).map(String::as_str) == Some("hex") {
         // The `sectors` block bytes of sectors i..j, as the bake writes them.
         let (i, j): (usize, usize) = (a[2].parse().unwrap(), a[3].parse().unwrap());
