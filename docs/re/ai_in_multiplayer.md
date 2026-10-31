@@ -143,8 +143,9 @@ The generator joins two floor edges that both drop away, run opposite ways
 within 0.1 wu and lie less than a step apart in height, cutting each link at
 the shared stretch's ends first so the joining link spans exactly it.
 
-**Player starts** in every hub map's level file stand 1.0 wu above their
-floor (Night Lockout, Blood Gulch, Boarding Action: all of them).
+**Player starts** in the hub maps' level files stand 1.0 wu above their
+floor (every start of Night Lockout, Blood Gulch and Boarding Action; with
+the spawn lookup allowing 0.25 wu, no hub map loses a start).
 
 ## Open
 

@@ -885,9 +885,9 @@ impl Pathfinding {
     }
 
     /// The floor sector under (x, y) closest below or at `z + 0.25`. A
-    /// level's player starts stand 1 wu above their floor (every hub map's
-    /// do), so a floor further up, a bridge or a balcony overhead, is not
-    /// the one a start stands on.
+    /// level's player starts stand 1 wu above their floor (Night Lockout's,
+    /// Blood Gulch's and Boarding Action's all do), so a floor further up,
+    /// a bridge or a balcony overhead, is not the one a start stands on.
     pub fn sector_at(&self, c: &Collision, p: [f32; 3]) -> Option<(usize, f32)> {
         let mut best: Option<(usize, f32)> = None;
         for (sector, &surface) in self.sector_surface.iter().enumerate() {
