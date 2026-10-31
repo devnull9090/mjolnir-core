@@ -204,6 +204,10 @@ fn percent(fraction: Option<f32>, maximum: f32) -> String {
     }
 }
 
+/// A unit's team pair in its object datum, CU4 (`unit_get_team_index` at
+/// sim+0x1bacc0 reads the first byte; `ai_set_team` writes `team | 0xff00`).
+const UNIT_TEAM: u64 = 0x1ba;
+
 fn objects(
     process: &blam_live::Process,
     attached: tagtable::Attached,
@@ -267,8 +271,19 @@ fn objects(
             .get(&o.handle)
             .map(|i| format!("player {i}"))
             .unwrap_or_default();
+        // A unit's team pair, campaign team then multiplayer team (-1 for
+        // none), where `unit_get_team_index` and `ai_set_team` keep it.
+        let team = match o.kind {
+            world::ObjectKind::Biped | world::ObjectKind::Vehicle | world::ObjectKind::Giant => {
+                process
+                    .read(o.datum + UNIT_TEAM, 2)
+                    .map(|b| format!("team {}/{}", b[0] as i8, b[1] as i8))
+                    .unwrap_or_default()
+            }
+            _ => String::new(),
+        };
         out.push_str(&format!(
-            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\t{yaw:.1}\t{:#x}\n",
+            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\t{yaw:.1}\t{:#x}\t{team}\n",
             o.index,
             o.handle,
             o.kind.name(),
