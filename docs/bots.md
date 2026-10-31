@@ -146,10 +146,16 @@ Gulch (PC 1, 2026-10-31,
   nothing. Not fixed; the cause is not known.
 - **Elites in the side doorways.** The ramp from a base's deck down to each
   side door passes under the door's lintel, 0.82 wu above the ramp at its
-  inner edge, and an elite is 0.8 wu tall. An elite walking down jams its
-  head there, facing the door, twitching, and stays until it turns back (one
-  stood five minutes). Spartans, grunts and jackals pass under it. Elites
-  mostly jump off the deck's rim instead. Not fixed.
+  inner edge. On that slope an upright elite (0.8 wu tall, radius 0.18)
+  needs 0.87, so one walking down jams its head on the lintel's corner,
+  facing the door, twitching, and stays until it turns back (one stood five
+  minutes; sent down on purpose, it jammed three times out of three).
+  Spartans, grunts, jackals and a crouching elite fit. Flagging the ramps
+  `crouchable` in the pathfinding changes nothing: an AI crouches for
+  danger, cover or a script, never for its path. Leaving the ramps out of
+  the pathfinding is no answer either: they are the only way to walk onto a
+  deck. Not fixed. By the capsule's geometry an elite standing 0.75 or lower
+  would fit; no elite has been seen to pass yet.
 
 **Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
 [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
@@ -363,8 +369,9 @@ so is a container with more than one BSP or world.
   on the start it first used, whichever side is there.
 - Bots on Blood Gulch's flag-room floors, under the decks, were not seen to
   find their way out, and elites jam under the side doors' lintels ("Bots frozen in
-  place" above). The generated pathfinding knows nothing of headroom, so a
-  doorway too low for an elite is open to it. Other maps are not checked.
+  place" above). An AI never crouches to pass a low ceiling, and those doors
+  are the only way onto the decks, so they stay open to elites. Other maps
+  are not checked.
 - Why a bot's AI sometimes leaves its sleeping body asleep is not known.
 - The HUD sends bots to hunt players they cannot reach. A map published
   before 2026-10-31 still has as many area tasks as it baked areas, so some

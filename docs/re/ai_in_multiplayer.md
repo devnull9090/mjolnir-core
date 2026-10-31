@@ -405,23 +405,83 @@ ground on the map under another floor.
 
 The ramp from each base's deck down to a side door (sectors 1823 and 1902 on
 the north base, 1824 and 1903 on the south) climbs 1.57 wu over 2.6 wu and
-passes under the door's lintel, a slab whose underside is at z 1.50. At the
-lintel's inner edge the ramp is at z 0.68, leaving 0.82 wu; an elite stands
-0.8 wu (`elite_ai` biped, `height standing`), lifted about 0.03 more by the
-slope, against 0.65 for the Spartan, 0.7 for the jackal and 0.55 for the
-grunt. An elite walking down from the deck therefore stops with its centre
-one radius (0.18) short of the edge. Seen twice at exactly that spot: on
-the south base's west ramp at (91.5, -159.5, 0.83) for five minutes, and on
-the north base's east ramp at (44.18, -79.26, 0.83), facing the door, its
-position twitching by a few hundredths across the ramp and its facing by a
-few degrees, x fixed, until it turned back up and jumped off the deck's rim.
-The generated pathfinding has no idea of headroom: Bungie's sector flags
-include `crouchable` (0x400), never set by the bake. Whether the AI crouches
-through a sector so flagged is not known: setting it live on the ramp's
-sector came too late, the elite had already left.
+passes under the door's lintel, a slab whose underside is at z 1.50 (the
+south-west one is surface 4333, x 90.59 to 91.31). At the lintel's inner edge
+the ramp is at z 0.68, leaving 0.82 wu; an elite stands 0.8 wu (`elite_ai`
+biped, `physics.height standing`; crouching 0.69, radius 0.18), against 0.65
+for the Spartan, 0.7 for the jackal and 0.55 for the grunt. Seen twice on its
+own and three more times on purpose (below) at the same spot: on the south
+base's west ramp at (91.5, -159.5, 0.83) for five minutes, and on the north
+base's east ramp at (44.18, -79.26, 0.83), facing the door, its position
+twitching by a few hundredths across the ramp and its facing by a few
+degrees, x fixed, until it turned back up and jumped off the deck's rim.
+
+**Why there.** The body is an upright capsule, and on the ramp its origin
+stands 0.036 above the surface (measured; a radius-0.18 sphere resting on a
+31° slope sits 0.03 higher than on flat ground). Walking down, its top
+reaches the lintel's lower inner corner before its axis is under it: a
+capsule of height h and radius r reaches (h − r)·n_z + r + lift·n_z out from
+the ramp's plane (n_z = 0.856), and the corner is 0.82·n_z = 0.70 out. For
+the elite that is 0.742, so it touches with its centre 0.17 to 0.19 uphill of
+the edge, where it stands. Crouched (0.69) it reaches 0.647; the jackal (0.7,
+radius 0.18) 0.656, the Spartan (0.65, 0.175) 0.613, the grunt (0.55, 0.15)
+0.523: all pass. The rule gives h ≤ 0.754 for this ramp.
+
+**`crouchable` does nothing.** Bungie's sector flags include `crouchable`
+(0x400). The bake never sets it, nor do the shipped scenarios read above (B40,
+A30, A50, B30, C10, D20).
+Tested live on PC 1, 2026-10-31, Blood Gulch Slayer with the HUD's bots
+cleared: `elite_legendary_13`, blind and deaf, placed on the south deck and
+ordered to `area_0` (the route runs down ramp 1824):
+
+- it jammed at (91.50, -159.5, 0.83), three runs out of three;
+- the `sectors` block, found by a run of its bytes (`pf_where hex`), exists
+  once in all the game's readable memory, so that copy is the one the AI
+  reads. Setting 0x400 on 1824 while the elite stood jammed changed nothing
+  in 30 s, nor did ordering it to another area and back;
+- with 0x400 on all four ramps, the elite erased, placed again and ordered,
+  it jammed at the same spot.
+
+The simulation's code agrees. An actor's stance is decided once a tick
+(sim+0x9bb40) and handed to sim+0x611d0, which sets the unit's crouch (actor
+`+0x7f8` bit 4, `+0xca0` bit 0): the value is the actor's crouch request at
+`+0x790` or `+0x791` (or `+0x6b8 == 1` in another mode). About twenty
+functions write `+0x790`, each from its own state: sim+0xb55a0 compares a
+value at `+0x5f4` (the actor's danger, it seems) with two thresholds of its
+character, sim+0xc5960, sim+0xbc160 and sim+0x176280 copy it from their own
+records, and `cs_crouch`'s evaluator (sim+0x1dd310) writes the command
+script's `+0x169`, which sim+0x90690 copies to `+0x790` and `+0x791`. None of
+them reads the path or the sector under the actor. The only other caller of
+sim+0x611d0 (sim+0x5e5bc0) clears crouch.
+
+**Leaving the ramps out strands the decks.** Without sectors 1823, 1824, 1902
+and 1903 each deck is an island of 85 sectors (`pf_where <sbsp> cut
+1823,1824,1902,1903 <points>`): the ramps are the only walking way onto a
+deck, and four of the fifteen bot starts stand there. An elite on a deck
+still leaves by dropping over its rim (seen), but no bot could walk in to a
+player there.
+
+**A shorter elite.** `mjolnir poke ... --group biped --tag elite_ai/elite_ai
+--field "physics.height standing"` changes the height live; an elite placed
+after the poke takes it. At 0.76 the same order never took the ramp down in
+three runs: the elite paused on the deck at the ramp's top (sector 2332),
+then dropped over the deck's rim. A control at 0.8 did the same, so that was
+not the height: after its earlier jams the elite now planned around that
+door either way. One of the HUD's elites at 0.76 climbed the south base's
+east ramp to (99.86, -159.6, 0.67), 0.09 short of the lintel's inner edge,
+held 3 s and walked back down; the capsule rule says a 0.76 elite still
+touches that corner (0.707 against 0.70). A height of 0.73 would clear it
+by 0.02, but no elite was seen to pass at any height.
 
 ## Open
 
+- **Elites under low lintels**: no path data makes an AI crouch, so an
+  elite passes Blood Gulch's side doors only with a lower capsule (0.75 or
+  less, 0.73 for a 0.02 margin). Two ways to ship one: the lobby DLL writes
+  `elite_ai`'s `physics.height standing` in bot matches only (a root scalar,
+  found through the tag table as `mjolnir poke` does), or an override of the
+  tag, which would also lower campaign elites. Neither is tried; first an
+  elite at 0.73 has to be seen to pass, both down and up.
 - **Havok proxies**: the simulation keeps 16 (`havok proxies`,
   `[TLS+0x268]`, 0x50 bytes each, the object's handle at `+0x44`). On Blood
   Gulch its four Warthogs hold one each and every live biped one: 13 with
