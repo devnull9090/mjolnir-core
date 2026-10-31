@@ -137,13 +137,13 @@ Gulch (PC 1, 2026-10-31,
   walked off within a second of it. So every order the HUD gives a bot
   starts with that line, and a bot whose body stays asleep waits for its
   next order (8-16 s), not for minutes.
-- **The flag rooms.** A bot on the lower floor under a base's deck, by the
-  flag, does not find its way out. Ordered anywhere, it walks about the room,
-  to a corner or a little way up an exit ramp, turns back and stops; a jackal
-  stayed over half an hour, a grunt over 20 minutes. Bots walk in through
-  the exits (and elites drop in through the hole in the deck), so the rooms
-  fill up over a match. Waking them changes nothing. Not fixed; the cause is
-  not known.
+- **The flag rooms.** No bot on the lower floor under a base's deck, by
+  the flag, was seen to find its way out. Ordered anywhere, one walks about
+  the room, to a corner or a little way up an exit ramp, turns back and
+  stops; a jackal stayed over half an hour, a grunt over 20 minutes. Bots
+  walk in through the exits (and elites drop in through the hole in the
+  deck), so the rooms can collect bots over a match. Waking them changes
+  nothing. Not fixed; the cause is not known.
 - **Elites in the side doorways.** The ramp from a base's deck down to each
   side door passes under the door's lintel, 0.82 wu above the ramp at its
   inner edge, and an elite is 0.8 wu tall. An elite walking down jams its
@@ -361,8 +361,8 @@ so is a container with more than one BSP or world.
 - Maps with more starts than squads (15) leave the rest unused. A map
   published before 2026-10-31 has no `map/bots.json`, so each bot comes back
   on the start it first used, whichever side is there.
-- Bots on Blood Gulch's flag-room floors, under the decks, cannot find their
-  way out, and elites jam under the side doors' lintels ("Bots frozen in
+- Bots on Blood Gulch's flag-room floors, under the decks, were not seen to
+  find their way out, and elites jam under the side doors' lintels ("Bots frozen in
   place" above). The generated pathfinding knows nothing of headroom, so a
   doorway too low for an elite is open to it. Other maps are not checked.
 - Why a bot's AI sometimes leaves its sleeping body asleep is not known.

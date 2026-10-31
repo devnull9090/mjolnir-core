@@ -361,7 +361,8 @@ object table entry's flags).
 **Every still body sleeps.** A watcher that read four bots still for 30 s
 found the same state in each: `+0xdc` 0x8500 (bit 0x400 set), the rigid
 body's `+0x164` 0xc000, its island's activity fields (`+0x10` to `+0x1f`)
-zero, where moving bots had 0x8100, 0x4000 and live fields. The idle host's
+zero, where moving bots had 0x8100, other values at `+0x164` (a live
+counter) and live fields. The idle host's
 body sleeps too. So a sleeping body is the normal state of anything standing
 still; what went wrong with the Spartan is that its AI, wanting to move,
 never woke it. Why not is not known.
@@ -380,7 +381,8 @@ there, on both bases, and waking them did not help:
   room, for 30 s, each walked about the room and stopped: the grunt at the
   foot of the north exit ramp, where it turned back, the jackal in a corner.
   In the next match a jackal in the north room walked 0.5 wu up the north
-  exit ramp (z -0.19) and turned back the same way;
+  exit ramp (z -0.19) and turned back the same way (whether it left later
+  was not followed);
 - the red Spartan and earlier elites that came to rest there stopped in
   corners beside the side ramps.
 
