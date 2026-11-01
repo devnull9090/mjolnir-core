@@ -1,0 +1,80 @@
+{
+  "created": "2026-11-01T02:04:37.563132+00:00",
+  "kind": "Actual private TST Slayer game screenshots; no image generation or image retouching",
+  "resolution": [
+    1600,
+    900
+  ],
+  "cameras": {
+    "hall": "tst_panel_corrected",
+    "exterior": "tst_beta_overview",
+    "foyer": "tst_facility_hero"
+  },
+  "images": {
+    "hall-before.png": "78f195c9c41b70338f987fba4b3edb734e5b7500496237207578a49480292fb7",
+    "hall-after.png": "b33c2802d75f3f40b778c7bc0313cec537137066f9efc3d6807acddaf5ea826b",
+    "exterior-before.png": "47851d8a9f4460589c3b173ce806573fae0fd61c7959b35d78205683c3bac048",
+    "exterior-after.png": "398d2b6be94580f966cff86aba136a6602adcfa5488b8e835e46fb8cdea3fd7e",
+    "foyer-after.png": "55a1def65694867f1d6c2fd8942330db121df98b355e410e138181e339a2bd70"
+  },
+  "source": {
+    "levels/test/tst/tst.blend": "f0e4ece61f0328b7f42138678543158592ae8eb77e8bd3798c23982b58204af3",
+    "levels/test/tst/surfaces.json": "8a934bb533b5946aaee4f128f0515dec3f374f74be144929005f83712c76f174",
+    "levels/test/tst/facility_runtime_lights.json": "2863067f100d12ac958df66b09ba1d9010f7addb6148dca368b04d5f19b1aad9",
+    "levels/test/tst/data/levels/test/tst/models/tst.JMS": "35d31a5554ffaf0c2153ed6821e560927530eda99ad569c8c57a886e3d4fca6d",
+    "mods/MJOLNIRLevelLoader/Scripts/main.lua": "6bad075d76c5bcb5446db7dd6223467b9b32b110b3ae1267e2df15c0f118d9ea",
+    "tools/level/build_landscape.py": "4009907eb691385deed4a4925c4cbbbb72db137dba662a18a9fd9adb3209d4da",
+    "tools/level/ce_upgrade_maps.json": "e9fb48dc4d10714951395624bf7bbbf443989d74f6b081a44c12c6a4ad45246d"
+  },
+  "checks": {
+    "fresh_launch": true,
+    "level_reload_recapture": true,
+    "runtime_facility_emitters": 30,
+    "runtime_sky_intensity": 4,
+    "runtime_ambient_cubemap_intensity": 0.2,
+    "focused_python_lua_tests_passed": 40,
+    "owned_cook_verified": true,
+    "native_rock_materials_verified": 128
+  },
+  "geometry": "Verified against corrected October31 authoring source; only floor material UV density changed in this pass.",
+  "build": {
+    "revision": "runtime-revision-3",
+    "started": "2026-11-01T01:52:04.243649+00:00",
+    "completed": "2026-11-01T01:56:21.787365+00:00",
+    "final_artifacts": {
+      "foliage.bin": "940433eba18c4459c498554fb8e1baa44f95563db5d39bb74dc02493eeefb956",
+      "pakchunk968-MJOLNIRCOOK-TST_P.ucas": "0fe92a6d7b3a52eb4650968790aefc3e5144a8427581ac3937709148ef421182",
+      "pakchunk968-MJOLNIRCOOK-TST_P.utoc": "a1a03335b62be86488a6e7d140209583613ff668539d534cc754a05ce59b8370",
+      "pakchunk969-MJOLNIRLAND-TST_P.ucas": "fa4217210ebccd0c60a5e7f012851bf94f2a620f0505b232e188c9d7bd538eb5",
+      "pakchunk969-MJOLNIRLAND-TST_P.utoc": "c8b13150988e77bc5da0afbd2880f95a03b5791e51332582c3e016992dd76df6",
+      "pakchunk970-MJOLNIRROCK-TST_P.ucas": "39051abeedf7e44944ded4ee8c231694768b35c673f22cd9a44257aa9095b2f9",
+      "pakchunk970-MJOLNIRROCK-TST_P.utoc": "b6cb34f878a2a137748ff17f5aa7bd733241024238907487e96765884695d5ff",
+      "pakchunk986-MJOLNIRMESH-TST_P.ucas": "6ae6355fbd29616165d0fb309317658f7bdf8eab8a6ffcf08dc166fec7bfb0b6",
+      "pakchunk986-MJOLNIRMESH-TST_P.utoc": "445c4b900b8e0869232fbc5ea447660b662e615fda0fda07ae3540c4cd61df72",
+      "pakchunk997-MJOLNIRMAP-TST_P.ucas": "f141371ee8f0fcf1ba6535eb1a6502cc47c4a8b2b193cb69819e5581b40eb8f9",
+      "pakchunk997-MJOLNIRMAP-TST_P.utoc": "1cdd748cb5508e2893619bb3d7da6a03dc5299c268a1677076dc169b4743fd0c",
+      "tst.level.json": "4d1f9370c53c42bed6137cf916f22fd51b2eb4fa3c846a9a36a354d1be812406",
+      "TST.registration.json": "800ef90e3596544d199c5f75cbe87d72d86744c6ddce9c9ff98d2b95625a6859",
+      "flux_state\\height.exr": "7f70ec5ec037830f03597921ca1db2b3ee4c38f3d312a6ccfdf5b296543de1fe",
+      "flux_state\\state.json": "573815cd7a2ae75bd1b414f20aa8e370f0630a688bf9f006c5656fa7b537a02d",
+      "flux_state\\velocity.exr": "05c8b8a3c0fd240572b507a948d0ffd1c72df45d4d40ea52318e08ca983d284a"
+    }
+  },
+  "performance_sample": {
+    "view": "tst_beta_overview",
+    "duration_seconds": 44,
+    "frames": 6624,
+    "median_ms": 7,
+    "p95_ms": 8,
+    "p99_ms": 8,
+    "worst_ms": 45,
+    "hitches_under_50ms": 17,
+    "method": "MJOLNIR HUD frame hook at 1600x900; one stationary local view, not a gameplay benchmark"
+  },
+  "limitations": [
+    "Local preview uses minimally patched loader; new controls need a published dependency before Hub release.",
+    "Some interior panels remain dark; terrain is olive with brighter green patches.",
+    "Point lights approximate Blender area fixtures; not shipped B30 shader/lighting parity.",
+    "Multiplayer, full collision traversal and sustained performance are not validated by these screenshots."
+  ]
+}

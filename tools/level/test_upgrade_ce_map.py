@@ -455,5 +455,29 @@ class AssembleTest(unittest.TestCase):
                 self.assertEqual(config, {"indoor": True, "grime": grime_enabled})
 
 
+class ReleaseEnvironmentTest(unittest.TestCase):
+    def test_beta_preserves_physical_sky_intensity_for_published_loader(self):
+        source = json.loads(Path(upgrade.CONFIG).read_text(encoding="utf-8"))["TST"]
+        expected = source["environment"]["skylight"]["intensity"]
+        # Exercise the real CLI/config path without invoking editor or game.
+        for scale in (8192, 4096):
+            with self.subTest(scale=scale), tempfile.TemporaryDirectory() as folder:
+                source["environment"]["light_scale"] = scale
+                config = Path(folder) / "config.json"
+                config.write_text(json.dumps({"TST": source}), encoding="utf-8")
+                with patch.object(upgrade, "CONFIG", str(config)), \
+                        patch.object(upgrade, "stage_assemble") as assemble, \
+                        patch("sys.argv", ["upgrade_ce_map.py", "TST", "--release-beta",
+                                           "--stages", "assemble", "--work", folder]):
+                    upgrade.main()
+                result = assemble.call_args.args[1]
+                env = result["environment"]
+                self.assertAlmostEqual(env["skylight"]["intensity"] * scale, expected)
+                self.assertNotIn("physical", env["skylight"])
+                self.assertFalse(env["atmosphere"])
+                self.assertEqual(env["sun"]["source_angle"], source["environment"]["sun"]["source_angle"])
+                self.assertEqual(json.loads(config.read_text()), {"TST": source})
+
+
 if __name__ == "__main__":
     unittest.main()

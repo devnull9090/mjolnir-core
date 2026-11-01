@@ -114,3 +114,295 @@ Photorealistic high quality in-engine screenshot achievable in Blender, same bri
 
 Use case: photorealistic-natural. Asset type: seamless PBR base-color texture for modeled Halo-inspired Forerunner titanium armor in Blender.
 Create a square seamless tile of weathered warm-gray titanium alloy, viewed perfectly orthographically flat, edge to edge. Neutral middle-light gunmetal grey, very subtle cloudy oxidation and fine directional brushed metal grain, occasional restrained hairline scratches. Uniform diffuse flat illumination, NO highlights, no ambient shadow, no shading gradients. This is only metal surface microstructure, geometry supplies all panels and chamfers. No panel seams, no bolts, no borders, no sci-fi greebles, no symbols, no baked bevels, no concrete pores, no cracks, no rust flakes. Elegant ancient precision alloy, NOT marble or stone. Main color roughly sRGB 150 153 155, variations about plus/minus 15. Fine details at believable scale for a 2-metre patch. Game-ready albedo, seamless both axes.
+
+## Retail material audit — 2026-10-31
+
+This is an audit of the locally installed Campaign Evolved cooked assets and the
+TST source settings at the start of the visual review. It is not a claim that the
+Blender preview reproduces the game's layered shaders or that proposed settings
+have passed an in-game comparison. Extracted retail textures stay in the ignored
+`.dream-loop/retail-material-audit` reference cache, outside the community source
+archive. No retail asset or source tuning was changed by this audit.
+
+### Verified campaign dependencies
+
+The checks below use cooked package imports, rather than assuming that an asset
+is used in a map because it exists somewhere in the installation. Imports prove
+the world/material dependency; they do not establish which visible pixel or
+particular screenshot uses it.
+
+- B30's `/Game/Levels/Halo1/Solo/B30/B30` world imports
+  `/Game/Levels/Halo1/Solo/B30/Landscape/Materials/MI_Landscape_B30` and its mask
+  variant. That instance imports `MM_Landscape_B30` in the same folder. The master
+  imports all three D/N/packed-data families for the grass, path and sand listed
+  below, together with height blending, hex texture sampling, wetness, Fluid Flux
+  coastline integration and B30 grass/rock/sand decorators.
+- B40's cooked world
+  `/Game/Levels/Halo1/Solo/B40/LI_SnowMissions_Landscape/_Generated_/04QEAYH6V0YFXZ4QCWC2EJV9Z`
+  imports `/Game/Levels/Halo1/Solo/B40/Landscape/Materials/MI_Landscape_B40`, whose
+  parent is `MM_Landscape_B40`. That master imports Fresh Windswept Snow
+  (`uhpjdeyn`), Windswept Snow (`uephfgudy`), Snow Covered Grass (`ueolejtn`),
+  Windswept Snowy Stones (`tdloaf1r`), Rock Jagged (`udemcebew`) and Ground Gravel
+  (`uconcitg`) material families. This verifies a second campaign landscape
+  pipeline; its snow treatment is not a proposed replacement for TST's coast.
+- B30 generated cells `3BC8KJ9KAAVWRRWMQJ898LYLR` and
+  `9Y0XE0Y806U3WWM6VYBFUOCOH`, under `/Game/Levels/Halo1/Solo/B30/B30/_Generated_/`,
+  import `/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_Grey_MidDark_Glossy_Mid`.
+  The instance's parent is `MI_FR_Gen_Metal_Simple_01_Grey_MidDark_Glossy`; its
+  dependency list includes `+MLIP_FR_Gen_Metal` and the MidDark/Glossy layer
+  variants. This is actual B30 world dependency evidence for the shared metal
+  kit, not a global asset-name match.
+
+### Native samples and measured parameters
+
+All terrain paths below are relative to `/Game/Megascans/Surfaces/`:
+
+| Role | Verified native texture |
+| --- | --- |
+| B30 grass albedo | `Ground_Grass_tb3nce2k/T_Ground_Grass_tb3nce_Desat_4K_NSVT_D` |
+| B30 grass normal / packed data | `Ground_Grass_tb3nce2k/T_Ground_Grass_NSVT_4K_N`, `T_Ground_Grass_NSVT_4K_OHRG` |
+| B30 path albedo / normal / packed data | `Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D`, `_N`, `_ORHG` |
+| B30 flat sand albedo / normal | `Thai_Beach_Sand_tefgafrk/T_Thai_Beach_Sand_tefgafrk_2K_NSVT_D`, `_N` |
+| B30 flat sand packed data | `Thai_Beach_Sand_tefgafrk/T_ThaiBeachSand_tefgafrk_2K_NSVT_ORDp` |
+| B30 rippled sand albedo / normal | `Thai_Rippled_Beach_Sand_vb1ldadn/T_Thai_Rippled_Beach_Sand_vb1ldadn_2K_NSVT_D`, `_N` |
+| B30 rippled sand packed data | `Thai_Rippled_Beach_Sand_vb1ldadn/T_ThaiRippledBeachSand_vb1ldadn_2K_NSVT_ORDp` |
+| B30 sandy gravel albedo | `Sandy_Gravel_Ground_vmndcca/T_T_Sandy_Gravel_Ground_vmndcca_B_2K_NSVT_D_copy` |
+| B40 gravel albedo, also referenced by TST | `Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_D` |
+
+The native grass diffuse is muted tan and gray-green; the native path is brown
+and gray. TST already samples these retail textures through `Land.SURFACES` in
+`mods/MJOLNIRLevelLoader/Scripts/main.lua`. TST uses its own `M_CE_LandscapePBR`
+shader and its own distribution/tints; it does **not** use the full B30 landscape
+material, authored layer weights, RVT state or coastline data merely by sharing
+these images.
+
+`MI_Landscape_B30` records Flat Sand normal strength `1`, roughness min/max
+`0.8/1`; Rippled Sand normal strength `1.6`, roughness `0.88/0.88`; Sand B
+roughness `0.6/1`; Stones roughness `0.6/0.9`. These are layer-specific values,
+not a single multiplier over every terrain surface. `MI_Landscape_B40` records
+Occlusion Contribution to Albedo `0`, Sediment Opacity `0.05` and explicit
+height/blend settings per terrain layer. Its values should not be transplanted
+into a different shader by name alone.
+
+The B30-linked metal instance above records Base - Color `(0.3,0.3,0.3,1)` and
+Base - Roughness `0.27432`. Its texture streaming metadata names
+`T_Greeble_Test_N`, `T_Greeble_Test_ORHG`,
+`T_Green_Rusty_Metal_Sheet_tklmeeso_8K_N`, `T_Grunge_tedwfbhc_4K_ORHG` and
+`T_ModeratelyScratchedSurface_slnqfdtc_4K_ORH`, all on UV channel index `2`.
+The common layer `/Game/Env/HS/FR/Gen/+Materials/+MLIP_FR_Gen_Metal` records
+base roughness `0.38`, base normal strength `0.15`, greeble normal strength `0.1`,
+greeble roughness modulation `-0.03` to `0.05`, plus separate wear and grime
+controls. Its static settings include Base/Wear Use UV2 and Use UV3. The base
+layer values are not the final composite appearance of every child instance.
+
+The layer directly imports
+`/Game/_Prototyping/Users/ChiyoLai/T_FR_Gen_Metal_01_ORHG` and
+`/Game/_Prototyping/Users/ChiyoLai/T_Greeble_Test_ORHG`. These are packed data
+textures, not diffuse color images. Their conspicuous false colors in a PNG
+viewer should never be copied into a base-color slot. Direct native material
+reuse needs compatible UVs and the expected layer/control inputs; current TST
+authored masters sample UV0. A blind slot swap is not a verified integration.
+
+### TST differences and next comparison
+
+At the audit snapshot, `tools/level/build_landscape.py`'s `MAP_LOOKS["LTT"]`
+applies grass tint `(0.42,0.52,0.30)`, dirt tint `(0.78,0.73,0.62)` and
+`look = (2.6,1.3,0.5,0.35)`. In the custom shader these are, in order, normal
+strength, sand grain contrast, legacy CE lightmap shading used as AO, and the
+second-sand blend. Thus TST imposes substantially stronger normals and its own
+olive tint on native samples. Its grass shader also forces roughness to at least
+`0.92` and specular to `0`; these are shared renderer decisions, not measured
+B30 settings.
+
+There is no hidden conversion from exterior `0.96` metallic to low facility
+metallic. `surfaces.json` explicitly defines facility armor/structure/recess/floor
+metallic as `0.18/0.10/0.25/0.30`; the converted `materials.spec.json` retains
+those values. `tools/level/authored_surfaces.py` copies the library and
+`unreal/MJOLNIRMaterials/Scripts/build_ce_level.py::build_authored_surface`
+connects its metallic value directly. The facility additionally reuses the worn
+albedo whose broad mottling was rejected earlier in this document, with an armor
+tint `(1.74,1.420588,1.016111)`. The floor's roughness range is `0.18–0.70`.
+Those choices help explain the warm mineral-like walls and uneven polished floor;
+this is a material diagnosis, not proof that material settings are the only
+cause of the current shadow problem.
+
+Candidate comparison, **unvalidated**: change only TST's palette first, using
+the quiet titanium texture for facility plates, a neutral color hierarchy and
+restrained normal strength; compare roughness centered near `0.38` against the
+current broad floor range. For terrain, A/B a normal multiplier around `1–1.3`,
+less legacy baked AO and less strongly colored tint, while retaining the native
+texture families. Do not raise metallic across the facility before validating
+its reflected environment and indirect lighting: dark reflections can turn a
+metallic wall nearly black. Preserve shared campaign/runtime materials and
+scope experiments to TST. Capture the same outdoor, entrance and interior
+cameras after each change; a Blender-only render cannot certify UE lighting or
+shader parity.
+
+### Reproducing the inspection
+
+Run from the repository root against the user's installed game. The example
+tools are read-only; `texture export` writes a local reference file. Build the
+examples with `cargo build -p ue-asset --example world_imports` if needed.
+
+```powershell
+$auditPaks = 'C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks'
+.\target\debug\examples\world_imports.exe $auditPaks '/B30/B30.umap' 'Landscape'
+.\target\debug\examples\world_imports.exe $auditPaks '/B30/Landscape/Materials/MM_Landscape_B30.uasset'
+.\target\debug\examples\world_imports.exe $auditPaks '/B40/Landscape/Materials/MM_Landscape_B40.uasset'
+.\target\release\mjolnir.exe ue get --paks $auditPaks --package '/Game/Levels/Halo1/Solo/B30/Landscape/Materials/MI_Landscape_B30'
+.\target\release\mjolnir.exe ue get --paks $auditPaks --package '/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_Grey_MidDark_Glossy_Mid'
+.\target\release\mjolnir.exe texture list --paks $auditPaks --filter 'Ground_Grass'
+New-Item -ItemType Directory -Force .dream-loop/retail-material-audit | Out-Null
+.\target\release\mjolnir.exe texture export --paks $auditPaks --asset 'T_Ground_Grass_tb3nce_Desat_4K_NSVT_D' --out '.dream-loop/retail-material-audit/native-grass.png' --mip 1
+```
+
+`world_imports` enumerates package dependencies, while `ue get` decodes actual
+parameter values. `material_survey` is useful for discovery, but its guessed
+parent grouping is not proof of a specific material's parent. `texture export`
+supports PNG/TIFF per mip or DDS for the cooked mip chain. Keep extracted assets
+local and reproduce them from the installation rather than committing them.
+
+### Lighting and controlled material study
+
+The final `tst-facility-entry-sightline-20261031` staging output has skylight
+intensity zero and atmosphere disabled. The `--release-beta` branch in
+`upgrade_ce_map.py` substitutes a post-process ambient cubemap using classic CE
+b30's water-reflection cube at intensity `0.65`, tint `(1,0.9,0.7,1)`. This is a
+compatibility path, not the shipped B30 lighting setup. The runtime sun was
+measured at intensity `32768` with source angle about `0.536` degrees.
+
+A temporary runtime skylight test changed only existing TST sun/sky components.
+Recapturing at intensity `512` visibly overexposed the fixed exterior view;
+reducing to `1` restored approximately baseline exposure with a small shade
+change. Neither value is a proposed final setting. The session ended before
+the intermediate-value and indoor tests completed. There was no new crash
+report, and a separate game process subsequently loaded another map; the exit
+cannot be attributed to the skylight experiment. No installed files changed.
+
+No authored-surface gamma defect was established: the material builder uses
+sRGB albedo, linear roughness and normal-map compression with the documented
+normal convention. These facility materials are ordinary Unreal-lit PBR, with
+no CE lightmap. Terrain is different: its custom shader also derives AO from
+legacy baked shade, which may compound dark runtime shadows. Test this
+separately instead of changing global gamma or exposure to hide it.
+
+The disposable study under `.dream-loop/retail-look-audit/blender-study` renders
+the same assembled scene, camera and lighting before and after changing only
+facility materials. `study.json` records the input hash and parameters. Cleaner
+authored albedo, neutral tints, narrower roughness and weaker normals reduce
+stone-like mottling and wet floor patches. Independent review found the first
+candidate too uniformly blue-gray with weak floor seams, so material separation
+and joint readability need to be retained. This is a Blender experiment using
+authored textures, not an integration of the shipped layered shader or an
+in-game validation. Source material settings remain unchanged.
+
+The second study (`candidate2.png`, parameters in `study2.json`) keeps the same
+camera, geometry and lighting. Slightly warmer armor, darker cooler structure
+and lighter inset values restore restrained material separation. A shader mix
+of 30% original floor albedo and 70% clean floor albedo retains more visible
+joints without restoring the heavy blotches; no texture images were edited.
+The scene remains cool overall and its recesses still need lighting work.
+Neither candidate establishes shipped-material parity or final in-game values.
+
+Implementation order: establish TST-scoped sky/reflection and indoor fill first;
+then tune terrain tint, per-layer normals and legacy AO at fixed exposure;
+finally integrate the cleaner facility material hierarchy and validate its UV
+mapping. Compare fixed exterior, doorway and interior views at each stage.
+
+### First production candidate, 2026-10-31
+
+The follow-on implementation uses the existing clean titanium albedo for all
+four facility roles, with distinct armor, structure and inset tints. The floor
+uses the existing clean albedo/roughness/normal triplet at a 4 m tile instead of
+the worn 8 m tile. Its two panels per tile preserve 2 m physical joint spacing.
+The Blender material constructor was used for a fresh comparison at the same
+camera and lighting; the old source preview was preserved.
+
+`MAP_LOOKS["LTT"]` alone changes grass tint from `(0.42,0.52,0.30)` to
+`(0.48,0.62,0.38)`, blended normal strength from `2.6` to `1.2`, and legacy baked
+shade AO share from `0.5` to `0.15`. Native texture families, dirt/sand tint,
+masking and physical tile scales remain the same. The shared terrain shader
+does not expose independent normal multipliers for each layer.
+
+The installed published loader supports sky recapture and sun source angle;
+the earlier beta comment claiming capture was disabled was inaccurate. It lacks
+the newer physical-skylight scaling option, so the release conversion now
+divides a physical intensity by `light_scale` before removing that option.
+An authored intensity of `4` becomes `0.00048828125` at scale `8192`, then resolves
+back to `4` at runtime. Exposure remains at the previous beta value. A regression
+test exercises this through the real config/CLI path at two light scales.
+
+Fixed-camera live tests at sky intensity `4` lifted outdoor shade; `16` washed
+out upper rocks and foliage. The provisional sun source angle is `1` degree.
+Independent review preferred `4` over the zero-fill baseline but flagged a
+cool/pale bias on upper metal and foliage to reassess after materials are built.
+A native `TC_DaylightAmbientCubemap_Blurred` was loaded into a disposable runtime
+post-process override, but it produced no useful visible change in this test.
+A separate experiment changing the SkyLight source type and realtime capture
+mode crashed that process; no source-type or native cube substitution is included.
+
+The local material-only rebuild records its reuse of the verified entry-sightline
+CE geometry/lightmaps in a new provenance manifest. Only material UV0 density is
+changed for the floor; positions, normals, indices and lightmap UVs are checked
+unchanged. It regenerates the native mesh/material/map packages and terrain
+configuration without re-running the HEK lightmap solver.
+
+### Runtime lighting follow-through
+
+The first fresh launch exposed a capture-order problem: the SkyLight actor had
+the intended intensity, but captured before the runtime sky/decor was ready.
+The new loader option `environment.skylight.recapture_after_load` requests one
+delayed capture after decor, guarded against reload, travel and destroyed actors.
+TST opts in; other maps retain their existing behavior. This captures the rendered
+sky **including the configured haze**. A live comparison clearing haze during
+capture lost the desired outdoor shadow fill. This is an intentional TST art
+choice, not a claim to reproduce B30's lighting rig. TST's landscape `pbr.light`
+allows its `pbr.haze` to be promoted into the runtime environment.
+
+The beta's legacy water-reflection cubemap was also providing most of the hall's
+ambient lighting. Temporarily setting its intensity to zero exposed almost black
+interiors despite visible emissive fixtures. Reducing it from `0.65` to `0.20`,
+with neutral tint, retains readable fill while reducing the blue wash. The final
+grass tint is intermediate: the first `(0.68,0.74,0.62)` test made the turf too
+pale and dry after the sky fill was enabled.
+
+Thirty symmetric facility point lights now cover the long branches, foyer,
+vestibules, concourses and blind-end washers, aligned with modeled fixtures.
+Their source intensity ranges from `1.2` to `3.0`, multiplied by the existing
+8192 light scale. Falloff is 2, radius is 6.5 or 9 m, and color is `(1,.93,.83)`.
+An optional 30 cm source radius and specular scale `0.25` soften the distracting
+round highlights from point-light approximations. The twelve existing base
+lights are unchanged. These are runtime approximations of the Blender area
+lights; the preview's 152 lights are not copied wholesale into the game.
+
+The refreshed annotated `tst.blend` and full source JMS include the already
+verified entry geometry fixes and updated floor UVs. The previous tracked JMS
+was stale; its large diff is the corrected full source export, not new geometry
+introduced by this material pass. Checks against the October 31 corrected
+authoring bundle preserve all 219,824 triangles' positions, normals, regions
+and material assignments; only 380 floor triangles have doubled UV density.
+Owned textures remain portable and extracted native reference assets stay local.
+
+Fixed-camera game comparisons show cleaner floor joints, stronger separation
+between inset panels and supports, and more readable exterior shade. Remaining
+limits include the point-light approximation, some sharp reflections in the
+older base interiors, and the custom terrain blend rather than B30's full
+layered material. This pass does not establish retail shader or visual parity.
+
+The candidate is local only. Delayed recapture and per-light source/specular
+controls require a loader update before publishing this lighting setup to the
+Hub. The existing beta is not replaced by these experiments. Revision manifests
+under `tst-retail-look-20261031/evidence` distinguish the material cook, runtime
+revision 2 and the subsequent revision 3 rebuild; screenshots from live tuning
+are not substitutes for validating the installed revision after a fresh launch.
+
+Revision 3 passed a fresh private TST Slayer launch and `mjolnir_level_reload`:
+both triggered the post-decor capture, and runtime inspection found all 30
+facility lights with the expected emitter settings, sky intensity 4 and ambient
+intensity 0.20. The five unretouched game images and source hashes are in
+[`review/retail-look-20261031`](review/retail-look-20261031/validation.json).
+Independent visual review found no new clipping/geometry/texture blocker in the
+hall and exterior views, while noting darker interior panels and only modest
+ground-color improvement. Forty focused Python/Lua tests pass. A stationary
+44-second exterior sample at 1600x900 recorded 7 ms median, 8 ms p95/p99 and a
+45 ms worst frame; this is not a full gameplay or multiplayer performance test.

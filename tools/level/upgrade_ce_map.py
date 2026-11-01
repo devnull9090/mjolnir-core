@@ -1689,8 +1689,21 @@ def authored_map_lights(m, p):
         falloff = number(item.get("falloff"), "falloff")
         if not all(0 <= c <= 1 for c in rgb) or intensity <= 0 or radius <= 0 or falloff <= 0:
             raise ValueError("authored light colour/intensity/radius/falloff out of range")
-        out.append({"name": name, "pos": [round(x * 100, 1), round(-y * 100, 1), round(z * 100, 1)],
-                    "colour": rgb, "intensity": intensity, "falloff": falloff, "radius": radius})
+        light = {"name": name, "pos": [round(x * 100, 1), round(-y * 100, 1), round(z * 100, 1)],
+                 "colour": rgb, "intensity": intensity, "falloff": falloff, "radius": radius}
+        # Optional fixture shape/highlight controls keep legacy maps' loader
+        # defaults when absent. Source radius is already authored in cm.
+        if "source_radius_cm" in item:
+            source_radius = number(item["source_radius_cm"], "source_radius_cm")
+            if source_radius < 0:
+                raise ValueError("authored light source_radius_cm must be non-negative")
+            light["source_radius"] = source_radius
+        if "specular_scale" in item:
+            specular_scale = number(item["specular_scale"], "specular_scale")
+            if not 0 <= specular_scale <= 1:
+                raise ValueError("authored light specular_scale must be between 0 and 1")
+            light["specular_scale"] = specular_scale
+        out.append(light)
     return out
 
 
@@ -2268,7 +2281,7 @@ def main():
     ap.add_argument("--work", default="C:/haloce/ce_conversions/upgrade")
     ap.add_argument("--no-masters", action="store_true", help="skip rebuilding the trial masters in the editor stage")
     ap.add_argument("--release-beta", action="store_true",
-                    help="TST: use only the published loader sky controls for the public beta")
+                    help="TST: use the beta sky/exposure preset; validate required loader features before release")
     a = ap.parse_args()
     with open(CONFIG, encoding="utf-8") as f:
         config = json.load(f)
@@ -2284,18 +2297,24 @@ def main():
             sys.exit("Map-owned generated meshes require editor and cook in the same run; omit --no-masters.")
     if a.release_beta and "TST" in maps:
         # The public 0.9.0 loader does not implement physical skylight or
-        # atmosphere_sun. Use the authored CE sky and its ordinary lighting
-        # path, without requiring an unreleased Lua script on players' PCs.
+        # atmosphere_sun. Keep the authored CE sky and convert physical sky
+        # intensity to its legacy units. This preset does not certify release
+        # compatibility: recapture_after_load and authored emitter controls
+        # still require a loader that implements those optional features.
         m = maps["TST"]
         m["sky_mesh"] = True
-        # Stable ambient fill: published loader realtime sky capture is disabled.
+        # Keep a restrained neutral probe: the legacy water cube at 0.65 washed
+        # the halls blue and overwhelmed the practical ceiling lights.
         m["ambient_cubemap"] = {"asset": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water",
-                                "intensity": 0.65, "tint": [1.0, 0.9, 0.7, 1.0]}
+                                "intensity": 0.20, "tint": [1.0, 1.0, 1.0, 1.0]}
         env = m["environment"]
         env["atmosphere"] = False
         env["sun"].pop("atmosphere_sun", None)
-        env["skylight"].pop("physical", None)
-        env["skylight"]["intensity"] = 0.0
+        if env["skylight"].pop("physical", False):
+            # Preserve the authored physical intensity with the public loader's
+            # legacy scaling. TST's 4 / 8192 resolves to runtime intensity 4;
+            # passing 4 directly would wash out the cliffs and vegetation.
+            env["skylight"]["intensity"] = env["skylight"].get("intensity", 3.0) / env.get("light_scale", 8192)
         env["skylight"]["color"] = [0.98, 0.99, 1.0]
         env["post"]["exposure_bias"] = -0.4
     ps = {c: paths(c, m, a.work) for c, m in maps.items()}
