@@ -9,6 +9,16 @@
 //!       every link of the floor sector under a point, and hints naming them
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> cut <sector,...> x,y,z ...
 //!       the component under each point with those sectors left out
+//!   cargo run -p blam-sbsp --example pf_where -- <sbsp> rings
+//!       sectors whose ring, walked as the simulation walks it, misses a link
+//!   cargo run -p blam-sbsp --example pf_where -- <sbsp> copies
+//!       which instanced geometry instances carry a copy of the shell
+//!   cargo run -p blam-sbsp --example pf_where -- <sbsp> copyz
+//!       how far each copy's surfaces sit off the shell's (the f32 rounding
+//!       `level bake` lowers the copy past)
+//!   cargo run -p blam-sbsp --example pf_where -- <sbsp> overhang [h] [x0,y0,x1,y1]
+//!       floor edges under a wall that leans out over the floor, and how far
+//!       it reaches in `h` wu up (default 0.8)
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> headroom x0,y0,x1,y1 <limit>
 //!       floor sectors in a box with less than `limit` wu under a ceiling
 //!   cargo run -p blam-sbsp --example pf_where -- <sbsp> surf <sector | sNNN surface> ...
@@ -173,6 +183,141 @@ fn main() {
                 None => println!("{p}: no floor sector below"),
             }
         }
+        return;
+    }
+    if a.get(1).map(String::as_str) == Some("rings") {
+        // Walk every sector's ring as the simulation does (`forward` where
+        // the sector is the link's left, `reverse` where it is the right) and
+        // report links that touch a sector but are not on its ring.
+        let mut bad = 0;
+        for s in 0..pf.sectors.len() {
+            let first = pf.sectors[s].first_link;
+            let mut seen = std::collections::HashSet::new();
+            let mut l = first;
+            while l >= 0 && seen.insert(l) {
+                let link = pf.links[l as usize];
+                l = if link.left as usize == s {
+                    link.forward as i32
+                } else {
+                    link.reverse as i32
+                };
+                if l == first {
+                    break;
+                }
+            }
+            let missing: Vec<usize> = (0..pf.links.len())
+                .filter(|&k| {
+                    let link = pf.links[k];
+                    (link.left as usize == s || link.right as i64 == s as i64)
+                        && !seen.contains(&(k as i32))
+                })
+                .collect();
+            if !missing.is_empty() {
+                bad += 1;
+                if bad <= 40 {
+                    println!(
+                        "sector {s}: ring of {} misses links {missing:?}",
+                        seen.len()
+                    );
+                }
+            }
+        }
+        println!("{bad} sector(s) whose ring misses a link of theirs");
+        return;
+    }
+    if a.get(1).map(String::as_str) == Some("copies") {
+        // Which instanced geometry instances carry a copy of the shell.
+        let copies = blam_sbsp::pathfinding::shell_copies(&bsp, &c).expect("instances");
+        for (i, copy) in copies.iter().enumerate() {
+            println!(
+                "instance {i}: {}",
+                if *copy {
+                    "a copy of the shell"
+                } else {
+                    "not the shell"
+                }
+            );
+        }
+        return;
+    }
+    if a.get(1).map(String::as_str) == Some("copyz") {
+        // How far each copy of the shell sits off it, surface by surface,
+        // along the normal (positive: the copy's surface is in front).
+        let copies = blam_sbsp::pathfinding::shell_copies(&bsp, &c).expect("instances");
+        for i in (0..copies.len()).filter(|&i| copies[i]) {
+            let off = blam_sbsp::pathfinding::copy_offsets(&bsp, &c, i).expect("offsets");
+            let mut abs: Vec<f64> = off.iter().map(|v| v.abs()).collect();
+            abs.sort_by(f64::total_cmp);
+            let front = off.iter().filter(|&&v| v > 0.0).count();
+            println!(
+                "instance {i}: {} surfaces, {front} in front, median {:.2e} wu, largest {:.2e} wu",
+                off.len(),
+                abs[abs.len() / 2],
+                abs[abs.len() - 1]
+            );
+        }
+        return;
+    }
+    if a.get(1).map(String::as_str) == Some("overhang") {
+        // Floor edges whose wall leans out over the floor: how far the wall
+        // stands in from the floor's edge `h` wu up (default 0.8). Optional
+        // box x0,y0,x1,y1.
+        let h: f32 = a.get(2).map_or(0.8, |s| s.parse().unwrap());
+        let b: Option<Vec<f32>> = a
+            .get(3)
+            .map(|s| s.split(',').map(|v| v.parse().unwrap()).collect());
+        let mut n_edges = 0;
+        let mut sectors = std::collections::BTreeSet::new();
+        for e in &c.edges {
+            for (floor, wall) in [(e.left, e.right), (e.right, e.left)] {
+                let (Some(s), true) = (
+                    usize::try_from(floor)
+                        .ok()
+                        .and_then(|f| pf.surface_sector[f])
+                        .filter(|&s| pf.sectors[s].is_floor()),
+                    wall >= 0,
+                ) else {
+                    continue;
+                };
+                if pf.surface_sector[wall as usize].is_some() {
+                    continue;
+                }
+                let n = blam_sbsp::pathfinding::surface_normal(&c, wall as usize);
+                let hn = (n[0] * n[0] + n[1] * n[1]).sqrt();
+                if n[2] >= -0.01 || hn < 0.3 {
+                    continue;
+                }
+                let (p, q) = (
+                    c.vertices[e.start as usize].point,
+                    c.vertices[e.end as usize].point,
+                );
+                let m = [(p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0];
+                // The wall must face the floor: its normal points from the
+                // edge toward the floor polygon's centre.
+                let poly = blam_sbsp::unpack16::polygon(&c, floor as usize);
+                let cx = poly.iter().map(|v| v[0]).sum::<f32>() / poly.len() as f32;
+                let cy = poly.iter().map(|v| v[1]).sum::<f32>() / poly.len() as f32;
+                if n[0] * (cx - m[0]) + n[1] * (cy - m[1]) <= 0.0 {
+                    continue;
+                }
+                if let Some(b) = &b {
+                    if m[0] < b[0] || m[0] > b[2] || m[1] < b[1] || m[1] > b[3] {
+                        continue;
+                    }
+                }
+                let over = h * -n[2] / hn;
+                n_edges += 1;
+                sectors.insert(s);
+                println!(
+                    "sector {s}: edge ({:.2},{:.2},{:.2})-({:.2},{:.2},{:.2}) wall s{wall} n ({:.2},{:.2},{:.2}) stands {over:.2} wu in at {h} wu up",
+                    p[0], p[1], p[2], q[0], q[1], q[2], n[0], n[1], n[2]
+                );
+            }
+        }
+        println!(
+            "{n_edges} edge(s) of {} floor sector(s) under a leaning wall",
+            sectors.len()
+        );
         return;
     }
     if a.get(1).map(String::as_str) == Some("hex") {
