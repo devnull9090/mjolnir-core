@@ -1,12 +1,11 @@
 # Forge
 
-**Status:** 2026-11-01. On any converted multiplayer map, with your fireteam
-(untested on two PCs). Layouts
-(save, load, start a game with one), object properties and markers need
-MJOLNIRForge 0.3.0.
-Released in mods 0.34.0 with CE runtime 1.14.0. Placing from the palette and
-the palette panel are not released yet: they need MJOLNIRForge 0.2.0 and CE
-runtime 1.15.0 (the panel).
+**Status:** 2026-11-01. On any converted multiplayer map, host only (the
+fireteam side is built but waits on a two-PC test). Layouts
+(save, load, start a game with one), object properties, markers, turning
+and budgets are in mods 0.42.0 (MJOLNIRForge 0.3.0).
+First released in mods 0.34.0 with CE runtime 1.14.0; placing from the
+palette needs MJOLNIRForge 0.2.0 and CE runtime 1.15.0 (the panel).
 **How it works:** [re/forge_engine.md](re/forge_engine.md).
 
 Halo Reach's Forge is still inside Halo: Campaign Evolved's simulation.
@@ -134,8 +133,15 @@ flag.
 
 ## With your fireteam
 
+**For now FORGE is host only:** the lobby refuses to start it with fireteam
+members, as before. Everything below is built (FORGE has its own insertion
+slot, 5, and the Forge DLL's client guards are in), but the first two-PC
+test (2026-11-01) lost the second PC to a GPU crash while it loaded, so the
+lobby's refusal stays until one passes. Lifting it is the members check in
+MJOLNIRLobby's `startGame`.
+
 Fireteam members who are in the lobby, or who join a FORGE game under way,
-start Forge too, and need MJOLNIRForge and the CE runtime pack the host has.
+would start Forge too, and need MJOLNIRForge and the CE runtime pack the host has.
 Each of them can be the Monitor, pick up, drop, delete, duplicate and place
 weapons, vehicles and equipment: those go to the host's game as the engine's
 own Forge requests, as in Reach. The rest stays with the host for now: saving
@@ -143,7 +149,12 @@ and loading layouts that start games, object properties, turning, and
 markers (flag stands, spawn points). A FORGE game is never listed in FIND
 GAMES.
 
-This has not been tried on two PCs yet.
+On 2026-11-01 PC 2 joined PC 1's fireteam, PC 1 started FORGE on Blood Gulch
+(with the refusal lifted), and PC 2 travelled and started the sandbox engine
+as a client ("BGL starts under the sandbox engine, FORGE (client travel)").
+PC 2 then dropped out during the load and went off the network. It had had
+a GPU crash at its title screen ten minutes before, with no Forge code
+running, so the hardware is the likely cause, but nothing proves it yet.
 
 ## Budgets and quotas
 

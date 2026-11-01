@@ -723,7 +723,9 @@ VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
 ## Next steps
 
 1. Several layouts per map, picked in the lobby; a hub content type.
-2. Fireteam Forge: done in code (2026-11-01), untested on two PCs. FORGE has
+2. Fireteam Forge: done in code (2026-11-01); the lobby still refuses fireteam
+   members (mods 0.42.0) until a two-PC test passes. The first lost PC 2 to a
+   GPU crash during the client load ([forge.md](../forge.md)). FORGE has
    insertion slot 5 (MJOLNIRLobby `MODES`, loader `GAME_TYPE_SLOTS`,
    `games.lua` `GAME_TYPE_SLOT`), so clients start the sandbox engine. On a
    client (game options `+0x11` = 4) the DLL sends only the engine's own

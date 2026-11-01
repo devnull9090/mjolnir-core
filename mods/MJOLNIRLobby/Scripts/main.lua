@@ -240,10 +240,19 @@ local function startGame(map, mode)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
     end
-    -- Forge with the fireteam: clients start the sandbox engine from slot 5
-    -- and edit through the engine's own requests. Never a public listing:
-    -- strangers would join someone's half-built layout.
+    -- Forge with the fireteam: clients would start the sandbox engine from
+    -- slot 5 and edit through the engine's own requests (MJOLNIRForge's
+    -- client guards), but that has not passed a two-PC test yet: the first
+    -- one (2026-11-01) lost PC 2 to a GPU crash while it loaded. Host only
+    -- until it passes. Never a public listing either: strangers would join
+    -- someone's half-built layout.
     if mode.forge then
+        local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
+        local members = 1
+        if UI.valid(squad) then pcall(function() members = squad:GetNumSquadMembers() end) end
+        if members > 1 then
+            return false, "FORGE is host only for now: start it without fireteam members"
+        end
         Games.setPublic(false)
     end
     -- A map installed after the game started (in game, or by the launcher
@@ -488,7 +497,7 @@ end
 --- A game type's match format, as its picker shows it.
 function Pick.format(mode)
     if not mode then return "" end
-    return mode.forge and "SANDBOX  /  FIRETEAM" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+    return mode.forge and "SANDBOX  /  SOLO HOST" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
 end
 
 --- Whether `screen` has the widget `name` (an older UI container lacks the
