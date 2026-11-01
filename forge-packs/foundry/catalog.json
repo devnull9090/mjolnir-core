@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "name": "Foundry",
+  "version": "0.1.0",
+  "type": "content",
+  "license": "MIT",
+  "summary": "18 original modular construction pieces on a 2 m grid, with concrete, gunmetal and amber accents.",
+  "description": "Original modular industrial construction kit: 18 pieces on a 2 m module.",
+  "forge_pack": {
+    "schema_version": 1,
+    "id": "foundry",
+    "blocks": [
+      {
+        "id": "block_1x1",
+        "name": "Block 1 x 1",
+        "tag": "objects\\mjolnir\\forge\\foundry\\block_1x1",
+        "category": "blocks",
+        "dimensions_m": [
+          2,
+          2,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "block_1x2",
+        "name": "Block 1 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\block_1x2",
+        "category": "blocks",
+        "dimensions_m": [
+          2,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_1x1",
+        "name": "Floor 1 x 1",
+        "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x1",
+        "category": "floors",
+        "dimensions_m": [
+          2,
+          2,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_1x2",
+        "name": "Floor 1 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x2",
+        "category": "floors",
+        "dimensions_m": [
+          2,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_2x2",
+        "name": "Floor 2 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\floor_2x2",
+        "category": "floors",
+        "dimensions_m": [
+          4,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "bridge_straight",
+        "name": "Bridge Straight",
+        "tag": "objects\\mjolnir\\forge\\foundry\\bridge_straight",
+        "category": "bridges",
+        "dimensions_m": [
+          2,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "bridge_corner",
+        "name": "Bridge Corner",
+        "tag": "objects\\mjolnir\\forge\\foundry\\bridge_corner",
+        "category": "bridges",
+        "dimensions_m": [
+          4,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "ramp",
+        "name": "Ramp 1 : 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\ramp",
+        "category": "ramps",
+        "dimensions_m": [
+          2,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "ramp_shallow",
+        "name": "Ramp 1 : 4",
+        "tag": "objects\\mjolnir\\forge\\foundry\\ramp_shallow",
+        "category": "ramps",
+        "dimensions_m": [
+          2,
+          8,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall",
+        "name": "Wall Full",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall",
+        "category": "walls",
+        "dimensions_m": [
+          4,
+          0.5,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall_half",
+        "name": "Wall Half",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "category": "walls",
+        "dimensions_m": [
+          4,
+          0.5,
+          1.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall_corner",
+        "name": "Wall Corner",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_corner",
+        "category": "walls",
+        "dimensions_m": [
+          2,
+          2,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "doorway",
+        "name": "Doorway",
+        "tag": "objects\\mjolnir\\forge\\foundry\\doorway",
+        "category": "openings",
+        "dimensions_m": [
+          4,
+          0.5,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "window",
+        "name": "Window Wall",
+        "tag": "objects\\mjolnir\\forge\\foundry\\window",
+        "category": "openings",
+        "dimensions_m": [
+          4,
+          0.5,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "railing",
+        "name": "Railing",
+        "tag": "objects\\mjolnir\\forge\\foundry\\railing",
+        "category": "trim",
+        "dimensions_m": [
+          4,
+          0.25,
+          1
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "column",
+        "name": "Column",
+        "tag": "objects\\mjolnir\\forge\\foundry\\column",
+        "category": "supports",
+        "dimensions_m": [
+          1,
+          1,
+          4
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "cover",
+        "name": "Low Cover",
+        "tag": "objects\\mjolnir\\forge\\foundry\\cover",
+        "category": "cover",
+        "dimensions_m": [
+          2,
+          0.75,
+          1
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "stairs",
+        "name": "Stairs",
+        "tag": "objects\\mjolnir\\forge\\foundry\\stairs",
+        "category": "ramps",
+        "dimensions_m": [
+          2,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      }
+    ]
+  }
+}
