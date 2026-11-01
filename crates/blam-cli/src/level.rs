@@ -298,6 +298,11 @@ pub struct BlamSection {
     /// `forge` defaults: see [`ForgeLimits`].
     #[serde(default)]
     pub forge: Option<ForgeLimits>,
+    /// Namespaced building pieces to preload into this map's Forge palette.
+    /// The map archive pins these packs as dependencies; their order is saved
+    /// in the scenario and never depends on a player's installed pack order.
+    #[serde(default)]
+    pub forge_packs: Vec<ForgePackRef>,
     /// Load only these structure BSPs (scenario indices) in the starting zone
     /// set. A standalone map built on its own BSP needs none of the canvas
     /// mission's others, and any that stay active claim their own space:
@@ -566,6 +571,48 @@ pub struct ForgeLimits {
     pub maximum: BTreeMap<String, i32>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgePackRef {
+    pub slug: String,
+    pub version: String,
+    pub blocks: Vec<ForgeBlockRef>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeBlockRef {
+    pub id: String,
+    pub tag: String,
+}
+
+pub(crate) fn validate_forge_packs(packs: &[ForgePackRef]) -> Result<()> {
+    let mut slugs = std::collections::BTreeSet::new();
+    let mut total = 0;
+    for pack in packs {
+        if !crate::forge::valid_slug(&pack.slug) || !slugs.insert(&pack.slug) {
+            bail!("forge_packs has an invalid or duplicate slug {:?}", pack.slug);
+        }
+        // A complete version is required: a changing range must never change
+        // what a saved flat palette index means.
+        if pack.version.len() > 96 || semver::Version::parse(&pack.version).is_err() {
+            bail!("forge pack {} needs an exact semantic version", pack.slug);
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for block in &pack.blocks {
+            let id_ok = crate::forge::valid_block_id(&block.id);
+            let expected = format!("objects\\mjolnir\\forge\\{}\\{}", pack.slug, block.id);
+            if !id_ok || !ids.insert(&block.id) || block.tag != expected {
+                bail!("forge pack {} has an invalid, duplicate or foreign block {:?}", pack.slug, block.id);
+            }
+        }
+        if pack.blocks.is_empty() { bail!("forge pack {} lists no blocks", pack.slug); }
+        total += pack.blocks.len();
+    }
+    if total > 200 { bail!("forge_packs lists {total} blocks; at most 200 leave room for the map's standard palette"); }
+    Ok(())
+}
+
 impl ForgeLimits {
     /// `over`'s values where it has them, else these.
     fn merged(&self, over: Option<&ForgeLimits>) -> ForgeLimits {
@@ -623,6 +670,10 @@ const SCENARIOS: [&str; 13] = [
 
 fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     let mut notes = Vec::new();
+    validate_forge_packs(&level.blam.forge_packs)?;
+    if !level.blam.forge_packs.is_empty() && !level.blam.map_variant {
+        bail!("forge_packs requires blam.map_variant=true");
+    }
     let scen = level.canvas.scenario.to_uppercase();
     if !SCENARIOS.contains(&scen.as_str()) {
         bail!(
@@ -2436,6 +2487,12 @@ fn bake(a: BakeArgs) -> Result<()> {
             .map(|(_, tag)| ((tag.clone(), String::new()), 0))
             .collect();
         palettes.push(("blocks", blocks));
+        // Keep every custom reference in one extra palette: the engine has
+        // only four bits for the palette number. Author order is deliberate.
+        let custom: Vec<_> = level.blam.forge_packs.iter().flat_map(|pack| {
+            pack.blocks.iter().map(|block| ((format!("bloc:{}", block.tag), String::new()), 0))
+        }).collect();
+        palettes.push(("forge packs", custom));
         let mut kinds: BTreeMap<String, String> = [&map.weapons, &map.vehicles, &map.equipment]
             .into_iter()
             .flat_map(|t| t.iter().map(|(k, p)| (p.clone(), k.clone())))
@@ -3390,6 +3447,29 @@ fn slot_named(usmap: &ue_asset::Usmap, class: &str, want: &str) -> Result<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forge_pack_refs_pin_exact_versions_and_namespaced_unique_blocks() {
+        let valid = ForgePackRef { slug: "foundry".into(), version: "1.0.0-beta.1".into(), blocks: vec![
+            ForgeBlockRef { id: "platform_4x4".into(), tag: "objects\\mjolnir\\forge\\foundry\\platform_4x4".into() }
+        ] };
+        validate_forge_packs(std::slice::from_ref(&valid)).unwrap();
+        for slug in ["a", "-foundry", "_foundry", "Foundry", "../foundry"] {
+            let mut bad = valid.clone(); bad.slug = slug.into();
+            assert!(validate_forge_packs(&[bad]).is_err());
+        }
+        for version in ["1", "1.0", "01.0.0", "1.0.0-", "^1.0.0", "1.0.0-01", "1.0.0+", "latest"] {
+            let mut bad = valid.clone(); bad.version = version.into();
+            assert!(validate_forge_packs(&[bad]).is_err(), "{version}");
+        }
+        assert!(validate_forge_packs(&[valid.clone(), valid.clone()]).is_err());
+        let mut bad = valid.clone(); bad.blocks.push(bad.blocks[0].clone());
+        assert!(validate_forge_packs(&[bad]).is_err());
+        let mut bad = valid.clone(); bad.blocks[0].tag = "objects\\mjolnir\\forge\\another\\platform_4x4".into();
+        assert!(validate_forge_packs(&[bad]).is_err());
+        let mut bad = valid; bad.blocks.clear();
+        assert!(validate_forge_packs(&[bad]).is_err());
+    }
 
     #[test]
     fn palette_map_blocks_name_object_tags() {

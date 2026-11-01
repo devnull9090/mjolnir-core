@@ -66,11 +66,37 @@ Two rules explain most of the structure:
 
 Point the launcher at a local hub with `MJOLNIR_HUB_URL=http://localhost:3000/api/v1`.
 
+### Forge packs and dependencies
+
+Forge packs are content archives with a validated `forge_pack` catalog. Maps
+use their ordinary `deps` list to request them. Dependency resolution chooses
+a published release that satisfies the full range; bare versions such as
+`1.0.0` are exact pins, and `^`, `~`, comparisons and comma-separated bounds
+are supported. Unknown ranges fail instead of silently accepting any version.
+Requirements persist in the local library, so disabling, uninstalling or
+updating a pack cannot leave an enabled map with incompatible models.
+
+The launcher writes the enabled catalogs to
+`<ue4ss>/MJOLNIRForgePacks/installed.json` and native bindings to `installed.txt`
+(`slug`, version, archive SHA-256 and tag, tab-separated, one row per block).
+Only those generated files are replaced; adjacent authoring files stay intact.
+Before launch it reads `Mods/MJOLNIRForge/layouts/*.mvar.packs`, downloads
+missing exact versions, verifies their pinned archive hashes and enables them.
+Conflicting saved-layout pins stop launch; move one conflicting layout aside.
+Layout history is excluded.
+
+While the game runs, map downloads may add previously absent Forge packs and
+return their containers before the map's in the mount list. An installed pack
+that needs a different version, repair or re-enabling requires a restart through
+the launcher: mounting files cannot replace tags already in the simulation.
+Neither path downloads executable code from a community pack.
+
 ## The rest of the Rust side
 
 | Where | What it does |
 | --- | --- |
 | `src-tauri/src/maps.rs` | Installed map packs, and the one registration container in `Paks` rebuilt from all of them (`blam_pack::maps::rebuild`, the same code as `mjolnir level register`) |
+| `src-tauri/src/forge_packs.rs` | Namespaced Forge catalogs, dependency ranges, and saved-layout fingerprint validation |
 | `src-tauri/src/links.rs` | `mjolnir://mod/<slug>`, `mjolnir://map/<CODE>` and `mjolnir://join/<lobby>` links from the website, and `mjolnir://update` from the game (the scheme is registered in `tauri.conf.json`) |
 | `src-tauri/src/preflight.rs` | What a launch checks first, and `--check-updates` for the game ([docs/update_check.md](../../docs/update_check.md)) |
 | `src-tauri/src/unsupported.rs` | Mods MJOLNIR did not install, moved aside into `MJOLNIR-set-aside` for a session and back, with a ledger |
@@ -87,6 +113,10 @@ Xbox app (`Meteorite/Binaries/WinGDK`, started through `shell:AppsFolder`).
 ```bash
 cd src-tauri && cargo test
 ```
+
+The regular suite includes an isolated local HTTP fixture for Forge dependency
+downloads; it verifies exact-release selection and refusal to replace a pack
+under a running game without contacting the public hub or the installed game.
 
 The end-to-end hub test is `#[ignore]`d because it needs the game installed, a reachable hub, and
 a published mod:

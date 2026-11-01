@@ -109,6 +109,10 @@ jobs:
         shell: pwsh
         run: .\native\forge\build.ps1
 
+      - name: Test Forge pack bindings
+        shell: pwsh
+        run: .\native\forge\test-pack-bindings.ps1
+
       - uses: actions/upload-artifact@v4
         with:
           name: mjolnir_blam_console
@@ -195,6 +199,10 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+        working-directory: hub
+
+      - name: Test archive scans and API routes
+        run: pnpm test
         working-directory: hub
 
       # Build the worker the way the deploy does and answer one request with

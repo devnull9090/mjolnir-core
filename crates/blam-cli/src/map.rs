@@ -313,6 +313,16 @@ fn pack(a: PackArgs) -> Result<()> {
         "deps": [{ "slug": RUNTIME_SLUG, "range": a.runtime }],
     });
     let mut manifest = manifest;
+    if let Some(packs) = level.pointer("/blam/forge_packs") {
+        let packs: Vec<crate::level::ForgePackRef> = serde_json::from_value(packs.clone())
+            .context("reading blam.forge_packs")?;
+        crate::level::validate_forge_packs(&packs)?;
+        for pack in packs {
+            manifest["deps"].as_array_mut().unwrap().push(serde_json::json!({
+                "slug": pack.slug, "range": format!("={}", pack.version)
+            }));
+        }
+    }
     if let Some(size) = &a.size {
         manifest["map"]["size"] = serde_json::json!(size);
     }
@@ -454,7 +464,7 @@ fn runtime(a: RuntimeArgs) -> Result<()> {
 /// Sign (when asked) and zip an archive's members. The signature covers
 /// every other member's digest, built from the same list that is zipped, so
 /// the two cannot drift.
-fn write_archive(
+pub(crate) fn write_archive(
     mut members: Vec<(String, Vec<u8>)>,
     slug: &str,
     version: &str,

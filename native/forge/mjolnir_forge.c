@@ -59,6 +59,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "pack_bindings.h"
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
 // Steam's copy and the Xbox app's differ only in the header (docs/game_pass.md).
@@ -224,6 +225,7 @@ typedef struct {
     uint8_t placeable;  // RVA_CAN_CREATE said yes when it was read
     char group[5];
     char tag[96];
+    char path[224];
     int32_t maximum, price; // the entry's quota (0: none) and price
     int32_t placed;         // how many the map variant has (its quota record)
 } palette_row_t;
@@ -246,6 +248,7 @@ typedef struct {
     uint32_t held, cursor;
     float distance;
     char held_tag[160], cursor_tag[160];
+    char held_path[224], cursor_path[224];
     char held_group[5], cursor_group[5];
     unsigned last_id; // counts commands acted on, so the same result twice still shows
     char last[160];  // what the last command did
@@ -272,6 +275,7 @@ static char g_palette_path[MAX_PATH];
 static char g_slots_path[MAX_PATH];   // slots.txt: palette entries pointed at other tags
 static char g_status_path[MAX_PATH];
 static char g_layouts_dir[MAX_PATH];  // the mod's layouts folder, beside native
+static char g_pack_inventory[MAX_PATH];
 static char g_running_path[MAX_PATH]; // MJOLNIRLevelLoader's running.txt
 static char g_layout[160];            // what the layout code last did, for pump (any engine)
 
@@ -302,6 +306,7 @@ static void derive_paths(HMODULE self) {
     snprintf(g_palette_path, MAX_PATH, "%sforge_palette.txt", g_dir);
     snprintf(g_slots_path, MAX_PATH, "%s..\\slots.txt", g_dir);
     snprintf(g_layouts_dir, MAX_PATH, "%s..\\layouts\\", g_dir);
+    snprintf(g_pack_inventory, MAX_PATH, "%s..\\..\\..\\MJOLNIRForgePacks\\installed.txt", g_dir);
     snprintf(g_running_path, MAX_PATH, "%s..\\..\\MJOLNIRLevelLoader\\running.txt", g_dir);
 }
 
@@ -363,6 +368,7 @@ static void object_tag_name(uint8_t *tls, uint32_t handle, char *out, size_t siz
 }
 
 // ---- The palettes -----------------------------------------------------------------
+static void pack_tag_path(uint32_t tag, char *out, size_t size);
 
 // Element `index` of a tag block whose handle is `handle`, `dwords` wide.
 static uint8_t *block_element(uint32_t handle, int index, int dwords) {
@@ -510,6 +516,7 @@ static void read_palettes(void) {
                 row->palette = (uint8_t)p;
                 row->entry = (uint8_t)e;
                 tag_name(tag, row->tag, sizeof row->tag, row->group);
+                pack_tag_path(tag, row->path, sizeof row->path);
                 g_phased += phase_in_forge(tag, row->group);
                 row->placeable = g_can_create(tag, NULL) != 0;
                 uint8_t *pe = palette_entry(scenario, p, e);
@@ -619,6 +626,7 @@ static void send(int player, uint16_t type, const void *payload, size_t size) {
 static __declspec(align(16)) uint8_t g_mv_scratch[MV_SIZE];
 static uint8_t g_bits[MV_BITS_BYTES];
 static uint8_t g_file[MV_BITS_BYTES + 0x100];
+static int g_layout_pack_marker;
 static LONG g_deferred;              // commands to run again next tick (a load waits for a drop)
 
 static void layout_note(const char *fmt, ...) {
@@ -668,6 +676,128 @@ static void layout_retire(const char *code) {
     snprintf(to, MAX_PATH, "%s\\%s-%04u%02u%02u-%02u%02u%02u.mvar", dir, code, t.wYear, t.wMonth, t.wDay, t.wHour,
              t.wMinute, t.wSecond);
     MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING);
+    // Keep a layout's identities with it in history.
+    char side_from[MAX_PATH], side_to[MAX_PATH];
+    snprintf(side_from, MAX_PATH, "%s.packs", from);
+    snprintf(side_to, MAX_PATH, "%s.packs", to);
+    MoveFileExA(side_from, side_to, MOVEFILE_REPLACE_EXISTING);
+}
+
+static int pack_for_tag(const char *tag, forge_pack_binding *out) {
+    FILE *f = NULL;
+    if (fopen_s(&f, g_pack_inventory, "rb") != 0 || !f) return 0;
+    char line[512];
+    int found = 0, rows = 0;
+    forge_pack_binding b;
+    while (fgets(line, sizeof line, f)) {
+        if (++rows > 4096 || (!strchr(line, '\n') && !feof(f)) || !forge_binding_parse(line, 0, &b)) {
+            found = 0;
+            break;
+        }
+        if (!strcmp(tag, b.tag)) {
+            if (found) { found = 0; break; }
+            *out = b;
+            found = 1;
+        }
+    }
+    if (ferror(f)) found = 0;
+    fclose(f);
+    return found;
+}
+
+static uint32_t tag_for_flat(int flat) {
+    uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
+    int n = scenario ? *(int32_t *)(scenario + SCENARIO_PALETTES) : 0;
+    for (int p = 0; p < n && p < MAX_PALETTES && flat >= 0; p++) {
+        uint8_t *pal = block_element(*(uint32_t *)(scenario + SCENARIO_PALETTES + 4), p, PALETTE_DWORDS);
+        int entries = pal ? *(int32_t *)(pal + PALETTE_ENTRIES) : 0;
+        if (entries < 0 || entries > MAX_ENTRIES) break;
+        if (flat < entries) return entry_tag(palette_entry(scenario, p, flat));
+        flat -= entries;
+    }
+    return 0xffffffffu;
+}
+
+static void pack_tag_path(uint32_t tag, char *out, size_t size) {
+    out[0] = '\0';
+    if (tag == 0xffffffffu) return;
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    uint8_t *entries = table ? *(uint8_t **)(table + ARRAY_DATA) : NULL;
+    int count = table ? *(int32_t *)(table + TAG_TABLE_COUNT) : 0;
+    if (!entries || (int)(tag & 0xffff) >= count) return;
+    const char *path = *(const char **)(entries + (size_t)(tag & 0xffff) * TAG_ENTRY_STRIDE + 0x10);
+    if (path) strncpy_s(out, size, path, _TRUNCATE);
+}
+
+// Refuse missing identities and changed palette bindings before the engine
+// gets to create anything from a saved flat index. Old non-pack layouts work.
+static int layout_packs(const char *path, const uint8_t *mv, int saving, char *why, size_t size) {
+    uint8_t used[255] = {0}, covered[255] = {0};
+    for (int i = 0; i < MV_ENTRIES; i++) {
+        const uint8_t *e = mv + MV_ENTRY_TABLE + i * MV_ENTRY_STRIDE;
+        if (!(e[0] & 1)) continue;
+        int flat = *(const int16_t *)(e + 2);
+        if (flat >= 0 && flat < 255) used[flat] = 1;
+    }
+    char side[MAX_PATH], tag[224];
+    snprintf(side, MAX_PATH, "%s.packs%s", path, saving ? ".tmp" : "");
+    FILE *f = NULL;
+    if (saving) {
+        if (fopen_s(&f, side, "wb") != 0 || !f) goto invalid;
+        if (fputs("forge-packs 1\n", f) < 0) goto invalid;
+        for (int flat = 0; flat < 255; flat++) {
+            if (!used[flat]) continue;
+            pack_tag_path(tag_for_flat(flat), tag, sizeof tag);
+            if (strncmp(tag, FORGE_PACK_PREFIX, strlen(FORGE_PACK_PREFIX))) continue;
+            forge_pack_binding b;
+            if (!pack_for_tag(tag, &b)) {
+                snprintf(why, size, "pack identity missing; install this pack through the launcher");
+                fclose(f);
+                DeleteFileA(side);
+                return 0;
+            }
+            if (fprintf(f, "%d\t%s\t%s\t%s\t%s\n", flat, tag, b.slug, b.version, b.sha256) < 0) goto invalid;
+        }
+        if (fclose(f) != 0) { f = NULL; goto invalid; }
+        return 1;
+    }
+    if (fopen_s(&f, side, "rb") == 0 && f) {
+        char line[512];
+        if (!fgets(line, sizeof line, f) || (strcmp(line, "forge-packs 1\n") && strcmp(line, "forge-packs 1\r\n"))) goto invalid;
+        int rows = 0;
+        while (fgets(line, sizeof line, f)) {
+            forge_pack_binding b, installed;
+            if (++rows > 255 || (!strchr(line, '\n') && !feof(f)) || !forge_binding_parse(line, 1, &b)) goto invalid;
+            if (covered[b.flat] || !used[b.flat]) goto invalid;
+            pack_tag_path(tag_for_flat(b.flat), tag, sizeof tag);
+            if (strcmp(tag, b.tag)) {
+                snprintf(why, size, "pack palette changed; use the map version this layout was saved on");
+                fclose(f);
+                return 0;
+            }
+            if (!pack_for_tag(tag, &installed) || !forge_binding_matches(&b, &installed, tag)) {
+                snprintf(why, size, "needs %s %s; restart through the launcher", b.slug, b.version);
+                fclose(f);
+                return 0;
+            }
+            covered[b.flat] = 1;
+        }
+        if (ferror(f)) goto invalid;
+        fclose(f); f = NULL;
+    } else if (g_layout_pack_marker || GetFileAttributesA(side) != INVALID_FILE_ATTRIBUTES) {
+        goto invalid;
+    }
+    for (int flat = 0; flat < 255; flat++) {
+        if (!used[flat]) continue;
+        pack_tag_path(tag_for_flat(flat), tag, sizeof tag);
+        if (!strncmp(tag, FORGE_PACK_PREFIX, strlen(FORGE_PACK_PREFIX)) && !covered[flat]) goto invalid;
+    }
+    return 1;
+invalid:
+    if (f) fclose(f);
+    if (saving) DeleteFileA(side);
+    snprintf(why, size, "missing or invalid Forge pack bindings (.mvar.packs)");
+    return 0;
 }
 
 // Encode a map variant with the engine's encoder; the payload's size in
@@ -761,6 +891,11 @@ static int write_mvar(const char *path, const uint8_t *payload, int len) {
     put_be32(body + 20, (uint32_t)len);
     memcpy(body + 24, payload, (size_t)len);
     at += mvar_size;
+    // New saves carry identities even for an empty pack set. Without this
+    // marker removing a sidecar and rebinding a palette to stock objects
+    // would look like a legacy layout. Unknown BLF chunks are skippable.
+    blf_chunk(at, "fpk1", 12, 1, 0);
+    at += 12;
     uint32_t before = (uint32_t)(at - g_file);
     body = blf_chunk(at, "_eof", 17, 1, 1);
     put_be32(body, before);
@@ -779,22 +914,30 @@ static int write_mvar(const char *path, const uint8_t *payload, int len) {
 
 // The `mvar` payload of a file, copied to `out`; its length, or -1.
 static int read_mvar(const char *path, uint8_t *out, int cap) {
+    g_layout_pack_marker = 0;
     FILE *f = NULL;
     if (fopen_s(&f, path, "rb") != 0 || !f) return -1;
     size_t n = fread(g_file, 1, sizeof g_file, f);
     fclose(f);
     size_t at = 0;
+    int result = -1;
     while (at + 12 <= n) {
         uint32_t size = get_be32(g_file + at + 4);
         if (size < 12 || at + size > n) return -1;
         if (memcmp(g_file + at, "mvar", 4) == 0) {
+            if (result != -1) return -1;
             if (size < 12 + 24) return -1;
             uint32_t len = get_be32(g_file + at + 12 + 20);
             if (len > (uint32_t)cap || 12 + 24 + len > size) return -1;
             memcpy(out, g_file + at + 12 + 24, len);
-            return (int)len;
+            result = (int)len;
         }
-        if (memcmp(g_file + at, "_eof", 4) == 0) break;
+        if (memcmp(g_file + at, "fpk1", 4) == 0) {
+            if (size != 12 || g_layout_pack_marker || g_file[at + 8] != 0 || g_file[at + 9] != 1
+                || g_file[at + 10] != 0 || g_file[at + 11] != 0) return -1;
+            g_layout_pack_marker = 1;
+        }
+        if (memcmp(g_file + at, "_eof", 4) == 0) return size >= 17 && at + size == n ? result : -1;
         at += size;
     }
     return -1;
@@ -830,6 +973,7 @@ static int layout_read(const char *code, char *why, size_t size) {
         return -1;
     }
     *(int32_t *)(g_mv_scratch + MV_MAP_ID) = want;
+    if (!layout_packs(path, g_mv_scratch, 0, why, size)) return -1;
     return 1;
 }
 
@@ -889,9 +1033,21 @@ static void layout_save(void) {
         return;
     }
     layout_path(path, code);
+    char why[160];
+    if (!layout_packs(path, g_mv_scratch, 1, why, sizeof why)) {
+        note("save failed: %s", why);
+        return;
+    }
     layout_retire(code);
     if (!write_mvar(path, g_bits, len)) {
         note("save failed: cannot write %s.mvar", code);
+        return;
+    }
+    char side[MAX_PATH], tmp[MAX_PATH];
+    snprintf(side, MAX_PATH, "%s.packs", path);
+    snprintf(tmp, MAX_PATH, "%s.packs.tmp", path);
+    if (!MoveFileExA(tmp, side, MOVEFILE_REPLACE_EXISTING)) {
+        note("save failed: cannot write pack bindings; previous layout kept in history");
         return;
     }
     note("saved layout %s, %d objects", code, mv_objects(mv));
@@ -1563,6 +1719,9 @@ static void snapshot(uint8_t *tls, int player) {
         s.distance = *(float *)(state + EDITOR_DISTANCE);
         object_tag_name(tls, s.held, s.held_tag, sizeof s.held_tag, s.held_group);
         object_tag_name(tls, s.cursor, s.cursor_tag, sizeof s.cursor_tag, s.cursor_group);
+        uint8_t *held_object = object_data(tls, s.held), *cursor_object = object_data(tls, s.cursor);
+        if (held_object) pack_tag_path(*(uint32_t *)held_object, s.held_path, sizeof s.held_path);
+        if (cursor_object) pack_tag_path(*(uint32_t *)cursor_object, s.cursor_path, sizeof s.cursor_path);
         uint8_t *mv = (uint8_t *)g_mv_live();
         if (mv) {
             s.budget = *(int32_t *)(mv + MV_BUDGET);
@@ -1743,13 +1902,13 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     int live = s.tick != g_published_tick;
     g_published_tick = s.tick;
     if (s.rows_version != g_rows_published) {
-        static char list[MAX_ROWS * 128];
+        static char list[MAX_ROWS * 384];
         size_t used = 0;
         EnterCriticalSection(&g_lock);
-        for (int i = 0; i < g_row_count && used + 128 < sizeof list; i++) {
+        for (int i = 0; i < g_row_count && used + 384 < sizeof list; i++) {
             palette_row_t *r = &g_rows[i];
-            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\t%d\t%d\t%d\n", r->palette,
-                                     r->entry, r->group, r->tag, r->placeable, r->placed, r->maximum, r->price);
+            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\t%d\t%d\t%d\t%s\n", r->palette,
+                                     r->entry, r->group, r->tag, r->placeable, r->placed, r->maximum, r->price, r->path);
         }
         LeaveCriticalSection(&g_lock);
         list[used] = '\0';
@@ -1760,13 +1919,14 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     EnterCriticalSection(&g_lock);
     memcpy(layout, g_layout, sizeof layout);
     LeaveCriticalSection(&g_lock);
-    char text[1280];
+    char text[2048];
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
-             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent);
+             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent,
+             s.held_path, s.cursor_path);
     if (s.props) {
         size_t used = strlen(text);
         snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",
