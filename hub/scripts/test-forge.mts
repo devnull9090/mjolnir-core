@@ -39,6 +39,18 @@ test("a Forge pack is scanned as inert content and keeps its inventory", () => {
   assert.deepEqual(result.manifest?.deps, manifest.deps);
 });
 
+test("Forge release versions fit the launcher and native exact identity without changing ordinary releases", () => {
+  for (const version of ["0.0.0", "1.2.3-alpha.0", "18446744073709551615.0.0", `1.0.0-${"a".repeat(90)}`]) {
+    assert.equal(ManifestSchema.safeParse({ ...manifest, version }).success, true, version);
+  }
+  for (const version of ["01.0.0", "1.0.0-01", "1.0.0-a..b", "1.0.0-.", "1.0.0+build",
+    "18446744073709551616.0.0", `1.0.0-${"a".repeat(91)}`]) {
+    assert.equal(ManifestSchema.safeParse({ ...manifest, version }).success, false, version);
+    assert.ok(scanArchive(archive({ ...manifest, version })).findings.some((f) => f.code === "bad_manifest"));
+  }
+  assert.equal(ManifestSchema.safeParse({ ...manifest, forge_pack: undefined, version: "01.0.0" }).success, true);
+});
+
 test("stable IDs prevent cross-pack tag aliases, path traversal and duplicate blocks", () => {
   for (const changed of [
     { ...block, id: "../platform" },

@@ -6,7 +6,7 @@
  * future it does not understand.
  */
 import { z } from "@hono/zod-openapi";
-import { ForgePackSchema } from "./forge";
+import { ForgePackSchema, ForgeReleaseVersionSchema } from "./forge";
 
 export const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
@@ -78,6 +78,10 @@ export const ManifestSchema = z
   .refine((m) => m.forge_pack === undefined || m.type === "content", {
     message: "a Forge pack is a content archive; maps reference packs through deps",
     path: ["forge_pack"],
+  })
+  .refine((m) => m.forge_pack === undefined || ForgeReleaseVersionSchema.safeParse(m.version).success, {
+    message: "Forge pack versions require exact SemVer within 96 bytes, without +build metadata.",
+    path: ["version"],
   })
   .openapi("MjolnirManifest");
 

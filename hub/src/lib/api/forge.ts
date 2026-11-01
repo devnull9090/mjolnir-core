@@ -5,6 +5,16 @@ import { ErrorSchema } from "./schemas";
 
 const BLOCK_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PACK_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
+const FORGE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+
+/** Exact identity shared with Rust SemVer and the native 96-byte field. */
+export const ForgeReleaseVersionSchema = z.string().max(96).regex(FORGE_VERSION).refine((version) => {
+  const parts = FORGE_VERSION.exec(version);
+  if (!parts) return false;
+  const max = BigInt("18446744073709551615");
+  return parts.slice(1, 4).every((part) => BigInt(part) <= max)
+    && (!parts[4] || parts[4].split(".").every((part) => !/^\d+$/.test(part) || part === "0" || part[0] !== "0"));
+}, { message: "Forge versions require exact SemVer with u64 components and no leading-zero numeric prerelease identifiers." });
 
 export const ForgeBlockSchema = z.object({
   id: z.string().regex(BLOCK_ID),
@@ -38,7 +48,7 @@ export type ForgePack = z.infer<typeof ForgePackSchema>;
 export const ReleaseForgePackSchema = z.object({
   release_id: z.string(),
   slug: z.string(),
-  version: z.string(),
+  version: ForgeReleaseVersionSchema,
   sha256: z.string().nullable(),
   forge_pack: ForgePackSchema,
   deps: z.array(z.object({ slug: z.string(), range: z.string() })),

@@ -1,10 +1,10 @@
 # Forge building blocks
 
-**Status:** 2026-11-01. Two shipped blocks are on every map baked from now on
-(a Covenant crate and the Covenant portable shield). Any object tag the map
-loads can be put into a palette at run time (`slots.txt`). Block packs from
-the hub, ported from other Halo games or modelled new, are designed below
-but not built.
+**Status:** 2026-11-01. Two shipped blocks are included on newly baked maps
+(a Covenant crate and the Covenant portable shield). The original 18-piece
+Foundry source set and community pack catalog, packaging, dependency and layout
+binding support are implemented. See [forge_packs.md](forge_packs.md) for the
+current architecture, reproducible build and runtime verification status.
 **See also:** [forge.md](forge.md), [re/forge_engine.md](re/forge_engine.md)
 (placing, the grab crash, markers), [level_format.md](level_format.md)
 (`blam.map_variant`, `blam.forge`).
@@ -72,42 +72,40 @@ palettes, and again at each new map before a saved layout is applied, from
 - The entry changes for the whole game. Objects the map itself placed from
   it change too: pointing BGL's health-pack entry at a crate turned every
   health pack into a crate.
-- A saved layout names entries, not tags. Its objects are whatever the
-  entries hold when it loads.
+- A saved layout's engine payload names entries. New community-pack layouts
+  also save tag/version/hash bindings and refuse changed custom entries; see
+  [saved-layout checks](forge_packs.md#saved-layouts-and-downloads).
 
-## Block packs (designed, not built)
+## Community packs
 
-The user's plan is block packs on the hub: blocks ported from other Halo
-games, and new ones modelled with AI tools. A pack has to work on maps
-already baked, whose palettes are fixed in their scenario tags. The run-time
-slots above cannot reach a pack's tags on their own, because only referenced
-tags load. So:
+The earlier proposal for 32 global slot tags and Hub-assigned slot ranges is
+retired. Packs now own `objects\mjolnir\forge\<pack-id>\<block-id>` tag paths.
+Each map declares its supported subset and order in `blam.forge_packs` before a
+standalone bake. The scenario includes these references and their package
+preloads; the map archive pins the corresponding Hub releases as dependencies.
+There is no shared global slot allocation and installing a pack does not
+automatically add it to an existing map.
 
-1. **Slot tags in the CE runtime pack.** `objects\mjolnir\forge\slot_00` to
-   `slot_31`, each a clone of `crate_space_a` with a multiplayer block. The
-   bake's blocks palette lists all 32, so every map references them and they
-   always load. A slot with no pack behind it is hidden from the palette.
-2. **A pack overrides slot tags by path.** It ships its own tags at those
-   paths (a mod container, the same way the CE runtime overrides shipped
-   tags) and the Unreal side for them. The hub assigns each pack a slot range
-   so two packs never collide; the manifest records which slot is which
-   block.
-3. **Layouts record their slots.** A saved layout gets a side file with the
-   slot → pack block list. Loading one whose packs are missing says which,
-   instead of placing the wrong blocks.
+The Hub's Forge catalog displays validated content releases. The launcher
+downloads map dependencies and missing exact releases required by saved layout
+sidecars. Native Forge checks each saved index against its tag path, pack
+version and archive hash before recreating objects. The complete contract and
+current limits are in [forge_packs.md](forge_packs.md).
 
 ## Making blocks
 
-All of these tools exist; none has made a Forge block yet.
+The [Foundry build](../forge-packs/foundry/README.md) uses these tools to produce
+new namespaced meshes, synchronized actors, tags and exact collision hulls.
+Cooked artifacts are generated locally from the supported game installation.
 
 - **The tag:**
-  - `mjolnir new-tag --group crate --from objects\props\covenant\crate_space_a\crate_space_a --to <slot path>`;
+  - `mjolnir new-tag --group crate --from objects\props\covenant\crate_space_a\crate_space_a --to <namespaced block path>`;
   - `--graft "object.multiplayer object=crate:crate_space_a-crate:object.multiplayer object"` for a donor without the block;
   - `--asset-reference /Game/.../BP_Thing` for the actor;
   - `--payload` for a model, collision and physics of its own.
-- **Collision:** `mjolnir level machine-collision` rebuilds a collision
-  model's MOPP from triangles. That is the step the Halo 2 machines use
-  (`tools/level/h2_machines.py`).
+- **Collision:** `forge_collision` builds triangle collision BSPs and MOPPs;
+  `tools/forge/build_collision.py` builds fixed polyhedra from the same hulls.
+  Composite pieces retain separate hulls to preserve openings.
 - **The Unreal mesh:**
   - rewrite a shipped mesh's LOD in place (`mesh_rewrite` + `package_add`,
     docs on UE mesh writing); or
@@ -122,7 +120,6 @@ All of these tools exist; none has made a Forge block yet.
   collision and physics model layouts match CU4's, by comparing
   `mjolnir fields` for each group. Forge World's blocks are mostly
   scenery with a Havok physics model, which CU4's crates use too.
-- **Modelled new (the user's AI-modelling plan):** a mesh plus a simple
-  collision hull (boxes and ramps are their own hulls), through the same
-  three steps. Keep the collision convex per piece; the simulation's
-  physics models are convex shapes.
+- **Modelled new:** a mesh plus collision hulls (boxes and ramps are their own
+  hulls), through the same pipeline. Each physics hull must be convex; a
+  doorway or other compound piece uses multiple hulls.

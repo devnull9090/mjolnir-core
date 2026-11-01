@@ -97,6 +97,7 @@ fn validate_manifest(value: &Value) -> Result<Manifest> {
         || manifest.summary.as_ref().is_some_and(|s| s.chars().count() > 300) {
         bail!("pack name must be 1–120 characters; summary at most 300");
     }
+    if manifest.version.len() > 96 { bail!("Forge pack versions must fit the native 96-byte identity field"); }
     let version = semver::Version::parse(&manifest.version).context("pack version must be exact SemVer")?;
     if !version.build.is_empty() {
         bail!("Hub release versions do not support +build metadata; use a prerelease suffix instead");
@@ -294,6 +295,7 @@ mod tests {
             ("/schema_version", serde_json::json!(2)),
             ("/version", serde_json::json!("01.0.0")),
             ("/version", serde_json::json!("1.0.0+unsupported")),
+            ("/version", serde_json::json!(format!("1.0.0-{}", "a".repeat(91)))),
             ("/forge_pack/id", serde_json::json!("x")),
             ("/forge_pack/id", serde_json::json!("-foundry")),
             ("/forge_pack/blocks/0/id", serde_json::json!("_platform")),
@@ -313,6 +315,9 @@ mod tests {
         let block = duplicate["forge_pack"]["blocks"][0].clone();
         duplicate["forge_pack"]["blocks"].as_array_mut().unwrap().push(block);
         assert!(validate_manifest(&duplicate).is_err());
+        let mut max_version = valid;
+        max_version["version"] = format!("1.0.0-{}", "a".repeat(90)).into();
+        validate_manifest(&max_version).unwrap();
     }
 
     #[test]

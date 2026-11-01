@@ -103,4 +103,33 @@ Blam-to-Unreal coordinate conversion. Both the cooked physics containers and
 verified raw payloads are emitted without touching the installed game. Use
 `--only block_1x1` for a single-part build or `--commands-only` to inspect edits.
 
+## Crosswalk assembly fixture
+
+![Crosswalk assembled from Foundry pieces](art/foundry-crosswalk.png)
+
+[`demo/crosswalk.layout.json`](demo/crosswalk.layout.json) places **54 instances
+of all 18 part types** inside a 16 × 16 m footprint. The two main decks are 4 m
+above the lower floor, leaving 3.5 m under the bridge. Consecutive ramps, a
+stair-to-ramp route, an intermediate landing, open doorway/window, cover and
+guardrails exercise the kit's connections.
+
+This is a portable authoring fixture, not a native Forge save or baked map. Its
+positions are metres/Z-up and rotations are XYZ Euler degrees, with yaw around
++Z. A runtime adapter must resolve the pack's palette bindings and convert
+positions to Blam units. The fixture pins the authoring pack to Foundry 0.1.0;
+release IDs/checksums must come from the published release when preparing a
+downloadable map. Its `checks` list describes traversal and save/reload tests.
+
+```powershell
+python forge-packs/foundry/generate_demo.py
+& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' `
+  --background --factory-startup --python forge-packs/foundry/build_demo.py
+```
+
+The second command reads the actual mesh library from `build/foundry.blend` and
+writes `art/foundry-crosswalk.png` plus the ignored `build/crosswalk.blend`.
+The generator verifies that all 18 types are represented and every collision
+vertex remains inside the stated footprint. The image is an actual Blender
+render; gameplay verification is recorded separately.
+
 See [design research](../../docs/forge_pack_design.md) for references and future sets.

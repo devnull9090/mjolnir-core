@@ -938,7 +938,9 @@
             "type": "string"
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
           },
           "sha256": {
             "type": [

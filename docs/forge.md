@@ -15,6 +15,11 @@ the work; MJOLNIR gives it keys and a HUD. As the Monitor you can also
 place new objects from the map's palette: weapons, vehicles, equipment and
 scenery.
 
+Community model sets use [Forge packs](forge_packs.md). Maps declare their
+supported pack pieces when baked; the Hub catalog and launcher handle their
+releases and dependencies. That guide includes the original Foundry set,
+authoring commands and saved-layout compatibility checks.
+
 ## Starting a Forge game
 
 1. MULTIPLAYER → HOST GAME, pick a map.

@@ -91,8 +91,13 @@ the same traversal clearances and connector heights.
 
 ## Demonstration and runtime checks
 
-A small two-height arena can exercise the kit: two facing platforms, a bridge,
-a lower flanking route, two ramps, cover and rails. Verify floor seams by walking
+The delivered [Crosswalk assembly fixture](../forge-packs/foundry/demo/crosswalk.layout.json)
+places 54 instances of all 18 types inside 16 × 16 m. Its
+[actual Blender render](../forge-packs/foundry/art/foundry-crosswalk.png) shows
+two facing upper platforms, a bridge, lower routes, ramps, stairs, cover and
+rails. Main walking surfaces are 4 m apart, with 3.5 m clear beneath the bridge.
+This portable metre/Z-up authoring layout still needs a runtime adapter or bake;
+it is not a native save or proof of playability. Verify floor seams by walking
 and driving over them; walk through the doorway and fire through the window;
 test ramp endpoints and stairs; duplicate, rotate, save, reload and delete parts.
 Finally load the variant on a client without the pack, confirm the pinned pack
