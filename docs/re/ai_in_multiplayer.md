@@ -410,7 +410,7 @@ south-west one is surface 4333, x 90.59 to 91.31). At the lintel's inner edge
 the ramp is at z 0.68, leaving 0.82 wu; an elite stands 0.8 wu (`elite_ai`
 biped, `physics.height standing`; crouching 0.69, radius 0.18), against 0.65
 for the Spartan, 0.7 for the jackal and 0.55 for the grunt. Seen twice on its
-own and three more times on purpose (below) at the same spot: on the south
+own and again on purpose (below) at the same spot: on the south
 base's west ramp at (91.5, -159.5, 0.83) for five minutes, and on the north
 base's east ramp at (44.18, -79.26, 0.83), facing the door, its position
 twitching by a few hundredths across the ramp and its facing by a few
@@ -489,9 +489,11 @@ standing capsule's upper vertex written live):
   on down the ramp, where it stopped again; 0.71, 0.70 and 0.48 (once each)
   let it walk out of the door at once;
 - up: eight HUD elites (bot type elite) hunting the host, who stood
-  unhurtable on the north deck. At 0.70 two of them climbed the north base's
-  west ramp (1902) onto the deck four times in two minutes, and walked back
-  down it. Back at 0.8 with the same bots, two climbs in 2.5 minutes stopped
+  unhurtable on the north deck. At 0.70 two of them passed the lintel of the
+  north base's west ramp (1902) going up four times in two minutes and
+  reached the deck three times (one climb turned back at the ramp's top),
+  and walked back down it. Back at 0.8 with the same bots, two climbs in 2.5
+  minutes stopped
   at (35.81, -79.0, 0.67), 0.1 short of the lintel's inner edge (x 35.91),
   held 5 to 7 s and backed down.
 
