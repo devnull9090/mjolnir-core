@@ -10,7 +10,7 @@ import { createContext, useContext } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface Outdated {
-  kind: "core" | "code" | "content";
+  kind: "launcher" | "core" | "code" | "content";
   id: string;
   name: string;
   installed: string | null;
@@ -83,6 +83,8 @@ export interface Step {
   key: string;
   label: string;
   run: () => Promise<void>;
+  /** The launcher's own update: the run ends with it, since it restarts. */
+  restarts?: boolean;
 }
 
 /** Installs whatever `kind`/`id` names: the latest release, or for a hub mod
@@ -90,6 +92,9 @@ export interface Step {
  *  repair). The same commands the Updates screen applies with. */
 function install(kind: Outdated["kind"], id: string, releaseId: string | null, task: string) {
   switch (kind) {
+    case "launcher":
+      // Only the updater plugin can install it: see `launcherStep`.
+      return Promise.reject(new Error("The launcher updates through launcherStep."));
     case "core":
       return invoke<void>("install_modpack", { task });
     case "code":
@@ -108,6 +113,45 @@ export function updateStep(o: Outdated): Step {
       : `Update ${o.name}${o.installed ? ` ${o.installed}` : ""} → ${o.latest}`,
     run: () => install(o.kind, o.id, o.release_id, key),
   };
+}
+
+/**
+ * The launcher's own update. It is the whole run when there is one: it
+ * restarts the launcher, and the new one checks again and installs the rest
+ * with its own code. `resume_after_update_set` leaves it a note of what was
+ * under way (`launch`: start the game after), read at startup (App.tsx).
+ */
+export function launcherStep(o: Outdated, installLauncher: () => Promise<void>, launch: boolean): Step {
+  return {
+    key: `update:${o.kind}:${o.id}`,
+    label: `Update ${o.name}${o.installed ? ` ${o.installed}` : ""} → ${o.latest}, then restart it`,
+    restarts: true,
+    run: async () => {
+      await invoke("resume_after_update_set", { launch, keys: [] });
+      try {
+        await installLauncher();
+      } catch (e) {
+        // Nothing restarts: the note must not start a run at the next start.
+        await invoke("resume_after_update_take").catch(() => undefined);
+        throw e;
+      }
+    },
+  };
+}
+
+/**
+ * What "Update" installs: the launcher alone when it is behind (the rest
+ * waits for the new launcher), otherwise every update and repair.
+ */
+export function fixSteps(
+  items: Outdated[],
+  repairs: Problem[],
+  installLauncher: () => Promise<void>,
+  launch: boolean,
+): Step[] {
+  const launcher = items.find((o) => o.kind === "launcher");
+  if (launcher) return [launcherStep(launcher, installLauncher, launch)];
+  return [...items.map(updateStep), ...repairs.map(repairStep)];
 }
 
 export function repairStep(p: Problem): Step {

@@ -643,7 +643,7 @@ fn range_floor(range: &str) -> Option<String> {
 }
 
 /// True when `candidate` is strictly newer than `installed`.
-fn is_newer(candidate: &str, installed: &str) -> bool {
+pub(crate) fn is_newer(candidate: &str, installed: &str) -> bool {
     version_key(candidate) > version_key(installed)
 }
 

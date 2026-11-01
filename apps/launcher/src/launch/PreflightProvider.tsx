@@ -3,9 +3,14 @@
  *
  *   checking → (nothing found) → launch
  *            → review: updates, damaged installs, unsupported mods
- *                → Update and launch / Launch without updating / Cancel
+ *                → Update and launch / Cancel
  *            → applying, one step at a time → rechecking the files → launch
- *              (or the failures)
+ *              (or the failures, with Try again)
+ *
+ * Nothing out of date or damaged is launched: multiplayer needs everyone on
+ * the same versions. A launcher update goes first and alone, and restarts
+ * the launcher; the new one picks the run up again (`launcherStep`), so
+ * the rest is installed by the newest launcher code.
  *
  * Checking shows every item as it is looked at (Checklist.tsx), and applying
  * shows each download's bytes, so a long map list never reads as one spinner.
@@ -24,13 +29,12 @@ import { formatBytes, useTransfers, type TaskTransfer } from "../updates/useTran
 import Checklist, { ProgressBar, StateIcon } from "./Checklist";
 import {
   PreflightContext,
+  fixSteps,
   foldStep,
   formatSize,
   type CheckStep,
-  repairStep,
   repairsNotCovered,
   setAsideStep,
-  updateStep,
   type PreflightRequest,
   type Problem,
   type Step,
@@ -46,6 +50,8 @@ type Phase =
   | { kind: "applying"; steps: Step[]; status: Record<string, StepStatus>; errors: Record<string, string> }
   /** After an apply run installed something: its files checked again. */
   | { kind: "rechecking" }
+  /** The launcher's update ran; the installer restarts it. */
+  | { kind: "restarting" }
   | { kind: "recheck-failed"; problems: Problem[] }
   | { kind: "launching" }
   | { kind: "error"; message: string };
@@ -61,10 +67,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function PreflightProvider({
   children,
   onApplied,
+  installLauncher,
 }: {
   children: ReactNode;
   /** After an apply run installed something: refresh what the screens show. */
   onApplied: () => void;
+  /** The updater plugin's install of the launcher (UpdaterBanner.tsx). */
+  installLauncher: () => Promise<void>;
 }) {
   const [phase, setPhase] = useState<Phase | null>(null);
   const [setAside, setSetAside] = useState(true);
@@ -73,6 +82,9 @@ export function PreflightProvider({
   // `run` should stay the same function for its callers' effects.
   const appliedRef = useRef(onApplied);
   appliedRef.current = onApplied;
+  const installLauncherRef = useRef(installLauncher);
+  installLauncherRef.current = installLauncher;
+  const installLauncherNow = useCallback(() => installLauncherRef.current(), []);
   // Bumped by Cancel, so a run still awaiting a check stops where it is.
   const generation = useRef(0);
   // The live checklist, cleared at the start of each pass.
@@ -123,6 +135,11 @@ export function PreflightProvider({
         try {
           await step.run();
           status[step.key] = "done";
+          if (step.restarts) {
+            // The installer closes this launcher; on Windows it never gets
+            // further. Anywhere it does, the next start picks the run up.
+            return setPhase({ kind: "restarting" });
+          }
           if (step.key !== "set-aside") installed = true;
         } catch (e) {
           status[step.key] = "failed";
@@ -179,11 +196,11 @@ export function PreflightProvider({
       // The player already said "update" in game; only mods of theirs to
       // move need asking about.
       if (request.update && check.unsupported.length === 0) {
-        return apply([...check.items.map(updateStep), ...repairs.map(repairStep)]);
+        return apply(fixSteps(check.items, repairs, installLauncherNow, true));
       }
       setPhase({ kind: "review", check, problems: repairs });
     },
-    [launch, apply],
+    [launch, apply, installLauncherNow],
   );
 
   const run = useCallback(
@@ -203,6 +220,13 @@ export function PreflightProvider({
   const cancel = () => {
     generation.current++;
     finish(false);
+  };
+
+  // After a failed step: the whole check again, since what is out of date
+  // may have changed under it.
+  const retry = () => {
+    const p = pending.current;
+    if (p) void start(p.request);
   };
 
   // Escape closes the dialog when nothing is being written.
@@ -239,13 +263,17 @@ export function PreflightProvider({
               onLaunch={(update) => {
                 if (phase.kind !== "review") return;
                 const { check, problems } = phase;
+                const fixes = update ? fixSteps(check.items, problems, installLauncherNow, true) : [];
+                // A launcher update ends the run; the restarted launcher
+                // asks about the unsupported mods itself.
+                const restarts = fixes.some((s) => s.restarts);
                 const steps = [
-                  ...(update ? [...check.items.map(updateStep), ...problems.map(repairStep)] : []),
-                  ...(setAside && check.unsupported.length > 0 ? [setAsideStep(check.unsupported)] : []),
+                  ...fixes,
+                  ...(!restarts && setAside && check.unsupported.length > 0 ? [setAsideStep(check.unsupported)] : []),
                 ];
                 void apply(steps);
               }}
-              onLaunchAnyway={() => void launch()}
+              onRetry={retry}
             />
           </div>
         </div>
@@ -262,7 +290,7 @@ function Body({
   onSetAside,
   onCancel,
   onLaunch,
-  onLaunchAnyway,
+  onRetry,
 }: {
   phase: Phase;
   checks: CheckStep[];
@@ -271,7 +299,7 @@ function Body({
   onSetAside: (v: boolean) => void;
   onCancel: () => void;
   onLaunch: (update: boolean) => void;
-  onLaunchAnyway: () => void;
+  onRetry: () => void;
 }) {
   switch (phase.kind) {
     case "waiting-game":
@@ -298,6 +326,17 @@ function Body({
           </ActionButton>
         </>
       );
+    case "restarting":
+      return (
+        <>
+          <h2 className="text-lg font-bold">Restarting the launcher</h2>
+          <p className="flex items-center gap-2 text-sm text-text-secondary">
+            <Spinner className="w-4 h-4" />
+            The new launcher opens in a moment and finishes the remaining updates before the game
+            starts.
+          </p>
+        </>
+      );
     case "rechecking":
       return (
         <>
@@ -314,7 +353,7 @@ function Body({
             {phase.problems.map((p) => `${p.name}: ${p.detail}`).join("; ")}
           </p>
           <div className="flex gap-2">
-            <ActionButton onClick={onLaunchAnyway}>Launch anyway</ActionButton>
+            <ActionButton onClick={onRetry}>Try again</ActionButton>
             <ActionButton tone="neutral" onClick={onCancel}>
               Close
             </ActionButton>
@@ -383,7 +422,7 @@ function Body({
           </ul>
           {done && failed.length > 0 && (
             <div className="flex gap-2">
-              <ActionButton onClick={onLaunchAnyway}>Launch anyway</ActionButton>
+              <ActionButton onClick={onRetry}>Try again</ActionButton>
               <ActionButton tone="neutral" onClick={onCancel}>
                 Close
               </ActionButton>
@@ -395,6 +434,7 @@ function Body({
     case "review": {
       const { check, problems } = phase;
       const fixes = check.items.length + problems.length;
+      const launcherFirst = check.items.some((o) => o.kind === "launcher");
       return (
         <>
           <div>
@@ -468,6 +508,12 @@ function Body({
             </section>
           )}
 
+          {launcherFirst && (
+            <p className="text-xs text-text-secondary">
+              The launcher updates first and restarts, then installs the rest and starts the game.
+            </p>
+          )}
+
           {check.unreachable.length > 0 && (
             <p className="text-xs text-amber-400/90">
               Could not check {check.unreachable.join("; ")}.
@@ -476,12 +522,11 @@ function Body({
 
           <div className="flex flex-wrap gap-2 pt-1">
             {fixes > 0 ? (
-              <>
-                <ActionButton onClick={() => onLaunch(true)}>Update and launch</ActionButton>
-                <ActionButton tone="neutral" onClick={() => onLaunch(false)}>
-                  Launch without updating
-                </ActionButton>
-              </>
+              // No "launch without updating": an out-of-date player splits
+              // the fireteam. Being offline still launches (nothing found).
+              <ActionButton onClick={() => onLaunch(true)}>
+                {launcherFirst ? "Update the launcher" : "Update and launch"}
+              </ActionButton>
             ) : (
               <ActionButton onClick={() => onLaunch(false)}>Launch</ActionButton>
             )}

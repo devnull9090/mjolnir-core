@@ -13,17 +13,38 @@ fireteam is never split by versions or by somebody else's mods:
 
 ## What counts as out of date
 
-`preflight::check` (apps/launcher/src-tauri/src/preflight.rs) asks three
+`preflight::check` (apps/launcher/src-tauri/src/preflight.rs) asks four
 sources side by side and reports each one it could not reach:
 
 | Source | Compared | Out of date when |
 | --- | --- | --- |
+| The launcher (`check_launcher`) | this launcher's own version | `/api/releases/latest` (what the Tauri updater reads) names a newer one. A newer build on disk is not out of date. `MJOLNIR_LAUNCHER_LATEST_URL` points it elsewhere, for testing. |
 | Code mods (`hub::code_mods_outdated`) | each MJOLNIR mod in `ue4ss/Mods` that is in the signed set: its own `mod.json` version | the signed set's version is newer. A newer version on disk (a development build) is not out of date. |
 | Runtime bundle (`modpack_update`) | the cached runtime manifest | the bucket publishes another version |
 | Hub mods (`hub::check_updates`) | each installed hub mod: the CE runtime pack and every map | the hub has a newer release, or a map's install is missing files (the same release again) |
 
 The Updates screen asks the same sources. It judges code mods by this
 launcher's install record, not by `mod.json`, so it can offer a few more.
+
+## The launcher updates first
+
+Any run that includes the launcher installs the launcher alone, first. The
+updater plugin's NSIS installer (update mode) closes the launcher and starts
+the new one, which checks again and installs the rest with its own code. So
+a fix to how updates are installed reaches players before it is needed.
+
+The run is handed over through `resume_after_update.json` in the launcher's
+config folder, written just before the launcher installs and read (and
+deleted) by the next launcher at startup (App.tsx):
+
+- `{ "launch": true }` from a launch or the game's update link: the launch
+  check runs again in update mode (as for `mjolnir://update`): it installs
+  what is still out of date and starts the game.
+- `{ "launch": false, "keys": [...] }` from the Updates screen: it opens
+  Updates and applies the rest of what was selected, if still offered.
+
+It is never a replay: what is out of date is checked afresh. A failed
+launcher install deletes the note, and a note older than an hour is ignored.
 
 ## The launch check
 
@@ -68,14 +89,20 @@ picks up skips it, since nothing can change under a running game.
      ticked;
    - any source it could not check.
 
-   The buttons are **Update and launch**, **Launch without updating** and
-   **Cancel**.
+   The buttons are **Update and launch** (**Update the launcher** when the
+   launcher is behind: see above) and **Cancel**. There is no launching
+   out of date: one player on old versions splits the fireteam. When only
+   unsupported mods or unreachable sources were found, the button is
+   **Launch**.
 4. The steps run one at a time, since they write to the same game folder,
    each with its download's bytes as they arrive. A failure stops the launch
-   and offers **Launch anyway**.
+   and offers **Try again**, which runs the whole check again.
 5. When anything was installed, the installed files are checked again, item
    by item, before the game starts. A file that still differs offers
-   **Launch anyway** too.
+   **Try again** too.
+
+The gate covers launches through the launcher. A game started from Steam
+directly still gets only the in-game prompt below, which can be put off.
 
 While it checks, the dialog shows every item it looks at as a live
 checklist under one progress bar (`launch/Checklist.tsx`): the core, each
@@ -153,8 +180,9 @@ as the path.
 }
 ```
 
-`kind` is `core`, `code` or `content`. `release_id` is the hub release to
-install, for `content`.
+`kind` is `launcher`, `core`, `code` or `content`. `release_id` is the hub
+release to install, for `content`. MJOLNIR Lobby shows a kind it does not
+know by its name alone.
 
 ## Unsupported mods
 

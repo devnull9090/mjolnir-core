@@ -2,10 +2,10 @@
 //!
 //! Three questions, each answered from what the launcher already keeps:
 //!
-//! * **Out of date** (`check`): the MJOLNIR code mods in the game against the
-//!   signed set, the runtime bundle against the release bucket, and every
-//!   installed hub mod (the CE runtime pack, maps) against the hub, the same
-//!   checks the Updates screen makes.
+//! * **Out of date** (`check`): this launcher against its latest release, the
+//!   MJOLNIR code mods in the game against the signed set, the runtime bundle
+//!   against the release bucket, and every installed hub mod (the CE runtime
+//!   pack, maps) against the hub, the same checks the Updates screen makes.
 //! * **Intact** (`verify`): the runtime bundle's files against its cached
 //!   manifest, each hub mod's cache against the `container_hashes` recorded at
 //!   install, and each code mod's shipped files against the hashes recorded
@@ -32,8 +32,8 @@ use crate::unsupported::UnsupportedMod;
 /// One thing a newer release exists for.
 #[derive(Debug, Clone, Serialize)]
 pub struct Outdated {
-    /// `"core"` (the runtime bundle), `"code"` (a code mod) or `"content"` (a
-    /// hub mod: the CE runtime pack, a map).
+    /// `"launcher"` (this launcher), `"core"` (the runtime bundle), `"code"`
+    /// (a code mod) or `"content"` (a hub mod: the CE runtime pack, a map).
     pub kind: String,
     /// The code mod's id or the hub mod's slug; `"modpack"` for the core.
     pub id: String,
@@ -113,9 +113,51 @@ fn plural(n: usize, word: &str) -> String {
 /// few in flight keep a long map list quick without hammering the hub.
 const HUB_CHECKS_AT_ONCE: usize = 4;
 
+const LAUNCHER_NAME: &str = "MJOLNIR Launcher";
 const CORE_NAME: &str = "MJOLNIR core (UE4SS)";
 const CODE_NAME: &str = "Code mods (the signed set)";
 const UNSUPPORTED_NAME: &str = "Mods MJOLNIR did not install";
+
+/// What the Tauri updater reads (tauri.conf.json `plugins.updater`).
+/// `MJOLNIR_LAUNCHER_LATEST_URL` points it elsewhere, for testing.
+fn launcher_latest_url() -> String {
+    std::env::var("MJOLNIR_LAUNCHER_LATEST_URL").unwrap_or_else(|_| "https://mjolnircore.com/api/releases/latest".into())
+}
+
+/// The launcher itself. It goes first in every apply run and restarts, so
+/// the rest is installed by the newest launcher code (docs/update_check.md).
+/// A newer build than the release (a development build) is not out of date.
+fn check_launcher(report: Report, push: &dyn Fn(Outdated), fail: &dyn Fn(String)) {
+    step(report, "updates", "launcher", LAUNCHER_NAME, "running", None);
+    let current = env!("CARGO_PKG_VERSION");
+    let latest = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .and_then(|c| c.get(launcher_latest_url()).send())
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.json::<serde_json::Value>())
+        .map_err(|e| e.to_string())
+        .and_then(|v| v["version"].as_str().map(str::to_string).ok_or_else(|| "no version in the answer".into()));
+    match latest {
+        Ok(latest) if crate::hub::is_newer(&latest, current) => {
+            step(report, "updates", "launcher", LAUNCHER_NAME, "warn", Some(format!("{current} → {latest}")));
+            push(Outdated {
+                kind: "launcher".into(),
+                id: "launcher".into(),
+                name: LAUNCHER_NAME.into(),
+                installed: Some(current.into()),
+                latest,
+                release_id: None,
+                repair: false,
+            });
+        }
+        Ok(_) => step(report, "updates", "launcher", LAUNCHER_NAME, "ok", Some(format!("v{current}"))),
+        Err(e) => {
+            step(report, "updates", "launcher", LAUNCHER_NAME, "fail", Some(e.clone()));
+            fail(format!("launcher releases: {e}"));
+        }
+    }
+}
 
 fn check_core(report: Report, push: &dyn Fn(Outdated), fail: &dyn Fn(String)) {
     step(report, "updates", "core", CORE_NAME, "running", None);
@@ -233,9 +275,10 @@ fn check_hub(
 }
 
 /// Everything out of date, with the sources that could not be checked, each
-/// item reported as it is checked. The three sources run side by side.
+/// item reported as it is checked. The four sources run side by side.
 pub fn check(report: Report) -> UpdateCheck {
     let hub_mods = crate::hub::installed_mods();
+    step(report, "updates", "launcher", LAUNCHER_NAME, "pending", None);
     step(report, "updates", "core", CORE_NAME, "pending", None);
     step(report, "updates", "code", CODE_NAME, "pending", None);
     for m in &hub_mods {
@@ -248,6 +291,7 @@ pub fn check(report: Report) -> UpdateCheck {
     let push = |o: Outdated| items.lock().unwrap_or_else(|e| e.into_inner()).push(o);
     let fail = |why: String| unreachable.lock().unwrap_or_else(|e| e.into_inner()).push(why);
     std::thread::scope(|s| {
+        s.spawn(|| check_launcher(report, &push, &fail));
         s.spawn(|| check_core(report, &push, &fail));
         s.spawn(|| check_code(report, &push, &fail));
         s.spawn(|| check_hub(report, &hub_mods, &push, &fail));
@@ -261,13 +305,15 @@ pub fn check(report: Report) -> UpdateCheck {
         step(report, "mods", "unsupported", UNSUPPORTED_NAME, "warn", Some(format!("{} found", unsupported.len())));
     }
 
-    // The core, the code mods, then hub mods in the order they were
-    // installed, not the order the requests came back.
+    // The launcher (it restarts, and the newer one installs the rest), the
+    // core, the code mods, then hub mods in the order they were installed,
+    // not the order the requests came back.
     let mut items = items.into_inner().unwrap_or_else(|e| e.into_inner());
     items.sort_by_key(|o| match o.kind.as_str() {
-        "core" => 0,
-        "code" => 1,
-        _ => 2 + hub_mods.iter().position(|m| m.slug == o.id).unwrap_or(0),
+        "launcher" => 0,
+        "core" => 1,
+        "code" => 2,
+        _ => 3 + hub_mods.iter().position(|m| m.slug == o.id).unwrap_or(0),
     });
     UpdateCheck {
         checked_at: now(),
