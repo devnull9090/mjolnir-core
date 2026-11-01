@@ -24,6 +24,13 @@
 --   Insert     place: a new object from the palette, at the cursor, held
 --   Left / Right   the palette's previous / next category
 --   Up / Down      the previous / next object in the category
+--   F5         save: this map's layout, to layouts\<MAP>.mvar (the old one
+--              goes to layouts\history)
+--   F6         load: the saved layout, replacing the objects on the map now
+--   F2         revert: the map's own layout (the saved one goes to history)
+--
+-- A map with a saved layout starts every game with it, Forge or not (the DLL
+-- swaps it in where the engine builds the map's objects).
 --
 -- The Monitor moves with the game's own controls. A key typed into match
 -- chat is ignored here, and the DLL drops a command the simulation did not
@@ -62,6 +69,10 @@ local DEFAULT_KEYS = {
     next_category = "RIGHT_ARROW",
     prev_item = "UP_ARROW",
     next_item = "DOWN_ARROW",
+    -- HOME opens MJOLNIRHud's chat; F7-F9 are MJOLNIRFlyCam's.
+    save = "F5",
+    load = "F6",
+    revert = "F2",
 }
 
 local LABELS = {
@@ -76,10 +87,13 @@ local LABELS = {
     next_category = "category",
     prev_item = "object",
     next_item = "object",
+    save = "save layout",
+    load = "load layout",
+    revert = "map's own layout",
 }
 
 local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther", "place",
-    "prev_category", "next_category", "prev_item", "next_item" }
+    "prev_category", "next_category", "prev_item", "next_item", "save", "load", "revert" }
 
 local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")

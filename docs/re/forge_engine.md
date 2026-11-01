@@ -1,12 +1,12 @@
 # Forge is still in the simulation (CU4)
 
-**Status:** 2026-10-24. Playable on the host: MJOLNIRLobby offers a FORGE
+**Status:** 2026-11-01 (layouts); 2026-10-24 (the editor). Playable on the host: MJOLNIRLobby offers a FORGE
 game type, MJOLNIRLevelLoader starts the map under the sandbox engine, and
 MJOLNIRForge binds keys that send the engine's own editor requests (*What
 ships*). Verified in game on Blood Gulch: turn into the Monitor and back,
 grab, move, drop, push out and delete objects, all through the simulation's
-request path. Not yet: placing new objects (converted maps have no sandbox
-palette), saving a layout, fireteam clients. The history below covers the
+request path. Layouts save, load and start games since 2026-11-01 (*Layouts*). Not yet:
+fireteam clients, object properties, rotation. The history below covers the
 first live run (*Live run, 2026-10-24*, which ended in a hang), the model
 fix (*Retest with the fixed model*) and the request path (*The request path
 on the host*).
@@ -516,11 +516,91 @@ Verified in game 2026-10-24 (BGL, solo):
   scenery entries, all placeable. A Wraith, which BGL never places, came
   from the palette and drew.
 
+## Layouts: save, load, start with one (2026-11-01)
+
+MJOLNIRForge 0.3.0 saves the live map variant to a file and brings it back,
+with the simulation's own encoder and decoder. Nothing in CU4 did this: the
+five map-variant console commands (`net_build_map_variant` 1517,
+`net_verify_map_variant` 1518, `net_load_and_use_map_variant` 1519,
+`write_current_map_variant` 1520, `read_map_variant_and_make_current` 1521)
+are stubs in CU4, and in MCC's `haloreach.dll` too (its shared stub
+`0x86cbc`); Halo 3 does not have them. So there was no body to copy.
+
+| Piece | RVA | Notes |
+|---|---|---|
+| live map variant | `0x32b600()` | `([TLS+0x250] + 0x30b) & ~3`, only in options mode 3; `0xd9c0` bytes |
+| encode / decode | `0x32cfb0(mv, bits)` / `0x32d810(mv, bits)` → bool | |
+| bitstream setup | `0x5323a0` | the session normaliser: encodes into a `0x7000`-byte stack buffer and decodes back; the template for both directions |
+| reset | `0x32baf0(mv, map id)` | version 32 (`+0x2b0`), map GUID (`+0x2b8`, 16 bytes) zero, bounds empty (±FLT_MAX) |
+| build from the scenario | `0x32cc00(mv)` | `0x32baf0(mv, scnr+0x10)`, then the placements (`0x32e0c0`) |
+| make a given variant current | `0x32bdb0(dst, src, 0)` | what new-map does with a session-supplied variant; takes the map id from the GUID (`0x32bd40` → `0x32b1a0`), so -1 for a zero GUID |
+| delete every variant object | `0x32f710()` | objects of mask `0x5ce` whose `+0x1c` (variant index) is set |
+| create every entry's object | `0x32f6a0(mv)` | entries with flag bit 0 and no object yet (`+0x2c` = -1); round reset and host migration |
+| resend an entry | `0x4d1b70(entry, 4)` | host migration does it for all 651 after recreating |
+
+**The bitstream** (`0x5323a0`'s stack struct, 0x48 bytes): `+0` begin, `+8`
+end, `+0x10` size, `+0x14` 1, `+0x18` mode (1 write, 3 read), `+0x20` bits
+(write: already in the buffer; read: in the accumulator), `+0x28` 64-bit
+accumulator filled from the top, `+0x30` bits in it (write), `+0x38` cursor.
+After encoding, the accumulator is flushed big-endian; the size is
+`(+0x20 + +0x30 + 7) / 8` bytes. A reader starts with the first eight bytes
+in the accumulator and `+0x20` = 64.
+
+**New-map** (`0x2aca30`, mode 3): when the game options' map variant
+(`([TLS+0x60] + 0x111fb) & ~3`) has `+0x2e9`, `+0x2e0` or `+0x2ea` set, it is
+copied in with `0x32bdb0`; otherwise the live variant is built from the
+scenario at `0x2ace53` (`call 0x32cc00`). The round reset then creates the
+objects (`0x2ad80d`, `call 0x32f6a0`).
+
+**Version 32 and the map GUID.** The decoder reads the GUID only from
+version 32 on and fails when it is all zero (`0x32db50`); below 32 it derives
+it from the map id (`0x32add0`, else zero) and keeps the version. CE builds
+every variant at version 32 with a zero GUID, so the engine's own encoder
+writes a file its decoder refuses (VERIFIED: the first save of BGL decoded
+in our codec, 125 objects, and the sim refused it). A copy at version 31
+round-trips: the GUID is not written and comes back zero. VERIFIED.
+
+**Map ids.** `scnr+0x10` is the map id `0x32cc00` writes. `0x32bdb0` resets
+the target with the id it derives from the GUID, -1 here, so after each copy
+the DLL writes the scenario's id back, and it saves that id. A file is
+refused only when both ids are real (> 0) and differ: converted maps carry 0
+or -1, and the file's name ties it to its map anyway.
+
+**How the DLL does it** (`native/forge/mjolnir_forge.c`, "Layouts"):
+
+- **Save** (F5, sandbox slot-113 tick): copy the live variant, set version 31
+  when the GUID is zero, encode, decode the result into scratch as a check,
+  then write `layouts\<CODE>.mvar` (`_blf` 1.2, `mvar` 31.1 with a zero hash,
+  `_eof` 1.1). `<CODE>` comes from MJOLNIRLevelLoader's `running.txt`. The
+  previous file moves to `layouts\history\<CODE>-<time>.mvar`.
+- **Load** (F6): decode the file into scratch, then the host-migration
+  sequence: `0x32f710`, `0x32bdb0`, `0x32f6a0`, `0x4d1b70` per entry,
+  `0x32e300`. A held object is released through request 4 first and the
+  load waits a tick.
+- **Revert** (F2): the same with `0x32cc00` for the copy; the file moves to
+  history.
+- **At game start, any engine:** the `call` at `0x2ace53` is pointed (rel32)
+  at a 12-byte `mov rax, imm64; jmp rax` stub in a page allocated within 2 GB
+  of the DLL, which calls `layout_new_map`: build from the scenario, then
+  `0x32bdb0` the map's saved layout over it. The round reset creates its
+  objects, so Megalo's per-round setup (slot 10) sees them. The patch is
+  checked (opcode `E8`, target `0x32cc00`) and made once.
+
+Verified 2026-11-01 (BGL, solo, Steam CU4):
+
+- Forge: placed an energy sword, saved (126 objects, 2,707 bytes); placed
+  two more; F6 removed the two (126 again); F2 removed the saved one too
+  ("the map's own layout"). Added a Wraith, saved (127).
+  `mvar_summary` reads every save: version 31, bounds x 0.91..136.90,
+  y -195.22..-40.06, z -6.28..55.00, no object outside them.
+- Slayer on BGL, a fresh game: `layout=BGL: saved layout, 127 objects`;
+  `mjolnir live objects` shows the Wraith at (45.57, -95.49, 1.65), where the
+  file has it (45.60, -95.49, 1.62), and the sword beside it. BGL ships no
+  Wraith, so it came from the layout.
+
 ## Next steps
 
-1. Save and load layouts: the map-variant format, codec and the
-   simulation's own encoder and decoder are in
-   [map_variant_format.md](map_variant_format.md).
+1. Several layouts per map, picked in the lobby; a hub content type.
 2. Fireteam Forge: a game-type slot of its own (or another way for the
    game type to travel), so clients start the sandbox engine too.
 3. UI: a properties screen (request 5), rotation (type 11 and the rotate

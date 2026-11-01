@@ -315,6 +315,11 @@ local function toastFor(last, name)
     if placed then return "PLACED  " .. Hud.prettyName(placed), GREEN end
     local refused = last:match("^cannot place (.+)$")
     if refused then return "THIS MAP CAN'T PLACE ANOTHER  " .. Hud.prettyName(refused), GOLD end
+    local saved = last:match("^saved layout %S+, (%d+) objects$")
+    if saved then return "LAYOUT SAVED  " .. saved .. " OBJECTS", GREEN end
+    local reloaded = last:match("^loaded layout %S+, (%d+) objects$")
+    if reloaded then return "LAYOUT LOADED  " .. reloaded .. " OBJECTS", GREEN end
+    if last == "reverted to the map's own layout" then return "THE MAP'S OWN LAYOUT", ACCENT end
     if last == "this map has no Forge palette" then return "This map has no Forge palette", GOLD end
     if last:find("palette") then return "This map has no Forge palette entry for that yet", GOLD end
     return string.upper(last), GOLD
@@ -462,7 +467,12 @@ function Hud.render(s, keys, mapTitle, palette, choice)
             { key = Hud.keyLabel(keys.place), act = "PLACE", on = choice ~= nil and choice.placeable },
         })
     else
-        fillKeys("Control", CONTROLS, { { key = Hud.keyLabel(keys.toggle), act = "FORGE MONITOR" } })
+        fillKeys("Control", CONTROLS, {
+            { key = Hud.keyLabel(keys.toggle), act = "FORGE MONITOR" },
+            { key = Hud.keyLabel(keys.save), act = "SAVE LAYOUT" },
+            { key = Hud.keyLabel(keys.load), act = "LOAD LAYOUT" },
+            { key = Hud.keyLabel(keys.revert), act = "MAP'S OWN LAYOUT" },
+        })
     end
 
     drawPalette(palette or {}, choice, keys, editing)

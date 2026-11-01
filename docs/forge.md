@@ -1,6 +1,7 @@
 # Forge
 
-**Status:** 2026-10-24. Host only, on any converted multiplayer map.
+**Status:** 2026-11-01. Host only, on any converted multiplayer map. Layouts
+(save, load, start a game with one) need MJOLNIRForge 0.3.0.
 Released in mods 0.34.0 with CE runtime 1.14.0. Placing from the palette and
 the palette panel are not released yet: they need MJOLNIRForge 0.2.0 and CE
 runtime 1.15.0 (the panel).
@@ -62,6 +63,9 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **Insert** | Place the palette's selected object at the cursor; you hold it, ready to move |
 | **Left / Right** | Previous / next palette category |
 | **Up / Down** | Previous / next object in the category |
+| **F5** | Save this map's layout |
+| **F6** | Load the saved layout, replacing the objects on the map now |
+| **F2** | Go back to the map's own layout (the saved one is kept in `layouts\history`) |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
 flies up.
@@ -69,7 +73,7 @@ flies up.
 To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
 lines like `grab=F7` (actions `toggle`, `grab`, `duplicate`, `delete`,
 `nearer`, `farther`, `place`, `prev_category`, `next_category`, `prev_item`,
-`next_item`; key names as UE4SS spells them, such as `PAGE_UP` or
+`next_item`, `save`, `load`, `revert`; key names as UE4SS spells them, such as `PAGE_UP` or
 `LEFT_ARROW`).
 The defaults are keys the game does not use. G, C, Z and X are taken.
 
@@ -83,9 +87,29 @@ list only the kinds they already place, so you can place and duplicate
 those but not, say, a Wraith on Blood Gulch, until the map is republished.
 There is no limit on how many of each.
 
+## Layouts
+
+F5 saves what is on the map now, everything Forge can move, as a layout:
+`layouts\<MAP>.mvar` in the MJOLNIRForge mod folder (Blood Gulch is
+`BGL.mvar`). It works as the Monitor or as your Spartan, in a FORGE game.
+
+**A map with a saved layout starts every game with it**: FORGE, Slayer, CTF
+or any other game type on that map. Saving again replaces it; the one before
+moves to `layouts\history` with the time in its name. To play the map as it
+shipped, press F2 in a FORGE game (or move the file out of `layouts`).
+
+F6 puts the saved layout back on the spot, undoing everything since the last
+save. Objects you are holding are dropped first.
+
+A layout file is a Halo Reach map variant (`.mvar`), the same format MCC
+uses, so `cargo run -p blam-megalo --example mvar_summary -- BGL.mvar`
+lists what is in it. Layouts belong to one map: the file name says which.
+
 ## Not there yet
 
-- **Saving a layout.** Changes last until the game ends.
+- **Several layouts per map, and picking one in the lobby.** One saved layout
+  per map for now; `layouts\history` keeps the older ones.
+- **Layouts for your fireteam.** A saved layout is used when you host.
 - **Playing with your fireteam.** Players who join start Slayer instead.
 - **A Forge menu** (object lists, properties, rotation).
 - The cursor only reaches things in plain view: it stops at walls and the
