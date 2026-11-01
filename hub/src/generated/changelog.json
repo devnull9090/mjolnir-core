@@ -63,6 +63,29 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.41.0",
+      "tag": "mods-v0.41.0",
+      "title": "Facility lighting and preview cameras",
+      "date": "2026-11-01",
+      "summary": "Improved custom-map lighting and repeatable preview cameras accompany the TST facility update, retaining the team-aware bots from 0.40.0.",
+      "body": "### Changed\n\n- **Map lighting** (MJOLNIRLevelLoader 0.9.6): maps can refresh their sky\n  lighting after scenery loads and configure light source radius and specular\n  strength. TST uses these controls for softer highlights and more readable\n  shaded areas. Maps that omit the settings keep their existing behavior.\n- **Preview cameras** (MJOLNIRFlyCam 1.2.0): save named camera positions and\n  play timed paths with linear or eased movement. These optional tools support\n  repeatable map screenshots and video previews.\n- **Experimental objective presentation** (MJOLNIRHud 0.14.3): handle absolute\n  timed-objective scores without counting duplicate relay events twice.\n  Oddball and King of the Hill remain development modes; this release does\n  not add their game-type files to the supported multiplayer set.\n\n### TST Proving Ground\n\nThe accompanying map beta adds the enclosed facility below the balcony,\nrevised metal and floor materials, and fixture-aligned interior lighting.\nFitted red/blue emblems and backed lights replace the floating entrance strips.\nGreen lift doors inside the entry vestibules replace the exterior balcony pads.\n\nThe map is a separate Hub download and requires CE runtime 1.16.0 and this\ncode-mod set. Its supported modes remain Slayer, Team Slayer, and CTF.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Map lighting (MJOLNIRLevelLoader 0.9.6): maps can refresh their sky lighting after scenery loads and configure light source radius and specular strength. TST uses these controls for softer highlights and more readable shaded areas. Maps that omit the settings keep their existing behavior.",
+            "Preview cameras (MJOLNIRFlyCam 1.2.0): save named camera positions and play timed paths with linear or eased movement. These optional tools support repeatable map screenshots and video previews.",
+            "Experimental objective presentation (MJOLNIRHud 0.14.3): handle absolute timed-objective scores without counting duplicate relay events twice. Oddball and King of the Hill remain development modes; this release does not add their game-type files to the supported multiplayer set."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.41.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.41.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.41.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.40.0",
       "tag": "mods-v0.40.0",
       "title": "Bots on red and blue",
