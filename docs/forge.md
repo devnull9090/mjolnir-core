@@ -93,7 +93,13 @@ campaign's flyers), grenades, power-ups and ammo, and the map's scenery
 (spawn points, teleporters, flag stands, health packs). Maps baked before
 list only the kinds they already place, so you can place and duplicate
 those but not, say, a Wraith on Blood Gulch, until the map is republished.
-There is no limit on how many of each.
+There is no limit on how many of each, unless the map sets one (*Budgets
+and quotas*).
+
+Maps baked from 2026-11-01 also have a **blocks** palette: a Covenant crate
+and the Covenant portable shield, the only shipped pieces that are already
+Forge-ready. More blocks, ported or modelled, are planned as hub packs:
+[forge_blocks.md](forge_blocks.md).
 
 ## Object properties
 
