@@ -22,7 +22,15 @@ import os
 import unreal
 
 ROOT = "/Game/MJOLNIR/CETrial"
+OWNED = json.loads(os.environ.get("MJ_MAP_MESH_CHUNKS", "{}"))
 eal = unreal.EditorAssetLibrary
+
+def mesh_root(name):
+    for code in OWNED:
+        if name.startswith(f"SM_{code}_"):
+            return f"/Game/MJOLNIR/Maps/{code}/Generated"
+    return ROOT
+
 
 
 def log(msg):
@@ -32,10 +40,11 @@ def log(msg):
 def build(code, spec_path):
     spec = json.load(open(spec_path, encoding="utf-8"))
     name = code if code.startswith("SM_") else f"SM_{code}_CliffTess"
-    path = f"{ROOT}/{name}"
+    root = mesh_root(name)
+    path = f"{root}/{name}"
     if eal.does_asset_exist(path):
         eal.delete_asset(path)
-    mesh = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, ROOT, unreal.StaticMesh, None)
+    mesh = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, root, unreal.StaticMesh, None)
     v = unreal.Vector
     ok = unreal.MjolnirUIBuilderLibrary.build_static_mesh(
         mesh,
@@ -67,4 +76,28 @@ def build(code, spec_path):
 for item in filter(None, os.environ.get("MJ_CLIFF_MESHES", "").split(";")):
     code, spec_path = item.split("=", 1)
     build(code, spec_path)
+# Original community maps must carry their own generated geometry. Assign
+# only these meshes at higher priority than the shared CETrial directory;
+# dependencies (the shared material masters) stay in the runtime package.
+for code, chunk in OWNED.items():
+    names = [item.split("=", 1)[0] for item in os.environ["MJ_CLIFF_MESHES"].split(";")]
+    names = [f"SM_{name}_CliffTess" if name == code else name for name in names
+             if name == code or name.startswith(f"SM_{code}_")]
+    meshes = [unreal.load_asset(f"{mesh_root(name)}/{name}") for name in names]
+    if not meshes or any(mesh is None for mesh in meshes):
+        raise RuntimeError(f"{code}: missing map-owned meshes")
+    label_name = f"PAL_MJOLNIR_{code}_Meshes"
+    label = unreal.load_asset(f"{ROOT}/{label_name}")
+    if label is None:
+        label = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            label_name, ROOT, unreal.PrimaryAssetLabel, unreal.DataAssetFactory())
+    rules = label.get_editor_property("rules")
+    rules.set_editor_property("chunk_id", int(chunk))
+    rules.set_editor_property("priority", 100)
+    rules.set_editor_property("apply_recursively", False)
+    rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
+    label.set_editor_property("rules", rules)
+    label.set_editor_property("label_assets_in_my_directory", False)
+    label.set_editor_property("explicit_assets", meshes)
+    eal.save_loaded_asset(label)
 log("built")

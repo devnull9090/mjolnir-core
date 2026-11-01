@@ -12,6 +12,7 @@ pub mod bits;
 pub mod blf;
 pub mod ctf;
 pub mod dump;
+pub mod objectives;
 pub mod powerups;
 pub mod raw;
 pub(crate) mod script;

@@ -42,6 +42,21 @@ class RockMaterialTest(unittest.TestCase):
         self.assertNotIn("material", bake.decor_spec(self.tree, [0, 0, 0], 0.65))
         self.assertEqual(source, before)
 
+    def test_coastal_palette_is_cooked_and_never_overwritten_at_runtime(self):
+        desert = [{"id": f"cliff_{v}", "mesh": f"/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_{v}/SM_Rock_Desert_Cliff_{v}.SM_Rock_Desert_Cliff_{v}", "pos": [0, 0, 0]}
+                  for v in ("A", "C")]
+        source = self.rocks + desert + [self.tree]
+        self.assertEqual(bake.runtime_decor(source, .65, "coastal"), [self.tree])
+        self.assertEqual(bake.runtime_decor(desert, .65), desert)
+        for item in source[:-1]:
+            spec = bake.decor_spec(item, [0, 0, 0], .65, "coastal")
+            if item in desert:
+                self.assertIn("vectors", spec["material"])
+                self.assertNotIn("Color Tint#0", spec["material"]["vectors"])
+            else:
+                self.assertNotIn("vectors", spec["material"])
+            self.assertTrue(spec["material"]["parent"].startswith("/Game/Env/Bio/Rock/"))
+
     def test_zero_is_valid_and_invalid_values_fail(self):
         material = bake.rock_material(self.rocks[0]["mesh"], 0)
         self.assertEqual(material["scalars"]["Roughness Remap Low#0"], 0)

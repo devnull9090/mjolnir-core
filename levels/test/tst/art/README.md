@@ -1,0 +1,244 @@
+# Authored visual studies
+
+`reference/approved_coastal_concept.png` is the user-approved overall generated
+direction: a larger coastal arena with two detailed bases, warm interiors,
+three routes, trees, cliffs and water. It is a target for the design, not an
+image of a completed map. The original generation prompt is not reproduced here;
+the approved design brief is recorded in `../DESIGN.md`.
+
+`reference/base_detail_study.png` is an AI-generated design reference, not a
+Blender render or in-game screenshot. It refines a render of the actual r2 base
+without changing its entrance positions, dimensions or roof silhouette.
+
+`textures/weathered_alloy_albedo.png` is an AI-generated base-color candidate
+for previewing weathered architectural plates. It is not a normal/roughness map.
+Inspect repetition and edge continuity before using it at large scale. It is
+not yet bound to a compiled CE shader or included in a runtime release.
+
+`reference/interior_detail_study.png` is an AI-generated refinement of the
+actual Blender interior view. It preserves the two door locations and room
+proportions while proposing ribs, ceiling beams, inset panels and warm lighting.
+It is a modeling reference, not a completed map render.
+
+These were generated on October 20, 2026 with the built-in image generation tool.
+The base references were the actual Blender geometry render and the previously
+approved coastal arena concept. No downloaded asset library was used.
+
+## Base detail prompt
+
+Create a high-quality architectural detail study of the existing playable
+sci-fi base, matching the coastal Forerunner-style arena direction. Preserve
+the exact camera, roof height, footprint, both entrance positions and widths,
+ramps, walls, sloped supports and stepped roof silhouette. Use believable
+weathered pale graphite alloy and light grey stone-metal armor, layered wall
+plates, recessed seams, restrained worn edges, red team identifiers, warm
+lintel/interior lights and roof panels modelable with a few dozen intentional
+pieces. Add bevels and 5â€“15 cm inset strips with clear assembly hierarchy.
+No clutter, crates, blocked openings/roofs/ramps, extra wings, grain, clipped
+highlights or text labels. Preserve terrain silhouette. Favor physical
+construction and consistent scale over decorative noise.
+
+## Albedo prompt
+
+A seamless tileable PBR base-color/albedo texture for pale warm-grey weathered
+sci-fi architectural alloy, 2 metres square coverage, orthographic flat scan
+filling a square image. Muted light-grey titanium with subtle mineral mottling,
+small scattered pits, delicate hairline scratches and faint warm-grey grime.
+Calm broad uniform values; realistic material detail, not noise. No panels,
+grooves, bolts, text, symbols, borders, perspective, lighting, shadows, specular
+highlights, bevels, objects, flakes, glitter or vignette. Neutral evenly lit
+albedo, edge-to-edge tiling continuity horizontally and vertically.
+
+## Interior detail prompt summary
+
+Refine the actual interior render using the approved exterior detail language.
+Preserve both openings, room dimensions and camera. Introduce shallow grey and
+graphite wall ribs, a coherent ceiling beam grid, flush floor plates, red base
+identification and warm cove lighting. Keep player paths and objective space
+clear. Favor physically plausible construction and readable large forms over
+clutter or decorative noise.
+
+## Floor plate albedo
+
+`textures/graphite_floor_plates_albedo.png` was generated on October 20, 2026
+as a 4-by-4-metre, two-by-two plate base-color study. The prompt requested a
+seamless orthographic scan of neutral dark-grey machined titanium, thin joints,
+restrained angular corner insets, flush fasteners, subtle wear and calm broad
+surfaces, without lighting, text, colored stripes or debris. The generated
+result includes some apparent relief in its line work; it is not a calibrated
+PBR scan or a normal map. Inspect tiling and material response in the render.
+Like the alloy texture, this remains an explicit preview material until it is
+bound to a runtime shader and verified in game.
+
+## Coastal granite albedo
+
+`textures/coastal_granite_albedo.png` was generated on October 20, 2026 for
+6-by-6-metre rock coverage. The prompt requested a tileable orthographic albedo
+scan of pale grey coastal granite, broad angular fractured plates, oblique
+dark fissures, fine pits and subtle staining, with uniform diffuse light and
+no objects, vegetation, text or scene context. This candidate supplies surface
+detail on the modeled cliff; it does not replace the silhouette or collision.
+It is a preview substitution, with estimated rather than authored micro relief.
+
+## Enclosed basin and infrastructure wall
+
+`reference/enclosed_basin_wall_concept.png` was generated with the built-in image
+tool on October 20, 2026, editing the actual native-assets Blender overview.
+The user requested full cliff enclosure, a full-length Forerunner wall on one
+side, and teleporter access to a balcony. This generated image is a target;
+it is not a Blender render, gameplay proof, or a separately approved final design.
+The source implements the structure and route as an iteration of the previously
+approved build direction. Runtime dressing and materials remain to be checked.
+
+Generation prompt:
+
+Use case: precise-object-edit. Edit this current Blender map screenshot into a
+realistic in-engine visual target for the SAME Halo-style multiplayer arena.
+Keep camera angle, wide 16:9 composition, two low bases at left/right, central
+circular pad, tree locations and pond at front-right recognizable. Primary
+change: enclose the entire rectangular arena with continuous tall natural
+fractured granite cliffs along front and both short sides, joined seamlessly
+into a monumental Forerunner infrastructure wall that spans the ENTIRE rear
+long edge. No ocean openings or gaps in boundary. Rear structure is about 150
+metres long, 24 metres tall, cool weathered metallic stone, strong large angular
+buttresses, deep recessed panels, stepped chamfered crown and restrained cyan
+seams. It is an ancient retaining structure embedded into cliffs, not a
+collection of towers. Add a usable inset balcony about 7 metres above arena
+floor, 5 metres deep, with segmented chest-high cover and two sheltered luminous
+teleporter alcoves widely separated toward left/right. Balcony has interrupted
+sightlines and modest drop-down landings, not an exposed sniper rail. Show
+coherent large-scale architecture with bevels, dark mechanical recesses, pale
+panel faces, warm interior illumination contrasting cyan accents. Foreground
+cliffs should clearly close the arena while allowing this elevated overview
+to see the playing field. Realistic high-quality game screenshot, clean
+controlled materials, natural grass and rock detail, clear bright daytime
+lighting, no grain, no text, no annotations, no extra bases, no floating objects.
+This is a feasible modeled design, avoid overdecorated visual noise.
+
+`textures/weathered_megastructure_albedo.png` is a second built-in imagegen
+material study, generated October 20, 2026. Its full prompt and provenance are
+in [weathered_megastructure_prompt.txt](weathered_megastructure_prompt.txt).
+It depicts pale weathered titanium/concrete composite with rain streaks and
+mineral staining, without panel divisions or baked directional light. The
+preview applies it at a 12 m scale with estimated micro relief; it is not yet a
+runtime CE shader.
+
+`textures/coastal_granite_lichen_albedo.png` is a built-in imagegen edit of the
+earlier granite texture. Its complete prompt is saved in
+[coastal_granite_lichen_prompt.txt](coastal_granite_lichen_prompt.txt). Localized
+charcoal, ivory and ochre lichen and restrained moss add mineral variation.
+Native Desert/CliffFlat geometry mixes this authored image in localized patches
+over the quieter original granite at an 8 m local scale, with native normal/AO
+maps where available and approximate weathering. The BSP
+cliff preview uses the same image at 6 m. These are explicitly Blender material
+studies; the images do not replace the installed game's layered rock shaders.
+
+`textures/coastal_meadow_albedo.png` is a built-in imagegen ground-underlay
+study at 8 m scale, beneath the actual native PCG grass meshes. The full prompt
+and provenance are in [coastal_meadow_prompt.txt](coastal_meadow_prompt.txt).
+It supplies fine olive grass and earth detail in the Blender preview, retaining
+the installed beach-alpha mask and soil detail. It is not a runtime material
+replacement. Dry patches shared by the ground and blades are an art-directed
+Blender shader approximation.
+
+The October 20 Forerunner TLC pass adds a fixed-camera balcony target and
+fine titanium albedo. Research, exact built-in imagegen prompts and the
+distinction between source armor geometry and preview materials are recorded
+in [forerunner-pass.md](forerunner-pass.md).
+
+## Exported architectural palette — 24 October 2026
+
+The previous entries document the original preview studies. The selected
+`forerunner_titanium_albedo.png`, `forerunner_floor_albedo.png`,
+`forerunner_fitted_plate_albedo.png` and `forerunner_titanium_roughness.png`
+now feed the shared `../surfaces.json` palette. Source geometry assigns eight
+exported finishes: armor, structure, recess, floor, fitted pale/inset/charcoal
+and narrow exposed edges. Fitted panels use exported UVMap coordinates;
+side returns use tiled metal to avoid stretched edge wear.
+
+The native conversion must receive `CE_SURFACE_LIBRARY` as documented in the
+walkthrough. It imports albedo as sRGB and roughness as linear data, builds
+map-owned PBR masters and verifies every declared role has exported shader
+slots. The Blender preview retains these source materials. Lighting, water
+and native landscape preview shading still differ between renderers. The
+old Blender-only bevel shader, random per-object tints and estimated bump
+are not exported promises; the actual mesh bevels are preserved.
+
+The facility pass fixes a later preview fallback that could replace authored
+face assignments despite retaining the source material definitions. Preview
+styling now skips those faces. A before/after check enforces their surface roles,
+source shader tags, topology and exported `UVMap`; its result is recorded as
+`authored_surface_preservation` in the render manifest. Stock/native material
+approximations are excluded. This verifies the owned source finishes in the
+Blender preview, not their eventual cooked appearance.
+
+The October 26 enclosed-facility pass adds
+`textures/forerunner_floor_roughness.png`, a built-in imagegen edit aligned to
+the existing floor albedo. Its [complete prompt and provenance](forerunner_floor_roughness_prompt.txt)
+are included. Broad worn/matte patches replace the floor's uniform brushed-metal
+roughness. The shared floor role now uses this linear texture, a 0.30–0.65
+roughness range, 0.62 metallic value and darker tint. These are source palette
+changes for the next export; the published beta is unchanged.
+
+The enclosed facility also adds `forerunner_facility_normal.png` and
+`forerunner_floor_normal.png`, generated with the built-in image tool from the
+owned worn-titanium and floor albedos. Exact prompts and input/output provenance
+are in [the architectural normal record](forerunner_facility_normal_prompt.txt)
+and [the floor normal record](forerunner_floor_normal_prompt.txt). These are
+OpenGL +Y tangent normal maps, used as linear data at restrained strength.
+Four facility-only finishes add worn relief and warmer structure while leaving
+the eight exterior finishes intact. Blender and native material authoring
+share their texture paths, UVs, tint, roughness, metallic value and normal
+strength; native import converts the normal convention once. The source now
+declares twelve architectural roles. The facility has not yet been cooked or
+tested in game.
+
+`textures/forerunner_floor_wear_roughness.png` refines the facility-only floor
+wear with firmer irregular transitions between worn and matte patches. Its
+[exact built-in imagegen prompt](forerunner_floor_wear_roughness_prompt.txt)
+records the existing albedo reference. It uses the same UV alignment and
+linear data treatment; the exterior floor retains the earlier roughness map.
+
+The final facility floor replaces that four-plate study with sixteen varied
+2m plates in an 8m repeat: `forerunner_facility_floor_albedo.png`,
+`forerunner_facility_floor_roughness.png` and
+`forerunner_facility_floor_normal.png`. Built-in imagegen produced the owned
+albedo, then aligned roughness and OpenGL tangent normals. Their complete
+prompts and input/output records are saved separately:
+[albedo](forerunner_facility_floor_albedo_prompt.txt),
+[roughness](forerunner_facility_floor_roughness_prompt.txt) and
+[normal](forerunner_facility_floor_normal_prompt.txt).
+
+Isolated Cycles tests showed the corridor bands persist with flat material
+channels: repeated fixtures create both direct light/shadow and reflection
+rhythms. The selected material therefore combines less repetitive wear with
+a 0.30 metallic value and a 0.18–0.70 roughness range. Firm irregular smoother
+patches break up the reflection without changing the accepted lighting.
+The source UV scale, maps and scalar settings are shared with native material
+authoring. Earlier four-plate normal/roughness files remain documented study
+assets; the facility palette now references this sixteen-plate set.
+
+The facility's amber maintenance indicators are authored geometry and shader
+parameters, not generated texture art. [`../amber_light.json`](../amber_light.json)
+records their shared RGB, atlas selection and map-owned material name;
+[`../amber_light.py`](../amber_light.py) derives and verifies
+`../tags/levels/test/tst/shaders/tst_lights_amber.shader_environment` from the
+installed Blood Gulch light shader. Its base and self-illumination map both
+reference the unchanged external `mp lights small strips` atlas. No stock
+bitmap is copied into the community source. Constant primary self-illumination
+and material color supply the amber hue in both source and native conversion.
+
+Eight sealed-door core lamps and eight physical wall-mounted jamb indicators
+use this material with the original atlas UV rectangle and one-sided faces.
+Their Blender area lights, emitter strength and exposure are a lighting study;
+they are not calibrated CE radiosity or evidence of runtime lighting parity.
+The facility has visible downward fixtures and end-wall washers, with no
+concealed ceiling uplights. See [the facility build guide](facility-build.md)
+for the current dimensions, powers and rebuild path.
+
+The completed Blender-stage facility pass has five actual Cycles renders in
+[`review/`](review/facility-art-review.md), with the interior art verdict,
+remaining concept differences and a source-hashed validation record. These
+images are rendered geometry, not imagegen replacements. The assembled local
+preview contains installed-game references and is not distributed; the owned
+source geometry, selected textures and generation prompts are included here.

@@ -35,6 +35,11 @@ sea floor's depth (bake_shore, into TEXCOORD_1).
 
 Writes `<out>/terrain.json`: a list of decor entries, one per mesh, for
 gen_ce_level.py --terrain.
+
+An opt-in native-detail job is appended after generated water so established
+terrain IDs stay stable. Its entry requests dynamic shadow casting because the
+complementary detail never reached CE's bake. For TST this is about 145k
+triangles: actual shadow behavior, acne, lighting and FPS require game testing.
 """
 import argparse
 import json
@@ -71,6 +76,26 @@ def gltf_subset(src, dst, keep):
     return sum(len(m["primitives"]) for m in doc.get("meshes", []))
 
 
+def append_native_detail_jobs(jobs, water_jobs, native_details):
+    """Append opt-in detail after auto-water so established mesh IDs stay fixed."""
+    result = list(jobs) + list(water_jobs)
+    for value in native_details:
+        parts = value.split("=")
+        if len(parts) != 3 or not all(parts):
+            raise ValueError("--native-detail needs <gltf>=<donor>=</Game/package>")
+        if not parts[2].startswith("/Game/"):
+            raise ValueError("--native-detail package must be under /Game/")
+        if any(job[2] == parts[2] for job in result):
+            raise ValueError("--native-detail package duplicates an existing mesh job")
+        result.append(parts)
+    return result
+
+
+def cast_shadow_for_job(package, native_details):
+    """Only optional native detail requests unbaked dynamic shadows."""
+    return package in {value.split("=")[2] for value in native_details}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--paks", required=True)
@@ -83,6 +108,8 @@ def main():
     ap.add_argument("--placement", help="the staging's placement.json: where the water is refined most")
     ap.add_argument("--water-near", type=float, default=4.0, help="water edge length over the playable area, m")
     ap.add_argument("--water-growth", type=float, default=0.08, help="water edge length added per metre beyond it")
+    ap.add_argument("--native-detail", action="append", default=[],
+                    help="extra <gltf>=<donor>=</Game/package>, appended after generated water")
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.normpath(os.path.join(here, "..", ".."))
     ap.add_argument("--repo", default=repo)
@@ -121,7 +148,7 @@ def main():
             print(f"water: shore baked, sea level {sea:.2f} m, {shallow} of {n} vertices over < 3 m of water")
             water_jobs.append([base + "_water_dense.gltf", "basicshapes/cube",
                                package[: -len("_Translucent")] + "_Water"])
-    jobs += water_jobs
+    jobs = append_native_detail_jobs(jobs, water_jobs, a.native_detail)
 
     for k, (gltf, donor, package) in enumerate(jobs):
         leaf = package.rsplit("/", 1)[-1]
@@ -163,9 +190,10 @@ def main():
         entry = {"id": f"{a.name}_terrain" + (f"_{k}" if k else ""),
                  "mesh": f"{package}.{leaf}",
                  "pos": [x, y, z], "scale": [sc, sc, sc], "materials": materials,
-                 # Its shadows are baked into the lightmaps; objects cast
-                 # the real ones (MJOLNIRLevelLoader).
-                 "cast_shadow": False}
+                 # Existing meshes retain their baked-lightmap behavior. The
+                 # optional facility detail bypassed that bake and requests
+                 # the actor's real shadows; validate cost/quality in game.
+                 "cast_shadow": cast_shadow_for_job(package, a.native_detail)}
         motion = gltf[: -len(".gltf")] + ".motion.json"
         if os.path.isfile(motion):
             # A turning machine (merge_ce_scene.py --machines): the level

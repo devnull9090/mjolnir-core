@@ -358,6 +358,24 @@ fn pack(a: PackArgs) -> Result<()> {
             extra.push((format!("decals/{name}"), p));
         }
     }
+    // A settled Fluid Flux domain carries metadata in level.flux.state and
+    // its texture data beside the level in flux_state/. Keep both together.
+    if level.pointer("/flux/state").is_some_and(|v| v.is_object()) {
+        let state_dir = a.dir.join("flux_state");
+        if !state_dir.join("state.json").is_file() {
+            bail!("level names baked water but flux_state/state.json is missing");
+        }
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&state_dir)?
+            .map(|e| e.map(|e| e.path())).collect::<std::io::Result<_>>()?;
+        files.sort();
+        for path in files {
+            if path.is_symlink() || !path.is_file() {
+                bail!("flux_state must contain regular files: {}", path.display());
+            }
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            extra.push((format!("flux_state/{name}"), path));
+        }
+    }
     members.push(("map/level.json".into(), level_bytes));
     members.push((
         "map/registration.json".into(),

@@ -12,7 +12,7 @@
 bl_info = {
     "name": "MJOLNIR Level",
     "author": "MJOLNIR project",
-    "version": (0, 1, 0),
+    "version": (0, 3, 0),
     "blender": (4, 0, 0),
     "location": "3D Viewport sidebar → MJOLNIR",
     "description": "Author Halo: Campaign Evolved custom levels (map variants) and export .level.json",
@@ -21,7 +21,7 @@ bl_info = {
 
 import bpy  # noqa: E402
 
-from . import export, library  # noqa: E402
+from . import export, library, native, surface  # noqa: E402
 
 SCENARIOS = [
     ("A15", "A15 — Pillar of Autumn", ""),
@@ -85,6 +85,9 @@ class MjolnirObjectProps(bpy.types.PropertyGroup):
 
 
 class MjolnirSceneProps(bpy.types.PropertyGroup):
+    cli_path: bpy.props.StringProperty(name="MJOLNIR CLI", subtype="FILE_PATH")
+    paks_path: bpy.props.StringProperty(name="Installed game Paks", subtype="DIR_PATH")
+    asset_cache: bpy.props.StringProperty(name="Local asset cache", subtype="DIR_PATH", default="//.mjolnir-cache/")
     level_name: bpy.props.StringProperty(
         name="Level slug", description="[a-z0-9_]+", default="my_level"
     )
@@ -120,6 +123,15 @@ class MJOLNIR_PT_scene(bpy.types.Panel):
         col.separator()
         col.prop(s, "catalog_path")
         col.operator("mjolnir.place_mesh", icon="MESH_CUBE")
+        col.prop(s, "cli_path")
+        col.prop(s, "paks_path")
+        col.prop(s, "asset_cache")
+        col.operator("mjolnir.load_native", icon="IMPORT")
+        col.operator("mjolnir.load_reference", icon="ARMATURE_DATA")
+        col.label(text="References: local geometry, approximate materials")
+        col.separator()
+        col.operator("mjolnir.pcg_faces")
+        col.operator("mjolnir.export_surface", icon="EXPORT")
         col.separator()
         col.operator("mjolnir.export_level", icon="EXPORT")
 
@@ -138,6 +150,9 @@ class MJOLNIR_PT_object(bpy.types.Panel):
         o = context.active_object.mjolnir
         col = self.layout.column()
         col.prop(o, "kind")
+        if context.active_object.get("mjolnir_preview_only"):
+            col.label(text="Local reference: excluded from level export", icon="INFO")
+        col.label(text="PCG: "+str(context.active_object.get("mjolnir_pcg_policy", "AUTO")))
         if o.kind in {"VEHICLE", "WEAPON", "EQUIPMENT"}:
             col.prop(o, "type_name")
         elif o.kind == "OBJECT":
@@ -157,6 +172,10 @@ CLASSES = (
     MJOLNIR_PT_object,
     export.MJOLNIR_OT_export_level,
     library.MJOLNIR_OT_place_mesh,
+    native.MJOLNIR_OT_load_native,
+    native.MJOLNIR_OT_load_reference,
+    surface.MJOLNIR_OT_pcg_faces,
+    surface.MJOLNIR_OT_export_surface,
 )
 
 

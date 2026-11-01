@@ -1,0 +1,158 @@
+{
+  "status": "fresh cooked build visually verified; user playtest accepted",
+  "source_triangles": 222652,
+  "ce_triangles": 76894,
+  "native_detail_triangles": 145758,
+  "source_hashes": {
+    "tst.blend": "456eaf7634c64b423ba8ee44ec8640e1b2209ab45b593c15da1fe1f4970c8c60",
+    "placements.json": "7f5ff42895968cbaadada5d84d2e741743b8664d1985601b7c135727dcaa8ac0",
+    "tst.surfaces.json": "8ecb964ca2ab33f5fe3a524a649c362db9da926849dc454e6c36533240958f3f",
+    "data/levels/test/tst/models/tst.JMS": "b816615e4e1d53804cddf5166eb8ae093a48e994707c3975166193834fd96dfc",
+    "facility_teleporters.py": "722c002fd62d1d60ac9296a72d579402b4ec1a3dfb549d6520f8a33e0b2e4750",
+    "facility_architecture.py": "3f39c69c353b13b41a5360dd9c091004244ef79c2520a206b43ec65fddd59949",
+    "build_geometry.py": "202337d725f05851fdba02d81a564709c1228d259953d00065b6cda786c1978b",
+    "surfaces.json": "8a934bb533b5946aaee4f128f0515dec3f374f74be144929005f83712c76f174",
+    "inspect_entry_fixtures.py": "52637c707a10cc5d21fa765a5f01a63228d4300be65503c9ad2ce077bf33c654"
+  },
+  "blender_checks": {
+    "mounted_fixtures": 10,
+    "indoor_portals": 2,
+    "player_samples": 80,
+    "fixture_issues": 0,
+    "layout_summary": "202 placements, zero needing review",
+    "facility_routes": "1470 samples, zero issues",
+    "fixture_gap_m": 0.002,
+    "minimum_back_wall_m": 0.18,
+    "separate_return_landing_m": 2.4,
+    "player_radius_m": 0.5334,
+    "player_height_m": 2.4
+  },
+  "tests": {
+    "partition_and_retry": 7,
+    "split_build_and_verified_resume": 11,
+    "runtime_teleporter_radius": 3,
+    "passed": 21
+  },
+  "images": {
+    "blender-entry-blue.png": {
+      "sha256": "293f8a4f914afa6f2fa16ad02a876f624c3974bcde04757e96b2d0fb0bed5e98",
+      "kind": "Blender preview; authored geometry and UVs, approximate lighting; scenery omitted for focused entrance review"
+    },
+    "blender-lift-blue.png": {
+      "sha256": "2d60f6872a304f99f41ee0234c0b78d0a0752b0195957121ffef27aa0b7c31df",
+      "kind": "Blender preview; authored geometry and UVs, approximate lighting; scenery omitted for focused entrance review"
+    },
+    "blender-lift-red.png": {
+      "sha256": "215f5bf04b0bec89423246fb8ba15d580eeb13a4b2eb41d243c4f87a0403aadc",
+      "kind": "Blender preview; authored geometry and UVs, approximate lighting; scenery omitted for focused entrance review"
+    },
+    "game-entry-blue.png": {
+      "sha256": "d77257724f1e217850dfac14442ea8cfd113cc0f9635316b2f03f5513490a9a7",
+      "kind": "Unretouched cooked-game screenshot; named FlyCam pose, HUD hidden"
+    },
+    "game-entry-red.png": {
+      "sha256": "e066b07bb2c485ca1fa68182f94963a499429e3e2aa6515cd897e0e073aafe83",
+      "kind": "Unretouched cooked-game screenshot; named FlyCam pose, HUD hidden"
+    },
+    "game-lift-blue.png": {
+      "sha256": "3464d14314aa274ab0df1b36237235961497693213c65c3f29a41e6a3e680394",
+      "kind": "Unretouched cooked-game screenshot; named FlyCam pose, HUD hidden"
+    },
+    "game-lift-red.png": {
+      "sha256": "f1ef1a314a45d469e3b545af6bb4287865e82048b263b061e45608321a24abe3",
+      "kind": "Unretouched cooked-game screenshot; named FlyCam pose, HUD hidden"
+    },
+    "game-entry-blue-before.png": {
+      "sha256": "5f5cb981b7abf37bf5f1002dd82ebb596b67c5f1ce1e276539cdf9c8062f5a2a",
+      "kind": "Previous installed art-pass build; matching blue-front FlyCam pose"
+    }
+  },
+  "changes": [
+    "Full stock team-emblem UVs at 1:2 aspect on backed entrance plaques",
+    "Cyan lenses seated 2 mm above fitted housings",
+    "Mirrored indoor side-wall shields replace exterior balcony-lift pads",
+    "Channels 2/3 preserve balcony arrivals; 4/5 return indoors away from triggers"
+  ],
+  "cook": {
+    "source_commit": "506cb2868d63d9bef548c68eb9944c5b63e4d701",
+    "started": "2026-11-01T06:06:04.848924+00:00",
+    "completed": "2026-11-01T06:17:44.354938+00:00",
+    "ce_map_sha256": "c1dbed95a731003c4d5e0edc01f0c2fff9056ba0c2d33fd66e5b2c041e0e5606",
+    "receipt": "geometry-build-receipt.json",
+    "stage_hashes": {
+      "foliage.bin": "0d744b19ebec4d4d5e7d17085048aa85f3571c98b5eb369cb6602ba10704a2f7",
+      "pakchunk968-MJOLNIRCOOK-TST_P.ucas": "aeaa88e10d7990fd8fb1ba27ce70146ae318473778294544d55481b6c37601ab",
+      "pakchunk968-MJOLNIRCOOK-TST_P.utoc": "3efd8819be00a29ccc1db14aa89cbd0637b1c8dc346a4551a42c3a604e483ced",
+      "pakchunk969-MJOLNIRLAND-TST_P.ucas": "9c8fe3711084b7ce676e5bb156993429619222d29a65a8049a681223fb1a0568",
+      "pakchunk969-MJOLNIRLAND-TST_P.utoc": "cc8dad808c73ea978eda06541e66f52c323325719df67570cdef4b62491c1b14",
+      "pakchunk970-MJOLNIRROCK-TST_P.ucas": "39051abeedf7e44944ded4ee8c231694768b35c673f22cd9a44257aa9095b2f9",
+      "pakchunk970-MJOLNIRROCK-TST_P.utoc": "b6cb34f878a2a137748ff17f5aa7bd733241024238907487e96765884695d5ff",
+      "pakchunk986-MJOLNIRMESH-TST_P.ucas": "bc24bb9bdd4489164170769d7c5092cdb21cbde0577d4dd14867c33415be4d3f",
+      "pakchunk986-MJOLNIRMESH-TST_P.utoc": "66d0535dcac9191c7114df2e2bda2be11667509b359b63e5c8f00763ef3ec3ec",
+      "pakchunk997-MJOLNIRMAP-TST_P.ucas": "776d0e337defe84bd5528c64332b73ad767c7d20b9184645f04ed5eb43998b69",
+      "pakchunk997-MJOLNIRMAP-TST_P.utoc": "f93476dd930d8f5828f59a8b8ff7da4cf82a46f62269534c16cb3ee7ea8096ac",
+      "tst.level.json": "f8d639939f9b1cce303d833e317cee73823572d2b8bb60ee6120eef76241b39b",
+      "TST.registration.json": "800ef90e3596544d199c5f75cbe87d72d86744c6ddce9c9ff98d2b95625a6859",
+      "flux_state\\height.exr": "7f70ec5ec037830f03597921ca1db2b3ee4c38f3d312a6ccfdf5b296543de1fe",
+      "flux_state\\state.json": "573815cd7a2ae75bd1b414f20aa8e370f0630a688bf9f006c5656fa7b537a02d",
+      "flux_state\\velocity.exr": "05c8b8a3c0fd240572b507a948d0ffd1c72df45d4d40ea52318e08ca983d284a"
+    },
+    "local_install": "checked local map swap; Hub release was not changed during testing",
+    "scope": "Fresh structure/scenario/lightmaps, native detail, collision, scatter and owned material packages. Unchanged saved Flux simulation retained."
+  },
+  "runtime_data_audit": {
+    "modes": [
+      "Slayer",
+      "Team Slayer",
+      "CTF"
+    ],
+    "indoor_sender_radius_m": 0.78,
+    "indoor_senders_cm": [
+      [
+        -4460,
+        -2790,
+        35
+      ],
+      [
+        4460,
+        -2790,
+        35
+      ]
+    ],
+    "balcony_arrivals_cm": [
+      [
+        -4800,
+        -2800,
+        725
+      ],
+      [
+        4800,
+        -2800,
+        725
+      ]
+    ],
+    "indoor_returns_cm": [
+      [
+        -4700,
+        -2790,
+        35
+      ],
+      [
+        4700,
+        -2790,
+        35
+      ]
+    ],
+    "teleporter_ends": 16,
+    "remaining_field_pad_scenery": 4,
+    "old_balcony_ground_pads": 0,
+    "assembled_facility_lights": 30
+  },
+  "game_review": {
+    "session": "Private TST Slayer, 1600x900",
+    "visual": "Both entrance fronts and oblique lift views inspected in the cooked game, including independent second review. Fitted emblems/lights, mirrored recessed green shields, flush floors and absent exterior pads confirmed.",
+    "user_acceptance": "it looks good. i tested everything. Let's merge this and get it out!!",
+    "automated_traversal": "Not counted: concurrent manual player input interrupted the scripted walk. User confirmed their completed playtest and authorized release.",
+    "limitations": "No new formal multiplayer load or performance benchmark in this pass. Red emblems are dimmer in shadow but identifiable."
+  }
+}

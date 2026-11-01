@@ -81,10 +81,15 @@ MAP_LOOKS = {
     # beach's 12 m ripple band and 80 cm wet band would cover the whole arena.
     # Keep the authored beach mask, with less CE colour in the PBR surfaces;
     # the source's map-sized UVs provide the broad grass/path distribution.
+    # Retail comparison (2026-10-31, TST art/forerunner-pass.md): preserve the
+    # muted B30 grass colour instead of multiplying it dark olive. LandLook
+    # has one normal multiplier after blending, not per-layer controls;
+    # keep it near native strength and reduce the old lightmap's AO share
+    # so it does not reinforce the runtime shadow. This is TST-only tuning.
     "LTT": {
-        "pbr": {"grass_tint": [0.42, 0.52, 0.30, 1.0], "sand_tint": [0.78, 0.78, 0.70, 1.0],
+        "pbr": {"grass_tint": [0.48, 0.62, 0.38, 1.0], "sand_tint": [0.78, 0.78, 0.70, 1.0],
                 "dirt_tint": [0.78, 0.73, 0.62, 1.0], "mix": [0.25, 0.55, 0.15, 0.25],
-                "look": [2.6, 1.3, 0.5, 0.35], "tiles": [400, 250, 300, 700],
+                "look": [1.2, 1.3, 0.15, 0.35], "tiles": [400, 250, 300, 700],
                 "sea": [15, 8], "wet": [0.75, 0.7, 0, 0],
                 "inland": [30, 130, 100, 1.0], "dirt": [0.5, 0.2, 2200, 0.15],
                 "slope": [0.92, 0.8, 1.0, 0.15], "macro": [0.3, 1500, 6000, 9],

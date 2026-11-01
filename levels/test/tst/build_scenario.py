@@ -73,10 +73,10 @@ def mode_fields(modes=("ctf", "slayer")) -> dict:
     return {f"type {i}": enum(values[i] if i < len(values) else 0) for i in range(4)}
 
 
-def team_index(value) -> int:
-    team = {"red": 0, "blue": 1}.get(value, value)
-    if team not in (0, 1):
-        raise ValueError(f"TST team must be red/0 or blue/1, got {value!r}")
+def team_index(value, *, neutral=False) -> int:
+    team = {"red": 0, "blue": 1, "neutral": -1}.get(value, value)
+    if team not in ((-1, 0, 1) if neutral else (0, 1)):
+        raise ValueError(f"Invalid TST team {value!r} (neutral allowed: {neutral})")
     return int(team)
 
 
@@ -139,7 +139,7 @@ def build_tag(template: dict, placements: dict, tags_dir: Path) -> dict:
         data["player starting locations"].append({
             "position": world_position(item["position_m"]),
             "facing": float(item.get("yaw_degrees", 0)),
-            "team index": team_index(item["team"]), "bsp index": 0,
+            "team index": team_index(item["team"], neutral=True), "bsp index": 0,
             **mode_fields(item.get("modes", ["ctf", "slayer"])),
         })
 
@@ -187,6 +187,8 @@ def build_tag(template: dict, placements: dict, tags_dir: Path) -> dict:
         add_flag(item["to_m"], item.get("to_yaw_degrees", 0), 7, channel)
         if item.get("scenery", True):
             for side in ("from", "to"):
+                if not item.get(f"{side}_scenery", True):
+                    continue
                 add_object({"tag": r"scenery\teleporter_base\teleporter_base",
                             "position_m": item[f"{side}_m"],
                             "yaw_degrees": item.get(f"{side}_yaw_degrees", 0)},
@@ -203,7 +205,7 @@ def build_tag(template: dict, placements: dict, tags_dir: Path) -> dict:
 
     if {v["usage id"] for v in data["netgame flags"] if v["type"]["value"] == 0} != {0, 1}:
         raise ValueError("TST requires a red and a blue CTF flag")
-    if {v["team index"] for v in data["player starting locations"]} != {0, 1}:
+    if not {0, 1}.issubset({v["team index"] for v in data["player starting locations"]}):
         raise ValueError("TST requires player starts for both teams")
 
     missing = []
