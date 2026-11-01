@@ -15,6 +15,7 @@
 --   kick, ban, unban   MJOLNIRLobby's own (`mjolnir_auto kick|ban|unban`)
 --   suicide, slay      (unit_kill (player_get <index>)) through the Blam
 --                      console's mailbox (MJOLNIRBlamConsole), one line a poll
+--   bots               Scripts/bots.lua, through MJOLNIRHud's setBots (host)
 --   bench              Scripts/bench.lua's foliage bench, sent to the hub
 --                      (POST /benches); runs where it is typed
 --   tp, bring          objects_attach then objects_detach, a poll apart:
@@ -22,6 +23,11 @@
 --                      (experimental: not tried with two players yet)
 
 local Commands = {}
+
+--- /bots' kinds, as MJOLNIRHud's Bots.KINDS numbers them, then MIXED.
+local BOT_KINDS = { "spartans", "elites", "grunts", "jackals", "mixed" }
+--- And its difficulty levels, as Bots.LEVELS numbers them.
+local BOT_LEVELS = { "normal", "heroic", "legendary" }
 
 Commands.PREFIX = "MJOLNIR|cmd|"
 Commands.ROWS = 6 -- build_mjolnir_ui.py CHAT_SUGGEST_ROWS
@@ -38,6 +44,8 @@ local LIST = {
     { name = "ban", who = "host", args = "<player>", help = "Kick a player and keep them out of your games", player = true },
     { name = "unban", who = "host", args = "<name>", help = "Let a banned name join again" },
     { name = "slay", who = "host", args = "<player>", help = "Kill a player", player = true },
+    { name = "bots", who = "host", args = "<0-15> [spartans|elites|grunts|jackals|mixed] [normal|heroic|legendary]",
+        help = "Add or remove AI bots in this match, or change what they are and how well they aim" },
     { name = "tp", who = "host", args = "<player>", help = "Teleport to a player (experimental)", player = true },
     { name = "bring", who = "host", args = "<player>", help = "Teleport a player to you (experimental)", player = true },
 }
@@ -181,6 +189,26 @@ function Commands.run(cx, who, text)
         if type(who.index) ~= "number" then return { "You are not seated yet. Try again in a few seconds." } end
         cx.blam("(unit_kill " .. unitOf(who.index) .. ")")
         return {}
+    end
+    if c.name == "bots" then
+        local count, words = rest:match("^(%d+)%s*([%a%s]*)$")
+        local n = tonumber(count)
+        if not n then
+            return { "/bots <0-15> [spartans|elites|grunts|jackals|mixed] [normal|heroic|legendary]: "
+                .. tostring(cx.botCount and cx.botCount() or 0) .. " now." }
+        end
+        local kind, level = nil, nil
+        for word in string.lower(words):gmatch("%a+") do
+            local hit = false
+            for i, k in ipairs(BOT_KINDS) do
+                if not hit and k:sub(1, #word) == word then kind, hit = i - 1, true end
+            end
+            for i, l in ipairs(BOT_LEVELS) do
+                if not hit and l:sub(1, #word) == word then level, hit = i - 1, true end
+            end
+            if not hit then return { "/bots: no kind or level called '" .. word .. "'." } end
+        end
+        return { cx.setBots(n, kind, level) }
     end
     if c.name == "unban" then
         if rest == "" then return { "/unban <name>" } end

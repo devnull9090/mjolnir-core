@@ -13,6 +13,7 @@ pub mod ce;
 pub mod convert;
 pub mod mopp;
 pub mod pack16;
+pub mod pathfinding;
 pub mod raytest;
 pub mod scenery;
 pub mod split;

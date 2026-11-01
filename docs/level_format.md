@@ -232,7 +232,8 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
 - `map_variant`: `true` adds the `map variant palettes`: one per category
   (weapons, vehicles, equipment, scenery), listing every tag the level places
   and every kind `defs/level/palette-map.json` knows (not the pelican, space
-  banshee or seraph), with no quota. Under a multiplayer (Megalo) engine,
+  banshee, seraph or battle rifle, unless the level places one), with no
+  quota. Under a multiplayer (Megalo) engine,
   objects whose tags carry multiplayer data exist only through the map
   variant, which the simulation builds from the palette-listed placements; in
   Forge the palettes are what the Monitor places from
@@ -244,6 +245,57 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
 A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
 fields of the placement, relative to its element
 (`"multiplayer data.owner team": "neutral"`).
+
+### `blam.bots` — AI bots ([bots.md](bots.md))
+
+```jsonc
+"bots": {
+  "squad": "insertion_cov_elites", // the canvas squad each bot is cloned from
+  "count": 15,                     // squads bot_0 .. bot_14 (default: one per spawn)
+  "spawns": [{ "pos": [x, y, z], "yaw": 0 }], // default: player_starts; those on the
+                                   // main ground, cycled farthest first
+  "weapon": "plasma_rifle",        // a weapon palette entry's path, by substring
+  "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048,
+                                   // narrowed to 1 wu for 8 per area)
+  "areas": 16,                     // the firing positions' grid of areas
+  "types": [                       // kinds of bot, `count` squads each: <name>_<k>
+    { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
+      "weapon": "assault_rifle", "team": "covenant" },
+    { "name": "elite", "character": "elite\\ai\\elite", "weapon": "plasma_rifle" }
+  ]
+}
+```
+
+A type's `character` is a substring of a `character palette` entry, or a full
+character tag path, which the bake adds to the palette; `weapon` falls back to
+`bots.weapon`, `weapons` (a list) hands its entries out in turn across the
+kind's squads, and `team` sets the squads' team. Without `types` there is one
+kind, `bot_<k>`, from the donor squad.
+
+The bake clones, before the clears (which keep them): one single-actor squad
+per bot, one zone (`mjolnir_bots`) whose firing positions cover the walkable
+ground the spawns stand on (a `spacing` grid, finer down to 1 wu where narrow
+ground leaves fewer than eight per area), one objective (`mjolnir_bots`: task `hunt` over
+every area, then `area_0` .. `area_15` sharing the areas out, all with `magic player
+sight`; MJOLNIRHud orders bots to those sixteen whatever the map has), and one
+`ai user hint data` element with every hint list emptied: the AI reads element
+0 without checking the block has one, and a map that cleared it crashed.
+
+After `single_bsp` it writes the kept BSP's `ai pathfinding data`, generated
+from the `--bsp` payload's collision shell (`blam_sbsp::pathfinding`), and
+clears that BSP's `no default structure pathfinding` flag. So `bots` needs the
+level's BSP named by `single_bsp` (or `active_bsps`) and given with `--bsp`.
+
+Beside its output the bake writes `<CODE>.bots.json` (`--install-test`: in
+the loader's `levels/`, beside the level file): `{"schema_version": 1,
+"starts": [[x, y, z], ...], "areas": [[x0, y0, x1, y1], ...], "tasks":
+[[area, ...], ...]}`, in absolute Unreal cm: where squad `k` of every kind
+stands, each zone area's extent (the grid cell its firing positions came
+from), and the areas each task `area_<k>` covers. `mjolnir map pack` ships
+it as `map/bots.json`. MJOLNIRHud picks each bot's squad from `starts` as
+the bot comes in, and from `areas` and `tasks` sends a bot that stays put
+somewhere else and places it again if it does not go
+([bots.md](bots.md) "Bots frozen in place").
 
 ### `multiplayer`
 

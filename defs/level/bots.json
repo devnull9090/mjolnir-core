@@ -1,0 +1,117 @@
+{
+ "_doc": "The bots every hub map bakes (tools/level/add_bots.py; docs/bots.md): blam.bots without spawns, so each map's player starts serve.",
+ "squad": "insertion_cov_elites",
+ "count": 15,
+ "spacing": 2.5,
+ "areas": 16,
+ "types": [
+  {
+   "name": "spartan_normal",
+   "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan_normal",
+   "team": "covenant",
+   "weapons": [
+    "assault_rifle",
+    "sniper_rifle",
+    "shotgun",
+    "rocket_launcher",
+    "magnum",
+    "assault_rifle",
+    "plasma_rifle",
+    "needler"
+   ]
+  },
+  {
+   "name": "elite_normal",
+   "character": "objects\\characters\\elite\\ai\\mjolnir_bot_elite_normal",
+   "weapons": [
+    "plasma_rifle",
+    "needler",
+    "energy_sword",
+    "plasma_rifle",
+    "sniper_rifle"
+   ]
+  },
+  {
+   "name": "grunt_normal",
+   "character": "objects\\characters\\grunt\\ai\\mjolnir_bot_grunt_normal",
+   "weapon": "plasma_pistol"
+  },
+  {
+   "name": "jackal_normal",
+   "character": "objects\\characters\\jackal\\ai\\mjolnir_bot_jackal_normal",
+   "weapon": "plasma_pistol"
+  },
+  {
+   "name": "spartan_heroic",
+   "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan_heroic",
+   "team": "covenant",
+   "weapons": [
+    "assault_rifle",
+    "sniper_rifle",
+    "shotgun",
+    "rocket_launcher",
+    "magnum",
+    "assault_rifle",
+    "plasma_rifle",
+    "needler"
+   ]
+  },
+  {
+   "name": "elite_heroic",
+   "character": "objects\\characters\\elite\\ai\\mjolnir_bot_elite_heroic",
+   "weapons": [
+    "plasma_rifle",
+    "needler",
+    "energy_sword",
+    "plasma_rifle",
+    "sniper_rifle"
+   ]
+  },
+  {
+   "name": "grunt_heroic",
+   "character": "objects\\characters\\grunt\\ai\\mjolnir_bot_grunt_heroic",
+   "weapon": "plasma_pistol"
+  },
+  {
+   "name": "jackal_heroic",
+   "character": "objects\\characters\\jackal\\ai\\mjolnir_bot_jackal_heroic",
+   "weapon": "plasma_pistol"
+  },
+  {
+   "name": "spartan_legendary",
+   "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan_legendary",
+   "team": "covenant",
+   "weapons": [
+    "assault_rifle",
+    "sniper_rifle",
+    "shotgun",
+    "rocket_launcher",
+    "magnum",
+    "assault_rifle",
+    "plasma_rifle",
+    "needler"
+   ]
+  },
+  {
+   "name": "elite_legendary",
+   "character": "objects\\characters\\elite\\ai\\mjolnir_bot_elite_legendary",
+   "weapons": [
+    "plasma_rifle",
+    "needler",
+    "energy_sword",
+    "plasma_rifle",
+    "sniper_rifle"
+   ]
+  },
+  {
+   "name": "grunt_legendary",
+   "character": "objects\\characters\\grunt\\ai\\mjolnir_bot_grunt_legendary",
+   "weapon": "plasma_pistol"
+  },
+  {
+   "name": "jackal_legendary",
+   "character": "objects\\characters\\jackal\\ai\\mjolnir_bot_jackal_legendary",
+   "weapon": "plasma_pistol"
+  }
+ ]
+}

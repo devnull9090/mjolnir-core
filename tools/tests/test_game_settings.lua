@@ -20,7 +20,7 @@ end
 
 -- Defaults: the rules MJOLNIR's variants have always had.
 eq(Settings.variantLine(),
-    "map_flags=31;respawn_seconds=5;score.ctf=3;score.slayer=25;score.team_slayer=50;suicide_seconds=5;"
+    "bot_level=2;bot_type=0;bots=0;map_flags=31;respawn_seconds=5;score.ctf=3;score.slayer=25;score.team_slayer=50;suicide_seconds=5;"
         .. "time_limit=0;trait.camo=0;trait.shields=0;vehicles.blue=0;vehicles.red=0",
     "defaults")
 -- The loader keeps the score of the game type it stages.
@@ -29,6 +29,13 @@ eq(forCtf.score, 3, "CTF's score for a CTF variant")
 eq(forCtf["score.slayer"], nil, "other game types' scores dropped")
 eq(#Settings.changes("slayer"), 0, "no changes at the defaults")
 eq(Settings.option("score", "oddball"), nil, "no score option for a game type without one")
+-- Bots: on the PLAYERS page, carried for MJOLNIRHud, never a variant field.
+eq(Settings.option("bots").page, 2, "BOTS on the PLAYERS page")
+eq(forCtf.bots, nil, "the loader drops bots")
+eq(forCtf.bot_type, nil, "and the bot type")
+eq(forCtf.bot_level, nil, "and the bot difficulty")
+eq(Settings.text(Settings.option("bot_level")), "LEGENDARY", "Legendary bots by default")
+eq(Settings.text(Settings.option("bot_type")), "SPARTANS", "Spartans by default")
 
 -- Stepping wraps both ways.
 local score = Settings.option("score", "slayer")
@@ -46,7 +53,7 @@ for _, id in ipairs({ "time_limit", "shields", "invisible", "grenades", "powerup
 end
 Settings.step(Settings.option("respawn"), -1)
 local line = Settings.variantLine()
-eq(line, "map_flags=22;respawn_seconds=0;score.ctf=3;score.slayer=50;score.team_slayer=50;suicide_seconds=5;"
+eq(line, "bot_level=2;bot_type=0;bots=0;map_flags=22;respawn_seconds=0;score.ctf=3;score.slayer=50;score.team_slayer=50;suicide_seconds=5;"
     .. "time_limit=5;trait.camo=4;trait.shields=1;vehicles.blue=0;vehicles.red=0", "changed line")
 eq(table.concat(Settings.changes("slayer"), "|"),
     "KILLS TO WIN: 50|TIME LIMIT: 5 MINUTES|RESPAWN TIME: INSTANT|SHIELDS: OFF|INVISIBLE PLAYERS: YES|"
@@ -76,7 +83,8 @@ local vline = Settings.variantLine()
 assert(vline:find("vehicles.red=8", 1, true) and vline:find("vehicles.red.ghost=2", 1, true)
     and vline:find("vehicles.red.warthog=0", 1, true) and vline:find("vehicles.blue=1", 1, true)
     and not vline:find("vehicles.blue.", 1, true), "vehicle keys in the line: " .. vline)
-eq(table.concat(Settings.changes("slayer"), "|"), "VEHICLE SET: CUSTOM|GHOSTS: 2|VEHICLE SET: NONE", "vehicle changes")
+eq(table.concat(Settings.changes("slayer"), "|"), "RED VEHICLES: CUSTOM|RED GHOSTS: 2|BLUE VEHICLES: NONE",
+    "vehicle changes, named with their team")
 eq(table.concat(Settings.describe(vline, "slayer"), "|"), table.concat(Settings.changes("slayer"), "|"),
     "describe(vehicle line)")
 Settings.reset()

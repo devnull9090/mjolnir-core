@@ -39,7 +39,10 @@ export interface UpdateItem {
    * install (a map installed by a launcher that dropped its foliage).
    */
   repair?: boolean;
-  /** Restarts the launcher, so it is applied last and on its own. */
+  /**
+   * Restarts the launcher, so it is applied first and on its own; the new
+   * launcher applies the rest of the selection (App.tsx, the resume note).
+   */
   restarts?: boolean;
   apply: () => Promise<void>;
 }
@@ -231,12 +234,20 @@ export function useUpdates(
       if (applying) return;
       setApplying(true);
 
-      // Sequential on purpose: these write to the same game directory, and
-      // the one that restarts the launcher has to be last.
-      const queue = keys
+      // Sequential on purpose: these write to the same game directory. The
+      // one that restarts the launcher goes first and alone, so the rest is
+      // installed by the newest launcher code: it is left a note of them.
+      let queue = keys
         .map((k) => items.find((i) => i.key === k))
-        .filter((i): i is UpdateItem => !!i)
-        .sort((a, b) => Number(a.restarts ?? false) - Number(b.restarts ?? false));
+        .filter((i): i is UpdateItem => !!i);
+      const launcher = queue.find((i) => i.restarts);
+      if (launcher) {
+        const rest = queue.filter((i) => i !== launcher).map((i) => i.key);
+        if (rest.length > 0) {
+          await invoke("resume_after_update_set", { launch: false, keys: rest }).catch(console.error);
+        }
+        queue = [launcher];
+      }
       setRun(queue.map((i) => i.key));
 
       const completed: UpdateItem[] = [];
@@ -252,6 +263,10 @@ export function useUpdates(
             [item.key]: { status: "failed", error: String(e) },
           }));
         }
+      }
+      // Nothing restarted: the note must not start a run at the next start.
+      if (launcher && !completed.includes(launcher)) {
+        await invoke("resume_after_update_take").catch(() => undefined);
       }
 
       setApplying(false);

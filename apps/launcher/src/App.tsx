@@ -125,6 +125,34 @@ function AppBody({
     [announceWhatsNew, refreshLibrary, checkLibraryUpdates],
   );
   const updates = useUpdates(updater, announce);
+
+  // A launcher update interrupted a run and restarted us into this launcher:
+  // pick it up. A launch (or the game's update link) runs the launch check
+  // again, which installs what is still out of date and starts the game; the
+  // Updates screen applies what was selected there and is still offered.
+  // Either way it is checked afresh, by this launcher's code.
+  const [resumeKeys, setResumeKeys] = useState<string[] | null>(null);
+  useEffect(() => {
+    invoke<{ launch: boolean; keys: string[] } | null>("resume_after_update_take").then(
+      (resume) => {
+        if (!resume) return;
+        if (resume.launch) {
+          followLink.current({ kind: "update" });
+        } else {
+          setActiveView("updates");
+          setResumeKeys(resume.keys);
+        }
+      },
+      () => {},
+    );
+  }, []);
+  const { loading: updatesLoading, items: updateItems, apply: applyUpdates } = updates;
+  useEffect(() => {
+    if (!resumeKeys || updatesLoading) return;
+    setResumeKeys(null);
+    const keys = resumeKeys.filter((k) => updateItems.some((i) => i.key === k));
+    if (keys.length > 0) void applyUpdates(keys);
+  }, [resumeKeys, updatesLoading, updateItems, applyUpdates]);
   // A launch's own updates (launch/PreflightProvider.tsx) install outside
   // the update manager: the same refreshes it would make.
   const announceInstalled = () => {
@@ -201,7 +229,7 @@ function AppBody({
   }, []);
 
   return (
-    <PreflightProvider onApplied={() => announceInstalled()}>
+    <PreflightProvider onApplied={() => announceInstalled()} installLauncher={updater.handleInstall}>
     <UpdateLinkRunner request={updateRequest} />
     <DiscordLinkRunner request={discordRequest} />
     <div className="flex h-screen w-screen bg-surface-primary">

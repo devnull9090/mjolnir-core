@@ -151,7 +151,11 @@ cluster and one instance, of which only the file format is kept
 - the CE collision tree goes into the **world shell**, which decides what is
   inside the world;
 - and into **definition 0 behind instance 0**, which the collision queries
-  test (the instance is listed at the collision kd hierarchy's root);
+  test (the instance is listed at the collision kd hierarchy's root). The
+  two meet at one height to within f32 rounding, and an AI that the
+  simulation found on the copy was on no sector, so `level bake` lowers the
+  instance 0.001 wu under the shell
+  ([re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#the-flag-rooms));
 - the BSP's static Havok body, **`structure_physics`**, is recompiled with one
   key per CE surface (one whole-instance key on the biggest maps, see
   "Limits"), and since 2026-10-12 one whole-instance key for each scenery

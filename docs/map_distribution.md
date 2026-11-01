@@ -56,6 +56,7 @@ content/
 map/
   level.json                  the level file the loader reads
   registration.json           the bake's registration record (below)
+  bots.json                   where the bot squads stand, for MJOLNIRHud (a map with bots; docs/bots.md)
   <foliage file>              the foliage placements the level file names
   decals/*.png                its decals' textures
 docs/README.md                optional
@@ -70,10 +71,11 @@ Format rules (version 1):
   `BGL`, is 24853). A `PrimaryAssetLabel` at the map's root sets it, so the
   map's cook never mixes with the runtime pack's chunk 988.
 - No `.mglo` and no code. The only loose files are the level's own data
-  under `map/`, which the loader reads beside the level file: the foliage
-  file the level names (a remastered map's `foliage.bin`) and its decals'
-  textures. A map's preview is its hub listing's cover image, not a file in
-  the pack.
+  under `map/`, which the mods read beside the level file: the foliage file
+  the level names (a remastered map's `foliage.bin`), its decals' textures,
+  and a map with bots' `bots.json` (`mjolnir map pack` takes it from the
+  bake's `<CODE>.bots.json`). A map's preview is its hub listing's cover
+  image, not a file in the pack.
 
 The manifest's map block:
 

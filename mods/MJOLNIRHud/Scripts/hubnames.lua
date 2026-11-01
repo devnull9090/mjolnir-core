@@ -17,6 +17,7 @@ local known = {}         -- [in-game name] = { id, name, reports }
 local nextLoad = 0
 local textures = {}      -- account id -> texture object name
 local handles = {}       -- account id -> the texture, while it is valid
+local sizes = {}         -- account id -> "<w>x<h>" of the imported texture
 
 local function valid(o)
     local ok, v = pcall(function() return o and o:IsValid() end)
@@ -50,6 +51,19 @@ function HubNames.of(name)
     return known[name]
 end
 
+--- "<w>x<h>" of a texture, or nil.
+local function sizeOf(tex)
+    local ok, w, h = pcall(function() return tex:Blueprint_GetSizeX(), tex:Blueprint_GetSizeY() end)
+    return ok and w and h and (w .. "x" .. h) or nil
+end
+
+--- Whether `tex` is still the avatar imported for `id`: a transient texture
+--- that was collected leaves its name and its memory to the next one
+--- imported (a converted map's terrain), which drew as the avatar.
+local function stillAvatar(id, tex)
+    return valid(tex) and sizes[id] ~= nil and sizeOf(tex) == sizes[id]
+end
+
 --- Account `id`'s avatar as a texture, once MJOLNIRLobby has cached it.
 --- The texture is kept and checked with IsValid before each use (a
 --- transient texture no brush holds is collected), then found by name: by
@@ -57,10 +71,10 @@ end
 --- scoreboard redraw and kill line.
 function HubNames.avatar(id, world)
     if not id then return nil end
-    if handles[id] and valid(handles[id]) then return handles[id] end
+    if handles[id] and stillAvatar(id, handles[id]) then return handles[id] end
     if textures[id] then
         local ok, tex = pcall(StaticFindObject, textures[id])
-        if ok and valid(tex) then
+        if ok and stillAvatar(id, tex) then
             handles[id] = tex
             return tex
         end
@@ -75,7 +89,7 @@ function HubNames.avatar(id, world)
     if not (ok and valid(tex)) then return nil end
     local okName, full = pcall(function() return tex:GetFullName() end)
     textures[id] = okName and full and full:match("^%S+%s+(.+)$") or nil
-    handles[id] = tex
+    handles[id], sizes[id] = tex, sizeOf(tex)
     return tex
 end
 
