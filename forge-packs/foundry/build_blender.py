@@ -38,6 +38,9 @@ def material(name, spec):
     shader.inputs["Base Color"].default_value = spec["base_color"]
     shader.inputs["Metallic"].default_value = spec["metallic"]
     shader.inputs["Roughness"].default_value = spec["roughness"]
+    if "emission_color" in spec:
+        shader.inputs["Emission Color"].default_value = spec["emission_color"]
+        shader.inputs["Emission Strength"].default_value = spec.get("emission_strength", 1.0)
     result.diffuse_color = spec["base_color"]
     return result
 
@@ -160,11 +163,13 @@ def main():
     white = material("Presentation / type", {"base_color": [0.85,0.9,0.88,1], "metallic": 0, "roughness": 0.7})
     gray = material("Presentation / secondary", {"base_color": [0.42,0.53,0.57,1], "metallic": 0, "roughness": 0.8})
     from generate import box
-    ground = mesh_object("Studio ground", box(65, 52, 0.1, z=-0.25), presentation)
+    rows = math.ceil(len(models)/6)
+    sheet_height = rows*10.5 + 10
+    ground = mesh_object("Studio ground", box(65, sheet_height+10, 0.1, z=-0.25), presentation)
     ground.data.materials.append(backdrop)
     for index, (model, collider, piece) in enumerate(models):
         col, row = index % 6, index // 6
-        x, y = (col-2.5)*9, (1-row)*10.5
+        x, y = (col-2.5)*9, ((rows-1)/2-row)*10.5
         model.location = (x,y,0)
         model.rotation_euler.z = math.radians(-25)
         collider.location, collider.rotation_euler = model.location, model.rotation_euler
@@ -173,17 +178,19 @@ def main():
         text_object(f"{index+1:02}  {piece['name'].upper()}", x-3.9, y-3.9, 0.39, white, presentation)
         dimensions = " x ".join(f"{v:g}" for v in piece["dimensions_m"])
         text_object(dimensions + " m", x-3.9, y-4.55, 0.34, gray, presentation)
-    text_object("FOUNDRY", -26.4, 18.5, 1.9, white, presentation)
-    text_object("18 ORIGINAL MODULAR PIECES  /  2 m MODULE  /  0.5 m SNAP", -26.2, 17.1, 0.48, materials["amber"], presentation)
-    text_object("MJOLNIR CORE    /    FORGE PACK 01", -26.2, -17.5, 0.45, materials["amber"], presentation)
-    text_object("Actual Blender meshes. Collision hulls preserve door, window and corner openings.", -26.2, -18.3, 0.37, gray, presentation)
+    title_y = (rows-1)*5.25+8
+    footer_y = -(rows-1)*5.25-7
+    text_object("FOUNDRY", -26.4, title_y, 1.9, white, presentation)
+    text_object(f"{len(models)} ORIGINAL MODULAR PIECES  /  2 m MODULE  /  0.5 m SNAP", -26.2, title_y-1.4, 0.48, materials["amber"], presentation)
+    text_object("MJOLNIR CORE    /    FORGE PACK 01", -26.2, footer_y, 0.45, materials["amber"], presentation)
+    text_object("Actual Blender meshes. Collision hulls preserve door, window and corner openings.", -26.2, footer_y-0.8, 0.37, gray, presentation)
     camera_data = bpy.data.cameras.new("Contact sheet camera")
     camera = bpy.data.objects.new("Contact sheet camera", camera_data)
     presentation.objects.link(camera)
     camera.location = (0,-40,58)
     camera.rotation_euler = (Vector((0,0,0))-camera.location).to_track_quat("-Z","Y").to_euler()
     camera_data.type = "ORTHO"
-    camera_data.ortho_scale = 58
+    camera_data.ortho_scale = max(58, sheet_height*1.12)
     scene.camera = camera
     for name, position, energy, size in [("Key",(-18,-12,35),15000,25), ("Fill",(18,5,25),12000,20), ("Rim",(0,20,18),9000,15)]:
         light_data = bpy.data.lights.new(name, "AREA")
@@ -199,7 +206,7 @@ def main():
     scene.cycles.samples = 32
     scene.cycles.use_denoising = True
     scene.render.resolution_x = 2400
-    scene.render.resolution_y = 1800
+    scene.render.resolution_y = 1800 if rows <= 3 else 2200
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.filepath = str(output / "foundry-contact-sheet.png")

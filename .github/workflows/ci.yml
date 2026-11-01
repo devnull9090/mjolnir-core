@@ -22,6 +22,9 @@ jobs:
       - name: Test multiplayer HUD and team presentation
         run: lua5.4 tools/tests/test_multiplayer_ui.lua
 
+      - name: Test UI class retention across map travel
+        run: lua5.4 tools/tests/test_ui_class_lifetime.lua
+
       - name: Test the game type picker
         run: lua5.4 tools/tests/test_gametype_picker.lua
 
@@ -50,7 +53,9 @@ jobs:
         run: lua5.4 tools/tests/test_teams.lua
 
       - name: Test Forge pack labels and palette compatibility
-        run: lua5.4 tools/tests/test_forge_pack_labels.lua
+        run: |
+          lua5.4 tools/tests/test_forge_pack_labels.lua
+          lua5.4 tools/tests/test_forge_lights.lua
 
       - name: Lint Lua scripts
         run: |
@@ -160,6 +165,9 @@ jobs:
           test -d signatures || (echo "FAIL: signatures/ missing" && exit 1)
           test -f LICENSE || (echo "FAIL: LICENSE missing" && exit 1)
           echo "✅ All checks passed."
+
+      - name: Test Forge map archive builder
+        run: python -m unittest discover -s tools/forge -p test_build_maps.py
 
       - name: Ensure no secrets in repo
         run: |

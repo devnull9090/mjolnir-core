@@ -6,8 +6,10 @@ launcher downloads their containers and exposes their catalog to Forge. A map
 declares which pieces it supports when its scenario is baked. A saved layout
 records the exact pack releases and palette bindings it used.
 
-The first authored set is [Foundry](../forge-packs/foundry/README.md): 18 original
+The first authored set is [Foundry](../forge-packs/foundry/README.md): 24 original
 industrial pieces on a 2 m module, with a 0.5 m suggested placement snap.
+Version 0.2 adds a portal frame, teleporter pad, light strip and three light
+pylons to the 18-piece set tested below.
 [Design research](forge_pack_design.md) explains the piece selection and future
 sets. A private CU4 fixture loaded and placed all 18 types, exercised movement,
 rotation, save/reload, restart persistence and identity refusal, and checked
@@ -60,6 +62,30 @@ handling applies. Its optional `forge_pack` block identifies the catalog:
   format. The launcher supports Rust SemVer requirements such as `^1.2.3`,
   `~1.2.3` and `>=1.2.3, <2.0.0`; a bare complete version is an exact pin.
 
+A block may also contain a data-only `light` object (omit it for ordinary
+pieces; `null` is also treated as absent):
+
+```json
+"light": {
+  "offset_m": [0, 0, 3.1],
+  "color_rgb": [1, 0.05, 0.03],
+  "intensity_cd": 70,
+  "radius_m": 8
+}
+```
+
+Offsets are relative to the piece's bottom-centred authored origin, in the
+same right-handed Z-up metres as its geometry. Each component must be finite
+and within −100..100 m. Linear RGB components are within 0..1. Intensity is
+positive and at most 10,000 candelas; radius is positive and at most 100 m.
+Unknown light fields are rejected. Hub, packer and launcher validate the same
+bounds. Forge derives the actor class from the pack/block IDs, attaches a
+movable inverse-square point light to its root, and converts metres to Unreal
+centimetres with Y reflected. It does not execute pack code or accept an
+arbitrary actor path. Illumination is capped at 64 active fixtures, is currently
+shadowless, and has no exposure multiplier. Deleted/pooled actors and world
+changes remove their attached lights. See [Forge utilities](forge.md#pack-lights).
+
 The archive contains `mjolnir.json`, cooked `.utoc`/`.ucas` pairs under
 `content/`, optional `docs/README.md` and `changes.json`, and author signatures
 when signed. Source `.blend`, glTF and collision JSON files are authoring inputs,
@@ -111,7 +137,7 @@ python tools/forge/build_pack.py forge-packs/foundry --paks $paks
   --content forge-packs/foundry/build/game/all/content `
   --readme forge-packs/foundry/README.md `
   --changes forge-packs/foundry/build/game/all/changes.json `
-  --out forge-packs/foundry/build/foundry-0.1.0.mjolnir --sign
+  --out forge-packs/foundry/build/foundry-0.2.0.mjolnir --sign
 ```
 
 `--sign` uses the existing local author device key registered with the Hub.

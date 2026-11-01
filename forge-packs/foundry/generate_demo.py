@@ -71,7 +71,7 @@ def validate(layout):
     source = json.loads((ROOT/"source/geometry.json").read_text())
     by_id = {p["id"]:p for p in source["pieces"]}
     used = {p["block"] for p in layout["placements"]}
-    assert used == set(by_id), "The demo must exercise all 18 part types"
+    assert len(used) == 18 and used <= set(by_id), "The 0.1.0 demo must keep its original 18 part types"
     for placement in layout["placements"]:
         yaw = math.radians(placement["rotation_deg"][2])
         c,s = math.cos(yaw),math.sin(yaw)

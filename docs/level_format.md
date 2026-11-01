@@ -254,6 +254,45 @@ A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
 fields of the placement, relative to its element
 (`"multiplayer data.owner team": "neutral"`).
 
+### `blam.forge_packs` and `blam.forge_objects`
+
+Both add palette entries without placing objects in the starting layout and
+require `blam.map_variant: true` and `level bake --standalone`. The baker also
+adds their tag packages to the scenario's cooked preloads. Missing references
+fail the bake; their runtime/pack containers must be in its input Paks view.
+
+`forge_packs` declares exact community pack versions and an ordered subset of
+their block IDs/tags. The map packer keeps these declarations and emits exact
+Hub dependencies. See [the Forge pack contract](forge_packs.md#add-a-pack-to-a-map)
+for the complete shape. There are at most 63 packs and 200 custom references.
+
+`forge_objects` lists up to 64 existing runtime tags, for example:
+
+```json
+"forge_objects": [
+  { "group": "scenery", "tag": "objects\\multi\\spawning\\player_spawn" },
+  { "group": "scenery", "tag": "objects\\multi\\teleporters\\teleporter_sender" },
+  { "group": "scenery", "tag": "objects\\multi\\teleporters\\teleporter_receiver" },
+  { "group": "scenery", "tag": "objects\\multi\\teleporters\\teleporter_2way" }
+]
+```
+
+Groups are `scenery` or `crates`; tag path segments contain lowercase letters,
+digits, underscores or hyphens. Duplicate group/tag pairs are rejected. Paths
+under `objects\mjolnir\forge\` must use `forge_packs` so a model cannot lose
+its versioned dependency. Preplaced objects that also appear in either list
+retain the declared palette order instead of gaining a second scenery entry.
+The combined palette, including standard weapons/vehicles/equipment, must fit
+the engine's 255-entry limit.
+
+### `kill_floor`
+
+Top-level `"kill_floor": -600` kills players below absolute Unreal Z −600 cm.
+The value must be finite. This is a runtime host check in MJOLNIRLevelLoader;
+the bake does not create a collision plane or kill volume. The original level
+JSON is retained in the map archive, so the value reaches the loader. Omit it
+or use `null` to leave the loader's per-map default in effect.
+
 ### `blam.bots` — AI bots ([bots.md](bots.md))
 
 ```jsonc

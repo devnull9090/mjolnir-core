@@ -30,6 +30,7 @@
 --   F2         revert: the map's own layout (the saved one goes to history)
 --   K / L      the target's team (neutral, red, blue) / Megalo label
 --   J / O      the target's respawn time / spawn order
+--   P          the target teleporter's channel (sender and receiver must match)
 --   , / .      turn what you carry, or place next, left / right
 --
 -- A map with a saved layout starts every game with it, Forge or not (the DLL
@@ -83,6 +84,7 @@ local DEFAULT_KEYS = {
     label = "L",
     respawn = "J",
     order = "O",
+    channel = "P",
     rotate_left = "OEM_COMMA",
     rotate_right = "OEM_PERIOD",
 }
@@ -106,13 +108,14 @@ local LABELS = {
     label = "label",
     respawn = "respawn",
     order = "spawn order",
+    channel = "teleporter channel",
     rotate_left = "turn left",
     rotate_right = "turn right",
 }
 
 local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther", "place",
     "prev_category", "next_category", "prev_item", "next_item", "save", "load", "revert",
-    "team", "label", "respawn", "order", "rotate_left", "rotate_right" }
+    "team", "label", "respawn", "order", "channel", "rotate_left", "rotate_right" }
 
 local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
@@ -170,13 +173,27 @@ end
 -- MJOLNIRHud's chat box: a key typed there is not a Forge command.
 local chat = { widget = nil, nextFind = 0 }
 
+local function activeChat(w)
+    local ok, active = pcall(function()
+        if not (w and w:IsValid()) then return false end
+        local name = w:GetFName():ToString()
+        return not name:find("^Default__") and not name:find("^MJOLNIR_UI_ClassPin_") and w:IsInViewport()
+    end)
+    return ok and active
+end
+
 local function typingInChat()
     local w = chat.widget
-    if not (w and w:IsValid()) then
+    if not activeChat(w) then
+        chat.widget = nil
         if os.clock() < chat.nextFind then return false end
         chat.nextFind = os.clock() + 2
-        w = FindFirstOf("WBP_MJOLNIRChat_C")
-        chat.widget = (w and w:IsValid()) and w or nil
+        for _, candidate in ipairs(FindAllOf("WBP_MJOLNIRChat_C") or {}) do
+            if activeChat(candidate) then
+                w, chat.widget = candidate, candidate
+                break
+            end
+        end
         if not chat.widget then return false end
     end
     local ok, focused = pcall(function() return w.ChatInput:HasKeyboardFocus() end)
@@ -314,6 +331,7 @@ local function describe(s, keys, palette)
             lines[#lines + 1] = string.format("Team %s  label %s  respawn %s s  spawn order %s",
                 s.team, s.label ~= "" and s.label or "none", s.respawn or "?", s.order or "?")
         end
+        if s.channel then lines[#lines + 1] = "Teleporter channel: " .. s.channel .. "  [" .. keys.channel .. "] change" end
         local row = selectedRow(s, palette)
         if row then
             lines[#lines + 1] = string.format("Palette: %s%s%s  [%s/%s] object  [%s/%s] category",
@@ -343,8 +361,10 @@ end
 -- The HUD (Scripts/hud.lua, WBP_MJOLNIRForge), with the text panel above as
 -- its stand-in when the HUD's container is not installed.
 Hud = dofile(MOD .. "Scripts\\hud.lua")
+local retainUIClass = dofile(MOD .. "Scripts\\class_lifetime.lua").new({ "WBP_MJOLNIRForge" }, log)
 Hud.init({
     log = log,
+    retainClass = retainUIClass,
     pc = function()
         local ok, pc = pcall(function() return require("UEHelpers").GetPlayerController() end)
         return (ok and pc and pc:IsValid()) and pc or nil
@@ -354,18 +374,23 @@ Hud.init({
 -- Reuse the level loader's data-only JSON parser; a missing/corrupt inventory
 -- simply leaves ordinary tag-derived labels. Never execute catalog contents.
 local jsonOk, Json = pcall(dofile, MOD .. "..\\MJOLNIRLevelLoader\\Scripts\\json.lua")
+local Lights = dofile(MOD .. "Scripts\\lights.lua").new()
 local lastPackInventory = false
+local function setPackInventory(inventory)
+    Hud.setPackInventory(inventory)
+    Lights:setInventory(inventory)
+end
 local function refreshPackInventory()
     local raw = readFile(PACK_INVENTORY, 4 * 1024 * 1024 + 1)
     if raw == lastPackInventory then return end
     lastPackInventory = raw
-    if not raw then Hud.setPackInventory(nil); return end
+    if not raw then setPackInventory(nil); return end
     if not jsonOk or type(Json) ~= "table" or type(Json.decode) ~= "function" or #raw > 4 * 1024 * 1024 then
-        Hud.setPackInventory(nil)
+        setPackInventory(nil)
         return
     end
     local ok, inventory = pcall(Json.decode, raw)
-    Hud.setPackInventory(ok and inventory or nil)
+    setPackInventory(ok and inventory or nil)
     if not ok then log("Forge pack labels unavailable: invalid installed.json") end
 end
 refreshPackInventory()
@@ -408,10 +433,23 @@ local lastStatus = nil
 local lastState = false
 local palette = {}
 local paletteVersion = nil
+local lightTicks, lightQueued, lightError = 0, false, false
 ExecuteInGameThreadWithDelay(5000, function()
     if not loadNative() then return end
     pcall(native.open)
     LoopAsync(POLL_MS, function()
+        -- Lamp actors also exist in Slayer and after saved-layout startup;
+        -- they do not depend on the Forge editor producing a new snapshot.
+        lightTicks = lightTicks + 1
+        if lightTicks >= 5 and not lightQueued then
+            lightTicks, lightQueued = 0, true
+            refreshPackInventory()
+            ExecuteInGameThread(function()
+                local ok, err = pcall(function() Lights:tick() end)
+                if not ok and not lightError then log("pack lights: " .. tostring(err)) end
+                lightError, lightQueued = not ok, false
+            end)
+        end
         pcall(native.pump)
         local status = readFile(STATUS)
         if status and status ~= lastStatus then

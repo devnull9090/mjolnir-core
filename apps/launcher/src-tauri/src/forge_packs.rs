@@ -93,6 +93,30 @@ pub struct Block {
     pub dimensions_m: [f64; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snap_m: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<Light>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Light {
+    pub offset_m: [f64; 3],
+    pub color_rgb: [f64; 3],
+    pub intensity_cd: f64,
+    pub radius_m: f64,
+}
+
+impl Light {
+    fn valid(&self) -> bool {
+        self.offset_m.iter().all(|n| n.is_finite() && n.abs() <= 100.0)
+            && self.color_rgb.iter().all(|n| n.is_finite() && (0.0..=1.0).contains(n))
+            && self.intensity_cd.is_finite()
+            && self.intensity_cd > 0.0
+            && self.intensity_cd <= 10000.0
+            && self.radius_m.is_finite()
+            && self.radius_m > 0.0
+            && self.radius_m <= 100.0
+    }
 }
 
 impl ForgePack {
@@ -122,6 +146,9 @@ impl ForgePack {
                 || block.snap_m.is_some_and(|n| !n.is_finite() || n <= 0.0)
             {
                 return Err(format!("Invalid dimensions or snap size for {}", block.id));
+            }
+            if block.light.as_ref().is_some_and(|light| !light.valid()) {
+                return Err(format!("Invalid light settings for {}", block.id));
             }
         }
         Ok(())
@@ -309,6 +336,74 @@ mod tests {
             text.replacen("0\t", "+1\t", 1),
         ] {
             assert!(layout_pins(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn light_metadata_survives_catalog_storage_and_absent_lights_stay_absent() {
+        let manifest = serde_json::json!({"type":"content", "version":"1.0.0", "forge_pack":{
+            "schema_version":1,"id":"alloy","blocks":[{
+                "id":"lamp","name":"Lamp","category":"lights",
+                "tag":"objects\\mjolnir\\forge\\alloy\\lamp","dimensions_m":[1,1,1],
+                "light":{"offset_m":[-100,0,100],"color_rgb":[1,0,0.5],"intensity_cd":10000,"radius_m":100}
+            }]
+        }});
+        let pack = read_pack(&manifest, "alloy").unwrap().unwrap();
+        let stored = serde_json::to_vec(&pack).unwrap();
+        let restored: ForgePack = serde_json::from_slice(&stored).unwrap();
+        restored.validate("alloy").unwrap();
+        let light = restored.blocks[0].light.as_ref().unwrap();
+        assert_eq!(light.offset_m, [-100.0, 0.0, 100.0]);
+        assert_eq!(light.color_rgb, [1.0, 0.0, 0.5]);
+        assert_eq!((light.intensity_cd, light.radius_m), (10000.0, 100.0));
+        for absent in [None, Some(serde_json::Value::Null)] {
+            let mut old = manifest.clone();
+            old["forge_pack"]["blocks"][0].as_object_mut().unwrap().remove("light");
+            if let Some(value) = absent { old["forge_pack"]["blocks"][0]["light"] = value; }
+            let old = read_pack(&old, "alloy").unwrap().unwrap();
+            assert!(old.blocks[0].light.is_none());
+            assert!(serde_json::to_value(old).unwrap()["blocks"][0].get("light").is_none());
+        }
+    }
+
+    #[test]
+    fn lights_reject_invalid_vectors_unknown_settings_and_unbounded_values() {
+        let light = serde_json::json!({"offset_m":[0,0,1],"color_rgb":[1,0,0],"intensity_cd":25,"radius_m":8});
+        for (key, value) in [
+            ("offset_m", serde_json::json!([0,0,100.01])),
+            ("offset_m", serde_json::json!([-100.01,0,0])),
+            ("color_rgb", serde_json::json!([1.01,0,0])),
+            ("color_rgb", serde_json::json!([0,-0.01,0])),
+            ("radius_m", serde_json::json!(0)),
+            ("radius_m", serde_json::json!(100.01)),
+            ("intensity_cd", serde_json::json!(0)),
+            ("intensity_cd", serde_json::json!(-1)),
+            ("intensity_cd", serde_json::json!(10000.01)),
+        ] {
+            let mut invalid = light.clone();
+            invalid[key] = value;
+            assert!(!serde_json::from_value::<Light>(invalid).unwrap().valid(), "{key}");
+        }
+        for (key, value) in [
+            ("color_rgb", serde_json::json!([1,0])),
+            ("offset_m", serde_json::json!([0,0,0,0])),
+            ("script", serde_json::json!("untrusted.lua")),
+        ] {
+            let mut invalid = light.clone();
+            invalid[key] = value;
+            assert!(serde_json::from_value::<Light>(invalid).is_err(), "{key}");
+        }
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for field in 0..4 {
+                let mut invalid: Light = serde_json::from_value(light.clone()).unwrap();
+                match field {
+                    0 => invalid.offset_m[0] = value,
+                    1 => invalid.color_rgb[0] = value,
+                    2 => invalid.intensity_cd = value,
+                    _ => invalid.radius_m = value,
+                }
+                assert!(!invalid.valid());
+            }
         }
     }
 }

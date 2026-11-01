@@ -19,7 +19,31 @@ MATERIAL_ROOT = "/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_"
 MATERIALS = [("concrete", MATERIAL_ROOT + "Grey_MidLight"),
              ("deck", MATERIAL_ROOT + "Grey_MidDark"),
              ("gunmetal", MATERIAL_ROOT + "Grey_Dark_Glossy"),
-             ("amber", MATERIAL_ROOT + "Bronze_Light")]
+             ("amber", MATERIAL_ROOT + "Bronze_Light"),
+             ("light_lens", "/Game/Lighting/Lighting_Mats/EmissiveMaterials/B40/MI_FREmissive_Solid_B40_White_Warm"),
+             ("light_lens_red", "/Game/Env/HS/UNSC/Gen/+Materials/+Temp/MI_UNSC_EMIS_Red"),
+             ("light_lens_blue", "/Game/Lighting/Lighting_Mats/EmissiveMaterials/B40/MI_FREmissive_Solid_B40_Blue_Dark")]
+
+
+def model_bounds(piece):
+    """Enclose the original visual and collision geometry in Blam axes/units.
+
+    Model bounds use a local centre offset, unlike the object's origin-centred
+    bounding radius. They must not inherit the donor crate's dimensions.
+    """
+    points = [v for part in piece["visual"] for v in part["vertices"]]
+    points.extend(piece["collision"]["vertices"])
+    lo = [min(v[k] for v in points) for k in range(3)]
+    hi = [max(v[k] for v in points) for k in range(3)]
+    centre = [(lo[k] + hi[k]) / (2 * 3.048) for k in range(3)]
+    radius = math.sqrt(sum(((hi[k] - lo[k]) / 2) ** 2 for k in range(3))) / 3.048
+    return centre, radius
+
+
+def model_bounds_args(piece):
+    centre, radius = model_bounds(piece)
+    return ("--set", f"runtime bounding radius={radius}",
+            "--set", "runtime bounding offset=(" + ", ".join(map(str, centre)) + ")")
 
 
 def write_pak_stub(path):
@@ -102,7 +126,9 @@ def main():
         mesh_file, actor_file = work / f"SM_{ident}.uasset", work / f"BP_{ident}.uasset"
         spec = []
         for k, (mat, path) in enumerate(MATERIALS):
-            spec.extend(["--material", f"{mat}={path}={'*' if k == 0 else mat}"])
+            # mesh_rewrite takes the first matching pattern. Anchor names so
+            # light_lens cannot consume light_lens_red or light_lens_blue.
+            spec.extend(["--material", f"{mat}={path}={'*' if k == 0 else mat + '$'}"])
         run(a.examples / "mesh_rewrite.exe", a.paks, "basicshapes/cube", pack / f"build/models/{ident}.gltf",
             mesh_file, "--offset", "0,0,0", "--rename", mesh, *spec)
         # mesh_rewrite centres/normalizes the mesh; restore the floor-centred
@@ -123,7 +149,7 @@ def main():
         new("collision_model", tag, ident + "-coll", "--payload", coll)
         new("physics_model", tag, ident + "-phmo", "--payload", physics)
         new("model", tag, ident + "-model", "--set", f"physics_model=phmo:{tag}",
-            "--set", f"collision model=coll:{tag}")
+            "--set", f"collision model=coll:{tag}", *model_bounds_args(piece))
         radius = math.sqrt(sum(max(abs(lo[k]), abs(hi[k])) ** 2 for k in range(3))) / 3.048
         new("crate", tag, ident + "-crate", "--asset-reference", actor,
             "--set", f"object.model=hlmt:{tag}", "--set", f"object.bounding radius={radius}")
@@ -135,6 +161,14 @@ def main():
     # IoStore pairs are discovered through this sibling; package_add itself
     # only produces .utoc/.ucas and cannot mount the visuals without it.
     write_pak_stub(content / (visual_name + ".pak"))
+    # The completed view can also bake maps using this pack. Refresh visuals
+    # after package_add replaces its files, just as new() refreshes tag pairs.
+    for extension in (".utoc", ".ucas"):
+        src = content / (visual_name + extension)
+        dst = view / src.name
+        if dst.exists():
+            dst.unlink()
+        os.link(src, dst)
     manifest["forge_pack"]["blocks"] = selected
     (out / "mjolnir.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     (out / "changes.json").write_text(json.dumps({"schema_version": 1, "tags": [], "new_tags": changes}, indent=2) + "\n", encoding="utf-8")

@@ -67,6 +67,16 @@ struct Block {
     category: String,
     dimensions_m: [f64; 3],
     snap_m: Option<f64>,
+    light: Option<Light>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Light {
+    offset_m: [f64; 3],
+    color_rgb: [f64; 3],
+    intensity_cd: f64,
+    radius_m: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,6 +129,14 @@ fn validate_manifest(value: &Value) -> Result<Manifest> {
         if block.dimensions_m.iter().any(|n| !n.is_finite() || *n <= 0.0)
             || block.snap_m.is_some_and(|n| !n.is_finite() || n <= 0.0) {
             bail!("Forge block {} dimensions and snap must be positive metres", block.id);
+        }
+        if let Some(light) = &block.light {
+            if light.offset_m.iter().any(|n| !n.is_finite() || n.abs() > 100.0)
+                || light.color_rgb.iter().any(|n| !n.is_finite() || !(0.0..=1.0).contains(n))
+                || !light.intensity_cd.is_finite() || light.intensity_cd <= 0.0 || light.intensity_cd > 10_000.0
+                || !light.radius_m.is_finite() || light.radius_m <= 0.0 || light.radius_m > 100.0 {
+                bail!("Forge block {} has invalid light offset, linear RGB, candela intensity or radius", block.id);
+            }
         }
     }
     if manifest.deps.len() > 64 { bail!("at most 64 dependencies are supported"); }
@@ -318,6 +336,27 @@ mod tests {
         let mut max_version = valid;
         max_version["version"] = format!("1.0.0-{}", "a".repeat(90)).into();
         validate_manifest(&max_version).unwrap();
+    }
+
+    #[test]
+    fn forge_light_metadata_is_bounded_and_optional() {
+        let mut value = manifest();
+        let light = serde_json::json!({ "offset_m":[0,-0.35,3.1], "color_rgb":[1,0.05,0.03], "intensity_cd":70, "radius_m":8 });
+        value["forge_pack"]["blocks"][0]["light"] = light.clone();
+        validate_manifest(&value).unwrap();
+        for (key, invalid) in [
+            ("offset_m", serde_json::json!([0,101,0])), ("offset_m", serde_json::json!([0,0])),
+            ("color_rgb", serde_json::json!([1,-0.1,0])), ("color_rgb", serde_json::json!([1,1.1,0])),
+            ("intensity_cd", serde_json::json!(0)), ("intensity_cd", serde_json::json!(10001)),
+            ("radius_m", serde_json::json!(0)), ("radius_m", serde_json::json!(101)),
+            ("script", serde_json::json!("never")),
+        ] {
+            let mut invalid_light = light.clone(); invalid_light[key] = invalid;
+            value["forge_pack"]["blocks"][0]["light"] = invalid_light;
+            assert!(validate_manifest(&value).is_err(), "{key}");
+        }
+        value["forge_pack"]["blocks"][0]["light"] = Value::Null;
+        validate_manifest(&value).unwrap();
     }
 
     #[test]

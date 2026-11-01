@@ -64,3 +64,52 @@ The local test installation was removed afterward. Seven pre-existing files
 were restored and hash-checked, 230 temporary game files were removed, and the
 game's display settings were restored. Generated content and captured test
 layouts remain in ignored local build/evidence directories.
+
+## Foundry 0.2 and the playable map templates
+
+The follow-up adds 24 Foundry pieces and two actual standalone map archives:
+[Forge Canvas and Crossline](../forge-maps/README.md). Separate private local
+sessions loaded `FBK` in Forge and `FRB` in Team Slayer on CU4, with CE runtime
+1.17.0. These archives are local, unsigned candidates, not published releases.
+
+| Check | Observed result |
+| --- | --- |
+| Empty canvas | A 64 × 64 m deck with a 2 m grid loaded; the Spartan remained at floor Z=0. The palette contained all 24 Foundry entries plus spawn/sender/receiver/two-way utilities. |
+| Crossline assembly | All 98 Foundry placements loaded alongside eight spawn and two teleporter markers. |
+| Raised route | Walking from the blue base along the side catwalk retained Z=1.48 wu, matching the 4.5 m deck surface. The paired central ramps supported walking down and back up through their join. Dropping to the lower route settled at Z=0. |
+| Teleporter route | Walking onto the flush pad transported the Spartan between the two bases in both directions. Leaving the destination trigger and re-entering re-armed the route. |
+| Forge utility creation | Insert created a two-way marker with the expected cylinder dimensions (0.35 wu radius, 0.6 above, 0.1 below); P changed its channel from alpha to bravo. |
+| Attached lights | Eight real point-light components existed in Team Slayer: four coloured and two warm pylons at 7,000 cd / 8 m radius, and two strips at 2,500 cd / 6 m radius. Component positions matched each actor and its declared offset. |
+| Visible illumination | With the canvas sun/sky temporarily disabled for diagnosis, the warm pylon produced a visible pool on the floor. Coloured lights illuminated Crossline's walls and the player's weapon. |
+| Light cleanup | Reverting the canvas removed the placed pylon's point-light component while its pooled actor became hidden. |
+| Kill floor | Walking beyond Crossline's floor triggered the loader's -600 cm kill floor and the multiplayer respawn sequence. |
+| Map travel | A fresh process completed Crossline → lobby → Forge Canvas → lobby → Crossline with working HUDs and eight lights recreated on Crossline. |
+
+Playtesting corrected the sky's atmosphere-sun/physical-skylight settings,
+raised the lamps from their initially ineffective brightness, and caught
+reversed red/blue scenario team names. Red uses `defender`, blue `attacker`.
+Portals sit behind the spawn line so approaching from the arena side leaves
+the destination facing into play. The central lower landing has a 0.5 m lip;
+returning from the surrounding floor requires a jump.
+
+Travel testing also exposed a stale UE4SS UI-property cache after class
+collection. The bounded class-retention mitigation and discovery guards are
+documented in [custom_ui.md](custom_ui.md#class-lifetime-during-map-travel).
+
+Offline checks now cover 13,328 Foundry collision probes and 13,068 probes for
+each canvas BSP; 24 pieces, 49 convex hulls and 580 collision triangles.
+The follow-up passes 92 launcher tests (5 ignored), 41 Hub tests, 13 level
+tests, 5 Forge CLI tests, 5 map-builder tests, 1,473 light lifecycle checks,
+42 Forge HUD checks, 73 UI class-retention/discovery checks and 1,753 native
+Forge checks. The native DLL builds with `/WX`. All 24 emitted model bounds
+enclose their authored visual and collision geometry; decoded package
+references and extraction integrity checks passed.
+Both map archives preserve their authored JSON and pin `foundry =0.2.0` and
+`mjolnir-ce-runtime ^1.17.0`; neither embeds a private save or shared map
+registration override.
+
+The Blender previews use the actual source placements and original authoring
+materials. Runtime meshes currently reference shipped materials; preview
+surface appearance is not evidence of the game's final material appearance.
+Second-machine play and downloading a published release into a fresh launcher
+profile remain pending.

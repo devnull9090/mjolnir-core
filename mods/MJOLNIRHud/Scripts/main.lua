@@ -53,6 +53,9 @@ local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLev
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
+local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
+    "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat",
+}, Log)
 Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
 
 --- The match log must never break the HUD: a failure in it is logged, and
@@ -187,7 +190,7 @@ local function loadClass(path)
         local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
         return ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
     end)
-    if ok and cls and cls:IsValid() then return cls end
+    if ok and cls and cls:IsValid() then return retainUIClass(path, cls) end
     return nil
 end
 

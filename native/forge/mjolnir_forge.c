@@ -62,6 +62,7 @@
 #include "pack_bindings.h"
 #include "layout_files.h"
 #include "layout_blf.h"
+#include "utility_properties.h"
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
 // Steam's copy and the Xbox app's differ only in the header (docs/game_pass.md).
@@ -172,6 +173,7 @@ enum {
     CMD_ORDER = 1 << 17,
     CMD_ROTATE_LEFT = 1 << 18,
     CMD_ROTATE_RIGHT = 1 << 19,
+    CMD_CHANNEL = 1 << 20,
 };
 
 #define DISTANCE_STEP 0.5f
@@ -260,7 +262,7 @@ typedef struct {
     // cursor), when it belongs to the map variant.
     int budget, spent; // the map variant's budget (0: none) and what is spent
     int props;       // 0: no target, or not a map-variant object
-    int team, order, respawn, mp_type, label;
+    int team, order, respawn, mp_type, label, channel;
     char label_name[64];
     uint8_t raw[PROPS_SIZE_SNAP];
 } snapshot_t;
@@ -1292,6 +1294,9 @@ static void edit_property(uint8_t *tls, int player, uint32_t target, LONG which,
         while (i < n && RESPAWN_TIMES[i] <= block[PROPS_RESPAWN]) i++;
         block[PROPS_RESPAWN] = RESPAWN_TIMES[i % n];
         note("respawn %u s", block[PROPS_RESPAWN]);
+    } else if (which == CMD_CHANNEL) {
+        if (!forge_next_channel(block)) { note("channel needs a teleporter sender or receiver"); return; }
+        note("channel %s", forge_channel_name(block[0x18]));
     } else {
         int8_t order = (int8_t)block[PROPS_ORDER];
         order = order >= MAX_ORDER || order < 0 ? 0 : (int8_t)(order + 1);
@@ -1415,6 +1420,10 @@ static uint32_t place_entry(int player_handle, uint32_t palette, uint32_t entry,
         *why = "the map variant is full";
         return 0xffffffffu;
     }
+    /* The engine seeds the entry from its palette tag before creating the
+       object. New teleporter markers need a non-empty trigger cylinder. */
+    uint8_t *new_props = mv + MV_ENTRY_TABLE + (size_t)index * MV_ENTRY_STRIDE + MV_ENTRY_PROPS;
+    if (!props) forge_teleporter_defaults(new_props);
     uint32_t object = g_mv_create(mv, (uint32_t)index, 1);
     if (object == 0xffffffffu) {
         *why = "the object could not be made";
@@ -1515,7 +1524,7 @@ static void act(uint8_t *tls, int player, LONG commands) {
     // the host's engine would run the grab that faults on one.
     if (is_client(tls)) {
         const LONG host_only = CMD_LOAD | CMD_REVERT | CMD_TEAM | CMD_LABEL | CMD_RESPAWN | CMD_ORDER |
-                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT;
+                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT | CMD_CHANNEL;
         if (commands & host_only) note("only the host can do that in a fireteam Forge game");
         commands &= ~host_only;
         if ((commands & CMD_GRAB) && held == 0xffffffffu && cursor != 0xffffffffu && !has_physics(tls, cursor)) {
@@ -1733,8 +1742,8 @@ static void act(uint8_t *tls, int player, LONG commands) {
             }
         }
     }
-    static const LONG property_commands[] = {CMD_TEAM, CMD_LABEL, CMD_RESPAWN, CMD_ORDER};
-    for (int i = 0; i < 4; i++) {
+    static const LONG property_commands[] = {CMD_TEAM, CMD_LABEL, CMD_RESPAWN, CMD_ORDER, CMD_CHANNEL};
+    for (size_t i = 0; i < sizeof property_commands / sizeof property_commands[0]; i++) {
         if (commands & property_commands[i])
             edit_property(tls, player, target, property_commands[i], g_carry.active ? g_carry.props : NULL);
     }
@@ -1787,6 +1796,7 @@ static void snapshot(uint8_t *tls, int player) {
             s.order = (int8_t)props[PROPS_ORDER];
             s.respawn = props[PROPS_RESPAWN];
             s.mp_type = props[PROPS_TYPE];
+            s.channel = props[0x18];
             s.label = *(int16_t *)(props + PROPS_LABEL);
             label_name(mv, s.label, s.label_name, sizeof s.label_name);
             memcpy(s.raw, props, PROPS_SIZE);
@@ -1929,6 +1939,7 @@ __declspec(dllexport) int mjolnir_forge_team(void *L) { (void)L; return command(
 __declspec(dllexport) int mjolnir_forge_label(void *L) { (void)L; return command(CMD_LABEL); }
 __declspec(dllexport) int mjolnir_forge_respawn(void *L) { (void)L; return command(CMD_RESPAWN); }
 __declspec(dllexport) int mjolnir_forge_order(void *L) { (void)L; return command(CMD_ORDER); }
+__declspec(dllexport) int mjolnir_forge_channel(void *L) { (void)L; return command(CMD_CHANNEL); }
 __declspec(dllexport) int mjolnir_forge_rotate_left(void *L) { (void)L; return command(CMD_ROTATE_LEFT); }
 __declspec(dllexport) int mjolnir_forge_rotate_right(void *L) { (void)L; return command(CMD_ROTATE_RIGHT); }
 
@@ -1981,6 +1992,10 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
         snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",
                  team_name(s.team), s.label < 0 ? "" : s.label_name[0] ? s.label_name : "(unnamed)", s.respawn,
                  s.order, s.mp_type);
+        if (s.mp_type >= 12 && s.mp_type <= 14) {
+            used = strlen(text);
+            snprintf(text + used, sizeof text - used, "channel=%s\n", forge_channel_name((unsigned)s.channel));
+        }
         // The raw block too: the fields not named above (shape, flags, colour).
         used = strlen(text);
         for (int i = 0; i < PROPS_SIZE && used + 3 < sizeof text; i++, used += 2) {

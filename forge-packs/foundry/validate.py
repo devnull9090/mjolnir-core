@@ -60,13 +60,19 @@ def main():
     source = json.loads((ROOT / "source" / "geometry.json").read_text())
     catalog = json.loads((ROOT / "catalog.json").read_text())["forge_pack"]["blocks"]
     assert source["units"] == "meters" and source["axes"] == "right_handed_z_up"
-    assert len(source["pieces"]) == len(catalog) == 18
-    assert len({p["id"] for p in source["pieces"]}) == 18
+    assert len(source["pieces"]) == len(catalog) == 24
+    assert len({p["id"] for p in source["pieces"]}) == 24
     hull_count, triangle_count, bounds = 0, 0, {}
     for piece, block in zip(source["pieces"], catalog):
         ident = piece["id"]
         assert block["id"] == ident and block["dimensions_m"] == piece["dimensions_m"]
         assert block["tag"] == "objects\\mjolnir\\forge\\foundry\\" + ident
+        assert block.get("light") == piece.get("light"), f"Light metadata mismatch: {ident}"
+        if light := piece.get("light"):
+            assert len(light["offset_m"]) == len(light["color_rgb"]) == 3
+            assert all(math.isfinite(v) and abs(v) <= 100 for v in light["offset_m"])
+            assert all(math.isfinite(v) and 0 <= v <= 1 for v in light["color_rgb"])
+            assert 0 < light["intensity_cd"] <= 10000 and 0 < light["radius_m"] <= 100
         vertices = piece["collision"]["vertices"]
         minimum = [min(v[axis] for v in vertices) for axis in range(3)]
         maximum = [max(v[axis] for v in vertices) for axis in range(3)]
@@ -81,7 +87,8 @@ def main():
             assert all(minimum[i]-1e-6 <= p[i] <= maximum[i]+1e-6 for p in component["vertices"] for i in range(3)), f"Visual exceeds snap bounds: {ident}"
         bounds[ident] = (minimum, maximum)
     by_id = {p["id"]: p for p in source["pieces"]}
-    for ident, point in [("doorway", [0,0,1.5]), ("window", [0,0,1.75]), ("bridge_corner", [1,1,0.25])]:
+    for ident, point in [("doorway", [0,0,1.5]), ("window", [0,0,1.75]), ("bridge_corner", [1,1,0.25]),
+                         ("portal_frame", [0,0,1.5]), ("light_pylon", [0.4,0,1.5])]:
         assert not any(inside_hull(point, h) for h in by_id[ident]["collision"]["hulls"]), f"Blocked opening: {ident}"
     # Paired floors and stacked blocks must meet exactly on the 0.5 m grid.
     assert bounds["floor_1x1"][1][0] == -bounds["floor_1x1"][0][0] == 1
@@ -91,7 +98,14 @@ def main():
         assert inside_hull([0,run/2,2], hull)
         assert inside_hull([0,0,1], hull)
         assert not inside_hull([0,0,1.01], hull)
-    print(f"PASS: 18 pieces; {hull_count} closed convex collision hulls; {triangle_count} outward triangles; exact bounds, origins, apertures and ramp seams")
+    # A receiver centred above the pad has >0.7 m lateral safety clearance
+    # around the approximately 0.53 m radius player, and 3 m headroom.
+    for x in (-0.75, 0, 0.75):
+        for y in (-0.5, 0, 0.5):
+            for z in (0.55, 1.5, 3.2):
+                assert not any(inside_hull([x,y,z], h) for h in by_id["portal_frame"]["collision"]["hulls"])
+    assert bounds["teleporter_pad"][1][2] == bounds["floor_1x1"][1][2] == 0.5
+    print(f"PASS: {len(catalog)} pieces; {hull_count} closed convex collision hulls; {triangle_count} outward triangles; exact bounds, origins, apertures and ramp seams")
 
 
 if __name__ == "__main__":

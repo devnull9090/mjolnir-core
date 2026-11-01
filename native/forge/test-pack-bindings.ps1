@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $objDir = Join-Path $here "obj\pack-bindings-test"
 New-Item -ItemType Directory -Force $objDir | Out-Null
-foreach ($name in @("test_pack_bindings", "test_layout_files", "test_layout_blf")) {
+foreach ($name in @("test_pack_bindings", "test_layout_files", "test_layout_blf", "test_utility_properties")) {
 $src = Join-Path $here "$name.c"
 $exe = Join-Path $objDir "$name.exe"
 $compile = "cl /nologo /std:c11 /O2 /W4 /WX /MD `"$src`" /Fo`"$objDir\\`" /Fe:`"$exe`" /link /NOLOGO /Brepro"

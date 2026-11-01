@@ -81,4 +81,7 @@ eq(Hud.layoutWarning("BGL: own layout, saved one refused: needs foundry 1.0.0; r
     "SAVED FORGE LAYOUT NOT LOADED\nneeds foundry 1.0.0; restart through the launcher\nPlaying the map's original layout.")
 eq(Hud.layoutWarning("BGL: saved layout, 4 objects"), nil)
 eq(Hud.layoutWarning("BGL: the map's own layout"), nil)
+eq(Hud.properties({ team = "neutral", channel = "alpha" }), "  ·  CHANNEL ALPHA")
+eq(Hud.properties({ team = "red", channel = "31" }), "  ·  RED  ·  CHANNEL 31")
+eq(Hud.notice("channel bravo", "Teleporter"), "TELEPORTER CHANNEL  BRAVO")
 print("Forge pack labels: " .. checks .. " checks passed")

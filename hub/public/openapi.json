@@ -1048,6 +1048,9 @@
           "snap_m": {
             "type": "number",
             "exclusiveMinimum": 0
+          },
+          "light": {
+            "$ref": "#/components/schemas/ForgeLight"
           }
         },
         "required": [
@@ -1057,6 +1060,71 @@
           "category",
           "dimensions_m"
         ]
+      },
+      "ForgeLight": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "offset_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              }
+            ]
+          },
+          "color_rgb": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            ]
+          },
+          "intensity_cd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "offset_m",
+          "color_rgb",
+          "intensity_cd",
+          "radius_m"
+        ],
+        "additionalProperties": false
       },
       "MediaList": {
         "type": "object",

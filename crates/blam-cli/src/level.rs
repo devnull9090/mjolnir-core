@@ -190,6 +190,9 @@ pub fn run(a: LevelArgs) -> Result<()> {
 #[allow(dead_code)] // several fields exist so files carrying them deserialize
 pub struct LevelFile {
     pub schema_version: u32,
+    /// Runtime kill plane in Unreal centimetres; the level loader enforces it.
+    #[serde(default)]
+    pub kill_floor: Option<f64>,
     pub name: String,
     #[serde(default)]
     pub title: Option<String>,
@@ -303,6 +306,10 @@ pub struct BlamSection {
     /// in the scenario and never depends on a player's installed pack order.
     #[serde(default)]
     pub forge_packs: Vec<ForgePackRef>,
+    /// Existing runtime utility objects available to Forge without placing
+    /// hidden instances in the starting layout (spawns and teleporters).
+    #[serde(default)]
+    pub forge_objects: Vec<ForgeObjectRef>,
     /// Load only these structure BSPs (scenario indices) in the starting zone
     /// set. A standalone map built on its own BSP needs none of the canvas
     /// mission's others, and any that stay active claim their own space:
@@ -586,6 +593,37 @@ pub struct ForgeBlockRef {
     pub tag: String,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeObjectRef {
+    pub group: String,
+    pub tag: String,
+}
+
+impl ForgeObjectRef {
+    fn fourcc(&self) -> &'static str {
+        if self.group == "scenery" { "scen" } else { "bloc" }
+    }
+}
+
+fn validate_forge_objects(objects: &[ForgeObjectRef]) -> Result<()> {
+    if objects.len() > 64 { bail!("forge_objects permits at most 64 utility references"); }
+    let mut seen = std::collections::BTreeSet::new();
+    for object in objects {
+        if !matches!(object.group.as_str(), "scenery" | "crates")
+            || !object.tag.starts_with("objects\\") || object.tag.len() >= 224
+            || object.tag.split('\\').any(|part| part.is_empty() || !part.bytes().all(|b|
+                b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-'))
+            || !seen.insert((&object.group, &object.tag)) {
+            bail!("invalid or duplicate Forge utility {}:{}", object.group, object.tag);
+        }
+        if object.tag.starts_with("objects\\mjolnir\\forge\\") {
+            bail!("custom Forge pieces belong in forge_packs with an exact dependency version");
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_forge_packs(packs: &[ForgePackRef]) -> Result<()> {
     // Map archives already depend on the CE runtime; the launcher accepts 64
     // archive dependencies total, including the packs below.
@@ -674,8 +712,12 @@ const SCENARIOS: [&str; 13] = [
 fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     let mut notes = Vec::new();
     validate_forge_packs(&level.blam.forge_packs)?;
-    if !level.blam.forge_packs.is_empty() && !level.blam.map_variant {
-        bail!("forge_packs requires blam.map_variant=true");
+    validate_forge_objects(&level.blam.forge_objects)?;
+    if (!level.blam.forge_packs.is_empty() || !level.blam.forge_objects.is_empty()) && !level.blam.map_variant {
+        bail!("forge_packs and forge_objects require blam.map_variant=true");
+    }
+    if level.kill_floor.is_some_and(|z| !z.is_finite()) {
+        bail!("kill_floor must be finite Unreal centimetres");
     }
     let scen = level.canvas.scenario.to_uppercase();
     if !SCENARIOS.contains(&scen.as_str()) {
@@ -2385,7 +2427,7 @@ fn bake(a: BakeArgs) -> Result<()> {
     for note in validate_level(&level)? {
         println!("note: {note}");
     }
-    if !level.blam.forge_packs.is_empty() && a.standalone.is_none() {
+    if (!level.blam.forge_packs.is_empty() || !level.blam.forge_objects.is_empty()) && a.standalone.is_none() {
         bail!("Forge pack palettes require --standalone so their package preloads are registered");
     }
     let map = palette_map()?;
@@ -2479,6 +2521,10 @@ fn bake(a: BakeArgs) -> Result<()> {
         }
         let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
         for o in &level.blam.objects {
+            if level.blam.forge_packs.iter().flat_map(|p| &p.blocks).any(|b| b.tag == o.tag)
+                || level.blam.forge_objects.iter().any(|u| u.tag == o.tag && u.group == o.group) {
+                continue; // retain the declared palette order even when pieces are preplaced
+            }
             let group = if o.group == "scenery" { "scen" } else { "bloc" };
             *tags
                 .entry((format!("{group}:{}", o.tag), String::new()))
@@ -2496,9 +2542,15 @@ fn bake(a: BakeArgs) -> Result<()> {
         // Keep every custom reference in one extra palette: the engine has
         // only four bits for the palette number. Author order is deliberate.
         let custom: Vec<_> = level.blam.forge_packs.iter().flat_map(|pack| {
-            pack.blocks.iter().map(|block| ((format!("bloc:{}", block.tag), String::new()), 0))
+            pack.blocks.iter().map(|block| ((format!("bloc:{}", block.tag), String::new()),
+                level.blam.objects.iter().filter(|o| o.tag == block.tag && o.group == "crates").count()))
         }).collect();
         palettes.push(("forge packs", custom));
+        let utilities = level.blam.forge_objects.iter().map(|object| {
+            ((format!("{}:{}", object.fourcc(), object.tag), String::new()),
+                level.blam.objects.iter().filter(|o| o.tag == object.tag && o.group == object.group).count())
+        }).collect();
+        palettes.push(("utilities", utilities));
         let mut kinds: BTreeMap<String, String> = [&map.weapons, &map.vehicles, &map.equipment]
             .into_iter()
             .flat_map(|t| t.iter().map(|(k, p)| (p.clone(), k.clone())))
@@ -2838,11 +2890,16 @@ fn bake(a: BakeArgs) -> Result<()> {
             original.len(),
             file.len(),
         )?;
-        if !level.blam.forge_packs.is_empty() {
+        if !level.blam.forge_packs.is_empty() || !level.blam.forge_objects.is_empty() {
             let resolve = crate::newtag::body_ref_resolver(&idx, &a.src.oodle_roots())?;
-            let targets = forge_preload_targets(&level.blam.forge_packs, resolve)?;
+            let mut targets = forge_preload_targets(&level.blam.forge_packs, &resolve)?;
+            for object in &level.blam.forge_objects {
+                targets.push(resolve(object.fourcc(), &object.tag).with_context(|| format!(
+                    "Forge utility {} is unavailable; include its runtime containers in the bake input Paks", object.tag
+                ))?);
+            }
             uasset = append_forge_preloads(&uasset, &targets, crate::embedded_usmap()?)?;
-            println!("  forge    {} custom crate package preloads", targets.len());
+            println!("  forge    {} custom and utility package preloads", targets.len());
         }
         // The container store and wrapper must agree on these indices. Keep
         // FName numbers: hashing the stored base alone addresses another asset.
@@ -3545,6 +3602,96 @@ fn append_forge_preloads(data: &[u8], targets: &[String], usmap: &ue_asset::Usma
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utility_palette_refs_reject_aliases_traversal_duplicates_and_unpinned_packs() {
+        let sender = ForgeObjectRef { group: "scenery".into(), tag: "objects\\multi\\teleporters\\teleporter_sender".into() };
+        validate_forge_objects(std::slice::from_ref(&sender)).unwrap();
+        assert_eq!(sender.fourcc(), "scen");
+        let crate_ref = ForgeObjectRef { group: "crates".into(), tag: "objects\\props\\crate-test".into() };
+        validate_forge_objects(std::slice::from_ref(&crate_ref)).unwrap();
+        assert_eq!(crate_ref.fourcc(), "bloc");
+        for (group, tag) in [
+            ("machines", sender.tag.as_str()), ("scen", sender.tag.as_str()),
+            ("scenery", "objects\\..\\teleporter"), ("scenery", "objects\\multi\\"),
+            ("scenery", "objects\\multi\\\\teleporter"), ("scenery", "objects/multi/teleporter"),
+            ("scenery", "Objects\\multi\\teleporter"), ("scenery", "objects\\multi\\Teleporter"),
+            ("crates", "objects\\mjolnir\\forge\\foundry\\light_pylon"),
+        ] {
+            let bad = ForgeObjectRef { group: group.into(), tag: tag.into() };
+            assert!(validate_forge_objects(&[bad]).is_err(), "{group}:{tag}");
+        }
+        assert!(validate_forge_objects(&[sender.clone(), sender]).is_err());
+        let many: Vec<_> = (0..65).map(|i| ForgeObjectRef {
+            group: "scenery".into(), tag: format!("objects\\utility\\marker_{i}"),
+        }).collect();
+        validate_forge_objects(&many[..64]).unwrap();
+        assert!(validate_forge_objects(&many).unwrap_err().to_string().contains("64 utility"));
+        let long = ForgeObjectRef { group: "scenery".into(), tag: format!("objects\\{}", "x".repeat(216)) };
+        assert!(validate_forge_objects(&[long]).is_err());
+        assert!(serde_json::from_value::<ForgeObjectRef>(serde_json::json!({
+            "group":"scenery", "tag":"objects\\multi\\marker", "script":"ignored?"
+        })).is_err());
+    }
+
+    #[test]
+    fn utility_palettes_need_map_variants_and_kill_floor_is_finite_runtime_centimetres() {
+        let mut level: LevelFile = serde_json::from_value(serde_json::json!({
+            "schema_version":1, "name":"forge_test", "canvas":{"scenario":"A30", "origin":[0,0,0]},
+            "kill_floor":-600,
+            "blam":{"map_variant":true,"forge_objects":[{
+                "group":"scenery","tag":"objects\\multi\\teleporters\\teleporter_sender"
+            }]}
+        })).unwrap();
+        validate_level(&level).unwrap();
+        assert_eq!(level.kill_floor, Some(-600.0));
+        level.blam.map_variant = false;
+        assert!(validate_level(&level).unwrap_err().to_string().contains("map_variant=true"));
+        level.blam.map_variant = true;
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            level.kill_floor = Some(bad);
+            assert!(validate_level(&level).unwrap_err().to_string().contains("kill_floor"));
+        }
+        for floor in [None, Some(0.0), Some(-10000.0), Some(1234.5)] {
+            level.kill_floor = floor;
+            validate_level(&level).unwrap();
+        }
+    }
+
+    #[test]
+    fn palette_limit_counts_utilities_and_packs_before_editing_the_scenario() {
+        let entry = (("scen:objects\\multi\\marker".to_string(), String::new()), 0);
+        let palettes = vec![("standard", vec![entry.clone(); 32]), ("packs", vec![entry.clone(); 200]),
+                            ("utilities", vec![entry; 24])];
+        let mut baker = Baker { file: vec![0x42], origin: [0.0;3], next_unique: 0,
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![] };
+        let error = baker.map_variant_palettes(&palettes, &ForgeLimits::default(), &BTreeMap::new()).unwrap_err();
+        assert!(error.to_string().contains("256 map variant palette entries"));
+        assert_eq!(baker.file, vec![0x42]); // refuse before touching the donor
+    }
+
+    #[test]
+    fn utility_preloads_are_retained_once_and_include_all_three_teleporter_types() {
+        use ue_asset::{package::ZenPackage, tagwrap::{self, ImportTarget, WrapperSpec}};
+        let usmap = crate::embedded_usmap().unwrap();
+        let sender = "/Game/Tags/objects/multi/teleporters/teleporter_sender-scenery";
+        let donor = tagwrap::build(&WrapperSpec {
+            group: "scenario".into(), package_path: "/Game/Tags/levels/FCL/FCL-scenario".into(),
+            ubulk_len: 64, cooked_refs: vec![ImportTarget::asset(sender)], ..Default::default()
+        }, usmap).unwrap();
+        let targets = vec![sender.into(), sender.into(),
+            "/Game/Tags/objects/multi/teleporters/teleporter_receiver-scenery".into(),
+            "/Game/Tags/objects/multi/teleporters/teleporter_2way-scenery".into()];
+        let out = append_forge_preloads(&donor.write(), &targets, usmap).unwrap();
+        let package = ZenPackage::parse(&out).unwrap();
+        let read = tagwrap::read(&package, usmap).unwrap();
+        assert_eq!(read.spec.cooked_refs.len(), 3);
+        for target in targets {
+            let target = ImportTarget::asset(&target);
+            assert_eq!(read.spec.cooked_refs.iter().filter(|r| **r == target).count(), 1);
+            assert!(read.dependencies.contains(&target));
+        }
+    }
 
     #[test]
     fn forge_preloads_preserve_donor_and_bind_new_package_store_indices() {

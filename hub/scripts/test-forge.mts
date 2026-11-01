@@ -87,6 +87,21 @@ test("map archives reference packs through dependencies instead of claiming a pa
   assert.equal(valid.deps[0].range, "=1.0.0");
 });
 
+test("light metadata is bounded data, survives scanning and accepts older packs", () => {
+  const light = { offset_m: [0, -0.35, 3.1], color_rgb: [1, 0.05, 0.03], intensity_cd: 70, radius_m: 8 };
+  const lit = { ...manifest, forge_pack: { ...pack, blocks: [{ ...block, light }] } };
+  assert.deepEqual(scanArchive(archive(lit)).manifest?.forge_pack?.blocks[0].light, light);
+  assert.equal(ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, light: null }] }).success, true);
+  for (const invalid of [
+    { ...light, offset_m: [0, 101, 0] }, { ...light, offset_m: [0, 0] },
+    { ...light, color_rgb: [1, -0.1, 0] }, { ...light, color_rgb: [1, 1.1, 0] },
+    { ...light, intensity_cd: 0 }, { ...light, intensity_cd: 10001 },
+    { ...light, radius_m: 0 }, { ...light, radius_m: 101 },
+    { ...light, radius_m: Infinity }, { ...light, offset_m: [NaN, 0, 0] },
+    { ...light, script: "anything" }, {},
+  ]) assert.equal(ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, light: invalid }] }).success, false);
+});
+
 test("pack metadata does not permit source scripts or an archive with no installed container", () => {
   const bad = scanArchive(zipSync({ "mjolnir.json": json(manifest), "forge/generator.py": json("script") }));
   assert.equal(bad.verdict, "fail");

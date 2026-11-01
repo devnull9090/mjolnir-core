@@ -50,6 +50,10 @@ local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
+local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
+    "WBP_MJOLNIRLobby", "WBP_MJOLNIRMapSelect", "WBP_MJOLNIRFindGames", "WBP_MJOLNIRGameSettings",
+    "WBP_MJOLNIRMapDownload", "WBP_MJOLNIRGameTypeSelect", "WBP_MJOLNIRPostGame",
+}, log)
 Presence.init({ modDir = MOD_DIR, json = Json, log = log })
 
 local HELPERS = "/Game/UI/Frontend/CampaignMenu/Data/BPFL_CampaignMenuHelpers.Default__BPFL_CampaignMenuHelpers_C"
@@ -594,7 +598,7 @@ local function loadClass(path)
         local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
         return ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
     end)
-    if ok and UI.valid(cls) then return cls end
+    if ok and UI.valid(cls) then return retainUIClass(path, cls) end
     return nil
 end
 

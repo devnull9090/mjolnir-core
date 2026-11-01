@@ -255,6 +255,7 @@ function Hud.properties(s)
     local parts = {}
     if s.team ~= "neutral" then parts[#parts + 1] = string.upper(s.team) end
     if s.label and s.label ~= "" then parts[#parts + 1] = s.label end
+    if s.channel then parts[#parts + 1] = "CHANNEL " .. string.upper(s.channel) end
     if #parts == 0 then return "" end
     return "  ·  " .. table.concat(parts, "  ·  ")
 end
@@ -290,6 +291,8 @@ local function build()
         ctx.log("HUD: " .. CLASS .. " is not installed (pakchunk980-MJOLNIRFORGEUI); the text panel stands in")
         return nil
     end
+    cls = ctx.retainClass(CLASS, cls)
+    if not cls then return nil end
     local ok, w = pcall(function()
         local wbl = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
         local created = wbl:Create(pc, cls, pc)
@@ -428,6 +431,8 @@ function Hud.notice(last, name)
     if facing then return "FACING  " .. facing .. "°", ACCENT end
     local order = last:match("^spawn order (%-?%d+)$")
     if order then return "SPAWN ORDER  " .. order, ACCENT end
+    local channel = last:match("^channel ([%w]+)$")
+    if channel then return "TELEPORTER CHANNEL  " .. string.upper(channel), ACCENT end
     if last == "this map has no Forge palette" then return "This map has no Forge palette", GOLD end
     if last:find("palette") then return "This map has no Forge palette entry for that yet", GOLD end
     return string.upper(last), GOLD
@@ -503,7 +508,7 @@ local function drawPalette(palette, row, keys, editing, budgetOf)
     setVisible(panel, true)
 end
 
---- deps: { log, pc }.
+--- deps: { log, pc, retainClass }.
 function Hud.init(deps)
     ctx = deps
 end
@@ -578,7 +583,8 @@ function Hud.render(s, keys, mapTitle, palette, choice)
             { key = Hud.keyLabel(keys.grab), act = holding and "DROP" or "PICK UP", on = holding or aiming },
             { key = Hud.keyLabel(keys.duplicate), act = "DUPLICATE", on = aiming or holding },
             { key = Hud.keyLabel(keys.delete), act = "DELETE", on = aiming or holding },
-            { key = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer), act = "DISTANCE", on = holding },
+            s.channel and { key = Hud.keyLabel(keys.channel), act = "CHANNEL", on = holding or aiming }
+                or { key = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer), act = "DISTANCE", on = holding },
             { key = Hud.keyLabel(keys.place), act = "PLACE", on = choice ~= nil and choice.placeable },
         })
     else

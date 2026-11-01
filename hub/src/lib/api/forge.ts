@@ -16,6 +16,13 @@ export const ForgeReleaseVersionSchema = z.string().max(96).regex(FORGE_VERSION)
     && (!parts[4] || parts[4].split(".").every((part) => !/^\d+$/.test(part) || part === "0" || part[0] !== "0"));
 }, { message: "Forge versions require exact SemVer with u64 components and no leading-zero numeric prerelease identifiers." });
 
+export const ForgeLightSchema = z.object({
+  offset_m: z.tuple([z.number().min(-100).max(100), z.number().min(-100).max(100), z.number().min(-100).max(100)]),
+  color_rgb: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)]),
+  intensity_cd: z.number().positive().max(10_000),
+  radius_m: z.number().positive().max(100),
+}).strict().openapi("ForgeLight");
+
 export const ForgeBlockSchema = z.object({
   id: z.string().regex(BLOCK_ID),
   name: z.string().trim().min(1).max(80),
@@ -23,6 +30,7 @@ export const ForgeBlockSchema = z.object({
   category: z.string().regex(BLOCK_ID),
   dimensions_m: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]),
   snap_m: z.number().positive().optional(),
+  light: ForgeLightSchema.nullish(),
 }).openapi("ForgeBlock");
 
 export const ForgePackSchema = z.object({

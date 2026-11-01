@@ -78,6 +78,7 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **L** | Megalo label of the target (the map's labels in turn, then none) |
 | **J** | Respawn time of the target: 0, 5, 10, 15, 30, 45, 60, 90, 120, 180 s |
 | **O** | Spawn order of the target: 0 to 9 |
+| **P** | Teleporter channel of the target: alpha through zulu, then 26–31 |
 | **, / .** | Turn what you hold or carry, or the next marker you place, 22.5° left / right |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
@@ -86,7 +87,7 @@ flies up.
 To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
 lines like `grab=F7` (actions `toggle`, `grab`, `duplicate`, `delete`,
 `nearer`, `farther`, `place`, `prev_category`, `next_category`, `prev_item`,
-`next_item`, `save`, `load`, `revert`, `team`, `label`, `respawn`, `order`,
+`next_item`, `save`, `load`, `revert`, `team`, `label`, `respawn`, `order`, `channel`,
 `rotate_left`, `rotate_right`; key names as UE4SS spells them, such as `PAGE_UP` or
 `LEFT_ARROW`).
 The defaults are keys the game does not use. G, C, Z and X are taken.
@@ -104,8 +105,8 @@ and quotas*).
 
 Maps baked from 2026-11-01 also have a **blocks** palette: a Covenant crate
 and the Covenant portable shield, the only shipped pieces that are already
-Forge-ready. More blocks, ported or modelled, are planned as hub packs:
-[forge_blocks.md](forge_blocks.md).
+Forge-ready. Maps can also include original namespaced model sets such as
+Foundry through [Forge packs](forge_packs.md).
 
 ## Object properties
 
@@ -137,6 +138,35 @@ weapon. Forge handles them its own way:
 A flag stand made this way works in CTF: on Blood Gulch, a red stand placed,
 labelled `ctf_flag_return`, saved, and the map then hosted as CTF got the red
 flag.
+
+### Teleporters
+
+The scenery palette can include **Teleporter Sender**, **Teleporter Receiver**
+and **Teleporter 2-Way**. Place an entrance and exit with the same channel;
+**P** changes the targeted marker's channel, shown on its target card. The
+game's simulation handles travel, including the receiver's facing. Use different
+channels for separate routes. A two-way pair uses the same channel at both ends.
+
+New Insert placements start on alpha with a player-only cylinder about 1.07 m
+in radius, 1.83 m above and 0.30 m below the marker. Moving, duplicating and
+saving preserves the marker's channel and trigger dimensions. Keep the receiver
+clear of walls and leave room for the Spartan. The engine supports 32 endpoints
+in total, including both ends of each route. Foundry's portal frames and pads
+are visible architecture; place functional teleporter markers separately.
+
+### Pack lights
+
+Foundry's light strip and warm/red/blue pylons have optional catalog light data.
+MJOLNIRForge attaches a movable point light to each active piece's actor, so
+light follows placement and rotation and is removed when the piece disappears.
+This also runs in ordinary game modes and when a saved layout starts a match.
+The first 64 active lights receive illumination; additional fixtures still
+render. Lights currently cast no shadows. Colors and brightness are properties
+of the piece's catalog, so use the red or blue variant for team bases.
+
+These utility additions have automated coverage; the
+[validation record](forge_pack_validation.md) distinguishes live game evidence
+from checks still awaiting a playtest.
 
 ## With your fireteam
 
