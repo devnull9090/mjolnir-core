@@ -135,6 +135,10 @@ pub fn read_pack(manifest: &serde_json::Value, slug: &str) -> Result<Option<Forg
     if manifest["type"] != "content" {
         return Err("Only content archives may carry forge_pack".into());
     }
+    let version = manifest["version"].as_str().ok_or("Forge pack version is missing")?;
+    if version.len() > 96 || !semver::Version::parse(version).is_ok_and(|v| v.build.is_empty()) {
+        return Err("Forge pack version must be exact SemVer without build metadata, at most 96 bytes".into());
+    }
     let pack: ForgePack =
         serde_json::from_value(value.clone()).map_err(|e| format!("Invalid Forge pack: {e}"))?;
     pack.validate(slug)?;
@@ -242,7 +246,7 @@ mod tests {
 
     #[test]
     fn pack_tags_stay_in_the_authors_namespace() {
-        let manifest = serde_json::json!({"type":"content", "forge_pack":{
+        let manifest = serde_json::json!({"type":"content", "version":"1.0.0", "forge_pack":{
             "schema_version":1,"id":"alloy","blocks":[{
                 "id":"block_2m","name":"Block","category":"blocks",
                 "tag":"objects\\mjolnir\\forge\\alloy\\block_2m",
@@ -251,6 +255,14 @@ mod tests {
         }});
         assert!(read_pack(&manifest, "alloy").unwrap().is_some());
         assert!(read_pack(&manifest, "another").is_err());
+        for version in ["1.0.0+build", "01.0.0", "1.0.0-01", "18446744073709551616.0.0", "1.0.0-"] {
+            let mut bad = manifest.clone();
+            bad["version"] = version.into();
+            assert!(read_pack(&bad, "alloy").is_err(), "{version}");
+        }
+        let mut long = manifest.clone();
+        long["version"] = format!("1.0.0-{}", "a".repeat(91)).into();
+        assert!(read_pack(&long, "alloy").is_err());
         for path in [
             "objects\\weapons\\pistol",
             "objects\\mjolnir\\forge\\other\\block_2m",

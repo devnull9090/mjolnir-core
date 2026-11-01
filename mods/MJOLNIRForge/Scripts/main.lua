@@ -54,6 +54,8 @@ local STATE = MOD .. "native\\forge_state.txt"
 local PALETTE = MOD .. "native\\forge_palette.txt"
 local STATUS = MOD .. "native\\status.txt"
 local KEYS_FILE = MOD .. "keys.txt"
+local PACK_INVENTORY = MOD .. "..\\..\\MJOLNIRForgePacks\\installed.json"
+local Hud
 
 local POLL_MS = 100
 
@@ -116,10 +118,10 @@ local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
 end
 
-local function readFile(path)
+local function readFile(path, limit)
     local f = io.open(path, "rb")
     if not f then return nil end
-    local text = f:read("a")
+    local text = f:read(limit or "a")
     f:close()
     return text
 end
@@ -278,19 +280,7 @@ end
 
 -- forge_palette.txt: one row per palette entry, in the DLL's order.
 local function parsePalette(text)
-    local rows = {}
-    for line in (text or ""):gmatch("[^\r\n]+") do
-        -- palette, entry, group, tag, placeable; then (DLL 0.3.0) placed,
-        -- maximum (0: no quota) and price.
-        local p, e, group, tag, ok, rest = line:match("^(%d+)\t(%d+)\t([^\t]*)\t([^\t]*)\t(%d)(.*)$")
-        if p then
-            local placed, maximum, price = rest:match("^\t(%-?%d+)\t(%-?%d+)\t(%-?%d+)")
-            rows[#rows + 1] = { palette = tonumber(p), entry = tonumber(e), group = group, tag = tag,
-                placeable = ok == "1", placed = tonumber(placed) or 0, maximum = tonumber(maximum) or 0,
-                price = tonumber(price) or 0 }
-        end
-    end
-    return rows
+    return Hud.parsePalette(text)
 end
 
 -- The selected row of `palette` (rows from parsePalette) for state `s`.
@@ -314,9 +304,9 @@ local function describe(s, keys, palette)
     local lines = { "FORGE" .. (s.editing == "1" and " - MONITOR" or ""), table.concat(hint, "   ") }
     if s.editing == "1" then
         if s.held ~= "ffffffff" then
-            lines[#lines + 1] = string.format("Holding: %s  (%s m)", s.held_tag ~= "" and s.held_tag or "object", s.distance or "?")
+            lines[#lines + 1] = string.format("Holding: %s  (%s m)", Hud.prettyName(s.held_tag, s.held_path), s.distance or "?")
         elseif s.cursor ~= "ffffffff" then
-            lines[#lines + 1] = "Aiming at: " .. (s.cursor_tag ~= "" and s.cursor_tag or "object")
+            lines[#lines + 1] = "Aiming at: " .. Hud.prettyName(s.cursor_tag, s.cursor_path)
         else
             lines[#lines + 1] = "Aiming at: nothing"
         end
@@ -327,7 +317,7 @@ local function describe(s, keys, palette)
         local row = selectedRow(s, palette)
         if row then
             lines[#lines + 1] = string.format("Palette: %s%s%s  [%s/%s] object  [%s/%s] category",
-                row.tag, row.maximum > 0 and string.format(" %d/%d", row.placed, row.maximum) or "",
+                Hud.paletteCategory(row) .. " · " .. Hud.paletteName(row), row.maximum > 0 and string.format(" %d/%d", row.placed, row.maximum) or "",
                 row.placeable and "" or " (cannot place)", keys.prev_item, keys.next_item,
                 keys.prev_category, keys.next_category)
         end
@@ -352,7 +342,7 @@ end
 
 -- The HUD (Scripts/hud.lua, WBP_MJOLNIRForge), with the text panel above as
 -- its stand-in when the HUD's container is not installed.
-local Hud = dofile(MOD .. "Scripts\\hud.lua")
+Hud = dofile(MOD .. "Scripts\\hud.lua")
 Hud.init({
     log = log,
     pc = function()
@@ -360,6 +350,25 @@ Hud.init({
         return (ok and pc and pc:IsValid()) and pc or nil
     end,
 })
+
+-- Reuse the level loader's data-only JSON parser; a missing/corrupt inventory
+-- simply leaves ordinary tag-derived labels. Never execute catalog contents.
+local jsonOk, Json = pcall(dofile, MOD .. "..\\MJOLNIRLevelLoader\\Scripts\\json.lua")
+local lastPackInventory = false
+local function refreshPackInventory()
+    local raw = readFile(PACK_INVENTORY, 4 * 1024 * 1024 + 1)
+    if raw == lastPackInventory then return end
+    lastPackInventory = raw
+    if not raw then Hud.setPackInventory(nil); return end
+    if not jsonOk or type(Json) ~= "table" or type(Json.decode) ~= "function" or #raw > 4 * 1024 * 1024 then
+        Hud.setPackInventory(nil)
+        return
+    end
+    local ok, inventory = pcall(Json.decode, raw)
+    Hud.setPackInventory(ok and inventory or nil)
+    if not ok then log("Forge pack labels unavailable: invalid installed.json") end
+end
+refreshPackInventory()
 
 -- The map's title, from MJOLNIRLevelLoader's running.txt ("CODE\tforge\tTitle").
 local function mapTitle()
@@ -370,12 +379,29 @@ local function mapTitle()
 end
 
 -- Game thread only.
+local lastLayoutNotice, layoutWarning = nil, nil
+local warningGeneration = 0
 local function render(s, title, palette)
-    if Hud.render(s, keys, title, palette, selectedRow(s, palette)) then
-        showPanel(nil)
-    else
-        showPanel(describe(s, keys, palette))
+    local identity = s.layout_id or s.layout
+    if identity ~= lastLayoutNotice then
+        lastLayoutNotice = identity
+        layoutWarning = Hud.layoutWarning(s.layout)
+        warningGeneration = warningGeneration + 1
+        if layoutWarning then
+            local generation = warningGeneration
+            log(layoutWarning:gsub("\n", "; "))
+            -- The existing text panel also works outside Forge, where the
+            -- Forge widget is hidden. Show each startup refusal once.
+            ExecuteInGameThreadWithDelay(10000, function()
+                if warningGeneration == generation then
+                    layoutWarning = nil
+                    showPanel(nil)
+                end
+            end)
+        end
     end
+    local drawn = Hud.render(s, keys, title, palette, selectedRow(s, palette))
+    showPanel(layoutWarning or (not drawn and describe(s, keys, palette) or nil))
 end
 
 local lastStatus = nil
@@ -401,6 +427,7 @@ ExecuteInGameThreadWithDelay(5000, function()
             local title = s.forge == "1" and mapTitle() or ""
             if s.palette_version and s.palette_version ~= paletteVersion then
                 paletteVersion = s.palette_version
+                refreshPackInventory()
                 palette = parsePalette(readFile(PALETTE))
             end
             local rows = palette

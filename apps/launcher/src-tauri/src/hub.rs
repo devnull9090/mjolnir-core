@@ -549,6 +549,9 @@ fn forge_inventory(state: &HubState) -> Result<serde_json::Value, String> {
             if !tags.insert(&block.tag) {
                 return Err(format!("Two enabled Forge packs claim {}", block.tag));
             }
+            if tags.len() > 4096 {
+                return Err("Enabled Forge packs exceed the supported total of 4096 blocks. Disable unused packs in this profile.".into());
+            }
         }
         packs.push(serde_json::json!({
             "slug": inst.slug, "name": inst.name, "version": inst.version,
@@ -594,6 +597,9 @@ fn saved_layout_pins(paks: &Path) -> Result<Vec<forge_packs::LayoutPin>, String>
     for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         if !entry.file_name().to_string_lossy().ends_with(".mvar.packs") { continue }
+        // A deleted/moved layout leaves no dependency to resolve. In
+        // particular, an orphan sidecar must not pin an old pack forever.
+        if !entry.path().with_extension("").is_file() { continue }
         count += 1;
         let meta = entry.metadata().map_err(|e| e.to_string())?;
         total += meta.len();
@@ -3698,6 +3704,47 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn forge_inventory_cannot_exceed_the_native_reader_capacity() {
+        let mut state = HubState::default();
+        let template = forge_test_state().installed.remove(0);
+        for p in 0..17 {
+            let mut pack = template.clone();
+            pack.slug = format!("pack-{p}");
+            let catalog = pack.forge_pack.as_mut().unwrap();
+            catalog.id = pack.slug.clone();
+            let block = catalog.blocks[0].clone();
+            catalog.blocks = (0..256).map(|b| {
+                let mut block = block.clone();
+                block.id = format!("block-{b}");
+                block.tag = format!("objects\\mjolnir\\forge\\{}\\{}", pack.slug, block.id);
+                block
+            }).collect();
+            state.profiles[0].entries.push(ProfileEntry { slug: pack.slug.clone(), enabled: true });
+            state.installed.push(pack);
+            if p == 15 { assert!(forge_inventory(&state).is_ok(), "4096 is supported") }
+        }
+        assert!(forge_inventory(&state).unwrap_err().contains("4096"));
+    }
+
+    #[test]
+    fn saved_layout_pins_ignore_orphans_and_history() {
+        let root = std::env::temp_dir().join(format!("mjolnir-forge-sidecars-{}", std::process::id()));
+        let paks = root.join("Meteorite/Content/Paks");
+        let dir = root.join("Meteorite/Binaries/Win64/ue4ss/Mods/MJOLNIRForge/layouts");
+        fs::create_dir_all(dir.join("history")).unwrap();
+        fs::write(dir.join("OLD.mvar.packs"), b"obsolete invalid sidecar").unwrap();
+        fs::write(dir.join("history/OLD.mvar"), b"old layout").unwrap();
+        fs::write(dir.join("history/OLD.mvar.packs"), b"obsolete invalid sidecar").unwrap();
+        assert!(saved_layout_pins(&paks).unwrap().is_empty());
+        fs::write(dir.join("NEW.mvar"), b"active layout").unwrap();
+        fs::write(dir.join("NEW.mvar.packs"), format!("forge-packs 1\n0\tobjects\\mjolnir\\forge\\alloy\\block\talloy\t1.0.0\t{}\n", "a".repeat(64))).unwrap();
+        let pins = saved_layout_pins(&paks).unwrap();
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].slug, "alloy");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     /// Run the real HTTP/archive/cache path in a subprocess so environment
     /// overrides cannot redirect another parallel test or touch user state.
     #[test]
@@ -3752,6 +3799,10 @@ mod tests {
                     std::thread::sleep(std::time::Duration::from_millis(2));
                     continue;
                 };
+                // Windows inherits the listener's nonblocking mode; wait
+                // for the complete request rather than treating WouldBlock
+                // as an empty request and returning a spurious 404/reset.
+                socket.set_nonblocking(false).unwrap();
                 socket.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
                 let mut request = Vec::new();
                 let mut byte = [0u8];

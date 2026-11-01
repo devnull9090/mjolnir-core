@@ -49,6 +49,9 @@ jobs:
       - name: Test team colours (CTF flags and team armour)
         run: lua5.4 tools/tests/test_teams.lua
 
+      - name: Test Forge pack labels and palette compatibility
+        run: lua5.4 tools/tests/test_forge_pack_labels.lua
+
       - name: Lint Lua scripts
         run: |
           if command -v luacheck &> /dev/null; then

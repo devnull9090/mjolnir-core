@@ -60,6 +60,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "pack_bindings.h"
+#include "layout_files.h"
+#include "layout_blf.h"
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
 // Steam's copy and the Xbox app's differ only in the header (docs/game_pass.md).
@@ -278,6 +280,7 @@ static char g_layouts_dir[MAX_PATH];  // the mod's layouts folder, beside native
 static char g_pack_inventory[MAX_PATH];
 static char g_running_path[MAX_PATH]; // MJOLNIRLevelLoader's running.txt
 static char g_layout[160];            // what the layout code last did, for pump (any engine)
+static unsigned g_layout_id;          // changes even when a new map repeats the same refusal
 
 // ---- Small helpers --------------------------------------------------------------
 static void write_file(const char *path, const char *text) {
@@ -637,6 +640,7 @@ static void layout_note(const char *fmt, ...) {
     va_end(ap);
     EnterCriticalSection(&g_lock);
     memcpy(g_layout, text, sizeof g_layout);
+    g_layout_id++;
     LeaveCriticalSection(&g_lock);
 }
 
@@ -664,23 +668,60 @@ static void layout_path(char *out, const char *code) {
     snprintf(out, MAX_PATH, "%s%s.mvar", g_layouts_dir, code);
 }
 
-// Move a map's layout file aside into layouts\history (kept, never deleted).
-static void layout_retire(const char *code) {
-    char from[MAX_PATH], dir[MAX_PATH], to[MAX_PATH];
-    layout_path(from, code);
-    if (GetFileAttributesA(from) == INVALID_FILE_ATTRIBUTES) return;
+static int layout_file_exists(void *context, const char *path) {
+    (void)context;
+    DWORD attrs = GetFileAttributesA(path);
+    if (attrs != INVALID_FILE_ATTRIBUTES) return (attrs & FILE_ATTRIBUTE_DIRECTORY) ? -1 : 1;
+    DWORD error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? 0 : -1;
+}
+
+static int layout_file_move(void *context, const char *from, const char *to) {
+    (void)context;
+    return MoveFileExA(from, to, 0) != 0;
+}
+
+static int layout_file_remove(void *context, const char *path) {
+    (void)context;
+    return DeleteFileA(path) != 0;
+}
+
+static const forge_file_ops g_layout_files = {NULL, layout_file_exists, layout_file_move, layout_file_remove};
+
+static int layout_suffix(char *out, const char *path, const char *suffix) {
+    int n = snprintf(out, MAX_PATH, "%s%s", path, suffix);
+    return n >= 0 && n < MAX_PATH;
+}
+
+// Neither a rapid second F5 nor a pre-existing history file may overwrite
+// an earlier save. The commit's moves also refuse existing destinations.
+static int layout_history_paths(const char *code, char *map, char *side) {
+    char dir[MAX_PATH];
     snprintf(dir, MAX_PATH, "%shistory", g_layouts_dir);
-    CreateDirectoryA(dir, NULL);
+    if (!CreateDirectoryA(dir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return 0;
+    DWORD attrs = GetFileAttributesA(dir);
+    if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) return 0;
     SYSTEMTIME t;
     GetLocalTime(&t);
-    snprintf(to, MAX_PATH, "%s\\%s-%04u%02u%02u-%02u%02u%02u.mvar", dir, code, t.wYear, t.wMonth, t.wDay, t.wHour,
-             t.wMinute, t.wSecond);
-    MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING);
-    // Keep a layout's identities with it in history.
-    char side_from[MAX_PATH], side_to[MAX_PATH];
-    snprintf(side_from, MAX_PATH, "%s.packs", from);
-    snprintf(side_to, MAX_PATH, "%s.packs", to);
-    MoveFileExA(side_from, side_to, MOVEFILE_REPLACE_EXISTING);
+    for (unsigned serial = 0; serial < 1024; serial++) {
+        int n = snprintf(map, MAX_PATH, "%s\\%s-%04u%02u%02u-%02u%02u%02u-%03u-%u.mvar", dir, code,
+                         t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, serial);
+        if (n < 0 || n >= MAX_PATH || !layout_suffix(side, map, ".packs")) return 0;
+        if (layout_file_exists(NULL, map) == 0 && layout_file_exists(NULL, side) == 0) return 1;
+    }
+    return 0;
+}
+
+// Return failure if either member could not retire; ordinary move failures
+// put the original pair back. Recovery failures preserve its bytes in history.
+static int layout_retire(const char *code) {
+    char from[MAX_PATH], side[MAX_PATH], to[MAX_PATH], side_to[MAX_PATH];
+    layout_path(from, code);
+    if (!layout_suffix(side, from, ".packs")) return FORGE_FILES_FAILED;
+    if (layout_file_exists(NULL, from) == 0 && layout_file_exists(NULL, side) == 0) return FORGE_FILES_OK;
+    if (!layout_history_paths(code, to, side_to)) return FORGE_FILES_FAILED;
+    unsigned old;
+    return forge_retire_pair(&g_layout_files, from, side, to, side_to, &old);
 }
 
 static int pack_for_tag(const char *tag, forge_pack_binding *out) {
@@ -740,7 +781,10 @@ static int layout_packs(const char *path, const uint8_t *mv, int saving, char *w
         if (flat >= 0 && flat < 255) used[flat] = 1;
     }
     char side[MAX_PATH], tag[224];
-    snprintf(side, MAX_PATH, "%s.packs%s", path, saving ? ".tmp" : "");
+    if (!layout_suffix(side, path, saving ? ".packs.tmp" : ".packs")) {
+        snprintf(why, size, "Forge layout path is too long");
+        return 0;
+    }
     FILE *f = NULL;
     if (saving) {
         if (fopen_s(&f, side, "wb") != 0 || !f) goto invalid;
@@ -861,10 +905,6 @@ static void put_be32(uint8_t *at, uint32_t v) {
     at[3] = (uint8_t)v;
 }
 
-static uint32_t get_be32(const uint8_t *at) {
-    return (uint32_t)at[0] << 24 | (uint32_t)at[1] << 16 | (uint32_t)at[2] << 8 | at[3];
-}
-
 static uint8_t *blf_chunk(uint8_t *at, const char sig[4], uint32_t size, uint16_t major, uint16_t minor) {
     memcpy(at, sig, 4);
     put_be32(at + 4, size);
@@ -902,13 +942,13 @@ static int write_mvar(const char *path, const uint8_t *payload, int len) {
     body[4] = 0;
     at += 17;
     char tmp[MAX_PATH];
-    snprintf(tmp, MAX_PATH, "%s.tmp", path);
+    if (!layout_suffix(tmp, path, ".tmp")) return 0;
     FILE *f = NULL;
     if (fopen_s(&f, tmp, "wb") != 0 || !f) return 0;
     size_t want = (size_t)(at - g_file);
     size_t wrote = fwrite(g_file, 1, want, f);
-    fclose(f);
-    if (wrote != want) return 0;
+    int closed = fclose(f);
+    if (wrote != want || closed != 0) { DeleteFileA(tmp); return 0; }
     return MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING) != 0;
 }
 
@@ -918,29 +958,17 @@ static int read_mvar(const char *path, uint8_t *out, int cap) {
     FILE *f = NULL;
     if (fopen_s(&f, path, "rb") != 0 || !f) return -1;
     size_t n = fread(g_file, 1, sizeof g_file, f);
-    fclose(f);
-    size_t at = 0;
-    int result = -1;
-    while (at + 12 <= n) {
-        uint32_t size = get_be32(g_file + at + 4);
-        if (size < 12 || at + size > n) return -1;
-        if (memcmp(g_file + at, "mvar", 4) == 0) {
-            if (result != -1) return -1;
-            if (size < 12 + 24) return -1;
-            uint32_t len = get_be32(g_file + at + 12 + 20);
-            if (len > (uint32_t)cap || 12 + 24 + len > size) return -1;
-            memcpy(out, g_file + at + 12 + 24, len);
-            result = (int)len;
-        }
-        if (memcmp(g_file + at, "fpk1", 4) == 0) {
-            if (size != 12 || g_layout_pack_marker || g_file[at + 8] != 0 || g_file[at + 9] != 1
-                || g_file[at + 10] != 0 || g_file[at + 11] != 0) return -1;
-            g_layout_pack_marker = 1;
-        }
-        if (memcmp(g_file + at, "_eof", 4) == 0) return size >= 17 && at + size == n ? result : -1;
-        at += size;
+    int result = ferror(f) ? -1 : forge_blf_payload(g_file, n, out, cap, &g_layout_pack_marker);
+    // MCC files may be padded beyond the payload buffer. Inspect at most
+    // 1 MiB total, accept only zeroes, and never ignore an unread tail.
+    uint8_t padding[1024];
+    while (result >= 0 && !feof(f)) {
+        size_t got = fread(padding, 1, sizeof padding, f);
+        n += got;
+        if (ferror(f) || n > 1024 * 1024 || !forge_zero_padding(padding, got)) result = -1;
     }
-    return -1;
+    fclose(f);
+    return result;
 }
 
 // The scenario's map id (scnr +0x10), which the scenario build (0x32cc00)
@@ -1038,16 +1066,26 @@ static void layout_save(void) {
         note("save failed: %s", why);
         return;
     }
-    layout_retire(code);
-    if (!write_mvar(path, g_bits, len)) {
+    char side[MAX_PATH], tmp[MAX_PATH], staged[MAX_PATH], history[MAX_PATH], history_side[MAX_PATH];
+    if (!layout_suffix(side, path, ".packs") || !layout_suffix(tmp, path, ".packs.tmp")
+        || !layout_suffix(staged, path, ".pending")) {
+        note("save failed: layout path is too long");
+        return;
+    }
+    if (!write_mvar(staged, g_bits, len)) {
+        DeleteFileA(tmp);
         note("save failed: cannot write %s.mvar", code);
         return;
     }
-    char side[MAX_PATH], tmp[MAX_PATH];
-    snprintf(side, MAX_PATH, "%s.packs", path);
-    snprintf(tmp, MAX_PATH, "%s.packs.tmp", path);
-    if (!MoveFileExA(tmp, side, MOVEFILE_REPLACE_EXISTING)) {
-        note("save failed: cannot write pack bindings; previous layout kept in history");
+    int committed = FORGE_FILES_FAILED;
+    if (layout_history_paths(code, history, history_side))
+        committed = forge_publish_pair(&g_layout_files, path, side, staged, tmp, history, history_side);
+    if (committed != FORGE_FILES_OK) {
+        DeleteFileA(staged);
+        DeleteFileA(tmp);
+        note(committed == FORGE_FILES_RECOVERY
+            ? "save failed: recover the previous layout and .packs from history"
+            : "save failed: cannot commit layout; previous save preserved");
         return;
     }
     note("saved layout %s, %d objects", code, mv_objects(mv));
@@ -1082,7 +1120,13 @@ static void layout_revert(uint8_t *tls) {
         note("nothing to revert here");
         return;
     }
-    layout_retire(code);
+    int retired = layout_retire(code);
+    if (retired != FORGE_FILES_OK) {
+        note(retired == FORGE_FILES_RECOVERY
+            ? "revert failed: recover the previous layout and .packs from history"
+            : "revert failed: cannot move saved layout to history");
+        return;
+    }
     mv_replace(tls, mv, 1);
     note("reverted to the map's own layout");
     layout_note("%s: the map's own layout (saved one moved to history)", code);
@@ -1732,6 +1776,9 @@ static void snapshot(uint8_t *tls, int player) {
             s.held = HELD_CARRIED;
             strncpy_s(s.held_tag, sizeof s.held_tag, g_carry.tag, _TRUNCATE);
             memcpy(s.held_group, g_carry.group, sizeof s.held_group);
+            uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
+            uint32_t tag = scenario ? entry_tag(palette_entry(scenario, (int)g_carry.palette, (int)g_carry.entry)) : 0xffffffffu;
+            pack_tag_path(tag, s.held_path, sizeof s.held_path);
             props = g_carry.props;
         }
         if (props) {
@@ -1916,17 +1963,19 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
         g_rows_published = s.rows_version;
     }
     char layout[sizeof g_layout];
+    unsigned layout_id;
     EnterCriticalSection(&g_lock);
     memcpy(layout, g_layout, sizeof layout);
+    layout_id = g_layout_id;
     LeaveCriticalSection(&g_lock);
     char text[2048];
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\nlayout_id=%u\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
              s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent,
-             s.held_path, s.cursor_path);
+             s.held_path, s.cursor_path, layout_id);
     if (s.props) {
         size_t used = strlen(text);
         snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",

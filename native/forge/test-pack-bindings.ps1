@@ -1,11 +1,12 @@
-<# Build and run the portable pack parser and identity guard tests. #>
+<# Build and run the portable pack parser and layout transaction tests. #>
 param([string]$VcVars)
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $objDir = Join-Path $here "obj\pack-bindings-test"
 New-Item -ItemType Directory -Force $objDir | Out-Null
-$src = Join-Path $here "test_pack_bindings.c"
-$exe = Join-Path $objDir "test_pack_bindings.exe"
+foreach ($name in @("test_pack_bindings", "test_layout_files", "test_layout_blf")) {
+$src = Join-Path $here "$name.c"
+$exe = Join-Path $objDir "$name.exe"
 $compile = "cl /nologo /std:c11 /O2 /W4 /WX /MD `"$src`" /Fo`"$objDir\\`" /Fe:`"$exe`" /link /NOLOGO /Brepro"
 if (-not $VcVars -and (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     cmd /c $compile
@@ -20,6 +21,7 @@ if (-not $VcVars -and (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     if (-not $VcVars -or -not (Test-Path $VcVars)) { throw "MSVC x64 toolset not found" }
     cmd /c "`"$VcVars`" >nul && $compile"
 }
-if ($LASTEXITCODE -ne 0) { throw "Forge pack binding test build failed" }
+if ($LASTEXITCODE -ne 0) { throw "$name test build failed" }
 & $exe
-if ($LASTEXITCODE -ne 0) { throw "Forge pack binding tests failed" }
+if ($LASTEXITCODE -ne 0) { throw "$name tests failed" }
+}
