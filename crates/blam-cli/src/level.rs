@@ -586,6 +586,9 @@ struct PaletteMap {
     vehicles: std::collections::BTreeMap<String, String>,
     weapons: std::collections::BTreeMap<String, String>,
     equipment: std::collections::BTreeMap<String, String>,
+    /// Forge building blocks, `group:path` by kind (and a `comment`).
+    #[serde(default)]
+    blocks: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     forge: ForgeLimits,
     #[allow(dead_code)]
@@ -2425,10 +2428,23 @@ fn bake(a: BakeArgs) -> Result<()> {
                 .or_default() += 1;
         }
         palettes.push(("scenery", tags.into_iter().collect()));
-        let kinds: BTreeMap<String, String> = [&map.weapons, &map.vehicles, &map.equipment]
+        // The building blocks, placed or not (docs/forge_blocks.md).
+        let blocks: Vec<((String, String), usize)> = map
+            .blocks
+            .iter()
+            .filter(|(kind, _)| kind.as_str() != "comment")
+            .map(|(_, tag)| ((tag.clone(), String::new()), 0))
+            .collect();
+        palettes.push(("blocks", blocks));
+        let mut kinds: BTreeMap<String, String> = [&map.weapons, &map.vehicles, &map.equipment]
             .into_iter()
             .flat_map(|t| t.iter().map(|(k, p)| (p.clone(), k.clone())))
             .collect();
+        for (kind, tag) in &map.blocks {
+            if let Some((_, path)) = tag.split_once(':') {
+                kinds.insert(path.to_string(), kind.clone());
+            }
+        }
         let limits = map.forge.merged(level.blam.forge.as_ref());
         baker.map_variant_palettes(&palettes, &limits, &kinds)?;
     }
@@ -3374,6 +3390,18 @@ fn slot_named(usmap: &ue_asset::Usmap, class: &str, want: &str) -> Result<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn palette_map_blocks_name_object_tags() {
+        let map = palette_map().unwrap();
+        let blocks: Vec<&String> = map.blocks.iter().filter(|(k, _)| k.as_str() != "comment").map(|(_, v)| v).collect();
+        assert!(!blocks.is_empty());
+        for tag in blocks {
+            let (group, path) = tag.split_once(':').expect("group:path");
+            assert!(["scen", "bloc", "mach", "ctrl"].contains(&group), "{tag}");
+            assert!(path.starts_with("objects\\"), "{tag}");
+        }
+    }
 
     #[test]
     fn forge_limits_default_to_none_and_levels_override_them() {

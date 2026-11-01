@@ -735,3 +735,6 @@ VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
 3. UI: a properties screen; tilting (only yaw so far), the snap setting.
 4. Republish the converted maps with the new palettes (the lift covers the
    old ones meanwhile, for the kinds they already place).
+5. Building blocks: [../forge_blocks.md](../forge_blocks.md). Palette
+   entries can be pointed at other loaded tags at run time (`slots.txt`);
+   block packs need slot tags in the CE runtime.
