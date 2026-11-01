@@ -28,6 +28,9 @@
 --              goes to layouts\history)
 --   F6         load: the saved layout, replacing the objects on the map now
 --   F2         revert: the map's own layout (the saved one goes to history)
+--   K / L      the target's team (neutral, red, blue) / Megalo label
+--   J / O      the target's respawn time / spawn order
+--   , / .      turn what you carry, or place next, left / right
 --
 -- A map with a saved layout starts every game with it, Forge or not (the DLL
 -- swaps it in where the engine builds the map's objects).
@@ -73,6 +76,13 @@ local DEFAULT_KEYS = {
     save = "F5",
     load = "F6",
     revert = "F2",
+    -- T and Y are MJOLNIRHud's chat keys.
+    team = "K",
+    label = "L",
+    respawn = "J",
+    order = "O",
+    rotate_left = "OEM_COMMA",
+    rotate_right = "OEM_PERIOD",
 }
 
 local LABELS = {
@@ -90,10 +100,17 @@ local LABELS = {
     save = "save layout",
     load = "load layout",
     revert = "map's own layout",
+    team = "team",
+    label = "label",
+    respawn = "respawn",
+    order = "spawn order",
+    rotate_left = "turn left",
+    rotate_right = "turn right",
 }
 
 local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther", "place",
-    "prev_category", "next_category", "prev_item", "next_item", "save", "load", "revert" }
+    "prev_category", "next_category", "prev_item", "next_item", "save", "load", "revert",
+    "team", "label", "respawn", "order", "rotate_left", "rotate_right" }
 
 local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
@@ -298,6 +315,10 @@ local function describe(s, keys, palette)
             lines[#lines + 1] = "Aiming at: " .. (s.cursor_tag ~= "" and s.cursor_tag or "object")
         else
             lines[#lines + 1] = "Aiming at: nothing"
+        end
+        if s.team then
+            lines[#lines + 1] = string.format("Team %s  label %s  respawn %s s  spawn order %s",
+                s.team, s.label ~= "" and s.label or "none", s.respawn or "?", s.order or "?")
         end
         local row = selectedRow(s, palette)
         if row then

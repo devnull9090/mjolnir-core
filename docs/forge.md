@@ -1,7 +1,8 @@
 # Forge
 
 **Status:** 2026-11-01. Host only, on any converted multiplayer map. Layouts
-(save, load, start a game with one) need MJOLNIRForge 0.3.0.
+(save, load, start a game with one), object properties and markers need
+MJOLNIRForge 0.3.0.
 Released in mods 0.34.0 with CE runtime 1.14.0. Placing from the palette and
 the palette panel are not released yet: they need MJOLNIRForge 0.2.0 and CE
 runtime 1.15.0 (the panel).
@@ -66,6 +67,11 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **F5** | Save this map's layout |
 | **F6** | Load the saved layout, replacing the objects on the map now |
 | **F2** | Go back to the map's own layout (the saved one is kept in `layouts\history`) |
+| **K** | Team of the target: neutral, red, blue |
+| **L** | Megalo label of the target (the map's labels in turn, then none) |
+| **J** | Respawn time of the target: 0, 5, 10, 15, 30, 45, 60, 90, 120, 180 s |
+| **O** | Spawn order of the target: 0 to 9 |
+| **, / .** | Turn what you carry, or the next thing you place, 22.5° left / right |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
 flies up.
@@ -73,7 +79,8 @@ flies up.
 To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
 lines like `grab=F7` (actions `toggle`, `grab`, `duplicate`, `delete`,
 `nearer`, `farther`, `place`, `prev_category`, `next_category`, `prev_item`,
-`next_item`, `save`, `load`, `revert`; key names as UE4SS spells them, such as `PAGE_UP` or
+`next_item`, `save`, `load`, `revert`, `team`, `label`, `respawn`, `order`,
+`rotate_left`, `rotate_right`; key names as UE4SS spells them, such as `PAGE_UP` or
 `LEFT_ARROW`).
 The defaults are keys the game does not use. G, C, Z and X are taken.
 
@@ -86,6 +93,37 @@ campaign's flyers), grenades, power-ups and ammo, and the map's scenery
 list only the kinds they already place, so you can place and duplicate
 those but not, say, a Wraith on Blood Gulch, until the map is republished.
 There is no limit on how many of each.
+
+## Object properties
+
+Every object Forge places carries properties the game types read. K, L, J
+and O change the target's (what you hold, else what you aim at); the target
+card shows its team and label.
+
+- **Team**: a red flag stand is where the red flag starts in CTF; spawn
+  points with a team are that team's.
+- **Label**: what a game type looks objects up by. CTF finds flag stands by
+  `ctf_flag_return` and team spawns by `ctf_spawn_red` / `ctf_spawn_blue`.
+  The list is the map's own labels.
+- **Respawn time** and **spawn order** for weapons, vehicles and equipment.
+
+## Markers: flag stands, spawn points, health packs, teleporters
+
+These have no physics, so the Monitor cannot drag them the way it drags a
+weapon. Forge handles them its own way:
+
+- **Insert** puts one where the cursor is, facing the way , and . set.
+- **V** on one picks it up: it leaves the map and the HUD shows you carrying
+  it, properties and all. Turn it with , and . and press **V** again to put
+  it down at the cursor. **Delete** while carrying throws it away.
+- **N** copies one, properties included.
+- They are invisible in game (the bases' stands are separate scenery), and
+  the cursor cannot land on them, so Forge aims at the nearest one within
+  about a metre of your crosshair.
+
+A flag stand made this way works in CTF: on Blood Gulch, a red stand placed,
+labelled `ctf_flag_return`, saved, and the map then hosted as CTF got the red
+flag.
 
 ## Layouts
 
@@ -111,6 +149,8 @@ lists what is in it. Layouts belong to one map: the file name says which.
   per map for now; `layouts\history` keeps the older ones.
 - **Layouts for your fireteam.** A saved layout is used when you host.
 - **Playing with your fireteam.** Players who join start Slayer instead.
-- **A Forge menu** (object lists, properties, rotation).
+- **A Forge menu** (object lists, properties).
+- **Turning weapons and vehicles.** , and . turn markers only.
+- **Markers are invisible**: aim near where you put them.
 - The cursor only reaches things in plain view: it stops at walls and the
   ground.

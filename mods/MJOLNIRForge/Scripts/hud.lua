@@ -164,6 +164,16 @@ function Hud.prettyName(tag)
     return (tag:gsub("_", " "):gsub("(%a)([%w]*)", function(a, b) return string.upper(a) .. b end))
 end
 
+--- The target's Forge properties after its name: "  ·  RED  ·  ctf_flag_return".
+function Hud.properties(s)
+    if not s.team then return "" end
+    local parts = {}
+    if s.team ~= "neutral" then parts[#parts + 1] = string.upper(s.team) end
+    if s.label and s.label ~= "" then parts[#parts + 1] = s.label end
+    if #parts == 0 then return "" end
+    return "  ·  " .. table.concat(parts, "  ·  ")
+end
+
 function Hud.category(group)
     return CATEGORIES[group or ""] or "OBJECT"
 end
@@ -171,7 +181,7 @@ end
 --- A UE4SS key name as the key cap shows it: PAGE_UP -> PG UP.
 function Hud.keyLabel(name)
     local pretty = { PAGE_UP = "PG UP", PAGE_DOWN = "PG DN", DEL = "DEL", INS = "INS", SPACE = "SPACE",
-        LEFT_ARROW = "←", RIGHT_ARROW = "→", UP_ARROW = "↑", DOWN_ARROW = "↓" }
+        LEFT_ARROW = "←", RIGHT_ARROW = "→", UP_ARROW = "↑", DOWN_ARROW = "↓", OEM_COMMA = ",", OEM_PERIOD = "." }
     return pretty[name] or (tostring(name):gsub("_", " "))
 end
 
@@ -313,13 +323,23 @@ local function toastFor(last, name)
     if last == "duplicated" then return "DUPLICATED  " .. name, GREEN end
     local placed = last:match("^placed (.+)$")
     if placed then return "PLACED  " .. Hud.prettyName(placed), GREEN end
-    local refused = last:match("^cannot place (.+)$")
+    local refused = last:match("^cannot place ([%w_]+)$")
     if refused then return "THIS MAP CAN'T PLACE ANOTHER  " .. Hud.prettyName(refused), GOLD end
     local saved = last:match("^saved layout %S+, (%d+) objects$")
     if saved then return "LAYOUT SAVED  " .. saved .. " OBJECTS", GREEN end
     local reloaded = last:match("^loaded layout %S+, (%d+) objects$")
     if reloaded then return "LAYOUT LOADED  " .. reloaded .. " OBJECTS", GREEN end
     if last == "reverted to the map's own layout" then return "THE MAP'S OWN LAYOUT", ACCENT end
+    local team = last:match("^team (%a+)$")
+    if team then return "TEAM  " .. string.upper(team), ACCENT end
+    local label = last:match("^label (.+)$")
+    if label then return "LABEL  " .. label, ACCENT end
+    local respawn = last:match("^respawn (%d+) s$")
+    if respawn then return "RESPAWN  " .. respawn .. " S", ACCENT end
+    local facing = last:match("^facing (%-?%d+)$")
+    if facing then return "FACING  " .. facing .. "°", ACCENT end
+    local order = last:match("^spawn order (%-?%d+)$")
+    if order then return "SPAWN ORDER  " .. order, ACCENT end
     if last == "this map has no Forge palette" then return "This map has no Forge palette", GOLD end
     if last:find("palette") then return "This map has no Forge palette entry for that yet", GOLD end
     return string.upper(last), GOLD
@@ -429,7 +449,7 @@ function Hud.render(s, keys, mapTitle, palette, choice)
     if name then
         setText(W.TargetCategory, Hud.category(group))
         setTextColor(W.TargetCategory, holding and GREEN or ACCENT)
-        setText(W.TargetName, name)
+        setText(W.TargetName, name .. Hud.properties(s))
         weaponIcon(tag)
         local distance = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer)
         if holding then
