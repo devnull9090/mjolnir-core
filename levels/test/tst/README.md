@@ -12,11 +12,12 @@ using runtime tree/rock recipes and local textures. Unreal material graphs and
 wind remain approximate in Blender.
 
 `build_geometry.py`, `terrain_form.py`, `perimeter_architecture.py`,
-`facility_architecture.py`, `facility_doors.py` and `facility_edge_wear.py` are the
+`facility_architecture.py`, `facility_doors.py`, `facility_teleporters.py` and
+`facility_edge_wear.py` are the
 reproducible geometry source. The current design is an enclosed basin: three
 continuous cliff sides and a full-length northern wall with a 7.2 m balcony.
 Channels 2 and 3 reach sheltered balcony arrivals; channels 4 and 5 return
-through green shield doorways. Ground landing points are separated from the
+through green shield doorways. Indoor landing points are separated from the
 senders to prevent immediate return trips. The former blocky stepped exits
 have been removed and their parapet gaps closed; use the return shields to descend.
 The balcony floor extends from y=21.8 to 34.7 m. Projecting towers contain
@@ -25,8 +26,9 @@ The balcony floor extends from y=21.8 to 34.7 m. Projecting towers contain
 The [lower facility authoring notes](art/facility-build.md) cover the new
 indoor-only connection beneath that balcony, its mirrored front entrances,
 sealed decorative doors, terrain excavation and native-rock exclusions. This
-facility pass is being reviewed in Blender with `--no-export`; it has not yet
-been baked or tested in game. Its fixed views are `facility-red`,
+facility has a local cooked preview and in-game review evidence under
+`art/review/`. The published Hub beta may precede this source revision; record
+the matching commit and build receipt when packaging it. Its fixed views include `facility-red`,
 `facility-blue`, `facility-interior`, `facility-route` and `facility-door`.
 
 Light lenses use the Blood Gulch `mp lights small strips` atlas. The UVs select
@@ -45,6 +47,20 @@ Running `rebuild.ps1`
 regenerates the Blender scene, JMS and placements, then compiles the CE cache.
 It overwrites hand edits to those generated files. For hand editing, save a
 separate Blender copy, export JMS, and use `rebuild.ps1 -SkipGeometry`.
+For the detailed facility revision, use the
+[split facility build](../../../docs/custom_map_walkthrough.md#experimental-split-facility-build)
+in a fresh HEK and output bundle. This keeps the fine render meshes out of the
+classic CE cluster limit while retaining the matching collision shell. Split
+builds snapshot their authoring modules, textures and placement inputs.
+
+If a completed export stops specifically on Windows `WinError 5` while
+publishing its partition folder, preserve the bundle and original logs. The
+narrow `-ResumeFacilityBundle -ResumeBuildLogs <original-log-directory>` option
+checks that retained export against its hashes and source snapshot, then reruns
+partitioning and all HEK stages. It refuses later-stage outputs or changed map
+sources. Other failures require diagnosis and a fresh build; this is not a
+general skip-validation switch.
+
 `build_scenario.py` places gameplay objects from `placements.json`.
 `prepare_runtime.py` adds the objective markers and compiles the candidate modes
 after CE conversion and before the visual upgrade.
@@ -152,6 +168,34 @@ those sampled views only; inspect other angles and test the cooked game too.
 
 ### Forerunner architecture study
 
+The ground-level facility entrances use fitted team-emblem plaques and backed
+cyan light lenses. The stock Danger Canyon emblem is mapped once at its 1:2
+image aspect; the Blood Gulch light atlas is repeated by capsule aspect. Avoid
+stretching a tiny colored patch over a whole jamb or moving a lens independently
+of its housing.
+
+`facility_teleporters.py` authors the mirrored balcony-lift recesses in the inner
+vestibule side walls and their placement pairs. Channels 2/3 lead upstairs;
+4/5 return to separate indoor landings. The recesses retain an 18 cm solid back
+to the adjacent halls, have flush floors, and use the stock green walk-through
+shield shader. `scenery: false` suppresses the old exterior pads. A sender's
+optional `radius_m` controls its trigger without catching the main walking lane.
+Side-wall shields project their UVs along Y/Z; balcony shields use X/Z.
+
+After regeneration, inspect the actual meshes and placements together:
+
+```powershell
+& $Blender --background --factory-startup --python levels/test/tst/inspect_entry_fixtures.py -- `
+  --blend levels/test/tst/tst.blend --placements levels/test/tst/placements.json `
+  --out .dream-loop/entry-fixtures-check.json
+```
+
+This checks fixture mounting, emblem and shield UVs, sealed recess backs, floor
+continuity, player clearance, and return separation. The preview cameras
+`facility-entry-red-outside`, `facility-entry-blue-outside`, `facility-lift-red`
+and `facility-lift-blue` cover frontal and oblique inspection. These geometric
+checks complement an actual walk through both teleporter pairs in the cooked map.
+
 The [reference research and exact imagegen prompts](art/forerunner-pass.md)
 document the balcony art pass. `perimeter_architecture.py` models the nested
 passage arches, segmented rail cladding, floor borders, tower inlays and
@@ -163,10 +207,10 @@ armor bevels through the collision boundary's coarser welding tolerance.
 
 The source uses generated titanium/patina and floor-plate albedos, image-driven
 roughness, and optional tangent normals. `surfaces.json` feeds both Blender and
-native material authoring: eight established exterior finishes plus four worn
-facility finishes. Stock light-atlas UVs remain in the correct capsule regions.
-The new facility remains export-pending until a game integration pass; its
-Blender lighting study does not establish runtime collision or lighting parity.
+native material authoring, with distinct exterior and facility finishes.
+Stock light-atlas UVs remain in the correct capsule regions. The Blender
+lighting study does not establish runtime collision or lighting parity; the
+local cooked reviews and their validation records provide separate evidence.
 
 The renderer also checks the used faces, not just the material library. Earlier
 stock-material fallback loops could overwrite explicit authored assignments.
@@ -178,8 +222,8 @@ material/normal and amber-shader suites add thirteen focused tests.
 Hero armor uses a generated fitted-plate image mapped once per part through
 the exported `UVMap`, with separate pale, inset and charcoal finishes.
 Plate orientation and small reflectance variations prevent identical wear on
-every piece. Structural finishes use tiled images; the facility adds worn
-mineral relief and sixteen varied floor plates. Separate Non-Color images
+every piece. Structural finishes use tiled images; the latest facility pass
+uses cleaner metal and floor finishes with restrained relief. Separate Non-Color images
 control roughness and tangent normals. These maps and their exact prompts
 are in `art/`.
 
@@ -213,7 +257,7 @@ imagegen study, implemented design, and close-up Blender renders.
 | Classic HEK / installed HCEEK tags | Named ground, cliff and metal shaders; stock CE scenery, light fixtures, equipment, vehicle and teleporter dependencies. Paths remain in the scripts and placements. |
 | User's installed Campaign Evolved data | B30 tree parts and leaves, rock/foliage meshes, material surfaces, effects, weapons and vehicles referenced by the upgrade. |
 | MJOLNIR source | Conversion, collision, rendering, packaging, gameplay rules and HUD code. |
-| Generated visual studies and owned surface maps | See [art provenance](art/README.md). Selected maps feed the shared architectural palette; unselected studies remain references. The new facility's source materials still require a native cook and in-game validation. |
+| Generated visual studies and owned surface maps | See [art provenance](art/README.md). Selected maps feed the shared architectural palette; unselected studies remain references. Record the matching cook and in-game validation when distributing a revision. |
 
 Do not bundle installed editing kits, game archives, or extracted stock assets
 into a source download. Keep their references and document the required local

@@ -4,10 +4,58 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
-from partition_tst_facility import partition, read_jms
+from partition_tst_facility import partition, read_jms, publish_partition
+
+
+class PartitionPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.source = self.root / 'temporary'
+        self.source.mkdir()
+        (self.source / 'manifest.json').write_text('complete')
+        self.destination = self.root / 'partition'
+
+    def test_transient_permission_failure_retries_atomic_rename(self):
+        import os
+        rename = os.rename
+        attempts = []
+        def flaky(source, destination):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise PermissionError('sharing conflict')
+            rename(source, destination)
+        with mock.patch('partition_tst_facility.os.rename', side_effect=flaky), mock.patch('partition_tst_facility.time.sleep') as sleep:
+            publish_partition(self.source, self.destination)
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [.1, .2])
+        self.assertEqual((self.destination / 'manifest.json').read_text(), 'complete')
+
+    def test_persistent_failure_preserves_complete_temporary_directory(self):
+        with mock.patch('partition_tst_facility.os.rename', side_effect=PermissionError('sharing conflict')) as rename, mock.patch('partition_tst_facility.time.sleep') as sleep:
+            with self.assertRaises(PermissionError):
+                publish_partition(self.source, self.destination)
+        self.assertEqual(rename.call_count, 7)
+        self.assertLess(sum(c.args[0] for c in sleep.call_args_list), 5)
+        self.assertEqual((self.source / 'manifest.json').read_text(), 'complete')
+        self.assertFalse(self.destination.exists())
+
+    def test_destination_appearing_during_wait_is_preserved(self):
+        def collision(source, destination):
+            destination.mkdir()
+            (destination / 'user.txt').write_text('keep')
+            raise PermissionError('sharing conflict')
+        with mock.patch('partition_tst_facility.os.rename', side_effect=collision) as rename, mock.patch('partition_tst_facility.time.sleep'):
+            with self.assertRaises(FileExistsError):
+                publish_partition(self.source, self.destination)
+        self.assertEqual(rename.call_count, 1)
+        self.assertEqual((self.destination / 'user.txt').read_text(), 'keep')
+        self.assertTrue(self.source.is_dir())
 
 
 def write_jms(path, private=True):

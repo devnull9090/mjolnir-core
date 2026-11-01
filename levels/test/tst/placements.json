@@ -542,19 +542,20 @@
     {
       "channel": 2,
       "from_m": [
-        -44,
-        22,
-        0.04009
+        -44.6,
+        27.9,
+        0.35
       ],
       "to_m": [
         -48,
         28.0,
         7.25
       ],
-      "from_yaw_degrees": 90,
+      "from_yaw_degrees": 0,
       "to_yaw_degrees": 270,
-      "to_scenery": false,
-      "authoring_note": "Ground-to-balcony arrival in front of the walk-through return shield"
+      "scenery": false,
+      "radius_m": 0.78,
+      "authoring_note": "Recessed indoor side-wall shield to balcony; no exterior pad"
     },
     {
       "channel": 4,
@@ -564,32 +565,33 @@
         7.25
       ],
       "to_m": [
-        -44,
-        19,
-        0.03265
+        -47,
+        27.9,
+        0.35
       ],
       "from_yaw_degrees": 90,
-      "to_yaw_degrees": 270,
+      "to_yaw_degrees": 180,
       "scenery": false,
       "shield_return": true,
-      "authoring_note": "Walk into the green shield to return; separate landing avoids bounce-back"
+      "authoring_note": "Balcony shield returns inside the vestibule, facing away from the lift; separate landing avoids bounce-back"
     },
     {
       "channel": 3,
       "from_m": [
-        44,
-        22,
-        0.06005
+        44.6,
+        27.9,
+        0.35
       ],
       "to_m": [
         48,
         28.0,
         7.25
       ],
-      "from_yaw_degrees": 90,
+      "from_yaw_degrees": 180,
       "to_yaw_degrees": 270,
-      "to_scenery": false,
-      "authoring_note": "Ground-to-balcony arrival in front of the walk-through return shield"
+      "scenery": false,
+      "radius_m": 0.78,
+      "authoring_note": "Recessed indoor side-wall shield to balcony; no exterior pad"
     },
     {
       "channel": 5,
@@ -599,15 +601,15 @@
         7.25
       ],
       "to_m": [
-        44,
-        19,
-        0.06774
+        47,
+        27.9,
+        0.35
       ],
       "from_yaw_degrees": 90,
-      "to_yaw_degrees": 270,
+      "to_yaw_degrees": 0,
       "scenery": false,
       "shield_return": true,
-      "authoring_note": "Walk into the green shield to return; separate landing avoids bounce-back"
+      "authoring_note": "Balcony shield returns inside the vestibule, facing away from the lift; separate landing avoids bounce-back"
     }
   ],
   "lights": [

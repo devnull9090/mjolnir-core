@@ -18,8 +18,29 @@ import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import tempfile
+import time
 
 import numpy as np
+
+
+def publish_partition(temporary: Path, destination: Path) -> None:
+    """Publish atomically, allowing brief Windows scanner sharing conflicts.
+
+    Never replace a destination that appeared meanwhile. A persistent failure
+    leaves the complete temporary directory available for verified resumption.
+    """
+    delays = (0, .1, .2, .4, .8, 1.6, 1.6)
+    for attempt, delay in enumerate(delays):
+        if delay:
+            time.sleep(delay)
+        if destination.exists():
+            raise FileExistsError('Partition destination appeared: ' + str(destination))
+        try:
+            os.rename(temporary, destination)
+            return
+        except PermissionError:
+            if attempt == len(delays) - 1:
+                raise
 
 
 def sha256(path: Path) -> str:
@@ -262,7 +283,7 @@ def partition(source: Path, library: Path, destination: Path) -> dict:
                 'roles': summary, 'files': {p.name: sha256(p) for p in (ce_path, gltf, gltf_bin)},
                 'scope': 'Render detail only; all non-selected JMS triangles and their records stay in CE. Game lighting and runtime unverified.'}
     (temp / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
-    os.rename(temp, destination)
+    publish_partition(temp, destination)
     return manifest
 
 

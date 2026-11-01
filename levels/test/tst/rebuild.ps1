@@ -23,7 +23,9 @@ param(
     [string]$MccTagsRoot = 'C:\Program Files (x86)\Steam\steamapps\common\HCEEK\tags',
     [switch]$SkipGeometry,
     [switch]$SplitFacilityDetail,
-    [string]$FacilityOutputDir = ''
+    [string]$FacilityOutputDir = '',
+    [switch]$ResumeFacilityBundle,
+    [string]$ResumeBuildLogs = ''
 )
 
 Set-StrictMode -Version Latest
@@ -57,6 +59,15 @@ $BitmapBackup = [IO.Path]::GetFullPath((Join-Path $MapsRoot 'bitmaps.map.tst-bui
 $BitmapCreated = [IO.Path]::GetFullPath((Join-Path $MapsRoot 'bitmaps.map.tst-build-created'))
 $LogRoot = Join-Path $RepoRoot '.dream-loop\tst-rebuild'
 $RunLogs = Join-Path $LogRoot ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))
+if (($ResumeFacilityBundle -or $ResumeBuildLogs) -and -not $SplitFacilityDetail) {
+    throw '-ResumeFacilityBundle/-ResumeBuildLogs require -SplitFacilityDetail.'
+}
+if ($ResumeFacilityBundle -and -not $ResumeBuildLogs) {
+    throw '-ResumeFacilityBundle requires the original -ResumeBuildLogs directory.'
+}
+if ($ResumeBuildLogs -and -not $ResumeFacilityBundle) {
+    throw '-ResumeBuildLogs requires -ResumeFacilityBundle.'
+}
 
 # The partitioned workflow is opt-in and writes all authored outputs to a
 # new bundle. A dedicated HEK with no prior TST outputs prevents overwriting
@@ -65,7 +76,10 @@ if ($SplitFacilityDetail) {
     if ($SkipGeometry) { throw '-SplitFacilityDetail requires a fresh full geometry export; omit -SkipGeometry.' }
     if (-not $FacilityOutputDir) { throw '-FacilityOutputDir must name a new output directory.' }
     $BundleCandidate = [IO.Path]::GetFullPath($FacilityOutputDir)
-    if (Test-Path -LiteralPath $BundleCandidate) { throw "Facility output already exists: $BundleCandidate" }
+    if ((Test-Path -LiteralPath $BundleCandidate) -and -not $ResumeFacilityBundle) { throw "Facility output already exists: $BundleCandidate" }
+    if ($ResumeFacilityBundle -and -not (Test-Path -LiteralPath $BundleCandidate -PathType Container)) {
+        throw 'Resume requires the existing completed authoring bundle.'
+    }
     $BundleParent = (Resolve-Path -LiteralPath (Split-Path -Parent $BundleCandidate)).Path
     $Bundle = [IO.Path]::GetFullPath((Join-Path $BundleParent (Split-Path -Leaf $BundleCandidate)))
     foreach ($Root in @($HekRoot,$TagsRoot,$MapsRoot,$BundleParent)) {
@@ -139,6 +153,7 @@ foreach ($Required in @($ToolExe, $WaterSource,
         (Join-Path $SourceRoot 'annotate_blend.py'),
         (Join-Path $SourceRoot 'terrain_form.py'),
         (Join-Path $SourceRoot 'perimeter_architecture.py'),
+        (Join-Path $SourceRoot 'facility_teleporters.py'),
         (Join-Path $SourceRoot 'perimeter_dressing.py'),
         (Join-Path $MapsRoot 'sounds.map'), (Join-Path $MapsRoot 'loc.map'), $BitmapMap)) {
     if (-not (Test-Path -LiteralPath $Required -PathType Leaf)) {
@@ -160,6 +175,15 @@ foreach ($Relative in $StockInputs) {
 }
 $PythonCommand = Get-Command $PythonExe -CommandType Application -ErrorAction Stop | Select-Object -First 1
 $PythonExe = $PythonCommand.Source
+if ($ResumeFacilityBundle) {
+    $ResumeVerifier = Join-Path $RepoRoot 'tools/level/verify_tst_export_resume.py'
+    $ResumeJson = & $PythonExe -B $ResumeVerifier --bundle $Bundle --source $SourceRoot --logs $ResumeBuildLogs
+    if ($LASTEXITCODE -ne 0) { throw 'Completed export resume verification failed; existing files were preserved.' }
+    $ResumeRecord = $ResumeJson | ConvertFrom-Json -AsHashtable
+    $AuthoringSourceHashes = $ResumeRecord.authoring_source_hashes
+    $AuthoringSourceSnapshot = Join-Path $Bundle 'authoring-source'
+    $TextureHashes = $ResumeRecord.texture_hashes
+}
 if (-not $SkipGeometry -and -not (Test-Path -LiteralPath $BlenderExe -PathType Leaf)) {
     throw "Blender executable is missing: $BlenderExe"
 }
@@ -281,9 +305,35 @@ function Invoke-RebuildStage {
 }
 
 try {
-    if ($SplitFacilityDetail) {
+    if ($SplitFacilityDetail -and -not $ResumeFacilityBundle) {
         # Creating a new bundle, without -Force, preserves any earlier work.
         New-Item -ItemType Directory -Path $Bundle -ErrorAction Stop | Out-Null
+        # Keep the actual authoring modules with this export, including local
+        # helpers such as the recessed entrance-teleporter layout. Hash the
+        # complete set before generation and reject edits during the build.
+        $AuthoringSources = @((Get-ChildItem -LiteralPath $SourceRoot -File -Filter '*.py' |
+            Where-Object { $_.Name -notlike 'test_*' }).FullName)
+        $AuthoringSources += @('rebuild.ps1','surfaces.json','amber_light.json','facility_runtime_lights.json') |
+            ForEach-Object { Join-Path $SourceRoot $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+        $AuthoringSourceHashes = [ordered]@{}
+        $AuthoringSourceSnapshot = Join-Path $Bundle 'authoring-source'
+        New-Item -ItemType Directory -Path $AuthoringSourceSnapshot -ErrorAction Stop | Out-Null
+        foreach ($Source in $AuthoringSources) {
+            $Name = Split-Path -Leaf $Source
+            $Hash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash.ToLowerInvariant()
+            $Snapshot = Join-Path $AuthoringSourceSnapshot $Name
+            [IO.File]::Copy($Source,$Snapshot,$false)
+            if ((Get-FileHash -LiteralPath $Snapshot -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Hash) {
+                throw "Authoring source changed while snapshotting: $Name"
+            }
+            $AuthoringSourceHashes[$Name] = $Hash
+        }
+    }
+    if ($ResumeFacilityBundle) {
+        # Preserve prior logs and the failed temporary partition. New log files
+        # clearly record that geometry/annotation came from verified export.
+        $ResumeJson | Set-Content -LiteralPath (Join-Path $RunLogs 'verified-export-resume.json') -Encoding utf8
+        Write-Host "TST: reusing verified completed authoring export ($ResumeBuildLogs); all HEK stages remain fresh."
     }
     foreach ($Relative in $StockInputs) {
         $StockSource = Join-Path $MccTagsRoot $Relative
@@ -305,7 +355,7 @@ try {
             else { Copy-Item -LiteralPath $StockSource -Destination $StockTarget }
         }
     }
-    if (-not $SkipGeometry) {
+    if (-not $SkipGeometry -and -not $ResumeFacilityBundle) {
         $PreviousAddons = $env:HALO_BLENDER_ADDONS
         try {
             $env:HALO_BLENDER_ADDONS = Split-Path -Parent $AddonRoot
@@ -431,7 +481,9 @@ try {
             $InputHashes.bsp -ne (Get-FileHash -LiteralPath $BspFile -Algorithm SHA256).Hash.ToLowerInvariant()) {
             throw 'HEK input or structure BSP changed while freezing the build evidence.'
         }
-        [ordered]@{schema=1;created_utc=[DateTime]::UtcNow.ToString('o');hashes=$InputHashes;texture_hashes=$TextureHashes} |
+        $FrozenRecord = [ordered]@{schema=1;created_utc=[DateTime]::UtcNow.ToString('o');hashes=$InputHashes;texture_hashes=$TextureHashes;authoring_source_hashes=$AuthoringSourceHashes}
+        if ($ResumeFacilityBundle) { $FrozenRecord.resume = $ResumeRecord }
+        $FrozenRecord |
             ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $InputManifest -Encoding utf8
     }
     # A fresh HEK's structure compiler may itself create an initial scenario.
@@ -517,6 +569,25 @@ try {
             $Texture = [IO.Path]::GetFullPath((Join-Path $AuthoringOut $RelativeTexture))
             if ((Get-FileHash -LiteralPath $Texture -Algorithm SHA256).Hash.ToLowerInvariant() -ne $TextureHashes[$RelativeTexture]) {
                 throw "Bundled texture changed during the build: $RelativeTexture"
+            }
+        }
+        foreach ($Name in $AuthoringSourceHashes.Keys) {
+            foreach ($Source in @((Join-Path $SourceRoot $Name),(Join-Path $AuthoringSourceSnapshot $Name))) {
+                $Expected = $AuthoringSourceHashes[$Name]
+                if ($ResumeFacilityBundle -and $Name -eq 'rebuild.ps1' -and $Source -eq (Join-Path $SourceRoot $Name)) {
+                    $Expected = $ResumeRecord.resume_runner_sha256
+                }
+                if ((Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
+                    throw "Authoring source changed during the build: $Name"
+                }
+            }
+        }
+        if ($ResumeFacilityBundle) {
+            foreach ($Relative in $ResumeRecord.authoring_files.Keys) {
+                $Input = Join-Path $AuthoringOut $Relative
+                if ((Get-FileHash -LiteralPath $Input -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ResumeRecord.authoring_files[$Relative]) {
+                    throw "Resumed authoring export changed during build: $Relative"
+                }
             }
         }
         $ReceiptArguments = @('--partition-dir',$PartitionOut,'--detail',$DetailGltf,'--source-jms',$SourceJms,

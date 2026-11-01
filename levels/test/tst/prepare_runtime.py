@@ -5,11 +5,13 @@ Run after convert_ce_map.sh, before upgrade_ce_map.py. Does not install or publi
 import argparse
 import json
 import copy
+import math
 from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parents[2]
+METRES_PER_WORLD_UNIT = 3.048
 
 
 def apply(level, placements, *, release_beta=False):
@@ -18,11 +20,13 @@ def apply(level, placements, *, release_beta=False):
     objects[:] = [item for item in objects if not str(item.get("set", {}).get(
         "multiplayer data.megalo label", "")).startswith(("oddball_", "koth_"))]
 
-    # A doorway is wider than CE's default circular pad trigger. Overlapping
-    # stock senders cover the shield, including the sides, on the same channel.
+    # Narrow indoor alcoves can override the stock sender radius without
+    # catching players walking down the vestibule. Placement dimensions are
+    # metres, while multiplayer boundary fields use Halo world units.
+    # The broad balcony return shields still use overlapping stock senders.
     # Reapplying this stage replaces its own side senders instead of duplicating.
     for portal in placements["teleporters"]:
-        if not portal.get("shield_return"):
+        if not portal.get("shield_return") and "radius_m" not in portal:
             continue
         x,y,z=portal["from_m"]
         origin=[x*100,-y*100,z*100]
@@ -31,6 +35,14 @@ def apply(level, placements, *, release_beta=False):
             return item.get("tag")==sender_tag and all(abs(a-b)<1 for a,b in
                 zip(item["pos"],[origin[0]+dx,origin[1],origin[2]]))
         center=next(item for item in objects if near(item,0))
+        if "radius_m" in portal:
+            radius=float(portal["radius_m"])
+            if not math.isfinite(radius) or radius <= 0:
+                raise ValueError(f"Teleporter {portal['channel']} radius_m must be finite and positive")
+            center["set"]["multiplayer data.boundary width or radius"]=format(
+                radius/METRES_PER_WORLD_UNIT,".9g")
+        if not portal.get("shield_return"):
+            continue
         objects[:]=[item for item in objects if not any(near(item,dx) for dx in (-140,140))]
         center["set"]["multiplayer data.boundary positive height"]="1.1"
         for dx in (-140,140):

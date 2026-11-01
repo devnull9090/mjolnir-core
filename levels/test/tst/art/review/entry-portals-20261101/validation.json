@@ -1,0 +1,53 @@
+{
+  "status": "authored-geometry-verified; cooked gameplay pending",
+  "source_triangles": 222652,
+  "ce_triangles": 76894,
+  "native_detail_triangles": 145758,
+  "source_hashes": {
+    "tst.blend": "456eaf7634c64b423ba8ee44ec8640e1b2209ab45b593c15da1fe1f4970c8c60",
+    "placements.json": "7f5ff42895968cbaadada5d84d2e741743b8664d1985601b7c135727dcaa8ac0",
+    "tst.surfaces.json": "8ecb964ca2ab33f5fe3a524a649c362db9da926849dc454e6c36533240958f3f",
+    "data/levels/test/tst/models/tst.JMS": "b816615e4e1d53804cddf5166eb8ae093a48e994707c3975166193834fd96dfc",
+    "facility_teleporters.py": "722c002fd62d1d60ac9296a72d579402b4ec1a3dfb549d6520f8a33e0b2e4750",
+    "facility_architecture.py": "3f39c69c353b13b41a5360dd9c091004244ef79c2520a206b43ec65fddd59949",
+    "build_geometry.py": "202337d725f05851fdba02d81a564709c1228d259953d00065b6cda786c1978b",
+    "surfaces.json": "8a934bb533b5946aaee4f128f0515dec3f374f74be144929005f83712c76f174"
+  },
+  "blender_checks": {
+    "mounted_fixtures": 10,
+    "indoor_portals": 2,
+    "player_samples": 80,
+    "fixture_issues": 0,
+    "layout_summary": "202 placements, zero needing review",
+    "facility_routes": "1470 samples, zero issues",
+    "fixture_gap_m": 0.002,
+    "minimum_back_wall_m": 0.18,
+    "separate_return_landing_m": 2.4
+  },
+  "tests": {
+    "partition_and_retry": 7,
+    "split_build_and_verified_resume": 11,
+    "runtime_teleporter_radius": 3,
+    "passed": 21
+  },
+  "images": {
+    "blender-entry-blue.png": {
+      "sha256": "293f8a4f914afa6f2fa16ad02a876f624c3974bcde04757e96b2d0fb0bed5e98",
+      "kind": "Blender preview; authored geometry and UVs, approximate lighting; scenery omitted for focused entrance review"
+    },
+    "blender-lift-blue.png": {
+      "sha256": "2d60f6872a304f99f41ee0234c0b78d0a0752b0195957121ffef27aa0b7c31df",
+      "kind": "Blender preview; authored geometry and UVs, approximate lighting; scenery omitted for focused entrance review"
+    },
+    "blender-lift-red.png": {
+      "sha256": "215f5bf04b0bec89423246fb8ba15d580eeb13a4b2eb41d243c4f87a0403aadc",
+      "kind": "Blender preview; authored geometry and UVs, approximate lighting; scenery omitted for focused entrance review"
+    }
+  },
+  "changes": [
+    "Full stock team-emblem UVs at 1:2 aspect on backed entrance plaques",
+    "Cyan lenses seated 2 mm above fitted housings",
+    "Mirrored indoor side-wall shields replace exterior balcony-lift pads",
+    "Channels 2/3 preserve balcony arrivals; 4/5 return indoors away from triggers"
+  ]
+}

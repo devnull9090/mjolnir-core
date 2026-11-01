@@ -68,7 +68,7 @@ def validation_contract():
             'ceiling_m':INTERIOR_CEILING_Z}
 
 
-def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, blue, amber_light):
+def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, blue, amber_light, portal):
     import bpy
     import bmesh
     from mathutils import Vector
@@ -283,6 +283,8 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
             bm.to_mesh(corner.data); bm.free()
             boolean(wall,corner,'UNION')
     boolean(wall,box('facility_floor',(-53,25,-.45),(53,55,.30),solid['floor']),'UNION')
+    from facility_teleporters import build as build_lifts
+    build_lifts(wall,mesh_object,boolean,portal,lamp,detail)
 
     # Arena portals: three nested chamfered frames, structural returns and
     # team accents. Their clear opening is shared with the actual BSP void.
@@ -296,16 +298,43 @@ def build(wall, mesh_object, box, prism, bevel_rectangle, boolean, light, red, b
         ring('portal_silver_reveal',arch(4.13,5.25,.95),arch(3.97,5.03,.93),24.05,24.55,role='fitted_pale')
         ring('portal_inner_frame',arch(3.97,5.03,.93),arch(3.9,4.85,.95),24.30,25.35,role='armor')
         for edge in (-1,1):
-            x=cx+edge*4.22
-            p=[(x-.08,24.0,.8),(x+.08,24.0,.8),
-               (x+.08+edge*.11,24.0,2.65),(x-.08+edge*.11,24.0,2.65)]
-            obj=mesh_object('facility_entry_team_chevron',p,[(0,1,2,3)],[team])
-            obj['team_color_band']=True
-            lamp('portal_jamb_lens',[(cx+edge*3.97,24.005,2.75),(cx+edge*4.07,24.005,2.75),
-                  (cx+edge*4.07,24.005,3.77),(cx+edge*3.97,24.005,3.77)],70,
+            # A complete stock 256x512 emblem replaces the six-pixel colour
+            # patch previously stretched over a tall, unsupported strip.
+            # Compensate for the exterior arch's final X/Z scale so the
+            # exported panel is exactly 1:2, wholly on the straight jamb.
+            x=cx+edge*4.315
+            marker_width=.26
+            marker_height=2*marker_width*(4.4/3.9)/(4.2/4.55)
+            bottom,top=2.20-marker_height/2,2.20+marker_height/2
+            backing=plate('portal_team_plaque',
+                bevel_rectangle(x-.155,bottom-.035,x+.155,top+.035,.025),
+                24.16,24.195,'fitted_charcoal',bevel=.008)
+            p=[(x-marker_width/2,24.158,bottom),(x+marker_width/2,24.158,bottom),
+               (x+marker_width/2,24.158,top),(x-marker_width/2,24.158,top)]
+            obj=mesh_object('facility_entry_team_emblem',p,[(0,1,2,3)],[team])
+            # Omitting team_color_band deliberately selects the full emblem
+            # UV rectangle in uv_project, matching the original bitmap ratio.
+            obj['team_marker_uv_mode']='full_emblem'
+            obj['fixture_backing_object']=backing.name
+            obj['fixture_face_gap_m']=.002
+            obj['mjolnir_pcg_policy']='NONE'
+
+            x=cx+edge*4.05
+            backing=plate('portal_jamb_lens_housing',
+                bevel_rectangle(x-.07,2.72,x+.07,3.80,.015),
+                24.03,24.065,'fitted_charcoal',bevel=.006)
+            lens=lamp('portal_jamb_lens',[(x-.05,24.028,2.75),(x+.05,24.028,2.75),
+                  (x+.05,24.028,3.77),(x-.05,24.028,3.77)],70,
                   direction=(0,-1,0),size=(.12,1.02))
-        lamp('portal_lintel_lens',[(cx-2.45,24.0,5.08),(cx+2.45,24.0,5.08),
-             (cx+2.45,24.0,5.19),(cx-2.45,24.0,5.19)],230,(0,-.7,-.7),(4.9,.12))
+            lens['fixture_backing_object']=backing.name
+            lens['fixture_face_gap_m']=.002
+        backing=plate('portal_lintel_lens_housing',
+            bevel_rectangle(cx-2.49,5.055,cx+2.49,5.215,.015),
+            24.03,24.065,'fitted_charcoal',bevel=.006)
+        lens=lamp('portal_lintel_lens',[(cx-2.45,24.028,5.08),(cx+2.45,24.028,5.08),
+             (cx+2.45,24.028,5.19),(cx-2.45,24.028,5.19)],230,(0,-.7,-.7),(4.9,.12))
+        lens['fixture_backing_object']=backing.name
+        lens['fixture_face_gap_m']=.002
         # The entry vault opens sideways into the cross-concourse. Full arch
         # jambs here either cut into the blind-end wall or stand in the open
         # turn, depending on which side is viewed. Keep the exterior portal

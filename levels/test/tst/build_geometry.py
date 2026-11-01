@@ -157,10 +157,12 @@ def uv_project(obj):
             elif mat == PORTAL:
                 # One complete shield mask across the doorway, including its
                 # clipped upper corners; this is a non-colliding render face.
-                xs=[mesh.vertices[i].co.x for i in poly.vertices]
+                # Side-wall lift portals use Y/Z; balcony portals use X/Z.
+                horizontal = 1 if dominant == 0 else 0
+                xs=[mesh.vertices[i].co[horizontal] for i in poly.vertices]
                 zs=[mesh.vertices[i].co.z for i in poly.vertices]
                 p=mesh.vertices[mesh.loops[loop].vertex_index].co
-                uv.data[loop].uv=((p.x-min(xs))/(max(xs)-min(xs)),(p.z-min(zs))/(max(zs)-min(zs)))
+                uv.data[loop].uv=((p[horizontal]-min(xs))/(max(xs)-min(xs)),(p.z-min(zs))/(max(zs)-min(zs)))
             else:
                 period = 2 if mat in (PANELS, FLOOR) else 6
                 uv.data[loop].uv = (co[axes[0]] / period, co[axes[1]] / period)
@@ -534,7 +536,7 @@ boolean(platform,box("control_pad_cross_joint",(-3.65,-.06,.52),(3.65,.06,.75),F
 from perimeter_architecture import build as build_perimeter, ARRIVALS
 wall=build_perimeter(mesh_object,box,prism,bevel_rectangle,boolean,PANELS,FLOOR,LIGHT,PORTAL)
 from facility_architecture import build as build_facility
-build_facility(wall,mesh_object,box,prism,bevel_rectangle,boolean,LIGHT,RED,BLUE,AMBER_LIGHT)
+build_facility(wall,mesh_object,box,prism,bevel_rectangle,boolean,LIGHT,RED,BLUE,AMBER_LIGHT,PORTAL)
 
 from facility_edge_wear import prepare as prepare_facility_edge_wear, apply as apply_facility_edge_wear
 detail_collection=bpy.data.collections.new("DETAIL - Forerunner precision armor (render only)")
@@ -660,17 +662,8 @@ placements = {
         "king": {"positions_m":[[0,0,.8],pos(-24,15,.2),pos(24,-15,.2)],"status":"planned"}
     }
 }
-for channel, arrival in enumerate(ARRIVALS,2):
-    side = -1 if arrival[0] < 0 else 1
-    placements["teleporters"].append({"channel":channel,
-        "from_m":pos(side*44,22,.05),"to_m":list(arrival),
-        "from_yaw_degrees":90,"to_yaw_degrees":270,
-        "to_scenery":False,
-        "authoring_note":"Ground-to-balcony arrival in front of the walk-through return shield"})
-    placements["teleporters"].append({"channel":channel+2,
-        "from_m":[arrival[0],30.85,7.25],"to_m":pos(side*44,19,.05),
-        "from_yaw_degrees":90,"to_yaw_degrees":270,"scenery":False,"shield_return":True,
-        "authoring_note":"Walk into the green shield to return; separate landing avoids bounce-back"})
+from facility_teleporters import balcony_links
+placements["teleporters"].extend(balcony_links(ARRIVALS))
 placements["structure_review_points"] = [
     {"name":f"balcony_walk_{x}","position_m":[x,24.0,7.25]}
     for x in range(-66,67,3)] + [

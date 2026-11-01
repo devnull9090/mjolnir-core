@@ -119,6 +119,7 @@ fn main() { let a:Vec<String>=env::args().collect(); match a[1].as_str() {
         self.put(self.source / 'bundle_textures.py', '')
         self.put(self.source / 'terrain_form.py', '')
         self.put(self.source / 'perimeter_architecture.py', '')
+        self.put(self.source / 'facility_teleporters.py', '')
         self.put(self.source / 'perimeter_dressing.py', '')
         self.put(self.source / 'amber_light.json', '{}')
         surfaces = {}
@@ -130,15 +131,16 @@ fn main() { let a:Vec<String>=env::args().collect(); match a[1].as_str() {
                 'roughness': [.2, .8], 'metallic': .1, 'soften': 0}
         surface = {'version': 1, 'surfaces': surfaces}
         self.put(self.source / 'surfaces.json', json.dumps(surface))
+        self.put(self.source / 'art/textures/test.png', 'texture')
         write_jms(self.source / 'fixture.JMS')
-        geometry = '''from pathlib import Path\nimport sys,shutil\na=sys.argv; out=Path(a[a.index("--out-dir")+1]); (out/"data/levels/test/tst/models").mkdir(parents=True,exist_ok=True); shutil.copyfile(Path(__file__).with_name("fixture.JMS"),out/"data/levels/test/tst/models/tst.JMS"); (out/"tst.blend").write_bytes(b"blend"); (out/"placements.json").write_text("{}"); (out/"art/textures").mkdir(parents=True); (out/"art/textures/test.png").write_bytes(b"texture")\n'''
+        geometry = '''from pathlib import Path\nimport sys,shutil\na=sys.argv; out=Path(a[a.index("--out-dir")+1]); (out/"data/levels/test/tst/models").mkdir(parents=True,exist_ok=True); shutil.copyfile(Path(__file__).with_name("fixture.JMS"),out/"data/levels/test/tst/models/tst.JMS"); (out/"tst.blend").write_bytes(b"blend"); (out/"placements.json").write_text("{}"); (out/"perimeter_dressing.json").write_text("{}"); (out/"tst.surfaces.json").write_text("{}"); (out/"art/textures").mkdir(parents=True); (out/"art/textures/test.png").write_bytes(b"texture"); print("Export completed successfully"); print("TST_GEOMETRY_EXPORTED",out/"data/levels/test/tst/models/tst.JMS")\n'''
         self.put(self.source / 'build_geometry.py', geometry)
-        annotate = '''from pathlib import Path\nimport sys\na=sys.argv; p=Path(a[a.index("--blend")+1]); p.write_bytes(b"annotated")\n'''
+        annotate = '''from pathlib import Path\nimport sys\na=sys.argv; p=Path(a[a.index("--blend")+1]); p.write_bytes(b"annotated"); print("TST_ANNOTATED",p)\n'''
         self.put(self.source / 'annotate_blend.py', annotate)
         self.put(self.source / 'amber_light.py', '''from pathlib import Path\nimport sys\na=sys.argv; p=Path(a[a.index("--output")+1]); p.parent.mkdir(parents=True,exist_ok=True); p.write_bytes(b"amber")\n''')
         self.put(self.source / 'build_scenario.py', '''from pathlib import Path\nimport sys,json,hashlib\na=sys.argv; p=Path(a[a.index("--hek")+1])/"tags/levels/test/tst/tst.scenario"; p.write_bytes(b"authored scenario"); print(json.dumps({"scenario":str(p),"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"roundtrip":"passed"}))\n''')
         self.put(self.repo / 'tools/level/placeholder', '')
-        for filename in ('partition_tst_facility.py', 'authored_surfaces.py', 'make_tst_facility_receipt.py'):
+        for filename in ('partition_tst_facility.py', 'authored_surfaces.py', 'make_tst_facility_receipt.py', 'verify_tst_export_resume.py'):
             shutil.copy2(REPO / 'tools/level' / filename, self.repo / 'tools/level' / filename)
         shutil.copy2(REPO / 'tools/level/verify_tst_facility_receipt.py', self.repo / 'tools/level/real_verify_tst_facility_receipt.py')
         verify = '''from real_verify_tst_facility_receipt import *\nif __name__ == "__main__":\n import os,sys\n if os.environ.get("TST_TEST_VERIFY_FAILURE"): sys.exit(2)\n main()\n'''
@@ -158,14 +160,14 @@ fn main() { let a:Vec<String>=env::args().collect(); match a[1].as_str() {
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(value, encoding='utf-8')
 
-    def invoke(self, failure=None):
+    def invoke(self, failure=None, extra=()):
         env = os.environ.copy()
         if failure:
             env['TST_TEST_' + failure.upper() + '_FAILURE'] = '1'
         return subprocess.run(['pwsh', '-NoProfile', '-File', str(self.source / 'rebuild.ps1'),
             '-HekRoot', str(self.hek), '-AddonRoot', str(self.addon), '-MccTagsRoot', str(self.mcc),
             '-BlenderExe', 'C:/Program Files/Blender Foundation/Blender 5.1/blender.exe',
-            '-SplitFacilityDetail', '-FacilityOutputDir', str(self.bundle)],
+            '-SplitFacilityDetail', '-FacilityOutputDir', str(self.bundle), *map(str, extra)],
             cwd=self.repo, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
     def test_success_keeps_full_jms_and_publishes_receipt_after_cache(self):
@@ -178,6 +180,9 @@ fn main() { let a:Vec<String>=env::args().collect(); match a[1].as_str() {
         self.assertEqual(reduced.read_bytes(), (self.bundle / 'partition/tst-ce-structure.JMS').read_bytes())
         self.assertEqual((self.bundle / 'tst.map').read_text(), 'new map')
         self.assertTrue((self.bundle / 'tst-facility-ce-build-receipt.json').is_file())
+        self.assertEqual((self.bundle / 'authoring-source/facility_teleporters.py').read_bytes(), b'')
+        frozen = json.loads((self.bundle / 'evidence/build-input-manifest.json').read_text(encoding='utf-8-sig'))
+        self.assertIn('facility_teleporters.py', frozen['authoring_source_hashes'])
         self.assertEqual((self.hek / 'maps/bitmaps.map').read_text(), 'original bitmaps.map')
         self.assertEqual((self.bundle / 'authoring/art/textures/test.png').read_bytes(), b'texture')
 
@@ -188,6 +193,40 @@ fn main() { let a:Vec<String>=env::args().collect(); match a[1].as_str() {
         self.assertFalse((self.bundle / 'tst-facility-ce-build-receipt.json').exists())
         self.assertTrue((self.bundle / '.tst-facility-ce-build-receipt.pending').exists())
         self.assertEqual((self.hek / 'maps/bitmaps.map').read_text(), 'original bitmaps.map')
+
+    def interrupted_partition_export(self):
+        partitioner = self.repo / 'tools/level/partition_tst_facility.py'
+        original = partitioner.read_text(encoding='utf-8')
+        partitioner.write_text(original.replace('    publish_partition(temp, destination)',
+            '    raise PermissionError("[WinError 5] Access denied: " + str(temp))'), encoding='utf-8')
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('WinError 5', (next((self.repo / '.dream-loop/tst-rebuild').glob('*/facility-partition.log'))).read_text())
+        partitioner.write_text(original, encoding='utf-8')
+        return next((self.repo / '.dream-loop/tst-rebuild').glob('*/facility-partition.log')).parent
+
+    def test_resume_reuses_verified_export_and_runs_all_hek_stages(self):
+        logs = self.interrupted_partition_export()
+        exported = self.bundle / 'authoring/data/levels/test/tst/models/tst.JMS'
+        modified = exported.stat().st_mtime_ns
+        result = self.invoke(extra=('-ResumeFacilityBundle', '-ResumeBuildLogs', logs))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(exported.stat().st_mtime_ns, modified)
+        self.assertTrue((self.bundle / 'tst-facility-ce-build-receipt.json').is_file())
+        frozen = json.loads((self.bundle / 'evidence/build-input-manifest.json').read_text(encoding='utf-8-sig'))
+        self.assertEqual(frozen['resume']['format'], 'tst-verified-export-resume-v1')
+        self.assertEqual(len(list(self.bundle.glob('.tst-facility-partition-*/manifest.json'))), 1)
+        self.assertEqual(len(list((self.repo / '.dream-loop/tst-rebuild').glob('*/geometry.log'))), 1)
+
+    def test_resume_refuses_changed_export_before_hek_writes(self):
+        logs = self.interrupted_partition_export()
+        exported = self.bundle / 'authoring/data/levels/test/tst/models/tst.JMS'
+        exported.write_bytes(exported.read_bytes() + b'\n')
+        result = self.invoke(extra=('-ResumeFacilityBundle', '-ResumeBuildLogs', logs))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Completed export JMS changed', result.stdout + result.stderr)
+        self.assertFalse((self.hek / 'data/levels/test/tst/models/tst.JMS').exists())
+        self.assertFalse((self.bundle / 'tst-facility-ce-build-receipt.json').exists())
 
     def test_lightmap_exception_cannot_publish_receipt_or_build_cache(self):
         result = self.invoke(failure='lightmap')
