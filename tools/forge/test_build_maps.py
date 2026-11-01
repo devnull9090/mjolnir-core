@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import math
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +12,69 @@ from build_maps import MAPS, check_level, check_pack_view, unchanged, verify_arc
 
 
 class ForgeMapBuildTests(unittest.TestCase):
+    def test_crossline_perimeter_is_solid_to_nine_metres_and_leaves_routes_open(self):
+        repo = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("forge_map_generator", repo / "forge-maps/generate.py")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        level = generator.arena()
+        geometry = json.loads((repo / "forge-packs/foundry/source/geometry.json").read_text())
+        wall = next(p for p in geometry["pieces"] if p["id"] == "wall")
+        self.assertEqual(len(wall["collision"]["hulls"]), 1, "perimeter uses solid walls, not apertures")
+        vertices = wall["collision"]["hulls"][0]["vertices"]
+        hull_bounds = [(min(v[a] for v in vertices), max(v[a] for v in vertices)) for a in range(3)]
+        self.assertEqual(set(map(tuple, vertices)),
+                         {(x, y, z) for x in hull_bounds[0] for y in hull_bounds[1] for z in hull_bounds[2]},
+                         "the wall's convex collision is a solid box, so its transformed bounds are exact")
+        boxes = []
+        for item in level["blam"]["objects"]:
+            if item["tag"] != generator.ref("wall"):
+                continue
+            px, py, pz = item["pos"][0] / 100, -item["pos"][1] / 100, item["pos"][2] / 100
+            if abs(px) != 11.75 and abs(py) != 19.75:
+                continue
+            yaw = math.radians(-item["rot"][1])
+            points = [(px + x * math.cos(yaw) - y * math.sin(yaw),
+                       py + x * math.sin(yaw) + y * math.cos(yaw), pz + z)
+                      for x, y, z in vertices]
+            boxes.append(tuple((min(p[a] for p in points), max(p[a] for p in points)) for a in range(3)))
+        self.assertEqual(len(boxes), 96, "32 full wall panels in each of three courses")
+        self.assertEqual(len(level["blam"]["objects"]), 204)
+        eps = 1e-7
+        # Prove continuous coverage of every side and vertical band using
+        # transformed collision hulls, not just the authored panel centres.
+        for axis, plane, span in [(0, -11.75, 20), (0, 11.75, 20),
+                                  (1, -19.75, 12), (1, 19.75, 12)]:
+            side = [b for b in boxes if b[axis][0] - eps <= plane <= b[axis][1] + eps]
+            heights = sorted({0.0, 9.0} | {h for b in side for h in b[2]})
+            self.assertEqual(heights[0], 0)
+            self.assertEqual(heights[-1], 9)
+            for bottom, top in zip(heights, heights[1:]):
+                z = (bottom + top) / 2
+                intervals = sorted(b[1 - axis] for b in side if b[2][0] <= z <= b[2][1])
+                covered = -span
+                for start, end in intervals:
+                    self.assertLessEqual(start, covered + eps, "gap in perimeter collision")
+                    covered = max(covered, end)
+                self.assertGreaterEqual(covered, span - eps)
+            self.assertGreaterEqual(heights[-1] - 4.5, 4.5, "normal jumps from decks remain enclosed")
+        # Corner seams overlap rather than merely meeting at a floating-point
+        # edge. Each course contains both perpendicular walls at each corner.
+        for x in (-11.75, 11.75):
+            for y in (-19.75, 19.75):
+                for z in (1.5, 4.5, 7.5):
+                    corner = [b for b in boxes if all(b[a][0] + eps < p < b[a][1] - eps
+                                                     for a, p in enumerate((x, y, z)))]
+                    self.assertEqual(len(corner), 2, "sealed overlapping corner")
+        for item in level["blam"]["objects"]:
+            if item["tag"] not in (generator.SPAWN, generator.TELE + "2way"):
+                continue
+            p = (item["pos"][0] / 100, -item["pos"][1] / 100, item["pos"][2] / 100)
+            self.assertLess(abs(p[0]) + 1.25, 11.5, "spawn/portal clear of side wall")
+            self.assertLess(abs(p[1]) + 1.25, 19.5, "spawn/portal clear of end wall")
+        self.assertEqual(len([o for o in generator.blank()["blam"]["objects"]
+                              if o["group"] == "crates"]), 0, "blank construction canvas stays blank")
+
     def test_crossline_team_spawns_match_red_and_blue_bases(self):
         path = Path(__file__).resolve().parents[2] / "forge-maps/generate.py"
         spec = importlib.util.spec_from_file_location("forge_map_generator", path)

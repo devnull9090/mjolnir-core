@@ -13,6 +13,26 @@ pending. Blender renders show the authored material design; the current game
 build uses stock material references on this original geometry. The six additions
 in 0.2.0 retain all original IDs, geometry and collision definitions.
 
+## Walls and boundaries
+
+Dimensions are width × depth × height in metres. Rotate straight pieces 90°
+for a perpendicular run; all origins sit at the bottom centre.
+
+| Piece | Dimensions | Use |
+| --- | --- | --- |
+| `wall` | 4 × 0.5 × 3 | Solid outside boundary; stack courses every 3 m |
+| `wall_half` | 4 × 0.5 × 1.5 | Low cover and dividers |
+| `wall_corner` | 2 × 2 × 3 | L corner, open towards local +X/+Y |
+| `doorway` | 4 × 0.5 × 3 | Walk-through opening, 2 m wide × 2.5 m high |
+| `window` | 4 × 0.5 × 3 | Open 2 × 1.5 m aperture above a 1 m sill |
+| `railing` | 4 × 0.25 × 1 | Walkway guard with open bars |
+
+Use continuous full walls around an arena's outside edge. Half walls and
+railings can be jumped over, and the doorway/window apertures contain no
+glass or invisible collision. They work well along interior routes where a
+drop leads to another playable floor. The [Crossline gallery](../../forge-maps/README.md#gallery)
+shows the kit assembled into an enclosed arena; Forge Canvas remains blank.
+
 ## Portal and lighting pieces
 
 | ID | Dimensions, metres | Purpose |

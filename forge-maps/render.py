@@ -2,6 +2,7 @@
 
 blender --background --factory-startup --python forge-maps/render.py
 blender --background --factory-startup --python forge-maps/render.py -- --blank
+blender --background --factory-startup --python forge-maps/render.py -- --opposite
 
 Reads the baked-level inputs, including reflected UE centimetre positions and
 yaw, decorative cubes, and light metadata. Invisible gameplay markers and stock
@@ -36,7 +37,9 @@ def options():
     parser.add_argument("--blank", action="store_true", help="Render Forge Canvas instead of Crossline.")
     parser.add_argument("--level", type=Path, help="Explicit .level.json input, overriding --blank.")
     parser.add_argument("--output", type=Path, help="PNG output path.")
-    parser.add_argument("--top", action="store_true", help="Orthographic overhead review instead of the hero angle.")
+    views = parser.add_mutually_exclusive_group()
+    views.add_argument("--top", action="store_true", help="Orthographic overhead review instead of the hero angle.")
+    views.add_argument("--opposite", action="store_true", help="Show the opposite side of the arena.")
     parser.add_argument("--light-scale", type=float, default=1.0, help="Preview-only multiplier for fixture power.")
     args = sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else []
     parsed = parser.parse_args(args)
@@ -89,7 +92,8 @@ def main():
     source = json.loads(source_bytes)
     by_id = {p["id"]: p for p in source["pieces"]}
     origin = level.get("canvas", {}).get("origin", [0, 0, 0])
-    output = args.output or ROOT / "art" / (level["name"] + ("-top" if args.top else "") + ".png")
+    suffix = "-top" if args.top else "-opposite" if args.opposite else ""
+    output = args.output or ROOT / "art" / (level["name"] + suffix + ".png")
     output.parent.mkdir(parents=True, exist_ok=True)
     (ROOT / "build").mkdir(exist_ok=True)
 
@@ -162,9 +166,10 @@ def main():
     if args.top:
         camera.location = centre + Vector((0, 0, max(width, depth)*1.4))
     elif placed:
-        # Look across the arena from midfield so both bases' inward-facing
-        # team panels remain visible instead of hiding the near base's colour.
-        camera.location = centre + Vector((width*2, -depth*0.2, max(width, depth)*1.1))
+        # An elevated midfield view shows the actual interior above the
+        # perimeter walls. The opposite view exposes the far-side lower lane.
+        side = -1 if args.opposite else 1
+        camera.location = centre + Vector((side*width*1.5, -side*depth*0.35, max(width, depth)*2))
     else:
         camera.location = centre + Vector((width*1.55, -depth*1.3, max(width, depth)*1.25))
     camera.rotation_euler = (centre-camera.location).to_track_quat("-Z", "Y").to_euler()
@@ -206,6 +211,7 @@ def main():
     camera.location += camera.rotation_euler.to_matrix() @ Vector(((lo[0]+hi[0])/2, (lo[1]+hi[1])/2, 0))
     report = {"level": str(path), "level_sha256": hashlib.sha256(level_bytes).hexdigest(),
               "geometry_sha256": hashlib.sha256(source_bytes).hexdigest(),
+              "view": "top" if args.top else "opposite" if args.opposite else "hero",
               "preview_light_scale": args.light_scale, "preview_luminous_efficacy_lm_per_w": 179,
               "name": level["name"], "foundry_placements": placed,
               "decor_count": len(level.get("decor", [])), "lights": lights,

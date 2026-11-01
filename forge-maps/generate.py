@@ -76,6 +76,22 @@ def piece(level, ident, position, yaw=0):
         "set": {"multiplayer data.owner team": "neutral"}})
 
 
+def perimeter(level):
+    """Close the 24x40m deck with three courses of solid 4x0.5x3m walls.
+
+    Outer faces align with the deck edge; perpendicular panels overlap at
+    each corner. The flush 9m barrier has no jumpable intermediate ledges,
+    and stands 4.5m above the highest playable decks. Keep the sky open.
+    """
+    for z in (0, 3, 6):
+        for x in (-11.75, 11.75):
+            for y in range(-18, 19, 4):
+                piece(level, "wall", (x, y, z), 90)
+        for y in (-19.75, 19.75):
+            for x in range(-10, 11, 4):
+                piece(level, "wall", (x, y, z))
+
+
 def spawn(level, position, yaw=0, team="neutral"):
     level["blam"]["player_starts"].append({"pos": ue(position), "yaw": -yaw})
     level["blam"]["objects"].append({"group": "scenery", "tag": SPAWN,
@@ -107,7 +123,7 @@ def blank():
 
 def arena():
     level = base("crossline", "Crossline", 24, 40, ["team_slayer", "slayer", "forge"])
-    level["description"] = "Red versus Blue across a compact Foundry arena: raised bases, twin ramps, side walks and linked portal pads. Built for 2–8 players."
+    level["description"] = "Red versus Blue across an enclosed, open-sky Foundry arena: raised bases, twin ramps, side walks and linked portal pads, surrounded by 9 m perimeter walls. Built for 2–8 players."
     grid(level, 24, 40, 4)
     # Raised bases: eight4m floor tiles each, surfaces at4.5m. The same
     # geometry is mirrored through the origin, including spawn/weapon distances.
@@ -163,6 +179,7 @@ def arena():
             piece(level, "wall_half", (x, y, 0), 90)
         piece(level, "doorway", (x, 0, 0), 90)
         piece(level, "light_pylon", (x, -4 if x > 0 else 4, 0))
+    perimeter(level)
     level["blam"]["weapons"].append({"type": "rocket_launcher", "pos": ue((0, 0, 4.9)),
         "set": {"multiplayer data.spawn time": "120"}})
     return level

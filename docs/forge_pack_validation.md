@@ -123,7 +123,7 @@ surface appearance is not evidence of the game's final material appearance.
 Second-machine play and downloading a published release into a fresh launcher
 profile remain pending.
 
-Final local candidates (unsigned), rebuilt after the bounds and material fixes:
+Initial playable candidates (unsigned), before the enclosure follow-up:
 
 | Archive | SHA-256 |
 | --- | --- |
@@ -136,3 +136,35 @@ game files were restored and hash-checked, temporary map/pack containers and
 metadata were removed, and display settings were restored. Test layouts and
 diagnostic evidence remain in ignored local directories. Both CI workflows
 passed for implementation commit `2a6f014e`.
+
+## Enclosed Crossline and photo session
+
+Crossline now appends 96 existing Full Wall pieces to the original layout:
+three 3 m courses form a continuous 9 m perimeter, with overlapping corners.
+The original 108 simulation objects, routes, spawns and teleporters remain
+unchanged. There are now 194 Foundry placements plus ten gameplay markers.
+Forge Canvas remains empty.
+
+Six map-builder tests pass. The enclosure regression uses transformed
+collision hulls to check coverage along all four sides at every height band,
+corner overlap, and spawn/teleporter clearance. In a fresh private Team Slayer
+session, walking east stopped at X=3.60 wu; another 900 ms of movement left X
+unchanged. Walking south reached the corner at Y=-6.22 wu. Jumping into the
+side wall left the player inside, and the player remained on the lower floor.
+Live inspection counted all 194 Foundry pieces.
+
+The [four new gameplay photos](../forge-maps/README.md#gallery) are unedited
+1920 × 1080 captures using the existing FlyCam to hide the HUD. They show the
+overview, red base, lower route and perimeter. Blender previews are labelled
+separately and regenerated from the same enclosed layout.
+
+Latest local archives remain unsigned:
+
+| Archive | SHA-256 |
+| --- | --- |
+| Foundry 0.2.0, wall-guide README update only | `50107e14652d40e8978ca7401de5bd419fe041c45defb46083f9ea2f9e56e373` |
+| Enclosed Crossline 0.1.0 | `77dfd4bfd9588ddcdc5901eb3213c16ed9b47af310bba29089a54080569595f1` |
+
+All 194 Foundry container members are unchanged by that README-only repack.
+The original game files, camera poses and display settings were restored and
+verified after the session; the temporary installation was removed.

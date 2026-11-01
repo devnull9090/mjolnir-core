@@ -4,10 +4,9 @@ Two original maps use the shared Foundry construction kit. Forge Canvas is an
 empty 64 × 64 metre deck with a two-metre grid and open sky. Crossline is a
 24 × 40 metre Red versus Blue arena with raised bases, ramps, side walkways,
 linked teleporters and coloured lights, intended for two to eight players.
-
-![Crossline in a local Team Slayer session](art/crossline-game.png)
-
-![Crossline layout rendered from its source pieces](art/crossline-top.png)
+A continuous perimeter of 96 Foundry full walls encloses Crossline: three
+courses make a 9 m boundary, extending 4.5 m above the raised decks. Interior
+railings and openings lead to other playable areas. Forge Canvas stays empty.
 
 These are standalone map archives, with their own collision, world and map
 codes: **Forge Canvas / FBK** and **Crossline / FRB**. The editable JSON files
@@ -15,6 +14,31 @@ are source templates; installing a map does not install a private saved layout.
 The initial versions are local development builds until published through the
 Hub. A source build alone does not mean the current public launcher or mods
 already include the required pack support.
+
+## Gallery
+
+Actual in-game captures of the enclosed arena:
+
+| Overview | Red base |
+| --- | --- |
+| ![Crossline overview in game](art/crossline-overview-game.png) | ![Red base and teleporter in game](art/crossline-red-base-game.png) |
+| **Lower route** | **Perimeter walls** |
+| ![Crossline lower route in game](art/crossline-lower-route-game.png) | ![Crossline solid perimeter in game](art/crossline-perimeter-game.png) |
+
+### Blender layout previews
+
+These Blender previews use the actual level placements and authored materials.
+They show the enclosed layout; game lighting and materials can look different.
+
+![Crossline enclosed layout, elevated view](art/crossline.png)
+
+[Opposite elevated view](art/crossline-opposite.png) ·
+[Overhead layout](art/crossline-top.png) ·
+[Blank Forge Canvas](art/forge_canvas.png)
+
+The [wall-piece guide](../forge-packs/foundry/README.md#walls-and-boundaries)
+lists full walls, half walls, corners, doorways, windows and railings with
+their dimensions and clear openings.
 
 ## Play and build
 
