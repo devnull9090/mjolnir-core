@@ -71,7 +71,7 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **L** | Megalo label of the target (the map's labels in turn, then none) |
 | **J** | Respawn time of the target: 0, 5, 10, 15, 30, 45, 60, 90, 120, 180 s |
 | **O** | Spawn order of the target: 0 to 9 |
-| **, / .** | Turn what you carry, or the next thing you place, 22.5° left / right |
+| **, / .** | Turn what you hold or carry, or the next marker you place, 22.5° left / right |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
 flies up.
@@ -150,7 +150,7 @@ lists what is in it. Layouts belong to one map: the file name says which.
 - **Layouts for your fireteam.** A saved layout is used when you host.
 - **Playing with your fireteam.** Players who join start Slayer instead.
 - **A Forge menu** (object lists, properties).
-- **Turning weapons and vehicles.** , and . turn markers only.
+- **Tilting.** , and . turn about the vertical only.
 - **Markers are invisible**: aim near where you put them.
 - The cursor only reaches things in plain view: it stops at walls and the
   ground.

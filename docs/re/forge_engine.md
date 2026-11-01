@@ -6,7 +6,7 @@ MJOLNIRForge binds keys that send the engine's own editor requests (*What
 ships*). Verified in game on Blood Gulch: turn into the Monitor and back,
 grab, move, drop, push out and delete objects, all through the simulation's
 request path. Layouts save, load and start games since 2026-11-01 (*Layouts*). Properties and markers since the same day (*Object properties, markers
-and the grab crash*). Not yet: fireteam clients, turning physics objects. The history below covers the
+and the grab crash*). Not yet: fireteam clients, tilting. The history below covers the
 first live run (*Live run, 2026-10-24*, which ended in a hang), the model
 fix (*Retest with the fixed model*) and the request path (*The request path
 on the host*).
@@ -695,17 +695,36 @@ Verified 2026-11-01 (BGL, solo):
   flag at (34.59, -78.27), on the Forge stand at (34.87, -78.27), as well as
   the map's own two.
 
-Request 11 (exact transform) only acts on the held object (it writes the
-target transform into editor state `+0x70..+0x94`), so it cannot move a
-marker. Request 12 sets the rotate mode (`+0xc8`, 3 bits). Request 13 sets
+### Turning a held object
+
+Request 11 (exact transform) acts only on the held object, so it cannot move
+a marker. Its applier (`0x305f6a`) writes the editor's hold transform from
+the payload (`+4` onward):
+
+| Editor state | Field |
+|---|---|
+| `+0x3c` | scale |
+| `+0x40`, `+0x4c`, `+0x58` | forward, left, up |
+| `+0x64` | position (recomputed from the cursor each tick) |
+| `+0x70..+0x93` | the same three axes again: the snap's reference |
+
+The snap is `+0xc8`, which request 12 sets. It is an index into
+`0x85dad0` = {0, 90, 45, 30, 15, 5} degrees (0 = free); the per-tick hold
+code (around `0x2ffe04`) snaps the hold axes to it about `+0x70`. Request 14
+flips `+0x38`, which picks the order the snap composes in. Slot 30 sends it
+when control entry `0x5a` is pressed (latch `+0xf4`). Request 13 sets
 `G+0x2c69`, which gates Megalo's triggers in a sandbox game (slot 113).
+
+The DLL turns a held object by rotating the three axes about Z on the
+simulation thread, copying them to `+0x70`, and setting the snap to 0.
+VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
+(`mjolnir live objects`).
 
 ## Next steps
 
 1. Several layouts per map, picked in the lobby; a hub content type.
 2. Fireteam Forge: a game-type slot of its own (or another way for the
    game type to travel), so clients start the sandbox engine too.
-3. UI: a properties screen; turning weapons and vehicles (type 11 on the held
-   object, rotate state `+0xc8`).
+3. UI: a properties screen; tilting (only yaw so far), the snap setting.
 4. Republish the converted maps with the new palettes (the lift covers the
    old ones meanwhile, for the kinds they already place).

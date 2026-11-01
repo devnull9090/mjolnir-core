@@ -115,6 +115,9 @@
 #define EDITOR_CURSOR        0x8        // the object under the cursor, -1 none
 #define EDITOR_DISTANCE      0xc        // grab distance (the cursor reaches at least 5)
 #define EDITOR_POINT         0x10       // the cursor point, 3 floats
+#define EDITOR_HOLD_AXES     0x40       // the held object's forward, left, up (3 floats each)
+#define EDITOR_HOLD_BASIS    0x70       // the same, as the snap's reference
+#define EDITOR_SNAP          0xc8       // rotation snap index: 0 free, 90, 45, 30, 15, 5 degrees
 #define TAG_ENTRY_STRIDE     0x30       // tag table entry: +0x10 path
 #define MAX_PLAYERS          16
 
@@ -1242,9 +1245,29 @@ static void act(uint8_t *tls, int player, LONG commands) {
     int me = player_handle(tls, player);
     uint8_t *mv = (uint8_t *)g_mv_live();
     if (commands & (CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT)) {
-        g_yaw += commands & CMD_ROTATE_LEFT ? YAW_STEP : -YAW_STEP;
-        g_yaw = atan2f(sinf(g_yaw), cosf(g_yaw));
-        note("facing %d", (int)lroundf(g_yaw * 57.29578f));
+        float step = commands & CMD_ROTATE_LEFT ? YAW_STEP : -YAW_STEP;
+        if (held != 0xffffffffu) {
+            // A held object's orientation is the editor's hold transform,
+            // which request 11's applier (0x305f6a) writes: forward, left and
+            // up at +0x40, +0x4c, +0x58, and the same basis again at +0x70
+            // for the rotation snap (+0xc8, an index into 0, 90, 45, 30, 15,
+            // 5 degrees; 0x85dad0). Turn all of it about the vertical, with
+            // the snap off so it stays where it is put.
+            float c = cosf(step), sn = sinf(step);
+            for (int v = 0; v < 3; v++) {
+                float *a = (float *)(state + EDITOR_HOLD_AXES + v * 12);
+                float x = a[0] * c - a[1] * sn, y = a[0] * sn + a[1] * c;
+                a[0] = x;
+                a[1] = y;
+            }
+            memcpy(state + EDITOR_HOLD_BASIS, state + EDITOR_HOLD_AXES, 36);
+            *(int32_t *)(state + EDITOR_SNAP) = 0;
+            const float *f = (const float *)(state + EDITOR_HOLD_AXES);
+            note("facing %d", (int)lroundf(atan2f(f[1], f[0]) * 57.29578f));
+        } else {
+            g_yaw = atan2f(sinf(g_yaw + step), cosf(g_yaw + step));
+            note("facing %d", (int)lroundf(g_yaw * 57.29578f));
+        }
     }
     if ((commands & CMD_GRAB) && g_carry.active) {
         // Drop what the DLL carries: make it again at the cursor.
