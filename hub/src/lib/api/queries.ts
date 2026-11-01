@@ -9,6 +9,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { Media, Mod, Release, ReleaseChanges, UserProfile } from "@mjolnir/hub-kit";
 
 import { CARD_COLUMNS, OWNER_COLUMNS, avatarUrl, modFromRow } from "./schemas";
+import { ForgePackSchema } from "./forge";
 
 // Every mod row here goes through `modFromRow`, the same mapper the API
 // uses, rather than being spread wholesale. That is not tidiness: a D1 row
@@ -32,6 +33,8 @@ export async function listPublishedMods(
     limit?: number;
     /** true: only map packs; false: everything else; absent: both. */
     map?: boolean;
+    /** Only listings with a published, validated Forge pack inventory. */
+    forge?: boolean;
   },
 ): Promise<ModListRow[]> {
   const where: string[] = ["m.status = 'published'"];
@@ -46,6 +49,11 @@ export async function listPublishedMods(
   }
   if (opts.map !== undefined) {
     where.push(`${opts.map ? "" : "NOT "}EXISTS (SELECT 1 FROM map_listings ml WHERE ml.mod_id = m.id)`);
+  }
+  if (opts.forge !== undefined) {
+    where.push(`${opts.forge ? "" : "NOT "}EXISTS (
+      SELECT 1 FROM mod_releases fr WHERE fr.mod_id = m.id
+        AND fr.status = 'published' AND fr.forge_pack_json IS NOT NULL)`);
   }
   const order =
     opts.sort === "downloads"
@@ -243,13 +251,13 @@ export async function getModPage(db: D1Database, slug: string) {
     // section — same shape the /releases/{id}/changes endpoint serves.
     db
       .prepare(
-        `SELECT r.id, r.version, r.changes_json,
+        `SELECT r.id, r.version, r.changes_json, r.forge_pack_json,
                 (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count
          FROM mod_releases r WHERE r.mod_id = ?1 AND r.status = 'published'
          ORDER BY r.created_at DESC LIMIT 1`,
       )
       .bind(mod.id)
-      .first<{ id: string; version: string; changes_json: string | null; chunk_count: number }>(),
+      .first<{ id: string; version: string; changes_json: string | null; forge_pack_json: string | null; chunk_count: number }>(),
   ]);
   return {
     mod,
@@ -259,6 +267,9 @@ export async function getModPage(db: D1Database, slug: string) {
       url: `/api/v1/media/${r.id}`,
     })) as unknown as MediaRow[],
     releases: releases.results as unknown as ReleaseRow[],
+    forgePack: latest?.forge_pack_json
+      ? { version: latest.version, pack: ForgePackSchema.parse(JSON.parse(latest.forge_pack_json)) }
+      : null,
     latestChanges: latest
       ? ({
           release_id: latest.id,

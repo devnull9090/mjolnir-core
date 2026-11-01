@@ -56,6 +56,8 @@ export interface ModListQuery {
   limit?: number;
   /** true: only map packs; false: everything but them; absent: both. */
   map?: boolean;
+  /** Only mods with a published Forge pack inventory. */
+  forge?: boolean;
 }
 
 export interface Release {
@@ -85,6 +87,30 @@ export interface ScanFinding {
   level: "error" | "warning";
   code: string;
   message: string;
+}
+
+export interface ForgeBlock {
+  id: string;
+  name: string;
+  tag: string;
+  category: string;
+  dimensions_m: [number, number, number];
+  snap_m?: number;
+}
+
+export interface ForgePack {
+  schema_version: 1;
+  id: string;
+  blocks: ForgeBlock[];
+}
+
+export interface ReleaseForgePack {
+  release_id: string;
+  slug: string;
+  version: string;
+  sha256: string | null;
+  forge_pack: ForgePack;
+  deps: { slug: string; range: string }[];
 }
 
 export interface ReleaseStatusDetail {

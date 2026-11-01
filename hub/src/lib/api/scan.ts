@@ -32,7 +32,7 @@ export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
 const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
 
-export const SCANNER_VERSION = "ts-2";
+export const SCANNER_VERSION = "ts-3";
 
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
@@ -402,7 +402,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
     }
   }
 
-  if (utocs.length === 0 && findings.every((f) => f.level !== "error")) {
+  if (!utocs.some((name) => name.startsWith("content/")) && findings.every((f) => f.level !== "error")) {
     err("no_content", "A content release must carry at least one container under content/.");
   }
 

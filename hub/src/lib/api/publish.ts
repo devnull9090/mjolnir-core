@@ -542,6 +542,13 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           message: `mjolnir.json says ${scan.manifest.version}, release is ${release.version}.`,
         });
       }
+      const forgePack = scan.manifest?.forge_pack ?? null;
+      if (forgePack && forgePack.id !== release.mod_slug) {
+        scan.findings.push({
+          level: "error", code: "forge_pack_id_mismatch",
+          message: `Forge pack id must match its Hub slug (${release.mod_slug}).`,
+        });
+      }
 
       // Author signature. The crypto check is self-contained; the identity
       // check is against the key registry: signer, registered key owner and
@@ -645,7 +652,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(`DELETE FROM release_chunks WHERE release_id = ?1`).bind(id),
         c.env.DB.prepare(
           `UPDATE mod_releases
-           SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6
+           SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6,
+               forge_pack_json = ?7
            WHERE id = ?1`,
         ).bind(
           id,
@@ -654,10 +662,16 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           scan.changes ? JSON.stringify(scan.changes) : null,
           streamed.sha256,
           streamed.size,
+          scan.verdict === "pass" && forgePack ? JSON.stringify(forgePack) : null,
         ),
         c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
       if (scan.verdict === "pass") {
+        if (forgePack) {
+          statements.push(c.env.DB.prepare(
+            `UPDATE mods SET category = 'forge', updated_at = datetime('now') WHERE id = ?1`,
+          ).bind(release.mod_id as string));
+        }
         for (const dep of scan.manifest?.deps ?? []) {
           statements.push(
             c.env.DB.prepare(

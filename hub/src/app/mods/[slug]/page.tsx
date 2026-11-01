@@ -78,7 +78,7 @@ export default async function ModDetailPage({
   const page = await loadModPage(slug);
   // Draft mods stay invisible here; owners reach them at /mods/{slug}/manage.
   if (!page || page.mod.status !== "published") notFound();
-  const { mod, media, releases, latestChanges } = page;
+  const { mod, media, releases, latestChanges, forgePack } = page;
   // A map installs through the launcher's map flow, which also registers it
   // with the game; anything else opens on its mod page there.
   const launcherHref = mod.map_code
@@ -139,6 +139,32 @@ export default async function ModDetailPage({
               </article>
             ) : (
               <p className="mb-12 text-text-dim text-sm">No description yet.</p>
+            )}
+
+            {forgePack && (
+              <section className="mb-12" aria-labelledby="forge-models">
+                <h2 id="forge-models" className="text-sm font-bold uppercase text-text-dim mb-3">
+                  Models in this pack <span className="normal-case font-normal">· v{forgePack.version} · {forgePack.pack.blocks.length} pieces</span>
+                </h2>
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-surface-raised text-text-dim"><tr>
+                      <th scope="col" className="px-4 py-3 font-medium">Piece</th>
+                      <th scope="col" className="px-4 py-3 font-medium">Type</th>
+                      <th scope="col" className="px-4 py-3 font-medium">Size (m)</th>
+                      <th scope="col" className="px-4 py-3 font-medium">Grid (m)</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-border">
+                      {forgePack.pack.blocks.map((block) => <tr key={block.id}>
+                        <td className="px-4 py-3 text-foreground">{block.name}</td>
+                        <td className="px-4 py-3 capitalize text-text-muted">{block.category.replaceAll("_", " ").replaceAll("-", " ")}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-text-muted">{block.dimensions_m.join(" × ")}</td>
+                        <td className="px-4 py-3 text-text-muted">{block.snap_m ?? "—"}</td>
+                      </tr>)}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             )}
 
             {/* Transparency: what the latest release actually edits, from

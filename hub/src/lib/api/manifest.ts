@@ -6,6 +6,7 @@
  * future it does not understand.
  */
 import { z } from "@hono/zod-openapi";
+import { ForgePackSchema } from "./forge";
 
 export const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
@@ -25,6 +26,7 @@ export const ManifestSchema = z
     // content too (containers and JSON), with a `map` block saying which
     // (docs/map_distribution.md).
     type: z.enum(["content", "map"]),
+    forge_pack: ForgePackSchema.optional(),
     map: z
       .object({
         // The scenario codename: three characters, the game's own map key.
@@ -72,6 +74,10 @@ export const ManifestSchema = z
   .refine((m) => (m.type === "map") === (m.map !== undefined), {
     message: "a map archive carries a map block, and only a map archive does",
     path: ["map"],
+  })
+  .refine((m) => m.forge_pack === undefined || m.type === "content", {
+    message: "a Forge pack is a content archive; maps reference packs through deps",
+    path: ["forge_pack"],
   })
   .openapi("MjolnirManifest");
 
