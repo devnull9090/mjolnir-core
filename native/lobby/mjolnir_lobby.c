@@ -5257,8 +5257,26 @@ static const unsigned char EXE_OBJECT_PLAY[] = {0x40, 0x55, 0x53, 0x56, 0x41, 0x
    and a joiner's never does. Kept for mjolnir_audio_bind. */
 static volatile long long audio_play_block;
 
+/* The last block seen bound (+0x30 set) and the UWorld its listener held then
+   (+0x78). A match being left unbinds its block, +0x30 and +0x78 back to 0,
+   which reads like a joiner's block the game never bound; binding it then
+   registers the block with the exe's audio interface (HaloAudioInterfaceSubSystem
+   + 0x30, list at +0x278) after the game's own unregister has run, the block is
+   freed, and the interface calls into it when the game quits (a host,
+   2026-11-01: access violation in the interface's destructor). */
+static volatile long long audio_bound_block, audio_bound_world;
+
 static unsigned long long __fastcall hook_exe_object_play(unsigned *request, long long world) {
-    if (world) audio_play_block = world;
+    if (world) {
+        audio_play_block = world;
+        __try {
+            if (*(long long *)(world + 0x30)) {
+                audio_bound_block = world;
+                audio_bound_world = *(long long *)(world - 0x20 + 0x78);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
     unsigned long long r = exe_object_play_tramp(request, world);
     if (!sound_trace_file) return r; /* installed for the block alone, outside a trace */
     unsigned r0 = 0, r1 = 0, r4 = 0, r5 = 0, r8 = 0;
@@ -5374,6 +5392,26 @@ static void __fastcall hook_audio_bind(long long self, long long owner) {
    audio game world the registry (exe 0xd577308) resolves for that UWorld
    (exe 0x751be20 returns self + 0x30). Answers in audio_bind_reply.txt. */
 typedef long long(__fastcall *audio_world_t)(long long registry, long long world);
+
+/* Whether `entry` is in the audio interface's registration list (pointers at
+   +0x278, count at +0x280), the list its destructor calls slot 0 on at quit
+   (exe 0x7513a90). A bind registers block + 8 there. */
+static const char *audio_registered(long long impl, long long entry) {
+    static char answer[64];
+    __try {
+        long long *list = *(long long **)(impl + 0x278);
+        int count = *(int *)(impl + 0x280);
+        for (int i = 0; i < count; i++)
+            if (list[i] == entry) {
+                snprintf(answer, sizeof answer, "yes (%d of %d)", i + 1, count);
+                return answer;
+            }
+        snprintf(answer, sizeof answer, "no (%d registered)", count);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        snprintf(answer, sizeof answer, "unreadable");
+    }
+    return answer;
+}
 static const unsigned char AUDIO_WORLD[] = {0x48, 0x83, 0xEC, 0x28, 0x0F, 0xB6, 0x82, 0x3A, 0x01, 0x00, 0x00, 0x04};
 
 __declspec(dllexport) int mjolnir_audio_bind(void *L) {
@@ -5450,8 +5488,15 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
             fclose(reply);
             return 0;
         }
+        fprintf(reply, "block+8 registered with the audio interface: %s\n", audio_registered(impl, block + 8));
         if (before) {
             fprintf(reply, "already bound\n");
+            fclose(reply);
+            return 0;
+        }
+        if (block == audio_bound_block && (long long)world == audio_bound_world) {
+            fprintf(reply, "refused: the game bound this block for this world and has unbound it (the match is "
+                           "ending); binding it again would leave it registered once it is freed\n");
             fclose(reply);
             return 0;
         }
@@ -5477,6 +5522,7 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
         ((audio_bind_t)(exe + 0x7b20690))(listener, (long long)world);
         ((audio_bind_t)(exe + 0x7544b80))(block, (long long)world);
         fprintf(reply, "ok block+0x30 after %llx\n", *(long long *)(block + 0x30));
+        fprintf(reply, "block+8 registered with the audio interface: %s\n", audio_registered(impl, block + 8));
         sound_trace("audio bind forced on block %llx: +0x30 %llx -> %llx", block, before, *(long long *)(block + 0x30));
         fireteam_log("audio: a joiner's audio world bound (block %llx -> %llx); object sounds reach Wwise now", block,
                      *(long long *)(block + 0x30));
