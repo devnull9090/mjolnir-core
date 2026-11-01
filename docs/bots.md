@@ -171,8 +171,10 @@ Gulch (PC 1, 2026-10-31,
   ways, and 0.72 still jams (tested live by writing the capsule, which the
   game builds from the tag's heights at load). Since 2026-10-31 the lobby
   DLL makes every elite 0.70 tall in a Megalo game once the host's HUD has
-  started bots, and leaves other games alone, so campaign elites keep their
-  height. On PC 1, an elite sent down from the south deck took the ramp
+  started bots. It acts in Megalo games only, and a match's tags unload
+  when it ends, so campaign elites should keep their height (by
+  construction; not measured in a mission). On PC 1, an elite sent down
+  from the south deck took the ramp
   three times out of five and walked out of the door each time (the other
   two times it dropped off the deck); HUD elites walked down two of the
   ramps, and one walked up onto the deck.
