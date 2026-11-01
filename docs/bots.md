@@ -17,7 +17,7 @@ team.
 |---|---|
 | `level bake`, `blam.bots` ([level_format.md](level_format.md)) | bot squads, a zone of firing positions, an objective, AI pathfinding for the map's BSP; `<CODE>.bots.json`, where the squads stand |
 | `crates/blam-sbsp/src/pathfinding.rs` | the pathfinding tables, from a structure BSP's collision shell |
-| MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game |
+| MJOLNIRLobby's DLL, `mjolnir_bots_enable` | lets `ai_place` place squads in a Megalo game, and makes elites short enough for low doorways there |
 | MJOLNIRLobby's DLL, `mjolnir_bots_teams` | in a team game, gives AI units the multiplayer team of their side |
 | MJOLNIRLobby `settings.lua` | BOTS, BOT TYPE and BOT DIFFICULTY on the PLAYERS page of the host's game settings: `bots=N;bot_type=K;bot_level=L` in the settings line |
 | `tools/level/build_bot_characters.sh` | the bots' characters: the Spartan, and every kind at each difficulty |
@@ -169,9 +169,13 @@ Gulch (PC 1, 2026-10-31,
   ramps out of the pathfinding is no answer either: they are the only way to
   walk onto a deck. An elite whose standing capsule is 0.70 tall passes both
   ways, and 0.72 still jams (tested live by writing the capsule, which the
-  game builds from the tag's heights at load). Not fixed: that means a
-  shorter elite, in bot matches only (the lobby DLL) or everywhere (a tag
-  override).
+  game builds from the tag's heights at load). Since 2026-10-31 the lobby
+  DLL makes every elite 0.70 tall in a Megalo game once the host's HUD has
+  started bots, and leaves other games alone, so campaign elites keep their
+  height. On PC 1, an elite sent down from the south deck took the ramp
+  three times out of five and walked out of the door each time (the other
+  two times it dropped off the deck); HUD elites walked down two of the
+  ramps, and one walked up onto the deck.
 
 **Stuck bots are placed again.** A bot that stays within 6 wu for 40 s is
 woken and sent to an area that does not hold it (an `area_<k>` order, with
@@ -405,10 +409,11 @@ so is a container with more than one BSP or world.
 - A placement sometimes takes an actor that stays where the bot came in
   while the bot walks off. The HUD reads the bot's deaths from that actor,
   so it would neither see that bot die nor bring it back.
-- Elites jam under Blood Gulch's side doors' lintels ("Bots frozen in
-  place" above). An AI never crouches to pass a low ceiling, and those doors
-  are the only way onto the decks; an elite with a 0.70 capsule fits
-  (tested live, not shipped). Other maps are not checked.
+- Elites are 0.70 tall on the host only (the lobby DLL, "Bots frozen in
+  place" above). A fireteam client's elites keep 0.8; whether its view of
+  one stutters at a low doorway is not tested on two PCs. The model is drawn
+  at full height, so an elite's head may show through a lintel it passes
+  under (not looked at). Other maps are not checked for low doorways.
 - Why a bot's AI sometimes leaves its sleeping body asleep is not known.
 - The HUD sends bots to hunt players they cannot reach. A map published
   before 2026-10-31 still has as many area tasks as it baked areas, so some

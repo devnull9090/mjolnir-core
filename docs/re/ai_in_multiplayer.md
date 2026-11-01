@@ -610,6 +610,40 @@ standing capsule's upper vertex written live):
 An elite passes with a standing capsule of 0.71 or less; 0.70 leaves 0.01
 spare.
 
+**The lobby DLL lowers it** (since 2026-10-31). `mjolnir_bots_enable`, which
+the HUD calls each time it starts bots, arms it. Every 30 main ticks, on the
+simulation thread, the DLL finds `objects\characters\elite_ai\elite_ai`
+(group `bipd`) in the tag table and resolves the root's `+0x604` block. It
+reaches the table pointer and the segment bases through blam-live's two code
+anchors (they resolve to sim+0x182d1e8 and sim+0x2c2ccc0, the CU4 profile's
+RVAs). In a Megalo game (game globals `+0x10` = 3) it writes the standing
+element's top (`+0x58`) from height − radius (0.62) to 0.70 − radius
+(0.52); in any other game it puts back a value it wrote. Nothing is written
+unless the element is a capsule (type 5) whose radius and lower vertex equal
+the root's radius, and the top reads as the load built it or as the DLL
+lowered it. Leaving a match unloads every tag (the table is empty at the
+menu), and the next load builds the capsule afresh. Tested on PC 1, Blood
+Gulch Slayer:
+
+- `fireteam.log` said `bots: elites stand 0.70 wu (standing capsule top z
+  0.52, was 0.62)` a second after the bots started, once in 15 minutes; the
+  standing element then read 0.52, the crouching one 0.51 and `height
+  standing` 0.8. After leaving and hosting again it said so once more, for
+  the capsule the new load built;
+- down: `elite_legendary_13`, placed on the south deck five times and
+  ordered to `area_0` as above, took ramp 1824 three times and walked out of
+  the door each time without a stop: one sample (a second apart) by the
+  lintel, around (91.4, -159.4, 0.8), where at 0.8 it had jammed at (91.50,
+  -159.64, 0.83), and the next outside. The other two times it dropped off
+  the deck (once over the lintel's top). HUD elites walked down ramp 1902
+  (one paused 3 s at (36.00, -79.30, 0.78), 0.09 uphill of the lintel's inner
+  edge, and went on) and ramp 1824;
+- up: a HUD elite walked from outside the south base's west door up ramp
+  1824 onto the deck, from (89.67, -159.86, 0.13) through (91.41, -159.33,
+  0.78) to (93.06, -159.37, 1.70) in two seconds, and walked back down. No
+  other elite climbed in the 9 minutes of HUD bots sampled: they seldom
+  headed for the unhurtable host on a deck.
+
 ## Open
 
 - **The copy's records**: lowered, the copy still takes about half of a
@@ -621,16 +655,16 @@ spare.
   valid location picked a new goal every half second under an area order
   and stayed where it was for 46 s (its path built, then dropped). Not
   explained; the HUD's sending away and placing again covers it.
-- **Elites under low lintels**: no path data makes an AI crouch, so an
-  elite passes Blood Gulch's side doors only with a lower standing capsule;
-  0.70 passes both ways (tested live). Two ways to ship it: the lobby DLL
-  writes the standing pill's upper vertex (z 0.52 for 0.70) in bot matches
-  and puts it back after, finding it through the tag table and the block's
-  encoded offset; or an override of the tag with `height standing` 0.70,
-  from which the load should build the same pill (inferred from the built
-  values, not tried), which lowers campaign elites too. The render model
-  does not change, so an elite's head may show through low ceilings it now
-  fits under (not looked at).
+- **Elites on a fireteam client**: the lobby DLL lowers the capsule on the
+  host, where the HUD starts bots; a client's elites keep 0.8. Whether a
+  client moves the host's AI with its own collision between updates, and so
+  shows an elite stopping at a lintel and jumping on, is not tested on two
+  PCs. If it does, the client's HUD can arm the DLL too, or a bot-only elite
+  biped (a clone of `elite_ai` with `height standing` 0.70, named by the
+  three elite bot characters; the load should build the lower capsule from
+  it, inferred, not tried) would do it everywhere without a write. The
+  render model does not change, so an elite's head may show through low
+  ceilings it now fits under (not looked at).
 - **Havok proxies**: the simulation keeps 16 (`havok proxies`,
   `[TLS+0x268]`, 0x50 bytes each, the object's handle at `+0x44`). On Blood
   Gulch its four Warthogs hold one each and every live biped one: 13 with
