@@ -288,9 +288,14 @@ level's BSP named by `single_bsp` (or `active_bsps`) and given with `--bsp`.
 
 Beside its output the bake writes `<CODE>.bots.json` (`--install-test`: in
 the loader's `levels/`, beside the level file): `{"schema_version": 1,
-"starts": [[x, y, z], ...]}`, where squad `k` of every kind stands, in
-absolute Unreal cm. `mjolnir map pack` ships it as `map/bots.json`, and
-MJOLNIRHud picks each bot's squad from it as the bot comes in.
+"starts": [[x, y, z], ...], "areas": [[x0, y0, x1, y1], ...], "tasks":
+[[area, ...], ...]}`, in absolute Unreal cm: where squad `k` of every kind
+stands, each zone area's extent (the grid cell its firing positions came
+from), and the areas each task `area_<k>` covers. `mjolnir map pack` ships
+it as `map/bots.json`. MJOLNIRHud picks each bot's squad from `starts` as
+the bot comes in, and from `areas` and `tasks` sends a bot that stays put
+somewhere else and places it again if it does not go
+([bots.md](bots.md) "Bots frozen in place").
 
 ### `multiplayer`
 
