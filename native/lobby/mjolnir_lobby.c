@@ -22,6 +22,8 @@
 #define _CRT_SECURE_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <ctype.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2405,6 +2407,9 @@ static volatile LONG script_pending;
 static void script_tick(void);
 static volatile LONG teams_pending, teams_installed, team_wanted_count;
 static void teams_tick(void);
+static volatile LONG elite_capsule_armed;
+static unsigned char *elite_capsule_at;
+static void elite_capsule_tick(void);
 static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
@@ -2429,6 +2434,15 @@ static void __fastcall hook_main_tick(void) {
             teams_tick();
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             fireteam_log("bots: teams faulted (%08lx)", GetExceptionCode());
+        }
+    }
+    static unsigned capsule_ticks;
+    if ((elite_capsule_armed || elite_capsule_at) && ++capsule_ticks % 30 == 0) {
+        __try {
+            elite_capsule_tick();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            elite_capsule_at = NULL;
+            fireteam_log("bots: the elite capsule faulted (%08lx)", GetExceptionCode());
         }
     }
     if (InterlockedExchange(&end_game_request, 0)) {
@@ -3661,13 +3675,18 @@ static const unsigned char AI_PLACE_GATE[] = {0x80, 0x78, 0x10, 0x01, 0x74, 0x22
                                               0x01, 0x00};
 #define AI_PLACE_JZ 4
 
+static void elite_capsule_arm(unsigned char *sim);
+
+/* The HUD calls this each time it starts bots. It also arms the elites'
+   lower capsule (elite_capsule_tick, below). */
 __declspec(dllexport) int mjolnir_bots_enable(void *L) {
     (void)L;
     static int done;
-    if (done) return 0;
     if (!dir[0]) find_dir();
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return 0;
+    elite_capsule_arm(sim);
+    if (done) return 0;
     IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
     IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
     unsigned char *found = NULL;
@@ -3883,6 +3902,161 @@ __declspec(dllexport) int mjolnir_bots_teams(void *L) {
     ReleaseSRWLockExclusive(&team_lock);
     InterlockedExchange(&teams_pending, 1);
     return 0;
+}
+
+/* Elites under low doorways (docs/bots.md; docs/re/ai_in_multiplayer.md
+   "Elites in the side doorways"). An AI never crouches for its path, and an
+   elite stands 0.8 wu: Blood Gulch's side doors leave 0.82 over their ramps,
+   and an elite jams under the lintel unless its standing body is 0.71 or
+   less. What collides is not the tag's `height standing` but `physics.pill
+   shapes`, which the tag load builds from the heights and radius: Havok
+   capsules in place, shared by every elite_ai biped, so lowering the
+   standing one's upper vertex changes every elite at once, placed or not.
+   Once the HUD has started bots, each Megalo game has elites 0.70 tall;
+   any other game gets back the capsule the load built.
+
+   The biped is found through the simulation's tag table, afresh on each
+   pass: leaving a match unloads every tag, and the next load builds the
+   capsule again, often at the same address. The table object and the
+   sixteen segment bases an encoded offset resolves against come from
+   crates/blam-live/src/tagtable.rs's two code anchors. Nothing is written
+   unless the tag's radius, the block's count and the capsule's type, radius
+   and lower vertex read as the load builds them, and only the value the
+   load built (or this code wrote) is replaced. */
+static const unsigned char TAG_TABLE_STORE[] = {0x48, 0x89, 0x1D, 0, 0, 0, 0, 0xC6, 0x43, 0x31, 0x01, 0x48, 0x8B, 0xCB};
+static const unsigned char TAG_TABLE_STORE_MASK[] = {1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1};
+static const unsigned char SEGMENT_DECODE[] = {0x4C, 0x8D, 0x35, 0,    0,    0,    0,    0x48, 0x63,
+                                               0xC2, 0x49, 0x8D, 0x0C, 0x80, 0x49, 0xC1, 0xE8, 0x1C};
+static const unsigned char SEGMENT_DECODE_MASK[] = {1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+#define ELITE_BIPED "objects\\characters\\elite_ai\\elite_ai"
+#define BOT_ELITE_HEIGHT 0.70f
+/* A biped tag's resident root (CU4, measured live): the physics struct's
+   height standing and radius, and its pill shapes block {count, encoded
+   offset, definition}. */
+#define BIPED_HEIGHT_STANDING 0x5DC
+#define BIPED_RADIUS 0x5E4
+#define BIPED_PILLS 0x604
+/* A built pill, an hkpCapsuleShape (0x70 bytes, standing first): shape type
+   at +0x38, radius at +0x40, upper vertex z at +0x58, lower at +0x68. */
+#define PILL_TYPE 0x38
+#define PILL_RADIUS 0x40
+#define PILL_TOP_Z 0x58
+#define PILL_BOTTOM_Z 0x68
+#define HK_CAPSULE 5
+static unsigned char **tag_table;
+static unsigned long long *tag_segments;
+static unsigned elite_capsule_tag;
+
+static unsigned char *module_global(unsigned char *sim, const unsigned char *pattern, const unsigned char *mask,
+                                    size_t length, const char *what) {
+    int hits;
+    unsigned char *at = find_in_module(sim, pattern, mask, length, 1, &hits);
+    if (!at) {
+        fireteam_log("bots: the %s matched %d times; elites keep their height", what, hits);
+        return NULL;
+    }
+    /* `op [rip+d]`, seven bytes, d at +3. */
+    return at + 7 + *(int *)(at + 3);
+}
+
+static void elite_capsule_arm(unsigned char *sim) {
+    static int found;
+    if (!found) {
+        found = -1;
+        tag_table = (unsigned char **)module_global(sim, TAG_TABLE_STORE, TAG_TABLE_STORE_MASK,
+                                                    sizeof TAG_TABLE_STORE, "tag table's store");
+        tag_segments = (unsigned long long *)module_global(sim, SEGMENT_DECODE, SEGMENT_DECODE_MASK,
+                                                           sizeof SEGMENT_DECODE, "segment decode");
+        if (tag_table && tag_segments) {
+            found = 1;
+            fireteam_log("bots: elites stand %.2f wu in Megalo games (tag table sim+%llx, segments sim+%llx)",
+                         BOT_ELITE_HEIGHT, (unsigned long long)((unsigned char *)tag_table - sim),
+                         (unsigned long long)((unsigned char *)tag_segments - sim));
+        }
+    }
+    if (found == 1 && install_main_tick(sim)) InterlockedExchange(&elite_capsule_armed, 1);
+}
+
+static unsigned char *tag_address(unsigned enc) {
+    unsigned long long base = enc == 0xFFFFFFFFu ? 0 : tag_segments[enc >> 28];
+    return base ? (unsigned char *)(uintptr_t)(base + (unsigned long long)enc * 4) : NULL;
+}
+
+/* Tag paths as the engine spells them, either slash, any case. */
+static int same_tag_path(const char *a, const char *b) {
+    for (;; a++, b++) {
+        char x = *a == '/' ? '\\' : (char)tolower((unsigned char)*a);
+        char y = *b == '/' ? '\\' : (char)tolower((unsigned char)*b);
+        if (x != y) return 0;
+        if (!x) return 1;
+    }
+}
+
+/* elite_ai's root, its standing pill and its slot and salt (`tag`), or NULL
+   when the tag is not loaded or does not read as expected. The table is a
+   data array: element size at +0x20, magic at +0x28, maximum at +0x2c, high
+   water at +0x44, entries at +0x50 and a bitset of the ones in use at +0x58;
+   an entry (0x30 bytes) has the salt at +0, the group at +4, the path at
+   +0x10 and the root block {count, encoded offset, definition} at +0x18. */
+static unsigned char *elite_standing_pill(unsigned char **root_out, unsigned *tag) {
+    unsigned char *table = *tag_table;
+    if (!table || *(unsigned *)(table + 0x20) != 0x30 || *(unsigned *)(table + 0x28) != 0x64407440) return NULL;
+    int maximum = *(int *)(table + 0x2c), high = *(int *)(table + 0x44);
+    unsigned char *entries = *(unsigned char **)(table + 0x50), *used = *(unsigned char **)(table + 0x58);
+    if (maximum > 0x10000 || high < 0 || high > maximum || !entries || !used) return NULL;
+    for (int i = 0; i < high; i++) {
+        unsigned char *e = entries + (size_t)i * 0x30;
+        /* The group's four bytes read 'bipd' as a little-endian word. */
+        if (!(used[i >> 3] >> (i & 7) & 1) || *(unsigned *)(e + 4) != 0x62697064u) continue;
+        const char *path = *(const char **)(e + 0x10);
+        if (!path || !same_tag_path(path, ELITE_BIPED)) continue;
+        unsigned char *root = *(unsigned *)(e + 0x18) == 1 ? tag_address(*(unsigned *)(e + 0x1c)) : NULL;
+        if (!root) return NULL;
+        float radius = *(float *)(root + BIPED_RADIUS);
+        unsigned *pills = (unsigned *)(root + BIPED_PILLS);
+        unsigned char *pill = pills[0] == 2 ? tag_address(pills[1]) : NULL;
+        if (!pill || pill[PILL_TYPE] != HK_CAPSULE || fabsf(*(float *)(pill + PILL_RADIUS) - radius) > 0.001f ||
+            fabsf(*(float *)(pill + PILL_BOTTOM_Z) - radius) > 0.001f)
+            return NULL;
+        *root_out = root;
+        *tag = (unsigned)*(unsigned short *)e << 16 | (unsigned)i;
+        return pill;
+    }
+    return NULL;
+}
+
+/* On the simulation thread, every 30 ticks once armed: in a Megalo game the
+   standing capsule's top goes from height − radius to 0.70 − radius; in any
+   other game the value written here goes back. */
+static void elite_capsule_tick(void) {
+    unsigned char *g = sim_game_globals();
+    int on = elite_capsule_armed && g && g[1] && g[0x10] == 3;
+    if (!on && !elite_capsule_at) return;
+    unsigned char *root = NULL;
+    unsigned tag = 0;
+    unsigned char *pill = elite_standing_pill(&root, &tag);
+    /* The one lowered went with its level; the load builds the next. */
+    if (elite_capsule_at && (pill != elite_capsule_at || tag != elite_capsule_tag)) elite_capsule_at = NULL;
+    if (!pill) return;
+    float height = *(float *)(root + BIPED_HEIGHT_STANDING), radius = *(float *)(root + BIPED_RADIUS);
+    float *top = (float *)(pill + PILL_TOP_Z), built = height - radius, lower = BOT_ELITE_HEIGHT - radius;
+    if (on) {
+        if (height > BOT_ELITE_HEIGHT && fabsf(*top - built) < 0.001f) {
+            *top = lower;
+            fireteam_log("bots: elites stand %.2f wu (standing capsule top z %.2f, was %.2f)", BOT_ELITE_HEIGHT,
+                         lower, built);
+        }
+        if (fabsf(*top - lower) < 0.001f) {
+            elite_capsule_at = pill;
+            elite_capsule_tag = tag;
+        }
+    } else if (elite_capsule_at) {
+        if (fabsf(*top - lower) < 0.001f) {
+            *top = built;
+            fireteam_log("bots: elites stand %.2f wu again", height);
+        }
+        elite_capsule_at = NULL;
+    }
 }
 
 /* A hardware write watch on the simulation thread's game globals, for
