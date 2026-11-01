@@ -13,6 +13,7 @@ import {
   Pager,
   SectionHeading,
   SelectNav,
+  ToggleChip,
   ViewToggle,
 } from "../components/ui";
 import { listLobbies } from "@/lib/api/lobby";
@@ -42,13 +43,16 @@ function num(v: unknown): number | null {
 export default async function MatchesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ map?: string; mode?: string; before?: string; view?: string }>;
+  searchParams: Promise<{ map?: string; mode?: string; before?: string; view?: string; every?: string }>;
 }) {
   const params = await searchParams;
   const mode = parseMode(params.mode);
   const map = parseMapCode(params.map);
   const before = /^[\d\- :]{10,19}$/.test(params.before ?? "") ? params.before : undefined;
   const view = params.view === "table" ? "table" : "grid";
+  // Solo runs and games where nobody scored stay in the history, but off
+  // this list unless asked for.
+  const every = params.every === "1";
 
   const { env, cf } = getCloudflareContext();
   const me = {
@@ -56,7 +60,7 @@ export default async function MatchesPage({
     longitude: num((cf as Record<string, unknown> | undefined)?.longitude),
   };
   const [{ matches, next }, maps, lobbies] = await Promise.all([
-    listMatches(env.DB as never, { map, game_type: mode === "all" ? undefined : mode, before }),
+    listMatches(env.DB as never, { map, game_type: mode === "all" ? undefined : mode, before, real: !every }),
     listMaps(env.DB as never),
     listLobbies(env.DB as never, { has_space: true }, me),
   ]);
@@ -64,7 +68,7 @@ export default async function MatchesPage({
   const covers = new Map(maps.map((m) => [m.code, m.cover_url]));
 
   const href = (over: Record<string, string | undefined>) =>
-    withQuery("/matches", { mode, map, view: view === "table" ? "table" : undefined, ...over });
+    withQuery("/matches", { mode, map, view: view === "table" ? "table" : undefined, every: every ? "1" : undefined, ...over });
 
   return (
     <PageShell>
@@ -132,17 +136,26 @@ export default async function MatchesPage({
             name="map"
             value={map ?? ""}
             action="/matches"
-            hidden={{ mode: mode === "all" ? undefined : mode, view: view === "table" ? "table" : undefined }}
+            hidden={{
+              mode: mode === "all" ? undefined : mode,
+              view: view === "table" ? "table" : undefined,
+              every: every ? "1" : undefined,
+            }}
             options={[
               { value: "", label: "All maps", href: href({ map: undefined }) },
               ...maps.map((m) => ({ value: m.code, label: m.title, href: href({ map: m.code }) })),
             ]}
           />
-          <ViewToggle
-            view={view}
-            gridHref={href({ view: undefined, before })}
-            tableHref={href({ view: "table", before })}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <ToggleChip href={href({ every: every ? undefined : "1", before: undefined })} active={every}>
+              All matches
+            </ToggleChip>
+            <ViewToggle
+              view={view}
+              gridHref={href({ view: undefined, before })}
+              tableHref={href({ view: "table", before })}
+            />
+          </div>
         </div>
       </FilterBar>
 
@@ -151,7 +164,9 @@ export default async function MatchesPage({
         <EmptyState icon={Swords} title="No matches here yet" action={<ButtonLink href="/multiplayer">Get multiplayer</ButtonLink>}>
           {mode !== "all" || map
             ? "Nothing matches these filters. Try another map or game type."
-            : "Public games report each match here when it ends."}
+            : every
+              ? "Public games report each match here when it ends."
+              : "No match with two or more players has a score yet. Turn on All matches to see every report."}
         </EmptyState>
       ) : view === "grid" ? (
         <MatchGrid matches={matches} />
