@@ -1605,6 +1605,93 @@ def build_find_games():
 VOTE_OPTIONS = 4
 RESULT_ROWS = 18  # sixteen players and the two team headings
 RESULT_AVATAR = 34
+POST_TOP = 0.2            # both panels' top, just under the emblem
+VOTE_WIDTH = 900          # the vote panel's content, two tiles across (MJOLNIRLobby drawVote's BAR)
+VOTE_COVER = (432, 243)   # an option's map cover, 16:9 (drawVote's SHARE: its width)
+VOTE_RIM = 3              # the ring round a tile, and the button's edge inside it
+VOTE_GAP = 12
+
+
+def vote_tile(bp, i, parent, events):
+    """One option of the vote: a tile that is all the button `Vote<i>`
+    (MJ_Event "vote:<i>"). The map's cover `VoteImage<i>` fills it; a band
+    over its foot holds the game type's icon `VoteModeIcon<i>` on a disc
+    (`VoteEmblemSize<i>`, collapsed until Lua has the icon), the map
+    `Vote<i>Label`, the game type `VoteMode<i>` and the votes `VoteCount<i>`;
+    along the bottom edge, the option's share of the votes, a bar whose width
+    Lua sets (`VoteShareSize<i>`, 0 to the cover's width). Two pills at the
+    top, collapsed until Lua shows them: `VoteTag<i>` (PLAY AGAIN, NEXT GAME,
+    DOWNLOAD: `VoteTagText<i>`) and `VoteMine<i>` (YOUR VOTE). `VoteRow<i>`,
+    round the button, is a ring Lua colours for your vote and the winner.
+
+    Every text is clipped to the tile, so a long map name ends in an
+    ellipsis instead of running out of the panel. An older MJOLNIRLobby
+    writes the whole option ("AGAIN  /  MAP  /  MODE") in Vote<i>Label and
+    leaves the rest as cooked."""
+    ring = rounded(widget(bp, unreal.Border, f"VoteRow{i}", parent), 7, (0, 0, 0, 0), padding=VOTE_RIM)
+    button = widget(bp, unreal.Button, f"Vote{i}", ring.get_name())
+    rounded_style(button, 4, (0.02, 0.05, 0.075, 0.7), (*ACCENT[:3], 0.7), (*ACCENT[:3], 0.95),
+                  padding=(VOTE_RIM,) * 4)
+    events.append((f"Vote{i}", "OnClicked", f"vote:{i}"))
+    # A fixed size: the band's words never widen the tile.
+    size = sized(bp, f"VoteTileSize{i}", button.get_name(), *VOTE_COVER)
+    unpadded(size)
+    size.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    tile = widget(bp, unreal.Overlay, f"VoteTile{i}", size.get_name())
+    map_image(bp, f"VoteImage{i}", tile.get_name(), *VOTE_COVER)
+
+    band = widget(bp, unreal.Border, f"VoteBand{i}", tile.get_name())
+    band.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.01, 0.02, 0.82))
+    band.set_editor_property("padding", unreal.Margin(12, 10, 18, 13))
+    slot = band.get_editor_property("slot")
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_BOTTOM)
+    info = widget(bp, unreal.HorizontalBox, f"VoteInfo{i}", band.get_name())
+    emblem_size = sized(bp, f"VoteEmblemSize{i}", info.get_name(), width=54, height=54)
+    middle(emblem_size)
+    emblem_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+    emblem_size.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    emblem = rounded(widget(bp, unreal.Border, f"VoteEmblem{i}", emblem_size.get_name()), 27,
+                     (0.06, 0.16, 0.22, 0.95), padding=10)
+    icon = widget(bp, unreal.Image, f"VoteModeIcon{i}", emblem.get_name())
+    icon.set_visibility(unreal.SlateVisibility.HIDDEN)
+    words = widget(bp, unreal.VerticalBox, f"VoteWords{i}", info.get_name())
+    fill(words, 1)
+    middle(words)
+    words.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    for key, size_px, color in ((f"Vote{i}Label", 27, WHITE), (f"VoteMode{i}", 18, ACCENT)):
+        line = widget(bp, unreal.TextBlock, key, words.get_name())
+        text_style(line, "", size_px, color)
+        line.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+    gap(line, top=3)
+    count = widget(bp, unreal.TextBlock, f"VoteCount{i}", info.get_name())
+    text_style(count, "", 40, GOLD, face="Bold")
+    count.set_editor_property("justification", unreal.TextJustify.RIGHT)
+    middle(count)
+    count.get_editor_property("slot").set_padding(unreal.Margin(10, 0, 0, 0))
+
+    share = sized(bp, f"VoteShareSize{i}", tile.get_name(), height=5)
+    share.set_width_override(0)
+    slot = share.get_editor_property("slot")
+    slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_BOTTOM)
+    ink = widget(bp, unreal.Border, f"VoteShare{i}", share.get_name())
+    ink.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
+    ink.set_editor_property("padding", unreal.Margin(0))
+
+    for key, word, color, align in (
+            ("VoteTag", "PLAY AGAIN", GOLD, unreal.HorizontalAlignment.H_ALIGN_LEFT),
+            ("VoteMine", "YOUR VOTE", ACCENT, unreal.HorizontalAlignment.H_ALIGN_RIGHT)):
+        pill = rounded(widget(bp, unreal.Border, f"{key}{i}", tile.get_name()), 4, color)
+        pill.set_editor_property("padding", unreal.Margin(12, 5, 12, 5))
+        slot = pill.get_editor_property("slot")
+        slot.set_horizontal_alignment(align)
+        slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_TOP)
+        slot.set_padding(unreal.Margin(12, 12, 12, 0))
+        pill.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        text_style(widget(bp, unreal.TextBlock, f"{key}Text{i}", pill.get_name()), word, 15,
+                   (0.01, 0.03, 0.05, 1.0), face="Bold")
+    return ring
 
 
 def build_post_game():
@@ -1617,8 +1704,8 @@ def build_post_game():
     screen_header(bp, "POST-GAME", "CUSTOM GAME")
 
     results = panel(bp, "Results", "Root")
-    place(results, (0.06, 0.28), (0.0, 0.0))
-    sized(bp, "ResultsSize", "Results", width=1280)
+    place(results, (0.06, POST_TOP), (0.0, 0.0))
+    sized(bp, "ResultsSize", "Results", width=1160)
     widget(bp, unreal.VerticalBox, "ResultsStack", "ResultsSize")
     gap(rule(bp, "ResultsRule", "ResultsStack", ACCENT, 2), bottom=24)
     kicker = widget(bp, unreal.TextBlock, "ResultsKicker", "ResultsStack")
@@ -1663,48 +1750,76 @@ def build_post_game():
     text_style(hint, "SELECT A PLAYER TO REPORT THEM", 17, GREY)
     gap(hint, top=12)
 
+    # The vote: what it is doing (VoteTimer) and who has voted (VoteTally),
+    # the seconds left on a disc (VoteClockSize, VoteSeconds) over a bar
+    # that drains (VoteBarSize, its fill VoteBarFillSize from VOTE_WIDTH to
+    # nothing), then the options as a grid of tiles (vote_tile). The clock
+    # and the bar are collapsed until MJOLNIRLobby shows them, so an older
+    # one, which writes "VOTING ENDS IN 12" in VoteTimer, shows neither. The
+    # leading game's cover above the options (MapImage) is gone: every tile
+    # has its own.
     vote = panel(bp, "Vote", "Root")
-    place(vote, (0.94, 0.28), (1.0, 0.0))
-    sized(bp, "VoteSize", "Vote", width=780)
+    place(vote, (0.94, POST_TOP), (1.0, 0.0))
+    sized(bp, "VoteSize", "Vote", width=VOTE_WIDTH)
     widget(bp, unreal.VerticalBox, "VoteStack", "VoteSize")
-    gap(rule(bp, "VoteRule", "VoteStack", ACCENT, 2), bottom=24)
+    gap(rule(bp, "VoteRule", "VoteStack", ACCENT, 2), bottom=20)
     vote_head = widget(bp, unreal.HorizontalBox, "VoteHead", "VoteStack")
-    gap(vote_head, bottom=22)
     vote_text = widget(bp, unreal.VerticalBox, "VoteHeadText", "VoteHead")
     fill(vote_text, 1)
+    middle(vote_text)
     heading = widget(bp, unreal.TextBlock, "VoteKicker", "VoteHeadText")
     text_style(heading, "NEXT GAME", 18, ACCENT)
-    gap(heading, bottom=12)
+    gap(heading, bottom=10)
     timer = widget(bp, unreal.TextBlock, "VoteTimer", "VoteHeadText")
-    text_style(timer, "VOTE", 34, WHITE)
+    text_style(timer, "VOTE", 38, WHITE)
     wrapped(timer)
-    shot = map_image(bp, "MapImage", "VoteHead", 288, 162)
-    shot.get_editor_property("slot").set_padding(unreal.Margin(20, 0, 0, 0))
-    for i in range(VOTE_OPTIONS):
-        line = widget(bp, unreal.HorizontalBox, f"VoteRow{i}", "VoteStack")
-        gap(line, bottom=8)
-        # The option's map cover (MJOLNIRLobby drawVote, #258).
-        cover = map_image(bp, f"VoteImage{i}", line.get_name(), 128, 72)
-        cover.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
-        cover.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
-        button = menu_button(bp, f"Vote{i}", "", line.get_name(), size=26)
-        button.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
-        count_size = sized(bp, f"VoteCountSize{i}", line.get_name(), width=110)
-        count_size.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
-        count = widget(bp, unreal.TextBlock, f"VoteCount{i}", count_size.get_name())
-        text_style(count, "", 26, GOLD)
-        count.set_editor_property("justification", unreal.TextJustify.RIGHT)
-        events.append((f"Vote{i}", "OnClicked", f"vote:{i}"))
-    hint = widget(bp, unreal.TextBlock, "VoteHint", "VoteStack")
-    text_style(hint, "", 21, GREY)
-    wrapped(hint)
-    gap(hint, top=14, bottom=26)
-    gap(rule(bp, "ActionsRule", "VoteStack"), bottom=18)
+    tally = widget(bp, unreal.TextBlock, "VoteTally", "VoteHeadText")
+    text_style(tally, "", 19, GREY)
+    gap(tally, top=8)
+    clock = sized(bp, "VoteClockSize", "VoteHead", width=96, height=96)
+    middle(clock)
+    clock.get_editor_property("slot").set_padding(unreal.Margin(24, 0, 0, 0))
+    clock.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    disc = rounded(widget(bp, unreal.Border, "VoteClock", clock.get_name()), 48, (0.06, 0.16, 0.22, 0.85))
+    disc.set_editor_property("horizontal_alignment", unreal.HorizontalAlignment.H_ALIGN_CENTER)
+    disc.set_editor_property("vertical_alignment", unreal.VerticalAlignment.V_ALIGN_CENTER)
+    seconds = widget(bp, unreal.TextBlock, "VoteSeconds", disc.get_name())
+    text_style(seconds, "", 42, WHITE, face="Bold")
+    seconds.set_editor_property("justification", unreal.TextJustify.CENTER)
+    bar = sized(bp, "VoteBarSize", "VoteStack", width=VOTE_WIDTH, height=6)
+    gap(bar, top=18)
+    bar.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    track = widget(bp, unreal.Border, "VoteBarTrack", bar.get_name())
+    track.set_editor_property("brush_color", unreal.LinearColor(*DIM[:3], 0.6))
+    track.set_editor_property("padding", unreal.Margin(0))
+    track.set_editor_property("horizontal_alignment", unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    fill_size = sized(bp, "VoteBarFillSize", track.get_name(), width=VOTE_WIDTH, height=6)
+    ink = widget(bp, unreal.Border, "VoteBarFill", fill_size.get_name())
+    ink.set_editor_property("brush_color", unreal.LinearColor(*ACCENT))
+    ink.set_editor_property("padding", unreal.Margin(0))
+
+    grid = widget(bp, unreal.VerticalBox, "VoteGrid", "VoteStack")
+    gap(grid, top=20)
+    for r in range(VOTE_OPTIONS // 2):
+        line = widget(bp, unreal.HorizontalBox, f"VoteGridRow{r}", grid.get_name())
+        gap(line, top=VOTE_GAP if r else 0)
+        for i in (2 * r, 2 * r + 1):
+            ring = vote_tile(bp, i, line.get_name(), events)
+            ring.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 0 if i % 2 else VOTE_GAP, 0))
+    # The host's actions, and beside them what they do (a fireteam client's
+    # screen has no buttons: there VoteHint says who starts the game).
+    gap(rule(bp, "ActionsRule", "VoteStack"), top=22, bottom=18)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "VoteStack")
     for key, label, event in (("Start", "START NOW", "start"), ("Lobby", "LOBBY", "lobby")):
         button = menu_button(bp, key, label, actions.get_name(), size=28)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", event))
+    hint = widget(bp, unreal.TextBlock, "VoteHint", actions.get_name())
+    text_style(hint, "", 19, GREY)
+    wrapped(hint)
+    fill(hint, 1)
+    middle(hint)
+    hint.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
     footer(bp)
     events += report_panel(bp)
 
