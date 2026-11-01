@@ -9,9 +9,11 @@ records the exact pack releases and palette bindings it used.
 The first authored set is [Foundry](../forge-packs/foundry/README.md): 18 original
 industrial pieces on a 2 m module, with a 0.5 m suggested placement snap.
 [Design research](forge_pack_design.md) explains the piece selection and future
-sets. The source models and offline collision checks are reproducible; runtime
-appearance, player collision, placement and multiplayer behavior still require
-game testing. A successful source export or archive scan is not that proof.
+sets. A private CU4 fixture loaded and placed all 18 types, exercised movement,
+rotation, save/reload, restart persistence and identity refusal, and checked
+cube/floor collision, ramp climbing and the doorway opening. See
+[validation evidence and remaining checks](forge_pack_validation.md). Full visual
+and traversal review, and multiplayer behavior, remain separate checks.
 
 ## Release contract
 

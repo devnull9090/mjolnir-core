@@ -5,6 +5,8 @@
 Foundry source set and community pack catalog, packaging, dependency and layout
 binding support are implemented. See [forge_packs.md](forge_packs.md) for the
 current architecture, reproducible build and runtime verification status.
+The [local CU4 evidence](forge_pack_validation.md) records all 18 types placed,
+representative rendering and collision, restart persistence, and save/load identity guards.
 **See also:** [forge.md](forge.md), [re/forge_engine.md](re/forge_engine.md)
 (placing, the grab crash, markers), [level_format.md](level_format.md)
 (`blam.map_variant`, `blam.forge`).

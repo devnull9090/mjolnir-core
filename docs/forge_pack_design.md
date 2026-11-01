@@ -105,8 +105,11 @@ downloads before loading, and confirm missing/corrupt dependencies produce an
 actionable failure instead of silently dropping placed pieces.
 
 The source validator proves the mesh/collision construction invariants. The
-render proves the exported geometry and material appearance. Neither is a claim
-of in-game or multiplayer validation; record that separately after running it.
+render proves the exported geometry and authored material appearance. The game
+build currently uses stock material references. Separate
+[CU4 validation evidence](forge_pack_validation.md) records all 18 types placed,
+representative rendering, movement, collision, ramp climbing and save/restart
+checks, with the remaining traversal, visual and multiplayer work explicitly listed.
 
 [reach-catalog]: https://www.halopedia.org/Forge_objects_in_Halo:_Reach/Structure
 [palette]: https://archive.forgehub.com/threads/forgeworld-official-object-list.103039/

@@ -5,6 +5,13 @@ pieces**, a **2 m module**, **0.5 m placement snap**, and concrete, gunmetal and
 amber materials. It contains no extracted Halo models or textures. Source and
 generated geometry are covered by the repository's MIT license.
 
+The [CU4 validation record](../../docs/forge_pack_validation.md) confirms all 18
+types loaded and placed in a private local fixture, with representative rendering,
+save/reload and restart checks. Cube/floor collision, ramp climbing and doorway
+opening checks passed; full visual, traversal and multiplayer review remains
+pending. Blender renders show the authored material design; the current game
+build uses stock material references on this original geometry.
+
 ## Rebuild
 
 From the repository root, using normal Python and Blender 5.2 LTS:
