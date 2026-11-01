@@ -723,8 +723,18 @@ VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
 ## Next steps
 
 1. Several layouts per map, picked in the lobby; a hub content type.
-2. Fireteam Forge: a game-type slot of its own (or another way for the
-   game type to travel), so clients start the sandbox engine too.
+2. Fireteam Forge: done in code (2026-11-01), untested on two PCs. FORGE has
+   insertion slot 5 (MJOLNIRLobby `MODES`, loader `GAME_TYPE_SLOTS`,
+   `games.lua` `GAME_TYPE_SLOT`), so clients start the sandbox engine. On a
+   client (game options `+0x11` = 4) the DLL sends only the engine's own
+   requests; client requests post net message `0x3e` to the host
+   (`0x4074c0`). It keeps everything it does by hand to the host. Above all
+   it never asks the host to grab, place or copy a marker, which would run the
+   faulting grab on the host. It never applies a local layout at new map, so
+   a client's objects stay the host's.
 3. UI: a properties screen; tilting (only yaw so far), the snap setting.
 4. Republish the converted maps with the new palettes (the lift covers the
    old ones meanwhile, for the kinds they already place).
+5. Building blocks: [../forge_blocks.md](../forge_blocks.md). Palette
+   entries can be pointed at other loaded tags at run time (`slots.txt`);
+   block packs need slot tags in the CE runtime.

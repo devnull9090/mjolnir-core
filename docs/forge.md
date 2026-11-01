@@ -1,6 +1,7 @@
 # Forge
 
-**Status:** 2026-11-01. Host only, on any converted multiplayer map. Layouts
+**Status:** 2026-11-01. On any converted multiplayer map, with your fireteam
+(untested on two PCs). Layouts
 (save, load, start a game with one), object properties and markers need
 MJOLNIRForge 0.3.0.
 Released in mods 0.34.0 with CE runtime 1.14.0. Placing from the palette and
@@ -92,7 +93,13 @@ campaign's flyers), grenades, power-ups and ammo, and the map's scenery
 (spawn points, teleporters, flag stands, health packs). Maps baked before
 list only the kinds they already place, so you can place and duplicate
 those but not, say, a Wraith on Blood Gulch, until the map is republished.
-There is no limit on how many of each.
+There is no limit on how many of each, unless the map sets one (*Budgets
+and quotas*).
+
+Maps baked from 2026-11-01 also have a **blocks** palette: a Covenant crate
+and the Covenant portable shield, the only shipped pieces that are already
+Forge-ready. More blocks, ported or modelled, are planned as hub packs:
+[forge_blocks.md](forge_blocks.md).
 
 ## Object properties
 
@@ -124,6 +131,19 @@ weapon. Forge handles them its own way:
 A flag stand made this way works in CTF: on Blood Gulch, a red stand placed,
 labelled `ctf_flag_return`, saved, and the map then hosted as CTF got the red
 flag.
+
+## With your fireteam
+
+Fireteam members who are in the lobby, or who join a FORGE game under way,
+start Forge too, and need MJOLNIRForge and the CE runtime pack the host has.
+Each of them can be the Monitor, pick up, drop, delete, duplicate and place
+weapons, vehicles and equipment: those go to the host's game as the engine's
+own Forge requests, as in Reach. The rest stays with the host for now: saving
+and loading layouts that start games, object properties, turning, and
+markers (flag stands, spawn points). A FORGE game is never listed in FIND
+GAMES.
+
+This has not been tried on two PCs yet.
 
 ## Budgets and quotas
 
@@ -159,8 +179,8 @@ lists what is in it. Layouts belong to one map: the file name says which.
 
 - **Several layouts per map, and picking one in the lobby.** One saved layout
   per map for now; `layouts\history` keeps the older ones.
-- **Layouts for your fireteam.** A saved layout is used when you host.
-- **Playing with your fireteam.** Players who join start Slayer instead.
+- **Layouts for your fireteam.** A saved layout is used when you host;
+  players who join see the host's objects.
 - **A Forge menu** (object lists, properties).
 - **Tilting.** , and . turn about the vertical only.
 - **Markers are invisible**: aim near where you put them.
