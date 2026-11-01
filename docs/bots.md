@@ -146,16 +146,20 @@ Gulch (PC 1, 2026-10-31,
   nothing. Not fixed; the cause is not known.
 - **Elites in the side doorways.** The ramp from a base's deck down to each
   side door passes under the door's lintel, 0.82 wu above the ramp at its
-  inner edge. On that slope an upright elite (0.8 wu tall, radius 0.18)
-  needs 0.87, so one walking down jams its head on the lintel's corner,
-  facing the door, twitching, and stays until it turns back (one stood five
-  minutes; sent down on purpose, it jammed three times out of three).
-  Spartans, grunts, jackals and a crouching elite fit. Flagging the ramps
-  `crouchable` in the pathfinding changes nothing: an AI crouches for
-  danger, cover or a script, never for its path. Leaving the ramps out of
-  the pathfinding is no answer either: they are the only way to walk onto a
-  deck. Not fixed. By the capsule's geometry an elite standing 0.75 or lower
-  would fit; no elite has been seen to pass yet.
+  inner edge. An upright elite (0.8 wu tall, radius 0.18) does not fit on
+  that slope: one walking down jams its head on the lintel's corner, facing
+  the door, twitching, and stays until it turns back (one stood five
+  minutes; sent down on purpose, it jammed every time it took the ramp), and
+  one climbing stops 0.1 short of the corner and backs down, so no elite
+  walks onto a deck. Spartans, grunts, jackals and a crouching elite fit.
+  Flagging the ramps `crouchable` in the pathfinding changes nothing: an AI
+  crouches for danger, cover or a script, never for its path. Leaving the
+  ramps out of the pathfinding is no answer either: they are the only way to
+  walk onto a deck. An elite whose standing capsule is 0.70 tall passes both
+  ways, and 0.72 still jams (tested live by writing the capsule, which the
+  game builds from the tag's heights at load). Not fixed: that means a
+  shorter elite, in bot matches only (the lobby DLL) or everywhere (a tag
+  override).
 
 **Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
 [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
@@ -370,8 +374,8 @@ so is a container with more than one BSP or world.
 - Bots on Blood Gulch's flag-room floors, under the decks, were not seen to
   find their way out, and elites jam under the side doors' lintels ("Bots frozen in
   place" above). An AI never crouches to pass a low ceiling, and those doors
-  are the only way onto the decks, so they stay open to elites. Other maps
-  are not checked.
+  are the only way onto the decks; an elite with a 0.70 capsule fits
+  (tested live, not shipped). Other maps are not checked.
 - Why a bot's AI sometimes leaves its sleeping body asleep is not known.
 - The HUD sends bots to hunt players they cannot reach. A map published
   before 2026-10-31 still has as many area tasks as it baked areas, so some

@@ -423,9 +423,11 @@ reaches the lintel's lower inner corner before its axis is under it: a
 capsule of height h and radius r reaches (h − r)·n_z + r + lift·n_z out from
 the ramp's plane (n_z = 0.856), and the corner is 0.82·n_z = 0.70 out. For
 the elite that is 0.742, so it touches with its centre 0.17 to 0.19 uphill of
-the edge, where it stands. Crouched (0.69) it reaches 0.647; the jackal (0.7,
-radius 0.18) 0.656, the Spartan (0.65, 0.175) 0.613, the grunt (0.55, 0.15)
-0.523: all pass. The rule gives h ≤ 0.754 for this ramp.
+the edge, where it stands. The rule gives h ≤ 0.754 for this ramp, but
+measured with the capsule itself (below) 0.72 jams and 0.71 passes, so the
+real limit is about 0.04 under the rule (why is not traced). A crouched
+elite (0.69), the jackal (0.7, radius 0.18), the
+Spartan (0.65, 0.175) and the grunt (0.55, 0.15) are under that limit.
 
 **`crouchable` does nothing.** Bungie's sector flags include `crouchable`
 (0x400). The bake never sets it, nor do the shipped scenarios read above (B40,
@@ -461,27 +463,53 @@ deck, and four of the fifteen bot starts stand there. An elite on a deck
 still leaves by dropping over its rim (seen), but no bot could walk in to a
 player there.
 
-**A shorter elite.** `mjolnir poke ... --group biped --tag elite_ai/elite_ai
---field "physics.height standing"` changes the height live; an elite placed
-after the poke takes it. At 0.76 the same order never took the ramp down in
-three runs: the elite paused on the deck at the ramp's top (sector 2332),
-then dropped over the deck's rim. A control at 0.8 did the same, so that was
-not the height: after its earlier jams the elite now planned around that
-door either way. One of the HUD's elites at 0.76 climbed the south base's
-east ramp to (99.86, -159.6, 0.67), 0.09 short of the lintel's inner edge,
-held 3 s and walked back down; the capsule rule says a 0.76 elite still
-touches that corner (0.707 against 0.70). A height of 0.73 would clear it
-by 0.02, but no elite was seen to pass at any height.
+**The capsule is built at load.** What collides is not `physics.height
+standing` but `physics.pill shapes`, empty in the shipped tag and filled at
+load from the two heights and the radius. Its two elements are Havok
+capsules in place (`hkpCapsuleShape`: vtable, type 5, radius at `+0x40`,
+vertices at `+0x50` and `+0x60`): standing from z 0.18 to 0.62 with radius
+0.18 (0.8 tall), crouching to 0.51 (0.69). Every `elite_ai` uses them, so a
+write to the standing element's upper vertex (z at `+0x58`) changes elites
+already placed. Writing `height standing` (`mjolnir poke ... --field
+"physics.height standing"`) changes the root scalar only: elites placed after
+setting it to 0.76, 0.73 or 0.5 jammed as at 0.8. `mjolnir poke` cannot
+reach the pill, since it follows the file's block counts (0 here). The block
+field sits at the root's `+0x604` ({count 2, encoded offset, definition});
+the elements are at segment 1's base (`mjolnir live status`) plus the
+encoded offset × 4.
+
+**Tested with the capsule** (PC 1, 2026-10-31, Blood Gulch Slayer, the
+standing capsule's upper vertex written live):
+
+- down: `elite_legendary_13`, placed seven times and ordered to `area_0`,
+  took ramp 1824 four times and jammed at (91.50, -159.64, 0.83). The other
+  three times it walked over the lintel's top and dropped through the
+  opening above the door (deck floor 1.70 to 2.53), at 0.8 like the rest.
+  With one jammed, a capsule of 0.73 (twice) or 0.72 moved it 0.05 to 0.08
+  on down the ramp, where it stopped again; 0.71, 0.70 and 0.48 (once each)
+  let it walk out of the door at once;
+- up: eight HUD elites (bot type elite) hunting the host, who stood
+  unhurtable on the north deck. At 0.70 two of them climbed the north base's
+  west ramp (1902) onto the deck four times in two minutes, and walked back
+  down it. Back at 0.8 with the same bots, two climbs in 2.5 minutes stopped
+  at (35.81, -79.0, 0.67), 0.1 short of the lintel's inner edge (x 35.91),
+  held 5 to 7 s and backed down.
+
+An elite passes with a standing capsule of 0.71 or less; 0.70 leaves 0.01
+spare.
 
 ## Open
 
 - **Elites under low lintels**: no path data makes an AI crouch, so an
-  elite passes Blood Gulch's side doors only with a lower capsule (0.75 or
-  less, 0.73 for a 0.02 margin). Two ways to ship one: the lobby DLL writes
-  `elite_ai`'s `physics.height standing` in bot matches only (a root scalar,
-  found through the tag table as `mjolnir poke` does), or an override of the
-  tag, which would also lower campaign elites. Neither is tried; first an
-  elite at 0.73 has to be seen to pass, both down and up.
+  elite passes Blood Gulch's side doors only with a lower standing capsule;
+  0.70 passes both ways (tested live). Two ways to ship it: the lobby DLL
+  writes the standing pill's upper vertex (z 0.52 for 0.70) in bot matches
+  and puts it back after, finding it through the tag table and the block's
+  encoded offset; or an override of the tag with `height standing` 0.70,
+  from which the load should build the same pill (inferred from the built
+  values, not tried), which lowers campaign elites too. The render model
+  does not change, so an elite's head may show through low ceilings it now
+  fits under (not looked at).
 - **Havok proxies**: the simulation keeps 16 (`havok proxies`,
   `[TLS+0x268]`, 0x50 bytes each, the object's handle at `+0x44`). On Blood
   Gulch its four Warthogs hold one each and every live biped one: 13 with
