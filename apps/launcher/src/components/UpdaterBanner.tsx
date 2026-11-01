@@ -58,14 +58,20 @@ export function useUpdater(): UpdateState {
   }, [checkForUpdates]);
 
   const handleInstall = useCallback(async () => {
-    if (!update) return;
+    // A launch's check (preflight.rs) can find the release before this
+    // hook's own check has answered, or after it failed: ask again rather
+    // than report a launcher update as done that never ran.
+    const target = update ?? (await check());
+    if (!target) throw new Error("No launcher update was found to install.");
 
     try {
       setStatus("downloading");
       let downloaded = 0;
       let total: number | null = null;
 
-      await update.downloadAndInstall((event) => {
+      // On Windows the installer takes over here: the launcher exits, and
+      // the NSIS installer (update mode) starts the new one.
+      await target.downloadAndInstall((event) => {
         switch (event.event) {
           case "Started":
             total = event.data.contentLength || null;

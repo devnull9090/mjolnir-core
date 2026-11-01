@@ -1308,6 +1308,48 @@ async fn preflight_verify(app: AppHandle) -> Result<Vec<preflight::Problem>, Str
     .map_err(|e| format!("Task join error: {e}"))
 }
 
+/// Written just before a launcher update installs, read once by the
+/// launcher it restarts into: the run the update interrupted, which the new
+/// launcher checks for again and finishes (docs/update_check.md).
+fn resume_path() -> PathBuf {
+    hub::config_dir().join("resume_after_update.json")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ResumeAfterUpdate {
+    /// Start the game once the rest is installed (a launch, or the game's
+    /// update link); otherwise only update (the Updates screen).
+    launch: bool,
+    /// The Updates screen's selection, by item key, when `launch` is false.
+    #[serde(default)]
+    keys: Vec<String>,
+}
+
+#[tauri::command]
+fn resume_after_update_set(launch: bool, keys: Vec<String>) -> Result<(), String> {
+    let path = resume_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let text = serde_json::to_string(&ResumeAfterUpdate { launch, keys }).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The marker, removed as it is read so a run resumes once. A marker older
+/// than an hour is from an update that never restarted, and is dropped.
+#[tauri::command]
+fn resume_after_update_take() -> Option<ResumeAfterUpdate> {
+    let path = resume_path();
+    let fresh = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < std::time::Duration::from_secs(3600));
+    let marker = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok());
+    let _ = std::fs::remove_file(&path);
+    if fresh { marker } else { None }
+}
+
 #[tauri::command]
 async fn unsupported_mods() -> Result<Vec<unsupported::UnsupportedMod>, String> {
     tauri::async_runtime::spawn_blocking(unsupported::scan)
@@ -2202,6 +2244,8 @@ pub fn run() {
             check_modpack_update,
             preflight_check,
             preflight_verify,
+            resume_after_update_set,
+            resume_after_update_take,
             unsupported_mods,
             unsupported_set_aside,
             unsupported_restore,
