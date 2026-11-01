@@ -193,7 +193,10 @@ function Invoke-UpdateAll {
     $last = ""
     while ((Get-Date) -lt $Deadline) {
         Start-Sleep -Seconds 3
+        # A page gone, or emptied as its process goes, is the launcher
+        # restarting into its new self, not the end of the run.
         try { $screen = Read-Screen } catch { return "restarted" }
+        if (-not $screen.heading) { return "restarted" }
         $now = "$($screen.heading) / $($screen.button)"
         if ($now -ne $last) { Log "screen: $now"; $last = $now }
         if ($screen.button -notmatch "^Updating") { return "done" }
