@@ -46,6 +46,12 @@ ray against the same Forge block hit. The regression preserves every
 collision table except the two added vertices and checks that elevated space
 remains open.
 
+Bot navigation is not provided by these maps. The shell's two extra vertices
+also prevent the current `pathfinding::copy_drops` matcher (which requires
+equal vertex counts) from recognizing the compact floor instance, so the bake
+does not apply its usual 0.001-wu copy lowering. Future navigation support
+must account for unreferenced bounds vertices when matching collision copies.
+
 For a standalone B40-based level, use `active_bsps: [8]`, `single_bsp: 8`, the
 reported bounds at scenario BSP index 8, `--bsp 8=<output>`, and the bare
 `defs/level/empty_world.umap`. The bake renumbers the scenario to the BSP's

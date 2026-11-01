@@ -84,6 +84,9 @@ sessions loaded `FBK` in Forge and `FRB` in Team Slayer on CU4, with CE runtime
 | Light cleanup | Reverting the canvas removed the placed pylon's point-light component while its pooled actor became hidden. |
 | Kill floor | Walking beyond Crossline's floor triggered the loader's -600 cm kill floor and the multiplayer respawn sequence. |
 | Map travel | A fresh process completed Crossline → lobby → Forge Canvas → lobby → Crossline with working HUDs and eight lights recreated on Crossline. |
+| Final canvas picking | A cold launch with the normal Forge DLL selected and moved both a block and the narrow red pylon using the rebuilt canvas. No diagnostic patch was active. |
+| Pylon save/reload | Saved the moved/rotated pylon, deleted it, and loaded the save. Its transform was restored with exactly one attached 7,000 cd light. Deletion hid the pooled actor and removed its attached light. Returning after a Crossline session automatically restored the saved pylon and light. The sidecar recorded the final Foundry archive hash. |
+| Chat while editing | Typing B into chat entered text and left Monitor mode active, confirming inactive class placeholders do not mask the live chat widget. |
 
 Playtesting corrected the sky's atmosphere-sun/physical-skylight settings,
 raised the lamps from their initially ineffective brightness, and caught
@@ -95,6 +98,12 @@ returning from the surrounding floor requires a jump.
 Travel testing also exposed a stale UE4SS UI-property cache after class
 collection. The bounded class-retention mitigation and discovery guards are
 documented in [custom_ui.md](custom_ui.md#class-lifetime-during-map-travel).
+The canvas initially rendered and supported standing but could not select
+objects above the floor: the native loader recomputed query bounds from the
+slab's vertices. Adding two unreferenced shell vertices expands that envelope
+without adding collision surfaces. A temporary bounding-box-only diagnostic
+proved the cause; the final cold-launch check used the rebuilt assets and
+normal DLL. See [forge_canvas.md](forge_canvas.md).
 
 Offline checks now cover 13,328 Foundry collision probes and 13,068 probes for
 each canvas BSP; 24 pieces, 49 convex hulls and 580 collision triangles.
@@ -113,3 +122,17 @@ materials. Runtime meshes currently reference shipped materials; preview
 surface appearance is not evidence of the game's final material appearance.
 Second-machine play and downloading a published release into a fresh launcher
 profile remain pending.
+
+Final local candidates (unsigned), rebuilt after the bounds and material fixes:
+
+| Archive | SHA-256 |
+| --- | --- |
+| Foundry 0.2.0 | `e136236363744be1b19d3f45898d3bb25f07d0e2ca0534b8bfca5f2fc9375dee` |
+| Forge Canvas 0.1.0 | `76a306b560f54794ea9fb5a89ecae621d858003928cfbfce0eea8e07b1b940f2` |
+| Crossline 0.1.0 | `1b5e0cf022bff2b23598966caeab408b58db81098e2e20b926f009195c5c9e44` |
+
+The follow-up test installation was removed afterward: twelve pre-existing
+game files were restored and hash-checked, temporary map/pack containers and
+metadata were removed, and display settings were restored. Test layouts and
+diagnostic evidence remain in ignored local directories. Both CI workflows
+passed for implementation commit `2a6f014e`.
