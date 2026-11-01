@@ -211,7 +211,7 @@ and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and c
 `player_enable_input` leaves the player able to look around but not move, shoot or switch
 weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
 
-### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`, `blam.cutscene_flags`
+### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`, `blam.forge`, `blam.cutscene_flags`
 
 - `world_bounds`: `[{ "bsp": 8, "min": [x, y, z], "max": [x, y, z] }]`, Halo
   wu. Sets a structure BSP's box in the scenario; the boxes decide which BSP a
@@ -238,6 +238,14 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
   variant, which the simulation builds from the palette-listed placements; in
   Forge the palettes are what the Monitor places from
   ([forge.md](forge.md)).
+- `forge`: Forge's limits, with `map_variant`. `{ "budget": 500, "price":
+  { "scorpion": 150 }, "maximum": { "scorpion": 2 } }`. `budget` is the
+  scenario's `sandbox budget`; `price` (`price per instance`, counted against
+  the budget) and `maximum` (`maximum allowed`, 0 for no quota) are per
+  palette-map kind, or tag path for scenery. Each value replaces the default in
+  `defs/level/palette-map.json`'s `forge` section, which sets none. The
+  simulation enforces them when placing; with no budget, only free objects
+  can be placed, so set a budget whenever you set prices.
 - `cutscene_flags`: `[{ "pos": [x, y, z], "yaw": 0 }]` moves the canvas's first
   cutscene flags to these points, so their names stay valid for
   `player_teleport` / `object_teleport` from the Blam console.

@@ -129,6 +129,9 @@
 #define ENTRY_DWORDS         7          // name, variants (count, handle), ?, max allowed, price, thorage
 #define ENTRY_VARIANTS       0x4
 #define ENTRY_MAX_ALLOWED    0x10       // 0: no quota
+#define ENTRY_PRICE          0x14
+#define MV_QUOTAS            0xd640     // per flat palette entry: minimum, maximum, placed (u8 each)
+#define MV_BUDGET            0x2e0      // the budget (the scenario's sandbox budget), then spent at +0x2e4
 #define VARIANT_DWORDS       6          // object reference (tag index at +0x10), variant name
 #define VARIANT_TAG          0x10
 #define MAX_PALETTES         16         // a request carries the palette in 4 bits
@@ -184,6 +187,7 @@ typedef void (*mv_copy_fn)(void *dst, const void *src, uint8_t flag);
 typedef void (*mv_build_fn)(void *mv);
 typedef void (*mv_void_fn)(void);
 typedef void (*mv_entry_fn)(uint32_t entry, uint32_t how);
+typedef int (*mv_flat_fn)(void *unused, uint32_t palette, uint32_t entry);
 typedef void (*apply_properties_fn)(uint32_t player_handle, uint32_t object, const void *properties);
 
 // ---- State --------------------------------------------------------------------
@@ -200,6 +204,7 @@ static mv_copy_fn g_mv_copy;
 static mv_build_fn g_mv_from_scenario, g_mv_create_all, g_mv_budget;
 static mv_void_fn g_mv_delete_all;
 static mv_entry_fn g_mv_entry_dirty;
+static mv_flat_fn g_mv_flat;
 static apply_properties_fn g_apply_properties;
 static unsigned g_tls_index = ~0u;
 static int g_installed;
@@ -219,6 +224,8 @@ typedef struct {
     uint8_t placeable;  // RVA_CAN_CREATE said yes when it was read
     char group[5];
     char tag[96];
+    int32_t maximum, price; // the entry's quota (0: none) and price
+    int32_t placed;         // how many the map variant has (its quota record)
 } palette_row_t;
 
 static palette_row_t g_rows[MAX_ROWS];
@@ -246,6 +253,7 @@ typedef struct {
     unsigned rows_version;
     // The target's Forge properties (the held object, else the one under the
     // cursor), when it belongs to the map variant.
+    int budget, spent; // the map variant's budget (0: none) and what is spent
     int props;       // 0: no target, or not a map-variant object
     int team, order, respawn, mp_type, label;
     char label_name[64];
@@ -431,6 +439,12 @@ static void read_palettes(void) {
                 tag_name(tag, row->tag, sizeof row->tag, row->group);
                 g_phased += phase_in_forge(tag, row->group);
                 row->placeable = g_can_create(tag, NULL) != 0;
+                uint8_t *pe = palette_entry(scenario, p, e);
+                row->maximum = *(int32_t *)(pe + ENTRY_MAX_ALLOWED);
+                row->price = *(int32_t *)(pe + ENTRY_PRICE);
+                uint8_t *mv = (uint8_t *)g_mv_live();
+                int flat = g_mv_flat(NULL, (uint32_t)p, (uint32_t)e);
+                row->placed = mv && flat >= 0 && flat < 256 ? mv[MV_QUOTAS + flat * 3 + 2] : 0;
             }
         }
     }
@@ -1045,11 +1059,9 @@ static void edit_property(uint8_t *tls, int player, uint32_t target, LONG which,
 typedef int (*mv_add_entry_fn)(void *mv, uint32_t palette, uint32_t entry, uint32_t variant, const float *point,
                                const float *forward, const float *up);
 typedef uint32_t (*mv_create_fn)(void *mv, uint32_t entry, uint8_t flag);
-typedef int (*mv_flat_fn)(void *unused, uint32_t palette, uint32_t entry);
 typedef void (*mv_quota_fn)(void *mv, int flat);
 static mv_add_entry_fn g_mv_add_entry;
 static mv_create_fn g_mv_create;
-static mv_flat_fn g_mv_flat;
 static mv_quota_fn g_mv_quota_add;
 
 static struct {
@@ -1436,6 +1448,10 @@ static void snapshot(uint8_t *tls, int player) {
         object_tag_name(tls, s.held, s.held_tag, sizeof s.held_tag, s.held_group);
         object_tag_name(tls, s.cursor, s.cursor_tag, sizeof s.cursor_tag, s.cursor_group);
         uint8_t *mv = (uint8_t *)g_mv_live();
+        if (mv) {
+            s.budget = *(int32_t *)(mv + MV_BUDGET);
+            s.spent = *(int32_t *)(mv + MV_BUDGET + 4);
+        }
         uint8_t *props = object_props(tls, mv, s.held != 0xffffffffu ? s.held : s.cursor);
         if (g_carry.active) {
             s.held = HELD_CARRIED;
@@ -1597,7 +1613,8 @@ __declspec(dllexport) int mjolnir_forge_rotate_right(void *L) { (void)L; return 
 // Write forge_state.txt when the simulation thread has seen a new tick since
 // the last call: `key=value` lines. `forge=0` once ticks stop (no Forge game).
 // When the palettes changed, forge_palette.txt first: one line per entry,
-// `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable`; the state's
+// `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable<TAB>placed<TAB>maximum
+// <TAB>price` (maximum 0: no quota); the state's
 // `selected` is a line index into it (from 0) and `palette_version` says
 // which list.
 // Runs on whichever thread Lua calls it from; never on the simulation thread.
@@ -1615,8 +1632,8 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
         EnterCriticalSection(&g_lock);
         for (int i = 0; i < g_row_count && used + 128 < sizeof list; i++) {
             palette_row_t *r = &g_rows[i];
-            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\n", r->palette, r->entry,
-                                     r->group, r->tag, r->placeable);
+            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\t%d\t%d\t%d\n", r->palette,
+                                     r->entry, r->group, r->tag, r->placeable, r->placed, r->maximum, r->price);
         }
         LeaveCriticalSection(&g_lock);
         list[used] = '\0';
@@ -1631,9 +1648,9 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\nphased=%d\naim=%s\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
-             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim);
+             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent);
     if (s.props) {
         size_t used = strlen(text);
         snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",

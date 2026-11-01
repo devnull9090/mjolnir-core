@@ -52,5 +52,10 @@
     "E10": { "vehicles": ["shade", "banshee", "ghost"] },
     "E20": { "vehicles": ["wraith", "ghost", "banshee", "shade"] },
     "E30": { "vehicles": ["seraph", "space_banshee", "banshee", "wraith", "ghost", "shade"] }
+  },
+  "forge": {
+    "comment": "Forge's budget and quotas, which the simulation enforces when placing (docs/forge.md, Budgets). budget is the scenario's sandbox budget; price and maximum are per kind (or scenery tag path): price per instance counts against the budget, maximum allowed caps how many (0: no quota). A level overrides any of them with blam.forge. Empty: no limits.",
+    "price": {},
+    "maximum": {}
   }
 }

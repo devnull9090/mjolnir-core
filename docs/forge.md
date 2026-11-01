@@ -125,6 +125,18 @@ A flag stand made this way works in CTF: on Blood Gulch, a red stand placed,
 labelled `ctf_flag_return`, saved, and the map then hosted as CTF got the red
 flag.
 
+## Budgets and quotas
+
+A map can limit what Forge places: a budget, a price per object, and a most
+of each kind. The simulation enforces them, as Reach's Forge did: an object
+over its quota or over the budget is refused ("THIS MAP CAN'T PLACE ANOTHER").
+The palette shows `placed/most` and the price beside an object that has them,
+and the budget spent in its title. The text panel shows the same.
+
+Maps set them when they are built (`blam.forge` in the level file,
+[level_format.md](level_format.md)). The maps released so far set none, so
+there is no limit.
+
 ## Layouts
 
 F5 saves what is on the map now, everything Forge can move, as a layout:
