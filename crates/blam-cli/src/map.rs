@@ -363,6 +363,15 @@ fn pack(a: PackArgs) -> Result<()> {
         "map/registration.json".into(),
         serde_json::to_vec_pretty(&reg)?,
     ));
+    // Where the bots' squads stand, which MJOLNIRHud reads beside the level
+    // file (docs/bots.md); a map baked without bots has none.
+    let bots = a.dir.join(format!("{code}.bots.json"));
+    if bots.is_file() {
+        let bytes = std::fs::read(&bots)?;
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .with_context(|| format!("reading {}", bots.display()))?;
+        members.push(("map/bots.json".into(), bytes));
+    }
     for (rel, path) in extra {
         let bytes =
             std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;

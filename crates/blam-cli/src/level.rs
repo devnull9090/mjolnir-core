@@ -443,6 +443,19 @@ fn spread_order(points: &[[f64; 3]]) -> Vec<usize> {
     order
 }
 
+/// `<CODE>.bots.json`, which a map's pack ships beside its level file
+/// (`map/bots.json`): where each bot squad index stands (every kind's squad
+/// `k` on start `k`), in Unreal cm, the frame the game's actors report.
+/// MJOLNIRHud places each bot on the free squad whose start suits its side
+/// (docs/bots.md "Where bots spawn").
+fn bots_record(starts: &[[f64; 3]]) -> serde_json::Value {
+    let tenth = |v: f64| (v * 10.0).round() / 10.0;
+    serde_json::json!({
+        "schema_version": 1,
+        "starts": starts.iter().map(|p| p.map(tenth)).collect::<Vec<_>>(),
+    })
+}
+
 /// The finest grid the bots' firing positions narrow to, wu.
 const BOT_SPACING_MIN: f32 = 1.0;
 /// The firing positions per area the grid narrows to give, where it can.
@@ -924,6 +937,9 @@ struct Baker {
     next_unique: i64,
     /// Elements this bake appended per block, so a clear keeps them.
     added: std::collections::BTreeMap<&'static str, usize>,
+    /// Where each bot squad index stands, in Unreal cm (`bots_finish`), for
+    /// the `<CODE>.bots.json` MJOLNIRHud places bots from (`bots_record`).
+    bot_starts: Vec<[f64; 3]>,
 }
 
 impl Baker {
@@ -1860,6 +1876,7 @@ impl Baker {
         // first bots spread over the map.
         let points: Vec<[f64; 3]> = spawns.iter().map(|(p, _)| *p).collect();
         let spawns: Vec<([f64; 3], f64)> = spread_order(&points).into_iter().map(|i| spawns[i]).collect();
+        self.bot_starts = (0..ix.count).map(|i| abs_pos(self.origin, spawns[i % spawns.len()].0)).collect();
         let mut spacing = bots.spacing as f32;
         let mut fps = pf.firing_positions(&shell, spacing, &components, 0.0);
         while fps.len() > 2048 {
@@ -2244,6 +2261,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         origin: level.canvas.origin,
         next_unique: UNIQUE_ID_BASE,
         added: Default::default(),
+        bot_starts: Vec::new(),
     };
 
     // Placements first — their donors are cloned from the shipped blocks —
@@ -2559,6 +2577,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         world_object = Some(format!("{new_pkg}.{code}"));
     }
 
+    let bot_starts = std::mem::take(&mut baker.bot_starts);
     let file = baker.file;
 
     // The same exactness gate `pack` applies before anything leaves the tool.
@@ -2797,6 +2816,24 @@ fn bake(a: BakeArgs) -> Result<()> {
         undo = format!("the three {name}.* and three {reg_name}.* files");
     }
 
+    // The loader keys a standalone map's decor by its codename, a canvas
+    // override's by the canvas scenario; the bots' starts go by the same key.
+    let file_key = a
+        .standalone
+        .as_ref()
+        .map(|c| c.to_uppercase())
+        .unwrap_or_else(|| scen.to_string());
+    let write_bots = |dir: &Path| -> Result<()> {
+        let path = dir.join(format!("{file_key}.bots.json"));
+        std::fs::write(&path, serde_json::to_vec_pretty(&bots_record(&bot_starts))?)?;
+        println!("  wrote    {} ({} bot start(s))", path.display(), bot_starts.len());
+        Ok(())
+    };
+    if !a.install_test && !bot_starts.is_empty() {
+        // `mjolnir map pack` ships it as `map/bots.json`.
+        write_bots(&out_dir)?;
+    }
+
     if a.install_test {
         // A .utoc/.ucas pair never mounts without a .pak sibling
         // (docs/iostore_packaging.md).
@@ -2804,18 +2841,16 @@ fn bake(a: BakeArgs) -> Result<()> {
         std::fs::write(&pak, ue_iostore::pak::stub_for(&name))?;
         println!("  wrote    {} (stub)", pak.display());
 
-        // The loader keys a standalone map's decor by its codename, a
-        // canvas override's by the canvas scenario.
-        let file_key = a
-            .standalone
-            .as_ref()
-            .map(|c| c.to_uppercase())
-            .unwrap_or_else(|| scen.to_string());
         if let Some(loader_levels) = loader_levels_dir(&a.src.paks) {
             std::fs::create_dir_all(&loader_levels)?;
             let dest = loader_levels.join(format!("{file_key}.level.json"));
             std::fs::copy(&a.file, &dest)?;
             println!("  wrote    {} (decor for the loader)", dest.display());
+            // MJOLNIRHud reads a test install's bots file here: the launcher
+            // prunes what no installed release ships from MJOLNIRMaps.
+            if !bot_starts.is_empty() {
+                write_bots(&loader_levels)?;
+            }
             if a.standalone.is_some() {
                 write_maps_index(&a.src.paks)?;
             }
@@ -3266,5 +3301,13 @@ mod tests {
         assert_eq!(sorted, (0..points.len()).collect::<Vec<_>>());
         assert!(spread_order(&[]).is_empty());
         assert_eq!(spread_order(&[[5.0, 5.0, 5.0], [5.0, 5.0, 5.0]]), vec![0, 1]);
+    }
+
+    #[test]
+    fn bots_record_lists_each_squads_start() {
+        let r = bots_record(&[[30020.84, 48048.36, 824.44], [12265.3, -24116.8, -30.5]]);
+        assert_eq!(r["schema_version"], 1);
+        assert_eq!(r["starts"], serde_json::json!([[30020.8, 48048.4, 824.4], [12265.3, -24116.8, -30.5]]));
+        assert_eq!(bots_record(&[])["starts"], serde_json::json!([]));
     }
 }

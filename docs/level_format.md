@@ -286,6 +286,12 @@ from the `--bsp` payload's collision shell (`blam_sbsp::pathfinding`), and
 clears that BSP's `no default structure pathfinding` flag. So `bots` needs the
 level's BSP named by `single_bsp` (or `active_bsps`) and given with `--bsp`.
 
+Beside its output the bake writes `<CODE>.bots.json` (`--install-test`: in
+the loader's `levels/`, beside the level file): `{"schema_version": 1,
+"starts": [[x, y, z], ...]}`, where squad `k` of every kind stands, in
+absolute Unreal cm. `mjolnir map pack` ships it as `map/bots.json`, and
+MJOLNIRHud picks each bot's squad from it as the bot comes in.
+
 ### `multiplayer`
 
 Top-level `"multiplayer": true` asks MJOLNIRLevelLoader to start the level

@@ -1561,7 +1561,7 @@ local function startBots(count, kind, level)
         if side then p.team = side end
         boardDirty = true
     end, { kind = kind or Bots.wantedKind(LOADER_DIR), level = level or Bots.wantedLevel(LOADER_DIR),
-        isPlayer = isPlayerBiped, teams = Match.mode.teams, onKill = botKill })
+        isPlayer = isPlayerBiped, teams = Match.mode.teams, onKill = botKill, map = Match.code })
 end
 
 --- The host changes how many bots play (`/bots`, `mjolnir_bots`): the ones
@@ -1652,10 +1652,13 @@ local function tick()
         startBots(Bots.wanted(LOADER_DIR))
     end
     -- The humans in seat order: `player_get <n>` is the nth player there is.
+    -- Their bipeds tell the bots where each side is.
     local humans = {}
     for index = 0, 15 do
         local p = Match.players[index]
-        if p and not p.left then humans[#humans + 1] = { nth = #humans, team = Scoreboard.team(p.team) } end
+        if p and not p.left then
+            humans[#humans + 1] = { nth = #humans, team = Scoreboard.team(p.team), biped = p.biped, dead = p.dead }
+        end
     end
     local okBots, errBots = pcall(Bots.tick, now(), humans)
     if not okBots then Log("bots: " .. tostring(errBots)) end
