@@ -444,15 +444,27 @@ fn spread_order(points: &[[f64; 3]]) -> Vec<usize> {
 }
 
 /// `<CODE>.bots.json`, which a map's pack ships beside its level file
-/// (`map/bots.json`): where each bot squad index stands (every kind's squad
-/// `k` on start `k`), in Unreal cm, the frame the game's actors report.
-/// MJOLNIRHud places each bot on the free squad whose start suits its side
-/// (docs/bots.md "Where bots spawn").
-fn bots_record(starts: &[[f64; 3]]) -> serde_json::Value {
+/// (`map/bots.json`), in Unreal cm, the frame the game's actors report:
+/// - `starts`: where each bot squad index stands (every kind's squad `k` on
+///   start `k`); MJOLNIRHud places each bot on the free squad whose start
+///   suits its side (docs/bots.md "Where bots spawn");
+/// - `areas`: each zone area's extent, `[x0, y0, x1, y1]`, the grid cell
+///   its firing positions came from;
+/// - `tasks`: the areas each task `area_<k>` covers. MJOLNIRHud places a
+///   bot again when it stays put under an area task far from that task's
+///   areas (docs/bots.md "Why bots stand still").
+fn bots_record(starts: &[[f64; 3]], areas: &[[f64; 4]]) -> serde_json::Value {
     let tenth = |v: f64| (v * 10.0).round() / 10.0;
+    let tasks: Vec<Vec<usize>> = if areas.is_empty() {
+        Vec::new()
+    } else {
+        (0..BOT_AREA_TASKS).map(|k| area_task_members(k, areas.len())).collect()
+    };
     serde_json::json!({
         "schema_version": 1,
         "starts": starts.iter().map(|p| p.map(tenth)).collect::<Vec<_>>(),
+        "areas": areas.iter().map(|a| a.map(tenth)).collect::<Vec<_>>(),
+        "tasks": tasks,
     })
 }
 
@@ -940,6 +952,9 @@ struct Baker {
     /// Where each bot squad index stands, in Unreal cm (`bots_finish`), for
     /// the `<CODE>.bots.json` MJOLNIRHud places bots from (`bots_record`).
     bot_starts: Vec<[f64; 3]>,
+    /// Each zone area's extent, `[x0, y0, x1, y1]` in Unreal cm, for the same
+    /// file.
+    bot_areas: Vec<[f64; 4]>,
 }
 
 impl Baker {
@@ -1916,6 +1931,18 @@ impl Baker {
         for f in fps {
             cells.entry(cell(&f)).or_default().push(f);
         }
+        // Each area's extent, its cell, for bots.json (Blam y runs the other
+        // way to Unreal's).
+        let (w, h) = ((x1 - x0 + 1e-3) / side as f32, (y1 - y0 + 1e-3) / side as f32);
+        self.bot_areas = cells
+            .keys()
+            .map(|&k| {
+                let (cx, cy) = ((k % side) as f32, (k / side) as f32);
+                let (ax0, ay0) = (x0 + cx * w, y0 + cy * h);
+                let (ax1, ay1) = (ax0 + w, ay0 + h);
+                [ax0, -ay1, ax1, -ay0].map(|v| v as f64 * WU_CM)
+            })
+            .collect();
         let areas: Vec<Vec<pathfinding::FiringPosition>> = cells.into_values().collect();
 
         let zp = format!("zones[{}]", ix.zone);
@@ -2262,6 +2289,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         next_unique: UNIQUE_ID_BASE,
         added: Default::default(),
         bot_starts: Vec::new(),
+        bot_areas: Vec::new(),
     };
 
     // Placements first — their donors are cloned from the shipped blocks —
@@ -2386,8 +2414,19 @@ fn bake(a: BakeArgs) -> Result<()> {
             let index: usize = index
                 .parse()
                 .with_context(|| format!("--bsp index {index:?}"))?;
-            let new_body = std::fs::read(payload)
+            let mut new_body = std::fs::read(payload)
                 .with_context(|| format!("cannot read BSP payload {payload}"))?;
+            // A converted map's collision is there twice, as the shell and as
+            // a copy behind an instance, at one height, and which one a query
+            // meets is down to rounding: an AI that met the copy was on no
+            // sector (docs/re/ai_in_multiplayer.md "The flag rooms"). Lowered
+            // a hair, the copy is never the nearer.
+            use blam_sbsp::pathfinding::{lower_shell_copies, COPY_DROP};
+            match lower_shell_copies(&mut new_body, COPY_DROP) {
+                Ok(0) => {}
+                Ok(n) => println!("  bsp {index}: {n} copy of the shell lowered {COPY_DROP} wu"),
+                Err(e) => println!("  bsp {index}: no copy of the shell looked for ({e})"),
+            }
             // (field, group directory, four-CC, replacement body)
             let parts: [(String, &str, &str, Option<&[u8]>); 2] = [
                 (
@@ -2578,6 +2617,7 @@ fn bake(a: BakeArgs) -> Result<()> {
     }
 
     let bot_starts = std::mem::take(&mut baker.bot_starts);
+    let bot_areas = std::mem::take(&mut baker.bot_areas);
     let file = baker.file;
 
     // The same exactness gate `pack` applies before anything leaves the tool.
@@ -2825,8 +2865,13 @@ fn bake(a: BakeArgs) -> Result<()> {
         .unwrap_or_else(|| scen.to_string());
     let write_bots = |dir: &Path| -> Result<()> {
         let path = dir.join(format!("{file_key}.bots.json"));
-        std::fs::write(&path, serde_json::to_vec_pretty(&bots_record(&bot_starts))?)?;
-        println!("  wrote    {} ({} bot start(s))", path.display(), bot_starts.len());
+        std::fs::write(&path, serde_json::to_vec_pretty(&bots_record(&bot_starts, &bot_areas))?)?;
+        println!(
+            "  wrote    {} ({} bot start(s), {} area(s))",
+            path.display(),
+            bot_starts.len(),
+            bot_areas.len()
+        );
         Ok(())
     };
     if !a.install_test && !bot_starts.is_empty() {
@@ -3305,9 +3350,21 @@ mod tests {
 
     #[test]
     fn bots_record_lists_each_squads_start() {
-        let r = bots_record(&[[30020.84, 48048.36, 824.44], [12265.3, -24116.8, -30.5]]);
+        let r = bots_record(&[[30020.84, 48048.36, 824.44], [12265.3, -24116.8, -30.5]], &[]);
         assert_eq!(r["schema_version"], 1);
         assert_eq!(r["starts"], serde_json::json!([[30020.8, 48048.4, 824.4], [12265.3, -24116.8, -30.5]]));
-        assert_eq!(bots_record(&[])["starts"], serde_json::json!([]));
+        assert_eq!(bots_record(&[], &[])["starts"], serde_json::json!([]));
+        assert_eq!(r["tasks"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn bots_record_lists_each_area_and_what_each_task_covers() {
+        let r = bots_record(&[], &[[0.0, -100.04, 50.0, 0.0], [50.0, -100.0, 100.0, 0.0]]);
+        assert_eq!(r["areas"], serde_json::json!([[0.0, -100.0, 50.0, 0.0], [50.0, -100.0, 100.0, 0.0]]));
+        let tasks = r["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), BOT_AREA_TASKS);
+        assert_eq!(tasks[0], serde_json::json!([0]));
+        assert_eq!(tasks[1], serde_json::json!([1]));
+        assert_eq!(tasks[15], serde_json::json!([1]));
     }
 }
