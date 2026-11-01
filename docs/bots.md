@@ -89,7 +89,8 @@ bots on Blood Gulch all stood at one base and fought there. A map with more
 starts than squads (15 per kind) never uses the rest.
 
 The bake also writes where each squad stands, `<CODE>.bots.json` (Unreal cm,
-by squad index), which the map's pack carries beside its level file
+by squad index; with each area's extent and the areas each `area_<k>` task
+covers), which the map's pack carries beside its level file
 (`map/bots.json`, installed to `ue4ss/MJOLNIRMaps/<CODE>/`; a test install's
 goes to MJOLNIRLevelLoader's `levels/`). With it, the host's HUD picks a bot's
 squad each time it places the bot, so the bot comes in where its side is.
@@ -137,13 +138,24 @@ Gulch (PC 1, 2026-10-31,
   walked off within a second of it. So every order the HUD gives a bot
   starts with that line, and a bot whose body stays asleep waits for its
   next order (8-16 s), not for minutes.
-- **The flag rooms.** No bot on the lower floor under a base's deck, by
-  the flag, was seen to find its way out. Ordered anywhere, one walks about
-  the room, to a corner or a little way up an exit ramp, turns back and
-  stops; a jackal stayed over half an hour, a grunt over 20 minutes. Bots
-  walk in through the exits (and elites drop in through the hole in the
-  deck), so the rooms can collect bots over a match. Waking them changes
-  nothing. Not fixed; the cause is not known.
+- **The flag rooms.** A bot on the lower floor under a base's deck, by the
+  flag, stayed there: ordered anywhere, it walked about the room, a little
+  way up an exit ramp and back, and stopped; a jackal stayed over half an
+  hour, a grunt over 20 minutes. A converted map's collision is there twice,
+  as the map's own shell and as a copy of it placed as instanced geometry,
+  at one height to within f32 rounding, and the rounding decides which one
+  the simulation meets under a bot: on the flag-room floors the copy nearly
+  every time, elsewhere a third to two thirds of the time. On the copy a bot
+  is on no sector (the bake gives the copy no pathfinding of its own, and
+  giving it the shell's crashed the game): it keeps the last place it stood
+  on the shell and walks a path it already has, but cannot plan a new one,
+  and wanders until it steps back onto the shell, which in a flag room means
+  an exit ramp. Bots stood so beside the bases too; path followers had no
+  plan in 29 to 48% of samples. Since 2026-10-31 the bake lowers the copy
+  0.001 wu under the shell: in two 10-minute matches the followers had no
+  plan in 0.35% and 0.38% of samples, and no bot stayed in a flag room
+  longer than 53 s. A map published before then keeps the trap until it is
+  rebaked.
 - **Elites in the side doorways.** The ramp from a base's deck down to each
   side door passes under the door's lintel, 0.82 wu above the ramp at its
   inner edge. On that slope an upright elite (0.8 wu tall, radius 0.18)
@@ -156,6 +168,21 @@ Gulch (PC 1, 2026-10-31,
   the pathfinding is no answer either: they are the only way to walk onto a
   deck. Not fixed. By the capsule's geometry an elite standing 0.75 or lower
   would fit; no elite has been seen to pass yet.
+
+**Stuck bots are placed again.** A bot that stays within 6 wu for 40 s is
+woken and sent to an area that does not hold it (an `area_<k>` order, with
+no other order for 15 s); a bot that waited at a firing position or fought
+in one place walks off, and one that has neither left nor reached that area
+is erased and placed again on a start, as a respawn without a death (the
+HUD logs `stayed ... placing it again`). With the lowered copy it catches
+bots idle under their orders, jammed or blocked: on Blood Gulch with eight
+bots, 12 in 10 minutes, half of them stuck by the simulation's own reading
+and the rest bots whose actors had stopped following them. It judges only a
+bot whose actor it has seen move since placing it: a placement sometimes
+takes an actor that stays where the bot came in while the bot walks off, and
+placing that bot again only takes another. A bot that wanders wider than 6
+wu is not caught. The areas come from the map's `bots.json`, so a map baked
+before 2026-10-31 (no `areas` there) gets no such help.
 
 **Who bots fight** (measured in Team Slayer on Blood Gulch, 2026-10-30;
 [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md#teams-in-a-megalo-match)).
@@ -367,8 +394,14 @@ so is a container with more than one BSP or world.
 - Maps with more starts than squads (15) leave the rest unused. A map
   published before 2026-10-31 has no `map/bots.json`, so each bot comes back
   on the start it first used, whichever side is there.
-- Bots on Blood Gulch's flag-room floors, under the decks, were not seen to
-  find their way out, and elites jam under the side doors' lintels ("Bots frozen in
+- A map published before 2026-10-31 keeps the copy of its collision at the
+  shell's height, where bots lose their place (Blood Gulch's flag-room floors
+  above all), and has no `areas` for the HUD to send a stuck bot to: a
+  rebake brings both. Only Blood Gulch is measured.
+- A placement sometimes takes an actor that stays where the bot came in
+  while the bot walks off. The HUD reads the bot's deaths from that actor,
+  so it would neither see that bot die nor bring it back.
+- Elites jam under Blood Gulch's side doors' lintels ("Bots frozen in
   place" above). An AI never crouches to pass a low ceiling, and those doors
   are the only way onto the decks, so they stay open to elites. Other maps
   are not checked.
