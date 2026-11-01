@@ -1,9 +1,11 @@
 # Forge
 
-**Status:** 2026-10-24. Host only, on any converted multiplayer map.
-Released in mods 0.34.0 with CE runtime 1.14.0. Placing from the palette and
-the palette panel are not released yet: they need MJOLNIRForge 0.2.0 and CE
-runtime 1.15.0 (the panel).
+**Status:** 2026-11-01. On any converted multiplayer map, host only (the
+fireteam side is built but waits on a two-PC test). Layouts
+(save, load, start a game with one), object properties, markers, turning
+and budgets are in mods 0.42.0 (MJOLNIRForge 0.3.0).
+First released in mods 0.34.0 with CE runtime 1.14.0; placing from the
+palette needs MJOLNIRForge 0.2.0 and CE runtime 1.15.0 (the panel).
 **How it works:** [re/forge_engine.md](re/forge_engine.md).
 
 Halo Reach's Forge is still inside Halo: Campaign Evolved's simulation.
@@ -62,6 +64,14 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **Insert** | Place the palette's selected object at the cursor; you hold it, ready to move |
 | **Left / Right** | Previous / next palette category |
 | **Up / Down** | Previous / next object in the category |
+| **F5** | Save this map's layout |
+| **F6** | Load the saved layout, replacing the objects on the map now |
+| **F2** | Go back to the map's own layout (the saved one is kept in `layouts\history`) |
+| **K** | Team of the target: neutral, red, blue |
+| **L** | Megalo label of the target (the map's labels in turn, then none) |
+| **J** | Respawn time of the target: 0, 5, 10, 15, 30, 45, 60, 90, 120, 180 s |
+| **O** | Spawn order of the target: 0 to 9 |
+| **, / .** | Turn what you hold or carry, or the next marker you place, 22.5° left / right |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
 flies up.
@@ -69,7 +79,8 @@ flies up.
 To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
 lines like `grab=F7` (actions `toggle`, `grab`, `duplicate`, `delete`,
 `nearer`, `farther`, `place`, `prev_category`, `next_category`, `prev_item`,
-`next_item`; key names as UE4SS spells them, such as `PAGE_UP` or
+`next_item`, `save`, `load`, `revert`, `team`, `label`, `respawn`, `order`,
+`rotate_left`, `rotate_right`; key names as UE4SS spells them, such as `PAGE_UP` or
 `LEFT_ARROW`).
 The defaults are keys the game does not use. G, C, Z and X are taken.
 
@@ -81,12 +92,108 @@ campaign's flyers), grenades, power-ups and ammo, and the map's scenery
 (spawn points, teleporters, flag stands, health packs). Maps baked before
 list only the kinds they already place, so you can place and duplicate
 those but not, say, a Wraith on Blood Gulch, until the map is republished.
-There is no limit on how many of each.
+There is no limit on how many of each, unless the map sets one (*Budgets
+and quotas*).
+
+Maps baked from 2026-11-01 also have a **blocks** palette: a Covenant crate
+and the Covenant portable shield, the only shipped pieces that are already
+Forge-ready. More blocks, ported or modelled, are planned as hub packs:
+[forge_blocks.md](forge_blocks.md).
+
+## Object properties
+
+Every object Forge places carries properties the game types read. K, L, J
+and O change the target's (what you hold, else what you aim at); the target
+card shows its team and label.
+
+- **Team**: a red flag stand is where the red flag starts in CTF; spawn
+  points with a team are that team's.
+- **Label**: what a game type looks objects up by. CTF finds flag stands by
+  `ctf_flag_return` and team spawns by `ctf_spawn_red` / `ctf_spawn_blue`.
+  The list is the map's own labels.
+- **Respawn time** and **spawn order** for weapons, vehicles and equipment.
+
+## Markers: flag stands, spawn points, health packs, teleporters
+
+These have no physics, so the Monitor cannot drag them the way it drags a
+weapon. Forge handles them its own way:
+
+- **Insert** puts one where the cursor is, facing the way , and . set.
+- **V** on one picks it up: it leaves the map and the HUD shows you carrying
+  it, properties and all. Turn it with , and . and press **V** again to put
+  it down at the cursor. **Delete** while carrying throws it away.
+- **N** copies one, properties included.
+- They are invisible in game (the bases' stands are separate scenery), and
+  the cursor cannot land on them, so Forge aims at the nearest one within
+  about a metre of your crosshair.
+
+A flag stand made this way works in CTF: on Blood Gulch, a red stand placed,
+labelled `ctf_flag_return`, saved, and the map then hosted as CTF got the red
+flag.
+
+## With your fireteam
+
+**For now FORGE is host only:** the lobby refuses to start it with fireteam
+members, as before. Everything below is built (FORGE has its own insertion
+slot, 5, and the Forge DLL's client guards are in), but the first two-PC
+test (2026-11-01) lost the second PC to a GPU crash while it loaded, so the
+lobby's refusal stays until one passes. Lifting it is the members check in
+MJOLNIRLobby's `startGame`.
+
+Fireteam members who are in the lobby, or who join a FORGE game under way,
+would start Forge too, and need MJOLNIRForge and the CE runtime pack the host has.
+Each of them can be the Monitor, pick up, drop, delete, duplicate and place
+weapons, vehicles and equipment: those go to the host's game as the engine's
+own Forge requests, as in Reach. The rest stays with the host for now: saving
+and loading layouts that start games, object properties, turning, and
+markers (flag stands, spawn points). A FORGE game is never listed in FIND
+GAMES.
+
+On 2026-11-01 PC 2 joined PC 1's fireteam, PC 1 started FORGE on Blood Gulch
+(with the refusal lifted), and PC 2 travelled and started the sandbox engine
+as a client ("BGL starts under the sandbox engine, FORGE (client travel)").
+PC 2 then dropped out during the load and went off the network. It had had
+a GPU crash at its title screen ten minutes before, with no Forge code
+running, so the hardware is the likely cause, but nothing proves it yet.
+
+## Budgets and quotas
+
+A map can limit what Forge places: a budget, a price per object, and a most
+of each kind. The simulation enforces them, as Reach's Forge did: an object
+over its quota or over the budget is refused ("THIS MAP CAN'T PLACE ANOTHER").
+The palette shows `placed/most` and the price beside an object that has them,
+and the budget spent in its title. The text panel shows the same.
+
+Maps set them when they are built (`blam.forge` in the level file,
+[level_format.md](level_format.md)). The maps released so far set none, so
+there is no limit.
+
+## Layouts
+
+F5 saves what is on the map now, everything Forge can move, as a layout:
+`layouts\<MAP>.mvar` in the MJOLNIRForge mod folder (Blood Gulch is
+`BGL.mvar`). It works as the Monitor or as your Spartan, in a FORGE game.
+
+**A map with a saved layout starts every game with it**: FORGE, Slayer, CTF
+or any other game type on that map. Saving again replaces it; the one before
+moves to `layouts\history` with the time in its name. To play the map as it
+shipped, press F2 in a FORGE game (or move the file out of `layouts`).
+
+F6 puts the saved layout back on the spot, undoing everything since the last
+save. Objects you are holding are dropped first.
+
+A layout file is a Halo Reach map variant (`.mvar`), the same format MCC
+uses, so `cargo run -p blam-megalo --example mvar_summary -- BGL.mvar`
+lists what is in it. Layouts belong to one map: the file name says which.
 
 ## Not there yet
 
-- **Saving a layout.** Changes last until the game ends.
-- **Playing with your fireteam.** Players who join start Slayer instead.
-- **A Forge menu** (object lists, properties, rotation).
+- **Several layouts per map, and picking one in the lobby.** One saved layout
+  per map for now; `layouts\history` keeps the older ones.
+- **Layouts for your fireteam.** A saved layout is used when you host;
+  players who join see the host's objects.
+- **A Forge menu** (object lists, properties).
+- **Tilting.** , and . turn about the vertical only.
+- **Markers are invisible**: aim near where you put them.
 - The cursor only reaches things in plain view: it stops at walls and the
   ground.

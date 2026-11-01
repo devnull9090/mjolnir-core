@@ -1,12 +1,12 @@
 # Forge is still in the simulation (CU4)
 
-**Status:** 2026-10-24. Playable on the host: MJOLNIRLobby offers a FORGE
+**Status:** 2026-11-01 (layouts); 2026-10-24 (the editor). Playable on the host: MJOLNIRLobby offers a FORGE
 game type, MJOLNIRLevelLoader starts the map under the sandbox engine, and
 MJOLNIRForge binds keys that send the engine's own editor requests (*What
 ships*). Verified in game on Blood Gulch: turn into the Monitor and back,
 grab, move, drop, push out and delete objects, all through the simulation's
-request path. Not yet: placing new objects (converted maps have no sandbox
-palette), saving a layout, fireteam clients. The history below covers the
+request path. Layouts save, load and start games since 2026-11-01 (*Layouts*). Properties and markers since the same day (*Object properties, markers
+and the grab crash*). Not yet: fireteam clients, tilting. The history below covers the
 first live run (*Live run, 2026-10-24*, which ended in a hang), the model
 fix (*Retest with the fixed model*) and the request path (*The request path
 on the host*).
@@ -516,14 +516,227 @@ Verified in game 2026-10-24 (BGL, solo):
   scenery entries, all placeable. A Wraith, which BGL never places, came
   from the palette and drew.
 
+## Layouts: save, load, start with one (2026-11-01)
+
+MJOLNIRForge 0.3.0 saves the live map variant to a file and brings it back,
+with the simulation's own encoder and decoder. Nothing in CU4 did this: the
+five map-variant console commands (`net_build_map_variant` 1517,
+`net_verify_map_variant` 1518, `net_load_and_use_map_variant` 1519,
+`write_current_map_variant` 1520, `read_map_variant_and_make_current` 1521)
+are stubs in CU4, and in MCC's `haloreach.dll` too (its shared stub
+`0x86cbc`); Halo 3 does not have them. So there was no body to copy.
+
+| Piece | RVA | Notes |
+|---|---|---|
+| live map variant | `0x32b600()` | `([TLS+0x250] + 0x30b) & ~3`, only in options mode 3; `0xd9c0` bytes |
+| encode / decode | `0x32cfb0(mv, bits)` / `0x32d810(mv, bits)` → bool | |
+| bitstream setup | `0x5323a0` | the session normaliser: encodes into a `0x7000`-byte stack buffer and decodes back; the template for both directions |
+| reset | `0x32baf0(mv, map id)` | version 32 (`+0x2b0`), map GUID (`+0x2b8`, 16 bytes) zero, bounds empty (±FLT_MAX) |
+| build from the scenario | `0x32cc00(mv)` | `0x32baf0(mv, scnr+0x10)`, then the placements (`0x32e0c0`) |
+| make a given variant current | `0x32bdb0(dst, src, 0)` | what new-map does with a session-supplied variant; takes the map id from the GUID (`0x32bd40` → `0x32b1a0`), so -1 for a zero GUID |
+| delete every variant object | `0x32f710()` | objects of mask `0x5ce` whose `+0x1c` (variant index) is set |
+| create every entry's object | `0x32f6a0(mv)` | entries with flag bit 0 and no object yet (`+0x2c` = -1); round reset and host migration |
+| resend an entry | `0x4d1b70(entry, 4)` | host migration does it for all 651 after recreating |
+
+**The bitstream** (`0x5323a0`'s stack struct, 0x48 bytes): `+0` begin, `+8`
+end, `+0x10` size, `+0x14` 1, `+0x18` mode (1 write, 3 read), `+0x20` bits
+(write: already in the buffer; read: in the accumulator), `+0x28` 64-bit
+accumulator filled from the top, `+0x30` bits in it (write), `+0x38` cursor.
+After encoding, the accumulator is flushed big-endian; the size is
+`(+0x20 + +0x30 + 7) / 8` bytes. A reader starts with the first eight bytes
+in the accumulator and `+0x20` = 64.
+
+**New-map** (`0x2aca30`, mode 3): when the game options' map variant
+(`([TLS+0x60] + 0x111fb) & ~3`) has `+0x2e9`, `+0x2e0` or `+0x2ea` set, it is
+copied in with `0x32bdb0`; otherwise the live variant is built from the
+scenario at `0x2ace53` (`call 0x32cc00`). The round reset then creates the
+objects (`0x2ad80d`, `call 0x32f6a0`).
+
+**Version 32 and the map GUID.** The decoder reads the GUID only from
+version 32 on and fails when it is all zero (`0x32db50`); below 32 it derives
+it from the map id (`0x32add0`, else zero) and keeps the version. CE builds
+every variant at version 32 with a zero GUID, so the engine's own encoder
+writes a file its decoder refuses (VERIFIED: the first save of BGL decoded
+in our codec, 125 objects, and the sim refused it). A copy at version 31
+round-trips: the GUID is not written and comes back zero. VERIFIED.
+
+**Map ids.** `scnr+0x10` is the map id `0x32cc00` writes. `0x32bdb0` resets
+the target with the id it derives from the GUID, -1 here, so after each copy
+the DLL writes the scenario's id back, and it saves that id. A file is
+refused only when both ids are real (> 0) and differ: converted maps carry 0
+or -1, and the file's name ties it to its map anyway.
+
+**How the DLL does it** (`native/forge/mjolnir_forge.c`, "Layouts"):
+
+- **Save** (F5, sandbox slot-113 tick): copy the live variant, set version 31
+  when the GUID is zero, encode, decode the result into scratch as a check,
+  then write `layouts\<CODE>.mvar` (`_blf` 1.2, `mvar` 31.1 with a zero hash,
+  `_eof` 1.1). `<CODE>` comes from MJOLNIRLevelLoader's `running.txt`. The
+  previous file moves to `layouts\history\<CODE>-<time>.mvar`.
+- **Load** (F6): decode the file into scratch, then the host-migration
+  sequence: `0x32f710`, `0x32bdb0`, `0x32f6a0`, `0x4d1b70` per entry,
+  `0x32e300`. A held object is released through request 4 first and the
+  load waits a tick.
+- **Revert** (F2): the same with `0x32cc00` for the copy; the file moves to
+  history.
+- **At game start, any engine:** the `call` at `0x2ace53` is pointed (rel32)
+  at a 12-byte `mov rax, imm64; jmp rax` stub in a page allocated within 2 GB
+  of the DLL, which calls `layout_new_map`: build from the scenario, then
+  `0x32bdb0` the map's saved layout over it. The round reset creates its
+  objects, so Megalo's per-round setup (slot 10) sees them. The patch is
+  checked (opcode `E8`, target `0x32cc00`) and made once.
+
+Verified 2026-11-01 (BGL, solo, Steam CU4):
+
+- Forge: placed an energy sword, saved (126 objects, 2,707 bytes); placed
+  two more; F6 removed the two (126 again); F2 removed the saved one too
+  ("the map's own layout"). Added a Wraith, saved (127).
+  `mvar_summary` reads every save: version 31, bounds x 0.91..136.90,
+  y -195.22..-40.06, z -6.28..55.00, no object outside them.
+- Slayer on BGL, a fresh game: `layout=BGL: saved layout, 127 objects`;
+  `mjolnir live objects` shows the Wraith at (45.57, -95.49, 1.65), where the
+  file has it (45.60, -95.49, 1.62), and the sword beside it. BGL ships no
+  Wraith, so it came from the layout.
+
+## Object properties, markers and the grab crash (2026-11-01)
+
+### Properties (request 5)
+
+A map-variant entry carries the object's Forge properties at `+0x30`, 0x1c
+bytes, the layout the property codec reads (`0x330230`) and writes
+(`0x32ff40`):
+
+| Offset | Field | Bits on the wire |
+|---|---|---|
+| `+0x00..+0x0f` | shape dimensions (floats) | 11 each, by shape |
+| `+0x10` | shape type | 2 |
+| `+0x11` | spawn order (s8) | 8 |
+| `+0x12` | respawn time, s | 8 |
+| `+0x13` | multiplayer object type | 5 |
+| `+0x14` | label (i16, -1 none) | 1 + 8 |
+| `+0x16` | flags | 8 |
+| `+0x17` | team: 0 red, 1 blue, ... 8 neutral | 4 |
+| `+0x18`, `+0x19` | type extras: spare clips; teleporter channel, passability | 8; 5, 5 |
+| `+0x1a` | colour (-1 none) | 1 + 3 |
+
+A weapon placed from BGL's palette reads
+`…00 00 1e 01 ffff 0c 08 02 00 ff 00`: order 0, respawn 30, type 1, no
+label, flags `0c`, neutral, 2 spare clips.
+
+The labels' names live in the variant: label `i` is the NUL-terminated
+string at `mv + 0x2f4 + u16[mv + 0x12f8 + 2i]`, count at `mv + 0x14f8`. On
+BGL: `ce_warthog_2`, ..., `ctf_spawn_red`, `ctf_spawn_none`,
+`ctf_spawn_blue`, `ctf_flag_return` (17), `ce_health_pack`.
+`mvar_summary` now prints them.
+
+**Request 5 through the event queue loses the block.** Sent with respawn 45,
+the entry came back with 45 in its flags byte and the fields before it zero.
+The object travels outside the bitstream (`0x407860` lifts payload `+0` for
+types 1, 3, 4, 5, 10 and 11; the consumer `0x4cd900` puts it back), and both
+codecs read as mirrors, so where the bits slip was not found. On the host
+the DLL calls the applier itself, `0x3071e0(player handle, object, block)`,
+which is what the consumer calls after decoding: the permission check
+(`0x307390`), the write into the entry and the resend (`0x32fcd0`,
+`0x32e870`). The first argument is the player's **handle**
+(`salt << 16 | index`): the check compares it with the object's holder, so
+an index alone refuses held objects. VERIFIED: respawn 45, order 1, team
+blue and a label all landed, and survive a save.
+
+### The grab crash
+
+Placing a flag stand from the palette crashed the simulation thread. UE4SS
+then sat in its crash dialog, so the game looked hung. That is likely also
+the hang of the first live run (*Live run, 2026-10-24*), which held a health
+pack. A stack walk of the stuck thread (dbghelp `StackWalk64`, no symbols)
+showed it in the grab: the consumer (`0x4cda8e`), the applier (`0x305bad`),
+placing (`0x3063c0`), then the grab (`0x306d71` → `0x306890`), faulting at
+`0x306b6b`. The grab drags an object through the chain from object `+0xcc`:
+the data array `*0x10ccc90` (0xc0-byte elements), `+0x30`, then `+0x40`,
+which it reads from `+0x170`. For CE's marker scenery (flag stands, spawn
+points, health packs, teleporters) the last pointer is NULL. Placing grabs
+what it creates (`0x306260` → `0x306d30`), so placing any of them crashed,
+and so would V on one.
+
+Before that, placing them did nothing at all. `0x3049e0(tag, point)` also
+looks for room at the point (`0x2cf130`, sized by the tag's bounding radius)
+unless the tag's multiplayer object flags (`+0x1a`) have bit 1, *phased
+physics in forge*. Reach set that on its Forge scenery. CE's tags lack it,
+and scenery resting on the ground never has room.
+
+What the DLL does:
+
+- It sets *phased physics in forge* in memory on every palette tag that is
+  not a weapon, vehicle or equipment (5 on BGL). It finds the tag's root from
+  the tag table entry `+0x1c` and the multiplayer block at root `+0x124`.
+- It never lets the editor grab an object whose drag chain ends at NULL.
+  Such objects are placed the way `0x306260` places, without the grab:
+  `0x32eff0(mv, palette, entry, variant, point, forward, up)` → entry,
+  `0x32f450(mv, entry, 1)` → object, `0x32e3b0(mv, flat)`,
+  `0x4d1b70(entry, 4)`.
+- V on such an object "carries" it: it keeps the palette entry (the flat
+  index at entry `+0x2`, back to palette and entry by walking the palettes),
+  the variant (`+0x2e`), the facing (forward at `+0x14`) and the properties,
+  then deletes the object (request 1). V again makes it at the cursor with
+  those properties. `,` and `.` turn it 22.5°.
+- The cursor ray never lands on a marker, since they have no collision. So
+  when it lands on no object, the DLL aims at the map-variant object without
+  a drag chain nearest the line from the player's unit through the cursor
+  point: within 1 m, plus 2% of the distance. Origins come from
+  `0x5a6780`; the objects come from the object array, whose `+0x44` is the
+  slots in use. Each object knows its variant entry at `+0x1c`.
+
+Verified 2026-11-01 (BGL, solo):
+
+- A flag stand placed with no crash, aimed at, set red and labelled
+  `ctf_flag_return` (K, L ×17), then carried, turned 90° and put down: the
+  new object had the same team and label and a facing of -90°.
+- The layout was saved (129 objects; the stand is team 0, label 17,
+  yaw -90°), and BGL was hosted as CTF. `mjolnir live objects` showed the red
+  flag at (34.59, -78.27), on the Forge stand at (34.87, -78.27), as well as
+  the map's own two.
+
+### Turning a held object
+
+Request 11 (exact transform) acts only on the held object, so it cannot move
+a marker. Its applier (`0x305f6a`) writes the editor's hold transform from
+the payload (`+4` onward):
+
+| Editor state | Field |
+|---|---|
+| `+0x3c` | scale |
+| `+0x40`, `+0x4c`, `+0x58` | forward, left, up |
+| `+0x64` | position (recomputed from the cursor each tick) |
+| `+0x70..+0x93` | the same three axes again: the snap's reference |
+
+The snap is `+0xc8`, which request 12 sets. It is an index into
+`0x85dad0` = {0, 90, 45, 30, 15, 5} degrees (0 = free); the per-tick hold
+code (around `0x2ffe04`) snaps the hold axes to it about `+0x70`. Request 14
+flips `+0x38`, which picks the order the snap composes in. Slot 30 sends it
+when control entry `0x5a` is pressed (latch `+0xf4`). Request 13 sets
+`G+0x2c69`, which gates Megalo's triggers in a sandbox game (slot 113).
+
+The DLL turns a held object by rotating the three axes about Z on the
+simulation thread, copying them to `+0x70`, and setting the snap to 0.
+VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
+(`mjolnir live objects`).
+
 ## Next steps
 
-1. Save and load layouts: the map-variant format, codec and the
-   simulation's own encoder and decoder are in
-   [map_variant_format.md](map_variant_format.md).
-2. Fireteam Forge: a game-type slot of its own (or another way for the
-   game type to travel), so clients start the sandbox engine too.
-3. UI: a properties screen (request 5), rotation (type 11 and the rotate
-   state at `+0xc8`).
+1. Several layouts per map, picked in the lobby; a hub content type.
+2. Fireteam Forge: done in code (2026-11-01); the lobby still refuses fireteam
+   members (mods 0.42.0) until a two-PC test passes. The first lost PC 2 to a
+   GPU crash during the client load ([forge.md](../forge.md)). FORGE has
+   insertion slot 5 (MJOLNIRLobby `MODES`, loader `GAME_TYPE_SLOTS`,
+   `games.lua` `GAME_TYPE_SLOT`), so clients start the sandbox engine. On a
+   client (game options `+0x11` = 4) the DLL sends only the engine's own
+   requests; client requests post net message `0x3e` to the host
+   (`0x4074c0`). It keeps everything it does by hand to the host. Above all
+   it never asks the host to grab, place or copy a marker, which would run the
+   faulting grab on the host. It never applies a local layout at new map, so
+   a client's objects stay the host's.
+3. UI: a properties screen; tilting (only yaw so far), the snap setting.
 4. Republish the converted maps with the new palettes (the lift covers the
    old ones meanwhile, for the kinds they already place).
+5. Building blocks: [../forge_blocks.md](../forge_blocks.md). Palette
+   entries can be pointed at other loaded tags at run time (`slots.txt`);
+   block packs need slot tags in the CE runtime.

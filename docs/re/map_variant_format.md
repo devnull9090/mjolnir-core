@@ -26,13 +26,15 @@ layout. That separation is what lets layouts be shared like game types.
 | Session parameter: a presence bit, then a map variant | `0x532330` (decode) | VERIFIED (code) |
 | Normalise: encode into a 0x7000-byte buffer, decode back | `0x5323a0` | VERIFIED (code) |
 | In-memory map variant (651 objects of 0x4c at `+0x14fc`) | `0x32b600()` | VERIFIED (live, [forge_engine.md](forge_engine.md)) |
-| File commands `read_map_variant_and_make_current`, `write_current_map_variant`, `net_load_and_use_map_variant`, `net_build_map_variant`, `net_verify_map_variant` | strings only | stubs, like the rest of the console ([`../blam_console.md`](../blam_console.md)) |
+| File commands `read_map_variant_and_make_current`, `write_current_map_variant`, `net_load_and_use_map_variant`, `net_build_map_variant`, `net_verify_map_variant` | HS 1517-1521 | stubs, like the rest of the console ([`../blam_console.md`](../blam_console.md)); stubs in MCC Reach too |
+| Save, load, start with a layout | MJOLNIRForge | VERIFIED (live): [forge_engine.md](forge_engine.md), *Layouts* |
 
 So the simulation can serialise a layout and send it across a session (which
 is how every fireteam member would see the host's Forge edits), but nothing
-reads or writes a layout file. Saving and loading are ours to build, from a
-native hook that calls the encoder and decoder, as the `.mglo` loader fix did
-for game variants ([megalo_engine.md](megalo_engine.md)).
+reads or writes a layout file. MJOLNIRForge's DLL does, with the encoder and
+decoder ([forge_engine.md](forge_engine.md), *Layouts*). One catch: CE
+builds variants at version 32 with a zero map GUID, which the decoder
+refuses; the DLL saves at version 31.
 
 ## The file (`.mvar`)
 
@@ -56,7 +58,7 @@ Reach's Forge where the meaning was confirmed by the decoded values;
 | Field | Bits | Notes |
 |---|---|---|
 | content header | (`0x38f5d0`) | shared with game variants; content type 5 (map variant), title and description (UTF-16), authors, game mode |
-| encoding version | 8 | 31 in every MCC file; below 31 the decoder stops |
+| encoding version | 8 | 31 in every MCC file, 32 in CE's live variants; below 31 the decoder stops |
 | unk2ec, unk2f0 | 32, 32 | |
 | quota count | 9 | the palette-quota list at the end; objects and quotas are read only when this is at most 256 |
 | map id | 32 | 3006 = Forge World in Bungie's files |
@@ -65,7 +67,7 @@ Reach's Forge where the meaning was confirmed by the decoded values;
 | unk2e0, unk2e4 | f32, 32 | |
 | label count | 9 | then per label: a bit, and when it is 1 a 12-bit index into the label strings |
 | label strings | 13 + 1 (+13) + bytes | only when there are labels: size, compressed bit, compressed size when set, then the bytes |
-| unk2b8, unk2bc, unk2be, unk2c0 | 32, 16, 16, 64 | only for version > 31 (no MCC file); if all are zero the decoder fails |
+| map GUID (unk2b8..unk2c0) | 32, 16, 16, 64 | only for version > 31 (no MCC file); if all are zero the decoder fails; below 32 it is derived from the map id |
 | objects | 651 × | below |
 | quotas | quota count × (8, 8, 8) | minimum, maximum, placed per palette entry |
 
@@ -136,10 +138,7 @@ needs.
 
 ## Next steps
 
-1. A native save/load: call `0x32cfb0` on the live map variant (`0x32b600()`)
-   and write the bytes, and the reverse through `0x32d810`, then make it
-   current. Find what the stubbed `read_map_variant_and_make_current`
-   should have called.
+1. Done 2026-11-01 (MJOLNIRForge 0.3.0).
 2. Give converted CE scenarios a full sandbox palette and record their
    bounds, so a layout made in game is valid there.
 3. A hub content type for layouts (map + layout, played with any game type),

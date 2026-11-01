@@ -75,9 +75,10 @@ local MODES = {
     -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
     -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
     -- on every map once MJOLNIRForge's native half and the CE runtime's
-    -- monitor fix are installed. Host only for now: a fireteam client reads
-    -- the game type from slot 0 and would start Slayer.
-    { id = "forge", slot = 0, name = "FORGE", forge = true,
+    -- monitor fix are installed. Its own slot, 5, tells fireteam clients to
+    -- start the sandbox engine too (before 2026-11-01 it shared Slayer's 0,
+    -- and Forge was host only).
+    { id = "forge", slot = 5, name = "FORGE", forge = true,
         description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
         needs = "pakchunk990-MJOLNIRFORGEMON_P" },
 }
@@ -239,10 +240,12 @@ local function startGame(map, mode)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
     end
-    -- Forge runs on the host alone for now: a fireteam client reads the game
-    -- type from insertion slot 0 and would start Slayer under the Megalo
-    -- engine against the host's sandbox engine. So no guests, and never a
-    -- public listing strangers could join.
+    -- Forge with the fireteam: clients would start the sandbox engine from
+    -- slot 5 and edit through the engine's own requests (MJOLNIRForge's
+    -- client guards), but that has not passed a two-PC test yet: the first
+    -- one (2026-11-01) lost PC 2 to a GPU crash while it loaded. Host only
+    -- until it passes. Never a public listing either: strangers would join
+    -- someone's half-built layout.
     if mode.forge then
         local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
         local members = 1
