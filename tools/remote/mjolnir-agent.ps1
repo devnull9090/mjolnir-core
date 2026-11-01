@@ -24,6 +24,13 @@
         GET  /screenshot[?max=W]              the game window as a PNG (capture.ps1)
         POST /restart-agent                   start this script again (after its
                                               files were replaced) and exit
+        GET  /launcher                        the MJOLNIR launcher's exe, version,
+                                              and the last update run's state
+        POST /launcher/check                  what is out of date (its --check-updates)
+        POST /launcher/update                 update everything through the launcher's
+                                              Updates screen (launcher.ps1, in the
+                                              background; poll GET /launcher)
+        POST /launcher/quit                   close the launcher
 
     Roots: "ue4ss" (the game's UE4SS folder, Mods under it), "saved"
     (%LOCALAPPDATA%\Meteorite\Saved: crash reports, config) and "agent" (this
@@ -46,7 +53,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "7"
+$AgentVersion = "8"
 
 # --- Where things are --------------------------------------------------------
 
@@ -187,6 +194,27 @@ function Install-Bridge {
     New-Item -ItemType Directory -Path $BridgeDir -Force | Out-Null
     return "bridge installed, $note; restart the game to load it"
 }
+
+# The installed launcher: where it last recorded itself (hub::record_exe_path),
+# else where its installer puts it.
+function Get-LauncherExe {
+    $recorded = Join-Path $Roots.launcher "launcher_exe.txt"
+    if (Test-Path $recorded) {
+        $exe = (Get-Content $recorded -Raw).Trim()
+        if ($exe -and (Test-Path $exe)) { return $exe }
+    }
+    $default = Join-Path $env:LOCALAPPDATA "MJOLNIR-Launcher\mjolnir-launcher.exe"
+    if (Test-Path $default) { return $default }
+    throw "the MJOLNIR launcher is not installed"
+}
+
+function Get-LauncherRun {
+    $file = Join-Path $PSScriptRoot "launcher-update.json"
+    if (-not (Test-Path $file)) { return $null }
+    return (Get-Content $file -Raw | ConvertFrom-Json)
+}
+
+$script:LauncherRun = $null
 
 # Replace a file even while the game holds it open: a loaded DLL can be renamed
 # though not overwritten.
@@ -352,6 +380,45 @@ function Handle($request, $stream) {
             $stream.Flush()
             Start-Process powershell -ArgumentList @("-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-Port", $Port)
             $script:Restart = $true
+        }
+        "GET /launcher" {
+            $exe = Get-LauncherExe
+            Send-Json $stream 200 @{
+                exe = $exe; version = (Get-Item $exe).VersionInfo.ProductVersion
+                running = [bool](Get-Process mjolnir-launcher -ErrorAction SilentlyContinue)
+                updating = [bool]($script:LauncherRun -and -not $script:LauncherRun.HasExited)
+                run = Get-LauncherRun
+            }
+        }
+        "POST /launcher/check" {
+            # Answers while a launcher window is open: --check-updates runs
+            # ahead of its single-instance check (preflight.rs).
+            $exe = Get-LauncherExe
+            $version = (Get-Item $exe).VersionInfo.ProductVersion
+            if ([version]($version -replace '[^0-9.].*$', '') -lt [version]"0.17.0") {
+                Send-Json $stream 200 @{ error = "launcher $version is older than 0.17.0, the first to answer --check-updates; launcher/update still works" }; return
+            }
+            $out = Join-Path ([System.IO.Path]::GetTempPath()) "mjolnir-agent-check.json"
+            Remove-Item $out -ErrorAction SilentlyContinue
+            $check = Start-Process $exe -ArgumentList @("--check-updates", "--out", "`"$out`"") -PassThru
+            if (-not $check.WaitForExit(180000)) { $check | Stop-Process -Force; throw "--check-updates did not finish in 3 minutes" }
+            if (-not (Test-Path $out)) { throw "--check-updates wrote nothing (a launcher older than 0.17.0?)" }
+            Send-Response $stream 200 ([System.IO.File]::ReadAllBytes($out))
+        }
+        "POST /launcher/update" {
+            if ($script:LauncherRun -and -not $script:LauncherRun.HasExited) { Send-Json $stream 200 @{ ok = $false; error = "an update is already running" }; return }
+            if (Get-Game) { Send-Json $stream 200 @{ ok = $false; error = "the game is running; quit it first" }; return }
+            $script = Join-Path $PSScriptRoot "launcher.ps1"
+            if (-not (Test-Path $script)) { Send-Json $stream 404 @{ error = "launcher.ps1 is not beside the agent (remote.mjs deploy-agent)" }; return }
+            $exe = Get-LauncherExe
+            $script:LauncherRun = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$script`"", "-Exe", "`"$exe`"")
+            Send-Json $stream 200 @{ ok = $true; note = "updating through $exe (pid $($script:LauncherRun.Id)); poll GET /launcher" }
+        }
+        "POST /launcher/quit" {
+            $running = @(Get-Process mjolnir-launcher -ErrorAction SilentlyContinue)
+            $running | Stop-Process -Force
+            Send-Json $stream 200 @{ ok = $true; note = "closed $($running.Count) launcher process(es)" }
         }
         default { Send-Json $stream 404 @{ error = "unknown endpoint" } }
     }

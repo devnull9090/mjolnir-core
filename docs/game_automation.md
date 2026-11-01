@@ -280,5 +280,17 @@ and a listed game is joinable by anyone on the hub, so solo tests use `private`.
 [`tools/remote/mjolnir-agent.ps1`](../tools/remote/mjolnir-agent.ps1) running there: status,
 Lua, console, input, `mjolnir_auto` and files, over the LAN with a token (`MJOLNIR_REMOTE` and
 `MJOLNIR_REMOTE_TOKEN`, or `%USERPROFILE%\.mjolnir-remote.json`).
+
+The agent also brings that PC up to date through its own MJOLNIR launcher (agent 8). Run
+`remote.mjs launcher update` with the game closed. It starts the launcher with WebView2's
+debugging port (bound to 127.0.0.1), opens Updates and presses **Update all**, using
+[`tools/remote/launcher.ps1`](../tools/remote/launcher.ps1). The launcher's own order applies:
+it updates itself, restarts, then installs the core, the code mods and the hub mods. Progress is
+read from the launcher's `--check-updates`. A launcher older than 0.17.0 can't answer that, so
+for one of those the Updates screen is read until it has updated itself. The script never
+presses Launch, because that moves the bridge and other hand-installed mods aside. Afterwards,
+one-off test files go on with `put` and `sync-mods.mjs` as before, and stay until the next
+update. `launcher check` lists what is out of date without changing anything; `launcher status`
+shows the installed version and the last run.
 [`tools/remote/jip-test.mjs`](../tools/remote/jip-test.mjs) runs the two-PC join-in-progress
 test end to end with both.

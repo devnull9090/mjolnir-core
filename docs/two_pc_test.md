@@ -34,6 +34,11 @@ expected below reads 2/16 on a current install.
 - Steam is up to date (the same game build; CU4 when this was written).
 - The two accounts are Steam friends, so the invite shows up.
 
+**PC 2 through the agent:** `node tools/remote/remote.mjs launcher update` first.
+This brings PC 2's launcher, runtime, code mods and maps up to the latest
+releases ([game_automation.md](game_automation.md#matches-and-a-second-pc)).
+Then put the build under test on top with `put` or `sync-mods.mjs`.
+
 **PC 2, once:**
 1. Unzip the bundle.
 2. Close the game.
