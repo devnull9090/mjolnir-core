@@ -55,6 +55,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         int(top, "strings_size"),
         int(top, "quota_count")
     );
+    // The labels' names: each label is a byte offset into NUL-terminated
+    // names, stored plain or as a big-endian size and a zlib stream.
+    if let Some(Value::Bytes(raw)) = field(top, "strings_data").map(|n| &n.value) {
+        let data = if int(top, "strings_compressed") == Some(1) && raw.len() > 4 {
+            let mut out = Vec::new();
+            std::io::Read::read_to_end(&mut flate2::read::ZlibDecoder::new(&raw[4..]), &mut out)?;
+            out
+        } else {
+            raw.clone()
+        };
+        let labels = field(top, "labels").map(|n| n.value.items()).unwrap_or(&[]);
+        let names: Vec<String> = labels
+            .iter()
+            .map(|l| match int(l, "string") {
+                Some(at) if (at as usize) < data.len() => {
+                    let s = &data[at as usize..];
+                    String::from_utf8_lossy(&s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())])
+                        .into_owned()
+                }
+                _ => "-".into(),
+            })
+            .collect();
+        println!("  label names: {}", names.join(", "));
+    }
     let objects = field(top, "objects")
         .map(|n| n.value.items())
         .unwrap_or(&[]);

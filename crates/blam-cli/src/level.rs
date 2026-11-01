@@ -294,6 +294,10 @@ pub struct BlamSection {
     /// data is never created (docs/re/megalo_engine.md).
     #[serde(default)]
     pub map_variant: bool,
+    /// Forge's budget and quotas for this level, over the palette map's
+    /// `forge` defaults: see [`ForgeLimits`].
+    #[serde(default)]
+    pub forge: Option<ForgeLimits>,
     /// Load only these structure BSPs (scenario indices) in the starting zone
     /// set. A standalone map built on its own BSP needs none of the canvas
     /// mission's others, and any that stay active claim their own space:
@@ -543,11 +547,50 @@ pub struct ObjectPlacement {
     pub set: BTreeMap<String, String>,
 }
 
+/// Forge's limits, which the simulation enforces when placing
+/// (`0x3049e0`): the scenario's `sandbox budget`, and per palette entry a
+/// `maximum allowed` (0: no quota) and a `price per instance` that counts
+/// against the budget. Keys are palette-map kinds (`"scorpion"`) or, for
+/// scenery, tag paths. A budget of 0 with every price 0 is no limit at all.
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeLimits {
+    #[allow(dead_code)]
+    #[serde(default)]
+    comment: Option<String>,
+    #[serde(default)]
+    pub budget: Option<f32>,
+    #[serde(default)]
+    pub price: BTreeMap<String, i32>,
+    #[serde(default)]
+    pub maximum: BTreeMap<String, i32>,
+}
+
+impl ForgeLimits {
+    /// `over`'s values where it has them, else these.
+    fn merged(&self, over: Option<&ForgeLimits>) -> ForgeLimits {
+        let mut out = self.clone();
+        if let Some(o) = over {
+            if o.budget.is_some() {
+                out.budget = o.budget;
+            }
+            out.price.extend(o.price.iter().map(|(k, v)| (k.clone(), *v)));
+            out.maximum.extend(o.maximum.iter().map(|(k, v)| (k.clone(), *v)));
+        }
+        out
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct PaletteMap {
     vehicles: std::collections::BTreeMap<String, String>,
     weapons: std::collections::BTreeMap<String, String>,
     equipment: std::collections::BTreeMap<String, String>,
+    /// Forge building blocks, `group:path` by kind (and a `comment`).
+    #[serde(default)]
+    blocks: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    forge: ForgeLimits,
     #[allow(dead_code)]
     #[serde(flatten)]
     rest: serde_json::Value,
@@ -980,7 +1023,12 @@ impl Baker {
     /// rocket Warthog) gets an entry of its own, or the map variant builds the
     /// tag's default. No entry sets `maximum allowed`: 0 is no quota, so
     /// Forge can place and duplicate as many as the map variant holds.
-    fn map_variant_palettes(&mut self, palettes: &[(&str, Vec<((String, String), usize)>)]) -> Result<()> {
+    fn map_variant_palettes(
+        &mut self,
+        palettes: &[(&str, Vec<((String, String), usize)>)],
+        limits: &ForgeLimits,
+        kinds: &BTreeMap<String, String>,
+    ) -> Result<()> {
         let flat: usize = palettes.iter().map(|(_, tags)| tags.len()).sum();
         if flat > 255 {
             bail!("{flat} map variant palette entries; a map variant counts at most 255");
@@ -1005,13 +1053,30 @@ impl Baker {
                     )
                     .with_context(|| format!("{variants}[{v}].variant name = {variant}"))?;
                 }
+                // Limits by kind, else by tag path (scenery has no kind).
+                let path = tag.split_once(':').map_or(tag.as_str(), |(_, p)| p);
+                let key = kinds.get(path).map_or(path, String::as_str);
+                let entry = format!("{entries}[{e}]");
+                let mut limited = String::new();
+                if let Some(max) = limits.maximum.get(key) {
+                    apply_set(&mut self.file, &format!("{entry}.maximum allowed"), &max.to_string())?;
+                    limited += &format!(" max {max}");
+                }
+                if let Some(price) = limits.price.get(key) {
+                    apply_set(&mut self.file, &format!("{entry}.price per instance"), &price.to_string())?;
+                    limited += &format!(" ${price}");
+                }
                 let shown = if variant.is_empty() {
                     String::new()
                 } else {
                     format!(" variant {variant:?}")
                 };
-                println!("  mapvar  palette[{p}] {category} entry {e}: {tag}{shown} ({placed} placed)");
+                println!("  mapvar  palette[{p}] {category} entry {e}: {tag}{shown} ({placed} placed){limited}");
             }
+        }
+        if let Some(budget) = limits.budget {
+            apply_set(&mut self.file, "sandbox budget", &budget.to_string())?;
+            println!("  mapvar  sandbox budget {budget}");
         }
         Ok(())
     }
@@ -2363,7 +2428,25 @@ fn bake(a: BakeArgs) -> Result<()> {
                 .or_default() += 1;
         }
         palettes.push(("scenery", tags.into_iter().collect()));
-        baker.map_variant_palettes(&palettes)?;
+        // The building blocks, placed or not (docs/forge_blocks.md).
+        let blocks: Vec<((String, String), usize)> = map
+            .blocks
+            .iter()
+            .filter(|(kind, _)| kind.as_str() != "comment")
+            .map(|(_, tag)| ((tag.clone(), String::new()), 0))
+            .collect();
+        palettes.push(("blocks", blocks));
+        let mut kinds: BTreeMap<String, String> = [&map.weapons, &map.vehicles, &map.equipment]
+            .into_iter()
+            .flat_map(|t| t.iter().map(|(k, p)| (p.clone(), k.clone())))
+            .collect();
+        for (kind, tag) in &map.blocks {
+            if let Some((_, path)) = tag.split_once(':') {
+                kinds.insert(path.to_string(), kind.clone());
+            }
+        }
+        let limits = map.forge.merged(level.blam.forge.as_ref());
+        baker.map_variant_palettes(&palettes, &limits, &kinds)?;
     }
     if !level.blam.active_bsps.is_empty() {
         baker.active_bsps(&level.blam.active_bsps)?;
@@ -3307,6 +3390,33 @@ fn slot_named(usmap: &ue_asset::Usmap, class: &str, want: &str) -> Result<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn palette_map_blocks_name_object_tags() {
+        let map = palette_map().unwrap();
+        let blocks: Vec<&String> = map.blocks.iter().filter(|(k, _)| k.as_str() != "comment").map(|(_, v)| v).collect();
+        assert!(!blocks.is_empty());
+        for tag in blocks {
+            let (group, path) = tag.split_once(':').expect("group:path");
+            assert!(["scen", "bloc", "mach", "ctrl"].contains(&group), "{tag}");
+            assert!(path.starts_with("objects\\"), "{tag}");
+        }
+    }
+
+    #[test]
+    fn forge_limits_default_to_none_and_levels_override_them() {
+        let map = palette_map().unwrap();
+        assert!(map.forge.budget.is_none() && map.forge.price.is_empty() && map.forge.maximum.is_empty());
+        let level: ForgeLimits = serde_json::from_str(
+            r#"{ "budget": 500, "price": { "scorpion": 150 }, "maximum": { "scorpion": 2 } }"#,
+        )
+        .unwrap();
+        let limits = map.forge.merged(Some(&level));
+        assert_eq!(limits.budget, Some(500.0));
+        assert_eq!(limits.price.get("scorpion"), Some(&150));
+        assert_eq!(limits.maximum.get("scorpion"), Some(&2));
+        assert!(serde_json::from_str::<ForgeLimits>(r#"{ "budgte": 1 }"#).is_err());
+    }
 
     #[test]
     fn every_area_task_names_an_area() {

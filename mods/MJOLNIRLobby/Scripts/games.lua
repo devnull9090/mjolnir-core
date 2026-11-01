@@ -171,7 +171,7 @@ end
 --- once a second on the game thread.
 -- The insertion point each game type starts at (MJOLNIRLobby main.lua MODES,
 -- MJOLNIRLevelLoader GAME_TYPE_SLOTS).
-local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4 }
+local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4, forge = 5 }
 -- The game type of the listed game being joined, and the level loader switch
 -- still owed for a match joined under way: { code, url, tries }.
 local joiningGameType

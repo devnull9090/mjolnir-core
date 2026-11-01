@@ -5,8 +5,8 @@ game type, MJOLNIRLevelLoader starts the map under the sandbox engine, and
 MJOLNIRForge binds keys that send the engine's own editor requests (*What
 ships*). Verified in game on Blood Gulch: turn into the Monitor and back,
 grab, move, drop, push out and delete objects, all through the simulation's
-request path. Layouts save, load and start games since 2026-11-01 (*Layouts*). Not yet:
-fireteam clients, object properties, rotation. The history below covers the
+request path. Layouts save, load and start games since 2026-11-01 (*Layouts*). Properties and markers since the same day (*Object properties, markers
+and the grab crash*). Not yet: fireteam clients, tilting. The history below covers the
 first live run (*Live run, 2026-10-24*, which ended in a hang), the model
 fix (*Retest with the fixed model*) and the request path (*The request path
 on the host*).
@@ -598,12 +598,143 @@ Verified 2026-11-01 (BGL, solo, Steam CU4):
   file has it (45.60, -95.49, 1.62), and the sword beside it. BGL ships no
   Wraith, so it came from the layout.
 
+## Object properties, markers and the grab crash (2026-11-01)
+
+### Properties (request 5)
+
+A map-variant entry carries the object's Forge properties at `+0x30`, 0x1c
+bytes, the layout the property codec reads (`0x330230`) and writes
+(`0x32ff40`):
+
+| Offset | Field | Bits on the wire |
+|---|---|---|
+| `+0x00..+0x0f` | shape dimensions (floats) | 11 each, by shape |
+| `+0x10` | shape type | 2 |
+| `+0x11` | spawn order (s8) | 8 |
+| `+0x12` | respawn time, s | 8 |
+| `+0x13` | multiplayer object type | 5 |
+| `+0x14` | label (i16, -1 none) | 1 + 8 |
+| `+0x16` | flags | 8 |
+| `+0x17` | team: 0 red, 1 blue, ... 8 neutral | 4 |
+| `+0x18`, `+0x19` | type extras: spare clips; teleporter channel, passability | 8; 5, 5 |
+| `+0x1a` | colour (-1 none) | 1 + 3 |
+
+A weapon placed from BGL's palette reads
+`…00 00 1e 01 ffff 0c 08 02 00 ff 00`: order 0, respawn 30, type 1, no
+label, flags `0c`, neutral, 2 spare clips.
+
+The labels' names live in the variant: label `i` is the NUL-terminated
+string at `mv + 0x2f4 + u16[mv + 0x12f8 + 2i]`, count at `mv + 0x14f8`. On
+BGL: `ce_warthog_2`, ..., `ctf_spawn_red`, `ctf_spawn_none`,
+`ctf_spawn_blue`, `ctf_flag_return` (17), `ce_health_pack`.
+`mvar_summary` now prints them.
+
+**Request 5 through the event queue loses the block.** Sent with respawn 45,
+the entry came back with 45 in its flags byte and the fields before it zero.
+The object travels outside the bitstream (`0x407860` lifts payload `+0` for
+types 1, 3, 4, 5, 10 and 11; the consumer `0x4cd900` puts it back), and both
+codecs read as mirrors, so where the bits slip was not found. On the host
+the DLL calls the applier itself, `0x3071e0(player handle, object, block)`,
+which is what the consumer calls after decoding: the permission check
+(`0x307390`), the write into the entry and the resend (`0x32fcd0`,
+`0x32e870`). The first argument is the player's **handle**
+(`salt << 16 | index`): the check compares it with the object's holder, so
+an index alone refuses held objects. VERIFIED: respawn 45, order 1, team
+blue and a label all landed, and survive a save.
+
+### The grab crash
+
+Placing a flag stand from the palette crashed the simulation thread. UE4SS
+then sat in its crash dialog, so the game looked hung. That is likely also
+the hang of the first live run (*Live run, 2026-10-24*), which held a health
+pack. A stack walk of the stuck thread (dbghelp `StackWalk64`, no symbols)
+showed it in the grab: the consumer (`0x4cda8e`), the applier (`0x305bad`),
+placing (`0x3063c0`), then the grab (`0x306d71` → `0x306890`), faulting at
+`0x306b6b`. The grab drags an object through the chain from object `+0xcc`:
+the data array `*0x10ccc90` (0xc0-byte elements), `+0x30`, then `+0x40`,
+which it reads from `+0x170`. For CE's marker scenery (flag stands, spawn
+points, health packs, teleporters) the last pointer is NULL. Placing grabs
+what it creates (`0x306260` → `0x306d30`), so placing any of them crashed,
+and so would V on one.
+
+Before that, placing them did nothing at all. `0x3049e0(tag, point)` also
+looks for room at the point (`0x2cf130`, sized by the tag's bounding radius)
+unless the tag's multiplayer object flags (`+0x1a`) have bit 1, *phased
+physics in forge*. Reach set that on its Forge scenery. CE's tags lack it,
+and scenery resting on the ground never has room.
+
+What the DLL does:
+
+- It sets *phased physics in forge* in memory on every palette tag that is
+  not a weapon, vehicle or equipment (5 on BGL). It finds the tag's root from
+  the tag table entry `+0x1c` and the multiplayer block at root `+0x124`.
+- It never lets the editor grab an object whose drag chain ends at NULL.
+  Such objects are placed the way `0x306260` places, without the grab:
+  `0x32eff0(mv, palette, entry, variant, point, forward, up)` → entry,
+  `0x32f450(mv, entry, 1)` → object, `0x32e3b0(mv, flat)`,
+  `0x4d1b70(entry, 4)`.
+- V on such an object "carries" it: it keeps the palette entry (the flat
+  index at entry `+0x2`, back to palette and entry by walking the palettes),
+  the variant (`+0x2e`), the facing (forward at `+0x14`) and the properties,
+  then deletes the object (request 1). V again makes it at the cursor with
+  those properties. `,` and `.` turn it 22.5°.
+- The cursor ray never lands on a marker, since they have no collision. So
+  when it lands on no object, the DLL aims at the map-variant object without
+  a drag chain nearest the line from the player's unit through the cursor
+  point: within 1 m, plus 2% of the distance. Origins come from
+  `0x5a6780`; the objects come from the object array, whose `+0x44` is the
+  slots in use. Each object knows its variant entry at `+0x1c`.
+
+Verified 2026-11-01 (BGL, solo):
+
+- A flag stand placed with no crash, aimed at, set red and labelled
+  `ctf_flag_return` (K, L ×17), then carried, turned 90° and put down: the
+  new object had the same team and label and a facing of -90°.
+- The layout was saved (129 objects; the stand is team 0, label 17,
+  yaw -90°), and BGL was hosted as CTF. `mjolnir live objects` showed the red
+  flag at (34.59, -78.27), on the Forge stand at (34.87, -78.27), as well as
+  the map's own two.
+
+### Turning a held object
+
+Request 11 (exact transform) acts only on the held object, so it cannot move
+a marker. Its applier (`0x305f6a`) writes the editor's hold transform from
+the payload (`+4` onward):
+
+| Editor state | Field |
+|---|---|
+| `+0x3c` | scale |
+| `+0x40`, `+0x4c`, `+0x58` | forward, left, up |
+| `+0x64` | position (recomputed from the cursor each tick) |
+| `+0x70..+0x93` | the same three axes again: the snap's reference |
+
+The snap is `+0xc8`, which request 12 sets. It is an index into
+`0x85dad0` = {0, 90, 45, 30, 15, 5} degrees (0 = free); the per-tick hold
+code (around `0x2ffe04`) snaps the hold axes to it about `+0x70`. Request 14
+flips `+0x38`, which picks the order the snap composes in. Slot 30 sends it
+when control entry `0x5a` is pressed (latch `+0xf4`). Request 13 sets
+`G+0x2c69`, which gates Megalo's triggers in a sandbox game (slot 113).
+
+The DLL turns a held object by rotating the three axes about Z on the
+simulation thread, copying them to `+0x70`, and setting the snap to 0.
+VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
+(`mjolnir live objects`).
+
 ## Next steps
 
 1. Several layouts per map, picked in the lobby; a hub content type.
-2. Fireteam Forge: a game-type slot of its own (or another way for the
-   game type to travel), so clients start the sandbox engine too.
-3. UI: a properties screen (request 5), rotation (type 11 and the rotate
-   state at `+0xc8`).
+2. Fireteam Forge: done in code (2026-11-01), untested on two PCs. FORGE has
+   insertion slot 5 (MJOLNIRLobby `MODES`, loader `GAME_TYPE_SLOTS`,
+   `games.lua` `GAME_TYPE_SLOT`), so clients start the sandbox engine. On a
+   client (game options `+0x11` = 4) the DLL sends only the engine's own
+   requests; client requests post net message `0x3e` to the host
+   (`0x4074c0`). It keeps everything it does by hand to the host. Above all
+   it never asks the host to grab, place or copy a marker, which would run the
+   faulting grab on the host. It never applies a local layout at new map, so
+   a client's objects stay the host's.
+3. UI: a properties screen; tilting (only yaw so far), the snap setting.
 4. Republish the converted maps with the new palettes (the lift covers the
    old ones meanwhile, for the kinds they already place).
+5. Building blocks: [../forge_blocks.md](../forge_blocks.md). Palette
+   entries can be pointed at other loaded tags at run time (`slots.txt`);
+   block packs need slot tags in the CE runtime.

@@ -22,7 +22,9 @@
 //     slot 30, 0x302260) builds and hands to 0x4074c0: payload at +0, player
 //     index at +0x38, type at +0x3c. Types used here: 0 place from the
 //     palette, 1 delete, 2 toggle the monitor, 3 grab, 4 release, 10
-//     duplicate at the cursor.
+//     duplicate at the cursor. Object properties (request 5) go straight to
+//     the request's applier instead, and objects the editor cannot drag
+//     (CE's markers) are placed and carried by the DLL; see those sections.
 //
 //   * The palette is the scenario's own `map variant palettes` block, read
 //     where the engine reads it. The DLL keeps which entry is selected and
@@ -52,6 +54,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <intrin.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -82,6 +85,7 @@
 #define RVA_MV_DELETE_ALL    0x32f710   // void (void): delete every object the variant made
 #define RVA_MV_CREATE_ALL    0x32f6a0   // void (mv*): create every entry's object (round reset, host migration)
 #define RVA_MV_BUDGET        0x32e300   // void (mv*): recount the budget spent
+#define RVA_APPLY_PROPERTIES 0x3071e0   // void (player, object, const properties *): request 5's applier
 #define RVA_MV_ENTRY_DIRTY   0x4d1b70   // void (entry, 4): send an entry to the session again (host migration does)
 #define RVA_NEW_MAP_BUILD    0x2ace53   // new-map's `call RVA_MV_FROM_SCENARIO`
 #define MV_SIZE              0xd9c0
@@ -100,6 +104,7 @@
 #define TLS_ENGINE_GLOBALS   0x38       // game-engine globals, G
 #define TLS_PLAYER_USERS     0x118      // player -> local user map
 #define ARRAY_DATA           0x50       // a data array's element pointer
+#define ARRAY_COUNT          0x44       // a data array's slots in use (the high-water mark)
 #define PLAYER_STRIDE        0x4b0
 #define PLAYER_UNIT          0x28       // the player's unit, -1 none
 #define PLAYER_USER          0x34       // +p*4 in the user map: local user index
@@ -110,6 +115,9 @@
 #define EDITOR_CURSOR        0x8        // the object under the cursor, -1 none
 #define EDITOR_DISTANCE      0xc        // grab distance (the cursor reaches at least 5)
 #define EDITOR_POINT         0x10       // the cursor point, 3 floats
+#define EDITOR_HOLD_AXES     0x40       // the held object's forward, left, up (3 floats each)
+#define EDITOR_HOLD_BASIS    0x70       // the same, as the snap's reference
+#define EDITOR_SNAP          0xc8       // rotation snap index: 0 free, 90, 45, 30, 15, 5 degrees
 #define TAG_ENTRY_STRIDE     0x30       // tag table entry: +0x10 path
 #define MAX_PLAYERS          16
 
@@ -121,6 +129,9 @@
 #define ENTRY_DWORDS         7          // name, variants (count, handle), ?, max allowed, price, thorage
 #define ENTRY_VARIANTS       0x4
 #define ENTRY_MAX_ALLOWED    0x10       // 0: no quota
+#define ENTRY_PRICE          0x14
+#define MV_QUOTAS            0xd640     // per flat palette entry: minimum, maximum, placed (u8 each)
+#define MV_BUDGET            0x2e0      // the budget (the scenario's sandbox budget), then spent at +0x2e4
 #define VARIANT_DWORDS       6          // object reference (tag index at +0x10), variant name
 #define VARIANT_TAG          0x10
 #define MAX_PALETTES         16         // a request carries the palette in 4 bits
@@ -152,6 +163,12 @@ enum {
     CMD_SAVE = 1 << 11,
     CMD_LOAD = 1 << 12,
     CMD_REVERT = 1 << 13,
+    CMD_TEAM = 1 << 14,
+    CMD_LABEL = 1 << 15,
+    CMD_RESPAWN = 1 << 16,
+    CMD_ORDER = 1 << 17,
+    CMD_ROTATE_LEFT = 1 << 18,
+    CMD_ROTATE_RIGHT = 1 << 19,
 };
 
 #define DISTANCE_STEP 0.5f
@@ -170,6 +187,8 @@ typedef void (*mv_copy_fn)(void *dst, const void *src, uint8_t flag);
 typedef void (*mv_build_fn)(void *mv);
 typedef void (*mv_void_fn)(void);
 typedef void (*mv_entry_fn)(uint32_t entry, uint32_t how);
+typedef int (*mv_flat_fn)(void *unused, uint32_t palette, uint32_t entry);
+typedef void (*apply_properties_fn)(uint32_t player_handle, uint32_t object, const void *properties);
 
 // ---- State --------------------------------------------------------------------
 static uint8_t *g_base;
@@ -185,6 +204,8 @@ static mv_copy_fn g_mv_copy;
 static mv_build_fn g_mv_from_scenario, g_mv_create_all, g_mv_budget;
 static mv_void_fn g_mv_delete_all;
 static mv_entry_fn g_mv_entry_dirty;
+static mv_flat_fn g_mv_flat;
+static apply_properties_fn g_apply_properties;
 static unsigned g_tls_index = ~0u;
 static int g_installed;
 static int g_start_hook;               // new-map's call goes through layout_new_map
@@ -203,6 +224,8 @@ typedef struct {
     uint8_t placeable;  // RVA_CAN_CREATE said yes when it was read
     char group[5];
     char tag[96];
+    int32_t maximum, price; // the entry's quota (0: none) and price
+    int32_t placed;         // how many the map variant has (its quota record)
 } palette_row_t;
 
 static palette_row_t g_rows[MAX_ROWS];
@@ -212,6 +235,8 @@ static unsigned g_rows_published = ~0u;
 static int g_selected = -1;          // a row index, -1 none
 static unsigned g_rescan;            // ticks until the next read
 static int g_lifted;                 // times lift_bake_quotas lifted a palette's quotas
+
+#define PROPS_SIZE_SNAP 0x1c      // PROPS_SIZE, defined with the properties below
 
 // What the simulation thread last saw, for pump to publish.
 typedef struct {
@@ -226,6 +251,13 @@ typedef struct {
     char last[160];  // what the last command did
     int selected;    // the palette row selected, -1 none
     unsigned rows_version;
+    // The target's Forge properties (the held object, else the one under the
+    // cursor), when it belongs to the map variant.
+    int budget, spent; // the map variant's budget (0: none) and what is spent
+    int props;       // 0: no target, or not a map-variant object
+    int team, order, respawn, mp_type, label;
+    char label_name[64];
+    uint8_t raw[PROPS_SIZE_SNAP];
 } snapshot_t;
 
 static CRITICAL_SECTION g_lock;
@@ -237,6 +269,7 @@ static unsigned g_last_id;
 static char g_dir[MAX_PATH];
 static char g_state_path[MAX_PATH];
 static char g_palette_path[MAX_PATH];
+static char g_slots_path[MAX_PATH];   // slots.txt: palette entries pointed at other tags
 static char g_status_path[MAX_PATH];
 static char g_layouts_dir[MAX_PATH];  // the mod's layouts folder, beside native
 static char g_running_path[MAX_PATH]; // MJOLNIRLevelLoader's running.txt
@@ -267,6 +300,7 @@ static void derive_paths(HMODULE self) {
     snprintf(g_state_path, MAX_PATH, "%sforge_state.txt", g_dir);
     snprintf(g_status_path, MAX_PATH, "%sstatus.txt", g_dir);
     snprintf(g_palette_path, MAX_PATH, "%sforge_palette.txt", g_dir);
+    snprintf(g_slots_path, MAX_PATH, "%s..\\slots.txt", g_dir);
     snprintf(g_layouts_dir, MAX_PATH, "%s..\\layouts\\", g_dir);
     snprintf(g_running_path, MAX_PATH, "%s..\\..\\MJOLNIRLevelLoader\\running.txt", g_dir);
 }
@@ -275,6 +309,16 @@ static void derive_paths(HMODULE self) {
 static uint8_t *tls_block(void) {
     void **tls_array = (void **)__readgsqword(0x58);
     return tls_array ? (uint8_t *)tls_array[g_tls_index] : NULL;
+}
+
+// A fireteam client's simulation (game options +0x11 == 4) sends its edits
+// to the host as the engine's requests, and the host applies them. What the
+// DLL does by hand (layouts, properties, markers, turning) is the host's.
+#define TLS_GAME_OPTIONS     0x60
+#define OPTIONS_ROLE         0x11       // 4: a client of someone else's game
+static int is_client(uint8_t *tls) {
+    uint8_t *options = tls ? *(uint8_t **)(tls + TLS_GAME_OPTIONS) : NULL;
+    return options && options[OPTIONS_ROLE] == 4;
 }
 
 static void note(const char *fmt, ...) {
@@ -357,6 +401,92 @@ static void lift_bake_quotas(uint8_t *scenario) {
     g_lifted++;
 }
 
+// Scenery from the palette was refused at the cursor: placing asks the
+// engine for room there (0x3049e0 -> 0x2cf130, a search sized by the tag's
+// bounding radius), and scenery resting on the ground never has it. Reach
+// marks its Forge scenery "phased physics in forge" (multiplayer object
+// flags, bit 1), which skips that search; CE's tags lack it. Set it, in
+// memory, on every palette object that is not a weapon, vehicle or
+// equipment, the first time it is seen. 1 when it was set now.
+#define TAG_ROOT             0x1c       // tag table entry: the root's block handle
+#define OBJECT_MP_BLOCK      0x124      // object definition: multiplayer object (count, handle)
+#define MP_FLAGS             0x1a       // its flags word
+#define MP_PHASED_IN_FORGE   0x2
+static int g_phased;                 // objects given the flag
+
+static int phase_in_forge(uint32_t tag, const char group[5]) {
+    if (!strcmp(group, "weap") || !strcmp(group, "vehi") || !strcmp(group, "eqip")) return 0;
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    uint8_t *entries = table ? *(uint8_t **)(table + ARRAY_DATA) : NULL;
+    if (!entries) return 0;
+    uint8_t *root = block_element(*(uint32_t *)(entries + (size_t)(tag & 0xffff) * TAG_ENTRY_STRIDE + TAG_ROOT), 0, 0);
+    if (!root || *(int32_t *)(root + OBJECT_MP_BLOCK) < 1) return 0;
+    uint8_t *mp = block_element(*(uint32_t *)(root + OBJECT_MP_BLOCK + 4), 0, 0);
+    if (!mp || (*(uint16_t *)(mp + MP_FLAGS) & MP_PHASED_IN_FORGE)) return 0;
+    *(uint16_t *)(mp + MP_FLAGS) |= MP_PHASED_IN_FORGE;
+    return 1;
+}
+
+// ---- Palette slots ----------------------------------------------------------
+//
+// A palette entry's object is the tag index in its first variant (+0x10),
+// read every time the engine places from it (0x32f450 -> 0x5ee570). So an
+// entry can be pointed at another loaded object tag at run time, and then
+// places that instead. slots.txt beside native lists `palette:entry = tag
+// path` lines, applied when the palettes are read; this is the hook Forge
+// block packs use to reach maps baked before them (docs/forge_blocks.md).
+// The tag must be loaded (the map references it) and be an object.
+#define TAG_TABLE_COUNT      0x44
+
+static int g_slots;                  // entries pointed elsewhere
+
+// A loaded object tag by its full path, -1 if none.
+static uint32_t object_tag_by_path(const char *path) {
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    uint8_t *entries = table ? *(uint8_t **)(table + ARRAY_DATA) : NULL;
+    int count = table ? *(int32_t *)(table + TAG_TABLE_COUNT) : 0;
+    for (int i = 0; entries && i < count; i++) {
+        uint8_t *entry = entries + (size_t)i * TAG_ENTRY_STRIDE;
+        const char *name = *(const char **)(entry + 0x10);
+        uint16_t salt = *(uint16_t *)entry;
+        if (!salt || !name || _stricmp(name, path)) continue;
+        char group[5], leaf[8];
+        tag_name((uint32_t)salt << 16 | (uint32_t)i, leaf, sizeof leaf, group);
+        static const char *objects[] = {"scen", "bloc", "mach", "ctrl", "weap", "vehi", "eqip"};
+        for (int k = 0; k < 7; k++)
+            if (!strcmp(group, objects[k])) return (uint32_t)salt << 16 | (uint32_t)i;
+    }
+    return 0xffffffffu;
+}
+
+static void apply_slots(uint8_t *scenario) {
+    FILE *f = NULL;
+    if (fopen_s(&f, g_slots_path, "rb") != 0 || !f) return;
+    char line[512];
+    int applied = 0;
+    while (fgets(line, sizeof line, f)) {
+        int p, e;
+        char path[400];
+        if (line[0] == '#' || sscanf_s(line, " %d : %d = %399[^\r\n]", &p, &e, path, (unsigned)sizeof path) != 3)
+            continue;
+        char *end = path + strlen(path);
+        while (end > path && (end[-1] == ' ' || end[-1] == '\t')) *--end = '\0';
+        int palettes = *(int32_t *)(scenario + SCENARIO_PALETTES);
+        if (p < 0 || p >= palettes || p >= MAX_PALETTES) continue;
+        uint8_t *pal = block_element(*(uint32_t *)(scenario + SCENARIO_PALETTES + 4), p, PALETTE_DWORDS);
+        if (!pal || e < 0 || e >= *(int32_t *)(pal + PALETTE_ENTRIES)) continue;
+        uint8_t *entry = palette_entry(scenario, p, e);
+        if (!entry || *(int32_t *)(entry + ENTRY_VARIANTS) < 1) continue;
+        uint8_t *variant = block_element(*(uint32_t *)(entry + ENTRY_VARIANTS + 4), 0, VARIANT_DWORDS);
+        uint32_t tag = object_tag_by_path(path);
+        if (!variant || tag == 0xffffffffu) continue;
+        *(uint32_t *)(variant + VARIANT_TAG) = tag;
+        applied++;
+    }
+    fclose(f);
+    g_slots = applied;
+}
+
 // Re-read the palettes; bump the version when the list differs. Simulation
 // thread only.
 static void read_palettes(void) {
@@ -365,6 +495,7 @@ static void read_palettes(void) {
     int count = 0;
     if (scenario) {
         lift_bake_quotas(scenario);
+        apply_slots(scenario);
         int palettes = *(int32_t *)(scenario + SCENARIO_PALETTES);
         if (palettes > MAX_PALETTES) palettes = MAX_PALETTES;
         for (int p = 0; p < palettes; p++) {
@@ -379,7 +510,14 @@ static void read_palettes(void) {
                 row->palette = (uint8_t)p;
                 row->entry = (uint8_t)e;
                 tag_name(tag, row->tag, sizeof row->tag, row->group);
+                g_phased += phase_in_forge(tag, row->group);
                 row->placeable = g_can_create(tag, NULL) != 0;
+                uint8_t *pe = palette_entry(scenario, p, e);
+                row->maximum = *(int32_t *)(pe + ENTRY_MAX_ALLOWED);
+                row->price = *(int32_t *)(pe + ENTRY_PRICE);
+                uint8_t *mv = (uint8_t *)g_mv_live();
+                int flat = g_mv_flat(NULL, (uint32_t)p, (uint32_t)e);
+                row->placed = mv && flat >= 0 && flat < 256 ? mv[MV_QUOTAS + flat * 3 + 2] : 0;
             }
         }
     }
@@ -394,35 +532,43 @@ static void read_palettes(void) {
     if (g_selected < 0 && g_row_count > 0) g_selected = 0;
 }
 
-// A category is a run of rows in one palette with one tag group: the level
-// bake writes a palette per group, and its older single palette, sorted by
-// group, still browses as weapons, vehicles and so on.
+// A category is the rows of one palette with one tag group, as the HUD shows
+// them: the level bake writes a palette per group, its older single palette
+// still browses as weapons, vehicles and so on, and an entry slots.txt points
+// at a crate joins the crates even with scenery around it.
 static int same_category(int a, int b) {
     return g_rows[a].palette == g_rows[b].palette && strcmp(g_rows[a].group, g_rows[b].group) == 0;
 }
 
+// The first row of `at`'s category.
 static int category_first(int at) {
-    while (at > 0 && same_category(at - 1, at)) at--;
+    for (int i = 0; i < at; i++)
+        if (same_category(i, at)) return i;
     return at;
 }
 
 // Move the selection: `item_step` entries within its category, or
-// `category_step` categories, to that category's first entry. Both wrap.
+// `category_step` categories (in the order they first appear), to that
+// category's first entry. Both wrap.
 static void select_move(int item_step, int category_step) {
     if (g_row_count <= 0) return;
     int at = g_selected < 0 ? 0 : g_selected;
     if (item_step) {
-        int first = category_first(at), last = at;
-        while (last + 1 < g_row_count && same_category(last + 1, at)) last++;
-        int span = last - first + 1;
-        at = first + ((at - first + item_step) % span + span) % span;
-    } else if (category_step > 0) {
-        int from = at;
-        while (at < g_row_count && same_category(at, from)) at++;
-        if (at == g_row_count) at = 0;
-    } else if (category_step < 0) {
-        int first = category_first(at);
-        at = category_first(first > 0 ? first - 1 : g_row_count - 1);
+        int members[MAX_ROWS], n = 0, here = 0;
+        for (int i = 0; i < g_row_count; i++) {
+            if (!same_category(i, at)) continue;
+            if (i == at) here = n;
+            members[n++] = i;
+        }
+        at = members[((here + item_step) % n + n) % n];
+    } else if (category_step) {
+        int firsts[MAX_ROWS], n = 0, here = 0;
+        for (int i = 0; i < g_row_count; i++) {
+            if (category_first(i) != i) continue;
+            if (i == category_first(at)) here = n;
+            firsts[n++] = i;
+        }
+        at = firsts[((here + category_step) % n + n) % n];
     }
     g_selected = at;
 }
@@ -444,7 +590,7 @@ static int local_player(uint8_t *tls) {
 }
 
 static void send(int player, uint16_t type, const void *payload, size_t size) {
-    uint8_t request[0x40];
+    __declspec(align(16)) uint8_t request[0x40]; // the encoder finds request 5's block at (+9) & ~1
     memset(request, 0, sizeof request);
     memcpy(request, payload, size);
     *(uint32_t *)(request + 0x38) = (uint32_t)player;
@@ -790,9 +936,16 @@ static void layout_revert(uint8_t *tls) {
 // build it, then, when the map has a saved layout, make that current instead,
 // as new-map does with a variant the session supplies. Simulation thread.
 static void layout_new_map(void *mv) {
+    // Palette slots first: a saved layout names palette entries, and a slot's
+    // object is what its entry places (no Forge tick has run yet, and none
+    // runs at all under Megalo).
+    uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
+    if (scenario) apply_slots(scenario);
     g_mv_from_scenario(mv);
     char code[64], why[160];
-    if (!running_code(code, sizeof code)) return;
+    // A client's objects are the host's: its own saved layout must not
+    // decide what it builds.
+    if (is_client(tls_block()) || !running_code(code, sizeof code)) return;
     int got = layout_read(code, why, sizeof why);
     if (got == 0) {
         layout_note("%s: the map's own layout", code);
@@ -843,6 +996,307 @@ static int hook_call(uint8_t *site, uint8_t *expect, void *fn, uint8_t *stub) {
     return 1;
 }
 
+// ---- Object properties (request 5) ------------------------------------------------
+//
+// Each map-variant entry carries the object's Forge properties at +0x30
+// (codec 0x330230). Request 5 sends the object and a whole new block; the
+// applier (0x3071e0) writes it into the entry and applies it to the object
+// (0x32fcd0). The object knows its entry: object data +0x1c.
+#define MV_LABEL_STRINGS     0x2f4      // 0x1000 bytes of NUL-terminated label names
+#define MV_LABELS            0x12f8     // i16 per label: its name's offset in the strings, -1 none
+#define MV_LABEL_COUNT       0x14f8
+#define MV_ENTRY_PROPS       0x30
+#define PROPS_SIZE           0x1c
+#define PROPS_ORDER          0x11       // s8: spawn sequence
+#define PROPS_RESPAWN        0x12       // u8: respawn time, seconds
+#define PROPS_TYPE           0x13       // u8: multiplayer object type
+#define PROPS_LABEL          0x14       // i16: Megalo label, -1 none
+#define PROPS_TEAM           0x17       // u8: 0 red, 1 blue, ..., 8 neutral
+#define TEAM_NEUTRAL         8
+#define OBJECT_MV_ENTRY      0x1c       // i16 in the object: its map-variant entry, -1 none
+
+static const uint8_t RESPAWN_TIMES[] = {0, 5, 10, 15, 30, 45, 60, 90, 120, 180};
+#define MAX_ORDER 9
+
+static uint8_t *object_data(uint8_t *tls, uint32_t handle) {
+    if (handle == 0xffffffffu) return NULL;
+    uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
+    uint8_t *data = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
+    return data ? *(uint8_t **)(data + 0x10 + (size_t)(handle & 0xffff) * OBJECT_ENTRY) : NULL;
+}
+
+// The object's map-variant entry's properties, or NULL.
+static uint8_t *object_props(uint8_t *tls, uint8_t *mv, uint32_t handle) {
+    uint8_t *object = object_data(tls, handle);
+    if (!object || !mv) return NULL;
+    int entry = *(int16_t *)(object + OBJECT_MV_ENTRY);
+    if (entry < 0 || entry >= MV_ENTRIES) return NULL;
+    uint8_t *e = mv + MV_ENTRY_TABLE + (size_t)entry * MV_ENTRY_STRIDE;
+    return (e[0] & 1) ? e + MV_ENTRY_PROPS : NULL;
+}
+
+// A player's handle (salt << 16 | index), -1 if none.
+static int player_handle(uint8_t *tls, int player) {
+    uint8_t *players = *(uint8_t **)(tls + TLS_PLAYERS);
+    uint8_t *data = players ? *(uint8_t **)(players + ARRAY_DATA) : NULL;
+    if (!data) return -1;
+    uint16_t salt = *(uint16_t *)(data + (size_t)player * PLAYER_STRIDE);
+    return (int)((uint32_t)salt << 16 | (uint32_t)player);
+}
+
+static int label_count(const uint8_t *mv) {
+    int n = *(const int32_t *)(mv + MV_LABEL_COUNT);
+    return n < 0 ? 0 : n > 256 ? 256 : n;
+}
+
+// A label's name, or "" (none, or no name).
+static void label_name(const uint8_t *mv, int label, char *out, size_t size) {
+    out[0] = '\0';
+    if (label < 0 || label >= label_count(mv)) return;
+    int at = *(const int16_t *)(mv + MV_LABELS + label * 2);
+    if (at < 0 || at >= 0x1000) return;
+    const char *name = (const char *)(mv + MV_LABEL_STRINGS + at);
+    strncpy_s(out, size, name, strnlen(name, 0x1000 - (size_t)at));
+}
+
+static const char *team_name(int team) {
+    static const char *names[] = {"red", "blue", "green", "orange", "purple", "gold", "brown", "pink"};
+    return team >= 0 && team < 8 ? names[team] : "neutral";
+}
+
+// Change one property of `target`, as request 5 would; or of `carried`, the
+// properties of an object the DLL carries, which it gets when dropped.
+static void edit_property(uint8_t *tls, int player, uint32_t target, LONG which, uint8_t *carried) {
+    uint8_t *mv = (uint8_t *)g_mv_live();
+    uint8_t *props = carried ? carried : object_props(tls, mv, target);
+    if (!props) {
+        note(target == 0xffffffffu ? "nothing targeted" : "that object has no Forge properties");
+        return;
+    }
+    __declspec(align(16)) uint8_t block[PROPS_SIZE];
+    memcpy(block, props, sizeof block);
+    char name[64];
+    if (which == CMD_TEAM) {
+        // Neutral, red, blue: the teams a two-team game uses.
+        uint8_t t = block[PROPS_TEAM];
+        block[PROPS_TEAM] = t == TEAM_NEUTRAL ? 0 : t == 0 ? 1 : TEAM_NEUTRAL;
+        note("team %s", team_name(block[PROPS_TEAM]));
+    } else if (which == CMD_LABEL) {
+        int label = *(int16_t *)(block + PROPS_LABEL) + 1;
+        if (label >= label_count(mv)) label = -1;
+        *(int16_t *)(block + PROPS_LABEL) = (int16_t)label;
+        label_name(mv, label, name, sizeof name);
+        note("label %s", label < 0 ? "none" : name[0] ? name : "(unnamed)");
+    } else if (which == CMD_RESPAWN) {
+        size_t n = sizeof RESPAWN_TIMES, i = 0;
+        while (i < n && RESPAWN_TIMES[i] <= block[PROPS_RESPAWN]) i++;
+        block[PROPS_RESPAWN] = RESPAWN_TIMES[i % n];
+        note("respawn %u s", block[PROPS_RESPAWN]);
+    } else {
+        int8_t order = (int8_t)block[PROPS_ORDER];
+        order = order >= MAX_ORDER || order < 0 ? 0 : (int8_t)(order + 1);
+        block[PROPS_ORDER] = (uint8_t)order;
+        note("spawn order %d", order);
+    }
+    if (carried) {
+        memcpy(carried, block, sizeof block);
+        return;
+    }
+    // Request 5 itself does not survive the trip through the simulation's
+    // event queue intact: sent with respawn 45, the entry came back with 45
+    // in its flags and the fields before them zeroed (2026-11-01). On the
+    // host the DLL already runs where the queue's consumer does, so it calls
+    // the applier the consumer would (0x3071e0): the same permission check
+    // (0x307390), the same write into the entry, the same resend to the
+    // session (0x32e870).
+    // The applier takes the player's handle (salt << 16 | index): it checks
+    // the holder of the object against it.
+    int handle = player_handle(tls, player);
+    if (handle != -1) g_apply_properties((uint32_t)handle, target, block);
+}
+
+// ---- Objects without physics: placed, carried and dropped by the DLL ----------------
+//
+// The editor's grab (0x306d30 -> 0x306890) drags an object by its Havok body:
+// it reads object +0xcc (the physics component, 0xffff none) through the
+// table at 0x10ccc90 and faults on an object without one. CE's flag stands,
+// spawn points, health packs and teleporters have none, and placing from the
+// palette grabs what it creates (0x306260 -> 0x306d30), so placing one
+// crashed the simulation thread (UE4SS then sat in its crash dialog, which
+// looked like a hang; 2026-11-01, and likely the first Forge run's hang).
+//
+// So for those the DLL does what the placement applier does minus the grab:
+// make the map-variant entry (0x32eff0) and its object (0x32f450), count the
+// quota (0x32e3b0), resend the entry (0x4d1b70). "Picking one up" remembers
+// its palette entry, variant, facing and properties and deletes it; dropping
+// makes it again at the cursor. Rotate turns what is carried or placed next.
+#define RVA_MV_ADD_ENTRY     0x32eff0   // int (mv*, palette, entry, variant, point*, forward*, up*): entry, -1
+#define RVA_MV_CREATE        0x32f450   // u32 (mv*, entry, bool): the entry's object, -1
+#define RVA_MV_FLAT_INDEX    0x32ce10   // int (unused, palette, entry): the entry's index over all palettes
+#define RVA_MV_QUOTA_ADD     0x32e3b0   // void (mv*, flat index)
+#define OBJECT_PHYSICS       0xcc       // u16 in the object: what the grab drags by (below), 0xffff none
+#define RVA_DRAG_ARRAY       0x10ccc90  // pointer to the data array object +0xcc indexes
+#define DRAG_ELEMENT         0xc0
+#define MV_ENTRY_PALETTE     0x2        // i16: flat palette index
+#define MV_ENTRY_POSITION    0x8        // 3 floats
+#define MV_ENTRY_FORWARD     0x14       // 3 floats, then up at +0x20
+#define MV_ENTRY_VARIANT     0x2e       // u8
+#define YAW_STEP             0.39269908f // 22.5 degrees
+#define HELD_CARRIED         0xfffffffeu // the snapshot's `held` while the DLL carries one
+
+typedef int (*mv_add_entry_fn)(void *mv, uint32_t palette, uint32_t entry, uint32_t variant, const float *point,
+                               const float *forward, const float *up);
+typedef uint32_t (*mv_create_fn)(void *mv, uint32_t entry, uint8_t flag);
+typedef void (*mv_quota_fn)(void *mv, int flat);
+static mv_add_entry_fn g_mv_add_entry;
+static mv_create_fn g_mv_create;
+static mv_quota_fn g_mv_quota_add;
+
+static struct {
+    int active;
+    uint32_t palette, entry, variant;
+    __declspec(align(16)) uint8_t props[PROPS_SIZE];
+    char tag[96], group[5];
+} g_carry;
+static float g_yaw;                  // radians, for what is carried or placed next
+
+// Whether the editor's grab can drag `handle`: the chain 0x306890 follows
+// from object +0xcc, through the global array at 0x10ccc90 (0xc0-byte
+// elements; +0x30, then +0x40), ends at the block it reads from +0x170.
+// CE's marker scenery ends at NULL there.
+static int has_physics(uint8_t *tls, uint32_t handle) {
+    uint8_t *object = object_data(tls, handle);
+    if (!object) return 0;
+    uint16_t index = *(uint16_t *)(object + OBJECT_PHYSICS);
+    uint8_t *array = *(uint8_t **)(g_base + RVA_DRAG_ARRAY);
+    if (index == 0xffff || !array || index >= *(int32_t *)(array + ARRAY_COUNT)) return 0;
+    uint8_t *element = *(uint8_t **)(array + ARRAY_DATA) + (size_t)index * DRAG_ELEMENT;
+    uint8_t *inner = *(uint8_t **)(element + 0x30);
+    return inner && *(uint8_t **)(inner + 0x40) != NULL;
+}
+
+// A flat palette index back to its palette and entry.
+static int palette_of_flat(int flat, uint32_t *palette, uint32_t *entry) {
+    uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
+    int palettes = scenario ? *(int32_t *)(scenario + SCENARIO_PALETTES) : 0;
+    for (int p = 0; p < palettes && p < MAX_PALETTES && flat >= 0; p++) {
+        uint8_t *pal = block_element(*(uint32_t *)(scenario + SCENARIO_PALETTES + 4), p, PALETTE_DWORDS);
+        int n = pal ? *(int32_t *)(pal + PALETTE_ENTRIES) : 0;
+        if (flat < n) {
+            *palette = (uint32_t)p;
+            *entry = (uint32_t)flat;
+            return 1;
+        }
+        flat -= n;
+    }
+    return 0;
+}
+
+// Make a palette entry's object at `point`, facing `yaw`, and give it
+// `props` when set. The object, or -1 (`why` says).
+static uint32_t place_entry(int player_handle, uint32_t palette, uint32_t entry, uint32_t variant, const float point[3],
+                            float yaw, const uint8_t *props, const char **why) {
+    uint8_t *mv = (uint8_t *)g_mv_live();
+    uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
+    uint32_t tag = scenario ? entry_tag(palette_entry(scenario, (int)palette, (int)entry)) : 0xffffffffu;
+    float spot[3] = {point[0], point[1], point[2]};
+    *why = NULL;
+    if (!mv || tag == 0xffffffffu) {
+        *why = "no palette entry";
+        return 0xffffffffu;
+    }
+    if (!g_can_create(tag, spot)) {
+        *why = "the map cannot place another here";
+        return 0xffffffffu;
+    }
+    float forward[3] = {cosf(yaw), sinf(yaw), 0.0f}, up[3] = {0.0f, 0.0f, 1.0f};
+    int index = g_mv_add_entry(mv, palette, entry, variant, spot, forward, up);
+    if (index < 0) {
+        *why = "the map variant is full";
+        return 0xffffffffu;
+    }
+    uint32_t object = g_mv_create(mv, (uint32_t)index, 1);
+    if (object == 0xffffffffu) {
+        *why = "the object could not be made";
+        return 0xffffffffu;
+    }
+    g_mv_quota_add(mv, g_mv_flat(NULL, palette, entry));
+    if (props) g_apply_properties((uint32_t)player_handle, object, props);
+    g_mv_entry_dirty((uint32_t)index, 4);
+    return object;
+}
+
+// The object's map-variant entry, or NULL.
+static uint8_t *object_entry(uint8_t *tls, uint8_t *mv, uint32_t handle) {
+    uint8_t *props = object_props(tls, mv, handle);
+    return props ? props - MV_ENTRY_PROPS : NULL;
+}
+
+// Markers (spawn points, flag stands) have no collision, so the editor's
+// cursor ray (0x301510) never lands on one. When it lands on no object, aim
+// at the map-variant object nearest the line from the player's unit through
+// the cursor point instead: within 1 m of it, plus 2% of the distance.
+#define RVA_OBJECT_ORIGIN    0x5a6780   // void (object, float[3])
+#define AIM_REACH            60.0f
+typedef void (*object_origin_fn)(uint32_t object, float *out);
+static object_origin_fn g_object_origin;
+
+static char g_aim[160];              // the last soft_target's numbers, for the state file
+
+static uint32_t soft_target(uint8_t *tls, int player, const float point[3]) {
+    uint8_t *players = *(uint8_t **)(tls + TLS_PLAYERS);
+    uint8_t *data = players ? *(uint8_t **)(players + ARRAY_DATA) : NULL;
+    if (!data) return 0xffffffffu;
+    uint32_t unit = *(uint32_t *)(data + (size_t)player * PLAYER_STRIDE + PLAYER_UNIT);
+    if (unit == 0xffffffffu) return 0xffffffffu;
+    float o[3], d[3];
+    g_object_origin(unit, o);
+    float len = 0;
+    for (int k = 0; k < 3; k++) {
+        d[k] = point[k] - o[k];
+        len += d[k] * d[k];
+    }
+    len = sqrtf(len);
+    if (len < 0.01f) return 0xffffffffu;
+    for (int k = 0; k < 3; k++) d[k] /= len;
+    uint32_t best = 0xffffffffu;
+    float best_off = 1e9f;
+    uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
+    uint8_t *slots = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
+    int count = objects ? *(int32_t *)(objects + ARRAY_COUNT) : 0, candidates = 0;
+    for (int i = 0; slots && i < count; i++) {
+        uint8_t *slot = slots + (size_t)i * OBJECT_ENTRY;
+        uint16_t salt = *(uint16_t *)slot;
+        uint8_t *od = *(uint8_t **)(slot + 0x10);
+        if (!salt || !od || *(int16_t *)(od + OBJECT_MV_ENTRY) < 0) continue;
+        uint32_t object = (uint32_t)salt << 16 | (uint32_t)i;
+        if (object == unit || has_physics(tls, object)) continue;
+        float p[3], v[3], t = 0, off = 0;
+        g_object_origin(object, p);
+        for (int k = 0; k < 3; k++) {
+            v[k] = p[k] - o[k];
+            t += v[k] * d[k];
+        }
+        if (t < 0.5f || t > AIM_REACH) continue;
+        for (int k = 0; k < 3; k++) off += (v[k] - t * d[k]) * (v[k] - t * d[k]);
+        off = sqrtf(off);
+        if (off < best_off) {
+            best_off = off;
+            best = off < 1.0f + 0.02f * t ? object : 0xffffffffu;
+        }
+        candidates++;
+    }
+    snprintf(g_aim, sizeof g_aim, "from %.1f %.1f %.1f to %.1f %.1f %.1f, %d markers, nearest %.2f m off", o[0], o[1], o[2],
+             point[0], point[1], point[2], candidates, best_off);
+    return best;
+}
+
+// The facing of an entry as a yaw.
+static float entry_yaw(const uint8_t *e) {
+    const float *f = (const float *)(e + MV_ENTRY_FORWARD);
+    return atan2f(f[1], f[0]);
+}
+
 // ---- The simulation-thread side ---------------------------------------------------
 
 static void act(uint8_t *tls, int player, LONG commands) {
@@ -850,8 +1304,37 @@ static void act(uint8_t *tls, int player, LONG commands) {
     uint8_t *state = g + G_EDITOR_STATE + (size_t)player * EDITOR_STRIDE;
     uint32_t held = *(uint32_t *)(state + EDITOR_HELD);
     uint32_t cursor = *(uint32_t *)(state + EDITOR_CURSOR);
-    uint32_t target = held != 0xffffffffu ? held : cursor;
     int editing = g_is_editing((uint32_t)player) != 0;
+    if (cursor == 0xffffffffu && editing) cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
+    uint32_t target = held != 0xffffffffu ? held : cursor;
+
+    // On a fireteam client only the engine's own requests (toggle, grab and
+    // drop of what it can drag, delete, place and duplicate weapons, vehicles
+    // and equipment) and saving the layout it sees; the rest is the host's.
+    // Above all a client never asks the host to grab, place or copy a marker:
+    // the host's engine would run the grab that faults on one.
+    if (is_client(tls)) {
+        const LONG host_only = CMD_LOAD | CMD_REVERT | CMD_TEAM | CMD_LABEL | CMD_RESPAWN | CMD_ORDER |
+                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT;
+        if (commands & host_only) note("only the host can do that in a fireteam Forge game");
+        commands &= ~host_only;
+        if ((commands & CMD_GRAB) && held == 0xffffffffu && cursor != 0xffffffffu && !has_physics(tls, cursor)) {
+            note("only the host can move markers in a fireteam Forge game");
+            commands &= ~CMD_GRAB;
+        }
+        if ((commands & CMD_DUPLICATE) && target != 0xffffffffu && !has_physics(tls, target)) {
+            note("only the host can copy markers in a fireteam Forge game");
+            commands &= ~CMD_DUPLICATE;
+        }
+        if ((commands & CMD_PLACE) && g_selected >= 0 && g_selected < g_row_count) {
+            const char *group = g_rows[g_selected].group;
+            if (strcmp(group, "weap") && strcmp(group, "vehi") && strcmp(group, "eqip")) {
+                note("only the host can place markers in a fireteam Forge game");
+                commands &= ~CMD_PLACE;
+            }
+        }
+        if (!commands) return;
+    }
 
     // Layouts work as the Monitor or the Spartan. Replacing the objects
     // waits a tick for a held one to be dropped the engine's way.
@@ -886,6 +1369,84 @@ static void act(uint8_t *tls, int player, LONG commands) {
     if (!editing) {
         if (commands & ~(CMD_TOGGLE)) note("not in the monitor");
         return;
+    }
+    int me = player_handle(tls, player);
+    uint8_t *mv = (uint8_t *)g_mv_live();
+    if (commands & (CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT)) {
+        float step = commands & CMD_ROTATE_LEFT ? YAW_STEP : -YAW_STEP;
+        if (held != 0xffffffffu) {
+            // A held object's orientation is the editor's hold transform,
+            // which request 11's applier (0x305f6a) writes: forward, left and
+            // up at +0x40, +0x4c, +0x58, and the same basis again at +0x70
+            // for the rotation snap (+0xc8, an index into 0, 90, 45, 30, 15,
+            // 5 degrees; 0x85dad0). Turn all of it about the vertical, with
+            // the snap off so it stays where it is put.
+            float c = cosf(step), sn = sinf(step);
+            for (int v = 0; v < 3; v++) {
+                float *a = (float *)(state + EDITOR_HOLD_AXES + v * 12);
+                float x = a[0] * c - a[1] * sn, y = a[0] * sn + a[1] * c;
+                a[0] = x;
+                a[1] = y;
+            }
+            memcpy(state + EDITOR_HOLD_BASIS, state + EDITOR_HOLD_AXES, 36);
+            *(int32_t *)(state + EDITOR_SNAP) = 0;
+            const float *f = (const float *)(state + EDITOR_HOLD_AXES);
+            note("facing %d", (int)lroundf(atan2f(f[1], f[0]) * 57.29578f));
+        } else {
+            g_yaw = atan2f(sinf(g_yaw + step), cosf(g_yaw + step));
+            note("facing %d", (int)lroundf(g_yaw * 57.29578f));
+        }
+    }
+    if ((commands & CMD_GRAB) && g_carry.active) {
+        // Drop what the DLL carries: make it again at the cursor.
+        const char *why;
+        uint32_t made = place_entry(me, g_carry.palette, g_carry.entry, g_carry.variant,
+                                    (const float *)(state + EDITOR_POINT), g_yaw, g_carry.props, &why);
+        if (made == 0xffffffffu) {
+            note("cannot drop %s: %s", g_carry.tag, why);
+        } else {
+            g_carry.active = 0;
+            note("released");
+        }
+        commands &= ~CMD_GRAB;
+    } else if ((commands & CMD_GRAB) && held == 0xffffffffu && cursor != 0xffffffffu && !has_physics(tls, cursor)) {
+        // Pick up an object the editor cannot drag: remember it, delete it.
+        uint8_t *e = object_entry(tls, mv, cursor);
+        uint32_t palette, entry;
+        if (!e || !palette_of_flat(*(int16_t *)(e + MV_ENTRY_PALETTE), &palette, &entry)) {
+            note("this map's palette has no entry for that object");
+        } else {
+            g_carry.palette = palette;
+            g_carry.entry = entry;
+            g_carry.variant = e[MV_ENTRY_VARIANT];
+            memcpy(g_carry.props, e + MV_ENTRY_PROPS, PROPS_SIZE);
+            object_tag_name(tls, cursor, g_carry.tag, sizeof g_carry.tag, g_carry.group);
+            g_yaw = entry_yaw(e);
+            g_carry.active = 1;
+            send(player, REQ_DELETE, &cursor, 4);
+            note("grabbed");
+        }
+        commands &= ~CMD_GRAB;
+    }
+    if ((commands & CMD_DELETE) && g_carry.active) {
+        g_carry.active = 0;
+        note("deleted");
+        commands &= ~CMD_DELETE;
+    }
+    if ((commands & CMD_DUPLICATE) && target != 0xffffffffu && !has_physics(tls, target)) {
+        uint8_t *e = object_entry(tls, mv, target);
+        uint32_t palette, entry;
+        const char *why = "this map's palette has no entry for that object";
+        uint32_t made = 0xffffffffu;
+        if (e && palette_of_flat(*(int16_t *)(e + MV_ENTRY_PALETTE), &palette, &entry)) {
+            __declspec(align(16)) uint8_t props[PROPS_SIZE];
+            memcpy(props, e + MV_ENTRY_PROPS, PROPS_SIZE);
+            made = place_entry(me, palette, entry, e[MV_ENTRY_VARIANT], (const float *)(state + EDITOR_POINT),
+                               entry_yaw(e), props, &why);
+        }
+        if (made == 0xffffffffu) note("cannot duplicate: %s", why);
+        else note("duplicated");
+        commands &= ~CMD_DUPLICATE;
     }
     if (commands & CMD_GRAB) {
         if (held != 0xffffffffu) {
@@ -934,8 +1495,23 @@ static void act(uint8_t *tls, int player, LONG commands) {
         } else {
             palette_row_t *row = &g_rows[g_selected];
             uint32_t tag = entry_tag(palette_entry(scenario, row->palette, row->entry));
+            // The applier asks the same with the cursor point, which also
+            // looks for room there (0x2cf130, sized by the tag's bounding
+            // radius); ask first, so a refusal says so.
+            float spot[3];
+            memcpy(spot, state + EDITOR_POINT, sizeof spot);
             if (tag == 0xffffffffu || !g_can_create(tag, NULL)) {
                 note("cannot place %s", row->tag);
+            } else if (!g_can_create(tag, spot)) {
+                note("no room for %s there", row->tag);
+            } else if (strcmp(row->group, "weap") && strcmp(row->group, "vehi") && strcmp(row->group, "eqip")) {
+                // Not something the editor can drag (see "Objects without
+                // physics"): placed where the cursor is, facing g_yaw.
+                const char *why;
+                if (place_entry(me, row->palette, row->entry, 0, spot, g_yaw, NULL, &why) == 0xffffffffu)
+                    note("cannot place %s: %s", row->tag, why);
+                else
+                    note("placed %s", row->tag);
             } else {
                 // The engine places nothing while the player holds an object
                 // (0x306260 returns), so drop it first: requests apply in the
@@ -957,6 +1533,11 @@ static void act(uint8_t *tls, int player, LONG commands) {
             }
         }
     }
+    static const LONG property_commands[] = {CMD_TEAM, CMD_LABEL, CMD_RESPAWN, CMD_ORDER};
+    for (int i = 0; i < 4; i++) {
+        if (commands & property_commands[i])
+            edit_property(tls, player, target, property_commands[i], g_carry.active ? g_carry.props : NULL);
+    }
     if (commands & (CMD_NEARER | CMD_FARTHER)) {
         float *distance = (float *)(state + EDITOR_DISTANCE);
         float d = *distance < DISTANCE_MIN ? DISTANCE_MIN : *distance;
@@ -977,9 +1558,33 @@ static void snapshot(uint8_t *tls, int player) {
         s.editing = g_is_editing((uint32_t)player) != 0;
         s.held = *(uint32_t *)(state + EDITOR_HELD);
         s.cursor = *(uint32_t *)(state + EDITOR_CURSOR);
+        if (s.cursor == 0xffffffffu && s.editing && s.held == 0xffffffffu && !g_carry.active)
+            s.cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
         s.distance = *(float *)(state + EDITOR_DISTANCE);
         object_tag_name(tls, s.held, s.held_tag, sizeof s.held_tag, s.held_group);
         object_tag_name(tls, s.cursor, s.cursor_tag, sizeof s.cursor_tag, s.cursor_group);
+        uint8_t *mv = (uint8_t *)g_mv_live();
+        if (mv) {
+            s.budget = *(int32_t *)(mv + MV_BUDGET);
+            s.spent = *(int32_t *)(mv + MV_BUDGET + 4);
+        }
+        uint8_t *props = object_props(tls, mv, s.held != 0xffffffffu ? s.held : s.cursor);
+        if (g_carry.active) {
+            s.held = HELD_CARRIED;
+            strncpy_s(s.held_tag, sizeof s.held_tag, g_carry.tag, _TRUNCATE);
+            memcpy(s.held_group, g_carry.group, sizeof s.held_group);
+            props = g_carry.props;
+        }
+        if (props) {
+            s.props = 1;
+            s.team = props[PROPS_TEAM];
+            s.order = (int8_t)props[PROPS_ORDER];
+            s.respawn = props[PROPS_RESPAWN];
+            s.mp_type = props[PROPS_TYPE];
+            s.label = *(int16_t *)(props + PROPS_LABEL);
+            label_name(mv, s.label, s.label_name, sizeof s.label_name);
+            memcpy(s.raw, props, PROPS_SIZE);
+        }
     }
     EnterCriticalSection(&g_lock);
     s.tick = g_snap.tick + 1;
@@ -1057,6 +1662,12 @@ static int install(void) {
     g_mv_budget = (mv_build_fn)(base + RVA_MV_BUDGET);
     g_mv_delete_all = (mv_void_fn)(base + RVA_MV_DELETE_ALL);
     g_mv_entry_dirty = (mv_entry_fn)(base + RVA_MV_ENTRY_DIRTY);
+    g_apply_properties = (apply_properties_fn)(base + RVA_APPLY_PROPERTIES);
+    g_mv_add_entry = (mv_add_entry_fn)(base + RVA_MV_ADD_ENTRY);
+    g_object_origin = (object_origin_fn)(base + RVA_OBJECT_ORIGIN);
+    g_mv_create = (mv_create_fn)(base + RVA_MV_CREATE);
+    g_mv_flat = (mv_flat_fn)(base + RVA_MV_FLAT_INDEX);
+    g_mv_quota_add = (mv_quota_fn)(base + RVA_MV_QUOTA_ADD);
     // Saved layouts at game start: new-map's build goes through layout_new_map.
     // Optional: Forge itself works without it.
     static uint8_t *stub;
@@ -1108,11 +1719,18 @@ __declspec(dllexport) int mjolnir_forge_prev_category(void *L) { (void)L; return
 __declspec(dllexport) int mjolnir_forge_save(void *L) { (void)L; return command(CMD_SAVE); }
 __declspec(dllexport) int mjolnir_forge_load(void *L) { (void)L; return command(CMD_LOAD); }
 __declspec(dllexport) int mjolnir_forge_revert(void *L) { (void)L; return command(CMD_REVERT); }
+__declspec(dllexport) int mjolnir_forge_team(void *L) { (void)L; return command(CMD_TEAM); }
+__declspec(dllexport) int mjolnir_forge_label(void *L) { (void)L; return command(CMD_LABEL); }
+__declspec(dllexport) int mjolnir_forge_respawn(void *L) { (void)L; return command(CMD_RESPAWN); }
+__declspec(dllexport) int mjolnir_forge_order(void *L) { (void)L; return command(CMD_ORDER); }
+__declspec(dllexport) int mjolnir_forge_rotate_left(void *L) { (void)L; return command(CMD_ROTATE_LEFT); }
+__declspec(dllexport) int mjolnir_forge_rotate_right(void *L) { (void)L; return command(CMD_ROTATE_RIGHT); }
 
 // Write forge_state.txt when the simulation thread has seen a new tick since
 // the last call: `key=value` lines. `forge=0` once ticks stop (no Forge game).
 // When the palettes changed, forge_palette.txt first: one line per entry,
-// `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable`; the state's
+// `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable<TAB>placed<TAB>maximum
+// <TAB>price` (maximum 0: no quota); the state's
 // `selected` is a line index into it (from 0) and `palette_version` says
 // which list.
 // Runs on whichever thread Lua calls it from; never on the simulation thread.
@@ -1130,8 +1748,8 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
         EnterCriticalSection(&g_lock);
         for (int i = 0; i < g_row_count && used + 128 < sizeof list; i++) {
             palette_row_t *r = &g_rows[i];
-            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\n", r->palette, r->entry,
-                                     r->group, r->tag, r->placeable);
+            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\t%d\t%d\t%d\n", r->palette,
+                                     r->entry, r->group, r->tag, r->placeable, r->placed, r->maximum, r->price);
         }
         LeaveCriticalSection(&g_lock);
         list[used] = '\0';
@@ -1146,9 +1764,22 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
-             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout);
+             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent);
+    if (s.props) {
+        size_t used = strlen(text);
+        snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",
+                 team_name(s.team), s.label < 0 ? "" : s.label_name[0] ? s.label_name : "(unnamed)", s.respawn,
+                 s.order, s.mp_type);
+        // The raw block too: the fields not named above (shape, flags, colour).
+        used = strlen(text);
+        for (int i = 0; i < PROPS_SIZE && used + 3 < sizeof text; i++, used += 2) {
+            snprintf(text + used, sizeof text - used, "%s%02x", i ? "" : "props=", s.raw[i]);
+            if (!i) used += 6;
+        }
+        snprintf(text + used, sizeof text - used, "\n");
+    }
     write_file(g_state_path, text);
     return 0;
 }

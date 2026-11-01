@@ -5741,7 +5741,7 @@ end
 --- the index to every fireteam client (`?InsertionPointIndex=1` is CTF), the
 --- one choice of the host's that reaches them. Keep in step with
 --- MJOLNIRLobby's GAME_TYPE_SLOTS.
-local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball" }
+local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball", [5] = "forge" }
 
 local function loadMegaloSwitch()
     if not package or not package.loadlib then return end
