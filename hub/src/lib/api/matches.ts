@@ -466,7 +466,17 @@ export interface MatchListQuery {
   /** ended_at of the last match on the previous page. */
   before?: string;
   limit?: number;
+  /** Only real matches: see REAL_MATCH. */
+  real?: boolean;
 }
+
+/**
+ * A real match: two players or more, and someone scored or killed. A host
+ * alone on a map, or a lobby that ended before anyone fought, stays in the
+ * history (and on its players' pages) but off the main list by default.
+ */
+const REAL_MATCH = `m.player_count >= 2
+  AND EXISTS (SELECT 1 FROM match_players rp WHERE rp.match_id = m.id AND (rp.score <> 0 OR rp.kills > 0))`;
 
 /** Matches, newest first; with a player or user, that player's line on each. */
 export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches: MatchSummary[]; next: string | null }> {
@@ -489,6 +499,7 @@ export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches:
   if (q.map) clauses.push(`m.map_code = ${bind(q.map)}`);
   if (q.game_type) clauses.push(`m.game_type = ${bind(q.game_type)}`);
   if (q.before) clauses.push(`m.ended_at < ${bind(q.before)}`);
+  if (q.real) clauses.push(REAL_MATCH);
   const rows = await db
     .prepare(
       `SELECT ${SUMMARY_COLUMNS}${seat}
@@ -1021,6 +1032,11 @@ export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
           user: z.string().max(64).optional().openapi({ description: "A hub account id." }),
           before: z.string().max(32).optional().openapi({ description: "`next` from the previous page." }),
           limit: z.coerce.number().int().min(1).max(50).optional(),
+          real: z
+            .enum(["0", "1"])
+            .optional()
+            .transform((v) => v === "1")
+            .openapi({ description: "1: only matches with two or more players where someone scored or killed." }),
         }),
       },
       responses: {
