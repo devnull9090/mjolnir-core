@@ -8,8 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Copy, Fingerprint, KeyRound, Plus, Trash2 } from "lucide-react";
 
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { PageShell } from "../../components/ui";
 
 const ALL_SCOPES = ["mods:read", "mods:write", "ratings:write", "comments:write"];
 
@@ -92,9 +91,7 @@ export default function ApiKeysPage() {
   };
 
   return (
-    <>
-      <Navbar />
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-2xl mx-auto">
+    <PageShell width="2xl">
         <h1 className="flex items-center gap-3 text-3xl font-black text-foreground mb-2">
           <KeyRound className="w-7 h-7 text-gold" />
           API keys
@@ -262,8 +259,6 @@ export default function ApiKeysPage() {
             </div>
           </>
         )}
-      </main>
-      <Footer />
-    </>
+    </PageShell>
   );
 }

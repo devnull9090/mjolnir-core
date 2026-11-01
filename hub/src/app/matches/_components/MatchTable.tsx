@@ -3,18 +3,13 @@ import { Swords } from "lucide-react";
 
 import { GAME_TYPE_NAMES } from "@/kit/types";
 import type { MatchSummary, PlayerTotals } from "@/lib/api/matches";
-import { Avatar } from "./Avatar";
+import { EmptyState, PlaceBadge, PlayerAvatar, StatGrid, StatTile, TableFrame, TeamDot, TEAM_TEXT } from "../../components/ui";
 import { LocalTime } from "./LocalTime";
 import { duration, kd, mapHref, playerHref, weaponName, winnerText } from "./format";
 
-const TEAM_DOT: Record<string, string> = {
-  red: "bg-red-500",
-  blue: "bg-sky-500",
-};
-
 const OUTCOME_STYLE: Record<string, string> = {
-  win: "text-emerald-400",
-  loss: "text-red-400",
+  win: "text-accent-green",
+  loss: "text-team-red",
   draw: "text-text-muted",
 };
 
@@ -25,20 +20,19 @@ const OUTCOME_STYLE: Record<string, string> = {
 export function MatchTable({ matches, seat = false }: { matches: MatchSummary[]; seat?: boolean }) {
   if (matches.length === 0) {
     return (
-      <div className="flex items-center gap-3 text-text-muted">
-        <Swords className="w-5 h-5" />
-        <p>No matches yet. Public games report each match here when it ends.</p>
-      </div>
+      <EmptyState icon={Swords} title="No matches yet">
+        Public games report each match here when it ends.
+      </EmptyState>
     );
   }
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
+    <TableFrame>
       <table className="w-full text-sm">
-        <thead className="bg-surface-raised text-text-dim text-xs uppercase tracking-wide">
+        <thead className="bg-surface-raised text-text-muted text-xs uppercase tracking-wide">
           <tr>
             <th className="text-left px-4 py-3">Played</th>
             <th className="text-left px-4 py-3">Map</th>
-            <th className="text-left px-4 py-3">Game type</th>
+            <th className="hidden md:table-cell text-left px-4 py-3">Game type</th>
             {seat ? (
               <>
                 <th className="text-left px-4 py-3">Result</th>
@@ -52,12 +46,12 @@ export function MatchTable({ matches, seat = false }: { matches: MatchSummary[];
                 <th className="text-right px-4 py-3">Players</th>
               </>
             )}
-            <th className="text-right px-4 py-3">Length</th>
+            <th className="hidden sm:table-cell text-right px-4 py-3">Length</th>
           </tr>
         </thead>
         <tbody>
           {matches.map((m) => (
-            <tr key={m.id} className="border-t border-border hover:bg-surface-raised/50">
+            <tr key={m.id} className="border-t border-border transition-colors hover:bg-surface-raised/60">
               <td className="px-4 py-3 whitespace-nowrap">
                 <Link href={`/matches/${m.id}`} className="text-foreground font-medium hover:text-gold">
                   <LocalTime sql={m.ended_at} />
@@ -72,14 +66,17 @@ export function MatchTable({ matches, seat = false }: { matches: MatchSummary[];
                   (m.map_title ?? m.map_code)
                 )}
               </td>
-              <td className="px-4 py-3 text-text-muted">{GAME_TYPE_NAMES[m.game_type] ?? m.game_type}</td>
+              <td className="hidden md:table-cell px-4 py-3 text-text-muted">{GAME_TYPE_NAMES[m.game_type] ?? m.game_type}</td>
               {seat && m.player ? (
                 <>
                   <td className={`px-4 py-3 font-semibold capitalize ${OUTCOME_STYLE[m.player.outcome ?? ""] ?? "text-text-dim"}`}>
                     {m.player.outcome ?? "abandoned"}
                   </td>
                   <td className="px-4 py-3 text-right text-text-muted">
-                    {m.player.place} / {m.player_count}
+                    <span className="inline-flex items-center gap-1.5">
+                      <PlaceBadge place={m.player.place} />
+                      <span className="text-xs">of {m.player_count}</span>
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-right text-foreground">{m.player.score}</td>
                   <td className="px-4 py-3 text-right text-text-muted">
@@ -91,20 +88,22 @@ export function MatchTable({ matches, seat = false }: { matches: MatchSummary[];
                   <td className="px-4 py-3 text-foreground">
                     <Winner match={m} />
                     {m.team_game && m.red_score !== null && (
-                      <span className="ml-2 text-xs text-text-dim">
-                        {m.red_score}–{m.blue_score}
+                      <span className="ml-2 text-xs font-semibold tabular-nums">
+                        <span className={TEAM_TEXT.red}>{m.red_score}</span>
+                        <span className="text-text-muted">–</span>
+                        <span className={TEAM_TEXT.blue}>{m.blue_score}</span>
                       </span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-text-muted">{m.player_count}</td>
                 </>
               )}
-              <td className="px-4 py-3 text-right text-text-muted">{duration(m.duration_ms)}</td>
+              <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums text-text-muted">{duration(m.duration_ms)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </TableFrame>
   );
 }
 
@@ -114,15 +113,15 @@ function Winner({ match: m }: { match: MatchSummary }) {
   if (m.end_reason !== "abandoned" && m.winner_name) {
     return (
       <Link href={playerHref({ name: m.winner_name, user: m.winner_user })} className="inline-flex items-center gap-2 hover:text-gold">
-        <Avatar name={m.winner_name} user={m.winner_user} />
+        <PlayerAvatar name={m.winner_name} user={m.winner_user} ring={1} />
         {m.winner_name}
       </Link>
     );
   }
-  const dot = m.end_reason === "abandoned" ? undefined : TEAM_DOT[m.winner ?? ""];
+  const team = m.end_reason === "abandoned" ? null : m.winner;
   return (
-    <span className="inline-flex items-center gap-2">
-      {dot && <span className={`inline-block w-2.5 h-2.5 rounded-full ${dot}`} />}
+    <span className={`inline-flex items-center gap-2 ${m.end_reason === "abandoned" ? "text-text-muted" : ""}`}>
+      <TeamDot team={team} />
       {winnerText(m)}
     </span>
   );
@@ -134,28 +133,25 @@ function Winner({ match: m }: { match: MatchSummary }) {
  * name has no account to have been reported.
  */
 export function PlayerTotalsStrip({ totals, reports }: { totals: PlayerTotals; reports?: number }) {
-  const figures: [string, string][] = [
+  const figures: [string, string, boolean?][] = [
     ["Matches", String(totals.matches)],
-    ["Wins", String(totals.wins)],
+    ["Wins", String(totals.wins), true],
     ["Losses", String(totals.losses)],
     ["Kills", String(totals.kills)],
     ["Deaths", String(totals.deaths)],
-    ["K/D", kd(totals.kills, totals.deaths)],
+    ["K/D", kd(totals.kills, totals.deaths), true],
   ];
   if (totals.captures > 0) figures.push(["Captures", String(totals.captures)]);
   if (reports !== undefined) figures.push(["Reports", String(reports)]);
   return (
     <div>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-3">
-        {figures.map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-border bg-surface px-4 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-text-dim">{label}</div>
-            <div className="text-xl font-bold text-foreground">{value}</div>
-          </div>
+      <StatGrid className="md:grid-cols-4 xl:grid-cols-8">
+        {figures.map(([label, value, accent]) => (
+          <StatTile key={label} label={label} value={value} accent={accent} />
         ))}
-      </div>
+      </StatGrid>
       {totals.weapons.length > 0 && (
-        <p className="mt-3 text-sm text-text-muted">
+        <p className="mt-4 text-sm text-text-muted">
           Most kills with:{" "}
           {totals.weapons.map((w, i) => (
             <span key={w.weapon}>

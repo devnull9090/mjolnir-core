@@ -14,10 +14,18 @@
   --color-border: #21262d;
   --color-border-bright: #30363d;
   --color-text-muted: #8b949e;
-  --color-text-dim: #6e7681;
+  /* 4.5:1 or better on every surface up to surface-card (WCAG AA). */
+  --color-text-dim: #848d97;
   --color-accent-green: #3fb950;
   --color-accent-blue: #58a6ff;
   --color-accent-red: #f85149;
+  /* Podium places. Gold is the brand gold; silver and bronze are tuned to
+     the same lightness so the three read as a set on the dark surfaces. */
+  --color-silver: #c0c7d1;
+  --color-bronze: #cd8a55;
+  /* Team colours, readable as text on every surface (4.5:1 on surface-card). */
+  --color-team-red: #f87171;
+  --color-team-blue: #38bdf8;
   --font-sans: var(--font-geist-sans), "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-geist-mono), "JetBrains Mono", monospace;
 }
@@ -58,6 +66,54 @@ body {
 body > * {
   width: 100%;
   min-width: 0;
+}
+
+/* One keyboard focus ring for the whole site. Pointer clicks never show it.
+   In the base layer so a utility (`focus-visible:outline-none`, an offset)
+   still wins; the outline follows each element's own corner radius. */
+@layer base {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+  }
+}
+
+/* "Skip to content": off screen until a keyboard user tabs onto it. Its own
+   width, not the full-width rule above for body's children. */
+.skip-link {
+  width: max-content;
+  position: absolute;
+  left: 1rem;
+  top: -100px;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: var(--color-gold);
+  color: var(--color-background);
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+/* A card that lifts on hover; still for anyone who asked for less motion. */
+.card-lift {
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.card-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px -16px #000c, 0 0 0 1px var(--color-gold-glow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-lift,
+  .card-lift:hover {
+    transition: none;
+    transform: none;
+  }
 }
 
 /* Animated gradient background */

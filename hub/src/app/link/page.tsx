@@ -20,8 +20,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { KeyRound, ShieldAlert, Upload } from "lucide-react";
 
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { PageShell } from "../components/ui";
 import { useHub } from "../components/HubKit";
 
 interface Pending {
@@ -238,9 +237,7 @@ function LinkForm() {
 
 export default function LinkDevicePage() {
   return (
-    <>
-      <Navbar />
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-xl mx-auto">
+    <PageShell width="xl">
         <h1 className="flex items-center gap-3 text-3xl font-black text-foreground mb-2">
           <KeyRound className="w-7 h-7 text-gold" />
           Link a device
@@ -255,8 +252,6 @@ export default function LinkDevicePage() {
         <Suspense fallback={<div className="h-64" />}>
           <LinkForm />
         </Suspense>
-      </main>
-      <Footer />
-    </>
+    </PageShell>
   );
 }

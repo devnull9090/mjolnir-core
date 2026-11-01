@@ -23,7 +23,7 @@ export function ReleaseCard({
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         {showProduct && (
-          <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium text-text-muted">
+          <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium text-foreground">
             {release.productName}
           </span>
         )}

@@ -5,8 +5,7 @@ import type { Metadata } from "next";
 import { Rocket } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { PageShell } from "../../components/ui";
 import { LAUNCHER_LINK_TITLE } from "../../components/JoinButton";
 import { Markdown } from "../../docs/_components/Markdown";
 import { getModPage } from "@/lib/api/queries";
@@ -87,10 +86,7 @@ export default async function ModDetailPage({
     : `mjolnir://mod/${encodeURIComponent(mod.slug)}`;
 
   return (
-    <>
-      <Navbar />
-
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-5xl mx-auto">
+    <PageShell width="5xl">
         {/* Header */}
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -200,9 +196,6 @@ export default async function ModDetailPage({
             </div>
           </aside>
         </div>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

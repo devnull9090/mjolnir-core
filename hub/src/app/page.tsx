@@ -29,7 +29,7 @@ export default function HomePage() {
   return (
     <>
       <Navbar />
-      <main className="marketing">
+      <main id="main" className="marketing">
         <section className="marketing-hero relative isolate overflow-hidden">
           {/* Published gameplay capture, served unchanged by the hub's media API. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}

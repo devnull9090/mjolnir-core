@@ -15,7 +15,7 @@ export const LAUNCHER_LINK_TITLE = "Opens the MJOLNIR launcher (0.13.0 or newer)
 /** Join a listed game: the launcher starts the game and joins it. */
 export function JoinButton({ lobbyId, full = false }: { lobbyId: string; full?: boolean }) {
   const shape =
-    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap";
+    "inline-flex min-h-9 items-center gap-1.5 px-3 rounded-lg text-sm font-semibold whitespace-nowrap";
   if (full) {
     return (
       <span
@@ -23,7 +23,7 @@ export function JoinButton({ lobbyId, full = false }: { lobbyId: string; full?: 
         title="This game is full."
         className={`${shape} border border-border text-text-dim cursor-not-allowed`}
       >
-        <LogIn className="w-3 h-3" />
+        <LogIn aria-hidden className="w-3.5 h-3.5" />
         Full
       </span>
     );
@@ -34,7 +34,7 @@ export function JoinButton({ lobbyId, full = false }: { lobbyId: string; full?: 
       title={`${LAUNCHER_LINK_TITLE} and joins this game.`}
       className={`${shape} bg-gold/10 text-gold hover:bg-gold/20 transition-colors`}
     >
-      <LogIn className="w-3 h-3" />
+      <LogIn aria-hidden className="w-3.5 h-3.5" />
       Join
     </a>
   );

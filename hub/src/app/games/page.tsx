@@ -1,13 +1,11 @@
-import Link from "next/link";
-import { Users } from "lucide-react";
+import { History, Radio, Users } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
-import { JoinButton } from "../components/JoinButton";
+import { LobbyCard } from "../components/LobbyCard";
+import { ButtonLink, EmptyState, FilterBar, FilterChips, PageHeader, PageShell, SelectNav, ToggleChip } from "../components/ui";
 import { listLobbies } from "@/lib/api/lobby";
 import { listMaps } from "@/lib/api/maps";
-import { GAME_TYPE_NAMES } from "@/kit/types";
+import { GAME_MODES, modeLabel, parseMapCode, parseMode, withQuery } from "@/lib/filters";
 import { marketingMetadata } from "@/lib/marketing";
 
 export const metadata = marketingMetadata(
@@ -19,8 +17,6 @@ export const metadata = marketingMetadata(
 // Live data: never cached.
 export const dynamic = "force-dynamic";
 
-const MODES = ["all", "slayer", "ctf", "team_slayer", "koth", "oddball"];
-
 function num(v: unknown): number | null {
   return v === undefined || v === null || v === "" ? null : Number(v);
 }
@@ -31,8 +27,8 @@ export default async function GamesPage({
   searchParams: Promise<{ map?: string; mode?: string; open?: string }>;
 }) {
   const params = await searchParams;
-  const mode = MODES.find((m) => m === params.mode) ?? "all";
-  const map = /^[A-Z0-9]{3}$/.test(params.map ?? "") ? params.map : undefined;
+  const mode = parseMode(params.mode);
+  const map = parseMapCode(params.map);
   const open = params.open === "1";
 
   const { env, cf } = getCloudflareContext();
@@ -48,129 +44,88 @@ export default async function GamesPage({
     ),
     listMaps(env.DB as never),
   ]);
+  const covers = new Map(maps.map((m) => [m.code, m.cover_url]));
 
-  const qs = (over: Record<string, string | undefined>) => {
-    const merged = { map, mode, open: open ? "1" : undefined, ...over };
-    const u = new URLSearchParams();
-    for (const [k, v] of Object.entries(merged)) if (v && v !== "all") u.set(k, v);
-    const s = u.toString();
-    return s ? `/games?${s}` : "/games";
-  };
+  const href = (over: Record<string, string | undefined>) =>
+    withQuery("/games", { mode, map, open: open ? "1" : undefined, ...over });
+  const players = lobbies.reduce((n, l) => n + l.players, 0);
 
   return (
-    <>
-      <Navbar />
+    <PageShell>
+      <PageHeader
+        eyebrow={
+          <span className="inline-flex items-center gap-2">
+            <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-accent-green motion-reduce:animate-none" />
+            Live now
+          </span>
+        }
+        title="Multiplayer games"
+        description={
+          <>
+            Public games on the classic maps, right now. Join from the game (MULTIPLAYER, then FIND GAMES), or press
+            Join here to open it in the launcher (0.13.0 or newer). Ping is an estimate from where you and the host
+            are.
+          </>
+        }
+        actions={
+          <>
+            <ButtonLink href="/multiplayer">Get multiplayer</ButtonLink>
+            <ButtonLink href="/matches" variant="secondary">
+              <History aria-hidden className="h-4 w-4" />
+              Match history
+            </ButtonLink>
+          </>
+        }
+      />
 
-      <main className="marketing pt-40 md:pt-44 pb-16 px-6 max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-4xl font-black text-foreground mb-3">Campaign Evolved multiplayer games</h1>
-          <p className="text-text-muted text-lg max-w-2xl">
-            Multiplayer games on the classic maps, live now. Join from the game (MULTIPLAYER, then
-            FIND GAMES), or press Join here to open it in the launcher (0.13.0 or newer). Ping is
-            an estimate from where you and the host are.
-          </p>
-          <Link href="/multiplayer" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">Get multiplayer &amp; find your fireteam →</Link>
-          <Link href="/matches" className="mt-4 ml-6 inline-block text-sm font-semibold text-gold hover:underline">Match history →</Link>
-        </div>
-
-        <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">
-          {MODES.map((m) => (
-            <Link
-              key={m}
-              href={qs({ mode: m })}
-              className={`px-3 py-1.5 rounded-full border transition-colors ${
-                m === mode
-                  ? "border-gold/60 text-gold bg-gold/10"
-                  : "border-border text-text-muted hover:text-foreground"
-              }`}
-            >
-              {m === "all" ? "All game types" : (GAME_TYPE_NAMES[m] ?? m)}
-            </Link>
-          ))}
-          <Link
-            href={qs({ open: open ? undefined : "1" })}
-            className={`ml-2 px-3 py-1.5 rounded-full border transition-colors ${
-              open ? "border-gold/60 text-gold bg-gold/10" : "border-border text-text-muted hover:text-foreground"
-            }`}
-          >
+      <FilterBar>
+        <FilterChips
+          label="Game type"
+          options={GAME_MODES.map((m) => ({ label: modeLabel(m), href: href({ mode: m }), active: m === mode }))}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+          <SelectNav
+            label="Map"
+            name="map"
+            value={map ?? ""}
+            action="/games"
+            hidden={{ mode: mode === "all" ? undefined : mode, open: open ? "1" : undefined }}
+            options={[
+              { value: "", label: "All maps", href: href({ map: undefined }) },
+              ...maps.map((m) => ({ value: m.code, label: m.title, href: href({ map: m.code }) })),
+            ]}
+          />
+          <ToggleChip href={href({ open: open ? undefined : "1" })} active={open}>
+            <Users aria-hidden className="h-4 w-4" />
             Has room
-          </Link>
+          </ToggleChip>
         </div>
-        <div className="mb-8 flex flex-wrap items-center gap-1 text-xs">
-          <Link
-            href={qs({ map: undefined })}
-            className={`px-3 py-1.5 rounded-full border transition-colors ${
-              !map ? "border-gold/60 text-gold bg-gold/10" : "border-border text-text-muted hover:text-foreground"
-            }`}
-          >
-            All maps
-          </Link>
-          {maps.map((m) => (
-            <Link
-              key={m.code}
-              href={qs({ map: m.code })}
-              className={`px-3 py-1.5 rounded-full border transition-colors ${
-                map === m.code
-                  ? "border-gold/60 text-gold bg-gold/10"
-                  : "border-border text-text-muted hover:text-foreground"
-              }`}
-            >
-              {m.title}
-            </Link>
+      </FilterBar>
+
+      {lobbies.length > 0 && (
+        <p className="mb-4 text-sm text-text-muted" aria-live="polite">
+          {lobbies.length} game{lobbies.length === 1 ? "" : "s"} · {players} player{players === 1 ? "" : "s"} online
+        </p>
+      )}
+
+      <h2 className="sr-only">Games</h2>
+      {lobbies.length === 0 ? (
+        <EmptyState
+          icon={Radio}
+          title="No games right now"
+          action={<ButtonLink href="/multiplayer">How to host a game</ButtonLink>}
+        >
+          Host one from the game, set it to PUBLIC GAME in the lobby, and it shows up here.
+        </EmptyState>
+      ) : (
+        <ul className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {lobbies.map((l) => (
+            <li key={l.id} className="flex">
+              <LobbyCard lobby={l} coverUrl={covers.get(l.map_code) ?? null} />
+            </li>
           ))}
-        </div>
-
-        {lobbies.length === 0 ? (
-          <div className="flex items-center gap-3 text-text-muted">
-            <Users className="w-5 h-5" />
-            <p>No games right now. Host one from the game, set it to PUBLIC GAME in the lobby, and it shows up here.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-surface-raised text-text-dim text-xs uppercase tracking-wide">
-                <tr>
-                  <th className="text-left px-4 py-3">Game</th>
-                  <th className="text-left px-4 py-3">Map</th>
-                  <th className="text-left px-4 py-3">Game type</th>
-                  <th className="text-right px-4 py-3">Players</th>
-                  <th className="text-right px-4 py-3">Ping</th>
-                  <th className="text-left px-4 py-3">Host</th>
-                  <th className="px-4 py-3">
-                    <span className="sr-only">Join</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {lobbies.map((l) => (
-                  <tr key={l.id} className="border-t border-border">
-                    <td className="px-4 py-3 text-foreground font-medium">
-                      {l.name}
-                      {l.state === "in_game" && (
-                        <span className="ml-2 text-[11px] text-text-dim">in game</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-text-muted">{l.map_title ?? l.map_code}</td>
-                    <td className="px-4 py-3 text-text-muted">{GAME_TYPE_NAMES[l.game_type] ?? l.game_type}</td>
-                    <td className="px-4 py-3 text-right text-foreground">
-                      {l.players}/{l.max_players}
-                    </td>
-                    <td className="px-4 py-3 text-right text-text-muted">
-                      {l.ping_ms === null ? "?" : `~${l.ping_ms} ms`}
-                    </td>
-                    <td className="px-4 py-3 text-text-muted">{l.host}</td>
-                    <td className="px-4 py-3 text-right">
-                      <JoinButton lobbyId={l.id} full={l.state === "full" || l.players >= l.max_players} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </main>
-
-      <Footer />
-    </>
+        </ul>
+      )}
+    </PageShell>
   );
 }

@@ -27,7 +27,7 @@ const rootMaps = [
 
 export default function MultiplayerResearchPage() {
   return (
-    <main className="mx-auto max-w-4xl">
+    <main id="main" className="mx-auto max-w-4xl">
       <aside className="mb-8 border border-gold/30 bg-gold/5 p-5 text-sm leading-7">
         <strong className="text-gold">Looking to play multiplayer?</strong>{" "}
         The multiplayer alpha now includes all 19 classic Halo CE maps with Slayer and CTF.{" "}
