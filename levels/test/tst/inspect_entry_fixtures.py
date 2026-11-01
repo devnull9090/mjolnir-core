@@ -18,7 +18,8 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 ROOT = Path(__file__).resolve().parent
-PLAYER_RADIUS = .40
+# Retail Spartan radius: .175 Halo world units * 3.048 metres per unit.
+PLAYER_RADIUS = .5334
 PLAYER_HEIGHT = 2.40
 EPSILON = .0002
 

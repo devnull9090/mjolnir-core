@@ -1,0 +1,1482 @@
+{
+  "source_blend": "C:\\Users\\will\\.codex\\worktrees\\tst-community-map\\haloce\\levels\\test\\tst\\tst.blend",
+  "source_sha256": "456eaf7634c64b423ba8ee44ec8640e1b2209ab45b593c15da1fe1f4970c8c60",
+  "placements": "C:\\Users\\will\\.codex\\worktrees\\tst-community-map\\haloce\\levels\\test\\tst\\placements.json",
+  "placements_sha256": "7f5ff42895968cbaadada5d84d2e741743b8664d1985601b7c135727dcaa8ac0",
+  "source_unchanged": true,
+  "scope": "Evaluated authored render/BSP meshes and generated placements; excludes native decor and runtime physics.",
+  "player_envelope": {
+    "radius_m": 0.5334,
+    "height_m": 2.4
+  },
+  "fixtures": [
+    {
+      "object": "facility_entry_team_emblem",
+      "backing": "facility_portal_team_plaque",
+      "sample_count": 5,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0150013,
+      "emblem_uv": {
+        "width_m": 0.2933388,
+        "height_m": 0.5866668,
+        "image_aspect": 0.5,
+        "max_mapping_error": 0.0
+      }
+    },
+    {
+      "object": "facility_portal_jamb_lens",
+      "backing": "facility_portal_jamb_lens_housing",
+      "sample_count": 15,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0146866,
+      "emblem_uv": null
+    },
+    {
+      "object": "facility_entry_team_emblem.001",
+      "backing": "facility_portal_team_plaque.001",
+      "sample_count": 5,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0150013,
+      "emblem_uv": {
+        "width_m": 0.293335,
+        "height_m": 0.5866668,
+        "image_aspect": 0.5,
+        "max_mapping_error": 0.0
+      }
+    },
+    {
+      "object": "facility_portal_jamb_lens.001",
+      "backing": "facility_portal_jamb_lens_housing.001",
+      "sample_count": 15,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0146828,
+      "emblem_uv": null
+    },
+    {
+      "object": "facility_portal_lintel_lens",
+      "backing": "facility_portal_lintel_lens_housing",
+      "sample_count": 105,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0149994,
+      "emblem_uv": null
+    },
+    {
+      "object": "facility_entry_team_emblem.002",
+      "backing": "facility_portal_team_plaque.002",
+      "sample_count": 5,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0150013,
+      "emblem_uv": {
+        "width_m": 0.293335,
+        "height_m": 0.5866668,
+        "image_aspect": 0.5,
+        "max_mapping_error": 0.0
+      }
+    },
+    {
+      "object": "facility_portal_jamb_lens.002",
+      "backing": "facility_portal_jamb_lens_housing.002",
+      "sample_count": 15,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0146828,
+      "emblem_uv": null
+    },
+    {
+      "object": "facility_entry_team_emblem.003",
+      "backing": "facility_portal_team_plaque.003",
+      "sample_count": 5,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0150013,
+      "emblem_uv": {
+        "width_m": 0.2933388,
+        "height_m": 0.5866668,
+        "image_aspect": 0.5,
+        "max_mapping_error": 0.0
+      }
+    },
+    {
+      "object": "facility_portal_jamb_lens.003",
+      "backing": "facility_portal_jamb_lens_housing.003",
+      "sample_count": 15,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0146866,
+      "emblem_uv": null
+    },
+    {
+      "object": "facility_portal_lintel_lens.001",
+      "backing": "facility_portal_lintel_lens_housing.001",
+      "sample_count": 105,
+      "max_face_gap_m": 0.0020008,
+      "minimum_frame_embedding_m": 0.0149994,
+      "emblem_uv": null
+    }
+  ],
+  "lift_portals": [
+    {
+      "object": "facility_lift_red_walkthrough_teleporter",
+      "channel": 2,
+      "center_m": [
+        -44.120003,
+        27.9,
+        2.033334
+      ],
+      "max_uv_error": 4e-07,
+      "backwall_probes": [
+        {
+          "origin_m": [
+            -44.120003,
+            27.301201,
+            0.64256
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              27.301201,
+              0.64256
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              27.301201,
+              0.64256
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            27.301201,
+            1.64624
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              27.301201,
+              1.64624
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              27.301201,
+              1.64624
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            27.301201,
+            2.59416
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              27.301201,
+              2.59416
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              27.301201,
+              2.59416
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            27.900002,
+            0.64256
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              27.900002,
+              0.64256
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              27.900002,
+              0.64256
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            27.900002,
+            1.64624
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              27.900002,
+              1.64624
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              27.900002,
+              1.64624
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            27.900002,
+            2.59416
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              27.900002,
+              2.59416
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              27.900002,
+              2.59416
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            28.4988,
+            0.64256
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              28.4988,
+              0.64256
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              28.4988,
+              0.64256
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            28.4988,
+            1.64624
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              28.4988,
+              1.64624
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              28.4988,
+              1.64624
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            -44.120003,
+            28.4988,
+            2.59416
+          ],
+          "near": {
+            "point": [
+              -43.98,
+              28.4988,
+              2.59416
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              -43.800003,
+              28.4988,
+              2.59416
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        }
+      ]
+    },
+    {
+      "object": "facility_lift_blue_walkthrough_teleporter",
+      "channel": 3,
+      "center_m": [
+        44.120003,
+        27.9,
+        2.033334
+      ],
+      "max_uv_error": 4e-07,
+      "backwall_probes": [
+        {
+          "origin_m": [
+            44.120003,
+            27.301201,
+            0.64256
+          ],
+          "near": {
+            "point": [
+              43.98,
+              27.301201,
+              0.64256
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              27.301201,
+              0.64256
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            27.301201,
+            1.64624
+          ],
+          "near": {
+            "point": [
+              43.98,
+              27.301201,
+              1.64624
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              27.301201,
+              1.64624
+            ],
+            "normal": [
+              -1.0,
+              -0.0,
+              -0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            27.301201,
+            2.59416
+          ],
+          "near": {
+            "point": [
+              43.98,
+              27.301201,
+              2.59416
+            ],
+            "normal": [
+              1.0,
+              -0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              27.301201,
+              2.59416
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            27.900002,
+            0.64256
+          ],
+          "near": {
+            "point": [
+              43.98,
+              27.900002,
+              0.64256
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              27.900002,
+              0.64256
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            27.900002,
+            1.64624
+          ],
+          "near": {
+            "point": [
+              43.98,
+              27.900002,
+              1.64624
+            ],
+            "normal": [
+              1.0,
+              -0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              27.900002,
+              1.64624
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            27.900002,
+            2.59416
+          ],
+          "near": {
+            "point": [
+              43.98,
+              27.900002,
+              2.59416
+            ],
+            "normal": [
+              1.0,
+              -0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              27.900002,
+              2.59416
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            28.4988,
+            0.64256
+          ],
+          "near": {
+            "point": [
+              43.98,
+              28.4988,
+              0.64256
+            ],
+            "normal": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              28.4988,
+              0.64256
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            28.4988,
+            1.64624
+          ],
+          "near": {
+            "point": [
+              43.98,
+              28.4988,
+              1.64624
+            ],
+            "normal": [
+              1.0,
+              -0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              28.4988,
+              1.64624
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        },
+        {
+          "origin_m": [
+            44.120003,
+            28.4988,
+            2.59416
+          ],
+          "near": {
+            "point": [
+              43.98,
+              28.4988,
+              2.59416
+            ],
+            "normal": [
+              1.0,
+              -0.0,
+              0.0
+            ],
+            "distance": 0.1400032,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "far": {
+            "point": [
+              43.800003,
+              28.4988,
+              2.59416
+            ],
+            "normal": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "distance": 0.1797981,
+            "object": "TST_sealed_terrain_and_sky"
+          },
+          "thickness_m": 0.1799981
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "channel": 2,
+      "from_m": [
+        -44.599998,
+        27.9,
+        0.35
+      ],
+      "to_m": [
+        -48.0,
+        28.0,
+        7.25
+      ],
+      "return_from_m": [
+        -48.0,
+        30.85,
+        7.25
+      ],
+      "return_to_m": [
+        -47.0,
+        27.9,
+        0.35
+      ],
+      "return_trigger_separation_m": 2.4000015
+    },
+    {
+      "channel": 3,
+      "from_m": [
+        44.599998,
+        27.9,
+        0.35
+      ],
+      "to_m": [
+        48.0,
+        28.0,
+        7.25
+      ],
+      "return_from_m": [
+        48.0,
+        30.85,
+        7.25
+      ],
+      "return_to_m": [
+        47.0,
+        27.9,
+        0.35
+      ],
+      "return_trigger_separation_m": 2.4000015
+    }
+  ],
+  "player_samples": [
+    {
+      "sample": "channel_2_approach_0_0",
+      "xy_m": [
+        -48.0,
+        25.5
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_1",
+      "xy_m": [
+        -47.9444427,
+        25.6333332
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_2",
+      "xy_m": [
+        -47.8888893,
+        25.7666664
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_3",
+      "xy_m": [
+        -47.8333359,
+        25.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_4",
+      "xy_m": [
+        -47.7777786,
+        26.0333328
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_5",
+      "xy_m": [
+        -47.7222214,
+        26.166666
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_6",
+      "xy_m": [
+        -47.6666679,
+        26.2999992
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_7",
+      "xy_m": [
+        -47.6111107,
+        26.4333344
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_8",
+      "xy_m": [
+        -47.5555573,
+        26.5666656
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_9",
+      "xy_m": [
+        -47.5,
+        26.7000008
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_10",
+      "xy_m": [
+        -47.4444427,
+        26.833334
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_11",
+      "xy_m": [
+        -47.3888893,
+        26.9666672
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_12",
+      "xy_m": [
+        -47.3333321,
+        27.0999985
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_13",
+      "xy_m": [
+        -47.2777786,
+        27.2333336
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_14",
+      "xy_m": [
+        -47.2222214,
+        27.3666668
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_15",
+      "xy_m": [
+        -47.1666641,
+        27.5
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_16",
+      "xy_m": [
+        -47.1111107,
+        27.6333332
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_17",
+      "xy_m": [
+        -47.0555573,
+        27.7666664
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_0_18",
+      "xy_m": [
+        -47.0,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_0",
+      "xy_m": [
+        -47.0,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_1",
+      "xy_m": [
+        -46.8588219,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_2",
+      "xy_m": [
+        -46.7176476,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_3",
+      "xy_m": [
+        -46.5764694,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_4",
+      "xy_m": [
+        -46.4352951,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_5",
+      "xy_m": [
+        -46.294117,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_6",
+      "xy_m": [
+        -46.1529388,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_7",
+      "xy_m": [
+        -46.0117645,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_8",
+      "xy_m": [
+        -45.8705902,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_9",
+      "xy_m": [
+        -45.7294083,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_10",
+      "xy_m": [
+        -45.5882339,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_11",
+      "xy_m": [
+        -45.4470596,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_12",
+      "xy_m": [
+        -45.3058815,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_13",
+      "xy_m": [
+        -45.1647034,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_14",
+      "xy_m": [
+        -45.0235291,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_15",
+      "xy_m": [
+        -44.8823509,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_16",
+      "xy_m": [
+        -44.7411766,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_approach_1_17",
+      "xy_m": [
+        -44.5999985,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_2_upper_arrival",
+      "xy_m": [
+        -48.0,
+        28.0
+      ],
+      "floor_m": 7.2000003
+    },
+    {
+      "sample": "channel_2_upper_return_trigger",
+      "xy_m": [
+        -48.0,
+        30.8500004
+      ],
+      "floor_m": 7.2000003
+    },
+    {
+      "sample": "channel_2_indoor_return",
+      "xy_m": [
+        -47.0,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_0",
+      "xy_m": [
+        48.0,
+        25.5
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_1",
+      "xy_m": [
+        47.9444427,
+        25.6333332
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_2",
+      "xy_m": [
+        47.8888893,
+        25.7666664
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_3",
+      "xy_m": [
+        47.8333359,
+        25.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_4",
+      "xy_m": [
+        47.7777786,
+        26.0333328
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_5",
+      "xy_m": [
+        47.7222214,
+        26.166666
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_6",
+      "xy_m": [
+        47.6666679,
+        26.2999992
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_7",
+      "xy_m": [
+        47.6111107,
+        26.4333344
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_8",
+      "xy_m": [
+        47.5555573,
+        26.5666656
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_9",
+      "xy_m": [
+        47.5,
+        26.7000008
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_10",
+      "xy_m": [
+        47.4444427,
+        26.833334
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_11",
+      "xy_m": [
+        47.3888893,
+        26.9666672
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_12",
+      "xy_m": [
+        47.3333321,
+        27.0999985
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_13",
+      "xy_m": [
+        47.2777786,
+        27.2333336
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_14",
+      "xy_m": [
+        47.2222214,
+        27.3666668
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_15",
+      "xy_m": [
+        47.1666641,
+        27.5
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_16",
+      "xy_m": [
+        47.1111107,
+        27.6333332
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_17",
+      "xy_m": [
+        47.0555573,
+        27.7666664
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_0_18",
+      "xy_m": [
+        47.0,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_0",
+      "xy_m": [
+        47.0,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_1",
+      "xy_m": [
+        46.8588219,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_2",
+      "xy_m": [
+        46.7176476,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_3",
+      "xy_m": [
+        46.5764694,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_4",
+      "xy_m": [
+        46.4352951,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_5",
+      "xy_m": [
+        46.294117,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_6",
+      "xy_m": [
+        46.1529388,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_7",
+      "xy_m": [
+        46.0117645,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_8",
+      "xy_m": [
+        45.8705902,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_9",
+      "xy_m": [
+        45.7294083,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_10",
+      "xy_m": [
+        45.5882339,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_11",
+      "xy_m": [
+        45.4470596,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_12",
+      "xy_m": [
+        45.3058815,
+        27.9000015
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_13",
+      "xy_m": [
+        45.1647034,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_14",
+      "xy_m": [
+        45.0235291,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_15",
+      "xy_m": [
+        44.8823509,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_16",
+      "xy_m": [
+        44.7411766,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_approach_1_17",
+      "xy_m": [
+        44.5999985,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    },
+    {
+      "sample": "channel_3_upper_arrival",
+      "xy_m": [
+        48.0,
+        28.0
+      ],
+      "floor_m": 7.2000003
+    },
+    {
+      "sample": "channel_3_upper_return_trigger",
+      "xy_m": [
+        48.0,
+        30.8500004
+      ],
+      "floor_m": 7.2000003
+    },
+    {
+      "sample": "channel_3_indoor_return",
+      "xy_m": [
+        47.0,
+        27.8999996
+      ],
+      "floor_m": 0.3
+    }
+  ],
+  "issues": [],
+  "issue_count": 0
+}
