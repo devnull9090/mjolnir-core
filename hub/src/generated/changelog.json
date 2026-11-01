@@ -39,6 +39,66 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.20.0",
+      "tag": "launcher-v0.20.0",
+      "title": "The launcher updates itself first",
+      "date": "2026-11-01",
+      "summary": "When the launcher is out of date it updates itself before anything else, then restarts and finishes the rest. A launch never starts an out-of-date game.",
+      "body": "### Changed\n\n- **The launcher updates itself first.** The check before a launch, the\n  Updates screen and the game's own \"out of date\" prompt now include the\n  launcher. When it is behind, it installs only the launcher and restarts.\n  The new launcher then checks again, installs the remaining updates and\n  starts the game (or, from the Updates screen, applies the rest of what you\n  picked). Changes to how updates are installed are always in place before\n  they are used.\n- **No launching out of date.** When updates or damaged files are found, the\n  launch dialog offers **Update and launch** and **Cancel**: everyone in a\n  fireteam needs the same versions. A failed step offers **Try again**.\n  Being offline still never blocks a launch, and neither do mods MJOLNIR\n  did not install (you are still asked whether to move them aside).",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "The launcher updates itself first. The check before a launch, the Updates screen and the game's own \"out of date\" prompt now include the launcher. When it is behind, it installs only the launcher and restarts. The new launcher then checks again, installs the remaining updates and starts the game (or, from the Updates screen, applies the rest of what you picked). Changes to how updates are installed are always in place before they are used.",
+            "No launching out of date. When updates or damaged files are found, the launch dialog offers Update and launch and Cancel: everyone in a fireteam needs the same versions. A failed step offers Try again. Being offline still never blocks a launch, and neither do mods MJOLNIR did not install (you are still asked whether to move them aside)."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.20.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.20.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.20.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.40.0",
+      "tag": "mods-v0.40.0",
+      "title": "Bots on red and blue",
+      "date": "2026-11-01",
+      "summary": "In team games bots play for red and blue and leave their own side alone. Bots no longer stand still for minutes, and the post-game vote shows each option as a tile.",
+      "body": "### Added\n\n- **Bots play for red and blue in team games** (MJOLNIRHud 0.14.2,\n  MJOLNIRLobby 0.19.0). Each bot joins the side with fewer players. It\n  leaves players of its own side alone and fights the other side's bots and\n  players. Kills between bots reach the kill feed, the scoreboard and the\n  team score, and a player who kills a bot of their own side is counted a\n  betrayal.\n- **Bots come in where their side is** (MJOLNIRHud 0.14.2), away from\n  enemies and never on top of anyone, as the game's own respawns bring\n  players in. This needs a map released after this one (it ships the map's\n  `bots.json`); on an older map each bot keeps its fixed start.\n- **The post-game vote as tiles** (MJOLNIRLobby 0.19.0): each option shows\n  its map's screenshot, the game type's icon, its votes and its share of\n  them, with a countdown in the header. The winner is ringed in gold as\n  NEXT GAME. The tiles need the next CE runtime pack; with the current one\n  the vote looks as before.\n\n### Fixed\n\n- **Bots that stood still for minutes** (MJOLNIRHud 0.14.2). A bot's body\n  could stay asleep while its AI wanted to move, so it stood and took fire\n  without turning. Every order now wakes it. A bot that is still stuck after\n  a minute is placed again.\n- **Bots hunted the wrong player** (MJOLNIRHud 0.14.2) when the seats in use\n  had gaps.\n- **Bots in a team game no longer shoot players of their own side**\n  (MJOLNIRLobby 0.19.0).\n\n### Known issues\n\n- Elites can jam their heads under the lintels of Blood Gulch's side doors.\n- Bots leaving Blood Gulch's flag rooms, bots on Night Lockout, and bots\n  spreading over the whole map need the maps rebaked with this release's\n  tools and released again.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Bots play for red and blue in team games (MJOLNIRHud 0.14.2, MJOLNIRLobby 0.19.0). Each bot joins the side with fewer players. It leaves players of its own side alone and fights the other side's bots and players. Kills between bots reach the kill feed, the scoreboard and the team score, and a player who kills a bot of their own side is counted a betrayal.",
+            "Bots come in where their side is (MJOLNIRHud 0.14.2), away from enemies and never on top of anyone, as the game's own respawns bring players in. This needs a map released after this one (it ships the map's bots.json); on an older map each bot keeps its fixed start.",
+            "The post-game vote as tiles (MJOLNIRLobby 0.19.0): each option shows its map's screenshot, the game type's icon, its votes and its share of them, with a countdown in the header. The winner is ringed in gold as NEXT GAME. The tiles need the next CE runtime pack; with the current one the vote looks as before."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Bots that stood still for minutes (MJOLNIRHud 0.14.2). A bot's body could stay asleep while its AI wanted to move, so it stood and took fire without turning. Every order now wakes it. A bot that is still stuck after a minute is placed again.",
+            "Bots hunted the wrong player (MJOLNIRHud 0.14.2) when the seats in use had gaps.",
+            "Bots in a team game no longer shoot players of their own side (MJOLNIRLobby 0.19.0)."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Elites can jam their heads under the lintels of Blood Gulch's side doors.",
+            "Bots leaving Blood Gulch's flag rooms, bots on Night Lockout, and bots spreading over the whole map need the maps rebaked with this release's tools and released again."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.40.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.40.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.40.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.39.0",
