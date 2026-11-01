@@ -982,6 +982,205 @@ pub fn shell_collision(sbsp: &[u8]) -> Result<Collision, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Which instanced geometry instances of a `scenario_structure_bsp` payload
+/// place a copy of `shell`: unrotated and unscaled, their definition's
+/// collision has the shell's surfaces and edges, and every vertex lands on
+/// the shell's own once moved to the instance's position.
+///
+/// A converted map carries its collision twice, as the shell and as such a
+/// copy, and a biped standing on the copy reports the copy's surface. The
+/// simulation looks for the sector under it through the instance's
+/// `instanced geometry refs` entry, never the shell's refs, and the bake
+/// gives instances no pathfinding object, so an AI there is on no sector and
+/// keeps the last place it stood on the shell (docs/re/ai_in_multiplayer.md
+/// "The flag rooms", where giving the copy the shell's refs as an object
+/// crashed the game).
+pub fn shell_copies(sbsp: &[u8], shell: &Collision) -> Result<Vec<bool>, String> {
+    Ok(copy_drops(sbsp, shell)?
+        .into_iter()
+        .map(|d| d.is_some())
+        .collect())
+}
+
+/// How far a copy's vertices may land off the shell's and still count as
+/// the shell's: well past the f32 rounding and [`COPY_DROP`], well short of
+/// any real difference in geometry.
+const COPY_TOLERANCE: f32 = 1e-2;
+
+/// For each instance, how far down from the shell its copy of it sits (the
+/// mean of the shell's vertex heights less the copy's, so [`COPY_DROP`] once
+/// the bake has lowered it); None for an instance that is not a copy.
+fn copy_drops(sbsp: &[u8], shell: &Collision) -> Result<Vec<Option<f64>>, String> {
+    use blam_tag::blockedit::find_block;
+    let tag = blam_tag::TagFile::parse(sbsp, None).map_err(|e| e.to_string())?;
+    let layout = tag.layout().map_err(|e| e.to_string())?;
+    let root = tag.read_data(&layout).map_err(|e| e.to_string())?;
+    let found = find_block(&layout, sbsp, &root, "instanced geometry instances")
+        .map_err(|e| format!("{e:?}"))?;
+    let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let mut out = Vec::new();
+    for i in 0..found.block.count as usize {
+        let b = found
+            .block
+            .element(i)
+            .ok_or_else(|| format!("instance {i}"))?;
+        // scale, forward, left, up, position; the definition index at 52
+        let axes = [1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let unmoved = (0..10).all(|k| (f(b, k * 4) - axes[k]).abs() < 1e-4);
+        let pos = [f(b, 40), f(b, 44), f(b, 48)];
+        let def = i16::from_le_bytes([b[52], b[53]]);
+        let copy = if !unmoved || def < 0 {
+            None
+        } else {
+            let base = crate::transplant::definition(def as usize);
+            let get = |n: &str| -> &[u8] {
+                find_block(&layout, sbsp, &root, &format!("{base}.{n}"))
+                    .map(|f| f.block.elements)
+                    .unwrap_or(&[])
+            };
+            let t = crate::unpack16::Tables {
+                bsp3d_nodes: get("bsp3d nodes"),
+                planes: get("planes"),
+                leaves: get("leaves"),
+                bsp2d_references: get("bsp2d references"),
+                bsp2d_nodes: get("bsp2d nodes"),
+                surfaces: get("surfaces"),
+                edges: get("edges"),
+                vertices: get("vertices"),
+            };
+            crate::unpack16::unpack(&t).ok().and_then(|(d, _)| {
+                let same = d.surfaces.len() == shell.surfaces.len()
+                    && d.edges.len() == shell.edges.len()
+                    && d.vertices.len() == shell.vertices.len()
+                    && !d.vertices.is_empty()
+                    && d.surfaces
+                        .iter()
+                        .zip(&shell.surfaces)
+                        .all(|(a, b)| a.first_edge == b.first_edge)
+                    && d.vertices.iter().zip(&shell.vertices).all(|(a, b)| {
+                        (0..3).all(|k| (a.point[k] + pos[k] - b.point[k]).abs() < COPY_TOLERANCE)
+                    });
+                same.then(|| {
+                    let below: f64 = d
+                        .vertices
+                        .iter()
+                        .zip(&shell.vertices)
+                        .map(|(a, b)| b.point[2] as f64 - (a.point[2] as f64 + pos[2] as f64))
+                        .sum();
+                    below / d.vertices.len() as f64
+                })
+            })
+        };
+        out.push(copy);
+    }
+    Ok(out)
+}
+
+/// How far [`lower_shell_copies`] lowers a copy of the shell, in wu: a third
+/// of a millimetre, and twenty times the f32 rounding between the two (the
+/// copy's planes sit 4e-6 wu off the shell's at the median, 4.4e-5 at most,
+/// on Blood Gulch, whose copy is placed 113 wu off its definition's origin;
+/// `pf_where <sbsp> copyz`).
+pub const COPY_DROP: f32 = 0.001;
+
+/// Lower every instance that places a copy of the shell ([`shell_copies`])
+/// by `drop` wu, in place; how many it moved. Where the two meet a query at
+/// one height the rounding decides which it reports, and on Blood Gulch the
+/// copy took the flag-room floors and much of the rest: an AI there was on no
+/// sector, could not plan, and stood or wandered (follower state 3 in 29 to
+/// 48% of samples over four matches). With the copy just below the shell,
+/// none in a match (0.35%; docs/re/ai_in_multiplayer.md "The flag rooms").
+/// A copy already half that far down is left alone, so lowering twice
+/// lowers once.
+pub fn lower_shell_copies(sbsp: &mut [u8], drop: f32) -> Result<usize, String> {
+    use blam_tag::blockedit::find_block;
+    let shell = shell_collision(sbsp)?;
+    let copies: Vec<bool> = copy_drops(sbsp, &shell)?
+        .into_iter()
+        .map(|d| d.is_some_and(|below| below < drop as f64 / 2.0))
+        .collect();
+    let at: Vec<usize> = {
+        let tag = blam_tag::TagFile::parse(sbsp, None).map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let root = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        let found = find_block(&layout, sbsp, &root, "instanced geometry instances")
+            .map_err(|e| format!("{e:?}"))?;
+        let start = sbsp.as_ptr() as usize;
+        copies
+            .iter()
+            .enumerate()
+            .filter(|(_, &copy)| copy)
+            .map(|(i, _)| {
+                // the position's z, after scale and the three axes
+                found
+                    .block
+                    .element(i)
+                    .map(|b| b.as_ptr() as usize - start + 48)
+                    .ok_or_else(|| format!("instance {i}"))
+            })
+            .collect::<Result<_, _>>()?
+    };
+    for &o in &at {
+        let z = f32::from_le_bytes(sbsp[o..o + 4].try_into().unwrap()) - drop;
+        sbsp[o..o + 4].copy_from_slice(&z.to_le_bytes());
+    }
+    Ok(at.len())
+}
+
+/// How far each surface of instance `instance`'s definition sits off the
+/// shell's along the surface's normal, the definition's plane moved to the
+/// instance's position less the shell's, in f64 (positive: the copy's is in
+/// front); empty unless the instance places a copy of the shell.
+pub fn copy_offsets(sbsp: &[u8], shell: &Collision, instance: usize) -> Result<Vec<f64>, String> {
+    use blam_tag::blockedit::find_block;
+    if !shell_copies(sbsp, shell)?
+        .get(instance)
+        .copied()
+        .unwrap_or(false)
+    {
+        return Ok(Vec::new());
+    }
+    let tag = blam_tag::TagFile::parse(sbsp, None).map_err(|e| e.to_string())?;
+    let layout = tag.layout().map_err(|e| e.to_string())?;
+    let root = tag.read_data(&layout).map_err(|e| e.to_string())?;
+    let found = find_block(&layout, sbsp, &root, "instanced geometry instances")
+        .map_err(|e| format!("{e:?}"))?;
+    let b = found.block.element(instance).ok_or("instance")?;
+    let f = |o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as f64;
+    let pos = [f(40), f(44), f(48)];
+    let base = crate::transplant::definition(i16::from_le_bytes([b[52], b[53]]) as usize);
+    let get = |n: &str| -> &[u8] {
+        find_block(&layout, sbsp, &root, &format!("{base}.{n}"))
+            .map(|f| f.block.elements)
+            .unwrap_or(&[])
+    };
+    let t = crate::unpack16::Tables {
+        bsp3d_nodes: get("bsp3d nodes"),
+        planes: get("planes"),
+        leaves: get("leaves"),
+        bsp2d_references: get("bsp2d references"),
+        bsp2d_nodes: get("bsp2d nodes"),
+        surfaces: get("surfaces"),
+        edges: get("edges"),
+        vertices: get("vertices"),
+    };
+    let (d, _) = crate::unpack16::unpack(&t).map_err(|e| format!("{e:?}"))?;
+    let plane = |c: &Collision, p: i32| c.planes.get((p & 0x7fff_ffff) as usize).copied();
+    Ok(shell
+        .surfaces
+        .iter()
+        .zip(&d.surfaces)
+        .map(|(s, c)| match (plane(shell, s.plane), plane(&d, c.plane)) {
+            (Some(p), Some(q)) => {
+                let sign = if s.plane < 0 { -1.0 } else { 1.0 };
+                let moved = q.d as f64 + (0..3).map(|k| q.n[k] as f64 * pos[k]).sum::<f64>();
+                sign * (moved - p.d as f64)
+            }
+            _ => 0.0,
+        })
+        .collect())
+}
+
 /// How many instanced geometry instances a `scenario_structure_bsp` payload
 /// places (the scenario's `instanced geometry refs` hold one per instance).
 pub fn instance_count(sbsp: &[u8]) -> Result<usize, String> {

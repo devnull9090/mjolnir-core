@@ -327,7 +327,7 @@ is the object's index, the same as `live objects` prints). A unit killed by
 
 Measured on Blood Gulch, Team Slayer, PC 1, 2026-10-31, with eight HUD bots
 and the host idle, positions read every second with `mjolnir live objects`.
-Two different things kept bots still for minutes.
+Three different things kept bots still for minutes.
 
 ### A sleeping body
 
@@ -372,56 +372,265 @@ never woke it. Why not is not known.
 Blood Gulch's bases have a lower floor (z -0.29) under the deck (z 1.70),
 where the flag stands, open to the deck through a hole in its middle and to
 the outside through a ramp at each end. The bots that stood longest were
-there, on both bases, and waking them did not help:
+there, on both bases, and waking them did not help: a jackal stayed over
+half an hour, a grunt over 20 minutes; ordered elsewhere every 2 s, each
+walked about the room, to the foot of an exit ramp and back, and stopped.
+The trapped grunt and jackal held paths (four points from actor `+0x8c8`)
+that began at the foot of an exit ramp and did not change with their orders.
 
-- a blue jackal stood still on the south base's lower floor for the whole of
-  a 15-minute log (it had been in the room at least 9 minutes before), and a
-  red grunt on the north base's for 10;
-- woken and ordered every 2 s to an area with no firing position in the
-  room, for 30 s, each walked about the room and stopped: the grunt at the
-  foot of the north exit ramp, where it turned back, the jackal in a corner.
-  In the next match a jackal in the north room walked 0.5 wu up the north
-  exit ramp (z -0.19) and turned back the same way (whether it left later
-  was not followed);
-- the red Spartan and earlier elites that came to rest there stopped in
-  corners beside the side ramps.
+**The bots stand on a copy of the map's collision.** A converted map's
+collision is there twice: as the BSP's collision shell, and as instanced
+geometry instance 0, whose definition is a copy of the shell (the same
+surfaces and edges in the same order, its vertices offset by the instance's
+position; `pf_where <sbsp> copies`). The BSP's Havok body, what bipeds stand
+on, lists the copy's surfaces ([../ce_map_conversion.md](../ce_map_conversion.md)
+"The structure BSP"). A biped's ground record in its unit datum says which
+one it stands on: `+0x9e4` the collision surface, `+0x9e8` the sector
+(`sector << 16 | structure bsp`), `+0x9ec` the instance, -1 for the shell.
+Every bot's records, read twice a second (PC 1, 2026-10-31; one match of
+150 s and three of 9 to 10 minutes, in one of which four bots were
+teleported into the rooms with cutscene flags):
 
-The generated pathfinding joins the room to the rest of the map: the room's
-floor and its exit ramps are walkable sectors of the map's one connected
-area, and the fewest-sector route out runs up an exit ramp
-(`crates/blam-sbsp/examples/pf_where.rs`, `route`). The trapped grunt and
-jackal each held a path in their actors (four floor-level points 0x1c apart
-from `+0x8c8`) that runs around the flag on its east side from one end of
-the room to the other, which neither followed; it did not change with their
-orders. The sector an actor stands on is not stored in its actor or unit
-record as a sector or surface index, or as a pointer into the `sectors`
-block (all three searched for eight actors), so where the simulation thinks
-a trapped bot is was not read. Leads not yet tested: four weapons lie on the
-floor around each flag (an assault rifle, a plasma rifle and two shotguns,
-one to each side), the east shotgun on that path; the room is the only
-ground on the map under another floor.
+| Where | On the copy |
+|---|---|
+| The flag-room floors | 87 to 100% (1,105 records, from the three matches with bots there) |
+| Their exit ramps | 15 to 100% |
+| Everywhere else | 39 to 69% |
+
+**On the copy an AI is on no sector.** `FUN_180140ac0` (sim) turns a
+contact into the AI's location through `FUN_180139e00` and `FUN_18013a080`.
+For the shell it reads the shell's `bsp2d refs`; for an instance it reads
+the instance's `instanced geometry refs` entry (`pathfinding object_index`)
+and that object's refs. The bake gives every instance -1, and no record on
+the copy carried a sector (0 of about 21,000 in five matches). The actor
+then keeps the last place it stood on the shell (actor `+0x4f0`, the sector;
+`+0x4f4`, the point). A bot with a path walks it on the copy (bots crossed 50
+to 90 wu without a record on the shell); one that needs a new path plans
+from that last place, and when `FUN_180099e30` cannot resolve its movement
+goal from there the path is dropped (actor `+0x87c` 0), the follower's state
+(`+0x874`) is 3 and its count of failures (`+0x878`) climbs. The bot does
+whatever else its AI does, and wanders, until a record on the shell gives it
+a location again. In four matches the follower was in state 3 in 29 to 48%
+of all samples. On the flag-room floors the shell hardly ever came, so a bot
+left only if its wandering took it onto an exit ramp; beside the bases it
+came late too.
+
+Seen in a match (eight HUD bots, four teleported into the rooms with
+cutscene flags, paths read four times a second):
+
+- an elite in the south room kept, for two minutes, the goal and one-point
+  path it had before the teleport (state 3), while the HUD's orders changed
+  its squad's task three times; it wandered the room, stepped onto the foot
+  of the north exit ramp and planned at once (a four-point path out, state
+  1) and walked out;
+- a jackal in the north room's middle, between the wall slabs, stayed 3
+  minutes, until it wandered into the north wing and up the ramp;
+- bots that had walked in planned paths on the ramps and fell back to state
+  3 each time they stepped onto the floor.
+
+The stored paths fit: each began where its bot last stood on the shell, the
+foot of an exit ramp. In a match with no teleports a bot wandered the south
+room for over five minutes (still there when the log stopped), and the HUD
+(below) placed 19 bots again in 10 minutes, 10 of which the simulation shows
+never left a 6.5 wu circle in those 55 s, beside or inside a base, in state
+3 most of the time.
+
+**Rounding picks the copy; the bake lowers it.** The copy's planes, moved to
+the instance's position, sit 4.2e-6 wu off the shell's at the median and
+4.4e-5 at most (`pf_where <sbsp> copyz`): the copy is placed 113 wu from its
+definition's origin, where an f32 holds about 8e-6. Which of two such
+surfaces a query meets is down to that rounding. Of the 222 surfaces bots
+stood on often (8 records or more in four matches) whose copy's plane is in
+front of the shell's, 195 gave the copy in 95% of their records or more; the
+2 that gave the shell so both have the copy's plane behind. Since 2026-10-31 the bake lowers every
+copy of the shell 0.001 wu (`blam_sbsp::pathfinding::lower_shell_copies`),
+twenty times the largest offset and a third of a millimetre. Three
+10-minute matches on Blood Gulch, eight bots and the host idle, the first on
+the earlier bake and two with the lowered copy (the game held the lowered
+position; the other five instances kept theirs):
+
+| | Copy at the shell's height | Lowered | Lowered |
+|---|---|---|---|
+| Follower in state 3 | 47% of samples (3,185 of 6,767) | 0.35% (25 of 7,057) | 0.38% (21 of 5,533) |
+| Following a path (state 1) | 20% | 56% | 60% |
+| Cached sector changed over a 2 wu walk on the copy | 73% | 92% | 92% |
+| Longest stay in a flag room | over 5 minutes | 53 s | 11 s |
+| Bots the HUD placed again | 19 | 12 | 12 |
+
+The copy still takes half the records or more (50 and 57% in the open; on
+the flag-room floors from 49% to all of them, over few records), and 226 of
+the 423 surfaces read 8 times or more still gave the copy in 95% of their
+records (329 of 458 before), yet the AI keeps its place: what it plans from
+does not follow that record alone.
+
+**Not the cause.** The weapons around the flag: an AI steers around the
+pathfinding spheres of objects within 6 wu (`FUN_180177710`, object types
+`0x14cb`, no weapons), no ordinary object in this game has a collision
+model (the shipped ones are a hologram, an explosion and Seraph debris), and
+the obstacle planner `FUN_18016d150` is off (`0x182c2ea48` 0). The teleporter
+sender over one exit is a data pad without a collision model, and the
+Banshee over the other is not spawned in Slayer. The graph: every sector's
+ring holds all its links (`pf_where <sbsp> rings`). The walls do lean over
+the floor (0.1 to 0.2 wu at 0.8 wu up, more under the side ramps beside the
+flag; `pf_where <sbsp> overhang`), but bots are 0.15 to 0.18 wu in radius,
+and lowering the copy ended the stays without touching the walls.
+
+**The copy cannot be given pathfinding.** An object for it (`object refs[0]`
+with one BSP entry whose refs are the shell's, and `instanced geometry
+refs[0]` 0) lets the copy's surfaces find the shell's sectors, and the game
+crashed (an access violation in ntdll, with no Unreal crash report) 2 to 5 s
+after the bots began to move, twice. With every ref -1 it crashed after 27
+s. Bungie's objects carry sectors and vertices of their own (`vertex
+offset`), which these do not.
+
+**What the HUD does.** For bots that stay put for any reason (lost on a
+map's copy, a body that stays asleep, an elite under a lintel, a bot idle
+under its orders), the HUD gets a bot out: one that stays within 6 wu for 40
+s is woken and sent to an area that does not hold it, and if 15 s later it
+has neither left nor reached that area, it is erased and placed again on a
+start, as a respawn without a death ([../bots.md](../bots.md) "Stuck bots are
+placed again"). The areas come from the map's `bots.json`, which the same
+bake writes. Wandering wider than 6 wu defeats it: the bot in the south room
+above moved about the room and was never sent.
+
+It goes by the bot's actor, and a placement sometimes takes an actor that
+stays where the bot came in while the bot walks off: six of the first eight
+bots in one match, their actors exactly on their starts (the five read each
+carried its bot's unit index as `BlamObjectGameStateIdentifier`), and three
+more in the third match above. Placing such a bot again only takes another such
+actor (in a run without the next rule, one bot was placed again five times
+in five minutes), so the HUD judges only a bot whose actor it has seen move
+since placing it. That leaves the HUD blind to those bots: it reads deaths
+from the actor too.
+
+In the table's matches the simulation shows, of the bots placed again, 10 of
+19 that never left a 6.5 wu circle in those 55 s on the earlier bake, in
+state 3 most of the time, and 6 of 12 and 5 of 12 on the lowered copy, idle
+(state 0; one bot through four lives) or following a path without moving.
+The rest were bots whose actors stood 5 to 27 wu from any bot, or that moved
+more than 6.5 wu by the simulation's reading, which the HUD reads at other
+moments. The third match ran without the rule above.
 
 ### Elites in the side doorways
 
 The ramp from each base's deck down to a side door (sectors 1823 and 1902 on
 the north base, 1824 and 1903 on the south) climbs 1.57 wu over 2.6 wu and
-passes under the door's lintel, a slab whose underside is at z 1.50. At the
-lintel's inner edge the ramp is at z 0.68, leaving 0.82 wu; an elite stands
-0.8 wu (`elite_ai` biped, `height standing`), lifted about 0.03 more by the
-slope, against 0.65 for the Spartan, 0.7 for the jackal and 0.55 for the
-grunt. An elite walking down from the deck therefore stops with its centre
-one radius (0.18) short of the edge. Seen twice at exactly that spot: on
-the south base's west ramp at (91.5, -159.5, 0.83) for five minutes, and on
-the north base's east ramp at (44.18, -79.26, 0.83), facing the door, its
-position twitching by a few hundredths across the ramp and its facing by a
-few degrees, x fixed, until it turned back up and jumped off the deck's rim.
-The generated pathfinding has no idea of headroom: Bungie's sector flags
-include `crouchable` (0x400), never set by the bake. Whether the AI crouches
-through a sector so flagged is not known: setting it live on the ramp's
-sector came too late, the elite had already left.
+passes under the door's lintel, a slab whose underside is at z 1.50 (the
+south-west one is surface 4333, x 90.59 to 91.31). At the lintel's inner edge
+the ramp is at z 0.68, leaving 0.82 wu; an elite stands 0.8 wu (`elite_ai`
+biped, `physics.height standing`; crouching 0.69, radius 0.18), against 0.65
+for the Spartan, 0.7 for the jackal and 0.55 for the grunt. Seen twice on its
+own and again on purpose (below) at the same spot: on the south
+base's west ramp at (91.5, -159.5, 0.83) for five minutes, and on the north
+base's east ramp at (44.18, -79.26, 0.83), facing the door, its position
+twitching by a few hundredths across the ramp and its facing by a few
+degrees, x fixed, until it turned back up and jumped off the deck's rim.
+
+**Why there.** The body is an upright capsule, and on the ramp its origin
+stands 0.036 above the surface (measured; a radius-0.18 sphere resting on a
+31° slope sits 0.03 higher than on flat ground). Walking down, its top
+reaches the lintel's lower inner corner before its axis is under it: a
+capsule of height h and radius r reaches (h − r)·n_z + r + lift·n_z out from
+the ramp's plane (n_z = 0.856), and the corner is 0.82·n_z = 0.70 out. For
+the elite that is 0.742, so it touches with its centre 0.17 to 0.19 uphill of
+the edge, where it stands. The rule gives h ≤ 0.754 for this ramp, but
+measured with the capsule itself (below) 0.72 jams and 0.71 passes, so the
+real limit is about 0.04 under the rule (why is not traced). A crouched
+elite (0.69), the jackal (0.7, radius 0.18), the
+Spartan (0.65, 0.175) and the grunt (0.55, 0.15) are under that limit.
+
+**`crouchable` does nothing.** Bungie's sector flags include `crouchable`
+(0x400). The bake never sets it, nor do the shipped scenarios read above (B40,
+A30, A50, B30, C10, D20).
+Tested live on PC 1, 2026-10-31, Blood Gulch Slayer with the HUD's bots
+cleared: `elite_legendary_13`, blind and deaf, placed on the south deck and
+ordered to `area_0` (the route runs down ramp 1824):
+
+- it jammed at (91.50, -159.5, 0.83), three runs out of three;
+- the `sectors` block, found by a run of its bytes (`pf_where hex`), exists
+  once in all the game's readable memory, so that copy is the one the AI
+  reads. Setting 0x400 on 1824 while the elite stood jammed changed nothing
+  in 30 s, nor did ordering it to another area and back;
+- with 0x400 on all four ramps, the elite erased, placed again and ordered,
+  it jammed at the same spot.
+
+The simulation's code agrees. An actor's stance is decided once a tick
+(sim+0x9bb40) and handed to sim+0x611d0, which sets the unit's crouch (actor
+`+0x7f8` bit 4, `+0xca0` bit 0): the value is the actor's crouch request at
+`+0x790` or `+0x791` (or `+0x6b8 == 1` in another mode). About twenty
+functions write `+0x790`, each from its own state: sim+0xb55a0 compares a
+value at `+0x5f4` (the actor's danger, it seems) with two thresholds of its
+character, sim+0xc5960, sim+0xbc160 and sim+0x176280 copy it from their own
+records, and `cs_crouch`'s evaluator (sim+0x1dd310) writes the command
+script's `+0x169`, which sim+0x90690 copies to `+0x790` and `+0x791`. None of
+them reads the path or the sector under the actor. The only other caller of
+sim+0x611d0 (sim+0x5e5bc0) clears crouch.
+
+**Leaving the ramps out strands the decks.** Without sectors 1823, 1824, 1902
+and 1903 each deck is an island of 85 sectors (`pf_where <sbsp> cut
+1823,1824,1902,1903 <points>`): the ramps are the only walking way onto a
+deck, and four of the fifteen bot starts stand there. An elite on a deck
+still leaves by dropping over its rim (seen), but no bot could walk in to a
+player there.
+
+**The capsule is built at load.** What collides is not `physics.height
+standing` but `physics.pill shapes`, empty in the shipped tag and filled at
+load from the two heights and the radius. Its two elements are Havok
+capsules in place (`hkpCapsuleShape`: vtable, type 5, radius at `+0x40`,
+vertices at `+0x50` and `+0x60`): standing from z 0.18 to 0.62 with radius
+0.18 (0.8 tall), crouching to 0.51 (0.69). Every `elite_ai` uses them, so a
+write to the standing element's upper vertex (z at `+0x58`) changes elites
+already placed. Writing `height standing` (`mjolnir poke ... --field
+"physics.height standing"`) changes the root scalar only: elites placed after
+setting it to 0.76, 0.73 or 0.5 jammed as at 0.8. `mjolnir poke` cannot
+reach the pill, since it follows the file's block counts (0 here). The block
+field sits at the root's `+0x604` ({count 2, encoded offset, definition});
+the elements are at segment 1's base (`mjolnir live status`) plus the
+encoded offset × 4.
+
+**Tested with the capsule** (PC 1, 2026-10-31, Blood Gulch Slayer, the
+standing capsule's upper vertex written live):
+
+- down: `elite_legendary_13`, placed seven times and ordered to `area_0`,
+  took ramp 1824 four times and jammed at (91.50, -159.64, 0.83). The other
+  three times it walked over the lintel's top and dropped through the
+  opening above the door (deck floor 1.70 to 2.53), at 0.8 like the rest.
+  With one jammed, a capsule of 0.73 (twice) or 0.72 moved it 0.05 to 0.08
+  on down the ramp, where it stopped again; 0.71, 0.70 and 0.48 (once each)
+  let it walk out of the door at once;
+- up: eight HUD elites (bot type elite) hunting the host, who stood
+  unhurtable on the north deck. At 0.70 two of them passed the lintel of the
+  north base's west ramp (1902) going up four times in two minutes and
+  reached the deck three times (one climb turned back at the ramp's top),
+  and walked back down it. Back at 0.8 with the same bots, two climbs in 2.5
+  minutes stopped
+  at (35.81, -79.0, 0.67), 0.1 short of the lintel's inner edge (x 35.91),
+  held 5 to 7 s and backed down.
+
+An elite passes with a standing capsule of 0.71 or less; 0.70 leaves 0.01
+spare.
 
 ## Open
 
+- **The copy's records**: lowered, the copy still takes about half of a
+  biped's ground records (the Havok body lists its surfaces), and the AI no
+  longer loses its place; what its location is read from instead is not
+  traced. Other converted maps get the lowered copy at their next bake;
+  none but Blood Gulch is measured.
+- **A bot that will not move on the shell**: on Blood Gulch a Spartan with a
+  valid location picked a new goal every half second under an area order
+  and stayed where it was for 46 s (its path built, then dropped). Not
+  explained; the HUD's sending away and placing again covers it.
+- **Elites under low lintels**: no path data makes an AI crouch, so an
+  elite passes Blood Gulch's side doors only with a lower standing capsule;
+  0.70 passes both ways (tested live). Two ways to ship it: the lobby DLL
+  writes the standing pill's upper vertex (z 0.52 for 0.70) in bot matches
+  and puts it back after, finding it through the tag table and the block's
+  encoded offset; or an override of the tag with `height standing` 0.70,
+  from which the load should build the same pill (inferred from the built
+  values, not tried), which lowers campaign elites too. The render model
+  does not change, so an elite's head may show through low ceilings it now
+  fits under (not looked at).
 - **Havok proxies**: the simulation keeps 16 (`havok proxies`,
   `[TLS+0x268]`, 0x50 bytes each, the object's handle at `+0x44`). On Blood
   Gulch its four Warthogs hold one each and every live biped one: 13 with

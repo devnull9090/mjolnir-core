@@ -85,12 +85,15 @@ function Bots.init(modsDir, logFn)
     log = logFn or log
 end
 
---- Where the map's bot squads stand, by squad index (every kind's squad `k`
---- on start `k`), in Unreal cm: the bake's `bots.json` beside the level
---- file, in MJOLNIRMaps\<CODE>\ for a map pack and in MJOLNIRLevelLoader's
---- levels\ for a test install (the launcher prunes MJOLNIRMaps of files no
---- release ships). nil for a map baked before the file.
-local function readStarts(code)
+--- The bake's `bots.json` for a map, in Unreal cm: beside the level file,
+--- in MJOLNIRMaps\<CODE>\ for a map pack and in MJOLNIRLevelLoader's levels\
+--- for a test install (the launcher prunes MJOLNIRMaps of files no release
+--- ships). `starts`: where the map's bot squads stand, by squad index (every
+--- kind's squad `k` on start `k`). `areas`: each zone area's extent
+--- `{ x0, y0, x1, y1 }`, and `tasks`: the areas (1-based) each task
+--- `area_<k>` covers, at `tasks[k + 1]`; both nil for a map baked before
+--- them. nil for a map baked before the file.
+local function readBotsFile(code)
     if type(code) ~= "string" or code == "" then return nil end
     for _, path in ipairs({ mapsDir .. code .. "\\bots.json", levelsDir .. code .. ".bots.json" }) do
         local f = io.open(path, "rb")
@@ -100,10 +103,24 @@ local function readStarts(code)
             local starts = {}
             local list = text:match('"starts"%s*:%s*(%b[])') or ""
             local n = "([-%d.eE+]+)"
-            for x, y, z in list:gmatch("%[%s*" .. n .. "%s*,%s*" .. n .. "%s*,%s*" .. n .. "%s*%]") do
+            local c = "%s*,%s*"
+            for x, y, z in list:gmatch("%[%s*" .. n .. c .. n .. c .. n .. "%s*%]") do
                 starts[#starts + 1] = { tonumber(x), tonumber(y), tonumber(z) }
             end
-            if #starts > 0 then return starts end
+            if #starts > 0 then
+                local areas, tasks = {}, {}
+                local boxes = text:match('"areas"%s*:%s*(%b[])') or ""
+                for x0, y0, x1, y1 in boxes:gmatch("%[%s*" .. n .. c .. n .. c .. n .. c .. n .. "%s*%]") do
+                    areas[#areas + 1] = { tonumber(x0), tonumber(y0), tonumber(x1), tonumber(y1) }
+                end
+                local lists = (text:match('"tasks"%s*:%s*(%b[])') or ""):sub(2, -2)
+                for members in lists:gmatch("%b[]") do
+                    local task = {}
+                    for a in members:gmatch("%d+") do task[#task + 1] = tonumber(a) + 1 end
+                    tasks[#tasks + 1] = task
+                end
+                return { starts = starts, areas = #areas > 0 and areas or nil, tasks = #tasks > 0 and tasks or nil }
+            end
         end
     end
     return nil
@@ -241,11 +258,12 @@ function Bots.begin(count, now, onSeat, opts)
     fillPool()
     math.randomseed(os.time())
     local level = opts.level or Bots.LEGENDARY
+    local map = readBotsFile(opts.map) or {}
     state = { slots = {}, onSeat = onSeat, onKill = opts.onKill or function() end, retired = {}, nextScan = 0,
         placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
         isPlayer = opts.isPlayer or function() return false end, teams = opts.teams and true or false,
         level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1],
-        starts = readStarts(opts.map), began = now }
+        starts = map.starts, areas = map.areas, tasks = map.tasks, began = now }
     Bots.resize(count, now)
     log(string.format("bots: %d bot(s) for this match%s; %s", count, opts.teams and ", on red and blue" or "",
         state.starts and string.format("each placed on the best of %d starts", #state.starts)
@@ -568,6 +586,85 @@ local function pickSquad(s, humans, at)
     return picks[math.random(#picks)]
 end
 
+--- A bot that stays put is sent to an area that does not hold it, and if it
+--- still stays put under that order it is placed again: a bot jammed (an
+--- elite under a lintel), asleep, idle under its orders, or lost where the
+--- simulation finds it on no sector (docs/bots.md "Bots frozen in place").
+--- A bot that waits at a firing position or fights in one place walks off
+--- when sent away; a stuck one cannot. Needs the areas from the map's
+--- bots.json, which bakes write since 2026-10-31, the bakes that also lower
+--- the copy of a map's collision that lost bots on Blood Gulch.
+local STAY_SECONDS = 40
+--- Wandering this near where it began counts as staying put: a lost bot
+--- walks about the room it is in.
+local STAY_CM = 6 * WU
+--- How long the order sending a bot away has to get it moving.
+local SEND_SECONDS = 15
+--- How far outside an area's extent still counts as in it.
+local AREA_SLACK_CM = 2 * WU
+
+local function inTask(p, task)
+    for _, a in ipairs(state.tasks[task + 1] or {}) do
+        local box = state.areas[a]
+        if box and p[1] >= box[1] - AREA_SLACK_CM and p[1] <= box[3] + AREA_SLACK_CM
+            and p[2] >= box[2] - AREA_SLACK_CM and p[2] <= box[4] + AREA_SLACK_CM then
+            return true
+        end
+    end
+    return false
+end
+
+--- Send away, or place again, the first bot found staying put; true when a
+--- line went to the simulation. Only a bot whose actor has been seen to move
+--- since it was placed: a placement sometimes takes an actor that stays on
+--- the start while the bot walks off (on Blood Gulch, 2026-10-31, six of the
+--- first eight bots in one match), and placing that bot again only takes
+--- another such actor (one bot five times in five minutes).
+local function unstick(now, where)
+    if not (state.areas and state.tasks) then return false end
+    for _, s in ipairs(state.slots) do
+        local p = s.status == "alive" and where[s.addr]
+        local from = s.placedWhere
+        if p and not s.moved and from then
+            local dx, dy = p[1] - from[1], p[2] - from[2]
+            s.moved = dx * dx + dy * dy > WU * WU
+        end
+        if p and s.moved then
+            local dx, dy = p[1] - (s.stayAt or p)[1], p[2] - (s.stayAt or p)[2]
+            if not s.stayAt or dx * dx + dy * dy > STAY_CM * STAY_CM then
+                s.stayAt, s.stayFrom, s.sentTo = p, now, nil
+            elseif s.sentTo and now - s.sentAt >= SEND_SECONDS then
+                if inTask(p, s.sentTo) then
+                    -- It got where it was sent.
+                    s.stayAt, s.stayFrom, s.sentTo = p, now, nil
+                else
+                    log(string.format("bots: %s stayed %.0f s by (%.0f, %.0f), %.0f s of it sent to area_%d; placing it again",
+                        s.name, now - s.stayFrom, p[1], p[2], now - s.sentAt, s.sentTo))
+                    script({ string.format("(ai_erase %s)", s.squad) })
+                    state.retired[s.addr] = true
+                    s.status, s.addr, s.actor, s.deadAt, s.stayAt, s.sentTo = "waiting", nil, nil, nil, nil, nil
+                    s.nextAt = now + 1
+                    return true
+                end
+            elseif not s.sentTo and now - s.stayFrom >= STAY_SECONDS then
+                local away = {}
+                for k = 0, #state.tasks - 1 do
+                    if not inTask(p, k) then away[#away + 1] = k end
+                end
+                if #away > 0 then
+                    s.sentTo, s.sentAt = away[math.random(#away)], now
+                    -- No roaming order until the send has had its time.
+                    s.roamAt = now + SEND_SECONDS + 1
+                    script({ string.format("(object_wake_physics (ai_get_unit %s))", s.squad),
+                        string.format("(ai_set_task %s mjolnir_bots area_%d)", s.squad, s.sentTo) })
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function step(now, humans, live, where)
     -- A retired actor that went back to the pool may be handed out again.
     for at in pairs(state.retired) do
@@ -585,7 +682,10 @@ local function step(now, humans, live, where)
         end
     end
     deaths(now, live)
-    if not state.placing then roam(now, humans) end
+    if not state.placing then
+        if unstick(now, where) then return end
+        roam(now, humans)
+    end
     local p = state.placing
     if p then
         for at, actor in pairs(live) do
@@ -595,6 +695,7 @@ local function step(now, humans, live, where)
             local teleported = p.before[at] and jumped(state.lastWhere and state.lastWhere[at], where[at])
             if not taken[at] and (fresh or teleported) and not state.isPlayer(at) then
                 p.status, p.addr, p.actor = "alive", at, actor
+                p.stayAt, p.sentTo, p.moved, p.placedWhere = nil, nil, false, where[at]
                 -- Failed tries count toward one placement only.
                 p.tries, p.bad = 0, nil
                 -- A few seconds to look around where it spawned first.
