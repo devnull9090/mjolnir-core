@@ -9628,6 +9628,20 @@
             "required": false,
             "name": "limit",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ],
+              "description": "1: only matches with two or more players where someone scored or killed."
+            },
+            "required": false,
+            "description": "1: only matches with two or more players where someone scored or killed.",
+            "name": "real",
+            "in": "query"
           }
         ],
         "responses": {
