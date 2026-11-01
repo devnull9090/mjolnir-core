@@ -129,6 +129,9 @@
 #define ENTRY_DWORDS         7          // name, variants (count, handle), ?, max allowed, price, thorage
 #define ENTRY_VARIANTS       0x4
 #define ENTRY_MAX_ALLOWED    0x10       // 0: no quota
+#define ENTRY_PRICE          0x14
+#define MV_QUOTAS            0xd640     // per flat palette entry: minimum, maximum, placed (u8 each)
+#define MV_BUDGET            0x2e0      // the budget (the scenario's sandbox budget), then spent at +0x2e4
 #define VARIANT_DWORDS       6          // object reference (tag index at +0x10), variant name
 #define VARIANT_TAG          0x10
 #define MAX_PALETTES         16         // a request carries the palette in 4 bits
@@ -184,6 +187,7 @@ typedef void (*mv_copy_fn)(void *dst, const void *src, uint8_t flag);
 typedef void (*mv_build_fn)(void *mv);
 typedef void (*mv_void_fn)(void);
 typedef void (*mv_entry_fn)(uint32_t entry, uint32_t how);
+typedef int (*mv_flat_fn)(void *unused, uint32_t palette, uint32_t entry);
 typedef void (*apply_properties_fn)(uint32_t player_handle, uint32_t object, const void *properties);
 
 // ---- State --------------------------------------------------------------------
@@ -200,6 +204,7 @@ static mv_copy_fn g_mv_copy;
 static mv_build_fn g_mv_from_scenario, g_mv_create_all, g_mv_budget;
 static mv_void_fn g_mv_delete_all;
 static mv_entry_fn g_mv_entry_dirty;
+static mv_flat_fn g_mv_flat;
 static apply_properties_fn g_apply_properties;
 static unsigned g_tls_index = ~0u;
 static int g_installed;
@@ -219,6 +224,8 @@ typedef struct {
     uint8_t placeable;  // RVA_CAN_CREATE said yes when it was read
     char group[5];
     char tag[96];
+    int32_t maximum, price; // the entry's quota (0: none) and price
+    int32_t placed;         // how many the map variant has (its quota record)
 } palette_row_t;
 
 static palette_row_t g_rows[MAX_ROWS];
@@ -246,6 +253,7 @@ typedef struct {
     unsigned rows_version;
     // The target's Forge properties (the held object, else the one under the
     // cursor), when it belongs to the map variant.
+    int budget, spent; // the map variant's budget (0: none) and what is spent
     int props;       // 0: no target, or not a map-variant object
     int team, order, respawn, mp_type, label;
     char label_name[64];
@@ -261,6 +269,7 @@ static unsigned g_last_id;
 static char g_dir[MAX_PATH];
 static char g_state_path[MAX_PATH];
 static char g_palette_path[MAX_PATH];
+static char g_slots_path[MAX_PATH];   // slots.txt: palette entries pointed at other tags
 static char g_status_path[MAX_PATH];
 static char g_layouts_dir[MAX_PATH];  // the mod's layouts folder, beside native
 static char g_running_path[MAX_PATH]; // MJOLNIRLevelLoader's running.txt
@@ -291,6 +300,7 @@ static void derive_paths(HMODULE self) {
     snprintf(g_state_path, MAX_PATH, "%sforge_state.txt", g_dir);
     snprintf(g_status_path, MAX_PATH, "%sstatus.txt", g_dir);
     snprintf(g_palette_path, MAX_PATH, "%sforge_palette.txt", g_dir);
+    snprintf(g_slots_path, MAX_PATH, "%s..\\slots.txt", g_dir);
     snprintf(g_layouts_dir, MAX_PATH, "%s..\\layouts\\", g_dir);
     snprintf(g_running_path, MAX_PATH, "%s..\\..\\MJOLNIRLevelLoader\\running.txt", g_dir);
 }
@@ -299,6 +309,16 @@ static void derive_paths(HMODULE self) {
 static uint8_t *tls_block(void) {
     void **tls_array = (void **)__readgsqword(0x58);
     return tls_array ? (uint8_t *)tls_array[g_tls_index] : NULL;
+}
+
+// A fireteam client's simulation (game options +0x11 == 4) sends its edits
+// to the host as the engine's requests, and the host applies them. What the
+// DLL does by hand (layouts, properties, markers, turning) is the host's.
+#define TLS_GAME_OPTIONS     0x60
+#define OPTIONS_ROLE         0x11       // 4: a client of someone else's game
+static int is_client(uint8_t *tls) {
+    uint8_t *options = tls ? *(uint8_t **)(tls + TLS_GAME_OPTIONS) : NULL;
+    return options && options[OPTIONS_ROLE] == 4;
 }
 
 static void note(const char *fmt, ...) {
@@ -407,6 +427,66 @@ static int phase_in_forge(uint32_t tag, const char group[5]) {
     return 1;
 }
 
+// ---- Palette slots ----------------------------------------------------------
+//
+// A palette entry's object is the tag index in its first variant (+0x10),
+// read every time the engine places from it (0x32f450 -> 0x5ee570). So an
+// entry can be pointed at another loaded object tag at run time, and then
+// places that instead. slots.txt beside native lists `palette:entry = tag
+// path` lines, applied when the palettes are read; this is the hook Forge
+// block packs use to reach maps baked before them (docs/forge_blocks.md).
+// The tag must be loaded (the map references it) and be an object.
+#define TAG_TABLE_COUNT      0x44
+
+static int g_slots;                  // entries pointed elsewhere
+
+// A loaded object tag by its full path, -1 if none.
+static uint32_t object_tag_by_path(const char *path) {
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    uint8_t *entries = table ? *(uint8_t **)(table + ARRAY_DATA) : NULL;
+    int count = table ? *(int32_t *)(table + TAG_TABLE_COUNT) : 0;
+    for (int i = 0; entries && i < count; i++) {
+        uint8_t *entry = entries + (size_t)i * TAG_ENTRY_STRIDE;
+        const char *name = *(const char **)(entry + 0x10);
+        uint16_t salt = *(uint16_t *)entry;
+        if (!salt || !name || _stricmp(name, path)) continue;
+        char group[5], leaf[8];
+        tag_name((uint32_t)salt << 16 | (uint32_t)i, leaf, sizeof leaf, group);
+        static const char *objects[] = {"scen", "bloc", "mach", "ctrl", "weap", "vehi", "eqip"};
+        for (int k = 0; k < 7; k++)
+            if (!strcmp(group, objects[k])) return (uint32_t)salt << 16 | (uint32_t)i;
+    }
+    return 0xffffffffu;
+}
+
+static void apply_slots(uint8_t *scenario) {
+    FILE *f = NULL;
+    if (fopen_s(&f, g_slots_path, "rb") != 0 || !f) return;
+    char line[512];
+    int applied = 0;
+    while (fgets(line, sizeof line, f)) {
+        int p, e;
+        char path[400];
+        if (line[0] == '#' || sscanf_s(line, " %d : %d = %399[^\r\n]", &p, &e, path, (unsigned)sizeof path) != 3)
+            continue;
+        char *end = path + strlen(path);
+        while (end > path && (end[-1] == ' ' || end[-1] == '\t')) *--end = '\0';
+        int palettes = *(int32_t *)(scenario + SCENARIO_PALETTES);
+        if (p < 0 || p >= palettes || p >= MAX_PALETTES) continue;
+        uint8_t *pal = block_element(*(uint32_t *)(scenario + SCENARIO_PALETTES + 4), p, PALETTE_DWORDS);
+        if (!pal || e < 0 || e >= *(int32_t *)(pal + PALETTE_ENTRIES)) continue;
+        uint8_t *entry = palette_entry(scenario, p, e);
+        if (!entry || *(int32_t *)(entry + ENTRY_VARIANTS) < 1) continue;
+        uint8_t *variant = block_element(*(uint32_t *)(entry + ENTRY_VARIANTS + 4), 0, VARIANT_DWORDS);
+        uint32_t tag = object_tag_by_path(path);
+        if (!variant || tag == 0xffffffffu) continue;
+        *(uint32_t *)(variant + VARIANT_TAG) = tag;
+        applied++;
+    }
+    fclose(f);
+    g_slots = applied;
+}
+
 // Re-read the palettes; bump the version when the list differs. Simulation
 // thread only.
 static void read_palettes(void) {
@@ -415,6 +495,7 @@ static void read_palettes(void) {
     int count = 0;
     if (scenario) {
         lift_bake_quotas(scenario);
+        apply_slots(scenario);
         int palettes = *(int32_t *)(scenario + SCENARIO_PALETTES);
         if (palettes > MAX_PALETTES) palettes = MAX_PALETTES;
         for (int p = 0; p < palettes; p++) {
@@ -431,6 +512,12 @@ static void read_palettes(void) {
                 tag_name(tag, row->tag, sizeof row->tag, row->group);
                 g_phased += phase_in_forge(tag, row->group);
                 row->placeable = g_can_create(tag, NULL) != 0;
+                uint8_t *pe = palette_entry(scenario, p, e);
+                row->maximum = *(int32_t *)(pe + ENTRY_MAX_ALLOWED);
+                row->price = *(int32_t *)(pe + ENTRY_PRICE);
+                uint8_t *mv = (uint8_t *)g_mv_live();
+                int flat = g_mv_flat(NULL, (uint32_t)p, (uint32_t)e);
+                row->placed = mv && flat >= 0 && flat < 256 ? mv[MV_QUOTAS + flat * 3 + 2] : 0;
             }
         }
     }
@@ -445,35 +532,43 @@ static void read_palettes(void) {
     if (g_selected < 0 && g_row_count > 0) g_selected = 0;
 }
 
-// A category is a run of rows in one palette with one tag group: the level
-// bake writes a palette per group, and its older single palette, sorted by
-// group, still browses as weapons, vehicles and so on.
+// A category is the rows of one palette with one tag group, as the HUD shows
+// them: the level bake writes a palette per group, its older single palette
+// still browses as weapons, vehicles and so on, and an entry slots.txt points
+// at a crate joins the crates even with scenery around it.
 static int same_category(int a, int b) {
     return g_rows[a].palette == g_rows[b].palette && strcmp(g_rows[a].group, g_rows[b].group) == 0;
 }
 
+// The first row of `at`'s category.
 static int category_first(int at) {
-    while (at > 0 && same_category(at - 1, at)) at--;
+    for (int i = 0; i < at; i++)
+        if (same_category(i, at)) return i;
     return at;
 }
 
 // Move the selection: `item_step` entries within its category, or
-// `category_step` categories, to that category's first entry. Both wrap.
+// `category_step` categories (in the order they first appear), to that
+// category's first entry. Both wrap.
 static void select_move(int item_step, int category_step) {
     if (g_row_count <= 0) return;
     int at = g_selected < 0 ? 0 : g_selected;
     if (item_step) {
-        int first = category_first(at), last = at;
-        while (last + 1 < g_row_count && same_category(last + 1, at)) last++;
-        int span = last - first + 1;
-        at = first + ((at - first + item_step) % span + span) % span;
-    } else if (category_step > 0) {
-        int from = at;
-        while (at < g_row_count && same_category(at, from)) at++;
-        if (at == g_row_count) at = 0;
-    } else if (category_step < 0) {
-        int first = category_first(at);
-        at = category_first(first > 0 ? first - 1 : g_row_count - 1);
+        int members[MAX_ROWS], n = 0, here = 0;
+        for (int i = 0; i < g_row_count; i++) {
+            if (!same_category(i, at)) continue;
+            if (i == at) here = n;
+            members[n++] = i;
+        }
+        at = members[((here + item_step) % n + n) % n];
+    } else if (category_step) {
+        int firsts[MAX_ROWS], n = 0, here = 0;
+        for (int i = 0; i < g_row_count; i++) {
+            if (category_first(i) != i) continue;
+            if (i == category_first(at)) here = n;
+            firsts[n++] = i;
+        }
+        at = firsts[((here + category_step) % n + n) % n];
     }
     g_selected = at;
 }
@@ -841,9 +936,16 @@ static void layout_revert(uint8_t *tls) {
 // build it, then, when the map has a saved layout, make that current instead,
 // as new-map does with a variant the session supplies. Simulation thread.
 static void layout_new_map(void *mv) {
+    // Palette slots first: a saved layout names palette entries, and a slot's
+    // object is what its entry places (no Forge tick has run yet, and none
+    // runs at all under Megalo).
+    uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
+    if (scenario) apply_slots(scenario);
     g_mv_from_scenario(mv);
     char code[64], why[160];
-    if (!running_code(code, sizeof code)) return;
+    // A client's objects are the host's: its own saved layout must not
+    // decide what it builds.
+    if (is_client(tls_block()) || !running_code(code, sizeof code)) return;
     int got = layout_read(code, why, sizeof why);
     if (got == 0) {
         layout_note("%s: the map's own layout", code);
@@ -1045,11 +1147,9 @@ static void edit_property(uint8_t *tls, int player, uint32_t target, LONG which,
 typedef int (*mv_add_entry_fn)(void *mv, uint32_t palette, uint32_t entry, uint32_t variant, const float *point,
                                const float *forward, const float *up);
 typedef uint32_t (*mv_create_fn)(void *mv, uint32_t entry, uint8_t flag);
-typedef int (*mv_flat_fn)(void *unused, uint32_t palette, uint32_t entry);
 typedef void (*mv_quota_fn)(void *mv, int flat);
 static mv_add_entry_fn g_mv_add_entry;
 static mv_create_fn g_mv_create;
-static mv_flat_fn g_mv_flat;
 static mv_quota_fn g_mv_quota_add;
 
 static struct {
@@ -1207,6 +1307,34 @@ static void act(uint8_t *tls, int player, LONG commands) {
     int editing = g_is_editing((uint32_t)player) != 0;
     if (cursor == 0xffffffffu && editing) cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
     uint32_t target = held != 0xffffffffu ? held : cursor;
+
+    // On a fireteam client only the engine's own requests (toggle, grab and
+    // drop of what it can drag, delete, place and duplicate weapons, vehicles
+    // and equipment) and saving the layout it sees; the rest is the host's.
+    // Above all a client never asks the host to grab, place or copy a marker:
+    // the host's engine would run the grab that faults on one.
+    if (is_client(tls)) {
+        const LONG host_only = CMD_LOAD | CMD_REVERT | CMD_TEAM | CMD_LABEL | CMD_RESPAWN | CMD_ORDER |
+                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT;
+        if (commands & host_only) note("only the host can do that in a fireteam Forge game");
+        commands &= ~host_only;
+        if ((commands & CMD_GRAB) && held == 0xffffffffu && cursor != 0xffffffffu && !has_physics(tls, cursor)) {
+            note("only the host can move markers in a fireteam Forge game");
+            commands &= ~CMD_GRAB;
+        }
+        if ((commands & CMD_DUPLICATE) && target != 0xffffffffu && !has_physics(tls, target)) {
+            note("only the host can copy markers in a fireteam Forge game");
+            commands &= ~CMD_DUPLICATE;
+        }
+        if ((commands & CMD_PLACE) && g_selected >= 0 && g_selected < g_row_count) {
+            const char *group = g_rows[g_selected].group;
+            if (strcmp(group, "weap") && strcmp(group, "vehi") && strcmp(group, "eqip")) {
+                note("only the host can place markers in a fireteam Forge game");
+                commands &= ~CMD_PLACE;
+            }
+        }
+        if (!commands) return;
+    }
 
     // Layouts work as the Monitor or the Spartan. Replacing the objects
     // waits a tick for a held one to be dropped the engine's way.
@@ -1436,6 +1564,10 @@ static void snapshot(uint8_t *tls, int player) {
         object_tag_name(tls, s.held, s.held_tag, sizeof s.held_tag, s.held_group);
         object_tag_name(tls, s.cursor, s.cursor_tag, sizeof s.cursor_tag, s.cursor_group);
         uint8_t *mv = (uint8_t *)g_mv_live();
+        if (mv) {
+            s.budget = *(int32_t *)(mv + MV_BUDGET);
+            s.spent = *(int32_t *)(mv + MV_BUDGET + 4);
+        }
         uint8_t *props = object_props(tls, mv, s.held != 0xffffffffu ? s.held : s.cursor);
         if (g_carry.active) {
             s.held = HELD_CARRIED;
@@ -1597,7 +1729,8 @@ __declspec(dllexport) int mjolnir_forge_rotate_right(void *L) { (void)L; return 
 // Write forge_state.txt when the simulation thread has seen a new tick since
 // the last call: `key=value` lines. `forge=0` once ticks stop (no Forge game).
 // When the palettes changed, forge_palette.txt first: one line per entry,
-// `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable`; the state's
+// `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable<TAB>placed<TAB>maximum
+// <TAB>price` (maximum 0: no quota); the state's
 // `selected` is a line index into it (from 0) and `palette_version` says
 // which list.
 // Runs on whichever thread Lua calls it from; never on the simulation thread.
@@ -1615,8 +1748,8 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
         EnterCriticalSection(&g_lock);
         for (int i = 0; i < g_row_count && used + 128 < sizeof list; i++) {
             palette_row_t *r = &g_rows[i];
-            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\n", r->palette, r->entry,
-                                     r->group, r->tag, r->placeable);
+            used += (size_t)snprintf(list + used, sizeof list - used, "%u\t%u\t%s\t%s\t%u\t%d\t%d\t%d\n", r->palette,
+                                     r->entry, r->group, r->tag, r->placeable, r->placed, r->maximum, r->price);
         }
         LeaveCriticalSection(&g_lock);
         list[used] = '\0';
@@ -1631,9 +1764,9 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\nphased=%d\naim=%s\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
-             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim);
+             s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent);
     if (s.props) {
         size_t used = strlen(text);
         snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",

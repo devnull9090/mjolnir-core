@@ -363,7 +363,7 @@ local function categoryOf(palette, row)
 end
 
 -- The palette panel, or a toast where the HUD has none (CE runtime 1.14.0).
-local function drawPalette(palette, row, keys, editing)
+local function drawPalette(palette, row, keys, editing, budgetOf)
     local panel = valid(W.PaletteSize) and W.PaletteSize or nil
     if not (editing and row) then
         if panel then setVisible(panel, false) end
@@ -384,7 +384,13 @@ local function drawPalette(palette, row, keys, editing)
     setText(W.PaletteGroup, SHELVES[row.group] or Hud.category(row.group))
     setText(W.PalettePrevKey, Hud.keyLabel(keys.prev_category))
     setText(W.PaletteNextKey, Hud.keyLabel(keys.next_category))
-    setText(W.PaletteName, Hud.prettyName(row.tag))
+    -- A quota and a price, where the map sets them (docs/forge.md, Budgets).
+    local extra = ""
+    if (row.maximum or 0) > 0 then extra = extra .. string.format("  %d/%d", row.placed or 0, row.maximum) end
+    if (row.price or 0) > 0 then extra = extra .. string.format("  $%d", row.price) end
+    setText(W.PaletteName, Hud.prettyName(row.tag) .. extra)
+    local budget = tonumber(budgetOf.budget or "") or 0
+    setText(W.PaletteTitle, budget > 0 and string.format("PALETTE  $%s / $%d", budgetOf.spent or "0", budget) or "PALETTE")
     setTextColor(W.PaletteName, row.placeable and WHITE or GREY)
     weaponIcon(row.tag, W.PaletteIconBox, W.PaletteIcon)
     -- A window of the list with the selection in its middle where it can be.
@@ -495,7 +501,7 @@ function Hud.render(s, keys, mapTitle, palette, choice)
         })
     end
 
-    drawPalette(palette or {}, choice, keys, editing)
+    drawPalette(palette or {}, choice, keys, editing, s)
 
     -- The toast, once per thing the DLL did.
     if s.last_id and s.last_id ~= toast.id then

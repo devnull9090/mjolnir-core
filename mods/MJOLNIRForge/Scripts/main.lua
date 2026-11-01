@@ -280,10 +280,14 @@ end
 local function parsePalette(text)
     local rows = {}
     for line in (text or ""):gmatch("[^\r\n]+") do
-        local p, e, group, tag, ok = line:match("^(%d+)\t(%d+)\t([^\t]*)\t([^\t]*)\t(%d)$")
+        -- palette, entry, group, tag, placeable; then (DLL 0.3.0) placed,
+        -- maximum (0: no quota) and price.
+        local p, e, group, tag, ok, rest = line:match("^(%d+)\t(%d+)\t([^\t]*)\t([^\t]*)\t(%d)(.*)$")
         if p then
+            local placed, maximum, price = rest:match("^\t(%-?%d+)\t(%-?%d+)\t(%-?%d+)")
             rows[#rows + 1] = { palette = tonumber(p), entry = tonumber(e), group = group, tag = tag,
-                placeable = ok == "1" }
+                placeable = ok == "1", placed = tonumber(placed) or 0, maximum = tonumber(maximum) or 0,
+                price = tonumber(price) or 0 }
         end
     end
     return rows
@@ -322,9 +326,14 @@ local function describe(s, keys, palette)
         end
         local row = selectedRow(s, palette)
         if row then
-            lines[#lines + 1] = string.format("Palette: %s%s  [%s/%s] object  [%s/%s] category",
-                row.tag, row.placeable and "" or " (cannot place)", keys.prev_item, keys.next_item,
+            lines[#lines + 1] = string.format("Palette: %s%s%s  [%s/%s] object  [%s/%s] category",
+                row.tag, row.maximum > 0 and string.format(" %d/%d", row.placed, row.maximum) or "",
+                row.placeable and "" or " (cannot place)", keys.prev_item, keys.next_item,
                 keys.prev_category, keys.next_category)
+        end
+        local budget = tonumber(s.budget or "") or 0
+        if budget > 0 then
+            lines[#lines + 1] = string.format("Budget: $%s of $%d", s.spent or "0", budget)
         end
     end
     if s.last and s.last ~= "" then lines[#lines + 1] = s.last end

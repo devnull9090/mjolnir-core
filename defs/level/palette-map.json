@@ -38,6 +38,11 @@
     "sniper_rifle_ammo": "objects\\gear\\human\\military\\sniper_rifle_ammo\\sniper_rifle_ammo",
     "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo"
   },
+  "blocks": {
+    "comment": "Forge building blocks every map's palette lists: group:path. Shipped tags with collision, physics, an Unreal Blueprint and a multiplayer object block (surveyed 2026-11-01, docs/forge_blocks.md); B40 loads both.",
+    "covenant_crate": "bloc:objects\\props\\covenant\\crate_space_a\\crate_space_a",
+    "covenant_shield": "scen:objects\\props\\covenant\\cov_portable_shield\\cov_portable_shield"
+  },
   "scenario_palettes": {
     "A15": { "vehicles": ["space_banshee", "seraph", "pelican"], "weapons": ["plasma_pistol", "magnum", "plasma_rifle", "assault_rifle", "smg", "skull"] },
     "A30": { "vehicles": ["warthog", "pelican", "banshee"], "weapons": ["beam_rifle", "plasma_rifle", "plasma_pistol", "needler", "smg", "assault_rifle", "sniper_rifle", "magnum", "skull"] },
@@ -52,5 +57,10 @@
     "E10": { "vehicles": ["shade", "banshee", "ghost"] },
     "E20": { "vehicles": ["wraith", "ghost", "banshee", "shade"] },
     "E30": { "vehicles": ["seraph", "space_banshee", "banshee", "wraith", "ghost", "shade"] }
+  },
+  "forge": {
+    "comment": "Forge's budget and quotas, which the simulation enforces when placing (docs/forge.md, Budgets). budget is the scenario's sandbox budget; price and maximum are per kind (or scenery tag path): price per instance counts against the budget, maximum allowed caps how many (0: no quota). A level overrides any of them with blam.forge. Empty: no limits.",
+    "price": {},
+    "maximum": {}
   }
 }
