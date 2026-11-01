@@ -34,7 +34,9 @@ Two facts about the release build shape what you get:
   arguments. Likewise 217 of the 260 engine globals (`game_speed`,
   `cheat_deathless_player`) have no storage: they read
   as zero and ignore writes. `help` marks both, and the mod says so when you
-  run one.
+  run one. Since mod 0.3.0 the DLL points `cheat_all_weapons`,
+  `cheat_all_vehicles` and `drop_safe` back at evaluators of its own; see
+  [`re/restored_cheats.md`](re/restored_cheats.md).
 
 ## Using it
 

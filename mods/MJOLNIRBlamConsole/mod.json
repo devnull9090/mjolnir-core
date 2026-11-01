@@ -1,5 +1,5 @@
 {
-  "version": "0.2.2",
-  "summary": "The classic Blam console at the Unreal console: HS script, help for all 1,695 engine functions, and answers on screen. The cheat functions are compiled out of this build.",
+  "version": "0.3.0",
+  "summary": "The classic Blam console at the Unreal console: HS script, help for all 1,695 engine functions, and answers on screen. cheat_all_weapons, cheat_all_vehicles and drop_safe are restored; the other cheats are compiled out of this build.",
   "category": "tools"
 }
