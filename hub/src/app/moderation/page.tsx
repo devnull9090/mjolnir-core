@@ -19,8 +19,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, Copy, Search, ShieldCheck, X } from "lucide-react";
 
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { PageShell } from "../components/ui";
 import { useHub } from "../components/HubKit";
 import type { AdminUser, HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
@@ -157,9 +156,7 @@ export default function ModerationPage() {
   };
 
   return (
-    <>
-      <Navbar />
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-6xl mx-auto">
+    <PageShell width="6xl">
         <div className="flex items-center gap-3 mb-8">
           <ShieldCheck className="w-7 h-7 text-gold" />
           <h1 className="text-3xl font-black text-foreground">Moderation</h1>
@@ -484,8 +481,6 @@ export default function ModerationPage() {
             {isAdmin && active === "benchmarks" && <Benches client={client} onError={setBanner} />}
           </>
         )}
-      </main>
-      <Footer />
-    </>
+    </PageShell>
   );
 }

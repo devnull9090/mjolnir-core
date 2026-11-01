@@ -34,7 +34,7 @@ export default function MultiplayerPage() {
   return (
     <>
       <Navbar />
-      <main className="marketing">
+      <main id="main" className="marketing">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema).replace(/</g, "\\u003c") }} />
         <section className="border-b border-border px-6 pb-16 pt-40 md:pt-48">
           <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1.1fr_1fr]">

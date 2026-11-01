@@ -5,8 +5,7 @@ import { notFound } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { ArrowLeft, ArrowRight, Download, ScrollText, Terminal } from "lucide-react";
 
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { PageShell } from "../../components/ui";
 import { ToolGallery } from "../../components/HubKit";
 import { LatestBuild } from "../_components/LatestBuild";
 import { ToolIcon } from "../_components/icons";
@@ -124,14 +123,11 @@ export default async function ToolPage({ params }: { params: Promise<{ slug: str
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="4xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-4xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <Link
           href="/tools"
           className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-foreground"
@@ -319,9 +315,6 @@ export default async function ToolPage({ params }: { params: Promise<{ slug: str
             read-only, and an edit produces a new file.
           </p>
         </section>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

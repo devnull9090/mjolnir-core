@@ -3,8 +3,7 @@ import Link from "next/link";
 import { Rss, ScrollText } from "lucide-react";
 
 import { getLatestPerProduct, getProducts, getReleases } from "@/lib/changelog";
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { PageShell } from "../components/ui";
 import { ReleaseCard } from "./_components/ReleaseCard";
 
 export const metadata: Metadata = {
@@ -47,14 +46,11 @@ export default function ChangelogIndexPage() {
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="4xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-4xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <header className="mb-12">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold/10 text-gold">
@@ -112,9 +108,6 @@ export default function ChangelogIndexPage() {
             ))}
           </div>
         </section>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

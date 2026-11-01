@@ -47,7 +47,7 @@ export function AuthButton() {
       >
         {user.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.avatar_url} alt="" className="w-7 h-7 rounded-full" />
+          <img src={user.avatar_url} alt="" crossOrigin="anonymous" className="w-7 h-7 rounded-full" />
         ) : (
           <span className="w-7 h-7 rounded-full bg-surface-raised text-xs font-bold text-foreground flex items-center justify-center">
             {(user.display_name ?? user.username).slice(0, 1).toUpperCase()}

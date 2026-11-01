@@ -3047,6 +3047,12 @@
               "null"
             ]
           },
+          "map_cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "game_type": {
             "type": "string"
           },
@@ -3134,6 +3140,12 @@
           "host": {
             "type": "string"
           },
+          "podium": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchPodiumSeat"
+            }
+          },
           "player": {
             "type": [
               "object",
@@ -3215,6 +3227,7 @@
           "map_code",
           "map_title",
           "map_slug",
+          "map_cover_url",
           "game_type",
           "team_game",
           "score_to_win",
@@ -3230,7 +3243,90 @@
           "player_count",
           "event_count",
           "host",
+          "podium",
           "player"
+        ]
+      },
+      "MatchPodiumSeat": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "score": {
+            "type": "number"
+          },
+          "kills": {
+            "type": "number"
+          },
+          "deaths": {
+            "type": "number"
+          },
+          "place": {
+            "type": "number"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "win",
+              "loss",
+              "draw",
+              null
+            ]
+          },
+          "user": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "team",
+          "score",
+          "kills",
+          "deaths",
+          "place",
+          "outcome",
+          "user"
         ]
       },
       "MatchDetail": {
@@ -3249,6 +3345,12 @@
             ]
           },
           "map_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map_cover_url": {
             "type": [
               "string",
               "null"
@@ -3365,6 +3467,7 @@
           "map_code",
           "map_title",
           "map_slug",
+          "map_cover_url",
           "game_type",
           "team_game",
           "score_to_win",

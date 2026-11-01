@@ -9,8 +9,7 @@ import {
   getRelease,
   getReleases,
 } from "@/lib/changelog";
-import { Navbar } from "../../../components/Navbar";
-import { Footer } from "../../../components/Footer";
+import { PageShell } from "../../../components/ui";
 import { Markdown } from "../../../docs/_components/Markdown";
 
 /** See the note in ../page.tsx: `dynamicParams` must stay on under OpenNext. */
@@ -102,14 +101,11 @@ export default async function ReleasePage({
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="3xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-3xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <Link
           href={`/changelog/${release.product}`}
           className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-foreground"
@@ -120,7 +116,7 @@ export default async function ReleasePage({
 
         <header className="mt-6 border-b border-border pb-8">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <span className="rounded bg-surface-hover px-2 py-0.5 text-xs font-medium text-text-muted">
+            <span className="rounded bg-surface-hover px-2 py-0.5 text-xs font-medium text-foreground">
               {release.productName}
             </span>
             <span className="font-mono text-sm font-semibold text-gold">v{release.version}</span>
@@ -202,9 +198,6 @@ export default async function ReleasePage({
             <ExternalLink className="h-4 w-4" />
           </a>
         </footer>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

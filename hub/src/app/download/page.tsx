@@ -8,8 +8,7 @@ import {
   ExternalLink,
   Wrench,
 } from "lucide-react";
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { PageShell } from "../components/ui";
 import { GitHubIcon } from "../components/icons";
 import ChecksumViewer from "./ChecksumViewer";
 import { PlaySteps } from "../components/MultiplayerMarketing";
@@ -23,10 +22,7 @@ export const metadata = marketingMetadata(
 
 export default function DownloadPage() {
   return (
-    <>
-      <Navbar />
-
-      <main className="marketing pt-40 md:pt-44 pb-24 px-4 sm:px-6 max-w-4xl mx-auto">
+    <PageShell width="4xl" className="marketing">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-3xl sm:text-4xl font-black text-foreground mb-4">Download MJOLNIR Launcher</h1>
@@ -231,9 +227,6 @@ brew install mjolnir`}</code></pre>
             ))}
           </div>
         </div>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

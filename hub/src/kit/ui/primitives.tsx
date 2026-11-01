@@ -7,7 +7,7 @@ import { AlertIcon, ShieldIcon, StarIcon } from "./icons";
 export type Tone = "neutral" | "gold" | "green" | "red" | "amber" | "blue";
 
 const TONE_CLASS: Record<Tone, string> = {
-  neutral: "bg-[var(--mj-surface-hover)] text-[var(--mj-text-muted)]",
+  neutral: "bg-[var(--mj-surface-hover)] text-[var(--mj-text)]",
   gold: "bg-[var(--mj-gold)]/15 text-[var(--mj-gold)]",
   green: "bg-[var(--mj-green)]/15 text-[var(--mj-green)]",
   red: "bg-[var(--mj-red)]/15 text-[var(--mj-red)]",

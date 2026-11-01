@@ -4,8 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, ExternalLink } from "lucide-react";
 
 import { formatPostDate, getAdjacentPosts, getPost, getPosts } from "@/lib/blog";
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { PageShell } from "../../components/ui";
 import { Markdown } from "../../docs/_components/Markdown";
 import { TagChip } from "../_components/TagChip";
 
@@ -73,14 +72,11 @@ export default async function BlogPostPage({
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="4xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-4xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <Link
           href="/blog"
           className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-foreground"
@@ -152,9 +148,6 @@ export default async function BlogPostPage({
             View source on GitHub
           </a>
         </footer>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

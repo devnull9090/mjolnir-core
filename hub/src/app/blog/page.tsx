@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { Newspaper, Rss } from "lucide-react";
 
 import { getAllTags, getPosts } from "@/lib/blog";
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { PageShell } from "../components/ui";
 import { PostCard } from "./_components/PostCard";
 import { TagChip } from "./_components/TagChip";
 
@@ -44,14 +43,11 @@ export default function BlogIndexPage() {
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="4xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-4xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <header className="mb-12">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold/10 text-gold">
@@ -88,9 +84,6 @@ export default function BlogIndexPage() {
             <p className="text-text-muted">Nothing published yet.</p>
           )}
         </div>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

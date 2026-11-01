@@ -1,5 +1,4 @@
 import { cache } from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
@@ -9,12 +8,14 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { ProfileSummary } from "@mjolnir/hub-kit/ui/ProfileSummary";
 import { formatCount } from "@mjolnir/hub-kit/ui/format";
 
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { Package } from "lucide-react";
+
 import { ModCard } from "../../components/HubKit";
+import { EmptyState, PageShell, SectionHeading } from "../../components/ui";
 import { getUserProfile } from "@/lib/api/queries";
 import { listMatches, playerTotals } from "@/lib/api/matches";
-import { MatchTable, PlayerTotalsStrip } from "../../matches/_components/MatchTable";
+import { MatchGrid } from "../../matches/_components/MatchCard";
+import { PlayerTotalsStrip } from "../../matches/_components/MatchTable";
 
 /**
  * A public profile: who someone is here, and what they have done.
@@ -90,56 +91,41 @@ export default async function UserProfilePage({
   const { env } = getCloudflareContext();
   const [totals, { matches }] = await Promise.all([
     playerTotals(env.DB as never, { user: user.id }),
-    listMatches(env.DB as never, { user: user.id, limit: 10 }),
+    listMatches(env.DB as never, { user: user.id, limit: 9 }),
   ]);
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="6xl">
+      <ProfileSummary profile={profile} />
 
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-5xl mx-auto">
-        <ProfileSummary profile={profile} />
-
-        <section className="mt-8">
-          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
-            Mods{mods.length > 0 ? ` · ${mods.length}` : ""}
-          </h2>
-          {mods.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border-bright p-10 text-center">
-              <p className="text-foreground font-semibold mb-1">Nothing published yet</p>
-              <p className="text-sm text-text-muted">
-                When {name} publishes a mod it will show up here.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {mods.map((mod) => (
-                <ModCard key={mod.id} mod={mod} href={`/mods/${mod.slug}`} />
-              ))}
+      {(totals.matches > 0 || profile.stats.player_reports > 0) && (
+        <section aria-labelledby="multiplayer" className="mt-12">
+          <SectionHeading id="multiplayer">
+            Multiplayer · {totals.matches} public match{totals.matches === 1 ? "" : "es"}
+          </SectionHeading>
+          <PlayerTotalsStrip totals={totals} reports={profile.stats.player_reports} />
+          {matches.length > 0 && (
+            <div className="mt-6">
+              <MatchGrid matches={matches} />
             </div>
           )}
         </section>
+      )}
 
-        {(totals.matches > 0 || profile.stats.player_reports > 0) && (
-          <section className="mt-10">
-            <h2 className="text-sm font-bold uppercase text-text-dim mb-3">
-              Multiplayer · {totals.matches} public match{totals.matches === 1 ? "" : "es"}
-            </h2>
-            <PlayerTotalsStrip totals={totals} reports={profile.stats.player_reports} />
-            <div className="mt-4">
-              <MatchTable matches={matches} seat />
-            </div>
-          </section>
+      <section aria-labelledby="mods" className="mt-12">
+        <SectionHeading id="mods">Mods{mods.length > 0 ? ` · ${mods.length}` : ""}</SectionHeading>
+        {mods.length === 0 ? (
+          <EmptyState icon={Package} title="Nothing published yet">
+            When {name} publishes a mod it will show up here.
+          </EmptyState>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {mods.map((mod) => (
+              <ModCard key={mod.id} mod={mod} href={`/mods/${mod.slug}`} />
+            ))}
+          </div>
         )}
-
-        <div className="mt-10 text-xs text-text-dim">
-          <Link href="/mods" className="hover:text-foreground">
-            ← Browse all mods
-          </Link>
-        </div>
-      </main>
-
-      <Footer />
-    </>
+      </section>
+    </PageShell>
   );
 }
