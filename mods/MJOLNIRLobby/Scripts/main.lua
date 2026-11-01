@@ -75,9 +75,10 @@ local MODES = {
     -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
     -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
     -- on every map once MJOLNIRForge's native half and the CE runtime's
-    -- monitor fix are installed. Host only for now: a fireteam client reads
-    -- the game type from slot 0 and would start Slayer.
-    { id = "forge", slot = 0, name = "FORGE", forge = true,
+    -- monitor fix are installed. Its own slot, 5, tells fireteam clients to
+    -- start the sandbox engine too (before 2026-11-01 it shared Slayer's 0,
+    -- and Forge was host only).
+    { id = "forge", slot = 5, name = "FORGE", forge = true,
         description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
         needs = "pakchunk990-MJOLNIRFORGEMON_P" },
 }
@@ -239,17 +240,10 @@ local function startGame(map, mode)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
     end
-    -- Forge runs on the host alone for now: a fireteam client reads the game
-    -- type from insertion slot 0 and would start Slayer under the Megalo
-    -- engine against the host's sandbox engine. So no guests, and never a
-    -- public listing strangers could join.
+    -- Forge with the fireteam: clients start the sandbox engine from slot 5
+    -- and edit through the engine's own requests. Never a public listing:
+    -- strangers would join someone's half-built layout.
     if mode.forge then
-        local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
-        local members = 1
-        if UI.valid(squad) then pcall(function() members = squad:GetNumSquadMembers() end) end
-        if members > 1 then
-            return false, "FORGE is host only for now: start it without fireteam members"
-        end
         Games.setPublic(false)
     end
     -- A map installed after the game started (in game, or by the launcher
@@ -494,7 +488,7 @@ end
 --- A game type's match format, as its picker shows it.
 function Pick.format(mode)
     if not mode then return "" end
-    return mode.forge and "SANDBOX  /  SOLO HOST" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+    return mode.forge and "SANDBOX  /  FIRETEAM" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
 end
 
 --- Whether `screen` has the widget `name` (an older UI container lacks the

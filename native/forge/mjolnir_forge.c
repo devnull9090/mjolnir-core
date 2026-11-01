@@ -309,6 +309,16 @@ static uint8_t *tls_block(void) {
     return tls_array ? (uint8_t *)tls_array[g_tls_index] : NULL;
 }
 
+// A fireteam client's simulation (game options +0x11 == 4) sends its edits
+// to the host as the engine's requests, and the host applies them. What the
+// DLL does by hand (layouts, properties, markers, turning) is the host's.
+#define TLS_GAME_OPTIONS     0x60
+#define OPTIONS_ROLE         0x11       // 4: a client of someone else's game
+static int is_client(uint8_t *tls) {
+    uint8_t *options = tls ? *(uint8_t **)(tls + TLS_GAME_OPTIONS) : NULL;
+    return options && options[OPTIONS_ROLE] == 4;
+}
+
 static void note(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -857,7 +867,9 @@ static void layout_revert(uint8_t *tls) {
 static void layout_new_map(void *mv) {
     g_mv_from_scenario(mv);
     char code[64], why[160];
-    if (!running_code(code, sizeof code)) return;
+    // A client's objects are the host's: its own saved layout must not
+    // decide what it builds.
+    if (is_client(tls_block()) || !running_code(code, sizeof code)) return;
     int got = layout_read(code, why, sizeof why);
     if (got == 0) {
         layout_note("%s: the map's own layout", code);
@@ -1219,6 +1231,34 @@ static void act(uint8_t *tls, int player, LONG commands) {
     int editing = g_is_editing((uint32_t)player) != 0;
     if (cursor == 0xffffffffu && editing) cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
     uint32_t target = held != 0xffffffffu ? held : cursor;
+
+    // On a fireteam client only the engine's own requests (toggle, grab and
+    // drop of what it can drag, delete, place and duplicate weapons, vehicles
+    // and equipment) and saving the layout it sees; the rest is the host's.
+    // Above all a client never asks the host to grab, place or copy a marker:
+    // the host's engine would run the grab that faults on one.
+    if (is_client(tls)) {
+        const LONG host_only = CMD_LOAD | CMD_REVERT | CMD_TEAM | CMD_LABEL | CMD_RESPAWN | CMD_ORDER |
+                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT;
+        if (commands & host_only) note("only the host can do that in a fireteam Forge game");
+        commands &= ~host_only;
+        if ((commands & CMD_GRAB) && held == 0xffffffffu && cursor != 0xffffffffu && !has_physics(tls, cursor)) {
+            note("only the host can move markers in a fireteam Forge game");
+            commands &= ~CMD_GRAB;
+        }
+        if ((commands & CMD_DUPLICATE) && target != 0xffffffffu && !has_physics(tls, target)) {
+            note("only the host can copy markers in a fireteam Forge game");
+            commands &= ~CMD_DUPLICATE;
+        }
+        if ((commands & CMD_PLACE) && g_selected >= 0 && g_selected < g_row_count) {
+            const char *group = g_rows[g_selected].group;
+            if (strcmp(group, "weap") && strcmp(group, "vehi") && strcmp(group, "eqip")) {
+                note("only the host can place markers in a fireteam Forge game");
+                commands &= ~CMD_PLACE;
+            }
+        }
+        if (!commands) return;
+    }
 
     // Layouts work as the Monitor or the Spartan. Replacing the objects
     // waits a tick for a held one to be dropped the engine's way.
