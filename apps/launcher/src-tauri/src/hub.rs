@@ -3270,9 +3270,28 @@ mod tests {
         let mut more = members("BGL");
         more.push(("map/foliage.bin".to_string(), b"MJF3".to_vec()));
         more.push(("map/decals/sym_0.png".to_string(), vec![1, 2]));
+        for file in ["state.json", "height.exr", "velocity.exr"] {
+            more.push((format!("map/flux_state/{file}"), file.as_bytes().to_vec()));
+        }
         let map = read_map(&manifest, &more).expect("extra files read");
         let names: Vec<&str> = map.extra.iter().map(|(p, _)| p.as_str()).collect();
-        assert_eq!(names, ["foliage.bin", "decals/sym_0.png"]);
+        assert_eq!(
+            names,
+            [
+                "foliage.bin",
+                "decals/sym_0.png",
+                "flux_state/state.json",
+                "flux_state/height.exr",
+                "flux_state/velocity.exr"
+            ]
+        );
+        for (path, bytes) in map
+            .extra
+            .iter()
+            .filter(|(path, _)| path.starts_with("flux_state/"))
+        {
+            assert_eq!(bytes, path.strip_prefix("flux_state/").unwrap().as_bytes());
+        }
         for bad in ["map/../evil.dll", "map/decals/../../x", "map/C:/x", "map/a\\b"] {
             let mut evil = members("BGL");
             evil.push((bad.to_string(), vec![0]));

@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import zipfile
@@ -67,7 +68,8 @@ def packages(utoc_dir, stem, paks):
 
 
 def sha(path):
-    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    with open(path, "rb") as stream:
+        return hashlib.sha256(stream.read()).hexdigest()
 
 
 def container_dir(parent, name, src_stem, stub):
@@ -78,6 +80,31 @@ def container_dir(parent, name, src_stem, stub):
         shutil.copyfile(f"{src_stem}.{e}", os.path.join(d, f"{os.path.basename(src_stem)}.{e}"))
     shutil.copyfile(stub, os.path.join(d, f"{os.path.basename(src_stem)}.pak"))
     return d
+
+
+def flux_members(archive, level):
+    """Keep the baked water files that map pack carries beside its level.
+
+    Match map pack's flat, regular-file flux_state directory. A missing state
+    file or an orphan water directory must fail rather than silently dropping
+    the map's saved simulation during a scenario-only update.
+    """
+    members = [entry for entry in archive.infolist()
+               if entry.filename.startswith("map/flux_state/")]
+    has_state = isinstance((level.get("flux") or {}).get("state"), dict)
+    if members and not has_state:
+        raise ValueError("flux_state files require level.flux.state metadata")
+    names = []
+    for entry in members:
+        name = entry.filename.removeprefix("map/flux_state/")
+        mode = entry.external_attr >> 16
+        if (not name or name in (".", "..") or "/" in name or "\\" in name
+                or entry.is_dir() or stat.S_ISLNK(mode)):
+            raise ValueError(f"flux_state must contain flat regular files: {entry.filename}")
+        names.append(entry.filename)
+    if has_state and "map/flux_state/state.json" not in names:
+        raise ValueError("level names baked water but flux_state/state.json is missing")
+    return names
 
 
 def one(pack, a, defaults):
@@ -95,7 +122,10 @@ def one(pack, a, defaults):
     names = z.namelist()
     known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json",
              "map/bots.json"}
-    level = json.load(open(os.path.join(unpacked, "map", "level.json"), encoding="utf-8"))
+    with open(os.path.join(unpacked, "map", "level.json"), encoding="utf-8") as stream:
+        level = json.load(stream)
+    water = flux_members(z, level)
+    known.update(water)
     foliage = (level.get("foliage") or {}).get("file")
     for n in names:
         if n in known or n.startswith("content/") or n.startswith("map/decals/") or n == f"map/{foliage}":
@@ -115,7 +145,8 @@ def one(pack, a, defaults):
     if index is None:
         sys.exit(f"{code}: the level names no BSP (single_bsp / active_bsps)")
     bake_file = os.path.join(w, f"{code.lower()}.level.json")
-    json.dump(bake_level, open(bake_file, "w", encoding="utf-8"), indent=1)
+    with open(bake_file, "w", encoding="utf-8") as stream:
+        json.dump(bake_level, stream, indent=1)
 
     # The map container's BSP and world, out of the pack.
     content = os.path.join(unpacked, "content")
@@ -143,10 +174,12 @@ def one(pack, a, defaults):
     elif worlds:
         sys.exit(f"{code}: {len(worlds)} worlds in the map container")
     else:
-        reg = json.load(open(os.path.join(unpacked, "map", "registration.json"), encoding="utf-8"))
+        with open(os.path.join(unpacked, "map", "registration.json"), encoding="utf-8") as stream:
+            reg = json.load(stream)
         bake += ["--world-object", reg["world"]]
     log = run(bake)
-    open(os.path.join(w, "bake.log"), "w", encoding="utf-8").write(log)
+    with open(os.path.join(w, "bake.log"), "w", encoding="utf-8") as stream:
+        stream.write(log)
     for line in log.splitlines():
         if line.lstrip().startswith(("bots", "note")):
             print("  " + line.strip())
@@ -192,6 +225,11 @@ def one(pack, a, defaults):
         shutil.copyfile(os.path.join(unpacked, "map", foliage), os.path.join(stage, foliage))
     if os.path.isdir(os.path.join(unpacked, "map", "decals")):
         shutil.copytree(os.path.join(unpacked, "map", "decals"), os.path.join(stage, "decals"))
+    if water:
+        os.makedirs(os.path.join(stage, "flux_state"))
+        for member in water:
+            shutil.copyfile(os.path.join(unpacked, *member.split("/")),
+                            os.path.join(stage, "flux_state", member.rsplit("/", 1)[1]))
 
     os.makedirs(a.out, exist_ok=True)
     archive = os.path.join(a.out, f"{slug}-{version}.mjolnir")

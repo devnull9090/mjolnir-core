@@ -11,6 +11,7 @@
  * future Queue-consumer scanner would keep.
  */
 import { Unzip, UnzipInflate } from "fflate";
+import { z } from "zod";
 
 import type { DeclaredChanges } from "./changes";
 import { DeclaredChangesSchema, MAX_CHANGES_BYTES } from "./changes";
@@ -31,10 +32,58 @@ export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
 const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
 
-export const SCANNER_VERSION = "ts-1";
+export const SCANNER_VERSION = "ts-2";
 
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
+
+// The loader's mjolnir_flux_bake output. EXR is only accepted as these two
+// declared map-local simulation textures, never as a general content kind.
+const FluxStateSchema = z.object({
+  height: z.literal("flux_state/height.exr"),
+  velocity: z.literal("flux_state/velocity.exr"),
+  centre: z.tuple([z.number(), z.number(), z.number()]),
+  res: z.tuple([z.number().int().positive(), z.number().int().positive()]),
+  cell: z.number().positive(),
+  height_cm: z.number().positive(),
+  capture: z.number().optional(),
+});
+
+function fluxTextures(
+  manifest: Manifest | null,
+  files: Record<string, Uint8Array>,
+  sizes: Record<string, number>,
+  err: (code: string, message: string) => void,
+): Set<string> {
+  const allowed = new Set<string>();
+  if (manifest?.type !== "map") return allowed;
+  let level;
+  try {
+    level = JSON.parse(new TextDecoder().decode(files["map/level.json"]));
+  } catch {
+    return allowed; // The map-file check reports invalid/missing JSON.
+  }
+  const rawState = level?.flux?.state;
+  const hasFiles = Object.keys(sizes).some((name) => name.startsWith("map/flux_state/"));
+  if (rawState == null && !hasFiles) return allowed;
+  const state = FluxStateSchema.safeParse(rawState);
+  if (!state.success) {
+    err("bad_flux_state", "Baked water requires valid level.flux.state metadata naming flux_state/height.exr and velocity.exr.");
+    return allowed;
+  }
+  try {
+    const copy = FluxStateSchema.parse(JSON.parse(new TextDecoder().decode(files["map/flux_state/state.json"])));
+    if (JSON.stringify(copy) !== JSON.stringify(state.data)) throw new Error("metadata differs");
+  } catch {
+    err("bad_flux_state", "map/flux_state/state.json must match level.flux.state.");
+  }
+  for (const relative of [state.data.height, state.data.velocity]) {
+    const name = `map/${relative}`;
+    allowed.add(name);
+    if (!(sizes[name] > 0)) err("flux_file_missing", `Baked water requires a nonempty ${name}.`);
+  }
+  return allowed;
+}
 
 export interface Finding {
   level: "error" | "warning";
@@ -283,6 +332,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
   }
 
   // File inventory: reject-by-default.
+  const waterTextures = fluxTextures(manifest, files, sizes, err);
   const utocs: string[] = [];
   for (const [name, size] of Object.entries(sizes)) {
     if (name.endsWith("/") || size === 0) continue; // directory entries
@@ -290,7 +340,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
     // A map's own data beside its level file: a remastered map's foliage
     // placements (foliage.bin, read by the level loader, never run).
     const mapData = ext === "bin" && name.startsWith("map/");
-    if (!ALLOWED.has(ext) && !mapData) {
+    if (!ALLOWED.has(ext) && !mapData && !waterTextures.has(name)) {
       err("forbidden_file", `Content releases may not carry .${ext} files: ${name}`);
       continue;
     }
