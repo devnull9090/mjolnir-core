@@ -1,4 +1,5 @@
 import { Crown } from "lucide-react";
+import { AvatarImage } from "./AvatarImage";
 
 /** The linked hub account a seat may carry. */
 export interface SeatUser {
@@ -32,23 +33,13 @@ export function PlayerAvatar({
 }) {
   const box = `${AVATAR_SIZES[size]} relative shrink-0 overflow-hidden rounded-full ${ring ? `ring-2 ${PLACE_RING[ring]}` : "border border-border-bright"}`;
   // The initial always renders; a Discord avatar sits on top of it. A stale
-  // avatar hash 404s, and a failed image with empty alt draws nothing, so
-  // the initial shows through instead of an empty ring. Fetched without
-  // credentials: Discord's CDN allows any origin, and an anonymous request
-  // keeps its tracking cookie out of the browser (a Lighthouse failure).
+  // avatar hash 404s, and AvatarImage then removes itself, so the initial
+  // shows through instead of a broken-image icon.
   return (
     <span aria-hidden className={`${box} inline-flex items-center justify-center bg-surface-hover font-bold uppercase text-foreground/80`}>
       {name.trim().charAt(0) || "?"}
       {user?.avatar_url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={user.avatar_url}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          crossOrigin="anonymous"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <AvatarImage src={user.avatar_url} className="absolute inset-0 h-full w-full object-cover" />
       )}
     </span>
   );
