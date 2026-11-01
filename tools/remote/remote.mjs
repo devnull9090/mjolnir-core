@@ -24,6 +24,11 @@
 //   node tools/remote/remote.mjs stage-agent               copy agent 2 into ue4ss/mjolnir-agent (once,
 //                                                          through an agent 1; then run it from there)
 //   node tools/remote/remote.mjs deploy-agent              replace this agent's files and restart it
+//   node tools/remote/remote.mjs launcher [status]         the MJOLNIR launcher's version and last update run (agent 8)
+//   node tools/remote/remote.mjs launcher check            what it says is out of date
+//   node tools/remote/remote.mjs launcher update           update everything through its Updates screen
+//                                                          (itself first), and wait for the end
+//   node tools/remote/remote.mjs launcher quit             close it
 //
 // The agent's address and token come from MJOLNIR_REMOTE / MJOLNIR_REMOTE_TOKEN,
 // or from %USERPROFILE%\.mjolnir-remote.json: {"url": "http://host:47820", "token": "..."}.
@@ -80,6 +85,7 @@ const AGENT_FILES = [
   [path.join(REPO, "tools", "remote", "mjolnir-agent.ps1"), "mjolnir-agent.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "capture.ps1"), "capture.ps1"],
+  [path.join(REPO, "tools", "remote", "launcher.ps1"), "launcher.ps1"],
   // The bridge mod beside the agent, so `install-bridge` has something to install.
   [path.join(REPO, "mods", "MJOLNIRBridge", "Scripts", "main.lua"), "MJOLNIRBridge/Scripts/main.lua"],
   [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
@@ -237,6 +243,55 @@ export const commands = {
     await sleep(4000);
     out.push(JSON.stringify(await json("GET", "/status")));
     return out.join("\n");
+  },
+  /**
+   * The MJOLNIR launcher on PC 2 (agent 8, tools/remote/launcher.ps1). `update`
+   * presses its own Update all, so it updates itself first and then the core,
+   * the code mods and the hub mods; one-off files put afterwards stay until the
+   * next update. The game must be closed.
+   */
+  async launcher(verb = "status", minutes = "90") {
+    const summary = (check) => {
+      const items = (check.items ?? []).map((i) => `  ${i.name}: ${i.installed ?? "?"} -> ${i.latest}`);
+      const lines = [items.length ? `${items.length} out of date:` : "nothing out of date", ...items];
+      if (check.unreachable?.length) lines.push(`could not check: ${check.unreachable.join(", ")}`);
+      return lines.join("\n");
+    };
+    switch (verb) {
+      case "status":
+        return JSON.stringify(await json("GET", "/launcher"), null, 1);
+      case "check": {
+        const check = await json("POST", "/launcher/check");
+        if (check.error) throw new Error(check.error);
+        return summary(check);
+      }
+      case "quit":
+        return JSON.stringify(await json("POST", "/launcher/quit"));
+      case "update": {
+        const started = await json("POST", "/launcher/update");
+        if (!started.ok) throw new Error(started.error);
+        console.log(started.note);
+        const deadline = Date.now() + Number(minutes) * 60000;
+        let last = "";
+        while (Date.now() < deadline) {
+          await sleep(10000);
+          const status = await json("GET", "/launcher").catch(() => null);
+          const run = status?.run;
+          if (!run) continue;
+          const line = `${run.state}: ${run.step}`;
+          if (line !== last) console.log(`${new Date().toLocaleTimeString()} ${line}`);
+          last = line;
+          if (!status.updating && run.state !== "running") {
+            const log = (await call("GET", "/file", { root: "agent", path: "launcher-update.log" })).toString("utf8");
+            if (run.state !== "done") throw new Error(`${run.step}\n--- launcher-update.log\n${log}`);
+            return `${status.exe} is ${status.version}\n${run.check ? summary(run.check) : ""}`;
+          }
+        }
+        throw new Error("still updating; `launcher status` shows how far it got");
+      }
+      default:
+        throw new Error(`launcher: unknown verb '${verb}' (status, check, update, quit)`);
+    }
   },
   async crash() {
     const { items } = await json("GET", "/list", { root: "saved", path: "Crashes" });
