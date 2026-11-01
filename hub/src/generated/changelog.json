@@ -63,6 +63,38 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.42.0",
+      "tag": "mods-v0.42.0",
+      "title": "Forge layouts, properties and budgets",
+      "date": "2026-11-01",
+      "summary": "Forge saves and loads map layouts that start every game on the map, sets object properties, places spawns and flag stands, and turns objects.",
+      "body": "### Added\n\n- **Layouts** (MJOLNIRForge 0.3.0): F5 saves the map's layout, F6 loads it\n  again and F2 goes back to the map's own. A saved layout starts every game\n  on that map, in Forge, Slayer or CTF. Layouts are kept in\n  `MJOLNIRForge\\layouts\\<MAP>.mvar`, Reach's own map variant format.\n- **Object properties**: K sets the team, L the label, J the respawn time\n  and O the spawn order of the object you aim at or hold. The target card\n  shows them.\n- **Markers**: flag stands, spawn points, health packs and teleporters can\n  be placed, picked up and put down. Placing or picking one up used to crash\n  the game behind UE4SS's dialog, which looked like a hang.\n- **Turning**: `,` and `.` turn a held object.\n- **Budgets**: the palette shows each object's price and how many may be\n  placed, and the panel shows what the layout has spent. Maps baked from now\n  on can set a budget; the current maps have none.\n- **Palette slots**: `MJOLNIRForge\\slots.txt` points a palette entry at\n  another object the map loads, the start of block packs (docs/forge_blocks.md).\n\n### Changed\n\n- **FORGE game type** (MJOLNIRLobby 0.19.1, MJOLNIRLevelLoader 0.9.7): FORGE\n  has its own insertion slot, ready for Forge with your fireteam. It is still\n  host only: fireteam Forge waits on a two-PC test.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Layouts (MJOLNIRForge 0.3.0): F5 saves the map's layout, F6 loads it again and F2 goes back to the map's own. A saved layout starts every game on that map, in Forge, Slayer or CTF. Layouts are kept in MJOLNIRForge\\layouts\\<MAP>.mvar, Reach's own map variant format.",
+            "Object properties: K sets the team, L the label, J the respawn time and O the spawn order of the object you aim at or hold. The target card shows them.",
+            "Markers: flag stands, spawn points, health packs and teleporters can be placed, picked up and put down. Placing or picking one up used to crash the game behind UE4SS's dialog, which looked like a hang.",
+            "Turning: , and . turn a held object.",
+            "Budgets: the palette shows each object's price and how many may be placed, and the panel shows what the layout has spent. Maps baked from now on can set a budget; the current maps have none.",
+            "Palette slots: MJOLNIRForge\\slots.txt points a palette entry at another object the map loads, the start of block packs (docs/forgeblocks.md)."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "FORGE game type (MJOLNIRLobby 0.19.1, MJOLNIRLevelLoader 0.9.7): FORGE has its own insertion slot, ready for Forge with your fireteam. It is still host only: fireteam Forge waits on a two-PC test."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.42.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.42.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.42.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.41.0",
       "tag": "mods-v0.41.0",
       "title": "Facility lighting and preview cameras",
