@@ -11,7 +11,8 @@ rebuilding: the bake runs from the pack alone, the way the map was baked
 (`level bake --standalone <CODE> --bsp <i>=<the pack's BSP> --world <the
 pack's world>`), with the level file the pack ships less the keys only the
 loader reads, plus `blam.bots`. Every other container, and every package of
-the map container but the scenario, must come out byte-identical; the script
+the map container but the scenario and the BSP's bulk data (where the bake
+lowers the copy of the shell), must come out byte-identical; the script
 checks that and stops otherwise. The shipped level file is packed unchanged,
 and the bake's `<CODE>.bots.json` (where the bot squads stand, which
 MJOLNIRHud reads) goes beside it as `map/bots.json`.
@@ -154,13 +155,15 @@ def one(pack, a, defaults):
     if not os.path.exists(bots_file):
         sys.exit(f"{code}: the bake wrote no {code}.bots.json")
 
-    # Only the scenario may differ.
+    # Only the scenario may differ, and the BSP's bulk data: since
+    # 2026-10-31 the bake lowers the copy of the shell under the shell
+    # (docs/bots.md, the flag rooms).
     built = container_dir(w, "built", os.path.join(w, "bake", stem), stub)
     new = packages(built, stem, a.paks)
     if new != shipped:
         sys.exit(f"{code}: the rebaked container holds {new}, the shipped one {shipped}")
     for p in shipped:
-        if p.endswith(("-scenario.uasset", "-scenario.ubulk")):
+        if p.endswith(("-scenario.uasset", "-scenario.ubulk", "-scenario_structure_bsp.ubulk")):
             continue
         x, y = os.path.join(w, "x.bin"), os.path.join(w, "y.bin")
         run([EXTRACT, src, p, x])
@@ -169,7 +172,7 @@ def one(pack, a, defaults):
             sys.exit(f"{code}: {p} changed in the rebake")
         os.remove(x)
         os.remove(y)
-    print(f"  {len(shipped) - 2} other package(s) of the map container unchanged", flush=True)
+    print(f"  {len(shipped) - 3} other package(s) of the map container unchanged", flush=True)
     if a.bake_only:
         return None
 
