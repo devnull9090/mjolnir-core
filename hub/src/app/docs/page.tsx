@@ -87,7 +87,7 @@ export default function DocsPage() {
   const guides = getGuides();
 
   return (
-    <main className="mx-auto max-w-4xl">
+    <main id="main" className="mx-auto max-w-4xl">
       <header className="border-b border-border pb-10">
         <p className="mb-3 text-xs font-bold uppercase text-gold">MJOLNIR Research</p>
         <h1 className="text-3xl font-black sm:text-4xl">Technical documentation</h1>

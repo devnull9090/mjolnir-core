@@ -1,13 +1,24 @@
 import Link from "next/link";
-import { Map as MapIcon, Rocket, Search, Upload } from "lucide-react";
+import { Map as MapIcon, Rocket, Search, Upload, X } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
 import { LAUNCHER_LINK_TITLE } from "../components/JoinButton";
+import {
+  ButtonLink,
+  EmptyState,
+  FilterBar,
+  FilterChips,
+  MapCover,
+  PageHeader,
+  PageShell,
+  Pill,
+  SectionHeading,
+  SelectNav,
+} from "../components/ui";
 import { listMaps } from "@/lib/api/maps";
 import { GAME_TYPE_NAMES, MAP_GAME_NAMES, MAP_SIZES } from "@/kit/types";
 import type { MapGame, MapListing, MapSize, MapSort } from "@/kit/types";
+import { GAME_MODES, modeLabel } from "@/lib/filters";
 import { marketingMetadata } from "@/lib/marketing";
 
 export const metadata = marketingMetadata(
@@ -16,7 +27,6 @@ export const metadata = marketingMetadata(
   "/maps",
 );
 
-const MODES = ["all", "slayer", "ctf", "team_slayer", "koth", "oddball"];
 const SHOWS = [
   { key: "all", label: "All maps" },
   { key: "classic", label: "Classic" },
@@ -58,48 +68,45 @@ function mapFacts(map: MapListing): string[] {
   return facts;
 }
 
-function MapCard({ map }: { map: MapListing }) {
+function MapCard({ map, priority }: { map: MapListing; priority: boolean }) {
   const facts = mapFacts(map);
-  // The card is a link to the map's page, and the launcher link sits
-  // beside it rather than inside: an anchor cannot nest another.
+  // The title's link is stretched over the card; the launcher link sits
+  // above it, since an anchor cannot nest another.
   return (
-    <div className="group flex flex-col bg-surface border border-border rounded-xl overflow-hidden hover:border-gold/40 transition-colors">
-      <Link href={`/mods/${map.slug}`} className="block flex-1">
-        {map.cover_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={map.cover_url}
-            alt={`${map.title} in Halo Campaign Evolved`}
-            loading="lazy"
-            className="w-full aspect-video object-cover bg-surface-raised"
-          />
-        ) : (
-          <div className="w-full aspect-video bg-surface-raised" />
-        )}
-        <div className="px-4 pt-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-foreground truncate">{map.title}</span>
-            <span className="text-[11px] font-mono text-text-dim">{map.code}</span>
-          </div>
-          {facts.length > 0 && <p className="text-xs text-text-muted mt-0.5">{facts.join(" · ")}</p>}
-          <p className="text-sm text-text-muted mt-1 line-clamp-2 min-h-[2.5rem]">
-            {map.summary ?? "No summary."}
-          </p>
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {map.modes.map((m) => (
-              <span
-                key={m}
-                className="text-[11px] px-2 py-0.5 rounded-full bg-gold/10 text-gold border border-gold/20"
-              >
-                {GAME_TYPE_NAMES[m] ?? m}
-              </span>
-            ))}
-          </div>
+    <article className="group card-lift relative flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface hover:border-gold/40">
+      <div className="relative">
+        <MapCover src={map.cover_url} code={map.code} priority={priority} />
+        <div className="absolute left-3 top-3">
+          <Pill tone="solid">{map.official ? "Classic" : "Community"}</Pill>
         </div>
-      </Link>
-      <div className="flex items-center justify-between gap-3 px-4 pb-4 pt-3 text-xs text-text-dim">
-        <div className="flex items-center gap-3 min-w-0">
-          {map.release ? <span>v{map.release.version}</span> : <span>no release yet</span>}
+        <span className="absolute right-3 top-3 rounded-md bg-background/80 px-1.5 py-0.5 font-mono text-[11px] font-bold text-text-muted backdrop-blur-sm">
+          {map.code}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col px-4 pt-4">
+        <h3 className="truncate text-lg font-bold text-foreground">
+          <Link
+            href={`/mods/${map.slug}`}
+            className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none group-has-[:focus-visible]:underline"
+          >
+            {map.title}
+          </Link>
+        </h3>
+        {facts.length > 0 && <p className="mt-0.5 text-xs text-text-muted">{facts.join(" · ")}</p>}
+        <p className="mt-2 line-clamp-2 min-h-[2.5rem] text-sm text-text-muted">{map.summary ?? "No summary."}</p>
+        <ul aria-label="Game types" className="mt-3 flex flex-wrap gap-1.5">
+          {map.modes.map((m) => (
+            <li key={m}>
+              <Pill tone="gold" className="normal-case tracking-normal">
+                {GAME_TYPE_NAMES[m] ?? m}
+              </Pill>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-border px-4 py-3 text-xs text-text-muted">
+        <div className="flex min-w-0 items-center gap-3">
+          {map.release ? <span>v{map.release.version}</span> : <span>No release yet</span>}
           {map.release?.file_size ? <span>{sizeOf(map.release.file_size)}</span> : null}
           {!map.official && <span className="truncate">by {map.owner}</span>}
         </div>
@@ -107,24 +114,26 @@ function MapCard({ map }: { map: MapListing }) {
           <a
             href={`mjolnir://map/${map.code}`}
             title={`${LAUNCHER_LINK_TITLE} on this map's page.`}
-            className="shrink-0 inline-flex items-center gap-1 font-semibold text-gold hover:underline"
+            className="relative z-[1] inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md px-2 font-semibold text-gold hover:bg-gold/10"
           >
-            <Rocket className="w-3 h-3" />
+            <Rocket aria-hidden className="h-3.5 w-3.5" />
             Open in launcher
           </a>
         )}
       </div>
-    </div>
+    </article>
   );
 }
 
-function MapGrid({ maps }: { maps: MapListing[] }) {
+function MapGrid({ maps, eager = false }: { maps: MapListing[]; eager?: boolean }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {maps.map((m) => (
-        <MapCard key={m.code} map={m} />
+    <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {maps.map((m, i) => (
+        <li key={m.code} className="flex">
+          <MapCard map={m} priority={eager && i === 0} />
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -143,7 +152,7 @@ export default async function MapsPage({
 }) {
   const params = await searchParams;
   const q = params.q?.trim().slice(0, 80) || undefined;
-  const mode = MODES.find((m) => m === params.mode) ?? "all";
+  const mode = GAME_MODES.find((m) => m === params.mode) ?? "all";
   const show = SHOWS.find((s) => s.key === params.show)?.key ?? "all";
   const game = GAMES.find((g) => g === params.game) ?? "any";
   const size = SIZES.find((s) => s === params.size) ?? "any";
@@ -169,153 +178,173 @@ export default async function MapsPage({
   const community = maps.filter((m) => !m.official);
 
   const current = { q: q ?? "", mode, show, game, size, vehicles, sort };
+  const set = (v: string) => v && v !== "all" && v !== "any" && v !== "default";
   const qs = (over: Partial<Record<keyof typeof current, string>>) => {
     const merged = { ...current, ...over };
     const u = new URLSearchParams();
-    for (const [k, v] of Object.entries(merged)) {
-      if (v && v !== "all" && v !== "any" && v !== "default") u.set(k, v);
-    }
+    for (const [k, v] of Object.entries(merged)) if (set(v)) u.set(k, v);
     const s = u.toString();
     return s ? `/maps?${s}` : "/maps";
   };
-  const chip = (active: boolean) =>
-    `px-3 py-1.5 rounded-full border transition-colors ${
-      active ? "border-gold/60 text-gold bg-gold/10" : "border-border text-text-muted hover:text-foreground"
-    }`;
+  /** Every filter but one, for a form that sets that one. */
+  const others = (except: keyof typeof current) =>
+    Object.fromEntries(Object.entries(current).filter(([k, v]) => k !== except && set(v)));
 
   return (
-    <>
-      <Navbar />
-
-      <main className="marketing pt-40 md:pt-44 pb-16 px-6 max-w-6xl mx-auto">
-        <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="marketing-eyebrow mb-3">Classic battlegrounds. Community creations.</p>
-            <h1 className="text-4xl font-black text-foreground mb-3">Campaign Evolved multiplayer maps</h1>
-            <p className="text-text-muted text-lg max-w-2xl">
-              The original Halo: Combat Evolved and Halo 2 multiplayer maps, rebuilt for
-              Campaign Evolved, plus a home for custom maps from the community. The launcher
-              installs each map and everything it needs.
-            </p>
-            <Link href="/multiplayer#setup" className="mt-4 inline-block text-sm font-semibold text-gold hover:underline">New here? Set up Campaign Evolved multiplayer →</Link>
-          </div>
-          <Link
-            href="/docs/notes/map-distribution"
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-foreground hover:border-gold/40 transition-colors"
-          >
-            <Upload className="w-4 h-4" />
+    <PageShell>
+      <PageHeader
+        eyebrow="Classic battlegrounds. Community creations."
+        title="Multiplayer maps"
+        description={
+          <>
+            The original Halo: Combat Evolved and Halo 2 multiplayer maps, rebuilt for Campaign Evolved, plus a home
+            for custom maps from the community. The launcher installs each map and everything it needs.{" "}
+            <Link href="/multiplayer#setup" className="font-semibold text-gold hover:underline">
+              New here? Set up multiplayer →
+            </Link>
+          </>
+        }
+        actions={
+          <ButtonLink href="/docs/notes/map-distribution" variant="secondary">
+            <Upload aria-hidden className="h-4 w-4" />
             Make a map
-          </Link>
-        </div>
+          </ButtonLink>
+        }
+      />
 
-        {/* Search keeps every other filter; the chips each change one. */}
-        <form action="/maps" method="get" className="mb-4 flex flex-wrap items-center gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-dim" />
+      <FilterBar>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* Search keeps every other filter; the chips each change one. */}
+          <form action="/maps" method="get" role="search" className="relative sm:w-72">
+            <label htmlFor="map-search" className="sr-only">
+              Search maps
+            </label>
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
+            />
             <input
+              id="map-search"
               type="search"
               name="q"
               defaultValue={q ?? ""}
               maxLength={80}
               placeholder="Search maps…"
-              className="pl-9 pr-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground placeholder:text-text-dim focus:border-gold/60 focus:outline-none w-64"
+              className="min-h-10 w-full rounded-lg border border-border bg-surface-raised pl-9 pr-3 text-sm text-foreground placeholder:text-text-muted hover:border-border-bright focus:border-gold/60"
             />
-          </div>
-          {mode !== "all" && <input type="hidden" name="mode" value={mode} />}
-          {show !== "all" && <input type="hidden" name="show" value={show} />}
-          {game !== "any" && <input type="hidden" name="game" value={game} />}
-          {size !== "any" && <input type="hidden" name="size" value={size} />}
-          {vehicles !== "any" && <input type="hidden" name="vehicles" value={vehicles} />}
-          {sort !== "default" && <input type="hidden" name="sort" value={sort} />}
-          <div className="flex flex-wrap items-center gap-1 text-xs">
-            {SORTS.map((s) => (
-              <Link key={s.key} href={qs({ sort: s.key })} className={chip(sort === s.key)}>
-                {s.label}
-              </Link>
+            {Object.entries(others("q")).map(([k, v]) => (
+              <input key={k} type="hidden" name={k} value={v} />
             ))}
-          </div>
-        </form>
-
-        <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">
-          {SHOWS.map((s) => (
-            <Link key={s.key} href={qs({ show: s.key })} className={chip(show === s.key)}>
-              {s.label}
-            </Link>
-          ))}
-          <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
-          {GAMES.map((g) => (
-            <Link key={g} href={qs({ game: g })} className={chip(game === g)}>
-              {g === "any" ? "Any game" : MAP_GAME_NAMES[g]}
-            </Link>
-          ))}
-          <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
-          {SIZES.map((s) => (
-            <Link key={s} href={qs({ size: s })} className={chip(size === s)}>
-              {s === "any" ? "Any size" : MAP_SIZES[s]}
-            </Link>
-          ))}
-          <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
-          {VEHICLES.map((v) => (
-            <Link key={v.key} href={qs({ vehicles: v.key })} className={chip(vehicles === v.key)}>
-              {v.label}
-            </Link>
-          ))}
+          </form>
+          <SelectNav
+            label="Sort"
+            name="sort"
+            value={sort}
+            action="/maps"
+            hidden={others("sort")}
+            options={SORTS.map((s) => ({ value: s.key, label: s.label, href: qs({ sort: s.key }) }))}
+          />
         </div>
-        <div className="mb-8 flex flex-wrap items-center gap-1 text-xs">
-          {MODES.map((m) => (
-            <Link key={m} href={qs({ mode: m })} className={chip(m === mode)}>
-              {m === "all" ? "All game types" : (GAME_TYPE_NAMES[m] ?? m)}
-            </Link>
-          ))}
-          {filtered && (
-            <Link href="/maps" className="ml-2 px-3 py-1.5 text-text-dim hover:text-foreground">
-              Clear filters
-            </Link>
-          )}
+        <FilterChips
+          label="Game type"
+          options={GAME_MODES.map((m) => ({ label: modeLabel(m), href: qs({ mode: m }), active: m === mode }))}
+        />
+        <div className="flex flex-col gap-3 border-t border-border pt-3 xl:flex-row xl:flex-wrap xl:items-center xl:gap-x-6">
+          <FilterChips
+            label="Origin"
+            options={SHOWS.map((x) => ({ label: x.label, href: qs({ show: x.key }), active: show === x.key }))}
+          />
+          <FilterChips
+            label="Game"
+            options={GAMES.map((g) => ({
+              label: g === "any" ? "Any game" : MAP_GAME_NAMES[g],
+              href: qs({ game: g }),
+              active: game === g,
+            }))}
+          />
+          <FilterChips
+            label="Size"
+            options={SIZES.map((x) => ({
+              label: x === "any" ? "Any size" : MAP_SIZES[x],
+              href: qs({ size: x }),
+              active: size === x,
+            }))}
+          />
+          <FilterChips
+            label="Vehicles"
+            options={VEHICLES.map((v) => ({ label: v.label, href: qs({ vehicles: v.key }), active: vehicles === v.key }))}
+          />
         </div>
+      </FilterBar>
 
-        {!sectioned ? (
-          maps.length === 0 ? (
-            <div className="flex items-center gap-3 text-text-muted">
-              <MapIcon className="w-5 h-5" />
-              <p>No maps match. Try fewer filters.</p>
-            </div>
-          ) : (
-            <MapGrid maps={maps} />
-          )
-        ) : (
-          <>
-            <section className="mb-12">
-              <h2 className="text-xl font-bold text-foreground mb-4">Classic maps</h2>
-              {official.length === 0 ? (
-                <p className="text-text-muted">
-                  {filtered ? "No classic maps match." : "No classic maps published yet."}
-                </p>
-              ) : (
-                <MapGrid maps={official} />
-              )}
-            </section>
-
-            <section>
-              <h2 className="text-xl font-bold text-foreground mb-4">Community maps</h2>
-              {community.length === 0 ? (
-                <div className="flex items-center gap-3 text-text-muted">
-                  <MapIcon className="w-5 h-5" />
-                  <p>
-                    {filtered
-                      ? "No community maps match."
-                      : "No community maps yet. Convert one, pack it with mjolnir map pack, and upload it from your mod's page."}
-                  </p>
-                </div>
-              ) : (
-                <MapGrid maps={community} />
-              )}
-            </section>
-          </>
+      <div className="mb-6 flex min-h-9 items-center justify-between gap-3 text-sm text-text-muted">
+        <p aria-live="polite">
+          {maps.length} map{maps.length === 1 ? "" : "s"}
+          {q ? ` matching “${q}”` : ""}
+        </p>
+        {filtered && (
+          <Link href="/maps" className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 hover:text-foreground">
+            <X aria-hidden className="h-4 w-4" />
+            Clear filters
+          </Link>
         )}
-      </main>
+      </div>
 
-      <Footer />
-    </>
+      {!sectioned ? (
+        maps.length === 0 ? (
+          <EmptyState
+            icon={MapIcon}
+            title="No maps match"
+            action={
+              <ButtonLink href="/maps" variant="secondary">
+                Clear filters
+              </ButtonLink>
+            }
+          >
+            Try fewer filters or a different search.
+          </EmptyState>
+        ) : (
+          <MapGrid maps={maps} eager />
+        )
+      ) : (
+        <>
+          <section aria-labelledby="classic-maps" className="mb-14">
+            <SectionHeading id="classic-maps" aside={<span className="text-text-muted">{official.length}</span>}>
+              Classic maps
+            </SectionHeading>
+            {official.length === 0 ? (
+              <p className="text-text-muted">{filtered ? "No classic maps match." : "No classic maps published yet."}</p>
+            ) : (
+              <MapGrid maps={official} eager />
+            )}
+          </section>
+
+          <section aria-labelledby="community-maps">
+            <SectionHeading id="community-maps" aside={<span className="text-text-muted">{community.length}</span>}>
+              Community maps
+            </SectionHeading>
+            {community.length === 0 ? (
+              <EmptyState
+                icon={MapIcon}
+                title={filtered ? "No community maps match" : "No community maps yet"}
+                action={
+                  filtered ? undefined : (
+                    <ButtonLink href="/docs/notes/map-distribution" variant="secondary">
+                      Publish a map
+                    </ButtonLink>
+                  )
+                }
+              >
+                {filtered
+                  ? "Try fewer filters."
+                  : "Convert one, pack it with mjolnir map pack, and upload it from your mod's page."}
+              </EmptyState>
+            ) : (
+              <MapGrid maps={community} />
+            )}
+          </section>
+        </>
+      )}
+    </PageShell>
   );
 }

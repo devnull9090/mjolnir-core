@@ -49,7 +49,7 @@ const generated: Array<[string, string]> = [
 
 export default function TagDataPage() {
   return (
-    <main className="mx-auto max-w-4xl">
+    <main id="main" className="mx-auto max-w-4xl">
       <header className="border-b border-border pb-9">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <EvidenceBadge level="Verified" />

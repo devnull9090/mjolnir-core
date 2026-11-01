@@ -42,6 +42,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         <GoogleAnalytics />
         {/* One identity lookup for the whole page: the navbar chip, the
             rating widget and the comment box all read the same session. */}

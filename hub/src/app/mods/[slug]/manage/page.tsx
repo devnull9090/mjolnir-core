@@ -138,7 +138,7 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
     return (
       <>
         <Navbar />
-        <main className="pt-40 pb-16 text-center text-text-dim">Loading…</main>
+        <main id="main" className="pt-40 pb-16 text-center text-text-dim">Loading…</main>
       </>
     );
   }
@@ -146,7 +146,7 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
     return (
       <>
         <Navbar />
-        <main className="pt-40 pb-16 text-center">
+        <main id="main" className="pt-40 pb-16 text-center">
           <p className="text-text-muted">
             Not found, or you don&apos;t own this mod.{" "}
             <a href={`/api/v1/auth/discord?next=/mods/${slug}/manage`} className="text-gold hover:underline">
@@ -161,7 +161,7 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
   return (
     <>
       <Navbar />
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-3xl mx-auto">
+      <main id="main" className="pt-32 md:pt-36 pb-16 px-6 max-w-3xl mx-auto">
         <p className="text-xs text-text-dim mb-1">
           <Link href={`/mods/${slug}`} className="hover:text-foreground">
             ← {mod.name}

@@ -4,8 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { getProduct, getProducts, getReleasesFor } from "@/lib/changelog";
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { PageShell } from "../../components/ui";
 import { ReleaseCard } from "../_components/ReleaseCard";
 
 /**
@@ -74,14 +73,11 @@ export default async function ProductChangelogPage({
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="4xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-4xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <Link
           href="/changelog"
           className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-foreground"
@@ -121,9 +117,6 @@ export default async function ProductChangelogPage({
             <ReleaseCard key={release.tag} release={release} />
           ))}
         </div>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

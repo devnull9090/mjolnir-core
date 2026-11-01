@@ -54,7 +54,7 @@ function until(expires: string | null): string {
 function PlayerAvatar({ url }: { url: string | null }) {
   return url ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt="" className="w-9 h-9 rounded-full border border-border" />
+    <img src={url} alt="" crossOrigin="anonymous" className="w-9 h-9 rounded-full border border-border" />
   ) : (
     <div className="w-9 h-9 rounded-full border border-border bg-surface-card" />
   );
