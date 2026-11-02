@@ -1,4 +1,4 @@
-# Forge Canvas and Crossline
+# Forge Canvas, Crossline and Roadworks Circuit
 
 Two original maps use the shared Foundry construction kit. Forge Canvas is an
 empty 64 × 64 metre deck with a two-metre grid and open sky. Crossline is a
@@ -8,8 +8,19 @@ A continuous perimeter of 96 Foundry full walls encloses Crossline: three
 courses make a 9 m boundary, extending 4.5 m above the raised decks. Interior
 railings and openings lead to other playable areas. Forge Canvas stays empty.
 
+The separate [Roadworks Circuit / RWC](roadworks/README.md) adds a Warthog
+driving course: 8 m lanes, connecting curves, longer straights, gradual ramps
+and a guarded vehicle test pad. It uses the Roadworks and Foundry packs and
+has its own generator, canvas collision and map archive.
+
+![Roadworks Circuit Blender layout preview](art/roadworks-circuit.png)
+
+This Blender preview uses the generated road placements and authoring
+materials. Stock Warthogs and player markers are omitted; it is not an
+in-game capture.
+
 These are standalone map archives, with their own collision, world and map
-codes: **Forge Canvas / FBK** and **Crossline / FRB**. The editable JSON files
+codes: **Forge Canvas / FBK**, **Crossline / FRB** and **Roadworks Circuit / RWC**. The editable JSON files
 are source templates; installing a map does not install a private saved layout.
 The initial versions are local development builds until published through the
 Hub. A source build alone does not mean the current public launcher or mods
@@ -24,6 +35,23 @@ Actual in-game captures of the enclosed arena:
 | ![Crossline overview in game](art/crossline-overview-game.png) | ![Red base and teleporter in game](art/crossline-red-base-game.png) |
 | **Lower route** | **Perimeter walls** |
 | ![Crossline lower route in game](art/crossline-lower-route-game.png) | ![Crossline solid perimeter in game](art/crossline-perimeter-game.png) |
+
+### Roadworks gameplay photos
+
+The real Spartan and Warthog on the test pad; the orange ground scale bar is
+**2 m long**, with a centre tick at 1 m:
+
+![Spartan and Warthog beside the two-metre scale bar](art/roadworks-scale-game.png)
+
+| Course overview | Gradual ramp |
+| --- | --- |
+| ![Roadworks Circuit in game](art/roadworks-overview-game.png) | ![Warthog on the Roadworks ramp](art/roadworks-ramp-game.png) |
+
+The overview and ramp use the detached FlyCam with native player-camera
+visibility culling temporarily disabled for photography. Normal culling was
+restored before driving; geometry and collision were unchanged. The live
+drives crossed the pit connection, straight/curve joins and the full raised
+route. See the [recorded checks](../docs/forge_pack_validation.md#roadworks-01-validation).
 
 ### Blender layout previews
 
@@ -43,8 +71,8 @@ their dimensions and clear openings.
 ## Play and build
 
 Once the compatible launcher, mods and map releases are published, install
-either map from its Hub listing. The launcher downloads the exact Foundry
-release and the compatible CE runtime dependency first. Restart the game if
+each map from its Hub listing. The launcher downloads its exact pack releases
+and the compatible CE runtime dependency first. Restart the game if
 the launcher needs to replace an already mounted pack.
 
 Choose **Forge Canvas → Forge** to start from the empty deck, or
@@ -85,22 +113,29 @@ Create a read-only Paks view containing the game, the tested CE runtime, and
 the newly built Foundry `.utoc`/`.ucas` files. Then run:
 
 ```powershell
-python tools/forge/build_maps.py --paks C:/path/to/combined-paks --runtime '^1.17.0'
+python tools/forge/build_maps.py --paks C:/path/to/combined-paks --runtime '^1.17.0' --only crossline
 ```
 
 Use the runtime range actually tested for the release. Optional arguments:
 `--only blank` or `--only crossline`, `--version 0.1.0`, `--cli`, `--world`,
-`--collision-dir`, `--pack-manifest`, and `--out`. The default pack manifest is
-`forge-packs/foundry/build/game/all/mjolnir.json`. The builder refuses a Paks
-view whose Foundry container bytes differ from that built pack, or a level
+`--collision-dir`, `--pack-manifest`, and `--out`. Default manifests are read
+from `forge-packs/<slug>/build/game/all/mjolnir.json` for each required pack.
+The builder refuses a Paks view whose pack container bytes differ from the built releases, or a level
 whose pack palette or canvas dimensions no longer match its inputs.
+
+Use `--only blank` or `--only crossline` to build either of these maps without
+Roadworks. With no selection the builder includes every map; see the
+[Roadworks build instructions](roadworks/README.md#rebuild) for its additional
+pack and canvas inputs. `--pack-manifest` can be repeated when supplying
+several exact built pack releases.
 
 Every run creates a new retained directory under `forge-maps/build/`. It
 contains each map's level snapshot, standalone bake, registration record,
 `.mjolnir` archive, command log and a report of input/archive hashes. Nothing
 is installed into the game. The archives contain the map data and containers;
 the launcher generates the shared registration container at installation.
-Foundry stays a separate exact-version dependency, so both maps share it.
+Foundry and Roadworks stay separate exact-version dependencies, so maps share
+the same installed pack releases.
 
 Local test archives are unsigned. For a Hub submission, pass `--sign` using a
 registered device key, or `--sign-seed <file>` using a registered publisher

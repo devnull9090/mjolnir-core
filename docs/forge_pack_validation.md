@@ -168,3 +168,97 @@ Latest local archives remain unsigned:
 All 194 Foundry container members are unchanged by that README-only repack.
 The original game files, camera poses and display settings were restored and
 verified after the session; the temporary installation was removed.
+
+## Roadworks 0.1 validation
+
+The ten-piece [Roadworks kit](../forge-packs/roadworks/README.md) and separate
+[Roadworks Circuit / RWC](../forge-maps/roadworks/README.md) were built locally
+on 2026-11-01 (final build report `20261102T012552Z-87e4971b`). The map has
+18 connected loop pieces, a guarded spur, three test-pad decks, two stock
+Warthogs and four player starts. Its road surface is 3 m above the original
+160 m canvas, rising to 7 m, so the recovery floor cannot mask road-collision
+gaps. The existing Forge Canvas and Crossline level files are unchanged.
+
+| Offline check | Result |
+| --- | --- |
+| Source geometry | 196 convex hulls / 2,352 triangles; 3,430 road-surface probes passed |
+| Native collision | 9,774 rays passed across all ten generated collision tags |
+| Model visibility bounds | All ten emitted models decode to a 300 m `render_distance` (98.425194 wu), replacing the inherited zero/default value that selected 91.44 m. The cold-launch check below verifies visibility across roughly 120 m of the course; 300 m was not tested live. |
+| Map assembly | Nine builder tests passed, including real-triangle surface checks, connector/deck-edge closure, reversed descent, guard seams, pit access and vehicle spawn surfaces |
+| Canvas | 13,068 collision probes passed for the 160 × 160 m slab and expanded playable bounds |
+| Packaging | Exact pack palettes and container bytes verified; authored JSON preserved, `vehicles: true`, Slayer/Forge modes, no private layout or shared registration override |
+
+The map pins `foundry =0.2.0`, `roadworks =0.1.0` and
+`mjolnir-ce-runtime ^1.17.0`. The retained build report records every input
+hash; both archives below were rehashed against the finished files.
+
+| Local unsigned archive | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Roadworks 0.1.0 | 601,379 | `8a5e7869a5f73866804c3f6d5abf0fe43f50baf8161ccb6116ec68b96f3f7acf` |
+| Roadworks Circuit 0.1.0 | 112,962 | `8fc7b93374ecfe054ecedfe3e36cd57b28370f43e634c2f549a3bc38ca4a869b` |
+
+The [circuit preview](../forge-maps/art/roadworks-circuit.png) is a Blender
+render of the generated level and original pack geometry. Its provenance
+receipt and the bake agree on level SHA-256
+`44af8c27d83ad60365df3bb28c0522544d047bb9b5b195671cc694fc3dac3854`.
+The preview uses authoring materials and omits the stock Warthogs and player
+markers. It is not an in-game capture or vehicle-scale photograph. The
+[scale measurements](../forge-packs/roadworks/SCALE.md) come from installed
+stock tags; no extracted stock models are shipped in the authored pack.
+
+### First private Slayer drive
+
+The pit Warthog drove onto the spur, crossed the 12/24 m straight joins, a
+90° bend and the joints between paired 45° bends. Its native position stayed
+at approximately Z=0.98 wu (3 m), with full 500 health. A second stock Warthog
+completed the raised route, also retaining full health:
+
+| Ramp position, authored Y | Observed vehicle Z | Road stage |
+| ---: | ---: | --- |
+| 10.91 m | 1.73 wu / 5.27 m | Climbing |
+| -4.94 m | 2.29 wu / 6.98 m | High deck |
+| -24.45 m | 1.60 wu / 4.88 m | Descending |
+| -39.35 m | 0.98 wu / 2.99 m | Back on the low road |
+
+These drives used ordinary gameplay inputs without live physics or position
+patches. The final map archive is byte-identical to the first candidate;
+the Roadworks pack changed its model render-distance fields.
+
+The [three gameplay photos](../forge-maps/README.md#roadworks-gameplay-photos)
+show the real Spartan and Warthog beside a two-metre ground scale bar, the
+course overview and the ramp. The detached FlyCam required temporarily
+changing native `CullByBlamVisibility` from 1 to 0 for the overview and ramp
+photos so objects culled relative to the native player camera remained
+visible. This setting changes visibility only; it did not repair or modify
+geometry or collision. It was restored to 1 before every drive and before
+quitting the first session.
+
+### Final cold launch, Forge and restoration
+
+A fresh process loaded a private RWC Forge session. Insert placed a
+`straight_24`; V grabbed it, D moved it, two period presses rotated it and V
+dropped it. F5 saved 67 objects, including the added straight at native
+position `(2.50, 11.81, 1.72)` wu and yaw -37.5°. Insert then placed a separate
+`curve_90`. F6 removed that unsaved curve and recreated the saved straight at
+the identical transform.
+
+The saved `RWC.mvar.packs` bound both releases to their exact installed
+archive hashes: Foundry 0.2.0
+`50107e14652d40e8978ca7401de5bd419fe041c45defb46083f9ea2f9e56e373`
+and Roadworks 0.1.0
+`8a5e7869a5f73866804c3f6d5abf0fe43f50baf8161ccb6116ec68b96f3f7acf`.
+
+This final session used the default `CullByBlamVisibility=1` throughout,
+without FlyCam. Ordinary S movement took the Monitor to
+`(5.87, -20.86, 1.50)` wu, or authored Y=-63.6 m. Readback showed the north
+guarded straights at authored Y=56 m with `bHidden=false`, and a screenshot
+showed the far road. This establishes cross-course visibility at roughly
+120 m; it does not establish the full 300 m render-distance limit.
+
+After quitting, `.dream-loop/roadworks/session.ps1 -Action restore` restored
+23 original file states with hash verification and removed the temporary
+test packs and maps. Played layouts were retained in the ignored
+`played-layouts` evidence directory.
+
+Formal guardrail-impact and two-car passing tests, published Hub installation
+and second-machine play remain pending for these candidates.

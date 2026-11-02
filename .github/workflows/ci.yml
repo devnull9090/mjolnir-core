@@ -169,6 +169,11 @@ jobs:
       - name: Test Forge map archive builder
         run: python -m unittest discover -s tools/forge -p test_build_maps.py
 
+      - name: Validate original Forge pack geometry and connectors
+        run: |
+          python forge-packs/foundry/validate.py
+          python forge-packs/roadworks/validate.py
+
       - name: Ensure no secrets in repo
         run: |
           echo "Scanning for potential secrets..."

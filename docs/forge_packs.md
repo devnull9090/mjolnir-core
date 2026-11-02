@@ -10,6 +10,12 @@ The first authored set is [Foundry](../forge-packs/foundry/README.md): 24 origin
 industrial pieces on a 2 m module, with a 0.5 m suggested placement snap.
 Version 0.2 adds a portal frame, teleporter pad, light strip and three light
 pylons to the 18-piece set tested below.
+[Roadworks](../forge-packs/roadworks/README.md) is a separate vehicle kit:
+ten original road pieces with 8 m clear decks, 12/24 m straights, 45/90-degree
+curves and eased ramps, with guarded and unguarded variants. Its entry-anchored
+origins and connector data are documented with the sources; current Forge
+placement does not automatically snap road connectors. The Roadworks Circuit
+fixture depends on both packs and includes stock Warthogs for scale and driving.
 [Design research](forge_pack_design.md) explains the piece selection and future
 sets. A private CU4 fixture loaded and placed all 18 types, exercised movement,
 rotation, save/reload, restart persistence and identity refusal, and checked

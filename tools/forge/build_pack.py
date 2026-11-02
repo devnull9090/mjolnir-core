@@ -131,8 +131,9 @@ def main():
             spec.extend(["--material", f"{mat}={path}={'*' if k == 0 else mat + '$'}"])
         run(a.examples / "mesh_rewrite.exe", a.paks, "basicshapes/cube", pack / f"build/models/{ident}.gltf",
             mesh_file, "--offset", "0,0,0", "--rename", mesh, *spec)
-        # mesh_rewrite centres/normalizes the mesh; restore the floor-centred
-        # source transform on the synchronized component (Blender Y -> UE -Y).
+        # mesh_rewrite centres/normalizes the mesh; restore the authored
+        # origin on the synchronized component (Blender Y -> UE -Y). This
+        # also supports Roadworks' entry-anchored roads and asymmetric curves.
         points = [v for part in piece["visual"] for v in part["vertices"]]
         lo = [min(v[k] for v in points) for k in range(3)]
         hi = [max(v[k] for v in points) for k in range(3)]
@@ -146,10 +147,18 @@ def main():
         physics = pack / f"build/blam-collision/{ident}.physics_model"
         if not coll.is_file() or not physics.is_file():
             raise FileNotFoundError(f"build collision/physics first: {ident}")
+        visibility = []
+        if "render_distance_m" in piece:
+            distance = piece["render_distance_m"]
+            if isinstance(distance, bool) or not isinstance(distance, (int, float)) or not math.isfinite(distance) or not 0 < distance <= 1000:
+                raise ValueError(f"{ident}: render_distance_m must be finite and in (0, 1000]")
+            # CU4 interprets zero as a short default distance, not unlimited.
+            # Long road sections need an explicit finite model draw distance.
+            visibility = ["--set", f"disappear distance={distance / 3.048}"]
         new("collision_model", tag, ident + "-coll", "--payload", coll)
         new("physics_model", tag, ident + "-phmo", "--payload", physics)
         new("model", tag, ident + "-model", "--set", f"physics_model=phmo:{tag}",
-            "--set", f"collision model=coll:{tag}", *model_bounds_args(piece))
+            "--set", f"collision model=coll:{tag}", *model_bounds_args(piece), *visibility)
         radius = math.sqrt(sum(max(abs(lo[k]), abs(hi[k])) ** 2 for k in range(3))) / 3.048
         new("crate", tag, ident + "-crate", "--asset-reference", actor,
             "--set", f"object.model=hlmt:{tag}", "--set", f"object.bounding radius={radius}")

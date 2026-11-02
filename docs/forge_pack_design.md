@@ -76,6 +76,31 @@ background Python automation is sufficient; no MCP update is needed for the
 generator. Generated `.blend`, GLBs, collision exports and the actual rendered
 contact sheet are kept in that folder's ignored `build/` directory.
 
+## Roadworks vehicle kit
+
+The separate [Roadworks pack](../forge-packs/roadworks/README.md) provides
+vehicle-scale straights, connecting curves and eased ramps. Forge racing
+remains an active design genre: official features include
+[race courses in February 2026](https://www.halowaypoint.com/news/forge-features-february-3-2026)
+and [Death Race in April 2026](https://www.halowaypoint.com/news/forge-features-april-23-2026).
+These are references for the type of play; the Roadworks geometry is original.
+
+The installed Warthog's assembled visual envelope is approximately
+6.13 × 3.25 × 2.43 m; the Spartan's standing collision height is 1.981 m.
+[The scale audit](../forge-packs/roadworks/SCALE.md) distinguishes visible bounds,
+physics bounds and wheel contact measurements. Foundry's 2 m-wide bridges and
+ramps suit infantry. Roadworks uses an 8 m clear deck, 0.4 m shoulders,
+12/24 m straights and 20 m centreline-radius curves. Its 24 m ramp rises 4 m
+with flat ends and gentle slope transitions. Each piece has an optional guarded
+variant. Curves use separate convex slices so their inner space remains open.
+
+The [Roadworks Circuit](../forge-maps/README.md) connects those pieces into a
+driving fixture, including a raised section and a pit pad with stock Warthogs.
+The roads stand above the recovery floor so live driving exercises their own
+collision. Connector positions and tangents drive the assembly and are checked
+for closed loops, matching edges and reversed ramp joins. This source metadata
+does not add automatic connector snapping to the current Forge editor.
+
 ## Further visual sets
 
 These are design directions, not delivered model packs:

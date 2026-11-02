@@ -1,4 +1,4 @@
-"""Render the actual Forge level JSON with the original Foundry source meshes.
+"""Render the actual Forge level JSON with its original pack source meshes.
 
 blender --background --factory-startup --python forge-maps/render.py
 blender --background --factory-startup --python forge-maps/render.py -- --blank
@@ -10,7 +10,8 @@ weapon models are counted in the report but omitted from the image. Rendering
 uses Blender lighting and authored materials, not a captured game framebuffer.
 Point-light power uses an approximate 179 lm/W conversion from authored candela;
 --light-scale changes only presentation power, never source/runtime metadata.
-The script never writes or regenerates level JSON or the Foundry source files.
+Stock vehicles, weapons and invisible gameplay markers are omitted. The script
+never writes or regenerates level JSON or the pack source files.
 """
 
 from __future__ import annotations
@@ -88,9 +89,17 @@ def main():
     path = args.level or ROOT / ("blank/forge_canvas.level.json" if args.blank else "crossline/crossline.level.json")
     level_bytes = path.read_bytes()
     level = json.loads(level_bytes)
-    source_bytes = (PACK / "source/geometry.json").read_bytes()
-    source = json.loads(source_bytes)
-    by_id = {p["id"]: p for p in source["pieces"]}
+    sources, geometry_hashes = {}, {}
+    for binding in level["blam"]["forge_packs"]:
+        slug = binding["slug"]
+        # Only known, checked-in authoring sources supply this preview. The
+        # level's exact palette tags select models; unknown pack tags fail.
+        pack_root = ROOT.parent / "forge-packs" / slug
+        if pack_root.resolve().parent != (ROOT.parent / "forge-packs").resolve():
+            raise ValueError("Invalid pack source path: " + slug)
+        source_bytes = (pack_root / "source/geometry.json").read_bytes()
+        sources[slug] = json.loads(source_bytes)
+        geometry_hashes[slug] = hashlib.sha256(source_bytes).hexdigest()
     origin = level.get("canvas", {}).get("origin", [0, 0, 0])
     suffix = "-top" if args.top else "-opposite" if args.opposite else ""
     output = args.output or ROOT / "art" / (level["name"] + suffix + ".png")
@@ -102,32 +111,38 @@ def main():
     scene = bpy.context.scene
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.scale_length = 1
-    assembly = bpy.data.collections.new("Level / Foundry placements")
+    assembly = bpy.data.collections.new("Level / Pack placements")
     decor = bpy.data.collections.new("Level / Visible decor")
     lighting = bpy.data.collections.new("Level / Lighting")
     library = bpy.data.collections.new("Unplaced prototypes")
     for collection in (assembly, decor, lighting, library):
         scene.collection.children.link(collection)
-    materials = {name: material("Foundry / " + name, spec) for name, spec in source["materials"].items()}
+    materials = {slug: {name: material(slug + " / " + name, spec)
+                        for name, spec in source["materials"].items()}
+                 for slug, source in sources.items()}
+    by_tag = {f"objects\\mjolnir\\forge\\{slug}\\{piece['id']}": (slug, piece)
+              for slug, source in sources.items() for piece in source["pieces"]}
     prototypes, invisible, placed, lights = {}, [], [], []
-    prefix = "objects\\mjolnir\\forge\\foundry\\"
+    prefix = "objects\\mjolnir\\forge\\"
     for index, item in enumerate(level["blam"]["objects"]):
         tag = item["tag"].lower()
         if not tag.startswith(prefix):
             invisible.append(tag)
             continue
-        ident = tag.removeprefix(prefix)
-        piece = by_id[ident]
-        if ident not in prototypes:
-            prototypes[ident] = prototype(piece, materials, library)
-        obj = prototypes[ident].copy()
+        if tag not in by_tag:
+            raise ValueError("Missing authoring geometry for " + tag)
+        slug, piece = by_tag[tag]
+        ident = piece["id"]
+        if tag not in prototypes:
+            prototypes[tag] = prototype(piece, materials[slug], library)
+        obj = prototypes[tag].copy()
         obj.name = f"{index:03} / {ident}"
         obj.location = metre_position(item["pos"], origin)
         obj.rotation_euler = authored_rotation(item.get("rot", [0, 0, 0]))
         obj.scale = (1, 1, 1)
         obj["source_tag"] = item["tag"]
         assembly.objects.link(obj)
-        placed.append({"id": ident, "position_m": list(obj.location), "yaw_deg": -item.get("rot", [0, 0, 0])[1]})
+        placed.append({"pack": slug, "id": ident, "position_m": list(obj.location), "yaw_deg": -item.get("rot", [0, 0, 0])[1]})
         if spec := piece.get("light"):
             data = bpy.data.lights.new(obj.name + " / Point light", "POINT")
             data.color = spec["color_rgb"]
@@ -210,18 +225,20 @@ def main():
     camera_data.ortho_scale = max(hi[0]-lo[0], (hi[1]-lo[1])*ratio)*1.14
     camera.location += camera.rotation_euler.to_matrix() @ Vector(((lo[0]+hi[0])/2, (lo[1]+hi[1])/2, 0))
     report = {"level": str(path), "level_sha256": hashlib.sha256(level_bytes).hexdigest(),
-              "geometry_sha256": hashlib.sha256(source_bytes).hexdigest(),
+              "geometry_sha256": geometry_hashes,
               "view": "top" if args.top else "opposite" if args.opposite else "hero",
               "preview_light_scale": args.light_scale, "preview_luminous_efficacy_lm_per_w": 179,
-              "name": level["name"], "foundry_placements": placed,
+              "name": level["name"], "pack_placements": placed,
+              "foundry_placements": [p for p in placed if p["pack"] == "foundry"],
               "decor_count": len(level.get("decor", [])), "lights": lights,
               "invisible_markers": invisible,
+              "stock_vehicle_count": len(level["blam"].get("vehicles", [])),
               "stock_weapon_count": len(level["blam"].get("weapons", [])),
               "stock_equipment_count": len(level["blam"].get("equipment", []))}
     (ROOT / "build" / (output.stem + ".preview.json")).write_text(json.dumps(report, indent=2)+"\n")
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "build" / (output.stem + ".blend")))
     bpy.ops.render.render(write_still=True)
-    print(f"FORGE_PREVIEW_OK: {len(placed)} Foundry placements, {len(level['decor'])} decor, {len(lights)} lights -> {output}")
+    print(f"FORGE_PREVIEW_OK: {len(placed)} pack placements, {len(level['decor'])} decor, {len(lights)} lights -> {output}")
 
 
 if __name__ == "__main__":
