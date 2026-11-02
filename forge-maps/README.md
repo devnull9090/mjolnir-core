@@ -107,6 +107,25 @@ it, **N** duplicates it, and **Delete** removes it. Foundry pieces display their
 authored names. The utility palette contains spawn points and teleporters;
 **P** changes a teleporter's channel, which must match its destination.
 
+**New controls in development, not yet released:** aim at or hold a piece
+and press **F3** to cycle **Normal / Fixed / Phased**. Normal uses the
+object's usual physics and can fall after release. Fixed holds it where
+placed; Phased also allows overlap with other geometry. Choose Fixed or
+Phased for suspended platforms. These are native Forge object properties.
+
+**F4** cycles MJOLNIR's position grid through **off, 0.25, 0.5, 1, 2 and
+4 m**. Placement and drop align the object's origin to the nearest grid
+point, measured from the map's world origin; this does not automatically
+join piece edges. **F10** cycles rotation snapping through **off, 90°, 45°,
+30°, 15° and 5°**. Comma/period request the next angle on that world yaw grid;
+with snapping off, they turn by **22.5°**. Use **Phased** for precise
+construction: collision can resist a held Fixed object's turn, and the
+game's hold motion can leave a small angle difference even in Phased mode.
+Check the pose after dropping. The Monitor HUD shows these settings and
+the target's physics mode. Live checks cover weapons, a Wide floor and a
+spawn marker; see the [validation record](../docs/forge_pack_validation.md)
+for their results and limits.
+
 Press **F5** to save, **F6** to reload the saved layout, or **F2** to restore the
 map's authored starting layout. Saved layouts also apply when the map is
 played outside Forge. Keep both `<MAP>.mvar` and `<MAP>.mvar.packs` together

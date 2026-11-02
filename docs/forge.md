@@ -8,6 +8,12 @@ First released in mods 0.34.0 with CE runtime 1.14.0; placing from the
 palette needs MJOLNIRForge 0.2.0 and CE runtime 1.15.0 (the panel).
 **How it works:** [re/forge_engine.md](re/forge_engine.md).
 
+**In development, not yet released:** physics modes (**F3**), a position
+grid (**F4**) and rotation snapping (**F10**). Live checks cover mode changes,
+placement, movement, turning and save/reload with weapons and a Wide floor.
+The [validation record](forge_pack_validation.md) lists the tested cases
+and remaining limits.
+
 Halo Reach's Forge is still inside Halo: Campaign Evolved's simulation.
 MJOLNIR switches it on: you turn into the Monitor, fly around the map, and
 pick up, move, drop and delete its objects. The game's own Forge engine does
@@ -43,7 +49,7 @@ console.
 - **Beside the cursor:** what you aim at or hold. It shows the kind of object,
   its name, the game's own picture for a weapon, and what the keys do to it.
   While you hold something, a bar shows how far out it is (1 to 60 m).
-- **Bottom:** every key, dimmed when it does nothing right now, and a short
+- **Bottom:** the main controls, dimmed when they do nothing right now, and a short
   note of what the last key did ("DELETED Shotgun").
 
 ![Aiming at a shotgun: WEAPON, Shotgun, and the keys that act on it](images/forge-hud-aiming.jpg)
@@ -54,6 +60,11 @@ console.
   EQUIPMENT, SCENERY) between its keys, the object Insert places with its
   picture, and the category's list around it. A dimmed entry is one the map
   cannot place right now.
+
+The development HUD also shows the target's physics mode and keeps the
+grid and rotation settings visible in Monitor mode. The palette header
+shows the turn increment separately: snapping off still leaves comma and
+period turning by 22.5°.
 
 The HUD ships in the CE runtime pack (`pakchunk980-MJOLNIRFORGEUI-Windows`).
 Without it, a plain text panel shows the same things. The HUD from CE runtime
@@ -79,18 +90,23 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **J** | Respawn time of the target: 0, 5, 10, 15, 30, 45, 60, 90, 120, 180 s |
 | **O** | Spawn order of the target: 0 to 9 |
 | **P** | Teleporter channel of the target: alpha through zulu, then 26–31 |
-| **, / .** | Turn what you hold or carry, or the next marker you place, 22.5° left / right |
+| **, / .** | Turn what you hold or carry, or the next marker you place, left / right; 22.5° with rotation snapping off |
+| **F3** *(development)* | Cycle the target's physics: Normal → Fixed → Phased |
+| **F4** *(development)* | Cycle the position grid: off → 0.25 → 0.5 → 1 → 2 → 4 m |
+| **F10** *(development)* | Cycle rotation snapping: off → 90° → 45° → 30° → 15° → 5° |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
 flies up.
 
 To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
-lines like `grab=F7` (actions `toggle`, `grab`, `duplicate`, `delete`,
+lines like `grab=H` (actions `toggle`, `grab`, `duplicate`, `delete`,
 `nearer`, `farther`, `place`, `prev_category`, `next_category`, `prev_item`,
 `next_item`, `save`, `load`, `revert`, `team`, `label`, `respawn`, `order`, `channel`,
-`rotate_left`, `rotate_right`; key names as UE4SS spells them, such as `PAGE_UP` or
+`rotate_left`, `rotate_right`; the development build adds `physics`, `grid`
+and `rotation_snap`; key names as UE4SS spells them, such as `PAGE_UP` or
 `LEFT_ARROW`).
-The defaults are keys the game does not use. G, C, Z and X are taken.
+The defaults are keys the game does not use. G, C, Z and X are taken;
+MJOLNIRFlyCam uses F7–F9 and the square brackets.
 
 ## The palette
 
@@ -121,6 +137,42 @@ card shows its team and label.
   The list is the map's own labels.
 - **Respawn time** and **spawn order** for weapons, vehicles and equipment.
 
+### Physics and snapping — development build
+
+Aim at an object or hold it, then press **F3** to change its physics mode.
+These are the game's native Forge object properties:
+
+- **Normal:** uses the object's normal physics. An unsupported piece can
+  fall when dropped.
+- **Fixed:** stays where you place it, including in midair.
+- **Phased:** stays where you place it and allows overlap with other geometry.
+
+For a platform that should remain suspended, choose Fixed or Phased before
+dropping it. The target card shows the selected mode; saved layouts keep
+the object's physics properties.
+
+**F4** controls MJOLNIR's position grid. It starts off and cycles through
+**0.25, 0.5, 1, 2 and 4 metres**, then off again. On placement or drop, the
+object's origin aligns to the nearest grid point in world coordinates.
+The grid is anchored at the map's world origin; it does not connect model
+edges automatically. A Normal object can still move or fall after it lands
+on the grid.
+
+**F10** starts with rotation snapping off and cycles through **90°, 45°,
+30°, 15° and 5°**, then off again. With a snap selected, comma and period
+request a turn to the next angle on that world yaw grid.
+With snapping off, they turn by **22.5°**. Turning is around the vertical
+axis; pitch and roll controls are not available.
+
+Use **Phased** for precise construction and check the angle after dropping.
+A held Fixed object can resist a requested turn when it encounters collision,
+and the game's hold motion can settle slightly off the requested angle even
+in Phased mode. Rotation snapping is not a guarantee of an exact final angle.
+
+The HUD shows the current grid, snap angle and turn increment. Grid and
+angle choices are editing settings for the current session; a saved layout
+records the resulting object positions and rotations.
+
 ## Markers: flag stands, spawn points, health packs, teleporters
 
 These have no physics, so the Monitor cannot drag them the way it drags a
@@ -131,9 +183,8 @@ weapon. Forge handles them its own way:
   it, properties and all. Turn it with , and . and press **V** again to put
   it down at the cursor. **Delete** while carrying throws it away.
 - **N** copies one, properties included.
-- They are invisible in game (the bases' stands are separate scenery), and
-  the cursor cannot land on them, so Forge aims at the nearest one within
-  about a metre of your crosshair.
+- They are invisible in game (the bases' stands are separate scenery).
+  Aim close to the marker's position to select it.
 
 A flag stand made this way works in CTF: on Blood Gulch, a red stand placed,
 labelled `ctf_flag_return`, saved, and the map then hosted as CTF got the red

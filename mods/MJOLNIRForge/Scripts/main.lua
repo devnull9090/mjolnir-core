@@ -32,6 +32,10 @@
 --   J / O      the target's respawn time / spawn order
 --   P          the target teleporter's channel (sender and receiver must match)
 --   , / .      turn what you carry, or place next, left / right
+--   F3         physics: cycle the target's Normal / Fixed / Phased mode
+--   F4         grid: cycle position snapping (off, 0.25, 0.5, 1, 2, 4 metres)
+--   F10        rotation_snap: cycle angle snapping (off, 90, 45, 30, 15, 5 degrees)
+--              With snapping off, comma / period still turn by 22.5 degrees.
 --
 -- A map with a saved layout starts every game with it, Forge or not (the DLL
 -- swaps it in where the engine builds the map's objects).
@@ -87,6 +91,9 @@ local DEFAULT_KEYS = {
     channel = "P",
     rotate_left = "OEM_COMMA",
     rotate_right = "OEM_PERIOD",
+    physics = "F3",
+    grid = "F4",
+    rotation_snap = "F10",
 }
 
 local LABELS = {
@@ -111,11 +118,18 @@ local LABELS = {
     channel = "teleporter channel",
     rotate_left = "turn left",
     rotate_right = "turn right",
+    physics = "physics mode",
+    grid = "position grid",
+    rotation_snap = "rotation snap",
 }
 
 local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther", "place",
     "prev_category", "next_category", "prev_item", "next_item", "save", "load", "revert",
-    "team", "label", "respawn", "order", "channel", "rotate_left", "rotate_right" }
+    "team", "label", "respawn", "order", "channel", "rotate_left", "rotate_right", "physics", "grid", "rotation_snap" }
+
+-- Updating Lua before the DLL must not disable the existing editor. Older
+-- snapshots omit these fields, so the HUD keeps its original controls.
+local OPTIONAL_ACTIONS = { physics = true, grid = true, rotation_snap = true }
 
 local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
@@ -164,8 +178,12 @@ local function loadNative()
     for _, name in ipairs(names) do
         local f, err = package.loadlib(DLL, "mjolnir_forge_" .. name)
         if not f then
-            log("cannot load " .. DLL .. ": " .. tostring(err))
-            return false
+            if OPTIONAL_ACTIONS[name] then
+                log(name .. " needs an updated native Forge DLL")
+            else
+                log("cannot load " .. DLL .. ": " .. tostring(err))
+                return false
+            end
         end
         loaded[name] = f
     end
@@ -337,9 +355,9 @@ local function describe(s, keys, palette)
     end
     local lines = { "FORGE" .. (s.editing == "1" and " - MONITOR" or ""), table.concat(hint, "   ") }
     if s.editing == "1" then
-        if s.held ~= "ffffffff" then
+        if s.held and s.held ~= "ffffffff" then
             lines[#lines + 1] = string.format("Holding: %s  (%s m)", Hud.prettyName(s.held_tag, s.held_path), s.distance or "?")
-        elseif s.cursor ~= "ffffffff" then
+        elseif s.cursor and s.cursor ~= "ffffffff" then
             lines[#lines + 1] = "Aiming at: " .. Hud.prettyName(s.cursor_tag, s.cursor_path)
         else
             lines[#lines + 1] = "Aiming at: nothing"
@@ -349,6 +367,10 @@ local function describe(s, keys, palette)
                 s.team, s.label ~= "" and s.label or "none", s.respawn or "?", s.order or "?")
         end
         if s.channel then lines[#lines + 1] = "Teleporter channel: " .. s.channel .. "  [" .. keys.channel .. "] change" end
+        local settings = Hud.editSettings(s, keys)
+        if settings ~= "" then lines[#lines + 1] = settings end
+        local physics = Hud.physicsName(s.physics)
+        if physics then lines[#lines + 1] = "Physics: " .. physics .. "  [" .. keys.physics .. "] change" end
         local row = selectedRow(s, palette)
         if row then
             lines[#lines + 1] = string.format("Palette: %s%s%s  [%s/%s] object  [%s/%s] category",
@@ -424,7 +446,6 @@ end
 local lastLayoutNotice, layoutWarning = nil, nil
 local warningGeneration = 0
 local function render(s, title, palette)
-    local started = os.clock()
     local identity = s.layout_id or s.layout
     if identity ~= lastLayoutNotice then
         lastLayoutNotice = identity
@@ -445,31 +466,53 @@ local function render(s, title, palette)
     end
     local drawn = Hud.render(s, keys, title, palette, selectedRow(s, palette))
     showPanel(layoutWarning or (not drawn and describe(s, keys, palette) or nil))
-    reportWork("HUD", started)
 end
 
 local lastStatus = nil
 local lastState = false
 local palette = {}
 local paletteVersion = nil
-local lightTicks, lightQueued, lightError = 0, false, false
+local lightTicks, lightsDue, lightError = 0, false, false
+local pendingRender, renderError = nil, false
+
+-- Retain one game-thread callback for the lifetime of the mod. Repeatedly
+-- registering ExecuteInGameThread work from LoopAsync can invalidate a
+-- UE4SS Lua registry ref and remove its shared engine-tick hook (also
+-- reproduced by tools/remote/audio-probe.lua). A mailbox coalesces snapshots
+-- while the game thread is busy; neither HUD updates nor lamp scans backlog.
+local function gameThreadTick()
+    local nextRender = pendingRender
+    pendingRender = nil
+    if nextRender then
+        local started = os.clock()
+        local ok, err = pcall(render, nextRender.state, nextRender.title, nextRender.palette)
+        if not ok and not renderError then log("HUD: " .. tostring(err)) end
+        renderError = not ok
+        if not ok and not pendingRender then pendingRender = nextRender end
+        reportWork("HUD", started)
+    end
+    if lightsDue then
+        lightsDue = false
+        local started = os.clock()
+        local ok, err = pcall(Lights.tick, Lights)
+        if not ok and not lightError then log("pack lights: " .. tostring(err)) end
+        lightError = not ok
+        reportWork("pack lights", started)
+    end
+    ExecuteInGameThreadWithDelay(POLL_MS, gameThreadTick)
+end
+
 ExecuteInGameThreadWithDelay(5000, function()
     if not loadNative() then return end
     pcall(native.open)
+    ExecuteInGameThreadWithDelay(POLL_MS, gameThreadTick)
     LoopAsync(POLL_MS, function()
         -- Lamp actors also exist in Slayer and after saved-layout startup;
         -- they do not depend on the Forge editor producing a new snapshot.
         lightTicks = lightTicks + 1
-        if lightTicks >= 5 and not lightQueued then
-            lightTicks, lightQueued = 0, true
+        if lightTicks >= 5 and not lightsDue then
+            lightTicks, lightsDue = 0, true
             refreshPackInventory()
-            ExecuteInGameThread(function()
-                local started = os.clock()
-                local ok, err = pcall(function() Lights:tick() end)
-                if not ok and not lightError then log("pack lights: " .. tostring(err)) end
-                lightError, lightQueued = not ok, false
-                reportWork("pack lights", started)
-            end)
         end
         pcall(native.pump)
         local status = readFile(STATUS)
@@ -477,8 +520,8 @@ ExecuteInGameThreadWithDelay(5000, function()
             lastStatus = status
             log("native: " .. status)
         end
-        -- The HUD changes only when the editor's state does; the game
-        -- thread hears about it only then.
+        -- The HUD changes only when the editor's state does. Publish data
+        -- for the persistent game-thread callback, not a new Lua closure.
         local raw = readFile(STATE) or ""
         if raw ~= lastState then
             lastState = raw
@@ -489,8 +532,7 @@ ExecuteInGameThreadWithDelay(5000, function()
                 refreshPackInventory()
                 palette = parsePalette(readFile(PALETTE))
             end
-            local rows = palette
-            ExecuteInGameThread(function() render(s, title, rows) end)
+            pendingRender = { state = s, title = title, palette = palette }
         end
         return false
     end)

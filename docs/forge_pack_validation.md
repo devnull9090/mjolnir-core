@@ -434,3 +434,68 @@ All 156 recorded hitches were below 50 ms. Forge light work averaged
 long-session or multiplayer performance claim. The existing runtime fixes
 were preserved. The new `crossline-wide-game.png` is a normal Spartan-camera
 capture with ordinary visibility culling, taken after the checks.
+
+## Forge placement controls and HUD recovery
+
+On 2026-11-02 the existing native Forge path was inspected before changing
+physics. Custom structural pieces already defaulted to Phased; an old-build
+Wide floor remained stationary through a grab/drop. Stock weapons defaulted
+to Normal, and the mod offered no physics selector. The new F3 binding exposes
+the engine's saved Normal / Fixed / Phased properties. F4 adds world-origin
+position snapping at placement/drop; F10 exposes native rotation increments.
+
+The reported stuck `SPAWN POINT - RED` card was reproduced independently:
+native target snapshots and commands still changed while the displayed HUD
+and remote game-thread bridge stopped updating. After roughly thirteen hours,
+UE4SS logged an invalid Lua registry function reference and removed its shared
+engine-tick callback. Forge now retains one self-rearming game-thread callback
+and coalesces incoming snapshots in a single mailbox. This removes Forge's
+repeated cross-thread callback registrations; it does not repair the underlying
+UE4SS registry globally or revive a removed hook without restarting.
+
+The game was restarted with a clean `/W4 /WX` native build and matching Lua
+scripts. The installed DLL SHA-256 was
+`7d261447ad8052332b039789a526488b3fe53fddfcccfc3aac70e4f40f7c0843`.
+The user's 209-object Crossline layout and exact pack-binding sidecar were
+backed up before installation. Tests used private Forge in CU4, process 53804.
+The keyboard controls drove the tests; read-only object/map-variant inspection
+verified the resulting saved properties and actual native poses.
+
+| Live check | Observed result |
+| --- | --- |
+| Fixed stock weapon | An energy sword released at (9.5, -35.25, 13) m on the 0.25 m grid retained bit-identical position for more than a minute. Saved flags were `0x4c`; runtime fixed state was active. |
+| Fixed persistence | Save, delete and F6 restored the sword and Fixed mode. Position differed by less than 0.5 mm per coordinate from native layout-codec quantization. |
+| Phased stock weapon | F3, V grab/move/drop and save/F6 retained Phased (`0xcc`) and a suspended pose near (4.75, -35, 13) m. |
+| Normal gravity control | A second sword retained Normal (`0x0c`) and fell from approximately 13.006 m to 0.130 m within the 1.8-second observation after release. |
+| Wide floor placement | The 8 x 8 m floor was inserted, grabbed, turned with period, moved and dropped at (-1.5, -37.5, 13) m on the 0.5 m grid. It retained Phased and stayed suspended. |
+| Wide floor Fixed/save | Cycling F3 while held to Fixed, moving and dropping retained the grid pose and `0x4c`. F5/F6 restored both, within the layout codec's sub-millimetre position precision. |
+| Angle controls | F10 selected 90 and 45 degrees; comma/period reached the native turn path. The Phased floor settled near -44.977 degrees. Native held-body spring/collision behavior is still present; a Fixed-mode turn encountered a larger orientation offset, so exact final angles are not claimed for obstructed Fixed placement. |
+| Marker carry | A new spawn marker was targeted near the visible cursor, set to Red, grabbed, moved, rotated and released at (-16.5, -36, 13) m with -90-degree yaw and Red properties preserved. |
+| HUD recovery | The target card changed between marker, empty space and weapon, and showed the correct physics mode. The six bottom controls and palette settings fit at 1280 x 720. |
+
+The native suites passed 53,642 checks: 51,854 placement-control assertions
+plus 1,788 existing checks. Five Lua suites passed 4,275 checks, including
+113 control checks and 2,516 dispatch checks. Dispatch regressions cover
+1,000 snapshots while the game thread is stalled, garbage collection,
+coalescing, and recovery from widget/light errors. Independent review covered
+salted handles, host guards, pending-drop cancellation and saved transforms.
+
+A bounded 13 minute 28 second editing sample covered 181,519 frames: median
+4 ms, p95 6 ms, p99 7 ms and worst 181 ms. Of 316 recorded hitches, 314 were
+under 50 ms and two were between 100 and 250 ms. Forge light work averaged
+0.2 ms/s, worst call 2 ms; Forge HUD work averaged 0.1 ms/s, worst call 50 ms.
+There was no invalid-registry exception or removed engine-tick hook in this
+session. This 1280 x 720 sample used a different camera/resolution from earlier
+measurements and is not a controlled performance comparison or a thirteen-hour
+soak test. Startup callback-collector notices alone are not that failure.
+
+The original layout and sidecar were restored byte-for-byte and loaded with
+F6, removing the test objects. Their SHA-256 values are respectively
+`4507ffdf39bd1e176bb8aaa3df189e1ffb3aa6c6e99ec4c5141f9ed5ba72a601`
+and `f63bf2c29c3cd62d1900729c3caf2d5b490c836a2e03a05ae2a07c454ef420a9`.
+Returning through the lobby and hosting Crossline again automatically loaded
+the 209-object save; the Monitor HUD and session grid/angle controls resumed.
+The game was left open for the user. Two-PC replication and forced scene
+changes during a pending drop remain unverified live.
+
+![Wide floor suspended after a grid-aligned drop, with the new controls visible](images/forge-controls-crossline.png)

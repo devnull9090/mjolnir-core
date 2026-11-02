@@ -250,12 +250,16 @@ function Hud.parsePalette(text)
 end
 
 --- The target's Forge properties after its name: "  ·  RED  ·  ctf_flag_return".
-function Hud.properties(s)
-    if not s.team then return "" end
+function Hud.properties(s, keys)
     local parts = {}
-    if s.team ~= "neutral" then parts[#parts + 1] = string.upper(s.team) end
+    local physics = Hud.physicsName(s.physics)
+    if physics then parts[#parts + 1] = physics end
+    if s.team and s.team ~= "neutral" then parts[#parts + 1] = string.upper(s.team) end
     if s.label and s.label ~= "" then parts[#parts + 1] = s.label end
-    if s.channel then parts[#parts + 1] = "CHANNEL " .. string.upper(s.channel) end
+    if s.channel then
+        local hint = keys and keys.channel and (" [" .. Hud.keyLabel(keys.channel) .. "]") or ""
+        parts[#parts + 1] = "CHANNEL " .. string.upper(s.channel) .. hint
+    end
     if #parts == 0 then return "" end
     return "  ·  " .. table.concat(parts, "  ·  ")
 end
@@ -269,6 +273,40 @@ function Hud.keyLabel(name)
     local pretty = { PAGE_UP = "PG UP", PAGE_DOWN = "PG DN", DEL = "DEL", INS = "INS", SPACE = "SPACE",
         LEFT_ARROW = "←", RIGHT_ARROW = "→", UP_ARROW = "↑", DOWN_ARROW = "↓", OEM_COMMA = ",", OEM_PERIOD = "." }
     return pretty[name] or (tostring(name):gsub("_", " "))
+end
+
+-- Only present settings that the native editor actually reported. In
+-- particular, an old/missing snapshot must not imply Normal or snapping off.
+function Hud.physicsName(mode)
+    return ({ normal = "NORMAL", fixed = "FIXED", phased = "PHASED" })[mode]
+end
+
+function Hud.gridName(value)
+    local n = tonumber(value)
+    if n == 0 then return "OFF" end
+    if n == 0.25 or n == 0.5 or n == 1 or n == 2 or n == 4 then return string.format("%g m", n) end
+    return nil
+end
+
+function Hud.rotationName(value)
+    local n = tonumber(value)
+    if n == 0 then return "OFF" end
+    if n == 90 or n == 45 or n == 30 or n == 15 or n == 5 then return string.format("%d°", n) end
+    return nil
+end
+
+-- Three short lines fit the existing 380 px palette panel. The same text
+-- serves the fallback panel; no additional widget or class is needed.
+function Hud.editSettings(s, keys)
+    local lines = {}
+    local grid, rotation = Hud.gridName(s.grid_m), Hud.rotationName(s.rotation_snap)
+    if grid then lines[#lines + 1] = "[" .. Hud.keyLabel(keys.grid) .. "] GRID " .. grid end
+    if rotation then
+        lines[#lines + 1] = "[" .. Hud.keyLabel(keys.rotation_snap) .. "] SNAP " .. rotation
+        lines[#lines + 1] = "[" .. Hud.keyLabel(keys.rotate_left) .. " / " .. Hud.keyLabel(keys.rotate_right)
+            .. "] TURN " .. (rotation == "OFF" and "22.5°" or rotation)
+    end
+    return table.concat(lines, "\n")
 end
 
 --------------------------------------------------------------------------------
@@ -433,6 +471,9 @@ function Hud.notice(last, name)
     if order then return "SPAWN ORDER  " .. order, ACCENT end
     local channel = last:match("^channel ([%w]+)$")
     if channel then return "TELEPORTER CHANNEL  " .. string.upper(channel), ACCENT end
+    local physics = Hud.physicsName(last:match("^physics (%a+)$"))
+    if physics then return "PHYSICS  " .. physics, ACCENT end
+    if last:match("^grid ") or last:match("^rotation snap ") then return string.upper(last), ACCENT end
     if last == "this map has no Forge palette" then return "This map has no Forge palette", GOLD end
     if last:find("palette") then return "This map has no Forge palette entry for that yet", GOLD end
     return string.upper(last), GOLD
@@ -483,7 +524,9 @@ local function drawPalette(palette, row, keys, editing, budgetOf)
     if (row.price or 0) > 0 then extra = extra .. string.format("  $%d", row.price) end
     setText(W.PaletteName, Hud.paletteName(row) .. extra)
     local budget = tonumber(budgetOf.budget or "") or 0
-    setText(W.PaletteTitle, budget > 0 and string.format("PALETTE  $%s / $%d", budgetOf.spent or "0", budget) or "PALETTE")
+    local title = budget > 0 and string.format("PALETTE  $%s / $%d", budgetOf.spent or "0", budget) or "PALETTE"
+    local settings = Hud.editSettings(budgetOf, keys)
+    setText(W.PaletteTitle, title .. (settings ~= "" and ("\n" .. settings) or ""))
     setTextColor(W.PaletteName, row.placeable and WHITE or GREY)
     weaponIcon(Hud.packBlock(row.full_tag) and "" or row.tag, W.PaletteIconBox, W.PaletteIcon)
     -- A window of the list with the selection in its middle where it can be.
@@ -549,7 +592,7 @@ function Hud.render(s, keys, mapTitle, palette, choice)
     if name then
         setText(W.TargetCategory, Hud.packCategory(fullTag) or Hud.category(group))
         setTextColor(W.TargetCategory, holding and GREEN or ACCENT)
-        setText(W.TargetName, name .. Hud.properties(s))
+        setText(W.TargetName, name .. Hud.properties(s, keys))
         weaponIcon(Hud.packBlock(fullTag) and "" or tag)
         local distance = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer)
         if holding then
@@ -573,11 +616,26 @@ function Hud.render(s, keys, mapTitle, palette, choice)
         end
         setVisible(W.TargetCard, true)
     else
+        -- Clear content as well as visibility: a partial/missing target must
+        -- never leave the previous object's properties on the next card.
+        setText(W.TargetName, "")
+        setText(W.TargetCategory, "")
+        setVisible(W.DistanceRow, false)
         setVisible(W.TargetCard, false)
     end
 
     -- The control bar.
-    if editing then
+    if editing and (s.grid_m ~= nil or s.rotation_snap ~= nil or s.physics ~= nil) then
+        local physics, grid, rotation = Hud.physicsName(s.physics), Hud.gridName(s.grid_m), Hud.rotationName(s.rotation_snap)
+        fillKeys("Control", CONTROLS, {
+            { key = Hud.keyLabel(keys.toggle), act = "SPARTAN" },
+            { key = Hud.keyLabel(keys.grab), act = holding and "DROP" or "PICK UP", on = holding or aiming },
+            { key = Hud.keyLabel(keys.physics), act = physics and ("PHYSICS " .. physics) or "PHYSICS", on = (holding or aiming) and physics ~= nil },
+            { key = Hud.keyLabel(keys.grid), act = "GRID " .. (grid or "—"), on = grid ~= nil },
+            { key = Hud.keyLabel(keys.rotation_snap), act = "SNAP " .. (rotation or "—"), on = rotation ~= nil },
+            { key = Hud.keyLabel(keys.place), act = "PLACE", on = choice ~= nil and choice.placeable },
+        })
+    elseif editing then
         fillKeys("Control", CONTROLS, {
             { key = Hud.keyLabel(keys.toggle), act = "SPARTAN" },
             { key = Hud.keyLabel(keys.grab), act = holding and "DROP" or "PICK UP", on = holding or aiming },

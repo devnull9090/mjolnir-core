@@ -52,9 +52,11 @@ jobs:
       - name: Test team colours (CTF flags and team armour)
         run: lua5.4 tools/tests/test_teams.lua
 
-      - name: Test Forge pack labels and palette compatibility
+      - name: Test Forge labels, controls, dispatch and lights
         run: |
           lua5.4 tools/tests/test_forge_pack_labels.lua
+          lua5.4 tools/tests/test_forge_controls.lua
+          lua5.4 tools/tests/test_forge_dispatch.lua
           lua5.4 tools/tests/test_forge_lights.lua
 
       - name: Lint Lua scripts

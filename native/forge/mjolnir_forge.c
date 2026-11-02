@@ -64,6 +64,7 @@
 #include "layout_blf.h"
 #include "utility_properties.h"
 #include "forge_liveness.h"
+#include "placement_controls.h"
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
 // Steam's copy and the Xbox app's differ only in the header (docs/game_pass.md).
@@ -151,6 +152,7 @@ enum {
     REQ_GRAB = 3,
     REQ_RELEASE = 4,
     REQ_DUPLICATE = 10,
+    REQ_ROTATION_SNAP = 12,
 };
 
 enum {
@@ -175,6 +177,9 @@ enum {
     CMD_ROTATE_LEFT = 1 << 18,
     CMD_ROTATE_RIGHT = 1 << 19,
     CMD_CHANNEL = 1 << 20,
+    CMD_PHYSICS = 1 << 21,
+    CMD_GRID = 1 << 22,
+    CMD_ROTATION_SNAP = 1 << 23,
 };
 
 #define DISTANCE_STEP 0.5f
@@ -242,6 +247,7 @@ static unsigned g_rows_published = ~0u;
 static int g_selected = -1;          // a row index, -1 none
 static unsigned g_rescan;            // ticks until the next read
 static int g_lifted;                 // times lift_bake_quotas lifted a palette's quotas
+static unsigned g_grid, g_rotation_snap; // session-local placement settings
 
 #define PROPS_SIZE_SNAP 0x1c      // PROPS_SIZE, defined with the properties below
 
@@ -263,7 +269,9 @@ typedef struct {
     // cursor), when it belongs to the map variant.
     int budget, spent; // the map variant's budget (0: none) and what is spent
     int props;       // 0: no target, or not a map-variant object
-    int team, order, respawn, mp_type, label, channel;
+    int team, order, respawn, mp_type, label, channel, physics;
+    float grid_m;
+    int rotation_snap;
     char label_name[64];
     uint8_t raw[PROPS_SIZE_SNAP];
 } snapshot_t;
@@ -362,13 +370,21 @@ static void tag_name(uint32_t tag, char *out, size_t size, char group[5]) {
 }
 
 // The same for an object: its tag's name and group.
+static uint8_t *object_data(uint8_t *tls, uint32_t handle) {
+    if (handle == 0xffffffffu || !tls) return NULL;
+    uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
+    uint8_t *data = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
+    unsigned index = handle & 0xffffu;
+    if (!data || index >= *(uint32_t *)(objects + ARRAY_COUNT)) return NULL;
+    uint8_t *slot = data + (size_t)index * OBJECT_ENTRY;
+    if (*(uint16_t *)slot != (uint16_t)(handle >> 16)) return NULL;
+    return *(uint8_t **)(slot + 0x10);
+}
+
 static void object_tag_name(uint8_t *tls, uint32_t handle, char *out, size_t size, char group[5]) {
     out[0] = '\0';
     group[0] = '\0';
-    if (handle == 0xffffffffu) return;
-    uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
-    uint8_t *data = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
-    uint8_t *object = data ? *(uint8_t **)(data + 0x10 + (size_t)(handle & 0xffff) * OBJECT_ENTRY) : NULL;
+    uint8_t *object = object_data(tls, handle);
     if (!object) return;
     tag_name(*(uint32_t *)object, out, size, group);
 }
@@ -1221,13 +1237,6 @@ static int hook_call(uint8_t *site, uint8_t *expect, void *fn, uint8_t *stub) {
 static const uint8_t RESPAWN_TIMES[] = {0, 5, 10, 15, 30, 45, 60, 90, 120, 180};
 #define MAX_ORDER 9
 
-static uint8_t *object_data(uint8_t *tls, uint32_t handle) {
-    if (handle == 0xffffffffu) return NULL;
-    uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
-    uint8_t *data = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
-    return data ? *(uint8_t **)(data + 0x10 + (size_t)(handle & 0xffff) * OBJECT_ENTRY) : NULL;
-}
-
 // The object's map-variant entry's properties, or NULL.
 static uint8_t *object_props(uint8_t *tls, uint8_t *mv, uint32_t handle) {
     uint8_t *object = object_data(tls, handle);
@@ -1295,6 +1304,9 @@ static void edit_property(uint8_t *tls, int player, uint32_t target, LONG which,
         while (i < n && RESPAWN_TIMES[i] <= block[PROPS_RESPAWN]) i++;
         block[PROPS_RESPAWN] = RESPAWN_TIMES[i % n];
         note("respawn %u s", block[PROPS_RESPAWN]);
+    } else if (which == CMD_PHYSICS) {
+        forge_next_physics(block);
+        note("physics %s", forge_physics_name(forge_physics_mode(block)));
     } else if (which == CMD_CHANNEL) {
         if (!forge_next_channel(block)) { note("channel needs a teleporter sender or receiver"); return; }
         note("channel %s", forge_channel_name(block[0x18]));
@@ -1347,7 +1359,6 @@ static void edit_property(uint8_t *tls, int player, uint32_t target, LONG which,
 #define MV_ENTRY_POSITION    0x8        // 3 floats
 #define MV_ENTRY_FORWARD     0x14       // 3 floats, then up at +0x20
 #define MV_ENTRY_VARIANT     0x2e       // u8
-#define YAW_STEP             0.39269908f // 22.5 degrees
 #define HELD_CARRIED         0xfffffffeu // the snapshot's `held` while the DLL carries one
 
 typedef int (*mv_add_entry_fn)(void *mv, uint32_t palette, uint32_t entry, uint32_t variant, const float *point,
@@ -1398,6 +1409,18 @@ static int palette_of_flat(int flat, uint32_t *palette, uint32_t *entry) {
     return 0;
 }
 
+static int placement_point(const float point[3], float out[3]) {
+    if (!forge_grid_point(point, FORGE_GRID_METRES[g_grid], out)) return 0;
+    if (!g_grid) return 1;
+    uint8_t *mv = (uint8_t *)g_mv_live();
+    if (!mv) return 0;
+    const float *bounds = (const float *)(mv + MV_BOUNDS);
+    for (int k = 0; k < 3; k++) {
+        if (fabsf(out[k]) > 32767.0f || out[k] < bounds[k * 2] || out[k] > bounds[k * 2 + 1]) return 0;
+    }
+    return 1;
+}
+
 // Make a palette entry's object at `point`, facing `yaw`, and give it
 // `props` when set. The object, or -1 (`why` says).
 static uint32_t place_entry(int player_handle, uint32_t palette, uint32_t entry, uint32_t variant, const float point[3],
@@ -1405,10 +1428,14 @@ static uint32_t place_entry(int player_handle, uint32_t palette, uint32_t entry,
     uint8_t *mv = (uint8_t *)g_mv_live();
     uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
     uint32_t tag = scenario ? entry_tag(palette_entry(scenario, (int)palette, (int)entry)) : 0xffffffffu;
-    float spot[3] = {point[0], point[1], point[2]};
+    float spot[3];
     *why = NULL;
     if (!mv || tag == 0xffffffffu) {
         *why = "no palette entry";
+        return 0xffffffffu;
+    }
+    if (!placement_point(point, spot)) {
+        *why = "the grid point is outside the map";
         return 0xffffffffu;
     }
     if (!g_can_create(tag, spot)) {
@@ -1445,11 +1472,88 @@ static uint8_t *object_entry(uint8_t *tls, uint8_t *mv, uint32_t handle) {
 // Markers (spawn points, flag stands) have no collision, so the editor's
 // cursor ray (0x301510) never lands on one. When it lands on no object, aim
 // at the map-variant object nearest the line from the player's unit through
-// the cursor point instead: within 1 m of it, plus 2% of the distance.
+// the visible cursor segment instead, within 0.35 metres of its centre.
 #define RVA_OBJECT_ORIGIN    0x5a6780   // void (object, float[3])
-#define AIM_REACH            60.0f
+#define RVA_UNIT_VIEW_ORIGIN 0x603860   // void (unit, float[3]): native cursor's ray origin
 typedef void (*object_origin_fn)(uint32_t object, float *out);
 static object_origin_fn g_object_origin;
+static object_origin_fn g_unit_view_origin;
+
+// The same native move sequence used by map-variant updates (0x32e870).
+// No Havok/body memory is written by the DLL. Normal-mode objects can still
+// fall after a snap: only their saved Fixed/Phased mode can keep them aloft.
+#define RVA_OBJECT_AXES      0x5a6ae0
+#define RVA_OBJECT_PRE_MOVE  0x5ec880
+#define RVA_OBJECT_SET_POSE  0x59f600
+#define RVA_OBJECT_MODIFIED  0x59f470
+typedef void (*object_axes_fn)(uint32_t, float *, float *);
+typedef void (*object_pre_move_fn)(uint32_t, float *, float *, float *);
+typedef uint8_t (*object_set_pose_fn)(uint32_t, const float *, const float *, const float *, void *, uint8_t, uint8_t, uint8_t, uint8_t);
+typedef void (*object_modified_fn)(uint32_t);
+static object_axes_fn g_object_axes;
+static object_pre_move_fn g_object_pre_move;
+static object_set_pose_fn g_object_set_pose;
+static object_modified_fn g_object_modified;
+static struct {
+    int active, ticks, entry;
+    uint32_t object;
+    uint8_t *mv;
+    unsigned layout_id, grid;
+} g_pending_grid;
+
+static void finish_grid_drop(uint8_t *tls, int player) {
+    if (!g_pending_grid.active) return;
+    uint8_t *mv = (uint8_t *)g_mv_live();
+    uint8_t *object = object_data(tls, g_pending_grid.object);
+    if (player < 0 || !g_is_editing((uint32_t)player) || is_client(tls) || mv != g_pending_grid.mv || g_layout_id != g_pending_grid.layout_id ||
+        !object || *(uint32_t *)(object + 0x14) != 0xffffffffu || ++g_pending_grid.ticks > 30) {
+        g_pending_grid.active = 0;
+        return;
+    }
+    uint8_t *g = *(uint8_t **)(tls + TLS_ENGINE_GLOBALS);
+    uint8_t *state = g + G_EDITOR_STATE + (size_t)player * EDITOR_STRIDE;
+    if (*(uint32_t *)(state + EDITOR_HELD) == g_pending_grid.object) return;
+    for (int p = 0; p < MAX_PLAYERS; p++) {
+        if (*(uint32_t *)(g + G_EDITOR_STATE + (size_t)p * EDITOR_STRIDE + EDITOR_HELD) == g_pending_grid.object) {
+            g_pending_grid.active = 0;
+            return;
+        }
+    }
+    uint32_t handle = g_pending_grid.object;
+    g_pending_grid.active = 0;
+    uint8_t *entry = object_entry(tls, mv, handle);
+    if (!entry || *(int16_t *)(object + OBJECT_MV_ENTRY) != g_pending_grid.entry) return;
+    float origin[3], snapped[3], forward[3], up[3];
+    g_object_origin(handle, origin);
+    unsigned current_grid = g_grid;
+    g_grid = g_pending_grid.grid;
+    int valid = placement_point(origin, snapped);
+    g_grid = current_grid;
+    if (!valid) { note("grid refused: outside the map bounds"); return; }
+    g_object_axes(handle, forward, up);
+    const float *bounds = (const float *)(mv + MV_BOUNDS);
+    if (!forge_pose_in_bounds(snapped, forward, up, bounds)) return;
+    g_object_pre_move(handle, snapped, forward, up);
+    if (!forge_pose_in_bounds(snapped, forward, up, bounds)) {
+        note("grid move refused: invalid adjusted pose");
+        return;
+    }
+    if (!g_object_set_pose(handle, snapped, forward, up, NULL, 1, 1, 0, 0)) {
+        note("grid move refused");
+        return;
+    }
+    g_object_modified(handle);
+    // Read back the accepted pose and publish the same transform fields/
+    // dirty bit as native release, without its second setter/delete path.
+    g_object_origin(handle, origin);
+    g_object_axes(handle, forward, up);
+    if (!forge_pose_in_bounds(origin, forward, up, bounds)) return;
+    memcpy(entry + MV_ENTRY_POSITION, origin, 12);
+    memcpy(entry + MV_ENTRY_FORWARD, forward, 12);
+    memcpy(entry + MV_ENTRY_FORWARD + 12, up, 12);
+    g_mv_entry_dirty((uint32_t)g_pending_grid.entry, 2);
+    note("snapped %.2g m", FORGE_GRID_METRES[g_pending_grid.grid]);
+}
 
 static char g_aim[160];              // the last soft_target's numbers, for the state file
 
@@ -1458,17 +1562,9 @@ static uint32_t soft_target(uint8_t *tls, int player, const float point[3]) {
     uint8_t *data = players ? *(uint8_t **)(players + ARRAY_DATA) : NULL;
     if (!data) return 0xffffffffu;
     uint32_t unit = *(uint32_t *)(data + (size_t)player * PLAYER_STRIDE + PLAYER_UNIT);
-    if (unit == 0xffffffffu) return 0xffffffffu;
-    float o[3], d[3];
-    g_object_origin(unit, o);
-    float len = 0;
-    for (int k = 0; k < 3; k++) {
-        d[k] = point[k] - o[k];
-        len += d[k] * d[k];
-    }
-    len = sqrtf(len);
-    if (len < 0.01f) return 0xffffffffu;
-    for (int k = 0; k < 3; k++) d[k] /= len;
+    if (!object_data(tls, unit)) return 0xffffffffu;
+    float o[3];
+    g_unit_view_origin(unit, o);
     uint32_t best = 0xffffffffu;
     float best_off = 1e9f;
     uint8_t *objects = *(uint8_t **)(tls + TLS_OBJECTS);
@@ -1481,23 +1577,17 @@ static uint32_t soft_target(uint8_t *tls, int player, const float point[3]) {
         if (!salt || !od || *(int16_t *)(od + OBJECT_MV_ENTRY) < 0) continue;
         uint32_t object = (uint32_t)salt << 16 | (uint32_t)i;
         if (object == unit || has_physics(tls, object)) continue;
-        float p[3], v[3], t = 0, off = 0;
+        float p[3], score;
         g_object_origin(object, p);
-        for (int k = 0; k < 3; k++) {
-            v[k] = p[k] - o[k];
-            t += v[k] * d[k];
-        }
-        if (t < 0.5f || t > AIM_REACH) continue;
-        for (int k = 0; k < 3; k++) off += (v[k] - t * d[k]) * (v[k] - t * d[k]);
-        off = sqrtf(off);
-        if (off < best_off) {
-            best_off = off;
-            best = off < 1.0f + 0.02f * t ? object : 0xffffffffu;
+        if (forge_marker_score(o, point, p, &score) && score < best_off) {
+            best_off = score;
+            best = object;
         }
         candidates++;
     }
     snprintf(g_aim, sizeof g_aim, "from %.1f %.1f %.1f to %.1f %.1f %.1f, %d markers, nearest %.2f m off", o[0], o[1], o[2],
-             point[0], point[1], point[2], candidates, best_off);
+             point[0], point[1], point[2], candidates,
+             best == 0xffffffffu ? -1.0f : sqrtf(best_off) * FORGE_METRES_PER_UNIT);
     return best;
 }
 
@@ -1514,6 +1604,8 @@ static void act(uint8_t *tls, int player, LONG commands) {
     uint8_t *state = g + G_EDITOR_STATE + (size_t)player * EDITOR_STRIDE;
     uint32_t held = *(uint32_t *)(state + EDITOR_HELD);
     uint32_t cursor = *(uint32_t *)(state + EDITOR_CURSOR);
+    if (!object_data(tls, held)) held = 0xffffffffu;
+    if (!object_data(tls, cursor)) cursor = 0xffffffffu;
     int editing = g_is_editing((uint32_t)player) != 0;
     if (cursor == 0xffffffffu && editing) cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
     uint32_t target = held != 0xffffffffu ? held : cursor;
@@ -1525,7 +1617,7 @@ static void act(uint8_t *tls, int player, LONG commands) {
     // the host's engine would run the grab that faults on one.
     if (is_client(tls)) {
         const LONG host_only = CMD_LOAD | CMD_REVERT | CMD_TEAM | CMD_LABEL | CMD_RESPAWN | CMD_ORDER |
-                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT | CMD_CHANNEL;
+                               CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT | CMD_CHANNEL | CMD_PHYSICS | CMD_GRID | CMD_ROTATION_SNAP;
         if (commands & host_only) note("only the host can do that in a fireteam Forge game");
         commands &= ~host_only;
         if ((commands & CMD_GRAB) && held == 0xffffffffu && cursor != 0xffffffffu && !has_physics(tls, cursor)) {
@@ -1582,15 +1674,33 @@ static void act(uint8_t *tls, int player, LONG commands) {
     }
     int me = player_handle(tls, player);
     uint8_t *mv = (uint8_t *)g_mv_live();
+    if (commands & CMD_GRID) {
+        g_grid = (g_grid + 1) % (sizeof FORGE_GRID_METRES / sizeof *FORGE_GRID_METRES);
+        if (g_grid) note("grid %.2g m", FORGE_GRID_METRES[g_grid]);
+        else note("grid off");
+    }
+    if (commands & CMD_ROTATION_SNAP) {
+        g_rotation_snap = (g_rotation_snap + 1) % (sizeof FORGE_ROTATION_DEGREES / sizeof *FORGE_ROTATION_DEGREES);
+        uint8_t index = (uint8_t)g_rotation_snap;
+        send(player, REQ_ROTATION_SNAP, &index, 1);
+        if (g_rotation_snap) {
+            float step = FORGE_ROTATION_DEGREES[g_rotation_snap] * 0.01745329252f;
+            g_yaw = roundf(g_yaw / step) * step;
+            note("rotation snap %d", FORGE_ROTATION_DEGREES[g_rotation_snap]);
+        } else note("rotation snap off");
+    }
     if (commands & (CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT)) {
-        float step = commands & CMD_ROTATE_LEFT ? YAW_STEP : -YAW_STEP;
+        int direction = commands & CMD_ROTATE_LEFT ? 1 : -1;
         if (held != 0xffffffffu) {
             // A held object's orientation is the editor's hold transform,
             // which request 11's applier (0x305f6a) writes: forward, left and
             // up at +0x40, +0x4c, +0x58, and the same basis again at +0x70
             // for the rotation snap (+0xc8, an index into 0, 90, 45, 30, 15,
-            // 5 degrees; 0x85dad0). Turn all of it about the vertical, with
-            // the snap off so it stays where it is put.
+            // 5 degrees; 0x85dad0). Turn about world Z and keep the native
+            // snap basis at the resulting orientation.
+            const float *forward = (const float *)(state + EDITOR_HOLD_AXES);
+            float yaw = atan2f(forward[1], forward[0]);
+            float step = forge_turn_yaw(yaw, direction, FORGE_ROTATION_DEGREES[g_rotation_snap]) - yaw;
             float c = cosf(step), sn = sinf(step);
             for (int v = 0; v < 3; v++) {
                 float *a = (float *)(state + EDITOR_HOLD_AXES + v * 12);
@@ -1599,11 +1709,11 @@ static void act(uint8_t *tls, int player, LONG commands) {
                 a[1] = y;
             }
             memcpy(state + EDITOR_HOLD_BASIS, state + EDITOR_HOLD_AXES, 36);
-            *(int32_t *)(state + EDITOR_SNAP) = 0;
+            *(int32_t *)(state + EDITOR_SNAP) = (int32_t)g_rotation_snap;
             const float *f = (const float *)(state + EDITOR_HOLD_AXES);
             note("facing %d", (int)lroundf(atan2f(f[1], f[0]) * 57.29578f));
         } else {
-            g_yaw = atan2f(sinf(g_yaw + step), cosf(g_yaw + step));
+            g_yaw = forge_turn_yaw(g_yaw, direction, FORGE_ROTATION_DEGREES[g_rotation_snap]);
             note("facing %d", (int)lroundf(g_yaw * 57.29578f));
         }
     }
@@ -1660,6 +1770,15 @@ static void act(uint8_t *tls, int player, LONG commands) {
     }
     if (commands & CMD_GRAB) {
         if (held != 0xffffffffu) {
+            if (g_grid && !is_client(tls)) {
+                g_pending_grid.active = 1;
+                g_pending_grid.ticks = 0;
+                g_pending_grid.object = held;
+                g_pending_grid.entry = *(int16_t *)(object_data(tls, held) + OBJECT_MV_ENTRY);
+                g_pending_grid.mv = mv;
+                g_pending_grid.layout_id = g_layout_id;
+                g_pending_grid.grid = g_grid;
+            }
             uint8_t payload[5] = {0};
             memcpy(payload, &held, 4);
             send(player, REQ_RELEASE, payload, sizeof payload);
@@ -1685,11 +1804,14 @@ static void act(uint8_t *tls, int player, LONG commands) {
         } else if (!g_place_check(0, target, NULL, NULL, NULL)) {
             note("this map's palette has no entry for that object");
         } else {
-            uint8_t payload[16];
-            memcpy(payload, &target, 4);
-            memcpy(payload + 4, state + EDITOR_POINT, 12);
-            send(player, REQ_DUPLICATE, payload, sizeof payload);
-            note("duplicated");
+            float spot[3];
+            if (placement_point((const float *)(state + EDITOR_POINT), spot)) {
+                uint8_t payload[16];
+                memcpy(payload, &target, 4);
+                memcpy(payload + 4, spot, 12);
+                send(player, REQ_DUPLICATE, payload, sizeof payload);
+                note("duplicated");
+            } else note("grid refused: outside the map bounds");
         }
     }
     if (commands & (CMD_NEXT_ITEM | CMD_PREV_ITEM)) {
@@ -1709,8 +1831,9 @@ static void act(uint8_t *tls, int player, LONG commands) {
             // looks for room there (0x2cf130, sized by the tag's bounding
             // radius); ask first, so a refusal says so.
             float spot[3];
-            memcpy(spot, state + EDITOR_POINT, sizeof spot);
-            if (tag == 0xffffffffu || !g_can_create(tag, NULL)) {
+            if (!placement_point((const float *)(state + EDITOR_POINT), spot)) {
+                note("grid refused: outside the map bounds");
+            } else if (tag == 0xffffffffu || !g_can_create(tag, NULL)) {
                 note("cannot place %s", row->tag);
             } else if (!g_can_create(tag, spot)) {
                 note("no room for %s there", row->tag);
@@ -1737,13 +1860,13 @@ static void act(uint8_t *tls, int player, LONG commands) {
                 uint32_t fields[3] = {row->palette, row->entry, 0};
                 uint8_t payload[24];
                 memcpy(payload, fields, sizeof fields);
-                memcpy(payload + 12, state + EDITOR_POINT, 12);
+                memcpy(payload + 12, spot, 12);
                 send(player, REQ_PLACE, payload, sizeof payload);
                 note("placed %s", row->tag);
             }
         }
     }
-    static const LONG property_commands[] = {CMD_TEAM, CMD_LABEL, CMD_RESPAWN, CMD_ORDER, CMD_CHANNEL};
+    static const LONG property_commands[] = {CMD_TEAM, CMD_LABEL, CMD_RESPAWN, CMD_ORDER, CMD_CHANNEL, CMD_PHYSICS};
     for (size_t i = 0; i < sizeof property_commands / sizeof property_commands[0]; i++) {
         if (commands & property_commands[i])
             edit_property(tls, player, target, property_commands[i], g_carry.active ? g_carry.props : NULL);
@@ -1768,6 +1891,8 @@ static void snapshot(uint8_t *tls, int player) {
         s.editing = g_is_editing((uint32_t)player) != 0;
         s.held = *(uint32_t *)(state + EDITOR_HELD);
         s.cursor = *(uint32_t *)(state + EDITOR_CURSOR);
+        if (!object_data(tls, s.held)) s.held = 0xffffffffu;
+        if (!object_data(tls, s.cursor)) s.cursor = 0xffffffffu;
         if (s.cursor == 0xffffffffu && s.editing && s.held == 0xffffffffu && !g_carry.active)
             s.cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
         s.distance = *(float *)(state + EDITOR_DISTANCE);
@@ -1797,6 +1922,7 @@ static void snapshot(uint8_t *tls, int player) {
             s.order = (int8_t)props[PROPS_ORDER];
             s.respawn = props[PROPS_RESPAWN];
             s.mp_type = props[PROPS_TYPE];
+            s.physics = forge_physics_mode(props);
             s.channel = props[0x18];
             s.label = *(int16_t *)(props + PROPS_LABEL);
             label_name(mv, s.label, s.label_name, sizeof s.label_name);
@@ -1808,6 +1934,8 @@ static void snapshot(uint8_t *tls, int player) {
     memcpy(s.last, g_last, sizeof s.last);
     s.last_id = g_last_id;
     s.selected = g_selected;
+    s.grid_m = FORGE_GRID_METRES[g_grid];
+    s.rotation_snap = FORGE_ROTATION_DEGREES[g_rotation_snap];
     s.rows_version = g_rows_version;
     g_snap = s;
     LeaveCriticalSection(&g_lock);
@@ -1818,6 +1946,7 @@ static void hooked_tick(void *self, void *a, void *b, void *c) {
     uint8_t *tls = tls_block();
     if (!tls) return;
     int player = local_player(tls);
+    finish_grid_drop(tls, player);
     if (g_rescan == 0) {
         read_palettes();
         g_rescan = RESCAN_TICKS;
@@ -1827,6 +1956,14 @@ static void hooked_tick(void *self, void *a, void *b, void *c) {
     if (commands && GetTickCount64() - (ULONGLONG)g_command_at > COMMAND_MAX_AGE_MS) commands = 0;
     commands |= InterlockedExchange(&g_deferred, 0);
     if (commands && player >= 0) act(tls, player, commands);
+    if (player >= 0 && !is_client(tls) && g_is_editing((uint32_t)player)) {
+        uint8_t *g = *(uint8_t **)(tls + TLS_ENGINE_GLOBALS);
+        uint8_t *state = g + G_EDITOR_STATE + (size_t)player * EDITOR_STRIDE;
+        if (*(uint32_t *)(state + EDITOR_SNAP) != g_rotation_snap) {
+            uint8_t index = (uint8_t)g_rotation_snap;
+            send(player, REQ_ROTATION_SNAP, &index, 1);
+        }
+    }
     snapshot(tls, player);
 }
 
@@ -1882,6 +2019,11 @@ static int install(void) {
     g_apply_properties = (apply_properties_fn)(base + RVA_APPLY_PROPERTIES);
     g_mv_add_entry = (mv_add_entry_fn)(base + RVA_MV_ADD_ENTRY);
     g_object_origin = (object_origin_fn)(base + RVA_OBJECT_ORIGIN);
+    g_unit_view_origin = (object_origin_fn)(base + RVA_UNIT_VIEW_ORIGIN);
+    g_object_axes = (object_axes_fn)(base + RVA_OBJECT_AXES);
+    g_object_pre_move = (object_pre_move_fn)(base + RVA_OBJECT_PRE_MOVE);
+    g_object_set_pose = (object_set_pose_fn)(base + RVA_OBJECT_SET_POSE);
+    g_object_modified = (object_modified_fn)(base + RVA_OBJECT_MODIFIED);
     g_mv_create = (mv_create_fn)(base + RVA_MV_CREATE);
     g_mv_flat = (mv_flat_fn)(base + RVA_MV_FLAT_INDEX);
     g_mv_quota_add = (mv_quota_fn)(base + RVA_MV_QUOTA_ADD);
@@ -1943,6 +2085,9 @@ __declspec(dllexport) int mjolnir_forge_order(void *L) { (void)L; return command
 __declspec(dllexport) int mjolnir_forge_channel(void *L) { (void)L; return command(CMD_CHANNEL); }
 __declspec(dllexport) int mjolnir_forge_rotate_left(void *L) { (void)L; return command(CMD_ROTATE_LEFT); }
 __declspec(dllexport) int mjolnir_forge_rotate_right(void *L) { (void)L; return command(CMD_ROTATE_RIGHT); }
+__declspec(dllexport) int mjolnir_forge_physics(void *L) { (void)L; return command(CMD_PHYSICS); }
+__declspec(dllexport) int mjolnir_forge_grid(void *L) { (void)L; return command(CMD_GRID); }
+__declspec(dllexport) int mjolnir_forge_rotation_snap(void *L) { (void)L; return command(CMD_ROTATION_SNAP); }
 
 // Write forge_state.txt as `key=value` lines. A 100ms asynchronous poll may
 // miss a simulation tick during a hitch; keep Forge live until snapshots
@@ -1984,15 +2129,15 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\nlayout_id=%u\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\nlayout_id=%u\ngrid_m=%.2g\nrotation_snap=%d\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
              s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent,
-             s.held_path, s.cursor_path, layout_id);
+             s.held_path, s.cursor_path, layout_id, s.grid_m, s.rotation_snap);
     if (s.props) {
         size_t used = strlen(text);
-        snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\n",
+        snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\nphysics=%s\n",
                  team_name(s.team), s.label < 0 ? "" : s.label_name[0] ? s.label_name : "(unnamed)", s.respawn,
-                 s.order, s.mp_type);
+                 s.order, s.mp_type, forge_physics_name(s.physics));
         if (s.mp_type >= 12 && s.mp_type <= 14) {
             used = strlen(text);
             snprintf(text + used, sizeof text - used, "channel=%s\n", forge_channel_name((unsigned)s.channel));
