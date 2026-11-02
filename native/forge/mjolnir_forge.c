@@ -63,6 +63,7 @@
 #include "layout_files.h"
 #include "layout_blf.h"
 #include "utility_properties.h"
+#include "authored_utilities.h"
 #include "forge_liveness.h"
 #include "placement_controls.h"
 
@@ -1032,6 +1033,36 @@ static void mv_adopt(void *mv) {
     *(int32_t *)((uint8_t *)mv + MV_MAP_ID) = scenario_map_id();
 }
 
+/* A baked scenario has no per-placement Fixed mode. Apply installed door
+   defaults only while rebuilding that authored variant, before its objects
+   exist. A saved/session variant replaces these entries afterwards, so an
+   explicit user-selected Normal remains Normal on load and auto-load. */
+static void mv_build_authored(void *mv) {
+    g_mv_from_scenario(mv);
+    if (is_client(tls_block())) return;
+    char path[MAX_PATH];
+    if (snprintf(path, sizeof path, "%s..\\..\\..\\MJOLNIRForgePacks\\doors.txt", g_dir) >= (int)sizeof path) return;
+    FILE *doors = NULL, *inventory = NULL;
+    if (fopen_s(&doors, path, "rb") || !doors) return;
+    if (fopen_s(&inventory, g_pack_inventory, "rb") || !inventory) { fclose(doors); return; }
+    char tags[FORGE_DOOR_MAX_DEFINITIONS][224];
+    int count = forge_authored_doors_read(doors, inventory, tags);
+    fclose(doors); fclose(inventory);
+    if (count < 0) { layout_note("authored door defaults refused: invalid or stale inventory"); return; }
+    int changed = 0;
+    for (int i = 0; i < MV_ENTRIES; i++) {
+        uint8_t *entry = (uint8_t *)mv + MV_ENTRY_TABLE + (size_t)i * MV_ENTRY_STRIDE;
+        if (!(entry[0] & 1) || (entry[0x46] & 0xc0)) continue;
+        char tag[224];
+        pack_tag_path(tag_for_flat(*(int16_t *)(entry + 2)), tag, sizeof tag);
+        for (int k = 0; k < count; k++) if (!strcmp(tag, tags[k])) {
+            changed += forge_authored_door_fixed(entry, 1);
+            break;
+        }
+    }
+    if (changed) layout_note("authored door defaults: %d panel(s) Fixed", changed);
+}
+
 // Replace the objects of the live variant `mv` with the scratch variant's
 // (or, when `scenario`, with the map's own), the way host migration
 // (0x304190) recreates them: delete, rebuild, create, resend.
@@ -1042,7 +1073,7 @@ static void mv_replace(uint8_t *tls, void *mv, int scenario) {
         *(uint32_t *)(state + EDITOR_CURSOR) = 0xffffffffu;
     }
     g_mv_delete_all();
-    if (scenario) g_mv_from_scenario(mv);
+    if (scenario) mv_build_authored(mv);
     else mv_adopt(mv);
     g_mv_create_all(mv);
     for (uint32_t i = 0; i < MV_ENTRIES; i++) g_mv_entry_dirty(i, 4);
@@ -1062,6 +1093,15 @@ static void layout_save(void) {
     // derives it from the map id, which on a converted map gives zero again:
     // the same variant. So save a copy at 31.
     memcpy(g_mv_scratch, mv, MV_SIZE);
+    // Automatic panels publish a transient open MV pose for native physics
+    // and replication. Save the host's authored closed origins in this copy.
+    typedef int (*doors_copy_fn)(void *, void *);
+    HMODULE lobby = GetModuleHandleA("mjolnir_lobby.dll");
+    doors_copy_fn copy_closed = lobby ? (doors_copy_fn)GetProcAddress(lobby, "mjolnir_forge_doors_copy_closed") : NULL;
+    if (copy_closed && !copy_closed(mv, g_mv_scratch)) {
+        note("save deferred: automatic doors need verified closed poses; save on the original host or rehost");
+        return;
+    }
     static const uint8_t no_guid[16] = {0};
     if (*(int16_t *)(g_mv_scratch + MV_ENCODING_VERSION) >= 32 && memcmp(g_mv_scratch + MV_GUID, no_guid, 16) == 0)
         *(int16_t *)(g_mv_scratch + MV_ENCODING_VERSION) = 31;
@@ -1160,7 +1200,7 @@ static void layout_new_map(void *mv) {
     // runs at all under Megalo).
     uint8_t *scenario = *(uint8_t **)(g_base + RVA_SCENARIO);
     if (scenario) apply_slots(scenario);
-    g_mv_from_scenario(mv);
+    mv_build_authored(mv);
     char code[64], why[160];
     // A client's objects are the host's: its own saved layout must not
     // decide what it builds.
@@ -1609,6 +1649,21 @@ static void act(uint8_t *tls, int player, LONG commands) {
     int editing = g_is_editing((uint32_t)player) != 0;
     if (cursor == 0xffffffffu && editing) cursor = soft_target(tls, player, (const float *)(state + EDITOR_POINT));
     uint32_t target = held != 0xffffffffu ? held : cursor;
+
+    // Close before the engine captures a grabbed object's pose. A blocked,
+    // raised target waits until its passage is clear; other objects remain
+    // editable. Monitor entry itself must never close through a vehicle.
+    const LONG door_pose_commands = CMD_GRAB | CMD_DUPLICATE | CMD_ROTATE_LEFT | CMD_ROTATE_RIGHT | CMD_PHYSICS;
+    if (!is_client(tls) && (commands & (CMD_TOGGLE | door_pose_commands))) {
+        typedef int (*doors_close_fn)(uint32_t);
+        HMODULE lobby = GetModuleHandleA("mjolnir_lobby.dll");
+        doors_close_fn close_doors = lobby ? (doors_close_fn)GetProcAddress(lobby, "mjolnir_forge_doors_close_for_edit") : NULL;
+        uint32_t door_target = commands & CMD_TOGGLE ? 0xffffffffu : target;
+        if (close_doors && !close_doors(door_target)) {
+            commands &= ~door_pose_commands;
+            note("clear the doorway before editing its raised panel");
+        }
+    }
 
     // On a fireteam client only the engine's own requests (toggle, grab and
     // drop of what it can drag, delete, place and duplicate weapons, vehicles
@@ -2064,6 +2119,8 @@ __declspec(dllexport) int mjolnir_forge_open(void *L) {
     return 0;
 }
 
+// Lobby must not animate transient MV poses beside an older Forge serializer.
+__declspec(dllexport) int mjolnir_forge_utility_api_v1(void) { return 1; }
 __declspec(dllexport) int mjolnir_forge_toggle(void *L) { (void)L; return command(CMD_TOGGLE); }
 __declspec(dllexport) int mjolnir_forge_grab(void *L) { (void)L; return command(CMD_GRAB); }
 __declspec(dllexport) int mjolnir_forge_delete(void *L) { (void)L; return command(CMD_DELETE); }

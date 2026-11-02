@@ -414,10 +414,17 @@ Hud.init({
 -- simply leaves ordinary tag-derived labels. Never execute catalog contents.
 local jsonOk, Json = pcall(dofile, MOD .. "..\\MJOLNIRLevelLoader\\Scripts\\json.lua")
 local Lights = dofile(MOD .. "Scripts\\lights.lua").new()
+local surfaceData
+if jsonOk and type(Json) == "table" and type(Json.decode) == "function" then
+    local ok, value = pcall(Json.decode, readFile(MOD .. "Scripts\\material_profiles.json", 65536) or "")
+    if ok then surfaceData = value end
+end
+local Materials = dofile(MOD .. "Scripts\\materials.lua").new(surfaceData)
 local lastPackInventory = false
 local function setPackInventory(inventory)
     Hud.setPackInventory(inventory)
     Lights:setInventory(inventory)
+    Materials:setInventory(inventory)
 end
 local function refreshPackInventory()
     local raw = readFile(PACK_INVENTORY, 4 * 1024 * 1024 + 1)
@@ -473,6 +480,7 @@ local lastState = false
 local palette = {}
 local paletteVersion = nil
 local lightTicks, lightsDue, lightError = 0, false, false
+local materialError = false
 local pendingRender, renderError = nil, false
 
 -- Retain one game-thread callback for the lifetime of the mod. Repeatedly
@@ -498,6 +506,11 @@ local function gameThreadTick()
         if not ok and not lightError then log("pack lights: " .. tostring(err)) end
         lightError = not ok
         reportWork("pack lights", started)
+        started = os.clock()
+        ok, err = pcall(Materials.tick, Materials)
+        if not ok and not materialError then log("pack surfaces: " .. tostring(err)) end
+        materialError = not ok
+        reportWork("pack surfaces", started)
     end
     ExecuteInGameThreadWithDelay(POLL_MS, gameThreadTick)
 end

@@ -1051,6 +1051,22 @@
           },
           "light": {
             "$ref": "#/components/schemas/ForgeLight"
+          },
+          "lift": {
+            "$ref": "#/components/schemas/ForgeLift"
+          },
+          "door": {
+            "$ref": "#/components/schemas/ForgeDoor"
+          },
+          "surfaces": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ForgeSurface"
+            },
+            "maxItems": 16
           }
         },
         "required": [
@@ -1123,6 +1139,168 @@
           "color_rgb",
           "intensity_cd",
           "radius_m"
+        ],
+        "additionalProperties": false
+      },
+      "ForgeLift": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "offset_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              }
+            ]
+          },
+          "size_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 100
+              }
+            ]
+          },
+          "direction": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              }
+            ]
+          },
+          "acceleration_m_s2": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 100
+          },
+          "max_speed_m_s": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 30
+          },
+          "negates_gravity": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "offset_m",
+          "size_m",
+          "direction",
+          "acceleration_m_s2",
+          "max_speed_m_s",
+          "negates_gravity"
+        ],
+        "additionalProperties": false
+      },
+      "ForgeDoor": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "travel_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 16
+          },
+          "speed_m_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 8
+          },
+          "trigger_size_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 32
+              },
+              {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 32
+              },
+              {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 32
+              }
+            ]
+          },
+          "hold_open_s": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "travel_m",
+          "speed_m_s",
+          "trigger_size_m",
+          "hold_open_s"
+        ],
+        "additionalProperties": false
+      },
+      "ForgeSurface": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 15
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "glass_cyan",
+              "teleporter_green"
+            ]
+          }
+        },
+        "required": [
+          "slot",
+          "profile"
         ],
         "additionalProperties": false
       },

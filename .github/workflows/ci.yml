@@ -20,7 +20,9 @@ jobs:
           sudo luarocks install luacheck > /dev/null 2>&1 || true
 
       - name: Test multiplayer HUD and team presentation
-        run: lua5.4 tools/tests/test_multiplayer_ui.lua
+        run: |
+          lua5.4 tools/tests/test_multiplayer_ui.lua
+          lua5.4 tools/tests/test_lobby_startup.lua
 
       - name: Test UI class retention across map travel
         run: lua5.4 tools/tests/test_ui_class_lifetime.lua
@@ -34,8 +36,11 @@ jobs:
       - name: Test kill floors
         run: lua5.4 tools/tests/test_kill_floor.lua
 
-      - name: Test Halo 2's lifts
-        run: lua5.4 tools/tests/test_lifts.lua
+      - name: Test Halo 2 and Forge pack lifts
+        run: |
+          lua5.4 tools/tests/test_lifts.lua
+          lua5.4 tools/tests/test_pack_lifts.lua
+          lua5.4 tools/tests/test_lifts_runtime.lua
 
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
@@ -52,12 +57,13 @@ jobs:
       - name: Test team colours (CTF flags and team armour)
         run: lua5.4 tools/tests/test_teams.lua
 
-      - name: Test Forge labels, controls, dispatch and lights
+      - name: Test Forge labels, controls, dispatch, lights and materials
         run: |
           lua5.4 tools/tests/test_forge_pack_labels.lua
           lua5.4 tools/tests/test_forge_controls.lua
           lua5.4 tools/tests/test_forge_dispatch.lua
           lua5.4 tools/tests/test_forge_lights.lua
+          lua5.4 tools/tests/test_forge_materials.lua
 
       - name: Lint Lua scripts
         run: |
@@ -110,6 +116,10 @@ jobs:
       - name: Test Discord RPC with an isolated named pipe
         shell: pwsh
         run: .\native\lobby\test-discord.ps1
+
+      - name: Test automatic Forge door contract and motion
+        shell: pwsh
+        run: .\native\lobby\test-forge-doors.ps1
 
       - name: Build mjolnir_frame_times.dll
         shell: pwsh
@@ -169,7 +179,9 @@ jobs:
           echo "✅ All checks passed."
 
       - name: Test Forge map archive builder
-        run: python -m unittest discover -s tools/forge -p test_build_maps.py
+        run: |
+          python -m unittest discover -s tools/forge -p test_build_maps.py
+          python -m unittest discover -s tools/forge -p test_build_materials.py
 
       - name: Validate original Forge pack geometry and connectors
         run: |

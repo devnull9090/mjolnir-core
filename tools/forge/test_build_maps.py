@@ -7,8 +7,80 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from functools import lru_cache
 
 from build_maps import MAPS, check_level, check_pack_view, unchanged, verify_archive
+
+
+@lru_cache(maxsize=1)
+def crossline_fixture():
+    repo = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location("forge_map_generator", repo / "forge-maps/generate.py")
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    level, layout = generator.arena_layout()
+    geometry = {rf"objects\mjolnir\forge\{slug}\{p['id']}": p
+        for slug in ("foundry", "foundry-wide")
+        for p in json.loads((repo / f"forge-packs/{slug}/source/geometry.json").read_text())["pieces"]}
+    return repo, generator, level, layout, geometry
+
+
+def point(item, local, lift=0):
+    angle = math.radians(-item["rot"][1])
+    c, s = math.cos(angle), math.sin(angle)
+    return (item["pos"][0] / 100 + local[0]*c - local[1]*s,
+            -item["pos"][1] / 100 + local[0]*s + local[1]*c,
+            item["pos"][2] / 100 + local[2] + lift)
+
+
+def collision_world(level, geometry, doors=()):
+    # Native canvas generation separately verifies this slab's real collision.
+    vertices = [(-48, -80, 0), (48, -80, 0), (48, 80, 0), (-48, 80, 0)]
+    world = [(-1, [(-48, 48), (-80, 80), (0, 0)],
+              [(vertices[0], vertices[1], vertices[2]), (vertices[0], vertices[2], vertices[3])])]
+    raised = {d["panel_index"]: d["travel_m"] for d in doors}
+    for i, item in enumerate(level["blam"]["objects"]):
+        if item["tag"] not in geometry:
+            continue
+        body = geometry[item["tag"]]["collision"]
+        vertices = [point(item, v, raised.get(i, 0)) for v in body["vertices"]]
+        bounds = [(min(v[a] for v in vertices), max(v[a] for v in vertices)) for a in range(3)]
+        world.append((i, bounds, [tuple(vertices[j] for j in t) for t in body["triangles"]]))
+    return world
+
+
+def ray(world, start, end, only=None):
+    def sub(a, b): return tuple(x-y for x, y in zip(a, b))
+    def dot(a, b): return sum(x*y for x, y in zip(a, b))
+    def cross(a, b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    direction, hits = sub(end, start), []
+    for index, bounds, triangles in world:
+        if only is not None and index not in only:
+            continue
+        if any(max(start[a], end[a]) < lo-1e-7 or min(start[a], end[a]) > hi+1e-7
+               for a, (lo, hi) in enumerate(bounds)):
+            continue
+        for a, b, c in triangles:
+            e1, e2 = sub(b, a), sub(c, a)
+            h = cross(direction, e2)
+            determinant = dot(e1, h)
+            if abs(determinant) < 1e-10:
+                continue
+            inverse, s = 1 / determinant, sub(start, a)
+            u, q = inverse * dot(s, h), cross(s, e1)
+            v, t = inverse * dot(direction, q), inverse * dot(e2, q)
+            if min(u, v, t) >= -1e-7 and u+v <= 1.0000001 and t <= 1.0000001:
+                hits.append(t)
+    return hits
+
+
+def samples(points, spacing=.5):
+    for start, end in zip(points, points[1:]):
+        length = math.dist(start[:2], end[:2])
+        tangent = [(end[a]-start[a])/length for a in range(2)]
+        count = max(1, math.ceil(length / spacing))
+        for i in range(count+1):
+            yield [a+(b-a)*i/count for a, b in zip(start, end)], tangent
 
 
 class ForgeMapBuildTests(unittest.TestCase):
@@ -128,7 +200,7 @@ class ForgeMapBuildTests(unittest.TestCase):
                 self.assertGreaterEqual(surface(all_tris, (x, y)), 4.5 - 1e-7, "closed pit-junction corner")
         for y in range(-24, 25):
             self.assertGreaterEqual(surface(all_tris, (96.25, y)), 4.5 - 1e-7)
-        # Full-size stock visual footprints,6.13x3.25m, in two lanes at ±4m.
+        # Full-size stock visual footprints,6.13x3.25m, in two lanes at Â±4m.
         # Check each rectangle's four corners over real collision, including
         # curved facets and ramp transitions. This is static clearance only;
         # live steering/passing and suspension contact still need playtesting.
@@ -178,206 +250,232 @@ class ForgeMapBuildTests(unittest.TestCase):
         ticks = sorted(d["pos"][1] for d in level["decor"] if d["id"].startswith("scale_tick_"))
         self.assertEqual([b - a for a, b in zip(ticks, ticks[1:])], [100, 100])
 
-    def test_crossline_perimeter_is_solid_to_nine_metres_and_leaves_routes_open(self):
-        repo = Path(__file__).resolve().parents[2]
-        spec = importlib.util.spec_from_file_location("forge_map_generator", repo / "forge-maps/generate.py")
-        generator = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(generator)
-        level = generator.arena()
-        geometry = json.loads((repo / "forge-packs/foundry-wide/source/geometry.json").read_text())
-        wall = next(p for p in geometry["pieces"] if p["id"] == "wall")
-        self.assertEqual(len(wall["collision"]["hulls"]), 1, "perimeter uses solid walls, not apertures")
-        vertices = wall["collision"]["hulls"][0]["vertices"]
-        hull_bounds = [(min(v[a] for v in vertices), max(v[a] for v in vertices)) for a in range(3)]
-        self.assertEqual(set(map(tuple, vertices)),
-                         {(x, y, z) for x in hull_bounds[0] for y in hull_bounds[1] for z in hull_bounds[2]},
-                         "the wall's convex collision is a solid box, so its transformed bounds are exact")
-        boxes = []
-        for item in level["blam"]["objects"]:
-            if item["tag"] != r"objects\mjolnir\forge\foundry-wide\wall":
-                continue
-            px, py, pz = item["pos"][0] / 100, -item["pos"][1] / 100, item["pos"][2] / 100
-            if abs(px) != 23.5 and abs(py) != 39.5:
-                continue
-            yaw = math.radians(-item["rot"][1])
-            points = [(px + x * math.cos(yaw) - y * math.sin(yaw),
-                       py + x * math.sin(yaw) + y * math.cos(yaw), pz + z)
-                      for x, y, z in vertices]
-            boxes.append(tuple((min(p[a] for p in points), max(p[a] for p in points)) for a in range(3)))
-        self.assertEqual(len(boxes), 96, "32 full wall panels in each of three courses")
-        self.assertEqual(len(level["blam"]["objects"]), 204)
-        eps = 1e-7
-        # Prove continuous coverage of every side and vertical band using
-        # transformed collision hulls, not just the authored panel centres.
-        for axis, plane, span in [(0, -23.5, 40), (0, 23.5, 40),
-                                  (1, -39.5, 24), (1, 39.5, 24)]:
-            side = [b for b in boxes if b[axis][0] - eps <= plane <= b[axis][1] + eps]
-            heights = sorted({0.0, 9.0} | {h for b in side for h in b[2]})
-            self.assertEqual(heights[0], 0)
-            self.assertEqual(heights[-1], 9)
-            for bottom, top in zip(heights, heights[1:]):
-                z = (bottom + top) / 2
-                intervals = sorted(b[1 - axis] for b in side if b[2][0] <= z <= b[2][1])
-                covered = -span
-                for start, end in intervals:
-                    self.assertLessEqual(start, covered + eps, "gap in perimeter collision")
-                    covered = max(covered, end)
-                self.assertGreaterEqual(covered, span - eps)
-            self.assertGreaterEqual(heights[-1] - 4.5, 4.5, "normal jumps from decks remain enclosed")
-        # Corner seams overlap rather than merely meeting at a floating-point
-        # edge. Each course contains both perpendicular walls at each corner.
-        for x in (-23.5, 23.5):
-            for y in (-39.5, 39.5):
-                for z in (1.5, 4.5, 7.5):
-                    corner = [b for b in boxes if all(b[a][0] + eps < p < b[a][1] - eps
-                                                     for a, p in enumerate((x, y, z)))]
-                    self.assertEqual(len(corner), 2, "sealed overlapping corner")
-        for item in level["blam"]["objects"]:
-            if item["tag"] not in (generator.SPAWN, generator.TELE + "2way"):
-                continue
-            p = (item["pos"][0] / 100, -item["pos"][1] / 100, item["pos"][2] / 100)
-            self.assertLess(abs(p[0]) + 1.25, 23, "spawn/portal clear of side wall")
-            self.assertLess(abs(p[1]) + 1.25, 39, "spawn/portal clear of end wall")
-        self.assertEqual(len([o for o in generator.blank()["blam"]["objects"]
-                              if o["group"] == "crates"]), 0, "blank construction canvas stays blank")
-
-    def test_crossline_wide_preserves_heights_utilities_and_walkable_joins(self):
-        repo = Path(__file__).resolve().parents[2]
-        spec = importlib.util.spec_from_file_location("forge_map_generator", repo / "forge-maps/generate.py")
-        generator = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(generator)
-        old, level = generator._arena_layout(), generator.arena()
+    def test_crossline_showcase_preserves_palette_prefix_and_other_maps(self):
+        repo, generator, level, layout, _ = crossline_fixture()
         self.assertEqual(level, json.loads((repo / "forge-maps/crossline/crossline.level.json").read_text()))
-        self.assertEqual(MAPS["crossline"]["dimensions"], [48, 80, 1])
-        self.assertEqual(MAPS["crossline"]["version"], "0.2.0")
-        self.assertEqual([(p["slug"], p["version"], len(p["blocks"])) for p in level["blam"]["forge_packs"]],
-                         [("foundry", "0.2.0", 24), ("foundry-wide", "0.1.0", 18)])
-        self.assertEqual(level["blam"]["world_bounds"], old["blam"]["world_bounds"])
-        for section in ("objects", "player_starts", "weapons", "equipment"):
-            self.assertEqual(len(old["blam"][section]), len(level["blam"][section]))
-            for before, after in zip(old["blam"][section], level["blam"][section]):
-                self.assertEqual(after["pos"], [round(before["pos"][0] * 2, 4),
-                                               round(before["pos"][1] * 2, 4), before["pos"][2]])
-                self.assertEqual(after.get("set"), before.get("set"), "teams/trigger dimensions unchanged")
-                self.assertEqual(after.get("rot"), before.get("rot"))
-        catalogs = {slug: json.loads((repo / f"forge-packs/{slug}/source/geometry.json").read_text())
-                    for slug in ("foundry", "foundry-wide")}
-        geometry = {rf"objects\mjolnir\forge\{slug}\{p['id']}": p
-                    for slug, catalog in catalogs.items() for p in catalog["pieces"]}
-
-        def point(item, p):
-            angle = math.radians(-item["rot"][1])
-            c, s = math.cos(angle), math.sin(angle)
-            return (item["pos"][0] / 100 + p[0] * c - p[1] * s,
-                    -item["pos"][1] / 100 + p[0] * s + p[1] * c, item["pos"][2] / 100 + p[2])
-
-        def triangles(item):
-            collision = geometry[item["tag"]]["collision"]
-            vertices = [point(item, v) for v in collision["vertices"]]
-            self.assertTrue(all(abs(v[0]) <= 24.000001 and abs(v[1]) <= 40.000001 and 0 <= v[2] <= 9
-                                for v in vertices), "placed collision stays on the new deck and below the same wall height")
-            return [tuple(vertices[i] for i in tri) for tri in collision["triangles"]]
-
-        def sub(a, b): return tuple(x - y for x, y in zip(a, b))
-        def dot(a, b): return sum(x * y for x, y in zip(a, b))
-        def cross(a, b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
-
-        def ray(tris, start, end):
-            hits, direction = [], sub(end, start)
-            for a, b, c in tris:
-                e1, e2 = sub(b, a), sub(c, a)
-                h = cross(direction, e2)
-                determinant = dot(e1, h)
-                if abs(determinant) < 1e-10:
-                    continue
-                inverse = 1 / determinant
-                s = sub(start, a)
-                u = inverse * dot(s, h)
-                q = cross(s, e1)
-                v, t = inverse * dot(direction, q), inverse * dot(e2, q)
-                if min(u, v, t) >= -1e-7 and u + v <= 1.0000001 and t <= 1.0000001:
-                    hits.append(t)
-            return hits
-
-        crates = [o for o in level["blam"]["objects"] if o["group"] == "crates"]
-        all_tris = [tri for item in crates for tri in triangles(item)]
-        self.assertEqual(sum("\\foundry-wide\\" in o["tag"] for o in crates), 182)
-        for item in crates:
-            ident = item["tag"].split("\\")[-1]
-            if ident not in ("doorway", "portal_frame"):
-                continue
-            expected_pack = "foundry-wide" if ident == "doorway" else "foundry"
-            self.assertIn("\\" + expected_pack + "\\", item["tag"])
-            tris = triangles(item)
-            half_open, top = (2, 2.5) if ident == "doorway" else (1.25, 3.5)
-            for x in (-half_open + .1, 0, half_open - .1):
-                for z in (.1, 1, top - .1):
-                    self.assertFalse(ray(tris, point(item, (x, -2, z)), point(item, (x, 2, z))),
-                                     "opening stays clear of actual triangles")
-            self.assertTrue(ray(tris, point(item, (half_open + .1, -2, 1)), point(item, (half_open + .1, 2, 1))))
-            self.assertTrue(ray(tris, point(item, (0, -2, top + .1)), point(item, (0, 2, top + .1))))
-        # Walk both broadened ramp lanes across lower landing, two-piece join
-        # and base seam. A short vertical ray excludes unrelated overhead decks.
-        for sign in (-1, 1):
-            for lane in (-4, 4):
-                for lateral in (-1.9, 0, 1.9):
-                    for seam in (4, 12, 20):
-                        for offset in (-.02, 0, .02):
-                            run = seam + offset
-                            height = .5 + max(0, min(16, run - 4)) / 4
-                            start, end = (lane + lateral, sign * run, height + .1), (lane + lateral, sign * run, height - .1)
-                            hits = ray(all_tris, start, end)
-                            self.assertTrue(hits, "missing floor/ramp/base join")
-                            self.assertAlmostEqual(min(hits), .5, places=5)
-        # Sample each standing footprint at its centre and eight points on
-        # the stock Spartan's 0.5334 m radius. Probe actual placed triangles,
-        # including utilities and neighbouring structures, not just the pad.
-        radius, standing_height, receiver_lift = .5334, 1.9812, .61
-        ring = [(radius * math.cos(i * math.pi / 4), radius * math.sin(i * math.pi / 4))
-                for i in range(8)]
-        markers = [o for o in level["blam"]["objects"]
-                   if o["tag"] in (generator.SPAWN, generator.TELE + "2way")]
-        self.assertEqual(len(markers), 10)
-        for marker in markers:
-            receiver = marker["tag"] == generator.TELE + "2way"
-            ground, lift = (4.52, receiver_lift) if receiver else (4.5, 0)
-            cx, cy = marker["pos"][0] / 100, -marker["pos"][1] / 100
-            top = ground + standing_height + lift
-            for dx, dy in [(0, 0), *ring]:
-                x, y = cx + dx, cy + dy
-                support = ray(all_tris, (x, y, ground + .2), (x, y, ground - .2))
-                self.assertTrue(support, f"unsupported spawn/receiver footprint at {(x, y)}")
-                self.assertAlmostEqual(min(support), .5, places=5,
-                                       msg="all nine samples rest on 4.5 m deck or 4.52 m pad")
-                self.assertFalse(ray(all_tris, (x, y, ground + .01), (x, y, top)),
-                                 "standing body and receiver-lift sweep hit another placement")
-            # Horizontal diameters at several heights catch thin obstacles
-            # between the vertical sample lines, including the frame lintel.
-            for height in sorted({.02, radius, standing_height / 2, standing_height - .02,
-                                  standing_height + lift - .02}):
-                for dx, dy in ring[:4]:
-                    self.assertFalse(ray(all_tris, (cx + dx, cy + dy, ground + height),
-                                         (cx - dx, cy - dy, ground + height)),
-                                     "standing footprint is obstructed beside the marker")
-
-    def test_crossline_team_spawns_match_red_and_blue_bases(self):
-        path = Path(__file__).resolve().parents[2] / "forge-maps/generate.py"
-        spec = importlib.util.spec_from_file_location("forge_map_generator", path)
-        generator = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(generator)
-        level = generator.arena()
+        self.assertEqual(layout, json.loads((repo / "forge-maps/crossline/crossline.layout.json").read_text()))
+        self.assertEqual(generator.blank(), json.loads((repo / "forge-maps/blank/forge_canvas.level.json").read_text()))
+        self.assertEqual(MAPS["blank"]["dimensions"], [64, 64, 1])
+        self.assertEqual(MAPS["roadworks"]["dimensions"], [320, 320, 1])
+        self.assertEqual(MAPS["roadworks"]["version"], "0.2.0")
+        self.assertEqual(MAPS["crossline"]["dimensions"], [96, 160, 1])
+        self.assertEqual(MAPS["crossline"]["version"], "0.3.0")
+        self.assertTrue(MAPS["crossline"]["vehicles"])
+        dependencies = level["blam"]["forge_packs"]
+        self.assertEqual([(p["slug"], p["version"], len(p["blocks"])) for p in dependencies],
+                         [("foundry", "0.2.0", 24), ("foundry-wide", "0.2.0", 38)])
+        original = json.loads((repo / "forge-packs/foundry/catalog.json").read_text())["forge_pack"]["blocks"]
+        self.assertEqual(dependencies[0]["blocks"], [{"id": b["id"], "tag": b["tag"]} for b in original])
+        prefix = ["block_1x1", "block_1x2", "floor_1x1", "floor_1x2", "floor_2x2", "bridge_straight",
+                  "bridge_corner", "ramp", "ramp_shallow", "wall", "wall_half", "wall_corner", "doorway",
+                  "window", "railing", "column", "cover", "stairs"]
+        self.assertEqual([b["id"] for b in dependencies[1]["blocks"][:18]], prefix)
+        placed = {o["tag"].split("\\")[-1] for o in level["blam"]["objects"] if "\\foundry-wide\\" in o["tag"]}
+        self.assertTrue(set(generator.SHOWCASE_IDS) <= placed)
+        count = sum(len(level["blam"].get(k, [])) for k in ("objects", "weapons", "equipment", "vehicles"))
+        self.assertEqual(layout["authored_object_count"], count)
+        self.assertLessEqual(count, 500, "at least151 native slots stay available for user edits")
         spawns = [o for o in level["blam"]["objects"] if o["tag"] == generator.SPAWN]
         self.assertEqual(len(spawns), 8)
-        # Scenario enum 0 is defender (red); 1 is attacker (blue), matching
-        # the existing CE converter. Authored Y is reflected into Unreal Y.
-        for team, unreal_y, light in [("defender", 1600, "light_pylon_red"),
-                                      ("attacker", -1600, "light_pylon_blue")]:
-            team_spawns = [s for s in spawns if s["set"]["multiplayer data.owner team"] == team]
-            self.assertEqual(len(team_spawns), 4)
-            self.assertTrue(all(s["pos"][1] * unreal_y > 0 for s in team_spawns))
-            lamps = [o for o in level["blam"]["objects"] if o["tag"] == generator.ref(light)]
-            self.assertEqual(len(lamps), 2)
-            self.assertTrue(all(o["pos"][1] * unreal_y > 0 for o in lamps))
+        for sign, team in [(-1, "defender"), (1, "attacker")]:
+            own = [s for s in spawns if s["set"]["multiplayer data.owner team"] == team]
+            self.assertEqual(len(own), 4)
+            self.assertTrue(all(-s["pos"][1] * sign > 0 for s in own))
+        self.assertEqual([o["tag"] for o in level["blam"]["forge_objects"]],
+                         [generator.SPAWN, generator.TELE+"sender", generator.TELE+"receiver", generator.TELE+"2way"])
+
+    def test_crossline_long_wall_perimeter_and_query_volume(self):
+        _, _, level, layout, geometry = crossline_fixture()
+        world = collision_world(level, geometry)
+        boxes = [bounds for index, bounds, _ in world if index in layout["perimeter"]]
+        self.assertEqual(len(boxes), 96)
+        for _, bounds, _ in world:
+            self.assertGreaterEqual(bounds[0][0], -48-1e-6); self.assertLessEqual(bounds[0][1], 48+1e-6)
+            self.assertGreaterEqual(bounds[1][0], -80-1e-6); self.assertLessEqual(bounds[1][1], 80+1e-6)
+            self.assertGreaterEqual(bounds[2][0], 0); self.assertLessEqual(bounds[2][1], 9)
+        for axis, plane, span in [(0, -47.5, 80), (0, 47.5, 80), (1, -79.5, 48), (1, 79.5, 48)]:
+            for z in (1.5, 4.5, 7.5):
+                intervals = sorted(b[1-axis] for b in boxes if b[axis][0] <= plane <= b[axis][1] and b[2][0] <= z <= b[2][1])
+                end = -span
+                for low, high in intervals:
+                    self.assertLessEqual(low, end+1e-6, "gap in perimeter")
+                    end = max(end, high)
+                self.assertGreaterEqual(end, span-1e-6)
+        for x in (-47.5, 47.5):
+            for y in (-79.5, 79.5):
+                for z in (1.5, 4.5, 7.5):
+                    self.assertEqual(sum(all(lo < p < hi for p, (lo, hi) in zip((x, y, z), b)) for b in boxes), 2)
+        bounds = level["blam"]["world_bounds"][0]
+        self.assertEqual(bounds, {"bsp": 8, "min": [-96/3.048, -96/3.048, -8/3.048],
+                                  "max": [96/3.048, 96/3.048, 64/3.048]})
+
+    def test_crossline_preflight_rejects_previous_canvas_and_pack(self):
+        repo, _, level, _, _ = crossline_fixture()
+        packs = [json.loads((repo / f"forge-packs/{p['slug']}/catalog.json").read_text())
+                 for p in level["blam"]["forge_packs"]]
+        bounds = level["blam"]["world_bounds"][0]
+        collision = {"bsp_index": 0, "world_bounds_wu": {k: bounds[k] for k in ("min", "max")},
+                     "slab_m": {"width": 96, "depth": 160, "thickness": 1, "top_z": 0}}
+        check_level(level, MAPS["crossline"], packs, collision)
+        old = copy.deepcopy(collision)
+        old["slab_m"].update(width=48, depth=80)
+        with self.assertRaisesRegex(ValueError, "collision dimensions"):
+            check_level(level, MAPS["crossline"], packs, old)
+        old = copy.deepcopy(packs)
+        old[1]["version"] = "0.1.0"
+        with self.assertRaisesRegex(ValueError, "palette differs"):
+            check_level(level, MAPS["crossline"], old, collision)
+        old = copy.deepcopy(packs)
+        old[1]["forge_pack"]["blocks"][0:2] = reversed(old[1]["forge_pack"]["blocks"][0:2])
+        with self.assertRaisesRegex(ValueError, "palette differs"):
+            check_level(level, MAPS["crossline"], old, collision)
+
+    def test_crossline_walk_routes_have_support_and_standing_clearance(self):
+        _, _, level, layout, geometry = crossline_fixture()
+        world = collision_world(level, geometry, layout["doors"])
+        radius, height = .5334, 1.9812
+        for route in layout["routes"]:
+            if route["kind"] != "walk":
+                continue
+            offset = route["width_m"]/2-radius-.05
+            for centre, forward in samples(route["points_m"]):
+                for lane in (-offset, 0, offset):
+                    p = [centre[0]+lane*forward[1], centre[1]-lane*forward[0], centre[2]]
+                    support = ray(world, (p[0], p[1], p[2]+.1), (p[0], p[1], p[2]-.1))
+                    self.assertTrue(support, f"{route['name']}: missing surface at {p}")
+                    self.assertAlmostEqual(min(support), .5, places=5, msg=f"wrong route elevation at {p}")
+                    for angle in range(0, 360, 90):
+                        x, y = p[0]+radius*math.cos(math.radians(angle)), p[1]+radius*math.sin(math.radians(angle))
+                        self.assertFalse(ray(world, (x, y, p[2]+radius+.03), (x, y, p[2]+height)),
+                                         f"{route['name']}: standing body obstructed at {p}")
+                    # Check horizontal capsule sections too: a low plinth
+                    # or railing bar can lie between the vertical probes.
+                    for z in (.15, .35, 1.0, 1.8):
+                        cap = max(radius-z, z-(height-radius), 0)
+                        r = math.sqrt(radius*radius-cap*cap)
+                        for dx, dy in ((r, 0), (0, r)):
+                            self.assertFalse(ray(world, (p[0]-dx,p[1]-dy,p[2]+z),
+                                                 (p[0]+dx,p[1]+dy,p[2]+z)),
+                                             f"{route['name']}: capsule side obstructed at {p}")
+
+    def test_crossline_vehicles_fit_routes_and_open_vehicle_gate(self):
+        _, _, level, layout, geometry = crossline_fixture()
+        world = collision_world(level, geometry, layout["doors"])
+        for route in layout["routes"]:
+            if not route["kind"].startswith("vehicle"):
+                continue
+            for p, forward in samples(route["points_m"], 1):
+                for fore in (-6.13/2, 0, 6.13/2):
+                    for side in (-3.25/2, 0, 3.25/2):
+                        x = p[0]+fore*forward[0]+side*forward[1]
+                        y = p[1]+fore*forward[1]-side*forward[0]
+                        self.assertTrue(ray(world, (x, y, .1), (x, y, -.1)), f"missing vehicle support at {(x,y)}")
+                        self.assertFalse(ray(world, (x, y, .05), (x, y, 2.43+.2)), f"vehicle clearance blocked at {(x,y)}")
+        self.assertEqual(len(level["blam"]["vehicles"]), 2)
+        for vehicle in level["blam"]["vehicles"]:
+            self.assertEqual(vehicle["type"], "warthog")
+            self.assertEqual(vehicle["pos"][0], 0)
+            self.assertEqual(abs(vehicle["pos"][1]), 6400)
+
+    def test_crossline_door_motion_bypasses_glass_and_lift_clearance(self):
+        _, _, level, layout, geometry = crossline_fixture()
+        world, opened = collision_world(level, geometry), collision_world(level, geometry, layout["doors"])
+        for door in layout["doors"]:
+            frame = level["blam"]["objects"][door["frame_index"]]
+            panel = level["blam"]["objects"][door["panel_index"]]
+            self.assertAlmostEqual((frame["pos"][1]-panel["pos"][1])/100, -.75)
+            for x in (-door["opening_m"][0]/2+.1, 0, door["opening_m"][0]/2-.1):
+                for z in (.1, 1.98, door["opening_m"][1]-.1):
+                    start, end = point(frame, (x, -2, z)), point(frame, (x, 2, z))
+                    self.assertFalse(ray(world, start, end, {door["frame_index"]}), "frame opening blocked")
+                    self.assertTrue(ray(world, start, end, {door["panel_index"]}), "closed panel does not close opening")
+                    self.assertFalse(ray(opened, start, end), "open door still obstructs passage")
+            # Move the whole actual panel through its authored travel. Its
+            # solid body must not intersect another placed hull or header.
+            body = geometry[panel["tag"]]["collision"]["vertices"]
+            centre = [sum(v[a] for v in body)/len(body) for a in range(3)]
+            for v in body:
+                # The back of the moving panel is intentionally flush with
+                # the frame's front face. Test penetration slightly inside its
+                # volume, not shared boundary contact at the lintel/pillars.
+                inside = [c+(x-c)*.999 for x, c in zip(v, centre)]
+                start, end = point(panel, inside), point(panel, inside, door["travel_m"])
+                others = {index for index, _, _ in world if index not in (-1, door["panel_index"])}
+                self.assertFalse(ray(world, start, end, others), "door sweep hits another piece")
+            self.assertLess(max(point(panel, v, door["travel_m"])[2] for v in body), 64,
+                            "open door remains inside the authored query volume")
+            for p, _ in samples(door["bypass_m"]):
+                for dx in (-.5334, 0, .5334):
+                    self.assertFalse(ray(world, (p[0]+dx, p[1], .03), (p[0]+dx, p[1], 1.9812)), "closed-door bypass obstructed")
+        for feature in layout["showcase"]:
+            if feature["id"] not in ("glass_wall", "window_glazed"):
+                continue
+            item = level["blam"]["objects"][feature["object_index"]]
+            self.assertTrue(ray(world, point(item, (0,-2,1.75)), point(item, (0,2,1.75)), {feature["object_index"]}),
+                            "glazed panels must retain solid collision")
+        for lift in layout["lifts"]:
+            launch, landing = lift["launch_m"], lift["landing_m"]
+            for dx, dy in ((0,0),(-.5334,0),(.5334,0),(0,-.5334),(0,.5334)):
+                x, y = launch[0]+dx, launch[1]+dy
+                self.assertTrue(ray(world, (x,y,.6),(x,y,.4)))
+                self.assertFalse(ray(world, (x,y,.51),(x,y,lift["clear_top_m"])), "lift has an overhead obstruction")
+                x, y, z = landing[0]+dx, landing[1]+dy, landing[2]
+                self.assertTrue(ray(world, (x,y,z+.1),(x,y,z-.1)))
+                self.assertFalse(ray(world, (x,y,z+.01),(x,y,z+1.9812)), "lift landing obstructed")
+
+    def test_crossline_lift_has_walkable_ground_approaches(self):
+        _, _, level, layout, geometry = crossline_fixture()
+        world = collision_world(level, geometry)
+        radius, height = .5334, 1.9812
+        for lift in layout["lifts"]:
+            cx, cy, _ = lift["launch_m"]
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                for lane in (-1.4, 0, 1.4):
+                    for step in range(19):
+                        distance = 4.5-step*.25
+                        z = min(.5, max(0, (4-distance)*.25))
+                        x, y = cx+dx*distance-dy*lane, cy+dy*distance+dx*lane
+                        support = ray(world, (x,y,z+.08), (x,y,z-.08))
+                        self.assertTrue(support, f"lift approach step/gap at {(x,y,z)}")
+                        self.assertAlmostEqual(min(support), .5, places=5)
+                        for ox, oy in ((0,0),(-radius,0),(radius,0),(0,-radius),(0,radius)):
+                            self.assertFalse(ray(world, (x+ox,y+oy,z+radius+.03),
+                                                 (x+ox,y+oy,z+height)),
+                                             "lift approach has no standing clearance")
+                        # Include the lower capsule, where the old vertical
+                        # 0.5 m deck edge blocked normal ground entry.
+                        for dz in (.15, .35, 1.0, 1.8):
+                            cap = max(radius-dz, dz-(height-radius), 0)
+                            r = math.sqrt(radius*radius-cap*cap)
+                            for ox, oy in ((r,0),(0,r)):
+                                self.assertFalse(ray(world, (x-ox,y-oy,z+dz),
+                                                     (x+ox,y+oy,z+dz)),
+                                                 "lift approach blocks the player capsule")
+
+    def test_crossline_spawns_and_teleporters_have_safe_footprints_and_exit_paths(self):
+        _, generator, level, layout, geometry = crossline_fixture()
+        world = collision_world(level, geometry)
+        teleports = {t["object_index"]: t for t in layout["teleporters"]}
+        for i, marker in enumerate(level["blam"]["objects"]):
+            if marker["tag"] not in (generator.SPAWN, generator.TELE+"2way"):
+                continue
+            receiver = teleports.get(i)
+            x, y = marker["pos"][0]/100, -marker["pos"][1]/100
+            ground = receiver["support_z_m"] if receiver else 4.5
+            top = ground+1.9812+(.61 if receiver else 0)
+            for angle in range(0, 360, 45):
+                px, py = x+.5334*math.cos(math.radians(angle)), y+.5334*math.sin(math.radians(angle))
+                support = ray(world, (px,py,ground+.1),(px,py,ground-.1))
+                self.assertTrue(support)
+                self.assertAlmostEqual(min(support), .5, places=5)
+                self.assertFalse(ray(world, (px,py,ground+.01),(px,py,top)), "spawn or receiver sweep blocked")
+            if receiver:
+                self.assertEqual(marker["set"]["multiplayer data.teleporter channel"], "alpha")
+                for distance in (0, 1, 2, 2.6, 3.5):
+                    py = y+receiver["exit_direction"][1]*distance
+                    for px in (x-.5334, x, x+.5334):
+                        self.assertFalse(ray(world, (px,py,4.55),(px,py,top)), "teleporter cannot leave rearm radius")
+        self.assertEqual(len(teleports), 2)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

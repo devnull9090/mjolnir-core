@@ -96,6 +96,10 @@ export interface ForgeBlock {
   category: string;
   dimensions_m: [number, number, number];
   snap_m?: number;
+  light?: { offset_m: [number, number, number]; color_rgb: [number, number, number]; intensity_cd: number; radius_m: number } | null;
+  lift?: { offset_m: [number, number, number]; size_m: [number, number, number]; direction: [number, number, number]; acceleration_m_s2: number; max_speed_m_s: number; negates_gravity: boolean } | null;
+  door?: { travel_m: number; speed_m_s: number; trigger_size_m: [number, number, number]; hold_open_s: number } | null;
+  surfaces?: { slot: number; profile: "glass_cyan" | "teleporter_green" }[] | null;
 }
 
 export interface ForgePack {

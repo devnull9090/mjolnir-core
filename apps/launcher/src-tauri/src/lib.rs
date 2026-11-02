@@ -9,6 +9,7 @@ mod changelog;
 mod crash;
 mod discord_launch;
 mod forge_packs;
+mod forge_shaders;
 mod hub;
 mod links;
 mod maps;

@@ -499,3 +499,135 @@ The game was left open for the user. Two-PC replication and forced scene
 changes during a pending drop remain unverified live.
 
 ![Wide floor suspended after a grid-aligned drop, with the new controls visible](images/forge-controls-crossline.png)
+
+## Crossline 0.3 utility showcase: candidate and pending checks
+
+The 2026-11-02 development candidate expands Crossline to **96 × 160 m**
+with **Foundry Wide 0.2.0**. Its original eighteen Wide palette entries stay
+in order and twenty new pieces follow them. The authored map contains
+296 native objects, including two stock Warthogs, with 355 slots remaining.
+Original Foundry 0.2.0 supplies the unchanged lights. Forge Canvas and
+Roadworks are unchanged by this map build.
+
+The initial offline build passed 21,330 collision probes across all 38 Wide
+pieces, verified all 38 cooked physics payloads, and passed 13,068 canvas
+checks. The revised lift later passed 691 cooked-collision probes and had its
+nine-hull physics payload recooked and verified; other pieces were unchanged.
+Fifteen map-builder tests cover the palette prefix, player and vehicle
+clearance, closed/open door geometry, panel travel, bypasses, glass collision,
+lift shaft and landing clearance, spawn/teleporter clearance and exact pack
+dependencies. These checks do not establish runtime door motion or lift tuning.
+
+| Local candidate | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Foundry Wide 0.2.0, device-signed | 2,355,479 | `c2b1a57546649cec8f2b2cd5f65f62f062ccc3882b80cdba95da1a8b7634f4f6` |
+| Crossline 0.3.0, repackaged, unsigned | 120,431 | `63d0b7a27fb73ffcd7ace4d2ae5fb02c603e9b7eba03ac1650d56f0b9e134be7` |
+
+The final map package reuses the original native bake byte-for-byte, including
+its level and registration data, and includes updated play instructions.
+Its build receipt verifies the final pack view and unchanged map members.
+No placement or native scenario rebake was needed for the material-slot and
+lift-geometry corrections. The final pack retains the five corrected surface
+meshes tested below; the subsequent lift update changes only its collision,
+physics and visual mesh, leaving the catalog and other pieces unchanged.
+
+These are local test artifacts. No Hub deployment or published-release
+download is established by this session. Installation takes a fresh,
+hash-checked backup of the current Crossline save pair, prior archives and
+affected runtime files before retiring the old layout. Existing Foundry,
+Roadworks, Forge Canvas and unrelated map registrations are preserved.
+
+**Startup prerequisite:** sign in through the stock title screen before
+hosting. The initial automated attempts entered a world with a player
+controller and decor, but no active native simulation. The same failure
+occurred after restoring the exact previous assets and runtime. Pressing
+Enter and completing sign-in restored a rendered, drivable Roadworks session
+on that baseline. The automation now checks the stock login/main-menu gate;
+the bridge answering alone does not establish that startup has finished.
+The failed attempts therefore provide no evidence of a container-count limit
+or a regression in the new geometry.
+
+Initial inspection of the new Crossline found both authored door panels in
+Normal mode (`0x0c`). The automatic-door runtime intentionally requires
+Fixed or Phased properties, so those panels were ineligible to animate.
+Scenario placement fields do not expose the saved Forge physics mode. A
+creation-time correction now supplies Fixed defaults. Local tests passed
+native door passage, F5 saving the closed pose, F6 loading and preservation
+of an explicitly saved Normal choice. An initial visual synchronization
+failure left the visible panel stale while native collision moved. The native
+correction passed a cold test in process 55600: the vehicle panel's native
+object and map-variant pose opened to 6 m, and its Unreal actor reached
+599.9997 cm. After the player left, the visible actor returned to approximately
+0.000254 cm above its closed origin. The opening and closing visuals therefore
+agree with native movement in this local test. There is no map-only flag
+change or recook claimed here.
+
+The infantry door also visibly opened to 399.99988 cm in the same cold session,
+and the Spartan walked through at X −41.27 m, from Y −21.8 m to −12.53 m.
+
+![Vehicle door visibly raised in Crossline 0.3](images/forge/crossline-03-door-open.png)
+
+**Conservative vehicle obstruction passed on the same final build.** A test
+Warthog in Normal mode was placed near (-43.85, -52.70, 0) m inside the
+gate's conservative clearance region. Approaching opened the gate to 6 m.
+Switching to Monitor left it at 6 m after 2.8 seconds. Deleting only that
+test Warthog allowed the gate to return to 0 m after 2.2 seconds, with its
+visible actor also closed. This verifies a nearby vehicle's bounding-sphere
+obstruction and release; the vehicle was not driven beneath the door, and
+crush physics was not tested.
+
+**Lift ascent and gallery landing passed in private Forge.** Read-only
+samples from process 52388 recorded a Spartan dropped into the column near
+(37.903, 15.225) m. The lift raised the player's feet from its 0.5 m deck to
+approximately 5.03 m. Staying in the column produced repeated rises rather
+than an automatic exit. Steering west landed at (34.504, 15.223, 4.5) m;
+the player then walked onto the gallery at (25.034, 15.220, 4.5) m and stayed
+at that height for 3.43 seconds. This establishes ascent and a controlled
+landing from that drop-in setup.
+
+The subsequent ground approach could not climb the original 0.5 m deck edge.
+The lift geometry was revised with four shallow walk-up ramps inside its
+existing 8 × 8 m footprint. Its nine-hull physics payload was cooked and
+verified, and a new map test checks surface continuity and Spartan capsule
+clearance from all four ground approaches. The old vertical deck fails that
+test; the revised ramps pass. The launch column and gallery landing stay in
+the same positions.
+
+**Ground entry passed with the revised lift after a cold start.** In process
+48616, the Spartan began at (38.534, 21.978, 0) m and used movement keys only
+to approach from the north. Samples recorded the ramp at approximately
+0.15 m and 0.30 m, then the 0.5 m deck, followed by ascent near
+(38.533, 17.914) m to 4.97 m. There was no jump or Monitor repositioning after
+the ground starting point. A later steering sample held near the landing edge
+at (36.18, 17.91, 4.4686) m. This run verifies ordinary walk-in ascent and edge
+support; it does not repeat the earlier full gallery walk.
+
+![Final lift ramps and adjacent gallery, viewed in Monitor mode](images/forge/crossline-03-lift.png)
+
+**Green teleporter rendering and both routes passed after a cold start.**
+The corrected visual candidate preserves all native tags and changes the
+material-slot mapping on five surface meshes. The portal component exposed
+nine slots with its animated material in slot 8. Two captures 1.3 seconds
+apart showed the CE dust pattern changing. Native travel samples recorded
+the red approach near (-16, -66, 4.5) m arriving at
+(16, 67.3183, 4.52) m on blue, and the return arriving at
+(-16, -67.1636, 4.52) m on red.
+
+![Animated green field on Crossline 0.3's teleporter](images/forge/crossline-03-portal.png)
+
+**Glass transparency and collision passed from both sides.** The cyan pane
+rendered transparently after a cold start, with nine component slots and its
+glass material in slot 7. Walking into its front stopped the Spartan near
+(-39.35, 7.406, 0.244) m. After walking around the east edge, approaching
+the reverse side stopped near (-40.48, 8.595, 0.244) m. The pane remained
+see-through from either side while blocking passage. These are local Forge
+observations in process 29020, not multiplayer replication evidence.
+
+![Transparent cyan glass in Crossline 0.3](images/forge/crossline-03-glass.png)
+
+Still pending for the final installed candidate: full player and Warthog
+routes, driving a vehicle beneath the operating gate, and
+placement/save/reload of the new utility pieces beyond the door checks above.
+Earlier Crossline 0.2 and original Foundry results do not establish these
+Crossline 0.3 outcomes. See the [utility contract](forge_pack_utilities.md)
+and [map tour](../forge-maps/crossline/README.md).

@@ -1,74 +1,116 @@
-# Crossline 0.2
+# Crossline 0.3
 
-Crossline / **FRB** is a standalone **48 × 80 m** Red versus Blue arena for
-two to eight players. Version 0.2 doubles the original arena's horizontal
-dimensions while retaining its heights: bases and catwalks are 4.5 m above
-the floor, and the continuous perimeter remains 9 m high. The sky stays open.
+Crossline / **FRB** is a **96 × 160 m** Red versus Blue arena and construction
+showcase for two to sixteen players. It has four times the area of version
+0.2. Raised bases and galleries remain **4.5 m** above the ground, inside a
+continuous **9 m** perimeter with open sky. Two stock Warthogs use the ground
+route beneath the raised platforms; the player and vehicles retain their
+original scale.
 
-The separate **Foundry Wide 0.1.0** pack supplies 18 structural pieces with
-twice Foundry's width and depth, keeping their original heights. Crossline
-uses nine of those types for 182 structural placements. Its 96 perimeter
-panels are now 8 × 1 × 3 m, stacked in three courses with overlapping corners.
-Ramps have twice the run and the same rise, so the main approach is a 25%
-slope. Side walkways and lower routes are broader, and doorway openings are
-4 m wide with 2.5 m headroom.
+**This is a local development build.** The layout has passed offline
+collision and clearance checks. Private Forge tests verified walking from
+ground level up the lift ramps and rising through the column, a controlled
+gallery landing from an earlier drop-in setup, transparent
+glass with collision on both sides, animated green fields and teleporting
+in both directions. Local tests also verified door collision, saved modes and
+visible opening/closing, and a nearby Warthog holding the gate open until
+removed. Full vehicle traversal, including driving beneath the gate, still
+needs testing with compatible development mods.
+The [validation record](../../docs/forge_pack_validation.md) separates these
+Crossline 0.3 checks from earlier versions' results.
 
-The portal frames, flush pads and eight light pieces use **Foundry 0.2.0**
-at their original sizes. Their positions move with the larger bases. Two
-linked two-way teleporters connect those bases; approaching from inside the
-arena leaves the destination facing back into play. Eight player starts,
-weapons, grenade pickups and the Spartan's collision retain their original
-sizes and heights. There are 204 simulation objects plus the weapon and
-equipment placements. This update does not resize Forge Canvas or Roadworks.
+## Routes and showcase
+
+The bases have mirrored spawn positions, weapons and cover. Two broad
+approaches per base connect the lower landings to the 48 × 24 m upper decks.
+Each approach is 8 m wide and rises 4 m over 32 m. Side galleries and a central
+crossbridge connect the bases above an open, 8 m-wide ground vehicle corridor.
+Conventional ramps remain available around the utility demonstrations.
+
+| Area | What to try |
+| --- | --- |
+| Red and blue bases | Large 16 m platforms, long walls, full-size coloured lights and green teleporter housings |
+| West lane, south | An automatic vehicle gate with an 8 × 5.5 m opening, then a pedestrian door with a 4 × 3.5 m opening |
+| West lane, middle | Solid glass, a glazed window and a glass corner; walk around the panes, not through them |
+| West lane, north | Connected T, cross and wide L-shaped bridge footprints, with their actual open cutouts |
+| East lane, south | An 8 m-wide high ramp, a short wide ramp and a guarded landing |
+| East lane, middle | A gravity lift beside the upper gallery; steer west onto the adjacent landing, or use the main ramps |
+| East lane, north | A narrower high ramp and landing connected to the gallery |
+
+Door panels sit in front of their frames and have unobstructed upward travel.
+Both doors have ground-level bypasses. The lift's launch column has open sky;
+its tuning is a separate live-game check. Green teleporter housings and pads
+surround two linked gameplay markers on channel **alpha**. Their exits face
+back into the arena, with room to leave the trigger before returning.
+
+All **twenty new Foundry Wide pieces** appear in the authored layout. The
+palette contains all **38 Wide pieces**, alongside all **24 original Foundry
+pieces**. There are **289 simulation objects**, two Warthogs, three weapon
+pickups and two equipment pickups: **296 authored objects**, leaving **355**
+of the native 651 object slots for editing. Decorative ground markings do
+not consume those slots. This map does not provide bot navigation.
 
 ## Play and edit
 
-Choose **Crossline → Team Slayer** for Red versus Blue, **Slayer** for
-individual play, or **Forge** to edit. The original Foundry palette remains
-available alongside all 18 Foundry Wide pieces. Press **B** to switch between
-Spartan and Monitor. Use **Left/Right** for categories and **Up/Down** for
-pieces; **Insert** places, **V** grabs/drops, **Page Up/Down** changes held
-distance, and **comma/period** rotates. **F5** saves, **F6** reloads and **F2**
-restores the authored layout. See [Forge controls](../../docs/forge.md).
+After a fresh launch, press **Enter** at the title screen and finish sign-in.
+From the main menu, choose **Crossline → Team Slayer**, **Slayer**, or **Forge**. In Forge, **B**
+switches between Spartan and Monitor. **Left/Right** changes categories and
+**Up/Down** selects pieces; **Insert** places, **V** grabs/drops, **Page Up/Down**
+changes held distance, and **comma/period** turns. **F5** saves, **F6** reloads,
+and **F2** restores the authored layout. Development controls **F3**, **F4**
+and **F10** select physics, position grid and rotation snap. Use Phased for
+precise construction and check the final pose; native motion and collision
+can affect the final angle. See [Forge controls](../../docs/forge.md).
 
-The map pins Foundry **0.2.0** and Foundry Wide **0.1.0**, plus its tested CE
-runtime dependency. Compatible launcher support resolves those releases
-before play. Existing 0.1 saved layouts belong to the original map/palette;
-keep their `.mvar` and `.mvar.packs` files together. Exact identity checks
-prevent silently rebinding an old layout to the wider assets.
+The map pins **Foundry 0.2.0** and **Foundry Wide 0.2.0**, plus its tested CE
+runtime. Compatible launcher support resolves those releases before play.
+The original 24 Foundry and 18 Wide palette entries retain their order; new
+Wide entries append to that prefix. Original Wide geometry is unchanged.
 
-Current archives are local development builds until published through the
-Hub. Offline collision checks verify the continuous perimeter, open passages
-and floor/ramp/base joins; they do not establish multiplayer behavior or
-replace live traversal testing. The two-way teleporter channel remains
-`alpha` in both bases. This map does not provide bot navigation.
+**Preserve older private layouts before updating.** Crossline 0.2 saves belong
+to its smaller canvas and Wide 0.1.0 dependency. Keep the old `.mvar` and
+`.mvar.packs` together with their matching map/pack versions; do not reinterpret
+them as a 0.3 authored layout. This update changes neither Forge Canvas nor
+Roadworks, their pack dependencies, or their saved layouts.
 
 ## Rebuild
 
-Generate only this map without touching the other map files:
+Regenerate only Crossline, then run the independent map checks:
 
 ```powershell
 python forge-maps/generate.py --only crossline
+python -m unittest discover -s tools/forge -p test_build_maps.py
 ```
 
-Build Foundry and Foundry Wide, then create the original 48 × 80 m canvas:
+The source is `crossline.level.json`. The accompanying `crossline.layout.json`
+records route samples, door travel, lift/teleporter clearances and showcase
+object indices for validation; it is authoring data, not a private Forge save.
+Tests probe transformed collision triangles, floor/ramp/gallery joins, stock
+Spartan capsules, Warthog footprints and headroom, closed-door bypasses,
+open-door passages, upward panel travel, glass solidity and teleporter exits.
+
+Build Foundry and Foundry Wide, then create the 96 × 160 m canvas. Create the
+output directory first if needed:
 
 ```powershell
 cargo run -p blam-sbsp --example forge_canvas -- `
   forge-packs/foundry/build/donors/Levels/Halo1/Solo/B40/_Generated_/BSP_03_1_Chasm_old.scenario_structure_bsp `
   forge-packs/foundry-wide/build/canvas/crossline.sbsp `
-  --width-m 48 --depth-m 80 --extent-m 64
+  --width-m 96 --depth-m 160 --extent-m 96
 ```
 
-Use a Paks view containing the game, tested CE runtime and both exact built
-packs. The builder selects map version 0.2.0 and this dedicated README:
+Use a fresh Paks view containing the game, tested CE runtime, Foundry 0.2.0
+and Foundry Wide 0.2.0. The builder selects **FRB / Crossline 0.3.0** and this
+README:
 
 ```powershell
 python tools/forge/build_maps.py --only crossline `
   --paks C:/path/to/combined-paks --runtime '^1.17.0'
 ```
 
-It verifies the palettes, native container bytes, canvas dimensions and
-dependency pins, then writes a new retained build directory without installing
-anything into the game. Run `python -m unittest discover -s tools/forge -p
-test_build_maps.py` for the map regressions.
+Use the runtime range actually tested. The builder checks exact palettes,
+container bytes, the enlarged canvas receipt and dependency pins, then writes
+a fresh retained build directory without installing anything. Each archive
+contains its authored level and map-owned containers; it excludes private
+saves and a shared registry override. Current candidates remain unsigned and
+unpublished until the normal Hub submission workflow is completed.

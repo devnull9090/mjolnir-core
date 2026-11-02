@@ -95,6 +95,53 @@ pub struct Block {
     pub snap_m: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub light: Option<Light>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lift: Option<Lift>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub door: Option<Door>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surfaces: Option<Vec<Surface>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Surface { pub slot: u8, pub profile: String }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Lift {
+    pub offset_m: [f64; 3],
+    pub size_m: [f64; 3],
+    pub direction: [f64; 3],
+    pub acceleration_m_s2: f64,
+    pub max_speed_m_s: f64,
+    pub negates_gravity: bool,
+}
+impl Lift {
+    fn valid(&self) -> bool {
+        self.offset_m.iter().all(|n| n.is_finite() && n.abs() <= 100.0)
+            && self.size_m.iter().all(|n| n.is_finite() && (0.1..=100.0).contains(n))
+            && self.direction.iter().all(|n| n.is_finite() && n.abs() <= 1.0)
+            && (self.direction.iter().map(|n| n*n).sum::<f64>() - 1.0).abs() <= 0.001
+            && self.acceleration_m_s2.is_finite() && (0.1..=100.0).contains(&self.acceleration_m_s2)
+            && self.max_speed_m_s.is_finite() && (0.1..=30.0).contains(&self.max_speed_m_s)
+    }
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Door {
+    pub travel_m: f64,
+    pub speed_m_s: f64,
+    pub trigger_size_m: [f64; 3],
+    pub hold_open_s: f64,
+}
+impl Door {
+    fn valid(&self) -> bool {
+        self.travel_m.is_finite() && self.travel_m > 0.0 && self.travel_m <= 16.0
+            && self.speed_m_s.is_finite() && self.speed_m_s > 0.0 && self.speed_m_s <= 8.0
+            && self.trigger_size_m.iter().all(|n| n.is_finite() && *n > 0.0 && *n <= 32.0)
+            && self.hold_open_s.is_finite() && (0.0..=10.0).contains(&self.hold_open_s)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -149,6 +196,19 @@ impl ForgePack {
             }
             if block.light.as_ref().is_some_and(|light| !light.valid()) {
                 return Err(format!("Invalid light settings for {}", block.id));
+            }
+            if block.lift.as_ref().is_some_and(|lift| !lift.valid()) {
+                return Err(format!("Invalid lift settings for {}", block.id));
+            }
+            if block.door.as_ref().is_some_and(|door| !door.valid() || block.dimensions_m.iter().any(|n| *n > 64.0)) {
+                return Err(format!("Invalid door settings for {}", block.id));
+            }
+            if let Some(surfaces) = &block.surfaces {
+                let mut slots = BTreeSet::new();
+                if surfaces.len() > 16 || surfaces.iter().any(|s| s.slot > 15 || !slots.insert(s.slot)
+                    || !matches!(s.profile.as_str(), "glass_cyan" | "teleporter_green")) {
+                    return Err(format!("Invalid surface settings for {}", block.id));
+                }
             }
         }
         Ok(())
@@ -364,6 +424,48 @@ mod tests {
             assert!(old.blocks[0].light.is_none());
             assert!(serde_json::to_value(old).unwrap()["blocks"][0].get("light").is_none());
         }
+    }
+
+    #[test]
+    fn lift_door_and_surface_metadata_roundtrip_and_reject_invalid_settings() {
+        let lift=serde_json::json!({"offset_m":[0.0,0.0,0.45],"size_m":[4.0,4.0,3.5],"direction":[0.0,0.0,1.0],
+            "acceleration_m_s2":20.0,"max_speed_m_s":4.5,"negates_gravity":true});
+        let door=serde_json::json!({"travel_m":4.0,"speed_m_s":4.0,"trigger_size_m":[8.0,16.0,6.0],"hold_open_s":2.0});
+        let value=serde_json::json!({"type":"content","version":"1.0.0","forge_pack":{
+            "schema_version":1,"id":"alloy","blocks":[{"id":"utility","name":"Utility","category":"utility",
+            "tag":"objects\\mjolnir\\forge\\alloy\\utility","dimensions_m":[8,1,4],"lift":lift,"door":door,
+            "surfaces":[{"slot":7,"profile":"glass_cyan"}]}]}});
+        let pack=read_pack(&value,"alloy").unwrap().unwrap();
+        let encoded=serde_json::to_value(&pack).unwrap();
+        assert_eq!(encoded["blocks"][0]["lift"],value["forge_pack"]["blocks"][0]["lift"]);
+        assert_eq!(encoded["blocks"][0]["door"],value["forge_pack"]["blocks"][0]["door"]);
+        let restored:ForgePack=serde_json::from_value(encoded).unwrap(); restored.validate("alloy").unwrap();
+        for (pointer,bad_value) in [
+            ("/lift/direction",serde_json::json!([0,0,0])), ("/lift/size_m",serde_json::json!([4,4,101])),
+            ("/lift/acceleration_m_s2",serde_json::json!(0)), ("/lift/max_speed_m_s",serde_json::json!(31)),
+            ("/lift/negates_gravity",serde_json::json!(1)), ("/door/travel_m",serde_json::json!(17)),
+            ("/door/speed_m_s",serde_json::json!(9)), ("/door/trigger_size_m",serde_json::json!([8,33,6])),
+            ("/door/hold_open_s",serde_json::json!(-1)), ("/dimensions_m",serde_json::json!([8,1,65])),
+            ("/surfaces",serde_json::json!([{"slot":16,"profile":"glass_cyan"}])),
+            ("/surfaces",serde_json::json!([{"slot":0,"profile":"glass_cyan"},{"slot":0,"profile":"teleporter_green"}])),
+        ] {
+            let mut bad=value.clone(); *bad.pointer_mut(&format!("/forge_pack/blocks/0{pointer}")).unwrap()=bad_value;
+            assert!(read_pack(&bad,"alloy").is_err(),"{pointer}");
+        }
+        for field in ["lift","door"] {
+            let mut bad=value.clone(); bad["forge_pack"]["blocks"][0][field]["script"]=serde_json::json!("x");
+            assert!(read_pack(&bad,"alloy").is_err());
+        }
+        for n in [f64::NAN,f64::INFINITY,f64::NEG_INFINITY] {
+            let mut bad=pack.clone();bad.blocks[0].lift.as_mut().unwrap().direction[0]=n;
+            assert!(bad.validate("alloy").is_err());
+            let mut bad=pack.clone();bad.blocks[0].door.as_mut().unwrap().travel_m=n;
+            assert!(bad.validate("alloy").is_err());
+        }
+        let mut old=value.clone();
+        for field in ["lift","door","surfaces"] {old["forge_pack"]["blocks"][0][field]=serde_json::Value::Null;}
+        let old=serde_json::to_value(read_pack(&old,"alloy").unwrap().unwrap()).unwrap();
+        for field in ["lift","door","surfaces"] {assert!(old["blocks"][0].get(field).is_none());}
     }
 
     #[test]

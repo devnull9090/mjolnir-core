@@ -84,7 +84,7 @@ jobs:
         working-directory: apps/tag-editor/src-tauri
 
   launcher:
-    name: Launcher links and Discord startup
+    name: Launcher links, Discord startup and Forge inventory
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,4 +110,6 @@ jobs:
           cargo test --lib links::tests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --lib discord
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --lib forge_
         working-directory: apps/launcher/src-tauri

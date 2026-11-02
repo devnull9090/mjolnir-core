@@ -77,22 +77,6 @@ def piece(level, ident, position, yaw=0):
         "set": {"multiplayer data.owner team": "neutral"}})
 
 
-def perimeter(level):
-    """Close the 24x40m deck with three courses of solid 4x0.5x3m walls.
-
-    Outer faces align with the deck edge; perpendicular panels overlap at
-    each corner. The flush 9m barrier has no jumpable intermediate ledges,
-    and stands 4.5m above the highest playable decks. Keep the sky open.
-    """
-    for z in (0, 3, 6):
-        for x in (-11.75, 11.75):
-            for y in range(-18, 19, 4):
-                piece(level, "wall", (x, y, z), 90)
-        for y in (-19.75, 19.75):
-            for x in range(-10, 11, 4):
-                piece(level, "wall", (x, y, z))
-
-
 def spawn(level, position, yaw=0, team="neutral"):
     level["blam"]["player_starts"].append({"pos": ue(position), "yaw": -yaw})
     level["blam"]["objects"].append({"group": "scenery", "tag": SPAWN,
@@ -122,99 +106,184 @@ def blank():
     return level
 
 
-def _arena_layout():
-    level = base("crossline", "Crossline", 24, 40, ["team_slayer", "slayer", "forge"])
-    level["description"] = "Red versus Blue across an enclosed, open-sky Foundry arena: raised bases, twin ramps, side walks and linked portal pads, surrounded by 9 m perimeter walls. Built for 2–8 players."
-    grid(level, 24, 40, 4)
-    # Raised bases: eight4m floor tiles each, surfaces at4.5m. The same
-    # geometry is mirrored through the origin, including spawn/weapon distances.
+WIDE_PREFIX = ("block_1x1", "block_1x2", "floor_1x1", "floor_1x2", "floor_2x2",
+    "bridge_straight", "bridge_corner", "ramp", "ramp_shallow", "wall", "wall_half",
+    "wall_corner", "doorway", "window", "railing", "column", "cover", "stairs")
+SHOWCASE_IDS = ("floor_4x4", "wall_long", "glass_wall", "window_glazed", "glass_corner",
+    "doorway_tall", "doorway_vehicle", "door_panel", "door_vehicle_panel", "ramp_wide",
+    "ramp_high", "ramp_wide_high", "ramp_wide_shallow", "landing_guarded", "bridge_t",
+    "bridge_cross", "bridge_corner_wide", "lift_station", "teleporter_housing", "teleporter_pad_wide")
+
+
+def arena_layout():
+    """Crossline 0.3: original gameplay routes and optional utility test bays.
+
+    Coordinates below are authored metres, not Unreal's reflected Y. The
+    companion layout records routes/fixture identities for independent
+    collision tests and authoring previews; it is not a private Forge save.
+    """
+    level = base("crossline", "Crossline", 96, 160, ["team_slayer", "slayer", "forge"])
+    wide = json.loads((REPO / "forge-packs/foundry-wide/catalog.json").read_text())
+    blocks = wide["forge_pack"]["blocks"]
+    if wide["version"] != "0.2.0" or wide["forge_pack"]["id"] != "foundry-wide":
+        raise ValueError("Crossline 0.3 requires Foundry Wide 0.2.0")
+    if tuple(b["id"] for b in blocks[:18]) != WIDE_PREFIX or set(b["id"] for b in blocks[18:]) != set(SHOWCASE_IDS):
+        raise ValueError("Preserve the original Wide palette prefix and append the twenty showcase pieces")
+    level["blam"]["forge_packs"].append({"slug": "foundry-wide", "version": wide["version"],
+        "blocks": [{"id": b["id"], "tag": b["tag"]} for b in blocks]})
+    level["blam"]["world_bounds"] = [{"bsp": 8, "min": [-96/3.048, -96/3.048, -8/3.048],
+                                     "max": [96/3.048, 96/3.048, 64/3.048]}]
+    level["description"] = ("A 96 Ã— 160 m Red versus Blue construction showcase: raised bases, broad ramps, "
+        "side galleries, a ground-level Warthog route, green teleporters and bypassable door, glass and lift bays. "
+        "All 38 Foundry Wide pieces are available in Forge.")
+    grid(level, 96, 160, 4)
+    layout = {"schema_version": 1, "version": "0.3.0", "units": "metres", "axes": "right_handed_z_up",
+        "dimensions_m": [96, 160], "deck_height_m": 4.5, "perimeter_height_m": 9,
+        "routes": [], "doors": [], "lifts": [], "showcase": [], "perimeter": [], "teleporters": []}
+
+    def put(ident, position, yaw=0, feature=None):
+        index = len(level["blam"]["objects"])
+        level["blam"]["objects"].append({"group": "crates", "tag": rf"objects\mjolnir\forge\foundry-wide\{ident}",
+            "pos": ue(position), "rot": [0, -yaw, 0], "set": {"multiplayer data.owner team": "neutral"}})
+        if feature:
+            layout["showcase"].append({"name": feature, "id": ident, "object_index": index})
+        return index
+
+    def route(name, points, width, kind="walk"):
+        layout["routes"].append({"name": name, "kind": kind, "width_m": width, "points_m": points})
+
+    # Sixteen-metre panels halve the old-piece perimeter budget. All three
+    # courses overlap at the corners, leaving no ledges on the inner face.
+    for z in (0, 3, 6):
+        for x in (-47.5, 47.5):
+            for y in range(-72, 73, 16):
+                layout["perimeter"].append(put("wall_long", (x, y, z), 90))
+        for y in (-79.5, 79.5):
+            for x in range(-40, 41, 16):
+                layout["perimeter"].append(put("wall_long", (x, y, z)))
+
     for sign, color, team in [(-1, "red", "defender"), (1, "blue", "attacker")]:
-        for x in [-6, -2, 2, 6]:
-            for y in [12, 16]:
-                piece(level, "floor_2x2", (x, sign*y, 4))
-            piece(level, "wall", (x, sign*18, 4.5))
-        for x in [-6, 6]:
-            for y in [12, 16]:
-                piece(level, "column", (x, sign*y, 0))
-            piece(level, "railing", (sign*8, sign*14 + x/3, 4.5), 90)
-        for x in [-2, 2]:
-            for y, z in [(4, .5), (8, 2.5)]:
-                piece(level, "ramp", (x, sign*y, z), 0 if sign > 0 else 180)
-            if sign < 0:
-                piece(level, "floor_2x2", (x, 0, 0))
-        for x in [-5, -1, 1, 5]:
-            spawn(level, (x, sign*14.5, 4.85), -sign*90, team)
-        for x in [-4, 4]:
-            piece(level, "cover", (x, sign*12, 4.5))
-            piece(level, "light_pylon_" + color, (x, sign*17, 4.5))
-        # The frame is four metres tall;3m headroom remains above the pad.
-        # Put entrances behind the spawn line. Approaching from the arena
-        # side exits the opposite pad facing back into play.
-        portal = (sign*6, sign*16, 4.5)
-        piece(level, "portal_frame", portal)
-        # Inset the pad into the deck: a 2cm lip is walkable without jumping.
-        piece(level, "teleporter_pad", (portal[0], portal[1], 4.02))
+        # Forty-eight by twenty-four metre bases. Large floors meet the
+        # eight-metre rear row and side galleries exactly, without scaling.
+        for x in (-16, 0, 16):
+            put("floor_4x4", (x, sign*56, 4), feature=color + " base platform")
+            put("wall_long", (x, sign*71.5, 4.5))
+        for x in (-20, -12, -4, 4, 12, 20):
+            put("floor_2x2", (x, sign*68, 4))
+        for x in (-20, 20):
+            for y in (52, 68):
+                put("column", (x, sign*y, 0))
+            put("cover", (x, sign*56, 4.5))
+            piece(level, "light_pylon_" + color, (x, sign*68, 4.5))
+        for x in (-12, -4, 4, 12):
+            spawn(level, (x, sign*60, 4.85), -sign*90, team)
+        for x in (-8, 8):
+            put("floor_2x2", (x, sign*12, 0))
+            for y, z in ((24, .5), (40, 2.5)):
+                put("ramp_wide_shallow", (x, sign*y, z), 0 if sign > 0 else 180,
+                    color + " broad approach")
+            route(color + f" main ramp {x}", [[x, sign*y, z] for y, z in
+                ((8, .5), (16, .5), (32, 2.5), (48, 4.5), (60, 4.5))], 8)
+        # The clear centre lane runs beneath the platforms, not through the
+        # ramp solids. A stock Warthog under each base preserves symmetry.
+        level["blam"].setdefault("vehicles", []).append({"type": "warthog",
+            "pos": ue((0, sign*64, .8)), "yaw": sign*90})
+        portal = (sign*16, sign*68, 4.5)
+        put("teleporter_housing", portal, feature=color + " green teleporter")
+        put("teleporter_pad_wide", (portal[0], portal[1], 4.02))
+        marker_index = len(level["blam"]["objects"])
         teleporter(level, (portal[0], portal[1], 4.57), -sign*90)
-        cube(level, color + "_stripe", (0, sign*17.75, 4.51), (15.5, .12, .014), COLORS[color])
-        for x in [-6, -2, 2, 6]:
-            cube(level, f"{color}_back_{x}", (x, sign*17.73, 6), (3.6, .035, 1), COLORS[color])
-        level["blam"]["weapons"].append({"type": "battle_rifle", "pos": ue((0, sign*13, 4.9)),
+        layout["teleporters"].append({"object_index": marker_index, "support_z_m": 4.52,
+            "exit_direction": [0, -sign, 0], "rearm_clearance_m": 3.5})
+        cube(level, color + "_base_stripe", (0, sign*70.8, 4.51), (46, .16, .014), COLORS[color])
+        level["blam"]["weapons"].append({"type": "battle_rifle", "pos": ue((0, sign*56, 4.9)),
             "yaw": -sign*90, "set": {"multiplayer data.spawn time": "30"}})
-        level["blam"]["equipment"].append({"type": "frag_grenade", "pos": ue((sign*4, sign*15, 4.9)),
+        level["blam"]["equipment"].append({"type": "frag_grenade", "pos": ue((sign*8, sign*64, 4.9)),
             "set": {"multiplayer data.spawn time": "30"}})
-    for x in [-7, 7]:
-        for y in [-8, -4, 0, 4, 8]:
-            piece(level, "bridge_straight", (x, y, 4))
-        for y in [-6, 6]:
-            piece(level, "column", (x, y, 0))
-        for y in [-8, -4, 0, 4, 8]:
-            piece(level, "railing", (x + (1 if x > 0 else -1), y, 4.5), 90)
-        piece(level, "light_strip", (x, 0, 3.5))
-    for x in [-4, 0, 4]:
-        piece(level, "floor_2x2", (x, 0, 4))
-    for x in [-4, 4]:
-        piece(level, "cover", (x, 0, 4.5))
-    piece(level, "cover", (0, 0, .5))
-    for x in [-10, 10]:
-        for y in [-8, 8]:
-            piece(level, "wall_half", (x, y, 0), 90)
-        piece(level, "doorway", (x, 0, 0), 90)
-        piece(level, "light_pylon", (x, -4 if x > 0 else 4, 0))
-    perimeter(level)
+
+    # Continuous galleries meet the bases along their entire side edges.
+    # Their inner rails leave the central crossbridge and base joins open.
+    for x in (-28, 28):
+        for y in range(-68, 69, 8):
+            put("floor_2x2", (x, y, 4))
+            if x < 0 or y not in (-36, 12, 20, 60):
+                put("railing", (x + (-3.75 if x < 0 else 3.75), y, 4.5), 90)
+            if 4 < abs(y) < 48:
+                put("railing", (x + (3.75 if x < 0 else -3.75), y, 4.5), 90)
+        for y in (-71.75, 71.75):
+            put("railing", (x, y, 4.5))
+        route("west gallery" if x < 0 else "east gallery", [[x, -68, 4.5], [x, 68, 4.5]], 7)
+    for x in (-20, -12, -4, 4, 12, 20):
+        put("floor_2x2", (x, 0, 4))
+    route("central crossbridge", [[-28, 0, 4.5], [28, 0, 4.5]], 8)
+    route("ground vehicle corridor", [[0, -72, 0], [0, 72, 0]], 8, "vehicle")
+    route("red ground cross-route", [[-40, -72, 0], [40, -72, 0]], 8, "vehicle")
     level["blam"]["weapons"].append({"type": "rocket_launcher", "pos": ue((0, 0, 4.9)),
         "set": {"multiplayer data.spawn time": "120"}})
-    return level
 
+    # West lane: automatic doors are useful obstacles, with a walkable
+    # bypass to the east. Panels slide along the frame's front, not through
+    # its solid lintel, and their full upward travel has open sky.
+    for name, y, frame, panel, opening, travel in (
+        ("vehicle gate", -48, "doorway_vehicle", "door_vehicle_panel", [8, 5.5], 6),
+        ("infantry door", -16, "doorway_tall", "door_panel", [4, 3.5], 4)):
+        frame_i = put(frame, (-40, y, 0), feature=name)
+        panel_i = put(panel, (-40, y-.75, 0), feature=name + " moving panel")
+        layout["doors"].append({"name": name, "frame_index": frame_i, "panel_index": panel_i,
+            "opening_m": opening, "travel_m": travel, "bypass_m": [[-33, y-6, 0], [-33, y+6, 0]]})
+    route("vehicle gate test", [[-40, -64, 0], [-40, -36, 0]], 8, "vehicle_door")
+    put("glass_wall", (-40, 8, 0), feature="solid glass wall")
+    put("window_glazed", (-40, 16, 0), feature="glazed window")
+    put("glass_corner", (-40, 24, 0), feature="glass corner")
+    # Three real bridge footprints form a walkable display route; no
+    # invisible square floor fills the T, cross or L cutouts.
+    put("floor_1x1", (-40, 28, 0))
+    put("bridge_t", (-40, 36, 0), feature="T bridge")
+    put("floor_1x1", (-40, 44, 0))
+    put("bridge_cross", (-40, 52, 0), feature="cross bridge")
+    put("bridge_corner_wide", (-38, 66, 0), feature="wide corner bridge")
+    route("bridge shape tour", [[-40, 28, .5], [-40, 62, .5], [-32, 62, .5]], 3)
+    route("west utility bypass", [[-33, -56, 0], [-33, 28, 0]], 1.5)
 
-def widen_crossline(level):
-    """Double Crossline's plan using separate geometry, keeping every height.
+    # East lane: broad/high ramps, a guarded landing and an optional lift.
+    # Every raised bay connects to the conventional gallery/ramp routes.
+    put("ramp_wide_high", (40, -48, .5), feature="wide high ramp")
+    put("floor_2x2", (40, -60, 0))
+    put("floor_2x2", (40, -36, 4))
+    put("floor_1x1", (34, -36, 4))
+    route("wide high ramp", [[40, -60, .5], [40, -56, .5], [40, -40, 4.5], [40, -36, 4.5], [28, -36, 4.5]], 3)
+    put("ramp_wide", (40, -16, .5), feature="wide short ramp")
+    put("floor_2x2", (40, -24, 0))
+    put("landing_guarded", (40, -8, 2), feature="guarded landing")
+    put("stairs", (40, 0, .5), 180)
+    put("floor_1x1", (40, 6, 0))
+    route("short ramp and guarded landing", [[40, -24, .5], [40, -20, .5], [40, -12, 2.5], [40, -4, 2.5]], 3)
+    lift_i = put("lift_station", (38, 16, 0), feature="gravity lift station")
+    landing_i = put("floor_1x2", (34, 16, 4))
+    layout["lifts"].append({"object_index": lift_i, "landing_index": landing_i,
+        "launch_m": [38, 16, .5], "landing_m": [34, 16, 4.5], "clear_top_m": 8.5,
+        "note": "Steer west onto the adjacent gallery landing; main ramps provide a bypass."})
+    put("ramp_high", (40, 48, .5), feature="narrow high ramp")
+    put("floor_1x1", (40, 38, 0))
+    put("floor_2x2", (40, 60, 4))
+    put("floor_1x1", (34, 60, 4))
+    route("narrow high ramp", [[40, 38, .5], [40, 40, .5], [40, 56, 4.5], [40, 60, 4.5], [28, 60, 4.5]], 3)
+    for x, y in ((-35, -28), (35, 32)):
+        piece(level, "light_pylon", (x, y, 0))
+    for side in (-1, 1):
+        cube(level, f"utility_lane_{side}", (side*33, -16, .012), (.08, 96, .012), [.95, .5, .08, 1])
 
-    Stock objects and Foundry portal/light models move to the wider layout
-    at their original sizes. Only structural tags switch to Foundry Wide.
-    This transform is deliberately local to Crossline, not a base() option.
-    """
-    wide = json.loads((REPO / "forge-packs/foundry-wide/catalog.json").read_text())
-    if wide["version"] != "0.1.0" or wide["forge_pack"]["id"] != "foundry-wide":
-        raise ValueError("Crossline 0.2 requires Foundry Wide 0.1.0")
-    replacements = {ref(b["id"]): b["tag"] for b in wide["forge_pack"]["blocks"]}
-    for section in ("objects", "player_starts", "vehicles", "weapons", "equipment"):
-        for item in level["blam"].get(section, []):
-            item["pos"][:2] = [round(value * 2, 4) for value in item["pos"][:2]]
-            if item.get("tag") in replacements:
-                item["tag"] = replacements[item["tag"]]
-    for item in level["decor"]:
-        item["pos"][:2] = [round(value * 2, 4) for value in item["pos"][:2]]
-        item["scale"][:2] = [round(value * 2, 4) for value in item["scale"][:2]]
-    level["blam"]["forge_packs"].append({"slug": "foundry-wide", "version": wide["version"],
-        "blocks": [{"id": b["id"], "tag": b["tag"]} for b in wide["forge_pack"]["blocks"]]})
-    level["description"] = (
-        "Red versus Blue across a 48 × 80 m open-sky Foundry Wide arena with broader routes and gradual ramps. "
-        "Bases remain 4.5 m high, perimeter walls 9 m, and linked portals and lights retain their original size.")
-    return level
+    placed = {o["tag"].split("\\")[-1] for o in level["blam"]["objects"] if "\\foundry-wide\\" in o["tag"]}
+    if not set(SHOWCASE_IDS).issubset(placed):
+        raise ValueError("Every new Wide piece needs a visible showcase placement")
+    layout["authored_object_count"] = sum(len(level["blam"].get(k, [])) for k in ("objects", "weapons", "equipment", "vehicles"))
+    if layout["authored_object_count"] > 500:
+        raise ValueError("Keep at least 151 of the native 651 object slots available for editing")
+    return level, layout
 
 
 def arena():
-    return widen_crossline(_arena_layout())
+    return arena_layout()[0]
 
 
 def validate(level):
@@ -233,11 +302,16 @@ def main():
     for folder, generate in [("blank", blank), ("crossline", arena)]:
         if args.only and args.only != folder:
             continue
-        level = generate()
+        if folder == "crossline":
+            level, layout = arena_layout()
+        else:
+            level, layout = generate(), None
         validate(level)
         target = ROOT / folder
         target.mkdir(exist_ok=True)
         (target / (level["name"] + ".level.json")).write_text(json.dumps(level, indent=2) + "\n")
+        if layout is not None:
+            (target / (level["name"] + ".layout.json")).write_text(json.dumps(layout, indent=2) + "\n")
         print(folder, len(level["blam"]["objects"]), "simulation objects")
 
 

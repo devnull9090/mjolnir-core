@@ -23,6 +23,28 @@ export const ForgeLightSchema = z.object({
   radius_m: z.number().positive().max(100),
 }).strict().openapi("ForgeLight");
 
+export const ForgeLiftSchema = z.object({
+  offset_m: z.tuple([z.number().min(-100).max(100), z.number().min(-100).max(100), z.number().min(-100).max(100)]),
+  size_m: z.tuple([z.number().min(0.1).max(100), z.number().min(0.1).max(100), z.number().min(0.1).max(100)]),
+  direction: z.tuple([z.number().min(-1).max(1), z.number().min(-1).max(1), z.number().min(-1).max(1)])
+    .refine((v) => Math.abs(v.reduce((n, x) => n + x * x, 0) - 1) <= 0.001, "Direction must be a unit vector."),
+  acceleration_m_s2: z.number().min(0.1).max(100),
+  max_speed_m_s: z.number().min(0.1).max(30),
+  negates_gravity: z.boolean(),
+}).strict().openapi("ForgeLift");
+
+export const ForgeDoorSchema = z.object({
+  travel_m: z.number().positive().max(16),
+  speed_m_s: z.number().positive().max(8),
+  trigger_size_m: z.tuple([z.number().positive().max(32), z.number().positive().max(32), z.number().positive().max(32)]),
+  hold_open_s: z.number().min(0).max(10),
+}).strict().openapi("ForgeDoor");
+
+export const ForgeSurfaceSchema = z.object({
+  slot: z.number().int().min(0).max(15),
+  profile: z.enum(["glass_cyan", "teleporter_green"]),
+}).strict().openapi("ForgeSurface");
+
 export const ForgeBlockSchema = z.object({
   id: z.string().regex(BLOCK_ID),
   name: z.string().trim().min(1).max(80),
@@ -31,6 +53,10 @@ export const ForgeBlockSchema = z.object({
   dimensions_m: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]),
   snap_m: z.number().positive().optional(),
   light: ForgeLightSchema.nullish(),
+  lift: ForgeLiftSchema.nullish(),
+  door: ForgeDoorSchema.nullish(),
+  surfaces: z.array(ForgeSurfaceSchema).max(16).refine((s) => new Set(s.map((x) => x.slot)).size === s.length,
+    "Surface slots must be unique.").nullish(),
 }).openapi("ForgeBlock");
 
 export const ForgePackSchema = z.object({
@@ -40,6 +66,9 @@ export const ForgePackSchema = z.object({
 }).superRefine((pack, ctx) => {
   const ids = new Set<string>();
   for (const [index, block] of pack.blocks.entries()) {
+    if (block.door && block.dimensions_m.some((n) => n > 64)) {
+      ctx.addIssue({ code: "custom", path: ["blocks", index, "dimensions_m"], message: "Door panels must fit within 64 metres on each axis." });
+    }
     if (ids.has(block.id)) {
       ctx.addIssue({ code: "custom", path: ["blocks", index, "id"], message: "Block IDs must be unique within a pack." });
     }

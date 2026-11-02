@@ -58,6 +58,7 @@ env = setmetatable({
         if path:match("hud%.lua$") then return Hud end
         if path:match("class_lifetime%.lua$") then return { new = function() return function() end end } end
         if path:match("lights%.lua$") then return { new = function() return Lights end } end
+        if path:match("materials%.lua$") then return { new = function() return { setInventory = function() end, tick = function() end } end } end
         error("optional JSON module absent in fixture")
     end,
 }, { __index = _G })

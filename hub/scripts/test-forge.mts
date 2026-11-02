@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import { zipSync } from "fflate";
 import { app } from "../src/lib/api/app";
 import { ForgePackSchema } from "../src/lib/api/forge";
+import { forgePackageId, requiredForgePackages } from "../src/lib/api/forge-content";
 import { ManifestSchema } from "../src/lib/api/manifest";
 import { scanArchive } from "../src/lib/api/scan";
 import { getModPage, listPublishedMods } from "../src/lib/api/queries";
@@ -20,17 +22,53 @@ const manifest = {
   forge_pack: pack, deps: [{ slug: "mjolnir-ce-runtime", range: "=1.15.0" }],
 };
 
-function archive(value: unknown = manifest) {
-  const toc = new Uint8Array(156);
+function archive(value: unknown = manifest, packages: string[] = [], options: { kind?: number; prefix?: string; emptyCas?: boolean } = {}) {
+  const toc = new Uint8Array(144 + Math.max(1, packages.length) * 12);
   toc.set(new TextEncoder().encode("-==--==--==--==-"));
   new DataView(toc.buffer).setUint32(20, 144, true);
-  new DataView(toc.buffer).setUint32(24, 1, true);
+  new DataView(toc.buffer).setUint32(24, Math.max(1, packages.length), true);
+  for (const [i, name] of packages.entries()) {
+    new DataView(toc.buffer).setBigUint64(144 + i * 12, forgePackageId(name), true);
+    toc[144 + i * 12 + 11] = options.kind ?? 1;
+  }
+  const prefix = options.prefix ?? "content";
   return zipSync({
     "mjolnir.json": json(value),
-    "content/test-pack_P.utoc": toc,
-    "content/test-pack_P.ucas": new Uint8Array([1]),
+    [`${prefix}/test-pack_P.utoc`]: toc,
+    [`${prefix}/test-pack_P.ucas`]: new Uint8Array(options.emptyCas ? [] : [1]),
   });
 }
+
+test("Forge profile package IDs match the shared Rust UE CityHash vectors", () => {
+  const vectors = JSON.parse(readFileSync(new URL("../../tools/fixtures/forge-package-ids.json", import.meta.url), "utf8")) as { name: string; id_hex: string }[];
+  assert.equal(vectors.length, 15);
+  for (const v of vectors) assert.equal(forgePackageId(v.name).toString(16).padStart(16, "0"), v.id_hex, v.name);
+  assert.throws(() => forgePackageId("/Game/A"));
+  assert.throws(() => forgePackageId("/Game/MJOLNIR/Forge/éé/Materials/M_ForgeGlassCyan"));
+});
+
+test("surface profiles require their own cooked masters and textures, not stray or bulk chunks", () => {
+  for (const profile of ["glass_cyan", "teleporter_green"] as const) {
+    const catalog = ForgePackSchema.parse({ ...pack, blocks: [{ ...block, surfaces: [{ slot: 7, profile }] }] });
+    const value = { ...manifest, forge_pack: catalog };
+    const required = requiredForgePackages(catalog);
+    assert.equal(required.length, profile === "glass_cyan" ? 1 : 4);
+    const good = scanArchive(archive(value, required));
+    assert.equal(good.verdict, "pass", JSON.stringify(good.findings));
+    for (const absent of required) {
+      const result = scanArchive(archive(value, required.filter((p) => p !== absent)));
+      assert.equal(result.verdict, "fail");
+      assert.ok(result.findings.some((f) => f.code === "missing_forge_package" && f.message.includes(absent)));
+    }
+    for (const invalid of [
+      archive(value, required.map((p) => p.replace("/test-pack/", "/other-pack/"))),
+      archive(value, required, { kind: 2 }),
+      archive(value, required, { prefix: "docs" }),
+      archive(value, required, { emptyCas: true }),
+    ]) assert.ok(scanArchive(invalid).findings.some((f) => f.code === "missing_forge_package"));
+  }
+  assert.equal(scanArchive(archive()).verdict, "pass", "legacy pack needs no surface cook");
+});
 
 test("a Forge pack is scanned as inert content and keeps its inventory", () => {
   const result = scanArchive(archive());
@@ -100,6 +138,29 @@ test("light metadata is bounded data, survives scanning and accepts older packs"
     { ...light, radius_m: Infinity }, { ...light, offset_m: [NaN, 0, 0] },
     { ...light, script: "anything" }, {},
   ]) assert.equal(ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, light: invalid }] }).success, false);
+});
+
+test("lift, door and surface metadata survive scanning with strict conservative bounds", () => {
+  const lift = { offset_m: [0, 0, .45], size_m: [4, 4, 3.5], direction: [0, 0, 1], acceleration_m_s2: 20, max_speed_m_s: 4.5, negates_gravity: true };
+  const door = { travel_m: 4, speed_m_s: 4, trigger_size_m: [8, 16, 6], hold_open_s: 2 };
+  const surfaces = [{ slot: 7, profile: "teleporter_green" }];
+  const utility = { ...block, lift, door, surfaces };
+  const catalog = ForgePackSchema.parse({ ...pack, blocks: [utility] });
+  const result = scanArchive(archive({ ...manifest, forge_pack: catalog }, requiredForgePackages(catalog)));
+  assert.equal(result.verdict, "pass", JSON.stringify(result.findings));
+  assert.deepEqual(result.manifest?.forge_pack?.blocks[0], utility);
+  const rejects = (change: unknown) => assert.equal(ForgePackSchema.safeParse({ ...pack, blocks: [{ ...utility, ...(change as object) }] }).success, false);
+  for (const invalid of [{ ...lift, direction: [0, 0, 0] }, { ...lift, direction: [0, 0, 1.01] },
+    { ...lift, size_m: [4, 4, 101] }, { ...lift, acceleration_m_s2: 100.1 }, { ...lift, max_speed_m_s: 30.1 },
+    { ...lift, offset_m: [Infinity, 0, 0] }, { ...lift, negates_gravity: 1 }, { ...lift, script: "x" }]) rejects({ lift: invalid });
+  for (const invalid of [{ ...door, travel_m: 0 }, { ...door, travel_m: 16.01 }, { ...door, speed_m_s: 8.01 },
+    { ...door, trigger_size_m: [8, 16, 33] }, { ...door, hold_open_s: -1 }, { ...door, hold_open_s: 11 },
+    { ...door, hold_open_s: NaN }, { ...door, command: "x" }]) rejects({ door: invalid });
+  rejects({ dimensions_m: [65, 1, 1] });
+  for (const invalid of [[{ slot: 16, profile: "glass_cyan" }], [{ slot: 1.5, profile: "glass_cyan" }],
+    [{ slot: 0, profile: "arbitrary" }], [{ slot: 0, profile: "glass_cyan", path: "x" }],
+    [{ slot: 0, profile: "glass_cyan" }, { slot: 0, profile: "teleporter_green" }]]) rejects({ surfaces: invalid });
+  assert.equal(ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, lift: null, door: null, surfaces: null }] }).success, true);
 });
 
 test("pack metadata does not permit source scripts or an archive with no installed container", () => {

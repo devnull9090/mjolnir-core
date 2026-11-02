@@ -297,6 +297,12 @@ impl Mount {
 /// Every container the active profile mounts, in load order.
 fn mounts(state: &HubState) -> Result<Vec<Mount>, String> {
     validate_profile_dependencies(state)?;
+    mount_plan(state)
+}
+
+// Dependency installs may be midway through a graph update. Their shader
+// preflight needs the current plan without prematurely validating the graph.
+fn mount_plan(state: &HubState) -> Result<Vec<Mount>, String> {
     let profile = state
         .profiles
         .iter()
@@ -325,6 +331,24 @@ fn mounts(state: &HubState) -> Result<Vec<Mount>, String> {
     Ok(out)
 }
 
+fn check_forge_shader_mounts(paks: &Path, mounts: &[Mount], replacing_hub_files: bool) -> Result<(), String> {
+    let planned: Vec<_> = mounts.iter().map(|m| crate::forge_shaders::Planned {
+        slug: &m.slug, source: &m.container, target: &m.base,
+    }).collect();
+    crate::forge_shaders::check(paks, &planned, replacing_hub_files)
+}
+
+fn preflight_forge_shaders(state: &HubState, replacing_hub_files: bool) -> Result<(), String> {
+    if !state.installed.iter().any(|m| m.containers.iter().any(|c| crate::forge_shaders::is_surface_container(c))) {
+        return Ok(());
+    }
+    let planned = mount_plan(state)?;
+    if planned.iter().any(|m| crate::forge_shaders::is_surface_container(&m.container)) {
+        check_forge_shader_mounts(&paks_dir()?, &planned, replacing_hub_files)?;
+    }
+    Ok(())
+}
+
 /// Make the Paks directory agree with the active profile: remove every
 /// container this module owns, then write back the enabled ones in order.
 fn materialize(state: &HubState) -> Result<(), String> {
@@ -336,6 +360,8 @@ fn materialize(state: &HubState) -> Result<(), String> {
             return Err(format!("{} is missing cached assets; reinstall before applying this profile", m.slug));
         }
     }
+
+    check_forge_shader_mounts(&paks, &mounts, true)?;
 
     for entry in fs::read_dir(&paks).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -570,20 +596,37 @@ fn sync_forge_packs(state: &HubState, paks: &Path) -> Result<(), String> {
     if !root.is_dir() { return Ok(()) }
     let dir = root.join("MJOLNIRForgePacks");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let tmp = dir.join("installed.json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&inventory).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
-    fs::rename(&tmp, dir.join("installed.json")).map_err(|e| format!("Writing Forge inventory: {e}"))?;
     let mut text = String::new();
+    let mut doors = String::from("forge-doors 1\n");
+    let mut door_count = 0;
     for pack in inventory["packs"].as_array().into_iter().flatten() {
         for block in pack["forge_pack"]["blocks"].as_array().into_iter().flatten() {
             text.push_str(&format!("{}\t{}\t{}\t{}\n", pack["slug"].as_str().unwrap(),
                 pack["version"].as_str().unwrap(), pack["sha256"].as_str().unwrap(), block["tag"].as_str().unwrap()));
+            if let Some(door) = block.get("door").filter(|v| !v.is_null()) {
+                door_count += 1;
+                if door_count > 256 { return Err("Enabled Forge packs exceed 256 automatic-door definitions".into()) }
+                doors.push_str(block["tag"].as_str().unwrap());
+                for value in [&door["travel_m"], &door["speed_m_s"], &door["trigger_size_m"][0],
+                    &door["trigger_size_m"][1], &door["trigger_size_m"][2], &door["hold_open_s"],
+                    &block["dimensions_m"][0], &block["dimensions_m"][1], &block["dimensions_m"][2]] {
+                    doors.push('\t'); doors.push_str(&value.as_f64().unwrap().to_string());
+                }
+                doors.push('\n');
+            }
         }
     }
-    let tmp = dir.join("installed.txt.tmp");
-    fs::write(&tmp, text).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, dir.join("installed.txt")).map_err(|e| format!("Writing Forge bindings: {e}"))
+    // Prepare every file before publishing, then replace each atomically.
+    // Even an empty inventory replaces doors.txt, removing stale utilities.
+    let files = [("installed.json", serde_json::to_vec_pretty(&inventory).map_err(|e| e.to_string())?),
+        ("doors.txt", doors.into_bytes()), ("installed.txt", text.into_bytes())];
+    for (name, bytes) in &files {
+        fs::write(dir.join(format!("{name}.tmp")), bytes).map_err(|e| e.to_string())?;
+    }
+    for (name, _) in files {
+        fs::rename(dir.join(format!("{name}.tmp")), dir.join(name)).map_err(|e| format!("Writing Forge {name}: {e}"))?;
+    }
+    Ok(())
 }
 
 fn saved_layout_pins(paks: &Path) -> Result<Vec<forge_packs::LayoutPin>, String> {
@@ -668,6 +711,7 @@ pub fn prepare_launch() -> Result<(), String> {
         return sync_forge_packs(&state, &paks);
     }
     let mounts = mounts(&state)?;
+    check_forge_shader_mounts(&paks, &mounts, true)?;
 
     // `materialize` clears Paks before it copies, so a cache that cannot
     // supply its containers would take every mod after it down too. Leave
@@ -1362,6 +1406,7 @@ fn install_one_as(
             });
         }
     }
+    preflight_forge_shaders(&state, live.is_none())?;
     save_state(&state)?;
     // The files just written are the ones whose hashes were checked: the
     // launch check's quick pass starts from here.
@@ -1502,6 +1547,10 @@ pub fn install_live(
     let mut unmount = Vec::new();
     let required = dependency_closure(&state, &inst.slug)?;
     let mut live_mounts = mounts(&state)?;
+    if let Err(error) = check_forge_shader_mounts(&paks, &live_mounts, false) {
+        save_state(&before_state)?;
+        return Err(error);
+    }
     live_mounts.sort_by_key(|m| m.slug == inst.slug);
     for m in live_mounts.iter().filter(|m| required.contains(&m.slug)) {
         let present = ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(&paks, ext).is_file());
@@ -1952,6 +2001,7 @@ pub fn uninstall(slug: String) -> Result<HubState, String> {
         check.active = profile.name.clone();
         validate_profile_dependencies(&check)?;
     }
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     if let Some(inst) = removed {
@@ -1982,6 +2032,7 @@ pub fn set_order(slug: String, new_index: usize) -> Result<HubState, String> {
     profile
         .entries
         .insert(new_index.min(profile.entries.len()), entry);
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -2002,6 +2053,7 @@ pub fn set_enabled(slug: String, enabled: bool) -> Result<HubState, String> {
         .ok_or("Not in this profile")?;
     entry.enabled = enabled;
     validate_profile_dependencies(&state)?;
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -2033,6 +2085,7 @@ pub fn profile_create(name: String, copy_active: bool) -> Result<HubState, Strin
         entries,
     });
     state.active = name;
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -2045,6 +2098,7 @@ pub fn profile_switch(name: String) -> Result<HubState, String> {
     }
     state.active = name;
     validate_profile_dependencies(&state)?;
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -2059,6 +2113,7 @@ pub fn profile_delete(name: String) -> Result<HubState, String> {
     if state.active == name {
         state.active = state.profiles[0].name.clone();
     }
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -3686,7 +3741,9 @@ mod tests {
 
     #[test]
     fn forge_inventory_uses_enabled_verified_release_identity_and_preserves_local_files() {
-        let state = forge_test_state();
+        let mut state = forge_test_state();
+        state.installed[0].forge_pack.as_mut().unwrap().blocks[0].door=Some(forge_packs::Door {
+            travel_m:4.0,speed_m_s:4.0,trigger_size_m:[8.0,16.0,6.0],hold_open_s:2.0 });
         let inventory = forge_inventory(&state).unwrap();
         assert_eq!(inventory["packs"].as_array().unwrap().len(), 1);
         assert_eq!(inventory["packs"][0]["release_id"], "pack-r1");
@@ -3698,8 +3755,11 @@ mod tests {
         sync_forge_packs(&state, &paks).unwrap();
         let text = fs::read_to_string(dir.join("installed.txt")).unwrap();
         assert_eq!(text, format!("alloy\t1.0.0\t{}\tobjects\\mjolnir\\forge\\alloy\\block\n", "a".repeat(64)));
+        assert_eq!(fs::read_to_string(dir.join("doors.txt")).unwrap(),
+            "forge-doors 1\nobjects\\mjolnir\\forge\\alloy\\block\t4\t4\t8\t16\t6\t2\t2\t2\t2\n");
         sync_forge_packs(&HubState::default(), &paks).unwrap();
         assert_eq!(fs::read_to_string(dir.join("installed.txt")).unwrap(), "");
+        assert_eq!(fs::read_to_string(dir.join("doors.txt")).unwrap(), "forge-doors 1\n");
         assert_eq!(fs::read(dir.join("local-authoring.json")).unwrap(), b"keep me");
         fs::remove_dir_all(root).unwrap();
     }

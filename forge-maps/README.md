@@ -1,14 +1,16 @@
 # Forge Canvas, Crossline and Roadworks Circuit
 
 Forge Canvas is an empty 64 × 64 metre deck with a two-metre grid and open sky.
-Crossline **0.2.0** is a **48 × 80 metre** Red versus Blue arena with raised bases, ramps, side walkways,
-linked teleporters and coloured lights, intended for two to eight players.
-A continuous perimeter of 96 Foundry Wide full walls encloses Crossline: three
-courses make a 9 m boundary, extending 4.5 m above the raised decks. Interior
-railings and openings lead to other playable areas. The eighteen-piece
-[Foundry Wide pack](../forge-packs/foundry-wide/README.md) doubles structural
-footprints while preserving their heights. Portal frames, pads and lights use
-the original Foundry pack at their existing size. Forge Canvas stays empty.
+Crossline **0.3.0** is a **96 × 160 metre** Red versus Blue arena and construction
+showcase with raised bases, broad ramps, galleries, linked green teleporters
+and two stock Warthogs. A continuous perimeter of 96 long wall panels forms a
+9 m boundary around the 4.5 m raised routes. Separate utility lanes display
+automatic doors, solid glass, bridge shapes, wider ramps and a gravity lift,
+with conventional bypasses. All twenty new pieces in the 38-piece
+[Foundry Wide 0.2 pack](../forge-packs/foundry-wide/README.md) appear in the
+layout. Original Foundry lights, player dimensions and vehicle dimensions
+remain unchanged. Forge Canvas stays empty. See the
+[Crossline route guide](crossline/README.md) for the tour and build commands.
 
 The separate [Roadworks Circuit / RWC](roadworks/README.md) is now version
 **0.2.0**: a **731 m** Warthog circuit with **16 m clear lanes**, 24/48 m
@@ -36,7 +38,11 @@ already include the required pack support.
 
 ## Gallery
 
-**Crossline 0.2:** the enlarged arena from a normal Spartan camera, with
+Crossline 0.3's new layout has offline clearance coverage; final cooked-map
+gameplay and utility behavior remain to be validated. The captures and
+Crossline previews below show earlier versions, not the enlarged 0.3 map.
+
+**Historical Crossline 0.2:** the 48 × 80 m arena from a normal Spartan camera, with
 ordinary visibility culling. This build passed live ramp traversal,
 teleporting in both directions, and Wide piece placement/save/reload checks.
 
@@ -74,8 +80,8 @@ route. See the [recorded checks](../docs/forge_pack_validation.md#roadworks-01-v
 
 ### Blender layout previews
 
-These Blender previews use the actual level placements and authored materials.
-They show the enclosed layout; game lighting and materials can look different.
+These historical Crossline 0.2 Blender previews use that version's actual
+placements and authored materials. Game lighting and materials can look different.
 
 ![Crossline enclosed layout, elevated view](art/crossline.png)
 
@@ -144,7 +150,7 @@ Build the [Foundry content pack](../forge-packs/foundry/README.md),
 [Foundry Wide](../forge-packs/foundry-wide/README.md) for Crossline, and the
 [canvas BSPs](../docs/forge_canvas.md) first. The default collision files
 are `forge-packs/foundry/build/canvas/blank.sbsp` (64 × 64 metres) and
-`forge-packs/foundry-wide/build/canvas/crossline.sbsp` (48 × 80 metres),
+`forge-packs/foundry-wide/build/canvas/crossline.sbsp` (96 × 160 metres),
 with their generated `.canvas.json` receipts.
 The build uses the repository's minimal `defs/level/empty_world.umap`; the
 baker adds the scenario settings and assigns each map its own world name.
@@ -171,7 +177,7 @@ pack and canvas inputs. `--pack-manifest` can be repeated when supplying
 several exact built pack releases.
 
 The default map versions are Roadworks Circuit **0.2.0**, Forge Canvas
-**0.1.0** and Crossline **0.2.0**. `--version` explicitly overrides the version
+**0.1.0** and Crossline **0.3.0**. `--version` explicitly overrides the version
 for the selected build.
 
 Every run creates a new retained directory under `forge-maps/build/`. It

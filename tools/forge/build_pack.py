@@ -25,6 +25,24 @@ MATERIALS = [("concrete", MATERIAL_ROOT + "Grey_MidLight"),
              ("light_lens_blue", "/Game/Lighting/Lighting_Mats/EmissiveMaterials/B40/MI_FREmissive_Solid_B40_Blue_Dark")]
 
 
+def surface_materials(slug, block):
+    """Keep the old seven-slot build byte-for-byte for ordinary pieces."""
+    if not block.get("surfaces"):
+        return list(MATERIALS)
+    from build_materials import PROFILE_MATERIALS, validate_slug
+    validate_slug(slug)
+    seen = set()
+    for surface in block["surfaces"]:
+        if set(surface) != {"slot", "profile"} or surface["profile"] not in PROFILE_MATERIALS:
+            raise ValueError("Unsupported Forge surface profile")
+        slot = surface["slot"]
+        if isinstance(slot, bool) or slot != PROFILE_MATERIALS[surface["profile"]][0] or slot in seen:
+            raise ValueError("This builder reserves slots 7/8 for glass/portal profiles")
+        seen.add(slot)
+    return list(MATERIALS) + [(key, f"/Game/MJOLNIR/Forge/{slug}/Materials/{master}")
+                              for _, key, master in PROFILE_MATERIALS.values()]
+
+
 def model_bounds(piece):
     """Enclose the original visual and collision geometry in Blam axes/units.
 
@@ -94,6 +112,21 @@ def main():
             dst = view / src.name
             if not dst.exists():
                 os.link(src, dst)
+    if any(block.get("surfaces") for block in selected):
+        from build_materials import verified_content
+        import shutil
+        for src in verified_content(pack, slug):
+            dst = content / src.name
+            # copyfile replaces an existing hardlink's bytes. Retire our
+            # previous destination so an old read-only build view stays intact.
+            if dst.exists():
+                dst.unlink()
+            shutil.copyfile(src, dst)
+            if src.suffix in (".utoc", ".ucas"):
+                linked = view / src.name
+                if linked.exists():
+                    linked.unlink()
+                os.link(dst, linked)
 
     def run(exe, *args):
         command = [str(exe), *map(str, args)]
@@ -121,16 +154,18 @@ def main():
     for block in selected:
         ident, tag = block["id"], block["tag"]
         piece = pieces[ident]
+        materials = surface_materials(slug, block)
         mesh = f"/Game/MJOLNIR/Forge/{slug}/SM_{ident}"
         actor = f"/Game/MJOLNIR/Forge/{slug}/BP_{ident}"
         mesh_file, actor_file = work / f"SM_{ident}.uasset", work / f"BP_{ident}.uasset"
         spec = []
-        for k, (mat, path) in enumerate(MATERIALS):
+        for k, (mat, path) in enumerate(materials):
             # mesh_rewrite takes the first matching pattern. Anchor names so
             # light_lens cannot consume light_lens_red or light_lens_blue.
             spec.extend(["--material", f"{mat}={path}={'*' if k == 0 else mat + '$'}"])
         run(a.examples / "mesh_rewrite.exe", a.paks, "basicshapes/cube", pack / f"build/models/{ident}.gltf",
-            mesh_file, "--offset", "0,0,0", "--rename", mesh, *spec)
+            mesh_file, "--offset", "0,0,0", "--rename", mesh, *spec,
+            *(["--asset-imports"] if block.get("surfaces") else []))
         # mesh_rewrite centres/normalizes the mesh; restore the authored
         # origin on the synchronized component (Blender Y -> UE -Y). This
         # also supports Roadworks' entry-anchored roads and asymmetric curves.
@@ -141,7 +176,7 @@ def main():
         centre[1] *= -1
         scale = max(hi[k] - lo[k] for k in range(3))
         run(a.examples / "forge_actor.exe", a.paks, actor, mesh, actor_file,
-            ",".join(map(str, centre)), scale, *[path for _, path in MATERIALS])
+            ",".join(map(str, centre)), scale, *[path for _, path in materials])
         packages.extend(["--package", f"{mesh}={mesh_file}", "--package", f"{actor}={actor_file}"])
         coll = pack / f"build/blam-collision/{ident}.collision_model"
         physics = pack / f"build/blam-collision/{ident}.physics_model"

@@ -51,14 +51,36 @@ def load_helpers():
 
 
 helpers = load_helpers()
-material, mesh_object = helpers.material, helpers.mesh_object
 select_only, label = helpers.select_only, helpers.text_object
+
+
+def material(name, spec):
+    result = helpers.material(name, spec)
+    shader = result.node_tree.nodes.get("Principled BSDF")
+    if spec["base_color"][3] < 1:
+        shader.inputs["Alpha"].default_value = spec["base_color"][3]
+        result.surface_render_method = "DITHERED"
+    if "transmission_weight" in spec:
+        shader.inputs["Transmission Weight"].default_value = spec["transmission_weight"]
+        shader.inputs["IOR"].default_value = spec["ior"]
+    return result
+
+
+def mesh_object(name, component, collection):
+    obj = helpers.mesh_object(name, component, collection)
+    if "uvs" in component:
+        layer = obj.data.uv_layers.new(name="UVMap")
+        for polygon in obj.data.polygons:
+            for index in polygon.loop_indices:
+                layer.data[index].uv = component["uvs"][obj.data.loops[index].vertex_index]
+    return obj
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--output", type=Path, default=ROOT / "build")
+    parser.add_argument("--only", help="Export one piece without replacing the full contact sheet or blend")
     options = parser.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
     output = options.output.resolve()
     for folder in (output, output / "models", output / "collision"):
@@ -66,6 +88,8 @@ def main():
     original_hash = hashlib.sha256(gen.BASE.read_bytes()).hexdigest()
     source = gen.write_sources()
     validation.main()
+    if options.only and options.only not in {p["id"] for p in source["pieces"]}:
+        parser.error("Unknown piece ID")
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     scene = bpy.context.scene
@@ -79,6 +103,8 @@ def main():
     collisions.hide_render = True
     models, report = [], []
     for piece in source["pieces"]:
+        if options.only and piece["id"] != options.only:
+            continue
         parts = []
         for index, component in enumerate(piece["visual"]):
             obj = mesh_object(f"{piece['id']}_{index:02}", component, assets)
@@ -132,38 +158,44 @@ def main():
                        "collision_triangles": len(collision["triangles"]), "collision_hulls": len(collision["hulls"]),
                        "dimensions_m": piece["dimensions_m"], "origin": "bottom_center"})
     assert hashlib.sha256(gen.BASE.read_bytes()).hexdigest() == original_hash, "Original Foundry was modified."
-    (output / "export-report.json").write_text(json.dumps({
+    report_name = "export-report" + ("-" + options.only if options.only else "") + ".json"
+    (output / report_name).write_text(json.dumps({
         "blender": bpy.app.version_string,
         "source_sha256": hashlib.sha256((ROOT / "source" / "geometry.json").read_bytes()).hexdigest(),
-        "export_scale": 1, "presentation_scale": 0.45, "pieces": report}, indent=2) + "\n", encoding="utf-8")
-    print("FOUNDRY_WIDE_EXPORTS_READY: 18 full-size glTF+bin, GLB and collision JSON/OBJ pairs", flush=True)
+        "export_scale": 1, "presentation_scale": 0.38, "pieces": report}, indent=2) + "\n", encoding="utf-8")
+    print(f"FOUNDRY_WIDE_EXPORTS_READY: {len(models)} full-size glTF+bin, GLB and collision JSON/OBJ pairs", flush=True)
+    if options.only:
+        return
 
     backdrop = material("Studio / background", {"base_color": [.017, .025, .032, 1], "metallic": 0, "roughness": .9})
     cards = material("Studio / cards", {"base_color": [.045, .063, .072, 1], "metallic": 0, "roughness": .85})
     white = material("Studio / type", {"base_color": [.85, .9, .88, 1], "metallic": 0, "roughness": .7})
     gray = material("Studio / secondary", {"base_color": [.42, .53, .57, 1], "metallic": 0, "roughness": .8})
-    ground = mesh_object("Studio ground", original.box(65, 48, .1, z=-.25), studio)
+    rows = math.ceil(len(models)/6)
+    half_height = rows*10.5/2
+    ground = mesh_object("Studio ground", original.box(65, rows*10.5+14, .1, z=-.25), studio)
     ground.data.materials.append(backdrop)
     for index, (model, collider, piece) in enumerate(models):
-        x, y = (index % 6 - 2.5) * 9, (1 - index // 6) * 10.5
-        model.scale = (.45, .45, .45)
+        x, y = (index % 6 - 2.5) * 9, ((rows-1)/2 - index // 6) * 10.5
+        model.scale = (.38, .38, .38)
         model.location = (x, y + .7, 0)
         model.rotation_euler.z = math.radians(-25)
         collider.location, collider.rotation_euler, collider.scale = model.location, model.rotation_euler, model.scale
         card = mesh_object("Tile " + piece["id"], original.box(8.6, 10, .06, x, y, -.1), studio)
         card.data.materials.append(cards)
-        label(f"{index+1:02}  {piece['name'].upper()}", x - 3.9, y - 3.9, .32, white, studio)
+        title = piece['name'].removeprefix("Wide ").upper()
+        label(f"{index+1:02}  {title}", x - 3.9, y - 3.9, .29, white, studio)
         label(" x ".join(f"{v:g}" for v in piece["dimensions_m"]) + " m", x - 3.9, y - 4.55, .34, gray, studio)
-    label("FOUNDRY WIDE", -26.4, 18.5, 1.75, white, studio)
-    label("18 STRUCTURAL PIECES  /  DOUBLE FOOTPRINT  /  ORIGINAL HEIGHTS", -26.2, 17.1, .45, mats["amber"], studio)
-    label("4 m MODULE  /  0.5 m SNAP  /  ALL PIECES SHOWN AT THE SAME SCALE", -26.2, -17.5, .43, mats["amber"], studio)
-    label("Actual Blender meshes. Original Foundry portals, lights and existing maps keep their scale.", -26.2, -18.4, .34, gray, studio)
+    label("FOUNDRY WIDE  /  0.2", -26.4, half_height+4, 1.65, white, studio)
+    label("38 PIECES  /  GLASS, DOORS, RAMPS & UTILITIES  /  ORIGINAL 18 PRESERVED", -26.2, half_height+2.5, .4, mats["amber"], studio)
+    label("4 m MODULE  /  0.5 m SNAP  /  ALL PIECES SHOWN AT THE SAME SCALE", -26.2, -half_height-2, .43, mats["amber"], studio)
+    label("Actual meshes. Glass and energy are Blender material previews; native rendering is validated separately.", -26.2, -half_height-3, .32, gray, studio)
     camera_data = bpy.data.cameras.new("Contact sheet camera")
     camera = bpy.data.objects.new("Contact sheet camera", camera_data)
     studio.objects.link(camera)
-    camera.location = (0, -32, 68)
+    camera.location = (0, -32, 100)
     camera.rotation_euler = (Vector((0, 0, 0)) - camera.location).to_track_quat("-Z", "Y").to_euler()
-    camera_data.type, camera_data.ortho_scale = "ORTHO", 59
+    camera_data.type, camera_data.ortho_scale = "ORTHO", max(59, rows*10.5+12)
     scene.camera = camera
     for name, position, energy, size in (("Key", (-18, -12, 35), 15000, 25), ("Fill", (18, 5, 25), 12000, 20), ("Rim", (0, 20, 18), 9000, 15)):
         data = bpy.data.lights.new(name, "AREA")
@@ -177,7 +209,7 @@ def main():
     scene.world.node_tree.nodes["Background"].inputs["Strength"].default_value = .35
     scene.render.engine = "CYCLES"
     scene.cycles.samples, scene.cycles.use_denoising = 32, True
-    scene.render.resolution_x, scene.render.resolution_y = 2400, 1800
+    scene.render.resolution_x, scene.render.resolution_y = 2400, 3500
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.filepath = str(output / "foundry-wide-contact-sheet.png")

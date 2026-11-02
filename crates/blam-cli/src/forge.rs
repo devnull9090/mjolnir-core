@@ -68,6 +68,33 @@ struct Block {
     dimensions_m: [f64; 3],
     snap_m: Option<f64>,
     light: Option<Light>,
+    lift: Option<Lift>,
+    door: Option<Door>,
+    surfaces: Option<Vec<Surface>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Surface { slot: u8, profile: String }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Lift {
+    offset_m: [f64; 3],
+    size_m: [f64; 3],
+    direction: [f64; 3],
+    acceleration_m_s2: f64,
+    max_speed_m_s: f64,
+    #[allow(dead_code)]
+    negates_gravity: bool,
+}
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Door {
+    travel_m: f64,
+    speed_m_s: f64,
+    trigger_size_m: [f64; 3],
+    hold_open_s: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +163,32 @@ fn validate_manifest(value: &Value) -> Result<Manifest> {
                 || !light.intensity_cd.is_finite() || light.intensity_cd <= 0.0 || light.intensity_cd > 10_000.0
                 || !light.radius_m.is_finite() || light.radius_m <= 0.0 || light.radius_m > 100.0 {
                 bail!("Forge block {} has invalid light offset, linear RGB, candela intensity or radius", block.id);
+            }
+        }
+        if let Some(lift) = &block.lift {
+            if lift.offset_m.iter().any(|n| !n.is_finite() || n.abs() > 100.0)
+                || lift.size_m.iter().any(|n| !n.is_finite() || !(0.1..=100.0).contains(n))
+                || lift.direction.iter().any(|n| !n.is_finite() || n.abs() > 1.0)
+                || (lift.direction.iter().map(|n| n*n).sum::<f64>()-1.0).abs() > 0.001
+                || !lift.acceleration_m_s2.is_finite() || !(0.1..=100.0).contains(&lift.acceleration_m_s2)
+                || !lift.max_speed_m_s.is_finite() || !(0.1..=30.0).contains(&lift.max_speed_m_s) {
+                bail!("Forge block {} has invalid lift volume, direction, acceleration or speed", block.id);
+            }
+        }
+        if let Some(door) = &block.door {
+            if block.dimensions_m.iter().any(|n| *n > 64.0)
+                || !door.travel_m.is_finite() || door.travel_m <= 0.0 || door.travel_m > 16.0
+                || !door.speed_m_s.is_finite() || door.speed_m_s <= 0.0 || door.speed_m_s > 8.0
+                || door.trigger_size_m.iter().any(|n| !n.is_finite() || *n <= 0.0 || *n > 32.0)
+                || !door.hold_open_s.is_finite() || !(0.0..=10.0).contains(&door.hold_open_s) {
+                bail!("Forge block {} has invalid door travel, speed, trigger or hold time", block.id);
+            }
+        }
+        if let Some(surfaces) = &block.surfaces {
+            let mut slots = BTreeSet::new();
+            if surfaces.len() > 16 || surfaces.iter().any(|s| s.slot > 15 || !slots.insert(s.slot)
+                || !matches!(s.profile.as_str(), "glass_cyan" | "teleporter_green")) {
+                bail!("Forge block {} has invalid surface slots or profiles", block.id);
             }
         }
     }
@@ -230,12 +283,52 @@ fn content_members(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     Ok(members)
 }
 
+/// Profile assets belong to this pack, not a coincidentally installed map.
+/// TOC identity proves presence only, not payload type or shader correctness.
+fn required_surface_packages(pack: &ForgePack) -> BTreeSet<String> {
+    let root = format!("/Game/MJOLNIR/Forge/{}", pack.id);
+    let mut names = BTreeSet::new();
+    for surface in pack.blocks.iter().flat_map(|b| b.surfaces.iter().flatten()) {
+        match surface.profile.as_str() {
+            "glass_cyan" => { names.insert(format!("{root}/Materials/M_ForgeGlassCyan")); }
+            "teleporter_green" => {
+                for asset in ["Materials/M_ForgePortalGreen", "Textures/T_PortalDust", "Textures/T_PortalMask", "Materials/T_CE_BlackCube"] {
+                    names.insert(format!("{root}/{asset}"));
+                }
+            }
+            _ => unreachable!("validated surface profile"),
+        }
+    }
+    names
+}
+
+fn validate_runtime_packages(pack: &ForgePack, members: &[(String, Vec<u8>)]) -> Result<()> {
+    let required = required_surface_packages(pack);
+    if required.is_empty() { return Ok(()); }
+    let mut packages = BTreeSet::new();
+    for (name, bytes) in members {
+        if name.starts_with("content/") && name.ends_with(".utoc") {
+            for chunk in checked_toc(bytes)?.chunk_ids {
+                if chunk.kind == 1 && chunk.index == 0 && chunk.pad == 0 { packages.insert(chunk.id); }
+            }
+        }
+    }
+    for name in required {
+        if !packages.contains(&ue_iostore::city::package_id(&name)) {
+            bail!("Forge surface profile requires pack-owned cooked package {name}");
+        }
+    }
+    Ok(())
+}
+
 fn pack(args: PackArgs) -> Result<()> {
     let value: Value = serde_json::from_slice(&std::fs::read(&args.manifest)?)
         .with_context(|| format!("reading {}", args.manifest.display()))?;
     let manifest = validate_manifest(&value)?;
     let mut members = vec![("mjolnir.json".into(), serde_json::to_vec_pretty(&value)?)];
-    members.extend(content_members(&args.content)?);
+    let content = content_members(&args.content)?;
+    validate_runtime_packages(&manifest.forge_pack, &content)?;
+    members.extend(content);
     if let Some(path) = &args.readme {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         members.push(("docs/README.md".into(), text.into_bytes()));
@@ -302,6 +395,79 @@ mod tests {
         }]);
         std::fs::write(dir.join("foundry_P.utoc"), built.utoc).unwrap();
         std::fs::write(dir.join("foundry_P.ucas"), built.ucas).unwrap();
+    }
+
+    #[test]
+    fn utility_metadata_is_bounded_and_strict() {
+        let lift = serde_json::json!({"offset_m":[0,0,0.45],"size_m":[4,4,3.5],"direction":[0,0,1],
+            "acceleration_m_s2":20,"max_speed_m_s":4.5,"negates_gravity":true});
+        let door = serde_json::json!({"travel_m":4,"speed_m_s":4,"trigger_size_m":[8,16,6],"hold_open_s":2});
+        let mut good=manifest();
+        good["forge_pack"]["blocks"][0]["lift"]=lift;
+        good["forge_pack"]["blocks"][0]["door"]=door;
+        good["forge_pack"]["blocks"][0]["surfaces"]=serde_json::json!([{"slot":7,"profile":"teleporter_green"}]);
+        validate_manifest(&good).unwrap();
+        for (pointer,value) in [
+            ("/lift/direction",serde_json::json!([0,0,0])), ("/lift/size_m",serde_json::json!([4,4,101])),
+            ("/lift/max_speed_m_s",serde_json::json!(31)), ("/lift/negates_gravity",serde_json::json!(1)),
+            ("/door/travel_m",serde_json::json!(17)), ("/door/speed_m_s",serde_json::json!(0)),
+            ("/door/hold_open_s",serde_json::json!(11)), ("/door/trigger_size_m",serde_json::json!([8,33,6])),
+            ("/dimensions_m",serde_json::json!([4,4,65])),
+            ("/surfaces",serde_json::json!([{"slot":0,"profile":"anything"}])),
+            ("/surfaces",serde_json::json!([{"slot":7,"profile":"glass_cyan"},{"slot":7,"profile":"teleporter_green"}])),
+        ] {
+            let mut bad=good.clone();
+            *bad.pointer_mut(&format!("/forge_pack/blocks/0{pointer}")).unwrap()=value;
+            assert!(validate_manifest(&bad).is_err(),"{pointer}");
+        }
+        for name in ["lift","door"] {
+            let mut bad=good.clone(); bad["forge_pack"]["blocks"][0][name]["script"]=serde_json::json!("x");
+            assert!(validate_manifest(&bad).is_err());
+        }
+    }
+
+    #[test]
+    fn surface_package_ids_match_the_shared_hub_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!("../../../tools/fixtures/forge-package-ids.json")).unwrap();
+        assert_eq!(vectors.as_array().unwrap().len(), 15);
+        for v in vectors.as_array().unwrap() {
+            assert_eq!(format!("{:016x}", ue_iostore::city::package_id(v["name"].as_str().unwrap())), v["id_hex"]);
+        }
+    }
+
+    fn surface_members(names: &[String], kind: u8) -> Vec<(String, Vec<u8>)> {
+        let dir = Temp::new(); containers(&dir.0);
+        let template = checked_toc(&std::fs::read(dir.0.join("foundry_P.utoc")).unwrap()).unwrap();
+        let entries: Vec<_> = names.iter().map(|name| ue_iostore::pack::Entry {
+            id: ChunkId { id: ue_iostore::city::package_id(name), index: 0, pad: 0, kind },
+            data: vec![7;32], meta: vec![0;24],
+        }).collect();
+        let built = ue_iostore::pack::build(&template, 123, &entries);
+        vec![("content/profiles.utoc".into(), built.utoc), ("content/profiles.ucas".into(), built.ucas)]
+    }
+
+    #[test]
+    fn surface_profiles_require_pack_owned_export_packages() {
+        let legacy = validate_manifest(&manifest()).unwrap();
+        validate_runtime_packages(&legacy.forge_pack, &[]).unwrap();
+        for profile in ["glass_cyan", "teleporter_green"] {
+            let mut value = manifest();
+            value["forge_pack"]["blocks"][0]["surfaces"] = serde_json::json!([{"slot":7,"profile":profile}]);
+            let m = validate_manifest(&value).unwrap();
+            let required: Vec<_> = required_surface_packages(&m.forge_pack).into_iter().collect();
+            assert_eq!(required.len(), if profile == "glass_cyan" {1} else {4});
+            validate_runtime_packages(&m.forge_pack, &surface_members(&required, 1)).unwrap();
+            for absent in &required {
+                let remaining: Vec<_> = required.iter().filter(|n| *n != absent).cloned().collect();
+                let error = validate_runtime_packages(&m.forge_pack, &surface_members(&remaining, 1)).unwrap_err();
+                assert!(error.to_string().contains(absent), "{error}");
+            }
+            assert!(validate_runtime_packages(&m.forge_pack, &surface_members(&required, 2)).is_err());
+            let foreign: Vec<_> = required.iter().map(|n| n.replace("/foundry/", "/other-pack/")).collect();
+            assert!(validate_runtime_packages(&m.forge_pack, &surface_members(&foreign, 1)).is_err());
+            let stray: Vec<_> = surface_members(&required, 1).into_iter().map(|(n,b)| (n.replace("content/", "docs/"),b)).collect();
+            assert!(validate_runtime_packages(&m.forge_pack, &stray).is_err());
+        }
     }
 
     #[test]

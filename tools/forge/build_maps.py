@@ -25,8 +25,8 @@ MAPS = {
     "crossline": {"code": "FRB", "slug": "crossline", "name": "Crossline",
                   "source": "crossline/crossline.level.json", "bsp": "crossline.sbsp",
                   "collision_dir": "forge-packs/foundry-wide/build/canvas",
-                  "readme": "forge-maps/crossline/README.md", "version": "0.2.0",
-                  "size": "small", "players": "2-8", "dimensions": [48, 80, 1]},
+                  "readme": "forge-maps/crossline/README.md", "version": "0.3.0", "vehicles": True,
+                  "size": "large", "players": "2-16", "dimensions": [96, 160, 1]},
     "roadworks": {"code": "RWC", "slug": "roadworks-circuit", "name": "Roadworks Circuit",
                   "source": "roadworks/roadworks_circuit.level.json", "bsp": "circuit.sbsp",
                   "collision_dir": "forge-packs/roadworks/build/canvas",
@@ -163,7 +163,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--paks", type=Path, required=True, help="Read-only game + CE runtime + required Forge pack container view")
     parser.add_argument("--runtime", required=True, help="Tested CE runtime version range, e.g. ^1.17.0")
-    parser.add_argument("--version", help="Override each map's release version (Crossline/Roadworks 0.2.0; Forge Canvas 0.1.0)")
+    parser.add_argument("--version", help="Override map version (Crossline 0.3.0; Roadworks 0.2.0; Forge Canvas 0.1.0)")
     parser.add_argument("--only", choices=MAPS)
     parser.add_argument("--cli", type=Path, default=ROOT / "target/debug/mjolnir.exe")
     parser.add_argument("--world", type=Path, default=ROOT / "defs/level/empty_world.umap")

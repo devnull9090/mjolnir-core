@@ -18,6 +18,7 @@ import { DeclaredChangesSchema, MAX_CHANGES_BYTES } from "./changes";
 import type { Manifest } from "./manifest";
 import { ManifestSchema } from "./manifest";
 import { chunkIdToHex, parseTocChunkIds } from "./iostore";
+import { forgePackageId, requiredForgePackages } from "./forge-content";
 import { Sha256 } from "./sha256";
 
 /** Hard cap on an archive uploaded in one request (PUT .../archive): under
@@ -32,7 +33,7 @@ export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
 const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
 
-export const SCANNER_VERSION = "ts-3";
+export const SCANNER_VERSION = "ts-4";
 
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
@@ -354,6 +355,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
 
   // Containers → chunk identity.
   const seen = new Map<string, Uint8Array>();
+  const installedPackages = new Set<bigint>();
   for (const name of utocs) {
     try {
       const toc = parseTocChunkIds(files[name]);
@@ -365,8 +367,25 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
       if (!(cas in sizes)) err("orphan_utoc", `${name} has no matching .ucas.`);
       if (toc.chunkIds.length === 0) warn("empty_container", `${name} holds no chunks.`);
       for (const id of toc.chunkIds) seen.set(chunkIdToHex(id), id);
+      if (name.startsWith("content/") && sizes[cas] > 0) {
+        for (const id of toc.chunkIds) {
+          // ExportBundleData at index zero, not a bulk-data chunk with the
+          // same package ID. Stray containers are not installed by the launcher.
+          if (id[8] === 0 && id[9] === 0 && id[10] === 0 && id[11] === 1) {
+            installedPackages.add(new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true));
+          }
+        }
+      }
     } catch (e) {
       err("bad_container", `${name}: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  if (manifest?.forge_pack) {
+    for (const name of requiredForgePackages(manifest.forge_pack)) {
+      if (!installedPackages.has(forgePackageId(name))) {
+        err("missing_forge_package", `Forge utility/profile requires pack-owned cooked package ${name}.`);
+      }
     }
   }
   for (const name of Object.keys(sizes)) {

@@ -30,13 +30,18 @@ game behavior from the remaining collision, visual and multiplayer checks.
 
 ## Starting a Forge game
 
+After a fresh launch, press **Enter** at the title screen and wait for sign-in
+to finish and the main menu to appear.
+
 1. MULTIPLAYER → HOST GAME, pick a map.
 2. Pick **FORGE** as the game type. It is listed once MJOLNIRForge is
    installed and the CE runtime pack has the monitor fix.
 3. Start. A panel at the top left says `FORGE`.
 
 For scripts and tests: `mjolnir_auto host <CODE> forge private` at the
-console.
+console. Before issuing it after a fresh launch, wait for
+`MULTIPLAYER is on the main menu` in the current `UE4SS.log`. Starting before
+sign-in can load the Unreal world without starting the native simulation.
 
 ## The HUD
 
@@ -218,6 +223,34 @@ of the piece's catalog, so use the red or blue variant for team bases.
 These utility additions have automated coverage; the
 [validation record](forge_pack_validation.md) distinguishes live game evidence
 from checks still awaiting a playtest.
+
+### Automatic doors and lifts — development build
+
+Use MJOLNIRForge **0.4.0**, MJOLNIRLobby **0.19.2** and
+MJOLNIRLevelLoader **0.9.8** or newer together for these utilities.
+
+Foundry Wide's door frames and moving panels are separate pieces. Place the
+panel in its closed position inside the matching frame. Use **F3** to keep it
+**Fixed** or **Phased** for automatic opening; **Normal** disables automation.
+Leave the panel's full upward travel clear: 4 m for the infantry panel and
+6 m for the vehicle panel. Return to your Spartan with **B** and approach
+the doorway to request opening. The panel waits two seconds after you leave
+before closing.
+
+Clear players and vehicles from the doorway before editing it. Entering
+Monitor mode attempts to close the panel, but a blocked closing path keeps
+it raised. Moving, copying, turning and changing that panel's physics wait
+until it can close; the HUD asks you to clear the doorway. Other objects remain
+editable. **F5** saves the authored
+closed pose even while the live door is
+open. Door saves require the host's known closed pose; client saves containing
+enabled doors are deferred, and a migrated host must rehost before using them.
+
+For a lift, place the station with open space above its central deck, then
+step onto it as a Spartan. A green teleporter frame or pad still needs the
+separate sender/receiver markers and matching **P** channel described above.
+These new utilities await live verification; their metadata, implementation
+and current limits are in [Forge pack utilities](forge_pack_utilities.md).
 
 ## With your fireteam
 
