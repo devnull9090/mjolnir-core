@@ -63,6 +63,7 @@
 #include "layout_files.h"
 #include "layout_blf.h"
 #include "utility_properties.h"
+#include "forge_liveness.h"
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
 // Steam's copy and the Xbox app's differ only in the header (docs/game_pass.md).
@@ -269,7 +270,7 @@ typedef struct {
 
 static CRITICAL_SECTION g_lock;
 static snapshot_t g_snap;
-static unsigned g_published_tick = ~0u;
+static forge_liveness_t g_liveness;
 static char g_last[160];
 static unsigned g_last_id;
 
@@ -1943,8 +1944,9 @@ __declspec(dllexport) int mjolnir_forge_channel(void *L) { (void)L; return comma
 __declspec(dllexport) int mjolnir_forge_rotate_left(void *L) { (void)L; return command(CMD_ROTATE_LEFT); }
 __declspec(dllexport) int mjolnir_forge_rotate_right(void *L) { (void)L; return command(CMD_ROTATE_RIGHT); }
 
-// Write forge_state.txt when the simulation thread has seen a new tick since
-// the last call: `key=value` lines. `forge=0` once ticks stop (no Forge game).
+// Write forge_state.txt as `key=value` lines. A 100ms asynchronous poll may
+// miss a simulation tick during a hitch; keep Forge live until snapshots
+// have stopped advancing for 1s, then publish `forge=0` (no Forge game).
 // When the palettes changed, forge_palette.txt first: one line per entry,
 // `palette<TAB>entry<TAB>group<TAB>tag<TAB>placeable<TAB>placed<TAB>maximum
 // <TAB>price` (maximum 0: no quota); the state's
@@ -1957,8 +1959,7 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     EnterCriticalSection(&g_lock);
     snapshot_t s = g_snap;
     LeaveCriticalSection(&g_lock);
-    int live = s.tick != g_published_tick;
-    g_published_tick = s.tick;
+    int live = forge_snapshot_live(&g_liveness, s.tick, GetTickCount64());
     if (s.rows_version != g_rows_published) {
         static char list[MAX_ROWS * 384];
         size_t used = 0;
@@ -2023,7 +2024,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         g_snap.player = -1;
         g_snap.held = g_snap.cursor = 0xffffffffu;
         g_snap.selected = -1;
-        g_published_tick = 0;
         derive_paths(module);
         set_status("loaded, not installed");
     }

@@ -15,16 +15,41 @@ local function object(name)
         GetAddress = function(self) return self.address end }
 end
 local world = object("World")
-package.preload.UEHelpers = function() return { GetWorld = function() return world end } end
+package.preload.UEHelpers = function() error("light polling must not use scanning shared UEHelpers") end
+FindAllOf = function() error("light polling must not scan the global object array") end
 FName = function(s) return s end
 local classes, actors, created, destroyed = {}, {}, {}, 0
-StaticFindObject = function(path) return classes[path] end
+local nativeLookups, classResolves, engineLookups = {}, {}, 0
+local controller = object("controller")
+function controller:GetWorld() return world end
+local engine = object("GameEngine")
+engine.GameViewport = { GameInstance = { LocalPlayers = { { PlayerController = controller } } } }
+FindFirstOf = function(name)
+    eq(name, "GameEngine")
+    engineLookups = engineLookups + 1
+    return engine
+end
+StaticFindObject = function(path)
+    assert(path:match("^/Script/"), "Blueprint lookup must use the engine asset resolver")
+    nativeLookups[path] = (nativeLookups[path] or 0) + 1
+    return classes[path]
+end
 local function installClass(path) classes[path] = object(path); return classes[path] end
 installClass("/Script/BlamSynchronization.BlamObjectSynchronizationComponent")
 installClass("/Script/Engine.PointLightComponent")
+local ksl = installClass("/Script/Engine.Default__KismetSystemLibrary")
+function ksl:MakeSoftClassPath(path) return { path = path } end
+function ksl:Conv_SoftClassPathToSoftClassRef(softPath) return { reference = softPath.path } end
+function ksl:LoadClassAsset_Blocking() error("light polling must not load Blueprint assets") end
+function ksl:Conv_SoftClassReferenceToClass(reference)
+    local path = assert(reference.reference)
+    classResolves[path] = (classResolves[path] or 0) + 1
+    return classes[path]
+end
 local gs = installClass("/Script/Engine.Default__GameplayStatics")
 local lastOutput
 function gs:GetAllActorsOfClass(_, cls, out)
+    eq(cls, classes[cls.name]) -- never pass a stale/reloaded Blueprint class
     if lastOutput then eq(out, lastOutput) end
     eq(next(out), nil)
     lastOutput = out
@@ -75,7 +100,14 @@ eq(light.position.X, 100); eq(light.position.Y, 35); eq(light.position.Z, 310)
 eq(light.Mobility, 2); eq(light.IntensityUnits, 1); eq(light.bUseInverseSquaredFalloff, true)
 eq(light.intensity, 70); eq(light.radius, 800); eq(light.color.G, 0.05)
 eq(light.shadows, false); eq(light.visible, true); eq(light.hidden, false)
+local resolvedBefore = classResolves[path]
 eq(manager:tick(), 1); eq(#created, 1) -- moving the parent needs no new lamp
+eq(classResolves[path], resolvedBefore + 1) -- fresh lookup, not a cached Blueprint wrapper
+eq(engineLookups, 1) -- the process engine is cached; current world is not
+for _, native in ipairs({ "/Script/Engine.Default__KismetSystemLibrary", "/Script/Engine.Default__GameplayStatics",
+    "/Script/Engine.PointLightComponent", "/Script/BlamSynchronization.BlamObjectSynchronizationComponent" }) do
+    eq(nativeLookups[native], 1)
+end
 first.sync.BlamObjectIndex = -1
 eq(manager:tick(), 0); eq(destroyed, 1) -- pooled, still-valid actor has no light
 first.sync.BlamObjectIndex = 4294967295
@@ -101,9 +133,38 @@ end
 departingLight.IsValid = staleAccess
 departingLight.K2_DestroyComponent = staleAccess
 world = object("World") -- same name, new object: forget old wrappers
+controller.IsValid = staleAccess
+controller.GetWorld = staleAccess
+controller = object("new controller")
+function controller:GetWorld() return world end
+engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController = controller
 local before = destroyed
 eq(manager:tick(), 1); eq(destroyed, before)
 eq(staleTouches, 0) -- also detect accesses whose Lua errors were swallowed
+eq(engineLookups, 1)
+-- An absent class may load later without travel. A class with no live actors
+-- can also be collected and replaced while the SAME world remains active.
+local absentPath = "/Game/MJOLNIR/Forge/foundry/BP_light_strip.BP_light_strip_C"
+local extra = { id = "light_strip", tag = "objects\\mjolnir\\forge\\foundry\\light_strip", light = spec }
+pack.forge_pack.blocks[#pack.forge_pack.blocks + 1] = extra
+manager:setInventory(inventory)
+eq(manager:tick(), 1)
+local absentBefore = classResolves[absentPath]
+installClass(absentPath)
+eq(manager:tick(), 1)
+eq(classResolves[absentPath], absentBefore + 1)
+local oldAbsentClass = classes[absentPath]
+oldAbsentClass.IsValid = staleAccess
+installClass(absentPath)
+actors[absentPath] = { actor("new strip") }
+eq(manager:tick(), 2)
+eq(staleTouches, 0)
+pack.forge_pack.blocks[2] = nil
+manager:setInventory(inventory)
+eq(manager:tick(), 1)
+-- Output storage is shared across classes and contains no actor references
+-- between calls. Changing inventory cannot accumulate retained out tables.
+eq(next(lastOutput), nil)
 actors[path] = {}
 for n = 1, 70 do actors[path][n] = actor(string.format("lamp%03d", n)) end
 eq(manager:tick(), 64)
@@ -124,6 +185,14 @@ end
 world = nil
 eq(manager:tick(), 0)
 eq(staleTouches, 0)
+-- Viewport/local-player gaps during travel must return no world without
+-- scanning controllers or touching a cached departing controller.
+local savedViewport = engine.GameViewport
+engine.GameViewport = nil
+eq(manager:tick(), 0)
+engine.GameViewport = { GameInstance = { LocalPlayers = {} } }
+eq(manager:tick(), 0)
+engine.GameViewport = savedViewport
 world = object("World")
 local broken = actor("cannot_attach"); broken.failAttach = true
 actors[path] = { broken }

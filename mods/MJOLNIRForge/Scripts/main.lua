@@ -121,6 +121,23 @@ local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
 end
 
+-- Report game-thread work through the same bounded channel as the other
+-- mods. Otherwise the hitch log misleadingly says "none of our timed loops"
+-- when a Forge light scan or HUD update stalls a frame.
+local function reportWork(name, started)
+    local took = os.clock() - started
+    if took < 0.001 then return end
+    pcall(function()
+        local mod = rawget(_G, "ModRef")
+        local work = mod:GetSharedVariable("MJOLNIR.work")
+        work = type(work) == "string" and work or ""
+        if #work < 4000 then
+            mod:SetSharedVariable("MJOLNIR.work",
+                string.format("%s%.3f|Forge|%s|%.0f;", work, started, name, took * 1000))
+        end
+    end)
+end
+
 local function readFile(path, limit)
     local f = io.open(path, "rb")
     if not f then return nil end
@@ -407,6 +424,7 @@ end
 local lastLayoutNotice, layoutWarning = nil, nil
 local warningGeneration = 0
 local function render(s, title, palette)
+    local started = os.clock()
     local identity = s.layout_id or s.layout
     if identity ~= lastLayoutNotice then
         lastLayoutNotice = identity
@@ -427,6 +445,7 @@ local function render(s, title, palette)
     end
     local drawn = Hud.render(s, keys, title, palette, selectedRow(s, palette))
     showPanel(layoutWarning or (not drawn and describe(s, keys, palette) or nil))
+    reportWork("HUD", started)
 end
 
 local lastStatus = nil
@@ -445,9 +464,11 @@ ExecuteInGameThreadWithDelay(5000, function()
             lightTicks, lightQueued = 0, true
             refreshPackInventory()
             ExecuteInGameThread(function()
+                local started = os.clock()
                 local ok, err = pcall(function() Lights:tick() end)
                 if not ok and not lightError then log("pack lights: " .. tostring(err)) end
                 lightError, lightQueued = not ok, false
+                reportWork("pack lights", started)
             end)
         end
         pcall(native.pump)

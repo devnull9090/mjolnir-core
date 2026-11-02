@@ -38,32 +38,64 @@ local function unwrap(object)
     return object
 end
 local function engineAdapter()
-    local reported, hit, actorOutputs = {}, {}, {}
+    local reported, hit, actorOutput, nativeObjects = {}, {}, {}, {}
+    local engine
     local function report(key, message)
         if reported[key] then return end
         reported[key] = true
         print("[MJOLNIR Forge] pack lights: " .. message .. "\n")
     end
-    local function class(path)
-        -- A Blueprint class can be freed with its level package. Even
-        -- IsValid on a cached UE4SS wrapper may touch freed native memory.
-        -- Resolve classes/default objects afresh on the current game thread.
+    local function nativeObject(path)
+        -- These /Script classes and CDOs live for the process. Never put a
+        -- Blueprint or a world-owned object in this cache: even IsValid on
+        -- its wrapper can dereference freed memory after package GC.
+        assert(path:match("^/Script/"), "only native objects may be cached")
+        local kept = nativeObjects[path]
+        if valid(kept) then return kept end
         local found = StaticFindObject(path)
+        if valid(found) then nativeObjects[path] = found; return found end
+        return nil
+    end
+    local function blueprintClass(path)
+        local ksl = nativeObject("/Script/Engine.Default__KismetSystemLibrary")
+        if not ksl then return nil end
+        -- UE4SS's string StaticFindObject scans the entire UObject array:
+        -- four light classes cost 60-80 ms every half second on RWC. The
+        -- engine's nonloading soft-class conversion takes <1 ms for an
+        -- already loaded class. Never load pack assets early in the frontend
+        -- or during travel. Resolve afresh; no Blueprint wrapper is retained
+        -- across polls, pooling, same-world GC or map travel.
+        local found = ksl:Conv_SoftClassReferenceToClass(
+            ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
         return valid(found) and found or nil
     end
+    local function world()
+        if not valid(engine) then
+            engine = FindFirstOf("GameEngine")
+            if not valid(engine) then return nil end
+        end
+        -- The shared UEHelpers.GetWorld calls FindAllOf(PlayerController)
+        -- on every invocation. Follow the current local player instead,
+        -- retaining only the process-lifetime engine, never the controller.
+        local ok, current = pcall(function()
+            local pc = engine.GameViewport.GameInstance.LocalPlayers[1].PlayerController
+            return valid(pc) and pc:GetWorld() or nil
+        end)
+        return ok and current or nil
+    end
     return {
-        world = function() return require("UEHelpers").GetWorld() end,
+        world = world,
         key = function(object) return object:GetFullName() .. ":" .. tostring(object:GetAddress()) end,
         valid = valid,
         report = report,
         actors = function(world, path)
-            local cls = class(path)
-            local gs = class("/Script/Engine.Default__GameplayStatics")
+            local cls = blueprintClass(path)
+            local gs = nativeObject("/Script/Engine.Default__GameplayStatics")
             if not (cls and gs) then return {} end
             -- Like FHitResult below, UE4SS retains out-parameter tables.
-            -- Keep one per class, empty between calls so it holds no actors.
-            local out, actors = actorOutputs[path] or {}, {}
-            actorOutputs[path] = out
+            -- One reusable table serves every class and inventory revision;
+            -- it is empty between calls and holds no world-owned actors.
+            local out, actors = actorOutput, {}
             gs:GetAllActorsOfClass(world, cls, out)
             for i, actor in ipairs(out) do
                 actors[#actors + 1] = unwrap(actor)
@@ -75,8 +107,8 @@ local function engineAdapter()
             if not valid(actor) or actor.bHidden then return false end
             -- Deleted Blam actors can remain pooled Unreal objects. Only
             -- an actor currently bound to a simulation object is a lamp.
-            local cls = class("/Script/BlamSynchronization.BlamObjectSynchronizationComponent")
-                or class("/Script/BlamEngine.BlamObjectSynchronizationComponent")
+            local cls = nativeObject("/Script/BlamSynchronization.BlamObjectSynchronizationComponent")
+                or nativeObject("/Script/BlamEngine.BlamObjectSynchronizationComponent")
             if not cls then return false end
             for _, item in ipairs(actor:K2_GetComponentsByClass(cls) or {}) do
                 local c = unwrap(item)
@@ -86,7 +118,7 @@ local function engineAdapter()
             return false
         end,
         create = function(actor, spec)
-            local cls = class("/Script/Engine.PointLightComponent")
+            local cls = nativeObject("/Script/Engine.PointLightComponent")
             if not cls or not valid(actor.RootComponent) then return nil end
             local c = actor:AddComponentByClass(cls, true, {
                 Rotation = { X = 0, Y = 0, Z = 0, W = 1 },

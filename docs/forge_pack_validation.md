@@ -262,3 +262,43 @@ test packs and maps. Played layouts were retained in the ignored
 
 Formal guardrail-impact and two-car passing tests, published Hub installation
 and second-machine play remain pending for these candidates.
+
+### Roadworks frame-time investigation
+
+The user's later RWC session exposed repeated hitches and a flashing Forge
+HUD. At 2560 × 1440, process 35964 recorded 954 hitches over 5 minutes
+55 seconds: median frame time 5 ms, p95 8 ms, p99 91 ms and worst 190 ms.
+The largest recurring stalls coincided with the half-second pack-light poll.
+
+Direct timing isolated the cost: the shared world lookup took about 20 ms,
+and each of four Blueprint `StaticFindObject` lookups took 15–16 ms.
+Actor enumeration and four active-actor checks together took only 0–1 ms.
+The final adapter follows the current local player through the process's
+`GameEngine` and resolves Blueprint classes afresh through the nonloading
+`Conv_SoftClassReferenceToClass` conversion. It caches only native classes
+and defaults, never Blueprint classes or departing controllers, and does
+not load pack assets in the frontend or during travel. The combined lookup
+probe measured 0–1 ms warmed, with an initial 5 ms result.
+
+The HUD flashing was a separate consequence of the stall: a native 100 ms
+poll advertised `forge=0` whenever it saw no new simulation snapshot.
+It now allows one second without progress before declaring Forge inactive;
+repeated polls cannot extend that deadline. Forge HUD and pack-light work
+also report through `MJOLNIR.work`, so future hitch logs can attribute their
+cost. The focused light suite passed 1,531 checks and the native suites
+passed 1,788 checks, including the heartbeat timeout and wrap boundaries.
+
+The user's 66-object layout was saved, preserved and loaded again in cold
+process 48988. With the Monitor palette visible at the same 2560 × 1440
+quality settings, a 61-second sample covered 9,815 frames: median 6 ms,
+p95 7 ms, p99 7 ms and worst 34 ms. It recorded 21 hitches, all below 50 ms;
+the recurring 90 ms stalls were absent in this window. Pack-light work
+averaged 0.5 ms per second, with a worst individual run of 1 ms. Four
+7,000 cd point-light components still reported `visible=true`.
+
+A separate 45.0456-second state-file sample contained 712 valid `forge=1`
+observations and no `forge=0` observations; five partial reads were ignored.
+This is a short, roughly one-minute performance check with a different
+camera position from the user's baseline, not a claim of zero hitches or
+long-session performance. The game was left open in Monitor mode for the
+user with the saved layout loaded.
