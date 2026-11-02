@@ -23,13 +23,15 @@ MAPS = {
               "source": "blank/forge_canvas.level.json", "bsp": "blank.sbsp",
               "size": "large", "players": "1-16", "dimensions": [64, 64, 1]},
     "crossline": {"code": "FRB", "slug": "crossline", "name": "Crossline",
-                  "source": "crossline/crossline.level.json", "bsp": "arena.sbsp",
-                  "size": "small", "players": "2-8", "dimensions": [24, 40, 1]},
+                  "source": "crossline/crossline.level.json", "bsp": "crossline.sbsp",
+                  "collision_dir": "forge-packs/foundry-wide/build/canvas",
+                  "readme": "forge-maps/crossline/README.md", "version": "0.2.0",
+                  "size": "small", "players": "2-8", "dimensions": [48, 80, 1]},
     "roadworks": {"code": "RWC", "slug": "roadworks-circuit", "name": "Roadworks Circuit",
                   "source": "roadworks/roadworks_circuit.level.json", "bsp": "circuit.sbsp",
                   "collision_dir": "forge-packs/roadworks/build/canvas",
                   "readme": "forge-maps/roadworks/README.md", "vehicles": True,
-                  "size": "large", "players": "1-8", "dimensions": [160, 160, 1]},
+                  "version": "0.2.0", "size": "large", "players": "1-8", "dimensions": [320, 320, 1]},
 }
 
 
@@ -161,7 +163,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--paks", type=Path, required=True, help="Read-only game + CE runtime + required Forge pack container view")
     parser.add_argument("--runtime", required=True, help="Tested CE runtime version range, e.g. ^1.17.0")
-    parser.add_argument("--version", default="0.1.0")
+    parser.add_argument("--version", help="Override each map's release version (Crossline/Roadworks 0.2.0; Forge Canvas 0.1.0)")
     parser.add_argument("--only", choices=MAPS)
     parser.add_argument("--cli", type=Path, default=ROOT / "target/debug/mjolnir.exe")
     parser.add_argument("--world", type=Path, default=ROOT / "defs/level/empty_world.umap")
@@ -173,7 +175,7 @@ def main():
     signing.add_argument("--sign", action="store_true")
     signing.add_argument("--sign-seed", type=Path)
     args = parser.parse_args()
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", args.version) or len(args.version) > 96:
+    if args.version is not None and (not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", args.version) or len(args.version) > 96):
         parser.error("--version must be a Hub semantic version without build metadata, at most 96 characters")
     if not args.runtime.strip() or len(args.runtime) > 120:
         parser.error("--runtime must name the tested dependency range (1–120 characters)")
@@ -228,6 +230,7 @@ def main():
 
     archives = []
     for key, spec, source, bsp, level in inputs:
+        version = args.version or spec.get("version", "0.1.0")
         staging = output / key
         staging.mkdir()
         snapshot = staging / source.name
@@ -238,9 +241,9 @@ def main():
             "--standalone", spec["code"], "--bsp", f"8={bsp.resolve()}",
             "--world", args.world.resolve(), "--out-dir", staging)
         unchanged(fingerprints)
-        archive = output / f"{spec['slug']}-{args.version}.mjolnir"
+        archive = output / f"{spec['slug']}-{version}.mjolnir"
         command = [args.cli, "map", "pack", staging, "--code", spec["code"],
-                   "--version", args.version, "--slug", spec["slug"], "--name", spec["name"],
+                   "--version", version, "--slug", spec["slug"], "--name", spec["name"],
                    "--summary", level["description"], "--runtime", args.runtime,
                    "--size", spec["size"], "--players", spec["players"],
                    "--vehicles", str(spec.get("vehicles", False)).lower(),
@@ -250,7 +253,7 @@ def main():
         if args.sign_seed:
             command.extend(["--sign-seed", args.sign_seed.resolve()])
         run(*command)
-        archives.append(verify_archive(archive, spec, level, args.version, args.runtime,
+        archives.append(verify_archive(archive, spec, level, version, args.runtime,
                                        bool(args.sign or args.sign_seed)))
         print(f"Verified {archive} ({archives[-1]['bytes']:,} bytes)", flush=True)
     unchanged(fingerprints)

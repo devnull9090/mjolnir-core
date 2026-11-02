@@ -136,7 +136,7 @@ def main():
     gray = material('Studio / secondary',{'base_color':[.42,.53,.57,1],'metallic':0,'roughness':.8})
     ground = mesh_object('Ground',box(65,42,.1,z=-.25),studio)
     ground.data.materials.append(backdrop)
-    scale = .34
+    scale = .17
     for index,(model,piece) in enumerate(models):
         x,y = (index%5-2)*11,(.5-index//5)*14
         vertices = piece['collision']['vertices']
@@ -147,11 +147,11 @@ def main():
         card.data.materials.append(cards)
         name = piece['name'].replace(' + Rails','')
         label(name.upper(),x-4.8,y-5,.4,white,studio)
-        subtitle = 'GUARDED / 1 m RAIL' if piece['road']['guardrail_height_m'] else 'OPEN / 8 m CLEAR'
+        subtitle = 'GUARDED / 1.5 m RAIL' if piece['road']['guardrail_height_m'] else 'OPEN / 16 m CLEAR'
         label(subtitle,x-4.8,y-5.75,.3,mats['amber'],studio)
     label('ROADWORKS',-26.8,17.2,1.8,white,studio)
     label('10 ORIGINAL ROAD PIECES  /  ALL SHOWN AT THE SAME SCALE',-26.6,15.8,.44,mats['amber'],studio)
-    label('8 m CLEAR ROAD  /  12 + 24 m STRAIGHTS  /  R20 CURVES  /  24 m EASED RAMP',-26.6,-16.2,.42,white,studio)
+    label('16 m CLEAR ROAD  /  24 + 48 m STRAIGHTS  /  R40 CURVES  /  48 m EASED RAMP',-26.6,-16.2,.42,white,studio)
     label('Actual Blender meshes. Entry-anchored origins; flush deck edges; separate convex curve slices.',-26.6,-17.15,.34,gray,studio)
     camera_data = bpy.data.cameras.new('Contact sheet camera')
     camera = bpy.data.objects.new('Contact sheet camera',camera_data)

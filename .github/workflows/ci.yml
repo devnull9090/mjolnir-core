@@ -172,6 +172,7 @@ jobs:
       - name: Validate original Forge pack geometry and connectors
         run: |
           python forge-packs/foundry/validate.py
+          python forge-packs/foundry-wide/validate.py
           python forge-packs/roadworks/validate.py
 
       - name: Ensure no secrets in repo

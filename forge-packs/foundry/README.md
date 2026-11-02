@@ -75,8 +75,11 @@ emission, while actual in-game illumination comes from the attached point light.
 
 [Forge Canvas and Crossline](../../forge-maps/README.md) use this pack in
 standalone map builds. Forge Canvas provides a blank 64 × 64 m construction
-deck. Crossline is a 24 × 40 m Red versus Blue arena with raised bases, ramps,
-walkways, two-way teleporters and team lights. Their editable level JSON,
+deck. Crossline began as a 24 × 40 m Red versus Blue arena with raised bases,
+ramps, walkways, two-way teleporters and team lights. Crossline 0.2 expands to
+48 × 80 m using the separate [Foundry Wide](../foundry-wide/README.md)
+structural pack; its portal and light pieces still use original Foundry.
+Existing Foundry geometry remains unchanged. Their editable level JSON,
 rebuild commands and current distribution status are documented alongside
 the maps. [Crossline's Blender preview](../../forge-maps/art/crossline.png)
 renders those exact placements with authoring materials; it is not a game

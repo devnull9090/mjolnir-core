@@ -2,7 +2,7 @@
 
 Every asset is anchored at its entry floor, with flow initially along +Y.
 Road top is 0.5 m above the origin. Connector forward vectors indicate flow
-at BOTH ends (not outward socket normals). Curves turn left about (-20,0).
+at BOTH ends (not outward socket normals). Curves turn left about (-40,0).
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "0.1.0"
-WIDTH, CLEAR_WIDTH, THICKNESS, RADIUS = 8.8, 8.0, 0.5, 20.0
+VERSION = "0.2.0"
+WIDTH, CLEAR_WIDTH, THICKNESS, RADIUS = 17.6, 16.0, 0.5, 40.0
+RAIL_HEIGHT = 1.5
 MATERIALS = {
     "concrete": {"base_color": [0.37, 0.40, 0.39, 1], "metallic": 0.05, "roughness": 0.78},
     "gunmetal": {"base_color": [0.075, 0.105, 0.12, 1], "metallic": 0.72, "roughness": 0.38},
@@ -60,16 +61,16 @@ def component(geometry, material):
 
 
 def ramp_height(y):
-    """4 m rise, flat 2 m ends, 4 m cosine slope easements, max grade 25%."""
-    if y <= 2:
+    """4 m rise, flat 4 m ends, 8 m cosine slope easements, max grade 12.5%."""
+    if y <= 4:
         return 0.5
-    if y <= 6:
-        t = (y-2)/4
+    if y <= 12:
+        t = (y-4)/8
         return 0.5 + 0.5*(t - math.sin(math.pi*t)/math.pi)
-    if y <= 18:
-        return 1.0 + (y-6)*0.25
-    if y <= 22:
-        t = (y-18)/4
+    if y <= 36:
+        return 1.0 + (y-12)*0.125
+    if y <= 44:
+        t = (y-36)/8
         return 4.0 + 0.5*(t + math.sin(math.pi*t)/math.pi)
     return 4.5
 
@@ -85,7 +86,7 @@ def path(kind):
                         [math.cos(t), math.sin(t), 0])
                 for t in (math.radians(degrees)*i/segments for i in range(segments+1))]
     return [section([0,y,ramp_height(y)], [1,0,0])
-            for y in (0,2,3,4,5,6,18,19,20,21,22,24)]
+            for y in (0,4,6,8,10,12,36,38,40,42,44,48)]
 
 
 def connector(ident, s):
@@ -100,18 +101,18 @@ def build_piece(kind, guarded):
     sections = path(kind)
     hulls, visual = [], []
     # Flush, continuous lane/shoulder stripes share the exact travel plane.
-    bands = [(-4.4,-4,"gunmetal"), (-4,-3.85,"amber"), (-3.85,-.075,"deck"),
-             (-.075,.075,"amber"), (.075,3.85,"deck"), (3.85,4,"amber"),
-             (4,4.4,"gunmetal")]
+    bands = [(-8.8,-8,"gunmetal"), (-8,-7.7,"amber"), (-7.7,-.15,"deck"),
+             (-.15,.15,"amber"), (.15,7.7,"deck"), (7.7,8,"amber"),
+             (8,8.8,"gunmetal")]
     for a, b in zip(sections, sections[1:]):
         hulls.append(prism(a,b,-WIDTH/2,WIDTH/2,-THICKNESS,0))
         visual.append(component(prism(a,b,-WIDTH/2,WIDTH/2,-THICKNESS,-.035), "concrete"))
         visual.extend(component(prism(a,b,left,right,-.035,0), mat) for left,right,mat in bands)
         if guarded:
-            for left, right in ((-4.4,-4),(4,4.4)):
-                hulls.append(prism(a,b,left,right,0,1))
-                visual.append(component(prism(a,b,left,right,0,.92), "gunmetal"))
-                visual.append(component(prism(a,b,left,right,.92,1), "amber"))
+            for left, right in ((-8.8,-8),(8,8.8)):
+                hulls.append(prism(a,b,left,right,0,RAIL_HEIGHT))
+                visual.append(component(prism(a,b,left,right,0,RAIL_HEIGHT-.08), "gunmetal"))
+                visual.append(component(prism(a,b,left,right,RAIL_HEIGHT-.08,RAIL_HEIGHT), "amber"))
     vertices, triangles = [], []
     for hull in hulls:
         offset = len(vertices)
@@ -121,23 +122,23 @@ def build_piece(kind, guarded):
     maximum = [max(v[i] for v in vertices) for i in range(3)]
     dims = rounded([maximum[i]-minimum[i] for i in range(3)])
     road = {"clear_width_m": CLEAR_WIDTH, "deck_width_m": WIDTH,
-            "deck_thickness_m": THICKNESS, "guardrail_height_m": 1 if guarded else 0,
+            "deck_thickness_m": THICKNESS, "guardrail_height_m": RAIL_HEIGHT if guarded else 0,
             "connector_convention": "flow_tangent_at_both_ends",
             "connectors": [connector("entry",sections[0]), connector("exit",sections[-1])],
             "sections": sections}
     if kind.startswith("curve"):
         road.update(centerline_radius_m=RADIUS, turn_degrees=int(kind.split("_")[1]),
                     segment_count=len(sections)-1)
-        name, category = f"Curve {road['turn_degrees']} / R20", "curves"
+        name, category = f"Curve {road['turn_degrees']} / R40", "curves"
         notes = "Left turn; annular convex slices preserve the open inside. Endpoint metadata is authoritative."
     elif kind.startswith("straight"):
         road["run_m"] = int(kind.split("_")[1])
         name, category = f"Straight {road['run_m']} m", "roads"
-        notes = "Level road with flush amber lane markings and 0.4 m shoulders."
+        notes = "Level road with flush amber lane markings and 0.8 m shoulders."
     else:
-        road.update(run_m=24, rise_m=4, flat_end_m=2, max_grade=0.25, easing_run_m=4)
-        name, category = "Eased Ramp 24 / +4 m", "ramps"
-        notes = "Flat 2 m ends, cosine slope easements, maximum 25% grade. Reverse-connect the high end for descent."
+        road.update(run_m=48, rise_m=4, flat_end_m=4, max_grade=0.125, easing_run_m=8)
+        name, category = "Eased Ramp 48 / +4 m", "ramps"
+        notes = "Flat 4 m ends, cosine slope easements, maximum 12.5% grade. Reverse-connect the high end for descent."
     return {"id": kind + ("_guarded" if guarded else ""),
             "name": name + (" + Rails" if guarded else ""), "category": category,
             "dimensions_m": dims, "snap_m": 0.5, "origin": "entry_floor",
@@ -151,7 +152,7 @@ def build():
             "license": "MIT", "module_m": 0.5, "materials": MATERIALS,
             "pieces": [build_piece(kind, guarded)
                        for guarded in (False, True)
-                       for kind in ("straight_12", "straight_24", "curve_45", "curve_90", "ramp_24")]}
+                       for kind in ("straight_24", "straight_48", "curve_45", "curve_90", "ramp_48")]}
 
 
 def write_sources():
@@ -163,7 +164,7 @@ def write_sources():
               for piece in source["pieces"]]
     catalog = {"schema_version": 1, "name": "Roadworks", "version": VERSION, "type": "content",
                "license": "MIT", "summary": "Warthog-scale modular racing roads, curves and eased ramps.",
-               "description": "Ten original 8 m clear roads with 12/24 m straights, R20 curves, eased ramps and optional guardrails.",
+               "description": "Ten original 16 m clear roads with 24/48 m straights, R40 curves, eased ramps and optional 1.5 m guardrails.",
                "forge_pack": {"schema_version": 1, "id": "roadworks", "blocks": blocks}}
     (ROOT / "catalog.json").write_text(json.dumps(catalog, indent=2)+"\n", encoding="utf-8")
     return source

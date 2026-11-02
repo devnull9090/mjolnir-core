@@ -64,70 +64,75 @@ def barrier(level, axis, coordinate, start, end):
 
 def circuit():
     catalog = json.loads((REPO / "forge-packs/roadworks/catalog.json").read_text())
+    if catalog["version"] != "0.2.0":
+        raise ValueError("The enlarged circuit requires Roadworks 0.2.0")
     blocks = {b["id"]: b for b in catalog["forge_pack"]["blocks"]}
-    level = common.base("roadworks_circuit", "Roadworks Circuit", 160, 160, ["slayer", "forge"])
+    level = common.base("roadworks_circuit", "Roadworks Circuit", 320, 320, ["slayer", "forge"])
     level["description"] = (
-        "A Warthog test circuit with 8 m lanes, 12/24 m straights, R20 curves, a gradual 4 m climb "
-        "and a connected vehicle test pad. Guarded roads stand 3 m above a 160 m recovery deck.")
+        "A Warthog test circuit with 16 m lanes, 24/48 m straights, R40 curves, a gradual 4 m climb "
+        "and a connected vehicle test pad. Guarded roads stand 3 m above a 320 m recovery deck.")
     level["blam"]["world_bounds"] = [{"bsp": 8,
-        "min": [-96 / 3.048, -96 / 3.048, -8 / 3.048],
-        "max": [96 / 3.048, 96 / 3.048, 64 / 3.048]}]
+        "min": [-192 / 3.048, -192 / 3.048, -8 / 3.048],
+        "max": [192 / 3.048, 192 / 3.048, 64 / 3.048]}]
     level["blam"]["forge_packs"].append({"slug": "roadworks", "version": catalog["version"],
         "blocks": [{"id": b["id"], "tag": b["tag"]} for b in blocks.values()]})
     # Keep the recovery floor visually distinct from the actual road surface.
     level["decor"][0]["tint"] = [.095, .12, .135, 1]
-    common.grid(level, 160, 160, 8)
-    position, forward = [44, -36, 3], [0, 1, 0]
+    common.grid(level, 320, 320, 16)
+    position, forward = [88, -72, 3], [0, 1, 0]
     sequence = [
-        ("straight_24_guarded", False), ("straight_24", False),
-        ("straight_12_guarded", False), ("straight_12_guarded", False),
-        ("curve_90_guarded", False),
+        ("straight_48_guarded", False), ("straight_48", False),
         ("straight_24_guarded", False), ("straight_24_guarded", False),
+        ("curve_90_guarded", False),
+        ("straight_48_guarded", False), ("straight_48_guarded", False),
         ("curve_45_guarded", False), ("curve_45_guarded", False),
-        ("straight_12_guarded", False), ("ramp_24_guarded", False),
-        ("straight_12_guarded", False), ("ramp_24_guarded", True),
+        ("straight_24_guarded", False), ("ramp_48_guarded", False),
+        ("straight_24_guarded", False), ("ramp_48_guarded", True),
         ("curve_90_guarded", False),
-        ("straight_24_guarded", False), ("straight_24_guarded", False),
+        ("straight_48_guarded", False), ("straight_48_guarded", False),
         ("curve_45_guarded", False), ("curve_45_guarded", False),
     ]
     loop = []
     for ident, reverse in sequence:
         position, forward, record = connected(level, blocks[ident], position, forward, reverse)
         loop.append(record)
-    if math.dist(position, [44, -36, 3]) > 0.00001 or math.dist(forward, [0, 1, 0]) > 0.00001:
+    if math.dist(position, [88, -72, 3]) > 0.00001 or math.dist(forward, [0, 1, 0]) > 0.00001:
         raise ValueError("Road connector changes left the circuit open")
     # The bare segment's inner side opens onto a perpendicular, guarded spur.
     # The spur ends exactly at the pit's right edge: no raised deck lips.
-    _, _, spur = connected(level, blocks["straight_24_guarded"], [39.6, 0, 3], [-1, 0, 0])
-    pad = [place(level, blocks["straight_24"], (x, -12, 2.5), 0) for x in (-6.4, 2.4, 11.2)]
-    barrier(level, "x", 48.25, -12, 12)
-    for lo, hi in [(-12, -4.4), (4.4, 12)]:
-        barrier(level, "x", 39.75, lo, hi)
-    barrier(level, "x", -10.55, -12, 12)
-    for y in (-11.75, 11.75):
-        barrier(level, "y", y, -10.8, 15.6)
-    for lo, hi in [(-12, -4.4), (4.4, 12)]:
-        barrier(level, "x", 15.35, lo, hi)
+    _, _, spur = connected(level, blocks["straight_48_guarded"], [79.2, 0, 3], [-1, 0, 0])
+    pad = [place(level, blocks["straight_48"], (x, -24, 2.5), 0) for x in (-12.8, 4.8, 22.4)]
+    # Foundry walls stay 4m long and 0.5m thick. The inside junction walls
+    # reach the deck edge so they meet the spur guards without a corner gap.
+    barrier(level, "x", 96.25, -24, 24)
+    for lo, hi in [(-24, -8.8), (8.8, 24)]:
+        barrier(level, "x", 79.45, lo, hi)
+    barrier(level, "x", -21.35, -24, 24)
+    for y in (-23.75, 23.75):
+        barrier(level, "y", y, -21.6, 31.2)
+    for lo, hi in [(-24, -8.8), (8.8, 24)]:
+        barrier(level, "x", 30.95, lo, hi)
     # Vehicle origins sit above the road so the native suspension settles.
     # Positive source Y corresponds to UE yaw -90, because vehicle forward is X.
     level["blam"]["vehicles"] = [
-        {"type": "warthog", "pos": common.ue((2.4, -3, 3.8)), "yaw": -90},
-        {"type": "warthog", "pos": common.ue((-44, 30, 3.8)), "yaw": 90},
+        {"type": "warthog", "pos": common.ue((4.8, -6, 3.8)), "yaw": -90},
+        {"type": "warthog", "pos": common.ue((-92, 60, 3.8)), "yaw": 90},
+        {"type": "warthog", "pos": common.ue((-84, 60, 3.8)), "yaw": -90},
     ]
     # The first live Spartan is beside the pit Warthog for an honest scale view.
-    for x, y, yaw in [(-1.4, -3, 0), (-5, 2, 0), (6, 6, 180), (10, -7, 90)]:
+    for x, y, yaw in [(1, -6, 0), (-10, 4, 0), (12, 12, 180), (20, -14, 90)]:
         common.spawn(level, (x, y, 3.35), yaw)
-    for x, y in [(-8, -9), (-8, 9), (13, -9), (13, 9)]:
+    for x, y in [(-16, -18), (-16, 18), (26, -18), (26, 18)]:
         common.piece(level, "light_pylon", (x, y, 3))
     # Flush paint forms a start stripe and a two-metre scale bar on the pit.
-    common.cube(level, "start_line", (44, -18, 3.012), (7.8, .18, .012), [.94, .94, .88, 1])
-    common.cube(level, "scale_2m", (-3.3, -3, 3.012), (.08, 2, .012), [1, .55, .06, 1])
-    for y in (-4, -3, -2):
-        common.cube(level, "scale_tick_" + str(y), (-3.3, y, 3.012), (.4, .06, .012), [1, .55, .06, 1])
+    common.cube(level, "start_line", (88, -36, 3.012), (15.8, .18, .012), [.94, .94, .88, 1])
+    common.cube(level, "scale_2m", (-.9, -6, 3.012), (.08, 2, .012), [1, .55, .06, 1])
+    for y in (-7, -6, -5):
+        common.cube(level, "scale_tick_" + str(y), (-.9, y, 3.012), (.4, .06, .012), [1, .55, .06, 1])
     common.validate(level)
     layout = {"schema_version": 1, "units": "metres_z_up", "surface_m": 3,
               "loop": loop, "spur": spur, "pad_object_indices": pad,
-              "lap_plan_length_m": 240 + 40 * math.pi}
+              "lap_plan_length_m": 480 + 80 * math.pi}
     return level, layout
 
 

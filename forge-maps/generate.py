@@ -4,6 +4,7 @@
 Run from any directory. JSON outputs use the level format's UE centimetres,
 including its Y/yaw reflection. Geometry remains editable in this script.
 """
+import argparse
 import json
 from pathlib import Path
 
@@ -121,7 +122,7 @@ def blank():
     return level
 
 
-def arena():
+def _arena_layout():
     level = base("crossline", "Crossline", 24, 40, ["team_slayer", "slayer", "forge"])
     level["description"] = "Red versus Blue across an enclosed, open-sky Foundry arena: raised bases, twin ramps, side walks and linked portal pads, surrounded by 9 m perimeter walls. Built for 2–8 players."
     grid(level, 24, 40, 4)
@@ -185,6 +186,37 @@ def arena():
     return level
 
 
+def widen_crossline(level):
+    """Double Crossline's plan using separate geometry, keeping every height.
+
+    Stock objects and Foundry portal/light models move to the wider layout
+    at their original sizes. Only structural tags switch to Foundry Wide.
+    This transform is deliberately local to Crossline, not a base() option.
+    """
+    wide = json.loads((REPO / "forge-packs/foundry-wide/catalog.json").read_text())
+    if wide["version"] != "0.1.0" or wide["forge_pack"]["id"] != "foundry-wide":
+        raise ValueError("Crossline 0.2 requires Foundry Wide 0.1.0")
+    replacements = {ref(b["id"]): b["tag"] for b in wide["forge_pack"]["blocks"]}
+    for section in ("objects", "player_starts", "vehicles", "weapons", "equipment"):
+        for item in level["blam"].get(section, []):
+            item["pos"][:2] = [round(value * 2, 4) for value in item["pos"][:2]]
+            if item.get("tag") in replacements:
+                item["tag"] = replacements[item["tag"]]
+    for item in level["decor"]:
+        item["pos"][:2] = [round(value * 2, 4) for value in item["pos"][:2]]
+        item["scale"][:2] = [round(value * 2, 4) for value in item["scale"][:2]]
+    level["blam"]["forge_packs"].append({"slug": "foundry-wide", "version": wide["version"],
+        "blocks": [{"id": b["id"], "tag": b["tag"]} for b in wide["forge_pack"]["blocks"]]})
+    level["description"] = (
+        "Red versus Blue across a 48 × 80 m open-sky Foundry Wide arena with broader routes and gradual ramps. "
+        "Bases remain 4.5 m high, perimeter walls 9 m, and linked portals and lights retain their original size.")
+    return level
+
+
+def arena():
+    return widen_crossline(_arena_layout())
+
+
 def validate(level):
     known = {b["tag"] for p in level["blam"]["forge_packs"] for b in p["blocks"]}
     for item in level["blam"]["objects"]:
@@ -195,7 +227,13 @@ def validate(level):
 
 
 def main():
-    for folder, level in [("blank", blank()), ("crossline", arena())]:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--only", choices=("blank", "crossline"))
+    args = parser.parse_args()
+    for folder, generate in [("blank", blank), ("crossline", arena)]:
+        if args.only and args.only != folder:
+            continue
+        level = generate()
         validate(level)
         target = ROOT / folder
         target.mkdir(exist_ok=True)

@@ -197,12 +197,13 @@ hash; both archives below were rehashed against the finished files.
 | Roadworks 0.1.0 | 601,379 | `8a5e7869a5f73866804c3f6d5abf0fe43f50baf8161ccb6116ec68b96f3f7acf` |
 | Roadworks Circuit 0.1.0 | 112,962 | `8fc7b93374ecfe054ecedfe3e36cd57b28370f43e634c2f549a3bc38ca4a869b` |
 
-The [circuit preview](../forge-maps/art/roadworks-circuit.png) is a Blender
-render of the generated level and original pack geometry. Its provenance
-receipt and the bake agree on level SHA-256
+The original 0.1 circuit preview was a Blender render of the generated level
+and original pack geometry. Its provenance receipt and the bake agreed on level SHA-256
 `44af8c27d83ad60365df3bb28c0522544d047bb9b5b195671cc694fc3dac3854`.
 The preview uses authoring materials and omits the stock Warthogs and player
-markers. It is not an in-game capture or vehicle-scale photograph. The
+markers. The [current circuit preview](../forge-maps/art/roadworks-circuit.png)
+has since been regenerated for 0.2; neither preview is an in-game capture or
+vehicle-scale photograph. The
 [scale measurements](../forge-packs/roadworks/SCALE.md) come from installed
 stock tags; no extracted stock models are shipped in the authored pack.
 
@@ -302,3 +303,134 @@ This is a short, roughly one-minute performance check with a different
 camera position from the user's baseline, not a claim of zero hitches or
 long-session performance. The game was left open in Monitor mode for the
 user with the saved layout loaded.
+
+## Roadworks 0.2 enlargement
+
+User driving feedback led to doubling the road kit's horizontal dimensions:
+16 m clear width, 24/48 m straights, R40 curves and a 48 m ramp rising 4 m.
+The ramp has a maximum 12.5% grade. Deck thickness and road elevations remain
+unchanged; guardrails increase from 1 m to 1.5 m. The circuit is now 731.33 m
+long on a 320 × 320 m recovery floor, with 22 Roadworks placements, 68 original
+Foundry half-walls, four original light pylons, four player starts and three
+stock Warthogs. That update did not resize original Foundry, Crossline or
+Forge Canvas; the subsequent Crossline enlargement is recorded below.
+
+The source validator passed 3,430 surface probes and all 196 convex hulls /
+2,352 triangles. Native collision passed 9,774 rays; the expanded canvas
+passed 13,068 probes. All ten new physics payloads were cooked and verified.
+Nine map-builder tests passed, including full 6.13 × 3.25 m vehicle footprints
+through real curve/ramp triangles and across the staged two-car straight.
+Those cars have 4.75 m between their visual envelopes and 2.375 m to each
+outer guard when centred in their lanes; these are static clearance checks.
+
+An independent read of all ten exported glTF binary POSITION buffers matched
+the source visual bounds within 1.69 micrometres, with no hidden node scale.
+The regenerated Blender circuit preview and the native bake both use level
+SHA-256 `67d21abd08ee8d2bd4c6ea2fd19586113271e0e6c1f10ebce53790754861fa66`.
+The preview omits stock vehicles and player markers. The two-metre ground
+scale bar is still two metres; stock vehicles and players are unchanged.
+
+Build `20261102T042113Z-e9c5c8b3` verified all required cooked pack bytes and
+exact palettes before packaging. The map pins Foundry and Roadworks `=0.2.0`
+and CE runtime `^1.17.0`. These remain local unsigned candidates:
+
+| Archive | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Roadworks 0.2.0 | 602,284 | `d7a22818b93a4a7914df938608d237e4dde89b6d12cffcbebc0dbfd716426d96` |
+| Roadworks Circuit 0.2.0 | 113,937 | `13c69fe1a61b1a6625acbded114c3e22f21cd3dd1c10417a72adcb9b1f4f66ce` |
+
+Crossline and Forge Canvas were installed together with a rebuilt 52-map
+menu registry. Crossline was observed running in a signed-in private Forge
+session at its existing scale for the user's playtest. No change to its
+geometry or Foundry release was made.
+
+Roadworks 0.2 was then installed with a verified backup of the previous
+release archives and active RWC layout. The fresh installation preserved
+Foundry, both other maps and the runtime performance fixes. The user reported
+the new road scale was much better. Automated driving validation of this
+enlarged release was interrupted and is not claimed by the earlier 0.1 record.
+
+## Crossline 0.2 and Foundry Wide
+
+The user's first Crossline playtest found its 24 × 40 m plan too small.
+Crossline 0.2 expands to 48 × 80 m with the separate Foundry Wide 0.1 pack.
+Wide derives the eighteen original structural pieces with X/Y doubled and Z
+unchanged: 8 × 8 m floor tiles, 4 m bridges, 8/16 m ramps with a 2 m rise,
+1 m cover, 0.25 m stair rises and 4 m doorway openings. Native model tags
+author a finite 200 m draw distance. The original Foundry pack and all stock
+player, weapon, teleporter and light shapes retain their previous dimensions.
+
+The source pins original Foundry geometry by canonical JSON SHA-256 and
+checks exact vertex transforms, unchanged topology/Z and four times the
+original hull volumes. Regeneration is deterministic. The portable validator
+passed 35 closed convex hulls / 412 collision triangles and 766 aperture,
+ramp and stair probes. Native collision passed 9,950 rays and all eighteen
+physics payloads were cooked and verified. The 48 × 80 m canvas passed
+13,068 collision probes.
+
+The map still has 204 simulation placements: 182 Wide structures, twelve
+original portal/pad/light pieces and ten gameplay markers. Eight spawn points,
+three weapons and two equipment pickups retain their original heights. Ten
+map-builder tests passed, including the continuous 9 m perimeter and corner
+overlaps, real-triangle ramp/floor joins, clear doorways, spawn support and
+portal landing clearance. Raised decks remain at 4.5 m and teleporter trigger
+dimensions and channels are unchanged. Blank and Roadworks source bytes and
+the original Foundry catalog remain unchanged.
+
+The enlarged Crossline level SHA-256 is
+`0036422121c5917b7f511ce2326fe46d565c1fc9eca80957d8c9dbea80f86203`.
+The dedicated map README, exact pack palettes and expanded canvas receipt
+are inputs to the versioned bake. Historical Crossline 0.1 gameplay photos
+remain labelled separately from new previews and live evidence.
+
+An independent audit decoded all eighteen glTF/BIN and GLB exports and the
+cooked mesh/actor/native tags. Export nodes have identity transforms and
+full-size bounds; all collision/physics/model references, restored origins,
+200 m draw distances and Blueprint references match the source. All 108
+generated package names stay in the separate `foundry-wide` namespace.
+Archive CRC, member uniqueness and exact current content bytes passed.
+
+Build `20261102T043837Z-c294c163` verified the frozen map and pack inputs and
+produced these local unsigned candidates:
+
+| Archive | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Foundry Wide 0.1.0 | 981,879 | `0d7c48b7d92f4783d8977b1bccc96fc288fd65ad3700c3d03fa92d92e6ccfef3` |
+| Crossline 0.2.0 | 115,729 | `5c1e6ed25f3ae8584a188488f4f9ddc513cfcacdad0002ae7d0242536e4a9a52` |
+
+The installation added Foundry Wide and replaced only Crossline's map data,
+preserving the previous Crossline archive and any active save pair in a fresh
+verified backup. Original Foundry, Roadworks 0.2 (including saved layouts),
+Forge Canvas and the fixed Forge runtime were hash-protected during the
+upgrade. The merged menu retains all 52 installed custom map registrations.
+
+Additional tests sampled all eight spawns and both receivers using the stock
+0.5334 m player radius, 1.9812 m standing height and 0.61 m receiver lift:
+90 support probes found the 4.5 m deck / 4.52 m pad surfaces, 90 vertical
+clearance probes and 168 horizontal body probes found no intersecting
+placement geometry. All ten map-builder tests still pass.
+
+The installed Crossline 0.2 was hosted in a signed-in private Forge session.
+An ordinary Spartan walked from the red 4.5 m deck down both ramp pieces,
+across the lower route and up both blue-side ramps onto the opposite deck.
+Live positions followed the collision surfaces: approximately 3.46 m and
+0.59 m on the descent, then 4.40 m near the top of the opposite ramp and
+4.50 m on the blue deck. No position patches or collision bypasses were used.
+Both blue-to-red and red-to-blue teleporting passed. Native teleporters
+require the player to leave a 2.5908 m rearm radius before returning through
+the arrival pad; this is unchanged native behavior.
+
+A Wide `floor_2x2` was placed, grabbed, moved, rotated to -22.5 degrees,
+dropped and saved. Deleting it and loading the save restored its exact tag,
+position and rotation. The save's sidecar bound original Foundry 0.2.0 and
+Foundry Wide 0.1.0 to the archive hashes above. The test piece was removed
+and the authored layout restored; the temporary save moved to native history.
+The game was left open in Spartan mode for the user's playtest.
+
+A bounded 7 minute 41 second frame sample during these editing/traversal
+checks recorded 67,651 frames: median 7 ms, p95 8 ms, p99 9 ms, worst 41 ms.
+All 156 recorded hitches were below 50 ms. Forge light work averaged
+0.2 ms/s, with a worst timed call of 2 ms. This is one local session, not a
+long-session or multiplayer performance claim. The existing runtime fixes
+were preserved. The new `crossline-wide-game.png` is a normal Spartan-camera
+capture with ordinary visibility culling, taken after the checks.

@@ -80,9 +80,14 @@ def chain(sequence):
 
 def main():
     source = json.loads((ROOT/'source'/'geometry.json').read_text())
-    blocks = json.loads((ROOT/'catalog.json').read_text())['forge_pack']['blocks']
+    catalog = json.loads((ROOT/'catalog.json').read_text())
+    assert catalog['version'] == '0.2.0'
+    blocks = catalog['forge_pack']['blocks']
     assert source['units']=='meters' and source['axes']=='right_handed_z_up'
     assert len(source['pieces']) == len(blocks) == 10
+    assert [p['id'] for p in source['pieces']] == [
+        ident+suffix for suffix in ('','_guarded')
+        for ident in ('straight_24','straight_48','curve_45','curve_90','ramp_48')]
     by_id, hull_count, tri_count, surface_checks = {},0,0,0
     for piece,block in zip(source['pieces'],blocks):
         ident = piece['id']
@@ -115,13 +120,16 @@ def main():
             flattened_triangles.extend([[i+offset for i in tri] for tri in hull['triangles']])
         assert flattened_vertices == vertices and flattened_triangles == piece['collision']['triangles']
         road = piece['road']
+        assert road['clear_width_m']==16 and road['deck_width_m']==17.6
+        assert road['deck_thickness_m']==.5
+        assert road['guardrail_height_m']==(1.5 if ident.endswith('_guarded') else 0)
         entry,exit = road['connectors']
         close(entry['position_m'],[0,0,.5]); close(entry['forward'],[0,1,0])
         for endpoint in (entry,exit):
-            assert endpoint['clear_width_m']==8
+            assert endpoint['clear_width_m']==16
             close([dot(endpoint['forward'],endpoint['forward'])],[1])
             close([dot(endpoint['forward'],endpoint['up'])],[0])
-            close([math.sqrt(dot(sub(*endpoint['edge_points_m']),sub(*endpoint['edge_points_m'])))],[8.8])
+            close([math.sqrt(dot(sub(*endpoint['edge_points_m']),sub(*endpoint['edge_points_m'])))],[17.6])
         stride = 3 if road['guardrail_height_m'] else 1
         sections = road['sections']
         for index,(a,b) in enumerate(zip(sections,sections[1:])):
@@ -129,7 +137,7 @@ def main():
             # Every sample on each actual faceted travel surface has solid deck
             # below and free space above, including near both guarded edges.
             for t in (0,.125,.5,.875,1):
-                for lateral in (-3.999,-3.25,-1.625,0,1.625,3.25,3.999):
+                for lateral in (-7.999,-6.5,-3.25,0,3.25,6.5,7.999):
                     points = [[s['center_m'][i]+lateral*s['right'][i] for i in range(3)] for s in (a,b)]
                     p = [points[0][i]*(1-t)+points[1][i]*t for i in range(3)]
                     assert inside([p[0],p[1],p[2]-.001],deck), (ident,index,p)
@@ -146,32 +154,45 @@ def main():
                 for rail in hulls[index*stride+1:index*stride+3]:
                     assert not inside([(a['center_m'][i]+b['center_m'][i])/2
                                        + (0.5 if i==2 else 0) for i in range(3)],rail)
+                    close([v[2] for v in rail['vertices'][4:]],
+                          [s['center_m'][2]+1.5 for s in (a,a,b,b)])
         if 'centerline_radius_m' in road:
-            assert not any(inside([-20,0,.25],h) for h in hulls), 'Curve filled its inside'
-            # Polygon strips have 8m radial clear width and >=7.99m normal width.
-            assert 8*math.cos(math.radians(road['turn_degrees']/road['segment_count']/2)) > 7.99
+            assert road['centerline_radius_m']==40
+            expected_exit = [-40,40,.5] if road['turn_degrees']==90 else [-11.715728753,28.284271247,.5]
+            close(exit['position_m'],expected_exit)
+            assert not any(inside([-40,0,.25],h) for h in hulls), 'Curve filled its inside'
+            # Polygon strips have 16m radial clear width and >=15.99m normal width.
+            assert 16*math.cos(math.radians(road['turn_degrees']/road['segment_count']/2)) > 15.99
         if 'rise_m' in road:
+            assert road['run_m']==48 and road['rise_m']==4 and road['flat_end_m']==4
+            assert road['easing_run_m']==8 and road['max_grade']==.125
             slopes = [(b['center_m'][2]-a['center_m'][2])/(b['center_m'][1]-a['center_m'][1])
                       for a,b in zip(sections,sections[1:])]
-            assert slopes[0]==slopes[-1]==0 and max(slopes)<=.25+1e-9
-            assert all(abs(a-b)<.095 for a,b in zip(slopes,slopes[1:])), slopes
-            close(exit['position_m'],[0,24,4.5])
+            assert slopes[0]==slopes[-1]==0 and max(slopes)<=.125+1e-9
+            assert all(abs(a-b)<.0475 for a,b in zip(slopes,slopes[1:])), slopes
+            close(exit['position_m'],[0,48,4.5])
+            close(sections[1]['center_m'],[0,4,.5])
+            close(sections[-2]['center_m'],[0,44,4.5])
+        elif 'run_m' in road:
+            expected_run = 24 if ident.startswith('straight_24') else 48
+            assert road['run_m']==expected_run
+            close(exit['position_m'],[0,expected_run,.5])
         hull_count += len(hulls)
         tri_count += len(piece['collision']['triangles'])
     assert len(by_id)==10
     # Actual assembler cases: a loop closes, two45s equal one90, and a ramp
     # reverse-connected from the elevated deck returns to the original height.
     for guarded in ('','_guarded'):
-        straight = by_id['straight_24'+guarded]
+        straight = by_id['straight_48'+guarded]
         curve = by_id['curve_90'+guarded]
         pos,direction,_ = chain([(p,False) for p in (straight,curve)*4])
         close(pos,[0,0,.5]); close(direction,[0,1,0])
         pos,direction,_ = chain([(by_id['curve_45'+guarded],False)]*2)
         close(pos,curve['road']['connectors'][1]['position_m'])
         close(direction,curve['road']['connectors'][1]['forward'])
-        ramp = by_id['ramp_24'+guarded]
+        ramp = by_id['ramp_48'+guarded]
         pos,direction,_ = chain([(ramp,False),(straight,False),(ramp,True)])
-        close(pos,[0,72,.5]); close(direction,[0,1,0])
+        close(pos,[0,144,.5]); close(direction,[0,1,0])
     print(f'PASS: 10 pieces; {hull_count} closed convex hulls; {tri_count} triangles; '
           f'{surface_checks} surface probes; exact inter-slice seams, closed loops and reverse ramp connectors')
 

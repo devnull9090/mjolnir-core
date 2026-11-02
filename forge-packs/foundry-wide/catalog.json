@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "name": "Foundry Wide",
+  "version": "0.1.0",
+  "type": "content",
+  "license": "MIT",
+  "summary": "18 modular structural pieces with twice Foundry's footprint and unchanged heights.",
+  "description": "A separate 4 m-module construction kit: wider platforms, bridges, ramps, walls and cover. Original Foundry maps retain their scale.",
+  "forge_pack": {
+    "schema_version": 1,
+    "id": "foundry-wide",
+    "blocks": [
+      {
+        "id": "block_1x1",
+        "name": "Wide Block 1 x 1",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\block_1x1",
+        "category": "blocks",
+        "dimensions_m": [
+          4,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "block_1x2",
+        "name": "Wide Block 1 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\block_1x2",
+        "category": "blocks",
+        "dimensions_m": [
+          4,
+          8,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_1x1",
+        "name": "Wide Floor 1 x 1",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\floor_1x1",
+        "category": "floors",
+        "dimensions_m": [
+          4,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_1x2",
+        "name": "Wide Floor 1 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\floor_1x2",
+        "category": "floors",
+        "dimensions_m": [
+          4,
+          8,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_2x2",
+        "name": "Wide Floor 2 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\floor_2x2",
+        "category": "floors",
+        "dimensions_m": [
+          8,
+          8,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "bridge_straight",
+        "name": "Wide Bridge Straight",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\bridge_straight",
+        "category": "bridges",
+        "dimensions_m": [
+          4,
+          8,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "bridge_corner",
+        "name": "Wide Bridge Corner",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\bridge_corner",
+        "category": "bridges",
+        "dimensions_m": [
+          8,
+          8,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "ramp",
+        "name": "Wide Ramp 1 : 4",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\ramp",
+        "category": "ramps",
+        "dimensions_m": [
+          4,
+          8,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "ramp_shallow",
+        "name": "Wide Ramp 1 : 8",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\ramp_shallow",
+        "category": "ramps",
+        "dimensions_m": [
+          4,
+          16,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall",
+        "name": "Wide Wall Full",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\wall",
+        "category": "walls",
+        "dimensions_m": [
+          8,
+          1.0,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall_half",
+        "name": "Wide Wall Half",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\wall_half",
+        "category": "walls",
+        "dimensions_m": [
+          8,
+          1.0,
+          1.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall_corner",
+        "name": "Wide Wall Corner",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\wall_corner",
+        "category": "walls",
+        "dimensions_m": [
+          4,
+          4,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "doorway",
+        "name": "Wide Doorway",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\doorway",
+        "category": "openings",
+        "dimensions_m": [
+          8,
+          1.0,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "window",
+        "name": "Wide Window Wall",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\window",
+        "category": "openings",
+        "dimensions_m": [
+          8,
+          1.0,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "railing",
+        "name": "Wide Railing",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\railing",
+        "category": "trim",
+        "dimensions_m": [
+          8,
+          0.5,
+          1
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "column",
+        "name": "Wide Column",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\column",
+        "category": "supports",
+        "dimensions_m": [
+          2,
+          2,
+          4
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "cover",
+        "name": "Wide Low Cover",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\cover",
+        "category": "cover",
+        "dimensions_m": [
+          4,
+          1.5,
+          1
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "stairs",
+        "name": "Wide Stairs",
+        "tag": "objects\\mjolnir\\forge\\foundry-wide\\stairs",
+        "category": "ramps",
+        "dimensions_m": [
+          4,
+          8,
+          2
+        ],
+        "snap_m": 0.5
+      }
+    ]
+  }
+}

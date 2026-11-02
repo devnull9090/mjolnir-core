@@ -10,18 +10,41 @@ The first authored set is [Foundry](../forge-packs/foundry/README.md): 24 origin
 industrial pieces on a 2 m module, with a 0.5 m suggested placement snap.
 Version 0.2 adds a portal frame, teleporter pad, light strip and three light
 pylons to the 18-piece set tested below.
-[Roadworks](../forge-packs/roadworks/README.md) is a separate vehicle kit:
-ten original road pieces with 8 m clear decks, 12/24 m straights, 45/90-degree
-curves and eased ramps, with guarded and unguarded variants. Its entry-anchored
+[Roadworks 0.2.0](../forge-packs/roadworks/README.md) is a separate vehicle kit:
+ten original road pieces with 16 m clear decks, 24/48 m straights, 45/90-degree
+curves at a 40 m centreline radius, and 48 m eased ramps rising 4 m. Guarded
+variants add 1.5 m barriers outside the lane. Its entry-anchored
 origins and connector data are documented with the sources; current Forge
 placement does not automatically snap road connectors. The Roadworks Circuit
-fixture depends on both packs and includes stock Warthogs for scale and driving.
+0.2.0 fixture depends on both packs and provides a roughly 731 m course on a
+320 m recovery deck, with three stock Warthogs for scale and passing tests.
+The enlarged source has passed geometry, connector and native collision-ray
+checks. The user reported the enlarged scale was much better; the automated
+driving review of 0.2 remains pending.
+
+Historical Roadworks 0.1.0 used 8 m lanes, 12/24 m straights, R20 curves,
+24 m ramps and 1 m rails on a roughly 366 m circuit. The larger revision
+follows playtest feedback about that kit's tight scale. Existing 0.1.0 game
+captures and driving evidence apply to that earlier geometry. Old layout
+coordinates and palette bindings require an explicit rebuild for 0.2.0;
+the exact version/hash checks below prevent silent reinterpretation.
+
+Following Crossline's first playtest, version 0.2 uses the separate
+[Foundry Wide 0.1 pack](../forge-packs/foundry-wide/README.md): eighteen
+structural pieces with twice the horizontal dimensions and unchanged heights.
+Its arena is 48 × 80 m; the raised decks remain 4.5 m high and perimeter 9 m
+high. Original Foundry portal frames, pads and lights remain player-sized.
+Separate tag names and exact dependencies preserve existing Foundry builds,
+Forge Canvas and Roadworks. Local installation does not mean these maps or
+packs have been published to the Hub.
 [Design research](forge_pack_design.md) explains the piece selection and future
-sets. A private CU4 fixture loaded and placed all 18 types, exercised movement,
+sets. A private CU4 fixture loaded and placed all 18 original Foundry 0.1 types, exercised movement,
 rotation, save/reload, restart persistence and identity refusal, and checked
 cube/floor collision, ramp climbing and the doorway opening. See
-[validation evidence and remaining checks](forge_pack_validation.md). Full visual
-and traversal review, and multiplayer behavior, remain separate checks.
+[validation evidence and remaining checks](forge_pack_validation.md). Crossline
+0.2 has also passed live ramp traversal, two-way teleporting and a Wide floor
+placement/save/reload check. Exhaustive piece-by-piece live review and
+multiplayer behavior remain separate checks.
 
 ## Release contract
 
@@ -80,7 +103,7 @@ pieces; `null` is also treated as absent):
 }
 ```
 
-Offsets are relative to the piece's bottom-centred authored origin, in the
+Offsets are relative to the piece's authored origin, in the
 same right-handed Z-up metres as its geometry. Each component must be finite
 and within −100..100 m. Linear RGB components are within 0..1. Intensity is
 positive and at most 10,000 candelas; radius is positive and at most 100 m.
@@ -160,7 +183,8 @@ builders retain prior outputs.
 
 The visual cooker writes a namespaced mesh and synchronized actor per piece.
 Blender/glTF geometry is converted to the game's units; the actor restores each
-piece's bottom-centred authored transform after mesh normalization. Actor visual
+piece's authored transform after mesh normalization: Foundry uses a bottom-centre
+origin, while Roadworks uses its entry floor. Actor visual
 collision is disabled so the simulation owns collision. The collision cooker
 builds triangle collision BSPs/MOPPs and fixed Havok polyhedra from the same
 source hulls. Composite pieces keep separate hulls so doors and windows remain
@@ -278,6 +302,8 @@ cargo test -p blam-cli forge
 cargo test --manifest-path apps/launcher/src-tauri/Cargo.toml --lib
 & native/forge/test-pack-bindings.ps1
 python forge-packs/foundry/validate.py
+python forge-packs/foundry-wide/validate.py
+python forge-packs/roadworks/validate.py
 ```
 
 Run the Hub's `npm test` and `npm run typecheck` from `hub/` when changing that

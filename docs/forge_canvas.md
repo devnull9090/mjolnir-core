@@ -13,7 +13,7 @@ cargo run -p blam-sbsp --example forge_canvas -- `
 
 cargo run -p blam-sbsp --example forge_canvas -- `
   forge-packs/foundry/build/donors/Levels/Halo1/Solo/B40/_Generated_/BSP_03_1_Chasm_old.scenario_structure_bsp `
-  forge-packs/foundry/build/canvas/arena.sbsp --width-m 24 --depth-m 40
+  forge-packs/foundry-wide/build/canvas/crossline.sbsp --width-m 48 --depth-m 80
 ```
 
 The output directory must exist. Options, all in metres:

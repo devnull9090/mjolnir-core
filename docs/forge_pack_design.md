@@ -1,6 +1,7 @@
 # Modular Forge pack design
 
-The first pack, **Foundry**, is an original 18-piece industrial construction kit.
+The first pack, **Foundry**, began as an original 18-piece industrial construction
+kit in 0.1.0; 0.2.0 adds six portal and lighting pieces for a total of 24.
 It provides a repeatable vocabulary for floors, elevation changes, enclosure,
 cover and trim. The models use no extracted Halo assets. Construction shape
 families are inspired by the usefulness of Halo's Forge palettes, not by copied
@@ -76,6 +77,21 @@ background Python automation is sufficient; no MCP update is needed for the
 generator. Generated `.blend`, GLBs, collision exports and the actual rendered
 contact sheet are kept in that folder's ignored `build/` directory.
 
+## Foundry Wide and enlarged Crossline
+
+The first Crossline playtest found the 24 × 40 m arena cramped. Crossline 0.2
+expands its footprint to 48 × 80 m using a separate eighteen-piece
+[Foundry Wide](../forge-packs/foundry-wide/README.md) structural kit. Each
+piece doubles X/Y while preserving Z: floor tiles reach 8 × 8 m, bridges are
+4 m wide, and 8/16 m ramps retain a 2 m rise. This also keeps cover at 1 m,
+stair rises at 0.25 m, deck surfaces at 4.5 m and perimeter walls at 9 m.
+
+Portal frames, landing pads, light fixtures, player shapes and weapon models
+retain their original dimensions. The larger arena spreads out their positions
+without enlarging the native teleporter trigger. Separate pack and tag names
+avoid reinterpreting existing Foundry placements in Roadworks or saved maps.
+Original Foundry 0.2 remains available alongside Foundry Wide 0.1.
+
 ## Roadworks vehicle kit
 
 The separate [Roadworks pack](../forge-packs/roadworks/README.md) provides
@@ -89,17 +105,37 @@ The installed Warthog's assembled visual envelope is approximately
 6.13 × 3.25 × 2.43 m; the Spartan's standing collision height is 1.981 m.
 [The scale audit](../forge-packs/roadworks/SCALE.md) distinguishes visible bounds,
 physics bounds and wheel contact measurements. Foundry's 2 m-wide bridges and
-ramps suit infantry. Roadworks uses an 8 m clear deck, 0.4 m shoulders,
-12/24 m straights and 20 m centreline-radius curves. Its 24 m ramp rises 4 m
-with flat ends and gentle slope transitions. Each piece has an optional guarded
-variant. Curves use separate convex slices so their inner space remains open.
+ramps suit infantry. **Roadworks 0.2.0** uses a 16 m clear deck, 0.8 m shoulders,
+24/48 m straights and 40 m centreline-radius curves. Its 48 m ramp rises 4 m,
+with 4 m flat noses, 8 m slope transitions and a maximum 12.5% grade. Each
+piece has an optional guarded variant with 1.5 m barriers outside the lane.
+Deck thickness remains 0.5 m. Curves use separate convex slices so their inner
+space remains open. The stock vehicle and player dimensions are unchanged.
+
+**Historical 0.1.0 dimensions:** 8 m clear width, 0.4 m shoulders, 12/24 m
+straights, R20 curves, 24 m ramps rising 4 m at a maximum 25% grade, and 1 m
+rails. Vehicle playtesting found that footprint too tight. Version 0.2.0 doubles
+the XY footprint and raises the rails by 0.5 m, preserving deck/ramp Z heights
+and the convex topology. Earlier game photos and driving checks document
+0.1.0; they are not evidence of driving the enlarged release.
 
 The [Roadworks Circuit](../forge-maps/README.md) connects those pieces into a
-driving fixture, including a raised section and a pit pad with stock Warthogs.
-The roads stand above the recovery floor so live driving exercises their own
-collision. Connector positions and tangents drive the assembly and are checked
+roughly 731 m driving fixture on a 320 m recovery deck, including a raised
+section and a pit pad. Three stock Warthogs provide a scale reference: one
+beside a Spartan and a true 2 m scale bar, and two facing opposite directions
+in the track lanes. Normal road surfaces remain 3 m high and the raised
+section 7 m high, so driving exercises the pieces' collision above the recovery
+floor. Connector positions and tangents drive the assembly and are checked
 for closed loops, matching edges and reversed ramp joins. This source metadata
 does not add automatic connector snapping to the current Forge editor.
+
+Offline checks cover the enlarged geometry, exact joins, two-car static
+footprint clearance and native collision rays. Updated in-game steering,
+suspension, passing and rail-contact checks remain pending. The prior 0.1.0
+fixture was roughly 366 m long on a 160 m recovery deck with two Warthogs.
+The user reported the enlarged Roadworks scale was much better. Crossline's
+subsequent enlargement uses Foundry Wide as described above; Forge Canvas
+retains its original 64 × 64 m deck and Foundry dependency.
 
 ## Further visual sets
 

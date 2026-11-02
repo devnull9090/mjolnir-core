@@ -1,7 +1,8 @@
 # Roadworks scale reference
 
-Roadworks uses metres. These references come from the installed CU4 game tags,
-read on 2026-11-01, and the repository's assembled stock Warthog mesh audit.
+Roadworks 0.2.0 uses metres and a 16 m clear roadway. These references come
+from the installed CU4 game tags, read on 2026-11-01, and the repository's
+assembled stock Warthog mesh audit.
 One Blam world unit is **3.048 m**; level JSON positions use Unreal centimetres.
 These are game measurements, not measurements of a fictional real-world vehicle.
 
@@ -32,13 +33,18 @@ The wheel contact markers are on identity node `pedestal`:
 | `vh_wheel_back_left` | `-0.620845, 0.420094, 0.222678` |
 | `vh_wheel_back_right` | `-0.620846, -0.420095, 0.222678` |
 
-An 8 m clear deck leaves about 2.375 m on each side of one centred Warthog.
-Two visual widths consume 6.5 m, leaving 1.5 m total for both outer clearances
-and the gap between vehicles. This alone does not prove comfortable two-way
-driving. Rails sit outside the nominal clear width. On the polygonal curves,
-the minimum facet-normal clearance is approximately 7.996 m.
+The original 0.1.0 kit's 8 m lane felt too tight in vehicle playtesting.
+Version 0.2.0 doubles the road XY footprint while preserving the stock vehicle
+and player dimensions. The 16 m clear deck leaves about 6.375 m on each side
+of one centred Warthog. Two visual widths consume 6.5 m, leaving 9.5 m total
+for both outer clearances and the gap between vehicles. Rails are 0.8 m thick
+and 1.5 m high, outside the nominal clear width. On the polygonal curves, the
+minimum facet-normal clearance is approximately 15.991 m. Handling and
+two-vehicle passing still need playtesting at the revised scale.
 
-The 20 m centreline curve radius is intentionally gentle. Stock steering tuning
+The 40 m centreline curve radius and 48 m ramps allow wider turns and more
+gradual climbs. Ramps rise 4 m, with 4 m level noses, 8 m easing sections and
+a maximum 12.5% grade; the road deck remains 0.5 m thick. Stock steering tuning
 allows 80 degrees at zero speed and 35 degrees at full speed; those limits are
 not measured turning radii. Likewise, the `0.25` WU friction-point radius and
 `0.125` WU ground-depth tuning do not establish static ground clearance.

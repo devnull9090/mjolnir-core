@@ -1,10 +1,16 @@
 # Roadworks modular Forge pack
 
-Roadworks **0.1.0** is an original vehicle road kit: **ten pieces**, an **8 m
-clear roadway**, **12/24 m straights**, **20 m radius curves**, and a **24 m
+Roadworks **0.2.0** is an original vehicle road kit: **ten pieces**, a **16 m
+clear roadway**, **24/48 m straights**, **40 m radius curves**, and a **48 m
 eased ramp rising 4 m**. Every shape has an open and a guarded version. The
-guarded version adds solid 1 m barriers outside the driving lane. Concrete,
+guarded version adds solid 1.5 m barriers outside the driving lane. Concrete,
 gunmetal and flush amber markings match the Foundry construction kit.
+
+The first 8 m kit felt too tight in vehicle playtesting. This revision doubles
+its XY footprint, widens the shoulders to 0.8 m and halves the ramp grade,
+while keeping the stock Warthog and player at their original game scale.
+Original Foundry and Forge Canvas retain their existing dimensions. Crossline
+has a separate enlargement using the Foundry Wide pack.
 
 ![Roadworks actual Blender models at a common scale](art/roadworks-contact-sheet.png)
 
@@ -17,8 +23,8 @@ and use the repository's MIT license.
 
 The installed Warthog's assembled visual envelope is **6.13 m long × 3.25 m
 wide × 2.43 m high**, and the standing Spartan collision height is **1.981 m**.
-One centred Warthog has about 2.375 m spare on each side of the nominal 8 m
-lane. Two visual widths leave 1.5 m in total for outer clearance and passing
+One centred Warthog has about 6.375 m spare on each side of the nominal 16 m
+lane. Two visual widths leave 9.5 m in total for outer clearance and passing
 space; driving tests determine how comfortable that feels. See the reproducible
 [installed-tag measurements](SCALE.md) for collision, wheelbase and source details.
 
@@ -27,24 +33,24 @@ space; driving tests determine how comfortable that feels. See the reproducible
 | Foundry straight bridge | 2 m | 4 m | 0 | Pedestrian walkways |
 | Foundry ramp | 2 m | 4 m | 2 m | Compact player routes |
 | Foundry shallow ramp | 2 m | 8 m | 2 m | Longer player routes |
-| Roadworks straights | 8 m clear / 8.8 m total | 12 or 24 m | 0 | Vehicle lanes and staging decks |
-| Roadworks curves | 8 m clear / 8.8 m total | R20, 45° or 90° | 0 | Connected vehicle corners |
-| Roadworks eased ramp | 8 m clear / 8.8 m total | 24 m | 4 m | Vehicle elevation changes |
+| Roadworks straights | 16 m clear / 17.6 m total | 24 or 48 m | 0 | Vehicle lanes and staging decks |
+| Roadworks curves | 16 m clear / 17.6 m total | R40, 45° or 90° | 0 | Connected vehicle corners |
+| Roadworks eased ramp | 16 m clear / 17.6 m total | 48 m | 4 m | Vehicle elevation changes |
 
-Roadworks curves have 3.75° convex segments. Their radial clear width is 8 m;
-the minimum clearance measured perpendicular to a flat facet is about 7.996 m.
-The ramp has 2 m level noses, 4 m slope transitions and a maximum 25% grade.
+Roadworks curves have 3.75° convex segments. Their radial clear width is 16 m;
+the minimum clearance measured perpendicular to a flat facet is about 15.991 m.
+The ramp has 4 m level noses, 8 m slope transitions and a maximum 12.5% grade.
 Its driving surface and guardrails share the same sampled height profile.
 
 ## Pieces and connections
 
 | Base ID | Exit position, source metres | Exit flow | Collision hulls, open / guarded |
 | --- | --- | --- | ---: |
-| `straight_12` | `(0, 12, 0.5)` | `(0, 1, 0)` | 1 / 3 |
 | `straight_24` | `(0, 24, 0.5)` | `(0, 1, 0)` | 1 / 3 |
-| `curve_45` | `(-5.857864376, 14.142135624, 0.5)` | `(-0.707106781, 0.707106781, 0)` | 12 / 36 |
-| `curve_90` | `(-20, 20, 0.5)` | `(-1, 0, 0)` | 24 / 72 |
-| `ramp_24` | `(0, 24, 4.5)` | `(0, 1, 0)` | 11 / 33 |
+| `straight_48` | `(0, 48, 0.5)` | `(0, 1, 0)` | 1 / 3 |
+| `curve_45` | `(-11.715728753, 28.284271247, 0.5)` | `(-0.707106781, 0.707106781, 0)` | 12 / 36 |
+| `curve_90` | `(-40, 40, 0.5)` | `(-1, 0, 0)` | 24 / 72 |
+| `ramp_48` | `(0, 48, 4.5)` | `(0, 1, 0)` | 11 / 33 |
 
 Append `_guarded` to any base ID for the matching barrier variant. There are
 no extra collision boxes across the inside of a curve. Each road segment is
@@ -53,7 +59,7 @@ its own closed convex prism, with barriers as two additional prisms.
 All origins are at the **entry floor**, with local **+Y forward**, **+Z up**,
 and the entry driving surface at **`(0, 0, 0.5)`**. This deliberately differs
 from Foundry's bottom-centre origin. Deck thickness is 0.5 m. Rails occupy
-local lateral coordinates `[-4.4, -4]` and `[4, 4.4]`, and extend 1 m above
+local lateral coordinates `[-8.8, -8]` and `[8, 8.8]`, and extend 1.5 m above
 the road. Their faces and the road surface meet exactly at connected ends.
 
 The `road.connectors` metadata in the catalog and source describes each
@@ -67,7 +73,7 @@ pieces using it.
 For a simple left corner, place a straight at `(0, 0, 0)`, then the next
 piece's entry at that straight's exit XY, keeping its origin Z unchanged.
 After a 90° curve, rotate the following straight **+90° in source Z-up
-coordinates** and place its origin at the curve's exit XY. The 20 m quarter
+coordinates** and place its origin at the curve's exit XY. The 40 m quarter
 turn fits the 0.5 m grid. A 45° curve has irrational endpoint coordinates:
 use the authored connector values rather than rounding its endpoint to the
 grid. Two 45° curves produce the same endpoint and heading as one 90° curve.
@@ -75,8 +81,14 @@ grid. Two 45° curves produce the same endpoint and heading as one 90° curve.
 To descend, connect to the ramp's high end, traverse it backwards, and rotate
 the ramp 180° relative to an ascending ramp with the same travel heading.
 The two level noses let ramps connect to flat straights without a vertical
-lip or immediate pitch step. A ramp-up, 24 m high straight and reverse ramp
-return to the original height over a 72 m route.
+lip or immediate pitch step. A ramp-up, 48 m high straight and reverse ramp
+return to the original height over a 144 m route.
+
+Layouts authored for 0.1.0 need their road placements rebuilt for 0.2.0:
+`straight_12` becomes `straight_24`, the old long `straight_24` becomes
+`straight_48`, and `ramp_24` becomes `ramp_48`. Curve IDs remain the same but
+their radius and width double. Use each map's exact pack version dependency;
+old placement coordinates are not compatible with the enlarged geometry.
 
 Level JSON uses Unreal centimetres: source `(x, y, z)` becomes
 `(100x, -100y, 100z)`, and source Z yaw changes sign. For an elevated road

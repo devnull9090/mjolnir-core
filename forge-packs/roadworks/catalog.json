@@ -1,138 +1,28 @@
 {
   "schema_version": 1,
   "name": "Roadworks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "content",
   "license": "MIT",
   "summary": "Warthog-scale modular racing roads, curves and eased ramps.",
-  "description": "Ten original 8 m clear roads with 12/24 m straights, R20 curves, eased ramps and optional guardrails.",
+  "description": "Ten original 16 m clear roads with 24/48 m straights, R40 curves, eased ramps and optional 1.5 m guardrails.",
   "forge_pack": {
     "schema_version": 1,
     "id": "roadworks",
     "blocks": [
       {
-        "id": "straight_12",
-        "name": "Straight 12 m",
-        "category": "roads",
-        "dimensions_m": [
-          8.8,
-          12.0,
-          0.5
-        ],
-        "snap_m": 0.5,
-        "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
-          "deck_thickness_m": 0.5,
-          "guardrail_height_m": 0,
-          "connector_convention": "flow_tangent_at_both_ends",
-          "connectors": [
-            {
-              "id": "entry",
-              "position_m": [
-                0.0,
-                0.0,
-                0.5
-              ],
-              "forward": [
-                0.0,
-                1,
-                0.0
-              ],
-              "up": [
-                0,
-                0,
-                1
-              ],
-              "clear_width_m": 8.0,
-              "edge_points_m": [
-                [
-                  -4.4,
-                  0.0,
-                  0.5
-                ],
-                [
-                  4.4,
-                  0.0,
-                  0.5
-                ]
-              ]
-            },
-            {
-              "id": "exit",
-              "position_m": [
-                0.0,
-                12,
-                0.5
-              ],
-              "forward": [
-                0.0,
-                1,
-                0.0
-              ],
-              "up": [
-                0,
-                0,
-                1
-              ],
-              "clear_width_m": 8.0,
-              "edge_points_m": [
-                [
-                  -4.4,
-                  12.0,
-                  0.5
-                ],
-                [
-                  4.4,
-                  12.0,
-                  0.5
-                ]
-              ]
-            }
-          ],
-          "sections": [
-            {
-              "center_m": [
-                0.0,
-                0.0,
-                0.5
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                0.0,
-                12,
-                0.5
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            }
-          ],
-          "run_m": 12
-        },
-        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_12"
-      },
-      {
         "id": "straight_24",
         "name": "Straight 24 m",
         "category": "roads",
         "dimensions_m": [
-          8.8,
+          17.6,
           24.0,
           0.5
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
           "guardrail_height_m": 0,
           "connector_convention": "flow_tangent_at_both_ends",
@@ -154,15 +44,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -185,15 +75,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   24.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   24.0,
                   0.5
                 ]
@@ -231,18 +121,128 @@
         "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24"
       },
       {
-        "id": "curve_45",
-        "name": "Curve 45 / R20",
-        "category": "curves",
+        "id": "straight_48",
+        "name": "Straight 48 m",
+        "category": "roads",
         "dimensions_m": [
-          13.369134212,
-          17.25340546,
+          17.6,
+          48.0,
           0.5
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
+          "deck_thickness_m": 0.5,
+          "guardrail_height_m": 0,
+          "connector_convention": "flow_tangent_at_both_ends",
+          "connectors": [
+            {
+              "id": "entry",
+              "position_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "forward": [
+                0.0,
+                1,
+                0.0
+              ],
+              "up": [
+                0,
+                0,
+                1
+              ],
+              "clear_width_m": 16.0,
+              "edge_points_m": [
+                [
+                  -8.8,
+                  0.0,
+                  0.5
+                ],
+                [
+                  8.8,
+                  0.0,
+                  0.5
+                ]
+              ]
+            },
+            {
+              "id": "exit",
+              "position_m": [
+                0.0,
+                48,
+                0.5
+              ],
+              "forward": [
+                0.0,
+                1,
+                0.0
+              ],
+              "up": [
+                0,
+                0,
+                1
+              ],
+              "clear_width_m": 16.0,
+              "edge_points_m": [
+                [
+                  -8.8,
+                  48.0,
+                  0.5
+                ],
+                [
+                  8.8,
+                  48.0,
+                  0.5
+                ]
+              ]
+            }
+          ],
+          "sections": [
+            {
+              "center_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                0.0,
+                48,
+                0.5
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "run_m": 48
+        },
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48"
+      },
+      {
+        "id": "curve_45",
+        "name": "Curve 45 / R40",
+        "category": "curves",
+        "dimensions_m": [
+          26.738268426,
+          34.50681092,
+          0.5
+        ],
+        "snap_m": 0.5,
+        "road": {
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
           "guardrail_height_m": 0,
           "connector_convention": "flow_tangent_at_both_ends",
@@ -264,15 +264,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -281,8 +281,8 @@
             {
               "id": "exit",
               "position_m": [
-                -5.857864376,
-                14.142135624,
+                -11.715728753,
+                28.284271247,
                 0.5
               ],
               "forward": [
@@ -295,16 +295,16 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -8.969134212,
-                  11.030865788,
+                  -17.938268426,
+                  22.061731574,
                   0.5
                 ],
                 [
-                  -2.74659454,
-                  17.25340546,
+                  -5.49318908,
+                  34.50681092,
                   0.5
                 ]
               ]
@@ -325,8 +325,8 @@
             },
             {
               "center_m": [
-                -0.042821535,
-                1.308062585,
+                -0.08564307,
+                2.616125169,
                 0.5
               ],
               "right": [
@@ -337,8 +337,8 @@
             },
             {
               "center_m": [
-                -0.171102773,
-                2.610523844,
+                -0.342205545,
+                5.221047689,
                 0.5
               ],
               "right": [
@@ -349,8 +349,8 @@
             },
             {
               "center_m": [
-                -0.384294392,
-                3.90180644,
+                -0.768588784,
+                7.803612881,
                 0.5
               ],
               "right": [
@@ -361,8 +361,8 @@
             },
             {
               "center_m": [
-                -0.681483474,
-                5.176380902,
+                -1.362966948,
+                10.352761804,
                 0.5
               ],
               "right": [
@@ -373,8 +373,8 @@
             },
             {
               "center_m": [
-                -1.06139741,
-                6.428789306,
+                -2.12279482,
+                12.857578612,
                 0.5
               ],
               "right": [
@@ -385,8 +385,8 @@
             },
             {
               "center_m": [
-                -1.52240935,
-                7.653668647,
+                -3.0448187,
+                15.307337295,
                 0.5
               ],
               "right": [
@@ -397,8 +397,8 @@
             },
             {
               "center_m": [
-                -2.062545169,
-                8.845773804,
+                -4.125090339,
+                17.691547609,
                 0.5
               ],
               "right": [
@@ -409,8 +409,8 @@
             },
             {
               "center_m": [
-                -2.679491924,
-                10.0,
+                -5.358983849,
+                20.0,
                 0.5
               ],
               "right": [
@@ -421,8 +421,8 @@
             },
             {
               "center_m": [
-                -3.370607754,
-                11.11140466,
+                -6.741215508,
+                22.222809321,
                 0.5
               ],
               "right": [
@@ -433,8 +433,8 @@
             },
             {
               "center_m": [
-                -4.132933194,
-                12.17522858,
+                -8.265866388,
+                24.35045716,
                 0.5
               ],
               "right": [
@@ -445,8 +445,8 @@
             },
             {
               "center_m": [
-                -4.96320385,
-                13.186916302,
+                -9.926407701,
+                26.373832604,
                 0.5
               ],
               "right": [
@@ -457,8 +457,8 @@
             },
             {
               "center_m": [
-                -5.857864376,
-                14.142135624,
+                -11.715728753,
+                28.284271247,
                 0.5
               ],
               "right": [
@@ -468,7 +468,7 @@
               ]
             }
           ],
-          "centerline_radius_m": 20.0,
+          "centerline_radius_m": 40.0,
           "turn_degrees": 45,
           "segment_count": 12
         },
@@ -476,17 +476,17 @@
       },
       {
         "id": "curve_90",
-        "name": "Curve 90 / R20",
+        "name": "Curve 90 / R40",
         "category": "curves",
         "dimensions_m": [
-          24.4,
-          24.4,
+          48.8,
+          48.8,
           0.5
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
           "guardrail_height_m": 0,
           "connector_convention": "flow_tangent_at_both_ends",
@@ -508,15 +508,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -525,8 +525,8 @@
             {
               "id": "exit",
               "position_m": [
-                -20.0,
-                20.0,
+                -40.0,
+                40.0,
                 0.5
               ],
               "forward": [
@@ -539,16 +539,16 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -20.0,
-                  15.6,
+                  -40.0,
+                  31.2,
                   0.5
                 ],
                 [
-                  -20.0,
-                  24.4,
+                  -40.0,
+                  48.8,
                   0.5
                 ]
               ]
@@ -569,8 +569,8 @@
             },
             {
               "center_m": [
-                -0.042821535,
-                1.308062585,
+                -0.08564307,
+                2.616125169,
                 0.5
               ],
               "right": [
@@ -581,8 +581,8 @@
             },
             {
               "center_m": [
-                -0.171102773,
-                2.610523844,
+                -0.342205545,
+                5.221047689,
                 0.5
               ],
               "right": [
@@ -593,8 +593,8 @@
             },
             {
               "center_m": [
-                -0.384294392,
-                3.90180644,
+                -0.768588784,
+                7.803612881,
                 0.5
               ],
               "right": [
@@ -605,8 +605,8 @@
             },
             {
               "center_m": [
-                -0.681483474,
-                5.176380902,
+                -1.362966948,
+                10.352761804,
                 0.5
               ],
               "right": [
@@ -617,8 +617,8 @@
             },
             {
               "center_m": [
-                -1.06139741,
-                6.428789306,
+                -2.12279482,
+                12.857578612,
                 0.5
               ],
               "right": [
@@ -629,8 +629,8 @@
             },
             {
               "center_m": [
-                -1.52240935,
-                7.653668647,
+                -3.0448187,
+                15.307337295,
                 0.5
               ],
               "right": [
@@ -641,8 +641,8 @@
             },
             {
               "center_m": [
-                -2.062545169,
-                8.845773804,
+                -4.125090339,
+                17.691547609,
                 0.5
               ],
               "right": [
@@ -653,8 +653,8 @@
             },
             {
               "center_m": [
-                -2.679491924,
-                10.0,
+                -5.358983849,
+                20.0,
                 0.5
               ],
               "right": [
@@ -665,8 +665,8 @@
             },
             {
               "center_m": [
-                -3.370607754,
-                11.11140466,
+                -6.741215508,
+                22.222809321,
                 0.5
               ],
               "right": [
@@ -677,8 +677,8 @@
             },
             {
               "center_m": [
-                -4.132933194,
-                12.17522858,
+                -8.265866388,
+                24.35045716,
                 0.5
               ],
               "right": [
@@ -689,8 +689,8 @@
             },
             {
               "center_m": [
-                -4.96320385,
-                13.186916302,
+                -9.926407701,
+                26.373832604,
                 0.5
               ],
               "right": [
@@ -701,8 +701,8 @@
             },
             {
               "center_m": [
-                -5.857864376,
-                14.142135624,
+                -11.715728753,
+                28.284271247,
                 0.5
               ],
               "right": [
@@ -713,8 +713,8 @@
             },
             {
               "center_m": [
-                -6.813083698,
-                15.03679615,
+                -13.626167396,
+                30.073592299,
                 0.5
               ],
               "right": [
@@ -725,8 +725,8 @@
             },
             {
               "center_m": [
-                -7.82477142,
-                15.867066806,
+                -15.64954284,
+                31.734133612,
                 0.5
               ],
               "right": [
@@ -737,116 +737,116 @@
             },
             {
               "center_m": [
-                -8.88859534,
-                16.629392246,
+                -17.777190679,
+                33.258784492,
                 0.5
               ],
               "right": [
                 0.555570233,
                 0.831469612,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -10.0,
-                17.320508076,
-                0.5
-              ],
-              "right": [
-                0.5,
-                0.866025404,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -11.154226196,
-                17.937454831,
-                0.5
-              ],
-              "right": [
-                0.44228869,
-                0.896872742,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -12.346331353,
-                18.47759065,
-                0.5
-              ],
-              "right": [
-                0.382683432,
-                0.923879533,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -13.571210694,
-                18.93860259,
-                0.5
-              ],
-              "right": [
-                0.321439465,
-                0.946930129,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -14.823619098,
-                19.318516526,
-                0.5
-              ],
-              "right": [
-                0.258819045,
-                0.965925826,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -16.09819356,
-                19.615705608,
-                0.5
-              ],
-              "right": [
-                0.195090322,
-                0.98078528,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -17.389476156,
-                19.828897227,
-                0.5
-              ],
-              "right": [
-                0.130526192,
-                0.991444861,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -18.691937415,
-                19.957178465,
-                0.5
-              ],
-              "right": [
-                0.065403129,
-                0.997858923,
                 0.0
               ]
             },
             {
               "center_m": [
                 -20.0,
-                20.0,
+                34.641016151,
+                0.5
+              ],
+              "right": [
+                0.5,
+                0.866025404,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -22.308452391,
+                35.874909661,
+                0.5
+              ],
+              "right": [
+                0.44228869,
+                0.896872742,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -24.692662705,
+                36.9551813,
+                0.5
+              ],
+              "right": [
+                0.382683432,
+                0.923879533,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -27.142421388,
+                37.87720518,
+                0.5
+              ],
+              "right": [
+                0.321439465,
+                0.946930129,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -29.647238196,
+                38.637033052,
+                0.5
+              ],
+              "right": [
+                0.258819045,
+                0.965925826,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -32.196387119,
+                39.231411216,
+                0.5
+              ],
+              "right": [
+                0.195090322,
+                0.98078528,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -34.778952311,
+                39.657794455,
+                0.5
+              ],
+              "right": [
+                0.130526192,
+                0.991444861,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -37.383874831,
+                39.91435693,
+                0.5
+              ],
+              "right": [
+                0.065403129,
+                0.997858923,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -40.0,
+                40.0,
                 0.5
               ],
               "right": [
@@ -856,25 +856,25 @@
               ]
             }
           ],
-          "centerline_radius_m": 20.0,
+          "centerline_radius_m": 40.0,
           "turn_degrees": 90,
           "segment_count": 24
         },
         "tag": "objects\\mjolnir\\forge\\roadworks\\curve_90"
       },
       {
-        "id": "ramp_24",
-        "name": "Eased Ramp 24 / +4 m",
+        "id": "ramp_48",
+        "name": "Eased Ramp 48 / +4 m",
         "category": "ramps",
         "dimensions_m": [
-          8.8,
-          24.0,
+          17.6,
+          48.0,
           4.5
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
           "guardrail_height_m": 0,
           "connector_convention": "flow_tangent_at_both_ends",
@@ -896,15 +896,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -914,7 +914,7 @@
               "id": "exit",
               "position_m": [
                 0.0,
-                24,
+                48,
                 4.5
               ],
               "forward": [
@@ -927,16 +927,16 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
-                  24.0,
+                  -8.8,
+                  48.0,
                   4.5
                 ],
                 [
-                  4.4,
-                  24.0,
+                  8.8,
+                  48.0,
                   4.5
                 ]
               ]
@@ -948,30 +948,6 @@
                 0.0,
                 0.0,
                 0.5
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                0.0,
-                2,
-                0.5
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                0.0,
-                3,
-                0.51246046
               ],
               "right": [
                 1,
@@ -983,19 +959,7 @@
               "center_m": [
                 0.0,
                 4,
-                0.590845057
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                0.0,
-                5,
-                0.76246046
+                0.5
               ],
               "right": [
                 1,
@@ -1007,6 +971,42 @@
               "center_m": [
                 0.0,
                 6,
+                0.51246046
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                0.0,
+                8,
+                0.590845057
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                0.0,
+                10,
+                0.76246046
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                0.0,
+                12,
                 1.0
               ],
               "right": [
@@ -1018,7 +1018,7 @@
             {
               "center_m": [
                 0.0,
-                18,
+                36,
                 4.0
               ],
               "right": [
@@ -1030,7 +1030,7 @@
             {
               "center_m": [
                 0.0,
-                19,
+                38,
                 4.23753954
               ],
               "right": [
@@ -1042,7 +1042,7 @@
             {
               "center_m": [
                 0.0,
-                20,
+                40,
                 4.409154943
               ],
               "right": [
@@ -1054,7 +1054,7 @@
             {
               "center_m": [
                 0.0,
-                21,
+                42,
                 4.48753954
               ],
               "right": [
@@ -1066,7 +1066,7 @@
             {
               "center_m": [
                 0.0,
-                22,
+                44,
                 4.5
               ],
               "right": [
@@ -1078,7 +1078,7 @@
             {
               "center_m": [
                 0.0,
-                24,
+                48,
                 4.5
               ],
               "right": [
@@ -1088,139 +1088,29 @@
               ]
             }
           ],
-          "run_m": 24,
+          "run_m": 48,
           "rise_m": 4,
-          "flat_end_m": 2,
-          "max_grade": 0.25,
-          "easing_run_m": 4
+          "flat_end_m": 4,
+          "max_grade": 0.125,
+          "easing_run_m": 8
         },
-        "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_24"
-      },
-      {
-        "id": "straight_12_guarded",
-        "name": "Straight 12 m + Rails",
-        "category": "roads",
-        "dimensions_m": [
-          8.8,
-          12.0,
-          1.5
-        ],
-        "snap_m": 0.5,
-        "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
-          "deck_thickness_m": 0.5,
-          "guardrail_height_m": 1,
-          "connector_convention": "flow_tangent_at_both_ends",
-          "connectors": [
-            {
-              "id": "entry",
-              "position_m": [
-                0.0,
-                0.0,
-                0.5
-              ],
-              "forward": [
-                0.0,
-                1,
-                0.0
-              ],
-              "up": [
-                0,
-                0,
-                1
-              ],
-              "clear_width_m": 8.0,
-              "edge_points_m": [
-                [
-                  -4.4,
-                  0.0,
-                  0.5
-                ],
-                [
-                  4.4,
-                  0.0,
-                  0.5
-                ]
-              ]
-            },
-            {
-              "id": "exit",
-              "position_m": [
-                0.0,
-                12,
-                0.5
-              ],
-              "forward": [
-                0.0,
-                1,
-                0.0
-              ],
-              "up": [
-                0,
-                0,
-                1
-              ],
-              "clear_width_m": 8.0,
-              "edge_points_m": [
-                [
-                  -4.4,
-                  12.0,
-                  0.5
-                ],
-                [
-                  4.4,
-                  12.0,
-                  0.5
-                ]
-              ]
-            }
-          ],
-          "sections": [
-            {
-              "center_m": [
-                0.0,
-                0.0,
-                0.5
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                0.0,
-                12,
-                0.5
-              ],
-              "right": [
-                1,
-                0.0,
-                0.0
-              ]
-            }
-          ],
-          "run_m": 12
-        },
-        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_12_guarded"
+        "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_48"
       },
       {
         "id": "straight_24_guarded",
         "name": "Straight 24 m + Rails",
         "category": "roads",
         "dimensions_m": [
-          8.8,
+          17.6,
           24.0,
-          1.5
+          2.0
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
-          "guardrail_height_m": 1,
+          "guardrail_height_m": 1.5,
           "connector_convention": "flow_tangent_at_both_ends",
           "connectors": [
             {
@@ -1240,15 +1130,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -1271,15 +1161,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   24.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   24.0,
                   0.5
                 ]
@@ -1317,20 +1207,130 @@
         "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24_guarded"
       },
       {
-        "id": "curve_45_guarded",
-        "name": "Curve 45 / R20 + Rails",
-        "category": "curves",
+        "id": "straight_48_guarded",
+        "name": "Straight 48 m + Rails",
+        "category": "roads",
         "dimensions_m": [
-          13.369134212,
-          17.25340546,
-          1.5
+          17.6,
+          48.0,
+          2.0
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
-          "guardrail_height_m": 1,
+          "guardrail_height_m": 1.5,
+          "connector_convention": "flow_tangent_at_both_ends",
+          "connectors": [
+            {
+              "id": "entry",
+              "position_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "forward": [
+                0.0,
+                1,
+                0.0
+              ],
+              "up": [
+                0,
+                0,
+                1
+              ],
+              "clear_width_m": 16.0,
+              "edge_points_m": [
+                [
+                  -8.8,
+                  0.0,
+                  0.5
+                ],
+                [
+                  8.8,
+                  0.0,
+                  0.5
+                ]
+              ]
+            },
+            {
+              "id": "exit",
+              "position_m": [
+                0.0,
+                48,
+                0.5
+              ],
+              "forward": [
+                0.0,
+                1,
+                0.0
+              ],
+              "up": [
+                0,
+                0,
+                1
+              ],
+              "clear_width_m": 16.0,
+              "edge_points_m": [
+                [
+                  -8.8,
+                  48.0,
+                  0.5
+                ],
+                [
+                  8.8,
+                  48.0,
+                  0.5
+                ]
+              ]
+            }
+          ],
+          "sections": [
+            {
+              "center_m": [
+                0.0,
+                0.0,
+                0.5
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                0.0,
+                48,
+                0.5
+              ],
+              "right": [
+                1,
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "run_m": 48
+        },
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded"
+      },
+      {
+        "id": "curve_45_guarded",
+        "name": "Curve 45 / R40 + Rails",
+        "category": "curves",
+        "dimensions_m": [
+          26.738268426,
+          34.50681092,
+          2.0
+        ],
+        "snap_m": 0.5,
+        "road": {
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
+          "deck_thickness_m": 0.5,
+          "guardrail_height_m": 1.5,
           "connector_convention": "flow_tangent_at_both_ends",
           "connectors": [
             {
@@ -1350,15 +1350,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -1367,8 +1367,8 @@
             {
               "id": "exit",
               "position_m": [
-                -5.857864376,
-                14.142135624,
+                -11.715728753,
+                28.284271247,
                 0.5
               ],
               "forward": [
@@ -1381,16 +1381,16 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -8.969134212,
-                  11.030865788,
+                  -17.938268426,
+                  22.061731574,
                   0.5
                 ],
                 [
-                  -2.74659454,
-                  17.25340546,
+                  -5.49318908,
+                  34.50681092,
                   0.5
                 ]
               ]
@@ -1411,8 +1411,8 @@
             },
             {
               "center_m": [
-                -0.042821535,
-                1.308062585,
+                -0.08564307,
+                2.616125169,
                 0.5
               ],
               "right": [
@@ -1423,8 +1423,8 @@
             },
             {
               "center_m": [
-                -0.171102773,
-                2.610523844,
+                -0.342205545,
+                5.221047689,
                 0.5
               ],
               "right": [
@@ -1435,8 +1435,8 @@
             },
             {
               "center_m": [
-                -0.384294392,
-                3.90180644,
+                -0.768588784,
+                7.803612881,
                 0.5
               ],
               "right": [
@@ -1447,8 +1447,8 @@
             },
             {
               "center_m": [
-                -0.681483474,
-                5.176380902,
+                -1.362966948,
+                10.352761804,
                 0.5
               ],
               "right": [
@@ -1459,8 +1459,8 @@
             },
             {
               "center_m": [
-                -1.06139741,
-                6.428789306,
+                -2.12279482,
+                12.857578612,
                 0.5
               ],
               "right": [
@@ -1471,8 +1471,8 @@
             },
             {
               "center_m": [
-                -1.52240935,
-                7.653668647,
+                -3.0448187,
+                15.307337295,
                 0.5
               ],
               "right": [
@@ -1483,8 +1483,8 @@
             },
             {
               "center_m": [
-                -2.062545169,
-                8.845773804,
+                -4.125090339,
+                17.691547609,
                 0.5
               ],
               "right": [
@@ -1495,8 +1495,8 @@
             },
             {
               "center_m": [
-                -2.679491924,
-                10.0,
+                -5.358983849,
+                20.0,
                 0.5
               ],
               "right": [
@@ -1507,8 +1507,8 @@
             },
             {
               "center_m": [
-                -3.370607754,
-                11.11140466,
+                -6.741215508,
+                22.222809321,
                 0.5
               ],
               "right": [
@@ -1519,8 +1519,8 @@
             },
             {
               "center_m": [
-                -4.132933194,
-                12.17522858,
+                -8.265866388,
+                24.35045716,
                 0.5
               ],
               "right": [
@@ -1531,8 +1531,8 @@
             },
             {
               "center_m": [
-                -4.96320385,
-                13.186916302,
+                -9.926407701,
+                26.373832604,
                 0.5
               ],
               "right": [
@@ -1543,8 +1543,8 @@
             },
             {
               "center_m": [
-                -5.857864376,
-                14.142135624,
+                -11.715728753,
+                28.284271247,
                 0.5
               ],
               "right": [
@@ -1554,7 +1554,7 @@
               ]
             }
           ],
-          "centerline_radius_m": 20.0,
+          "centerline_radius_m": 40.0,
           "turn_degrees": 45,
           "segment_count": 12
         },
@@ -1562,19 +1562,19 @@
       },
       {
         "id": "curve_90_guarded",
-        "name": "Curve 90 / R20 + Rails",
+        "name": "Curve 90 / R40 + Rails",
         "category": "curves",
         "dimensions_m": [
-          24.4,
-          24.4,
-          1.5
+          48.8,
+          48.8,
+          2.0
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
-          "guardrail_height_m": 1,
+          "guardrail_height_m": 1.5,
           "connector_convention": "flow_tangent_at_both_ends",
           "connectors": [
             {
@@ -1594,15 +1594,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -1611,8 +1611,8 @@
             {
               "id": "exit",
               "position_m": [
-                -20.0,
-                20.0,
+                -40.0,
+                40.0,
                 0.5
               ],
               "forward": [
@@ -1625,16 +1625,16 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -20.0,
-                  15.6,
+                  -40.0,
+                  31.2,
                   0.5
                 ],
                 [
-                  -20.0,
-                  24.4,
+                  -40.0,
+                  48.8,
                   0.5
                 ]
               ]
@@ -1655,8 +1655,8 @@
             },
             {
               "center_m": [
-                -0.042821535,
-                1.308062585,
+                -0.08564307,
+                2.616125169,
                 0.5
               ],
               "right": [
@@ -1667,8 +1667,8 @@
             },
             {
               "center_m": [
-                -0.171102773,
-                2.610523844,
+                -0.342205545,
+                5.221047689,
                 0.5
               ],
               "right": [
@@ -1679,8 +1679,8 @@
             },
             {
               "center_m": [
-                -0.384294392,
-                3.90180644,
+                -0.768588784,
+                7.803612881,
                 0.5
               ],
               "right": [
@@ -1691,8 +1691,8 @@
             },
             {
               "center_m": [
-                -0.681483474,
-                5.176380902,
+                -1.362966948,
+                10.352761804,
                 0.5
               ],
               "right": [
@@ -1703,8 +1703,8 @@
             },
             {
               "center_m": [
-                -1.06139741,
-                6.428789306,
+                -2.12279482,
+                12.857578612,
                 0.5
               ],
               "right": [
@@ -1715,8 +1715,8 @@
             },
             {
               "center_m": [
-                -1.52240935,
-                7.653668647,
+                -3.0448187,
+                15.307337295,
                 0.5
               ],
               "right": [
@@ -1727,8 +1727,8 @@
             },
             {
               "center_m": [
-                -2.062545169,
-                8.845773804,
+                -4.125090339,
+                17.691547609,
                 0.5
               ],
               "right": [
@@ -1739,8 +1739,8 @@
             },
             {
               "center_m": [
-                -2.679491924,
-                10.0,
+                -5.358983849,
+                20.0,
                 0.5
               ],
               "right": [
@@ -1751,8 +1751,8 @@
             },
             {
               "center_m": [
-                -3.370607754,
-                11.11140466,
+                -6.741215508,
+                22.222809321,
                 0.5
               ],
               "right": [
@@ -1763,8 +1763,8 @@
             },
             {
               "center_m": [
-                -4.132933194,
-                12.17522858,
+                -8.265866388,
+                24.35045716,
                 0.5
               ],
               "right": [
@@ -1775,8 +1775,8 @@
             },
             {
               "center_m": [
-                -4.96320385,
-                13.186916302,
+                -9.926407701,
+                26.373832604,
                 0.5
               ],
               "right": [
@@ -1787,8 +1787,8 @@
             },
             {
               "center_m": [
-                -5.857864376,
-                14.142135624,
+                -11.715728753,
+                28.284271247,
                 0.5
               ],
               "right": [
@@ -1799,8 +1799,8 @@
             },
             {
               "center_m": [
-                -6.813083698,
-                15.03679615,
+                -13.626167396,
+                30.073592299,
                 0.5
               ],
               "right": [
@@ -1811,8 +1811,8 @@
             },
             {
               "center_m": [
-                -7.82477142,
-                15.867066806,
+                -15.64954284,
+                31.734133612,
                 0.5
               ],
               "right": [
@@ -1823,116 +1823,116 @@
             },
             {
               "center_m": [
-                -8.88859534,
-                16.629392246,
+                -17.777190679,
+                33.258784492,
                 0.5
               ],
               "right": [
                 0.555570233,
                 0.831469612,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -10.0,
-                17.320508076,
-                0.5
-              ],
-              "right": [
-                0.5,
-                0.866025404,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -11.154226196,
-                17.937454831,
-                0.5
-              ],
-              "right": [
-                0.44228869,
-                0.896872742,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -12.346331353,
-                18.47759065,
-                0.5
-              ],
-              "right": [
-                0.382683432,
-                0.923879533,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -13.571210694,
-                18.93860259,
-                0.5
-              ],
-              "right": [
-                0.321439465,
-                0.946930129,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -14.823619098,
-                19.318516526,
-                0.5
-              ],
-              "right": [
-                0.258819045,
-                0.965925826,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -16.09819356,
-                19.615705608,
-                0.5
-              ],
-              "right": [
-                0.195090322,
-                0.98078528,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -17.389476156,
-                19.828897227,
-                0.5
-              ],
-              "right": [
-                0.130526192,
-                0.991444861,
-                0.0
-              ]
-            },
-            {
-              "center_m": [
-                -18.691937415,
-                19.957178465,
-                0.5
-              ],
-              "right": [
-                0.065403129,
-                0.997858923,
                 0.0
               ]
             },
             {
               "center_m": [
                 -20.0,
-                20.0,
+                34.641016151,
+                0.5
+              ],
+              "right": [
+                0.5,
+                0.866025404,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -22.308452391,
+                35.874909661,
+                0.5
+              ],
+              "right": [
+                0.44228869,
+                0.896872742,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -24.692662705,
+                36.9551813,
+                0.5
+              ],
+              "right": [
+                0.382683432,
+                0.923879533,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -27.142421388,
+                37.87720518,
+                0.5
+              ],
+              "right": [
+                0.321439465,
+                0.946930129,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -29.647238196,
+                38.637033052,
+                0.5
+              ],
+              "right": [
+                0.258819045,
+                0.965925826,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -32.196387119,
+                39.231411216,
+                0.5
+              ],
+              "right": [
+                0.195090322,
+                0.98078528,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -34.778952311,
+                39.657794455,
+                0.5
+              ],
+              "right": [
+                0.130526192,
+                0.991444861,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -37.383874831,
+                39.91435693,
+                0.5
+              ],
+              "right": [
+                0.065403129,
+                0.997858923,
+                0.0
+              ]
+            },
+            {
+              "center_m": [
+                -40.0,
+                40.0,
                 0.5
               ],
               "right": [
@@ -1942,27 +1942,27 @@
               ]
             }
           ],
-          "centerline_radius_m": 20.0,
+          "centerline_radius_m": 40.0,
           "turn_degrees": 90,
           "segment_count": 24
         },
         "tag": "objects\\mjolnir\\forge\\roadworks\\curve_90_guarded"
       },
       {
-        "id": "ramp_24_guarded",
-        "name": "Eased Ramp 24 / +4 m + Rails",
+        "id": "ramp_48_guarded",
+        "name": "Eased Ramp 48 / +4 m + Rails",
         "category": "ramps",
         "dimensions_m": [
-          8.8,
-          24.0,
-          5.5
+          17.6,
+          48.0,
+          6.0
         ],
         "snap_m": 0.5,
         "road": {
-          "clear_width_m": 8.0,
-          "deck_width_m": 8.8,
+          "clear_width_m": 16.0,
+          "deck_width_m": 17.6,
           "deck_thickness_m": 0.5,
-          "guardrail_height_m": 1,
+          "guardrail_height_m": 1.5,
           "connector_convention": "flow_tangent_at_both_ends",
           "connectors": [
             {
@@ -1982,15 +1982,15 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
+                  -8.8,
                   0.0,
                   0.5
                 ],
                 [
-                  4.4,
+                  8.8,
                   0.0,
                   0.5
                 ]
@@ -2000,7 +2000,7 @@
               "id": "exit",
               "position_m": [
                 0.0,
-                24,
+                48,
                 4.5
               ],
               "forward": [
@@ -2013,16 +2013,16 @@
                 0,
                 1
               ],
-              "clear_width_m": 8.0,
+              "clear_width_m": 16.0,
               "edge_points_m": [
                 [
-                  -4.4,
-                  24.0,
+                  -8.8,
+                  48.0,
                   4.5
                 ],
                 [
-                  4.4,
-                  24.0,
+                  8.8,
+                  48.0,
                   4.5
                 ]
               ]
@@ -2044,7 +2044,7 @@
             {
               "center_m": [
                 0.0,
-                2,
+                4,
                 0.5
               ],
               "right": [
@@ -2056,7 +2056,7 @@
             {
               "center_m": [
                 0.0,
-                3,
+                6,
                 0.51246046
               ],
               "right": [
@@ -2068,7 +2068,7 @@
             {
               "center_m": [
                 0.0,
-                4,
+                8,
                 0.590845057
               ],
               "right": [
@@ -2080,7 +2080,7 @@
             {
               "center_m": [
                 0.0,
-                5,
+                10,
                 0.76246046
               ],
               "right": [
@@ -2092,7 +2092,7 @@
             {
               "center_m": [
                 0.0,
-                6,
+                12,
                 1.0
               ],
               "right": [
@@ -2104,7 +2104,7 @@
             {
               "center_m": [
                 0.0,
-                18,
+                36,
                 4.0
               ],
               "right": [
@@ -2116,7 +2116,7 @@
             {
               "center_m": [
                 0.0,
-                19,
+                38,
                 4.23753954
               ],
               "right": [
@@ -2128,7 +2128,7 @@
             {
               "center_m": [
                 0.0,
-                20,
+                40,
                 4.409154943
               ],
               "right": [
@@ -2140,7 +2140,7 @@
             {
               "center_m": [
                 0.0,
-                21,
+                42,
                 4.48753954
               ],
               "right": [
@@ -2152,7 +2152,7 @@
             {
               "center_m": [
                 0.0,
-                22,
+                44,
                 4.5
               ],
               "right": [
@@ -2164,7 +2164,7 @@
             {
               "center_m": [
                 0.0,
-                24,
+                48,
                 4.5
               ],
               "right": [
@@ -2174,13 +2174,13 @@
               ]
             }
           ],
-          "run_m": 24,
+          "run_m": 48,
           "rise_m": 4,
-          "flat_end_m": 2,
-          "max_grade": 0.25,
-          "easing_run_m": 4
+          "flat_end_m": 4,
+          "max_grade": 0.125,
+          "easing_run_m": 8
         },
-        "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_24_guarded"
+        "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_48_guarded"
       }
     ]
   }
