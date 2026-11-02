@@ -1,0 +1,150 @@
+diff --git a/native/lobby/mjolnir_lobby.c b/native/lobby/mjolnir_lobby.c
+index 62e7c4fb..c8e0fad5 100644
+--- a/native/lobby/mjolnir_lobby.c
++++ b/native/lobby/mjolnir_lobby.c
+@@ -2403,6 +2403,8 @@ static volatile LONG fade_in_pending;
+ static void fade_in_tick(void);
+ static volatile LONG script_pending;
+ static void script_tick(void);
++static volatile LONG hs_probe_pending, hs_update_runs, hs_start_pending;
++static void hs_probe_tick(void);
+ static volatile LONG teams_pending, teams_installed, team_wanted_count;
+ static void teams_tick(void);
+ static volatile LONG end_game_request;
+@@ -2424,6 +2426,13 @@ static void __fastcall hook_main_tick(void) {
+     }
+     if (fade_in_pending) fade_in_tick();
+     if (script_pending) script_tick();
++    if (hs_probe_pending || hs_update_runs || hs_start_pending) {
++        __try {
++            hs_probe_tick();
++        } __except (EXCEPTION_EXECUTE_HANDLER) {
++            fireteam_log("hs: probe faulted (%08lx)", GetExceptionCode());
++        }
++    }
+     if (teams_pending || teams_installed || team_wanted_count) {
+         __try {
+             teams_tick();
+@@ -3648,6 +3657,122 @@ __declspec(dllexport) int mjolnir_sim_script(void *L) {
+     return 0;
+ }
+ 
++/* Scenario scripts in a Megalo match (docs/re/ce_map_scripts.md): an
++   experiment. A baked map's startup and continuous scripts never run in a
++   multiplayer game, though its globals exist and take writes. The script
++   runtime (CU4): runtime globals at [TLS+0x1f0] (+0 initialized), thread
++   pools at [TLS+0x360] and [TLS+0x350] (elements of 0x52c at +0x50: +0x2
++   script index, +0xc wake time, +0x20 kind, +0x21 flags), the game time at
++   [TLS+0x98]+0xc; hs_update 0x1fcb00 runs the threads, the datum iterator
++   0x44570 walks a pool. CU4 RVAs, unchecked against the build: probe only.
++   mjolnir_sim_hs_probe logs that state; mjolnir_sim_hs_update also runs
++   hs_update once per tick for N ticks. */
++typedef unsigned(__fastcall *datum_next_t)(void *array, unsigned prev);
++typedef void(__fastcall *hs_update_t)(void);
++
++static void hs_probe_pool(unsigned char *sim, const char *which, unsigned char *pool) {
++    if (!pool) {
++        fireteam_log("hs: %s pool missing", which);
++        return;
++    }
++    fireteam_log("hs: %s pool valid %u, header %08x %08x %08x %08x %08x %08x", which, pool[0x31],
++                 *(unsigned *)(pool + 0x20), *(unsigned *)(pool + 0x24), *(unsigned *)(pool + 0x28),
++                 *(unsigned *)(pool + 0x2c), *(unsigned *)(pool + 0x34), *(unsigned *)(pool + 0x38));
++    datum_next_t next = (datum_next_t)(sim + 0x44570);
++    unsigned char *data = *(unsigned char **)(pool + 0x50);
++    int n = 0;
++    for (unsigned i = next(pool, 0xffffffff); i != 0xffffffff && n < 64; i = next(pool, i), n++) {
++        unsigned char *t = data + (size_t)(i & 0x7fff) * 0x52c;
++        fireteam_log("hs: %s thread %08x script %d wake %d kind %u flags %02x", which, i, *(short *)(t + 2),
++                     *(int *)(t + 0xc), t[0x20], t[0x21]);
++    }
++    fireteam_log("hs: %s pool: %d thread(s)", which, n);
++}
++
++static void hs_probe_tick(void) {
++    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
++    unsigned char *runtime = sim_tls_slot(0x1f0);
++    unsigned char *options = sim_tls_slot(0x60);
++    unsigned char *time = sim_tls_slot(0x98);
++    if (!sim || !runtime) return;
++    if (InterlockedExchange(&hs_probe_pending, 0)) {
++        fireteam_log("hs: runtime %u %u %u %u, mode %u role %u, time %d", runtime[0], runtime[1], runtime[2],
++                     runtime[3], options ? options[0x10] : 255, options ? options[0x11] : 255,
++                     time ? *(int *)(time + 0xc) : -1);
++        unsigned char *scenario = *(unsigned char **)(sim + 0x10c3558);
++        fireteam_log("hs: scenario index %d, scenario %p, scripts %d, globals %d", *(int *)(sim + 0x9a14e4),
++                     (void *)scenario, scenario ? *(int *)(scenario + 0x3c8) : -1,
++                     scenario ? *(int *)(scenario + 0x3d4) : -1);
++        hs_probe_pool(sim, "0x360", sim_tls_slot(0x360));
++        hs_probe_pool(sim, "0x350", sim_tls_slot(0x350));
++    }
++    if (InterlockedExchange(&hs_start_pending, 0)) {
++        /* Spawn the scenario's startup, dormant and continuous threads the way
++           mp_scripts_reset does (0x1fca30), with both pools marked valid. */
++        unsigned char *a = sim_tls_slot(0x360), *b = sim_tls_slot(0x350);
++        fireteam_log("hs: start: pools valid %u %u", a ? a[0x31] : 255, b ? b[0x31] : 255);
++        if (a) a[0x31] = 1;
++        if (b) b[0x31] = 1;
++        ((hs_update_t)(sim + 0x1fca30))();
++        hs_probe_pool(sim, "0x360", a);
++    }
++    if (hs_update_runs > 0) {
++        InterlockedDecrement(&hs_update_runs);
++        ((hs_update_t)(sim + 0x1fcb00))();
++    }
++}
++
++__declspec(dllexport) int mjolnir_sim_hs_probe(void *L) {
++    (void)L;
++    if (!dir[0]) find_dir();
++    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
++    if (!sim || !install_main_tick(sim)) return 0;
++    InterlockedExchange(&hs_probe_pending, 1);
++    return 0;
++}
++
++/* The script compiler's output capture (sim 0x2c2ef18 buffer, 0x2c2ef14
++   size): with it set, the load-time check of a map's scripts writes each
++   failure there ("[source line n] script: message"). */
++static char hs_capture[16384];
++
++__declspec(dllexport) int mjolnir_sim_hs_capture(void *L) {
++    (void)L;
++    if (!dir[0]) find_dir();
++    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
++    if (!sim) return 0;
++    char **buffer = (char **)(sim + 0x2c2ef18);
++    int *size = (int *)(sim + 0x2c2ef14);
++    if (*buffer == hs_capture) {
++        fireteam_log("hs: captured: %.4000s", hs_capture[0] ? hs_capture : "(nothing)");
++        return 0;
++    }
++    hs_capture[0] = 0;
++    *size = sizeof hs_capture;
++    *buffer = hs_capture;
++    fireteam_log("hs: capturing script compiler output");
++    return 0;
++}
++
++__declspec(dllexport) int mjolnir_sim_hs_start(void *L) {
++    (void)L;
++    if (!dir[0]) find_dir();
++    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
++    if (!sim || !install_main_tick(sim)) return 0;
++    InterlockedExchange(&hs_start_pending, 1);
++    return 0;
++}
++
++__declspec(dllexport) int mjolnir_sim_hs_update(void *L) {
++    (void)L;
++    if (!dir[0]) find_dir();
++    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
++    if (!sim || !install_main_tick(sim)) return 0;
++    InterlockedExchange(&hs_update_runs, 300);
++    fireteam_log("hs: running hs_update for 300 ticks");
++    return 0;
++}
++
+ /* AI in a multiplayer game (docs/bots.md). ai_place's core returns unless the
+    game options' mode byte ([TLS+0x60]+0x10) is campaign (1) or Firefight (2);
+    a Megalo match is 3, so every squad placement is dropped
