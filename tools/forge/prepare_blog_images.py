@@ -1,9 +1,12 @@
 """Encode unchanged gameplay captures for the Forge post and mirror guide assets.
 
 Run from the repository root after rendering tools/forge/render_showcase.py.
-Pass --overview <PNG> for a new in-game aerial screenshot, and --featured <PNG>
-for the 1200x630 render of blog/featured/forge-building.html. No retouching.
-Requires Pillow. Originals remain in docs/images/forge and ignored local captures.
+Pass --captures <DIR> holding door.png, glass.png, lift.png and portal.png for
+new in-game shots, --overview <PNG> for a new in-game aerial screenshot, and
+--featured <PNG> for the 1200x630 render of blog/featured/forge-building.html.
+No retouching. Requires Pillow. Without --captures the shots come from the
+Crossline 0.3 evidence photos in docs/images/forge; other originals are
+ignored local captures (tools/mcp/game/.captures).
 """
 import argparse
 from pathlib import Path
@@ -22,13 +25,17 @@ def encode(source, target, size=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--captures", type=Path)
     parser.add_argument("--overview", type=Path)
     parser.add_argument("--featured", type=Path)
     args = parser.parse_args()
     WEB.mkdir(parents=True, exist_ok=True)
     DOC.mkdir(parents=True, exist_ok=True)
     for name in ("door", "glass", "lift", "portal"):
-        source = ROOT / "docs/images/forge" / ("crossline-03-" + ("door-open" if name == "door" else name) + ".png")
+        if args.captures:
+            source = args.captures / (name + ".png")
+        else:
+            source = ROOT / "docs/images/forge" / ("crossline-03-" + ("door-open" if name == "door" else name) + ".png")
         encode(source, WEB / (name + ".webp"))
     if args.overview:
         encode(args.overview, WEB / "crossline-overview.webp", (1920, 1080))

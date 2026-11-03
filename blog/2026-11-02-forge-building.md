@@ -49,11 +49,11 @@ The new utility pieces make a layout more than a collection of solids.
 
 **Automatic doors** pair a frame with a moving panel. Fixed or Phased panels open on approach and close after the path clears. Their visible models and native collision move together. Saving an open door stores its closed starting position, so the next session does not begin with the panel's origin stranded above the frame. Leave clearance overhead and provide another route around a door while testing your map.
 
-![In-game: the large door panel raised above its frame in Crossline, leaving the vehicle-sized opening clear.](/blog-images/forge-building/door.webp)
+![In-game: Crossline's vehicle gate with its panel raised above the frame, and a Spartan in the clear opening for scale.](/blog-images/forge-building/door.webp)
 
 **Gravity lifts** offer a compact upward route. The lift station has four shallow walk-up ramps, a central launch area and a nearby landing in Crossline. Walk in, rise, then steer toward the gallery. It is a useful alternative to putting another long ramp in every room.
 
-![In-game: the lift's four ground approaches and the adjacent raised landing. The cyan centre marks the launch area.](/blog-images/forge-building/lift.webp)
+![In-game: the lift's four ground approaches and the adjacent raised landing. The blue centre marks the launch area.](/blog-images/forge-building/lift.webp)
 
 **Teleporters** have an animated green field based on the CE effect, while the native sender/receiver markers handle travel. The visible housing alone is not a destination: place the markers, give them a matching channel, and test both ends with room to step away from the trigger.
 
@@ -61,7 +61,7 @@ The new utility pieces make a layout more than a collection of solids.
 
 **Glass and windows** let players read the next space before entering it. These panes are transparent and solid, which makes them useful for observation corridors and separating routes without hiding them from one another.
 
-![In-game: a cyan glass wall in the utility lane. You can see the arena through it; the pane blocks walking from either side.](/blog-images/forge-building/glass.webp)
+![In-game: a cyan glass wall in the utility lane, with the glazed window and glass corner visible through it. Each pane blocks walking from either side.](/blog-images/forge-building/glass.webp)
 
 ## Three ways to put the kit to work
 

@@ -745,3 +745,48 @@ clean either way.
 
 The three map archives above were reused: they name the pack pieces, not
 their materials.
+
+### Roadworks rebuild, photos and signed candidates
+
+Roadworks uses the same four materials, so it had the same two faults.
+`build_pack.py` rebuilt all ten pieces with every slot and the UNSC
+materials; the unsigned build is 604,063 bytes,
+`b53216173018de619f7bf5056a99a975d20af95573c3fa806b2267e9c2ab69db`. It was
+installed beside the other two packs and the three maps above.
+
+Checked in game at 1920 × 1080 in private Forge on that install:
+
+- **Crossline.** The glazed window and the glass corner each show one clean
+  pane, and a white lamp head has no fighting faces.
+- **Roadworks Circuit.** The guarded edges' staggered barrier joins show no
+  seams or flicker beside the rebuilt road.
+- **Forge Canvas.** The palette lists Foundry's 24 pieces. A Block 1 x 1 and
+  a Floor 1 x 1 were placed and deleted, and drew in the UNSC materials.
+
+The light strip was not looked at: none of the three maps places one.
+
+The blog and the Forge guide's photos of the door, lift, teleporter, glass
+and Crossline from above were retaken there with a free camera and the HUD
+hidden. The game hides pieces outside the player's own view, which a
+detached camera can see past, so the aerial photos unhid them first. The
+originals are local captures (`tools/mcp/game/.captures/forge-blog-20261102`),
+encoded by `prepare_blog_images.py --captures`; the Crossline 0.3 photos
+above stay as the record of their own checks.
+
+The release candidates are the tested archives re-packed with this
+machine's device key (`06f340c9…`, the one registered on the Hub). Each
+differs from its tested archive only by `signature.json`, and each passes
+the Hub's upload scanner (`hub/scripts/check-scanner.mts`) with a valid
+signature.
+
+| Candidate | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Foundry 0.2.0 | 1,334,779 | `aae94df6c63808700e273756a54de893ec496d1c70266d7a4b9a8083187eb335` |
+| Foundry Wide 0.2.0 | 2,363,321 | `040f7c0918ab1d995ddd89109a391fe84c77163b75249686aa4c522c1fd4ffc1` |
+| Roadworks 0.2.0 | 609,998 | `491fb625521d21425f51f49b83c403e2b59e8b275a35deb0a9404800c74b803e` |
+| Forge Canvas 0.1.0 | 114,297 | `b0aa23af74dbb3128a9b9e16b06031cea1526da43d6a87c1c2960d8e27368a87` |
+| Crossline 0.3.0 | 121,794 | `a4f9cc312027155b5effc05e8288a5a167890c42ebdba27867e25c404c60a20f` |
+| Roadworks Circuit 0.2.0 | 115,150 | `056cb4ad934d360b407e751c94cbb05cb6e1bf8c64cad78a340d2cb9a9191bf1` |
+
+The maps depend on `mjolnir-ce-runtime ^1.17.0` and on `foundry`,
+`foundry-wide` and `roadworks` `^0.2.0` by those Hub slugs.
