@@ -1699,6 +1699,9 @@ local function spawnEnvironment(world)
             set("expand_gamut", "ExpandGamut", post.expand_gamut)
             set("blue_correction", "BlueCorrection", post.blue_correction)
             set("bloom", "BloomIntensity", post.bloom)
+            -- Rougher surfaces reflect from the radiance cache, not traced
+            -- rays (docs/level_format.md); a level of glossy metal saves ms.
+            set("max_traced_roughness", "LumenMaxRoughnessToTraceReflections", post.max_traced_roughness)
             if post.manual_exposure then
                 set("manual_exposure", "AutoExposureMethod", 2) -- AEM_Manual
                 set("manual_exposure", "AutoExposureApplyPhysicalCameraExposure", false)

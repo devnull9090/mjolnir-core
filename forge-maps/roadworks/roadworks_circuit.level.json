@@ -36,7 +36,8 @@
       "exposure_bias": 0,
       "tone_curve": 0,
       "expand_gamut": 0,
-      "blue_correction": 0
+      "blue_correction": 0,
+      "max_traced_roughness": 0.1
     }
   },
   "blam": {
@@ -516,8 +517,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           9625.0,
-          2200.0,
-          300
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          1798.3636,
+          299.0
         ],
         "rot": [
           0,
@@ -533,8 +551,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           9625.0,
-          1800.0,
-          300
+          1398.7273,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          999.0909,
+          299.0
         ],
         "rot": [
           0,
@@ -550,8 +585,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           9625.0,
-          1400.0,
-          300
+          599.4545,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          199.8182,
+          299.0
         ],
         "rot": [
           0,
@@ -567,8 +619,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           9625.0,
-          1000.0,
-          300
+          -199.8182,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          -599.4545,
+          299.0
         ],
         "rot": [
           0,
@@ -584,8 +653,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           9625.0,
-          600.0,
-          300
+          -999.0909,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          -1398.7273,
+          299.0
         ],
         "rot": [
           0,
@@ -601,8 +687,8 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           9625.0,
-          200.0,
-          300
+          -1798.3636,
+          300.0
         ],
         "rot": [
           0,
@@ -617,94 +703,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          9625.0,
-          -200.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          9625.0,
-          -600.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          9625.0,
-          -1000.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          9625.0,
-          -1400.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          9625.0,
-          -1800.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          9625.0,
-          -2200.0,
-          300
+          9626.0,
+          -2198.0,
+          299.0
         ],
         "rot": [
           0,
@@ -720,8 +721,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           7945.0,
-          2200.0,
-          300
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7946.0,
+          1825.3333,
+          299.0
         ],
         "rot": [
           0,
@@ -737,8 +755,8 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           7945.0,
-          1826.6667,
-          300
+          1452.6667,
+          300.0
         ],
         "rot": [
           0,
@@ -753,26 +771,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          7945.0,
-          1453.3333,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          7945.0,
+          7946.0,
           1080.0,
-          300
+          299.0
         ],
         "rot": [
           0,
@@ -789,7 +790,24 @@
         "pos": [
           7945.0,
           -1080.0,
-          300
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7946.0,
+          -1452.6667,
+          299.0
         ],
         "rot": [
           0,
@@ -805,8 +823,8 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           7945.0,
-          -1453.3333,
-          300
+          -1825.3333,
+          300.0
         ],
         "rot": [
           0,
@@ -821,26 +839,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          7945.0,
-          -1826.6667,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          7945.0,
-          -2200.0,
-          300
+          7946.0,
+          -2198.0,
+          299.0
         ],
         "rot": [
           0,
@@ -856,8 +857,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           -2135.0,
-          2200.0,
-          300
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          1798.3636,
+          299.0
         ],
         "rot": [
           0,
@@ -873,8 +891,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           -2135.0,
-          1800.0,
-          300
+          1398.7273,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          999.0909,
+          299.0
         ],
         "rot": [
           0,
@@ -890,8 +925,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           -2135.0,
-          1400.0,
-          300
+          599.4545,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          199.8182,
+          299.0
         ],
         "rot": [
           0,
@@ -907,8 +959,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           -2135.0,
-          1000.0,
-          300
+          -199.8182,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          -599.4545,
+          299.0
         ],
         "rot": [
           0,
@@ -924,8 +993,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           -2135.0,
-          600.0,
-          300
+          -999.0909,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          -1398.7273,
+          299.0
         ],
         "rot": [
           0,
@@ -941,8 +1027,8 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           -2135.0,
-          200.0,
-          300
+          -1798.3636,
+          300.0
         ],
         "rot": [
           0,
@@ -957,9 +1043,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -2135.0,
-          -200.0,
-          300
+          -2134.0,
+          -2198.0,
+          299.0
         ],
         "rot": [
           0,
@@ -974,94 +1060,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -2135.0,
-          -600.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          -2135.0,
-          -1000.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          -2135.0,
-          -1400.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          -2135.0,
-          -1800.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          -2135.0,
-          -2200.0,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          -1960.0,
+          -1958.0,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1076,9 +1077,26 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -1584.6154,
+          -1582.9231,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1207.8462,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1093,9 +1111,26 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -1209.2308,
+          -832.7692,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -457.6923,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1110,9 +1145,26 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -833.8462,
+          -82.6154,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          292.4615,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1127,9 +1179,26 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -458.4615,
+          667.5385,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1042.6154,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1144,9 +1213,26 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -83.0769,
+          1417.6923,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1792.7692,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1161,9 +1247,26 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          292.3077,
+          2167.8462,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2542.9231,
           2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1178,9 +1281,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          667.6923,
-          2375.0,
-          300
+          2918.0,
+          2374.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1195,111 +1298,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          1043.0769,
-          2375.0,
-          300
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          1418.4615,
-          2375.0,
-          300
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          1793.8462,
-          2375.0,
-          300
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          2169.2308,
-          2375.0,
-          300
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          2544.6154,
-          2375.0,
-          300
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          2920.0,
-          2375.0,
-          300
-        ],
-        "rot": [
-          0,
-          0,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          -1960.0,
+          -1958.0,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1314,9 +1315,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -1584.6154,
-          -2375.0,
-          300
+          -1582.9231,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1331,9 +1332,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -1209.2308,
+          -1207.8462,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1348,9 +1349,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -833.8462,
-          -2375.0,
-          300
+          -832.7692,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1365,9 +1366,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -458.4615,
+          -457.6923,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1382,9 +1383,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          -83.0769,
-          -2375.0,
-          300
+          -82.6154,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1399,9 +1400,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          292.3077,
+          292.4615,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1416,9 +1417,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          667.6923,
-          -2375.0,
-          300
+          667.5385,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1433,9 +1434,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          1043.0769,
+          1042.6154,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1450,9 +1451,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          1418.4615,
-          -2375.0,
-          300
+          1417.6923,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1467,9 +1468,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          1793.8462,
+          1792.7692,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1484,9 +1485,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          2169.2308,
-          -2375.0,
-          300
+          2167.8462,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1501,9 +1502,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          2544.6154,
+          2542.9231,
           -2375.0,
-          300
+          296.0
         ],
         "rot": [
           0,
@@ -1518,9 +1519,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          2920.0,
-          -2375.0,
-          300
+          2918.0,
+          -2376.0,
+          295.0
         ],
         "rot": [
           0,
@@ -1536,8 +1537,25 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           3095.0,
-          2200.0,
-          300
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3096.0,
+          1825.3333,
+          299.0
         ],
         "rot": [
           0,
@@ -1553,8 +1571,8 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           3095.0,
-          1826.6667,
-          300
+          1452.6667,
+          300.0
         ],
         "rot": [
           0,
@@ -1569,26 +1587,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          3095.0,
-          1453.3333,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          3095.0,
+          3096.0,
           1080.0,
-          300
+          299.0
         ],
         "rot": [
           0,
@@ -1605,7 +1606,24 @@
         "pos": [
           3095.0,
           -1080.0,
-          300
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3096.0,
+          -1452.6667,
+          299.0
         ],
         "rot": [
           0,
@@ -1621,8 +1639,8 @@
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
           3095.0,
-          -1453.3333,
-          300
+          -1825.3333,
+          300.0
         ],
         "rot": [
           0,
@@ -1637,26 +1655,9 @@
         "group": "crates",
         "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
         "pos": [
-          3095.0,
-          -1826.6667,
-          300
-        ],
-        "rot": [
-          0,
-          -90,
-          0
-        ],
-        "set": {
-          "multiplayer data.owner team": "neutral"
-        }
-      },
-      {
-        "group": "crates",
-        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
-        "pos": [
-          3095.0,
-          -2200.0,
-          300
+          3096.0,
+          -2198.0,
+          299.0
         ],
         "rot": [
           0,

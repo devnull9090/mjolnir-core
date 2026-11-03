@@ -144,6 +144,14 @@ effects) come down to their designed strength next to it. At scale 1 a
 Warthog headlight was 160 times the sun and turned whatever it reached white.
 `mjolnir_light_scale <k>` tries a value live; `default` hands it back to the file.
 
+`post.max_traced_roughness` caps which surfaces get ray-traced Lumen
+reflections: anything rougher reflects from Lumen's radiance cache instead,
+which reads as satin rather than mirror. The Forge pack pieces use the game's
+`+MIP_FR_Gen_Metal` instances at roughness 0.15, so every surface was traced;
+the Forge maps set 0.1, which took 1.25 ms off a 7.2 ms GPU frame at 4K on
+Crossline (2026-11-02). Turning Lumen reflections off instead leaves the metal
+black.
+
 Two more keys come from a CE map's sky and BSP:
 
 - `sky_fog: { color, start, density, height }`. A CE sky with no model,

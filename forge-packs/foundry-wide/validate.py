@@ -236,7 +236,7 @@ def main():
                 verify_scaled(part, old, f"{ident}/visual/{index}")
                 assert part["material"] == old["material"] and part["bevel_m"] == old["bevel_m"]
             if part.get("surface") == "two_sided":
-                assert part["material"] == "portal_green" and len(part["vertices"]) == 4 and len(part["triangles"]) == 2
+                assert part["material"] in ("portal_green", "glass") and len(part["vertices"]) == 4 and len(part["triangles"]) == 2
             else:
                 checks.verify_hull(part, f"{ident}/visual/{index}")
             if part["material"] in ("glass", "portal_green"):

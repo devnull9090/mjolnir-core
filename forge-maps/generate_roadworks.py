@@ -51,14 +51,22 @@ def connected(level, block, position, forward, reverse=False):
     return endpoint, tangent, {"id": block["id"], "object_index": index, "reverse": reverse}
 
 
-def barrier(level, axis, coordinate, start, end):
-    """Continuous solid 4m half-walls; partial end spans overlap safely."""
+def barrier(level, axis, coordinate, start, end, drop=0.0):
+    """Continuous solid 4m half-walls; partial end spans overlap safely.
+
+    Overlapping walls would share faces and z-fight, so every other wall sits
+    1 cm to one side and 1 cm lower: in each overlap one wall's faces lie in
+    front of the other's (tools/forge/check_overlaps.py). `drop` lowers a
+    whole run, so two runs meeting at a corner keep different tops.
+    """
     length = end - start
     count = math.ceil(length / 4)
     centres = [(start + end) / 2] if count == 1 else [
         start + 2 + i * (length - 4) / (count - 1) for i in range(count)]
-    for value in centres:
-        point = (coordinate, value, 3) if axis == "x" else (value, coordinate, 3)
+    for i, value in enumerate(centres):
+        side = .01 * (i % 2)
+        z = 3 - drop - side
+        point = (coordinate + side, value, z) if axis == "x" else (value, coordinate + side, z)
         common.piece(level, "wall_half", point, 90 if axis == "x" else 0)
 
 
@@ -104,13 +112,17 @@ def circuit():
     pad = [place(level, blocks["straight_48"], (x, -24, 2.5), 0) for x in (-12.8, 4.8, 22.4)]
     # Foundry walls stay 4m long and 0.5m thick. The inside junction walls
     # reach the deck edge so they meet the spur guards without a corner gap.
-    barrier(level, "x", 96.25, -24, 24)
-    for lo, hi in [(-24, -8.8), (8.8, 24)]:
+    # Runs stop 2 cm short of the deck's ends and 2 cm inside the wall they
+    # cross at the pit's corners, and the long runs sit 4 cm lower (clear of
+    # the 2.1 and 2.5 cm steps between a wall's own layers), so no two faces
+    # share a plane.
+    barrier(level, "x", 96.25, -23.98, 23.98)
+    for lo, hi in [(-23.98, -8.8), (8.8, 23.98)]:
         barrier(level, "x", 79.45, lo, hi)
-    barrier(level, "x", -21.35, -24, 24)
+    barrier(level, "x", -21.35, -23.98, 23.98)
     for y in (-23.75, 23.75):
-        barrier(level, "y", y, -21.6, 31.2)
-    for lo, hi in [(-24, -8.8), (8.8, 24)]:
+        barrier(level, "y", y, -21.58, 31.18, drop=.04)
+    for lo, hi in [(-23.98, -8.8), (8.8, 23.98)]:
         barrier(level, "x", 30.95, lo, hi)
     # Vehicle origins sit above the road so the native suspension settles.
     # Positive source Y corresponds to UE yaw -90, because vehicle forward is X.

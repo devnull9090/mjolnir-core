@@ -36,7 +36,8 @@
       "exposure_bias": 0,
       "tone_curve": 0,
       "expand_gamut": 0,
-      "blue_correction": 0
+      "blue_correction": 0,
+      "max_traced_roughness": 0.1
     }
   },
   "blam": {

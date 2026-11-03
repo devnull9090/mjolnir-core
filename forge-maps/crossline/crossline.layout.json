@@ -693,7 +693,7 @@
   "teleporters": [
     {
       "object_index": 128,
-      "support_z_m": 4.52,
+      "support_z_m": 4.53,
       "exit_direction": [
         0,
         1,
@@ -703,7 +703,7 @@
     },
     {
       "object_index": 161,
-      "support_z_m": 4.52,
+      "support_z_m": 4.53,
       "exit_direction": [
         0,
         -1,

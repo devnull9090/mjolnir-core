@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BASE = ROOT.parent / "foundry" / "source" / "geometry.json"
 VERSION = "0.2.0"
-BASE_SHA256 = "e52d920cceeb9c4f8249033fe582d29b0a9cc6b0ad5c20d31ed4adc6dd9ec156"
+BASE_SHA256 = "1067fe7493dc91cf407571cce35d27026e44d7275150851f93a8bfea76133815"
 IDS = (
     "block_1x1", "block_1x2", "floor_1x1", "floor_1x2", "floor_2x2",
     "bridge_straight", "bridge_corner", "ramp", "ramp_shallow", "wall",
@@ -72,8 +72,16 @@ def build_additions(legacy):
         return piece
 
     def pane(w, h, z=0):
+        # Collision keeps the 0.12 m slab. What shows is one plane of the
+        # two-sided glass running 2 cm into the frame: a closed glass box
+        # shared its end and edge faces with the jambs, sill and head, and
+        # those z-fought (tools/forge/check_overlaps.py --pack).
         geometry = box(w, 0.12, h, z=z)
-        return geometry, planar_uvs(component(copy.deepcopy(geometry), "glass"))
+        x, m = w / 2 + 0.02, 0.02
+        surface = g.mesh([(-x, 0, z - m), (x, 0, z - m), (x, 0, z + h + m), (-x, 0, z + h + m)], [(0, 1, 2, 3)])
+        surface = planar_uvs(component(surface, "glass"))
+        surface["surface"] = "two_sided"
+        return geometry, surface
 
     def glass_frame(w=8):
         solids = [(0.5, 1, 3, -(w-0.5)/2), (0.5, 1, 3, (w-0.5)/2),

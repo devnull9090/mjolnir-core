@@ -193,13 +193,15 @@ class ForgeMapBuildTests(unittest.TestCase):
             for offset in (-.01, .01):
                 for y in (-7.8, 0, 7.8):
                     self.assertAlmostEqual(surface(all_tris, (seam + offset, y)), 3)
+        # Every other wall in a run sits 1 cm lower so overlapping walls share
+        # no face (generate_roadworks.barrier, tools/forge/check_overlaps.py).
         for y in (-23.9, -20, -12, -8.81, 8.81, 12, 20, 23.9):
-            self.assertGreaterEqual(surface(all_tris, (79.45, y)), 4.5 - 1e-7)
+            self.assertGreaterEqual(surface(all_tris, (79.45, y)), 4.49 - 1e-7)
         for x in (31.2, 79.2):
             for y in (-8.8, 8.8):
                 self.assertGreaterEqual(surface(all_tris, (x, y)), 4.5 - 1e-7, "closed pit-junction corner")
         for y in range(-24, 25):
-            self.assertGreaterEqual(surface(all_tris, (96.25, y)), 4.5 - 1e-7)
+            self.assertGreaterEqual(surface(all_tris, (96.25, y)), 4.49 - 1e-7)
         # Full-size stock visual footprints,6.13x3.25m, in two lanes at Â±4m.
         # Check each rectangle's four corners over real collision, including
         # curved facets and ramp transitions. This is static clearance only;
@@ -309,7 +311,8 @@ class ForgeMapBuildTests(unittest.TestCase):
         for _, bounds, _ in world:
             self.assertGreaterEqual(bounds[0][0], -48-1e-6); self.assertLessEqual(bounds[0][1], 48+1e-6)
             self.assertGreaterEqual(bounds[1][0], -80-1e-6); self.assertLessEqual(bounds[1][1], 80+1e-6)
-            self.assertGreaterEqual(bounds[2][0], 0); self.assertLessEqual(bounds[2][1], 9)
+            # The corner end walls sit 1 cm down so the corner shares no face.
+            self.assertGreaterEqual(bounds[2][0], -.01-1e-6); self.assertLessEqual(bounds[2][1], 9)
         for axis, plane, span in [(0, -47.5, 80), (0, 47.5, 80), (1, -79.5, 48), (1, 79.5, 48)]:
             for z in (1.5, 4.5, 7.5):
                 intervals = sorted(b[1-axis] for b in boxes if b[axis][0] <= plane <= b[axis][1] and b[2][0] <= z <= b[2][1])

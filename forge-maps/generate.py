@@ -5,7 +5,9 @@ Run from any directory. JSON outputs use the level format's UE centimetres,
 including its Y/yaw reflection. Geometry remains editable in this script.
 """
 import argparse
+import importlib.util
 import json
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -40,8 +42,11 @@ def base(name, title, width, depth, modes):
         "environment": {"sun": {"pitch": -48, "yaw": 25, "intensity": 4,
                                 "atmosphere_sun": True},
             "skylight": {"intensity": 1.6, "physical": True}, "atmosphere": True,
+            # The pack metal is roughness 0.15; tracing reflections for all of
+            # it cost 1.25 ms of 7.2 at 4K, for a mirror look (level_format.md).
             "post": {"manual_exposure": True, "exposure_bias": 0,
-                     "tone_curve": 0, "expand_gamut": 0, "blue_correction": 0}},
+                     "tone_curve": 0, "expand_gamut": 0, "blue_correction": 0,
+                     "max_traced_roughness": 0.1}},
         "blam": {"clear": {"squads": True, "bipeds": True, "weapons": True,
             "vehicles": True, "equipment": True, "scripts": True, "blocks": CLEAR_BLOCKS},
             "active_bsps": [8], "single_bsp": 8, "map_variant": True,
@@ -154,13 +159,17 @@ def arena_layout():
 
     # Sixteen-metre panels halve the old-piece perimeter budget. All three
     # courses overlap at the corners, leaving no ledges on the inner face.
+    # The corner end walls sit 1 cm in and down, so the shared corner has
+    # no coplanar faces to z-fight (tools/forge/check_overlaps.py).
     for z in (0, 3, 6):
         for x in (-47.5, 47.5):
             for y in range(-72, 73, 16):
                 layout["perimeter"].append(put("wall_long", (x, y, z), 90))
         for y in (-79.5, 79.5):
             for x in range(-40, 41, 16):
-                layout["perimeter"].append(put("wall_long", (x, y, z)))
+                inset = .01 if abs(x) == 40 else 0
+                layout["perimeter"].append(put("wall_long", (x - math.copysign(inset, x),
+                    y - math.copysign(inset, y), z - inset)))
 
     for sign, color, team in [(-1, "red", "defender"), (1, "blue", "attacker")]:
         # Forty-eight by twenty-four metre bases. Large floors meet the
@@ -174,7 +183,8 @@ def arena_layout():
             for y in (52, 68):
                 put("column", (x, sign*y, 0))
             put("cover", (x, sign*56, 4.5))
-            piece(level, "light_pylon_" + color, (x, sign*68, 4.5))
+            # 2.5 m outside the teleporter housing, whose end is at x = +/-20.
+            piece(level, "light_pylon_" + color, (x + math.copysign(2.5, x), sign*68, 4.5))
         for x in (-12, -4, 4, 12):
             spawn(level, (x, sign*60, 4.85), -sign*90, team)
         for x in (-8, 8):
@@ -190,10 +200,12 @@ def arena_layout():
             "pos": ue((0, sign*64, .8)), "yaw": sign*90})
         portal = (sign*16, sign*68, 4.5)
         put("teleporter_housing", portal, feature=color + " green teleporter")
-        put("teleporter_pad_wide", (portal[0], portal[1], 4.02))
+        # Sunk into the deck with its top 3 cm proud: at 2 cm the pad's body
+        # met the floor's deck panel and flickered through the green field.
+        put("teleporter_pad_wide", (portal[0], portal[1], 4.03))
         marker_index = len(level["blam"]["objects"])
         teleporter(level, (portal[0], portal[1], 4.57), -sign*90)
-        layout["teleporters"].append({"object_index": marker_index, "support_z_m": 4.52,
+        layout["teleporters"].append({"object_index": marker_index, "support_z_m": 4.53,
             "exit_direction": [0, -sign, 0], "rearm_clearance_m": 3.5})
         cube(level, color + "_base_stripe", (0, sign*70.8, 4.51), (46, .16, .014), COLORS[color])
         level["blam"]["weapons"].append({"type": "battle_rifle", "pos": ue((0, sign*56, 4.9)),
@@ -210,8 +222,10 @@ def arena_layout():
                 put("railing", (x + (-3.75 if x < 0 else 3.75), y, 4.5), 90)
             if 4 < abs(y) < 48:
                 put("railing", (x + (3.75 if x < 0 else -3.75), y, 4.5), 90)
+        # End rails cross the outer rail's end post; 1 cm in and down, their
+        # faces stay off the post's, which would z-fight.
         for y in (-71.75, 71.75):
-            put("railing", (x, y, 4.5))
+            put("railing", (x - math.copysign(.01, x), y - math.copysign(.01, y), 4.49))
         route("west gallery" if x < 0 else "east gallery", [[x, -68, 4.5], [x, 68, 4.5]], 7)
     for x in (-20, -12, -4, 4, 12, 20):
         put("floor_2x2", (x, 0, 4))
@@ -304,6 +318,14 @@ def validate(level):
             o["tag"] == SPAWN and o.get("set", {}).get("multiplayer data.owner team") == "neutral"
             for o in level["blam"]["objects"]):
         raise ValueError("Slayer requires neutral player spawn scenery; campaign starts cannot provide FFA spawns")
+    # Pieces may touch but not pass into one another (beyond the deliberate
+    # joins) or share a face, which z-fights.
+    spec = importlib.util.spec_from_file_location("check_overlaps", REPO / "tools/forge/check_overlaps.py")
+    overlaps = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(overlaps)
+    found = overlaps.problems(level)
+    if found:
+        raise ValueError(level["name"] + " pieces collide:\n  " + "\n  ".join(map(overlaps.describe, found)))
 
 
 def main():

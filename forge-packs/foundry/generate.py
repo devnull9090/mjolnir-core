@@ -155,14 +155,17 @@ def build():
         pad_visual.extend([
             component(box(1.40, 0.065, 0.004, 0, side*0.70, 0.496), "amber", 0.001),
             component(box(0.065, 1.27, 0.004, side*0.70, 0, 0.496), "amber", 0.001),
-            component(box(0.55, 0.06, 0.004, 0, side*0.89, 0.496), "light_lens", 0.001),
+            # Clear of the deck's amber edge strip, whose top it would share.
+            component(box(0.55, 0.06, 0.004, 0, side*0.9, 0.496), "light_lens", 0.001),
             component(box(0.06, 0.55, 0.004, side*0.89, 0, 0.496), "light_lens", 0.001),
         ])
     add("teleporter_pad", "Teleporter Pad", "Floors", [2, 2, 0.5], [(2, 2, 0.5)], pad_visual,
         "Flush with floor tiles; top at Z=0.5 m. Place the separate sender/receiver marker just above the top. Channels and facing are gameplay-marker settings.")
 
-    strip_visual = [component(box(2, 0.44, 0.5, 0, 0.03), "gunmetal", 0.025),
-                    component(box(1.68, 0.04, 0.30, 0, -0.23, 0.10), "light_lens", 0.012)]
+    # The housing stops at the amber end caps, and the lens sits 1 cm behind
+    # the bars across it: shared faces between parts z-fight.
+    strip_visual = [component(box(1.76, 0.44, 0.5, 0, 0.03), "gunmetal", 0.025),
+                    component(box(1.68, 0.05, 0.30, 0, -0.215, 0.10), "light_lens", 0.012)]
     for x in (-0.94, 0.94):
         strip_visual.append(component(box(0.12, 0.5, 0.5, x), "amber", 0.012))
     for x in (-0.55, 0, 0.55):
@@ -174,8 +177,10 @@ def build():
 
     pylon_solids = [(1, 1, 0.25), (0.4, 0.4, 2.25, 0, 0, 0.25), (1, 1, 0.5, 0, 0, 2.5)]
     pylon_visual = clad_box(1, 1, 0.25, body="gunmetal")
+    # The lamp head fills the gap between its two plates rather than sharing
+    # their top and bottom faces.
     pylon_visual.extend([component(box(0.4, 0.35, 2.25, 0, 0, 0.25), "gunmetal", 0.025),
-                         component(box(0.95, 0.95, 0.5, 0, 0, 2.5), "gunmetal", 0.03),
+                         component(box(0.95, 0.95, 0.3, 0, 0, 2.6), "gunmetal", 0.03),
                          component(box(1, 1, 0.10, 0, 0, 2.5), "gunmetal", 0.015),
                          component(box(1, 1, 0.10, 0, 0, 2.9), "gunmetal", 0.015)])
     for side in (-1, 1):
