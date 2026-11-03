@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Ban, Check, ChevronDown, ChevronRight, MessageSquare, X } from "lucide-react";
+import { AvatarImage } from "../components/ui/AvatarImage";
 
 import type {
   BannedPlayer,
@@ -51,12 +52,12 @@ function until(expires: string | null): string {
   return expires ? `until ${when(expires)} UTC` : "permanently";
 }
 
+/** The placeholder disc always renders; a stale avatar that 404s removes itself to show it. */
 function PlayerAvatar({ url }: { url: string | null }) {
-  return url ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt="" crossOrigin="anonymous" className="w-9 h-9 rounded-full border border-border" />
-  ) : (
-    <div className="w-9 h-9 rounded-full border border-border bg-surface-card" />
+  return (
+    <div className="relative w-9 h-9 shrink-0 overflow-hidden rounded-full border border-border bg-surface-card">
+      {url && <AvatarImage src={url} className="absolute inset-0 h-full w-full object-cover" />}
+    </div>
   );
 }
 
