@@ -15,11 +15,14 @@ import struct
 
 ROOT = Path(__file__).resolve().parents[2]
 DONOR = "crate_space_a/crate_space_a"
-MATERIAL_ROOT = "/Game/Env/HS/FR/Gen/+Materials/MI_FR_Gen_Metal_Simple_01_"
-MATERIALS = [("concrete", MATERIAL_ROOT + "Grey_MidLight"),
-             ("deck", MATERIAL_ROOT + "Grey_MidDark"),
-             ("gunmetal", MATERIAL_ROOT + "Grey_Dark_Glossy"),
-             ("amber", MATERIAL_ROOT + "Bronze_Light"),
+# UNSC painted and plain metal, not the Forerunner Gen metal: that is a
+# layered near-mirror (roughness 0.15) that smears under Lumen reflections
+# and turns blotchy from its radiance cache (playtest 2026-11-02).
+MATERIAL_ROOT = "/HaloMaterialLibrary/Env/Material/HS/UNSC/"
+MATERIALS = [("concrete", MATERIAL_ROOT + "MIP_UNSC_PaintedMetal_Grey"),
+             ("deck", MATERIAL_ROOT + "MI_UNSC_Metal_Rough2_Mid"),
+             ("gunmetal", MATERIAL_ROOT + "MIP_UNSC_Plastic_Grey"),
+             ("amber", MATERIAL_ROOT + "MIP_UNSC_PaintedMetal_Orange"),
              ("light_lens", "/Game/Lighting/Lighting_Mats/EmissiveMaterials/B40/MI_FREmissive_Solid_B40_White_Warm"),
              ("light_lens_red", "/Game/Env/HS/UNSC/Gen/+Materials/+Temp/MI_UNSC_EMIS_Red"),
              ("light_lens_blue", "/Game/Lighting/Lighting_Mats/EmissiveMaterials/B40/MI_FREmissive_Solid_B40_Blue_Dark")]

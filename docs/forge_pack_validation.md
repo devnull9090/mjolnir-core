@@ -713,3 +713,35 @@ Observed in a private Forge game on Crossline:
 
 Not checked in game: the other glass pieces, the lamp heads and light strip
 up close, Forge Canvas, and Roadworks Circuit's barrier joins.
+
+### Materials: every slot, and UNSC painted metal
+
+The same playtest then found the pieces blotchy. Two faults lay behind it:
+
+- **One material per piece.** `build_pack.py` passed `--asset-imports` only
+  for pieces with glass or portal surfaces, so every other mesh kept the
+  donor cube's single slot and drew its deck panels, trim, amber strips and
+  lenses in its body material. Every piece now imports its slot materials
+  (a Wide floor: four sections, body, deck, trim and strip).
+- **Near-mirror metal.** The body, deck and trim materials were the layered
+  `+MIP_FR_Gen_Metal` at roughness 0.15. Traced, it smeared reflections
+  (a panel reflected the Spartan beside it); under the 0.1 cap it took
+  Lumen's coarse radiance cache and turned blotchy. Its roughness is inside
+  the material layers, and overriding `Roughness Remap` on a dynamic
+  instance changed nothing.
+
+Four shipped materials were compared live at the playtest view. The user
+chose UNSC painted grey, and the roles are now `MIP_UNSC_PaintedMetal_Grey`
+(body), `MI_UNSC_Metal_Rough2_Mid` (deck), `MIP_UNSC_Plastic_Grey` (trim) and
+`MIP_UNSC_PaintedMetal_Orange` (strip). At a floor-heavy 4K view on the red
+base, reflections cost 7.61 ms of GPU time traced and 5.86 ms under the 0.1
+cap, with no visible difference, so the cap stays. The gallery underside is
+clean either way.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Foundry 0.2.0 | 1,322,246 | `790131fb86502aa2a17924e51d4052b43910ce7c5b9bd3bc443ae866adeee91b` |
+| Foundry Wide 0.2.0 | 2,344,231 | `ca2d8c232e1623f1820016eea7258cdf2b4e9c1441829fb8d8821f64d59344c7` |
+
+The three map archives above were reused: they name the pack pieces, not
+their materials.

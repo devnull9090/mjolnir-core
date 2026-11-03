@@ -145,12 +145,14 @@ Warthog headlight was 160 times the sun and turned whatever it reached white.
 `mjolnir_light_scale <k>` tries a value live; `default` hands it back to the file.
 
 `post.max_traced_roughness` caps which surfaces get ray-traced Lumen
-reflections: anything rougher reflects from Lumen's radiance cache instead,
-which reads as satin rather than mirror. The Forge pack pieces use the game's
-`+MIP_FR_Gen_Metal` instances at roughness 0.15, so every surface was traced;
-the Forge maps set 0.1, which took 1.25 ms off a 7.2 ms GPU frame at 4K on
-Crossline (2026-11-02). Turning Lumen reflections off instead leaves the metal
-black.
+reflections: anything rougher reflects from Lumen's radiance cache instead.
+Use it only where the surfaces are actually rough. The cache is too coarse for
+near-mirror metal: on the Forge pieces' first material, the game's layered
+`+MIP_FR_Gen_Metal` at roughness 0.15, a cap of 0.1 turned the metal blotchy.
+With the UNSC painted and rough metal the packs use now, the Forge maps' 0.1
+looks the same as tracing and took a floor-heavy 4K view on Crossline from 7.61
+to 5.86 ms of GPU time (RTX 5090, 2026-11-02). Turning Lumen reflections off
+instead leaves metal black.
 
 Two more keys come from a CE map's sky and BSP:
 

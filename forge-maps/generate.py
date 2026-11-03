@@ -42,8 +42,9 @@ def base(name, title, width, depth, modes):
         "environment": {"sun": {"pitch": -48, "yaw": 25, "intensity": 4,
                                 "atmosphere_sun": True},
             "skylight": {"intensity": 1.6, "physical": True}, "atmosphere": True,
-            # The pack metal is roughness 0.15; tracing reflections for all of
-            # it cost 1.25 ms of 7.2 at 4K, for a mirror look (level_format.md).
+            # The packs' rough UNSC materials look the same from Lumen's cache
+            # as traced, for 1.75 ms less at 4K (level_format.md). Keep it
+            # off for near-mirror materials: the cache turns them blotchy.
             "post": {"manual_exposure": True, "exposure_bias": 0,
                      "tone_curve": 0, "expand_gamut": 0, "blue_correction": 0,
                      "max_traced_roughness": 0.1}},
