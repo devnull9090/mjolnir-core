@@ -12,6 +12,10 @@
     "title": { "type": "string", "maxLength": 128 },
     "author": { "type": "string", "maxLength": 128 },
     "description": { "type": "string", "maxLength": 1024 },
+    "kill_floor": {
+      "type": ["number", "null"],
+      "description": "Absolute Unreal Z in centimetres below which the host kills players. Omit for no map-specific override; the level loader enforces it."
+    },
     "canvas": {
       "type": "object",
       "required": ["scenario", "origin"],
@@ -48,7 +52,54 @@
     "blam": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [{
+        "if": { "anyOf": [
+          { "required": ["forge_packs"], "properties": { "forge_packs": { "minItems": 1 } } },
+          { "required": ["forge_objects"], "properties": { "forge_objects": { "minItems": 1 } } }
+        ] },
+        "then": { "required": ["map_variant"], "properties": { "map_variant": { "const": true } } }
+      }],
       "properties": {
+        "map_variant": { "type": "boolean", "default": false },
+        "forge_packs": {
+          "type": "array", "maxItems": 63,
+          "description": "Exact pack dependencies and palette order for a standalone bake. CLI also checks namespaced tag identity, unique IDs, at most 200 custom references total and the 255-entry combined palette limit.",
+          "items": {
+            "type": "object", "required": ["slug", "version", "blocks"], "additionalProperties": false,
+            "properties": {
+              "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+              "version": {
+                "type": "string", "maxLength": 96,
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
+              },
+              "blocks": {
+                "type": "array", "minItems": 1, "maxItems": 200, "uniqueItems": true,
+                "items": {
+                  "type": "object", "required": ["id", "tag"], "additionalProperties": false,
+                  "properties": {
+                    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+                    "tag": { "type": "string", "pattern": "^objects\\\\mjolnir\\\\forge\\\\[a-z0-9][a-z0-9-]{1,63}\\\\[a-z0-9][a-z0-9_-]{0,63}$" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "forge_objects": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "description": "Existing scenery/crate tags to add to the standalone Forge palette without preplacing them. Custom pack objects must use forge_packs.",
+          "items": {
+            "type": "object", "required": ["group", "tag"], "additionalProperties": false,
+            "properties": {
+              "group": { "enum": ["scenery", "crates"] },
+              "tag": {
+                "type": "string", "maxLength": 223,
+                "pattern": "^objects(?:\\\\[a-z0-9_-]+)+$",
+                "not": { "pattern": "^objects\\\\mjolnir\\\\forge\\\\" }
+              }
+            }
+          }
+        },
         "clear": {
           "type": "object",
           "additionalProperties": false,

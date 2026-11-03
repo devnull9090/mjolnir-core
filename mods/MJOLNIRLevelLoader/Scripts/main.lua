@@ -1699,6 +1699,9 @@ local function spawnEnvironment(world)
             set("expand_gamut", "ExpandGamut", post.expand_gamut)
             set("blue_correction", "BlueCorrection", post.blue_correction)
             set("bloom", "BloomIntensity", post.bloom)
+            -- Rougher surfaces reflect from the radiance cache, not traced
+            -- rays (docs/level_format.md); a level of glossy metal saves ms.
+            set("max_traced_roughness", "LumenMaxRoughnessToTraceReflections", post.max_traced_roughness)
             if post.manual_exposure then
                 set("manual_exposure", "AutoExposureMethod", 2) -- AEM_Manual
                 set("manual_exposure", "AutoExposureApplyPhysicalCameraExposure", false)
@@ -5973,7 +5976,10 @@ local function initialize()
     Teams.KillFloor = dofile(MOD_DIR .. "\\Scripts\\kill_floor.lua")
     Teams.KillFloor.init({ Log = Log, getWorld = getWorld, isHost = isHostWorld, Current = Current, Script = Teams.Script })
     Teams.Lifts = dofile(MOD_DIR .. "\\Scripts\\lifts.lua")
-    Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script })
+    Teams.PackLifts = dofile(MOD_DIR .. "\\Scripts\\pack_lifts.lua").new({
+        inventoryPath = MOD_DIR .. "\\..\\..\\MJOLNIRForgePacks\\installed.json", decode = Json.decode,
+    })
+    Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script, PackLifts = Teams.PackLifts })
     Teams.init({
         Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
         hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,

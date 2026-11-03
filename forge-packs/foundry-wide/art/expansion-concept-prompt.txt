@@ -1,0 +1,24 @@
+Generated with the built-in image_gen tool on 2026-11-02.
+Concept exploration only; exact geometry, dimensions and gameplay are defined
+by source/geometry.json, catalog.json and the validation record. The implemented
+automatic panels lift vertically; the concept shows a sliding-door alternative.
+
+Use case: stylized-concept
+Asset type: original modular 3D game environment concept sheet for the Foundry Wide Forge construction kit; design exploration, not an in-game screenshot or engineering drawing.
+Primary request: a cohesive expansion of an existing large industrial sci-fi modular map kit. Create a polished landscape product sheet with twelve separate clearly readable pieces, grouped into three rows, on a subdued neutral slate studio background. Grounding shadows, clean high quality hard-surface forms, practical buildable geometry, restrained chamfers and inset trim. Pale concrete/ceramic panels, dark gunmetal framing, thin amber safety accents; clear slightly cyan-tinted glass; green animated-looking portal energy and blue gravity-lift energy. All structural pieces share a 4 metre module and bottom-centre origin; walls are 8 metres wide and 3 metres tall, infantry passages 4 metres clear. Use the same visual scale for comparable objects and include a small 2-metre humanoid silhouette beside each group to make their generous scale unmistakable.
+Subjects:
+1. 8-metre-wide doorway wall with a 4-metre clear portal, chunky modular jambs.
+2. Matching paired sliding door leaves in that doorway, shown half open.
+3. Wide vehicle hangar arch with 8-metre clear opening and 5-metre headroom; include a small generic 6-metre-long off-road buggy silhouette for scale.
+4. 8-metre wall with large transparent glass window and a 1-metre sill.
+5. Full-height glazed 8-metre wall with simple durable dark mullions.
+6. A glazed right-angle corner joining matching wall segments.
+7. An 8-metre-wide gentle straight ramp rising 2 metres over 8 metres, without tall rails.
+8. An 8-metre-wide broad ramp rising 4 metres over 16 metres.
+9. An 8-metre square landing with practical low perimeter rails and two open edges.
+10. An 8-metre-square gravity-lift station: central 4-metre pad, blue upward translucent light column and inset guide chevrons; broad flat walk-on approach.
+11. An 8-metre-wide portal wall frame with a 4-metre clear aperture filled by shimmering emerald-green vertical teleporter energy, simple thin threshold flush to the floor.
+12. Matching flat 4-metre square receiving pad with green light and directional trim.
+Composition: orderly professional asset design board, three-quarter isometric views, generous spacing, fully visible silhouettes, no pieces overlapping. Show functional assembly logic, no extraneous turrets, guns, plants or statues.
+Text (verbatim): title "FOUNDRY WIDE — EXPANSION"; group labels "DOORS", "GLASS", "RAMPS", "TRANSIT"; footer "4 m modules · 0.5 m placement grid · 2 m scale figures".
+Constraints: original designs, no franchise logos, no copied game meshes, no tiny toy-scale corridors, no inaccessible raised thresholds, no magical floating loose components. This is a design concept, not a claim of working gameplay.

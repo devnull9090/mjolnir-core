@@ -129,6 +129,31 @@ which we don't ship, so the import resolves to the game's own copy.
 
 ## Driving it from Lua
 
+### Class lifetime during map travel
+
+UE4SS build `c838a8ac` can retain a reflected-property pointer after a UI
+Blueprint class is collected. A 2026-11-01 crash while loading Forge Canvas
+after Crossline and the lobby failed in `FFieldClassVariant::GetFName`:
+the Lua lookup key was `Watermark`, and the cached field's class pointer was
+invalid. The HUD had already created a new kill-feed widget; checking that
+widget with `IsValid()` does not repair stale reflection metadata.
+
+HUD, Lobby and Forge therefore run their loaded classes through
+`Scripts/class_lifetime.lua` before creating a visible widget. An explicit
+allowlist permits one named, inactive instance per UI class in
+`/Engine/Transient`, constructed with `RF_Transient` and internal `RootSet`.
+These instances retain the classes for the process lifetime without a world,
+player controller or viewport. They are reused across script reloads; failed
+retention delays UI creation and logs the reason. Start a fresh game process
+when installing this mitigation, because it cannot repair an already stale
+UE4SS cache. The three self-contained helper copies must remain identical.
+
+The reserved `MJOLNIR_UI_ClassPin_` instances are not screens: `UI.liveWidget`
+and Forge's chat lookup exclude them. Any new widget enumeration must also
+exclude class defaults and pins, and require the appropriate active or
+in-viewport state. `tools/tests/test_ui_class_lifetime.lua` covers class
+retention, map-widget release, reload reuse, failures and discovery filtering.
+
 UE4SS's `LoadAsset` only finds what the game's asset registry lists. Load
 through a soft class path instead:
 

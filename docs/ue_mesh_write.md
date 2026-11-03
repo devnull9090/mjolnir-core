@@ -133,20 +133,33 @@ default grey until something says otherwise. Two halves:
    materials, or a runtime material (a master plus textures and parameters)
    the loader builds at spawn; see [level_format.md](level_format.md).
 
-**The mesh's own slots do not survive the load.** `--asset-imports` writes the
-materials into the package properly: `StaticMaterials` grows to four entries,
-each a package import with the right `FPackageId` and public export hash, the
-export's dependency bundle lists them, and `blam-pack --example
-package_override` takes the imported package paths and writes a store entry so
-the runtime can turn an import's index into a package id — without that store
-entry the load faults with an access violation, because the shipped entry still
-describes the shipped one-import list, and the asset's parallel array is what
-the index counts against. All of that installs, and the package still comes up
-in game reporting the donor's *one* slot with `DefaultMaterial` in it, the three
-material packages never loaded. The bytes in the installed container decode as
-four (`ue-asset --example props_diff`), so something at load or `PostLoad`
-shortens it; unexplained. Hence the component route above, which works and is
-what a level file wants anyway.
+**Native material slots are serialized twice.** The original `--asset-imports`
+implementation updated reflected `StaticMaterials`, package imports and export
+dependencies, but the loaded mesh still reported the donor's one slot. The
+2026-11-02 Foundry Wide probe identified the cause: `UStaticMesh::Serialize`
+reads another `StaticMaterials` array at the end of the native export tail,
+overwriting the reflected property. The Cube donor's final 40 bytes still held
+one WorldGrid material even when the property block declared nine.
+
+`--asset-imports` now rewrites both arrays. The supported cooked suffix is a
+32-bit count followed by 36-byte records: material reference, mapped slot name,
+two 32-bit UV-data booleans and four density floats. The writer compares the
+entire old suffix with the independently decoded donor properties before
+replacing it; unsupported layouts or mismatches fail closed. No pattern scan or
+native-tail edit runs without the flag. The geometry and preceding native tail
+remain byte-identical. Portable tests cover the captured donor record, expansion
+to nine slots, round trip, every-byte corruption, extra/truncated bytes and
+invalid counts/densities.
+
+Package imports still require matching package-store entries and export
+dependencies: a reflected or native material reference alone is insufficient.
+The ordinary component-override route above remains available. Mixed opaque and
+translucent meshes need the native slot count too, so that renderer material
+relevance includes their transparent sections. Cold-load tests of the corrected
+candidate subsequently verified transparent glass from both sides and animated
+green fields, with nine component slots and the intended materials in slots 7
+and 8. See [the local validation record](forge_pack_validation.md); moving and
+restoring surface placements remain separate live checks.
 
 Two probes came out of this and are worth keeping:
 `ue-asset --example store_entries` compares every package's store entry against

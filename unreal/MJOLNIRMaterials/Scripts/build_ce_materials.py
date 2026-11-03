@@ -55,6 +55,7 @@ ROOT = "/Game/MJOLNIR/CE"
 # masters, and MJOLNIRLevelLoader picks them up with
 # `mjolnir_terrain_shadows lightmap` or `mjolnir_terrain_lights on`.
 TRIAL_ROOT = os.environ.get("MJ_CE_ROOT")
+LIBRARY_ONLY = os.environ.get("MJ_CE_LIBRARY") == "1"
 if TRIAL_ROOT:
     ROOT = TRIAL_ROOT.rstrip("/")
 CHUNK = int(os.environ.get("MJ_CE_CHUNK", "988"))
@@ -170,9 +171,10 @@ def build_defaults():
 # --- graph helpers ----------------------------------------------------------
 
 class Graph:
-    def __init__(self, material):
+    def __init__(self, material, parameter_defaults=None):
         self.m = material
         self.y = 0
+        self.parameter_defaults = parameter_defaults or {}
 
     def node(self, cls, x=-1400, **props):
         e = mel.create_material_expression(self.m, cls, x, self.y)
@@ -182,9 +184,11 @@ class Graph:
         return e
 
     def scalar(self, name, default=0.0):
+        default = self.parameter_defaults.get("scalars", {}).get(name, default)
         return self.node(unreal.MaterialExpressionScalarParameter, parameter_name=name, default_value=default)
 
     def vector(self, name, default=(1.0, 1.0, 1.0, 1.0)):
+        default = self.parameter_defaults.get("vectors", {}).get(name, default)
         return self.node(unreal.MaterialExpressionVectorParameter, parameter_name=name,
                          default_value=unreal.LinearColor(*default))
 
@@ -208,6 +212,7 @@ class Graph:
         return mul
 
     def texture(self, name, default, uvs, sampler=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR):
+        default = self.parameter_defaults.get("textures", {}).get(name, default)
         t = self.node(unreal.MaterialExpressionTextureSampleParameter2D, x=-1100, parameter_name=name,
                       texture=default, sampler_type=sampler)
         link(uvs, "", t, "UVs")
@@ -1845,13 +1850,13 @@ def sky_offset(g, m):
         raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
 
 
-def build_transparent(name, blend, defaults, two_sided=False, device=False):
+def build_transparent(name, blend, defaults, two_sided=False, device=False, parameter_defaults=None):
     m = fresh(ROOT, name, unreal.Material, unreal.MaterialFactoryNew())
     m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property("blend_mode", blend)
     m.set_editor_property("two_sided", two_sided)
     m.set_editor_property("used_with_static_lighting", False)
-    g = Graph(m)
+    g = Graph(m, parameter_defaults)
     uv0 = g.uv(0)
     time = g.node(unreal.MaterialExpressionTime)
     depth = g.node(unreal.MaterialExpressionPixelDepth)
@@ -2286,17 +2291,18 @@ def build_label():
         eal.save_loaded_asset(label)
 
 
-build_label()
-defaults = build_defaults()
-if eal.does_asset_exist(f"{ROOT}/MPC_CE"):
-    eal.delete_asset(f"{ROOT}/MPC_CE")
-build_environment("M_CE_Environment", False, defaults)
-build_environment("M_CE_EnvironmentMasked", True, defaults)
-build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=True)
-# shader_model's two-sided flag on an opaque (not alpha-tested) model.
-build_environment("M_CE_EnvironmentTwoSided", False, defaults, two_sided=True)
-build_sun_light(defaults)
-build_linear_copy(defaults)
+if not LIBRARY_ONLY:
+    build_label()
+    defaults = build_defaults()
+    if eal.does_asset_exist(f"{ROOT}/MPC_CE"):
+        eal.delete_asset(f"{ROOT}/MPC_CE")
+    build_environment("M_CE_Environment", False, defaults)
+    build_environment("M_CE_EnvironmentMasked", True, defaults)
+    build_environment("M_CE_EnvironmentMaskedTwoSided", True, defaults, two_sided=True)
+    # shader_model's two-sided flag on an opaque (not alpha-tested) model.
+    build_environment("M_CE_EnvironmentTwoSided", False, defaults, two_sided=True)
+    build_sun_light(defaults)
+    build_linear_copy(defaults)
 
 LAND_PBR_CODE = r"""
 // The ground as Campaign Evolved's B30 draws it: the game's Megascans
@@ -3479,7 +3485,9 @@ def build_hidden():
     eal.save_loaded_asset(m)
 
 
-if TRIAL_ROOT:
+if LIBRARY_ONLY:
+    pass  # Forge reuses these graph builders under its own asset namespace.
+elif TRIAL_ROOT:
     build_hidden()
     build_environment("M_CE_Landscape", False, defaults, land=True)
     deform = deform_globals()

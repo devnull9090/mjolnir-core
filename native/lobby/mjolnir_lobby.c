@@ -2408,6 +2408,7 @@ static void teams_tick(void);
 static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
+static void forge_doors_tick(void);
 static unsigned char *watch_globals;
 static unsigned char *sim_game_globals(void);
 static void inject_players(void);
@@ -2539,6 +2540,7 @@ static void __fastcall hook_main_tick(void) {
         }
     }
     main_tick_trampoline();
+    forge_doors_tick();
 }
 
 /* Move `stolen` bytes of `fn` to a trampoline and jump from `fn` to `hook`. */
@@ -4191,6 +4193,14 @@ static void sound_trace_arm(void);
 
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
+    /* Every game needs the main tick, not only one where a lift, kill floor,
+       bot or public lobby happened to install it: the Forge door exports
+       refuse any caller but the thread it records, and with it never run
+       every Forge save and edit was refused. games.lua calls this each
+       second from startup, so it is in place before the first match. */
+    static int main_tick_failed;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (sim && !main_tick_failed && !install_main_tick(sim)) main_tick_failed = 1;
     sound_trace_arm();
     teams_balance_once();
     if (keep_lobby && join_in_progress && !jip_host_auto) {
@@ -5634,6 +5644,8 @@ static void sound_trace_arm(void) {
    freed memory (two PCs, 2026-10-03). Pinned, a reload's package.loadlib
    finds the same module, statics and all, and the install guards skip a
    second install. */
+#include "forge_doors_runtime.h"
+
 BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID reserved) {
     (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {

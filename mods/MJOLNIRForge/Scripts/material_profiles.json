@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "teleporter_green": {
+      "source_game": "Halo CE",
+      "source_shader_tag": "levels\\test\\tutorial\\shaders\\example_tutorial_teleporter",
+      "conversion": "tools/level/ce_material_spec.py: shader_transparent_chicago; exact stage parameters; map fog omitted",
+      "animation": "GPU MaterialExpressionTime; no Lua timestep"
+    }
+  },
+  "textures": [
+    {
+      "name": "T_PortalDust",
+      "source": "scenery_teleporter_shield_bitmaps_teleporter_shield_dust.dds"
+    },
+    {
+      "name": "T_PortalMask",
+      "source": "scenery_teleporter_shield_bitmaps_teleporter_shield_mask.dds"
+    }
+  ],
+  "profiles": {
+    "glass_cyan": {
+      "master": "M_ForgeGlassCyan",
+      "textures": {},
+      "scalars": {
+        "Opacity": 0.24,
+        "Roughness": 0.12,
+        "Specular": 0.7
+      },
+      "vectors": {
+        "GlassColor": [
+          0.12,
+          0.55,
+          0.65,
+          1
+        ]
+      }
+    },
+    "teleporter_green": {
+      "textures": {
+        "Map0": "T_PortalDust",
+        "Map1": "T_PortalDust",
+        "Map2": "T_PortalMask",
+        "Map3": "T_PortalMask"
+      },
+      "scalars": {
+        "StageCount": 4,
+        "ChicagoFlags": 4.0,
+        "BlendFunction": 3.0,
+        "FadeMode": 0.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          6,
+          4.0,
+          0.0,
+          -1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          4.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage1Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage1UAnim": [
+          6,
+          11.0,
+          0.0,
+          1.0
+        ],
+        "Stage1VAnim": [
+          6,
+          3.0,
+          0.0,
+          -1.0
+        ],
+        "Stage1RAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage1Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage2Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage2UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage2VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage2RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage2Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage3Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage3UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage3VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage3RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage3Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          4,
+          2,
+          4,
+          0
+        ],
+        "StageAlphaFunctions": [
+          10,
+          10,
+          2,
+          0
+        ]
+      },
+      "master": "M_ForgePortalGreen"
+    }
+  }
+}

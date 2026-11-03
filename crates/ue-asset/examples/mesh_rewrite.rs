@@ -18,9 +18,10 @@
 //!
 //! The materials themselves are assigned to the *component*, not baked into
 //! the mesh: `--asset-imports` additionally writes them into the package as
-//! `StaticMaterials` entries and package imports, but the loaded mesh still
-//! reports the donor's one slot, so that form is kept only as a record of what
-//! a cook would look like. See `docs/ue_mesh_write.md`.
+//! reflected and native `StaticMaterials` entries and package imports. Both
+//! arrays must agree: the engine reads the native array last. This opt-in path
+//! rejects donors whose cooked native suffix does not match their properties.
+//! See `docs/ue_mesh_write.md`.
 //!
 //! `--rename` also renames the package and its mesh export, so the result is a
 //! **new** package rather than a replacement for the donor. That matters
@@ -640,6 +641,55 @@ fn main() {
         let mi_slot = find_slot("StaticMaterial", "MaterialInterface");
         let name_slot = find_slot("StaticMaterial", "MaterialSlotName");
         let iname_slot = find_slot("StaticMaterial", "ImportedMaterialSlotName");
+        let uv_slot = find_slot("StaticMaterial", "UVChannelData");
+        let initialized_slot = find_slot("MeshUVChannelInfo", "bInitialized");
+        let override_slot = find_slot("MeshUVChannelInfo", "bOverrideDensities");
+        let density_slot = find_slot("MeshUVChannelInfo", "LocalUVDensities");
+        let native_slots = |items: &[Val]| -> Vec<ue_asset::mesh_write::NativeMaterialSlot> {
+            items
+                .iter()
+                .map(|item| {
+                    let Val::Struct(item) = item else {
+                        panic!("material slot is not a struct")
+                    };
+                    let bool_at = |block: &ue_asset::props::Block, slot| match block.get(slot) {
+                        Some(Val::Bool(v)) => *v,
+                        None | Some(Val::Zeroed) => false,
+                        other => panic!("UV flag is {other:?}"),
+                    };
+                    let empty = ue_asset::props::Block::default();
+                    let uv = match item.get(uv_slot) {
+                        Some(Val::Struct(uv)) => uv,
+                        None | Some(Val::Zeroed) => &empty,
+                        other => panic!("UVChannelData is {other:?}"),
+                    };
+                    ue_asset::mesh_write::NativeMaterialSlot {
+                        material: match item.get(mi_slot) {
+                            Some(Val::Object(v)) => *v,
+                            None | Some(Val::Zeroed) => 0,
+                            other => panic!("MaterialInterface is {other:?}"),
+                        },
+                        name: match item.get(name_slot) {
+                            Some(Val::Name(v)) => *v,
+                            None | Some(Val::Zeroed) => Name {
+                                index: 0,
+                                number: 0,
+                            },
+                            other => panic!("MaterialSlotName is {other:?}"),
+                        },
+                        initialized: bool_at(uv, initialized_slot),
+                        override_densities: bool_at(uv, override_slot),
+                        uv_densities: std::array::from_fn(|i| {
+                            match uv.get(density_slot + i as u16) {
+                                Some(Val::Float(v)) => *v,
+                                None | Some(Val::Zeroed) => 0.0,
+                                other => panic!("UV density is {other:?}"),
+                            }
+                        }),
+                    }
+                })
+                .collect()
+        };
         let items = match edit.block.get(sm_slot) {
             Some(Val::Array(items)) => items.clone(),
             other => panic!("StaticMaterials is {other:?}"),
@@ -672,6 +722,16 @@ fn main() {
                 new_items.push(Val::Struct(item));
             }
         }
+        let old_native = native_slots(&items);
+        let new_native = native_slots(&new_items);
+        edit.tail =
+            ue_asset::mesh_write::rewrite_native_materials(&edit.tail, &old_native, &new_native)
+                .expect("rewrite native StaticMaterials suffix");
+        println!(
+            "  native material suffix: {} -> {} slots (verified donor)",
+            old_native.len(),
+            new_native.len()
+        );
         edit.block.set(sm_slot, Val::Array(new_items));
         ue_asset::edit::write_export(&mut zp, &usmap, &edit).expect("write export");
         // The header grew (names, imports): keep its distance from the cooked

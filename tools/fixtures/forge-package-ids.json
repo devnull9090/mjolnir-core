@@ -1,0 +1,62 @@
+[
+  {
+    "id_hex": "60535d0b63709ee6",
+    "name": "/Game/MJOLNIR/Forge/aa/Materials/M_ForgeGlassCyan"
+  },
+  {
+    "id_hex": "0896d34a4e56ff99",
+    "name": "/Game/MJOLNIR/Forge/aa/Materials/M_ForgePortalGreen"
+  },
+  {
+    "id_hex": "5404af0b3e147c99",
+    "name": "/Game/MJOLNIR/Forge/aa/Textures/T_PortalDust"
+  },
+  {
+    "id_hex": "887bb6227e6ca91b",
+    "name": "/Game/MJOLNIR/Forge/aa/Textures/T_PortalMask"
+  },
+  {
+    "id_hex": "4da66a555a8e8e6a",
+    "name": "/Game/MJOLNIR/Forge/aa/Materials/T_CE_BlackCube"
+  },
+  {
+    "id_hex": "d7d5bca0bca31d0c",
+    "name": "/Game/MJOLNIR/Forge/foundry-wide/Materials/M_ForgeGlassCyan"
+  },
+  {
+    "id_hex": "acd9cb581bae487f",
+    "name": "/Game/MJOLNIR/Forge/foundry-wide/Materials/M_ForgePortalGreen"
+  },
+  {
+    "id_hex": "fe848d97fd3eb104",
+    "name": "/Game/MJOLNIR/Forge/foundry-wide/Textures/T_PortalDust"
+  },
+  {
+    "id_hex": "1ec2e7d02159ae6a",
+    "name": "/Game/MJOLNIR/Forge/foundry-wide/Textures/T_PortalMask"
+  },
+  {
+    "id_hex": "f85ae58a2a0042b0",
+    "name": "/Game/MJOLNIR/Forge/foundry-wide/Materials/T_CE_BlackCube"
+  },
+  {
+    "id_hex": "b186cc5501777f0a",
+    "name": "/Game/MJOLNIR/Forge/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Materials/M_ForgeGlassCyan"
+  },
+  {
+    "id_hex": "8ab690ba01db07a7",
+    "name": "/Game/MJOLNIR/Forge/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Materials/M_ForgePortalGreen"
+  },
+  {
+    "id_hex": "09f7fd6d27170b55",
+    "name": "/Game/MJOLNIR/Forge/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Textures/T_PortalDust"
+  },
+  {
+    "id_hex": "8bff271fb2f56514",
+    "name": "/Game/MJOLNIR/Forge/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Textures/T_PortalMask"
+  },
+  {
+    "id_hex": "96f2681ad091ed9e",
+    "name": "/Game/MJOLNIR/Forge/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Materials/T_CE_BlackCube"
+  }
+]

@@ -1,0 +1,845 @@
+{
+  "schema_version": 1,
+  "name": "Foundry / Crosswalk",
+  "kind": "authoring_layout",
+  "units": "meters",
+  "axes": "right_handed_z_up",
+  "footprint_m": [
+    16,
+    16
+  ],
+  "requires": {
+    "pack": "foundry",
+    "version": "0.1.0"
+  },
+  "main_walk_heights_m": [
+    0.5,
+    4.5
+  ],
+  "bridge_clearance_m": 3.5,
+  "notes": [
+    "Portable authoring fixture; requires a runtime adapter/bake to play.",
+    "Yaw is counterclockwise about authored +Z; each part keeps its bottom-centre origin.",
+    "Main play surfaces are 4 m apart. The alternate route has a 2.5 m intermediate landing.",
+    "The bridge underside is 3.5 m above the lower walking surface."
+  ],
+  "checks": [
+    "Walk both consecutive ramps across their exact 2 m join.",
+    "Walk the stair-to-ramp route and inspect the last tread.",
+    "Cross the L bridge and both 1 x 1 landing seams.",
+    "Walk beneath the bridge; fire through the window; walk through the doorway.",
+    "Duplicate/rotate/delete a part, save and reload; then test missing-pack download."
+  ],
+  "placements": [
+    {
+      "id": "p001",
+      "block": "floor_2x2",
+      "position_m": [
+        -6,
+        -6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p002",
+      "block": "floor_2x2",
+      "position_m": [
+        -6,
+        -2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p003",
+      "block": "floor_2x2",
+      "position_m": [
+        -6,
+        2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p004",
+      "block": "floor_2x2",
+      "position_m": [
+        -6,
+        6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p005",
+      "block": "floor_2x2",
+      "position_m": [
+        -2,
+        -6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p006",
+      "block": "floor_2x2",
+      "position_m": [
+        -2,
+        -2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p007",
+      "block": "floor_2x2",
+      "position_m": [
+        -2,
+        2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p008",
+      "block": "floor_2x2",
+      "position_m": [
+        -2,
+        6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p009",
+      "block": "floor_2x2",
+      "position_m": [
+        2,
+        -6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p010",
+      "block": "floor_2x2",
+      "position_m": [
+        2,
+        -2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p011",
+      "block": "floor_2x2",
+      "position_m": [
+        2,
+        2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p012",
+      "block": "floor_2x2",
+      "position_m": [
+        2,
+        6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p013",
+      "block": "floor_2x2",
+      "position_m": [
+        6,
+        -6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p014",
+      "block": "floor_2x2",
+      "position_m": [
+        6,
+        -2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p015",
+      "block": "floor_2x2",
+      "position_m": [
+        6,
+        2,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p016",
+      "block": "floor_2x2",
+      "position_m": [
+        6,
+        6,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground"
+    },
+    {
+      "id": "p017",
+      "block": "floor_2x2",
+      "position_m": [
+        2,
+        -6,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_deck"
+    },
+    {
+      "id": "p018",
+      "block": "floor_2x2",
+      "position_m": [
+        6,
+        -6,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_deck"
+    },
+    {
+      "id": "p019",
+      "block": "bridge_straight",
+      "position_m": [
+        -7,
+        6,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_deck"
+    },
+    {
+      "id": "p020",
+      "block": "bridge_straight",
+      "position_m": [
+        -5,
+        6,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_deck"
+    },
+    {
+      "id": "p021",
+      "block": "floor_1x2",
+      "position_m": [
+        -3,
+        6,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_deck"
+    },
+    {
+      "id": "p022",
+      "block": "floor_1x2",
+      "position_m": [
+        -1,
+        6,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_deck"
+    },
+    {
+      "id": "p023",
+      "block": "bridge_corner",
+      "position_m": [
+        0,
+        0,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_bridge"
+    },
+    {
+      "id": "p024",
+      "block": "floor_1x1",
+      "position_m": [
+        -1,
+        3,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_bridge"
+    },
+    {
+      "id": "p025",
+      "block": "floor_1x1",
+      "position_m": [
+        1,
+        -3,
+        4
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_bridge"
+    },
+    {
+      "id": "p026",
+      "block": "ramp",
+      "position_m": [
+        -6,
+        -6,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        -90
+      ],
+      "role": "south_ascent"
+    },
+    {
+      "id": "p027",
+      "block": "ramp",
+      "position_m": [
+        -2,
+        -6,
+        2.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        -90
+      ],
+      "role": "south_ascent"
+    },
+    {
+      "id": "p028",
+      "block": "stairs",
+      "position_m": [
+        6,
+        6,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        90
+      ],
+      "role": "north_ascent"
+    },
+    {
+      "id": "p029",
+      "block": "ramp",
+      "position_m": [
+        2,
+        6,
+        2.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        90
+      ],
+      "role": "north_ascent"
+    },
+    {
+      "id": "p030",
+      "block": "ramp_shallow",
+      "position_m": [
+        4,
+        -3,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "alternate_ascent"
+    },
+    {
+      "id": "p031",
+      "block": "block_1x2",
+      "position_m": [
+        4,
+        3,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "intermediate_landing"
+    },
+    {
+      "id": "p032",
+      "block": "block_1x1",
+      "position_m": [
+        -4,
+        0,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "ground_cover"
+    },
+    {
+      "id": "p033",
+      "block": "column",
+      "position_m": [
+        -7,
+        5,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "deck_support"
+    },
+    {
+      "id": "p034",
+      "block": "column",
+      "position_m": [
+        -7,
+        7,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "deck_support"
+    },
+    {
+      "id": "p035",
+      "block": "column",
+      "position_m": [
+        -1,
+        7,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "deck_support"
+    },
+    {
+      "id": "p036",
+      "block": "column",
+      "position_m": [
+        1,
+        -7,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "deck_support"
+    },
+    {
+      "id": "p037",
+      "block": "column",
+      "position_m": [
+        7,
+        -7,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "deck_support"
+    },
+    {
+      "id": "p038",
+      "block": "column",
+      "position_m": [
+        7,
+        -5,
+        0
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "deck_support"
+    },
+    {
+      "id": "p039",
+      "block": "railing",
+      "position_m": [
+        -6,
+        7.875,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p040",
+      "block": "railing",
+      "position_m": [
+        -2,
+        7.875,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p041",
+      "block": "railing",
+      "position_m": [
+        -7.875,
+        6,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        90
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p042",
+      "block": "railing",
+      "position_m": [
+        -6,
+        4.125,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p043",
+      "block": "railing",
+      "position_m": [
+        2,
+        -7.875,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p044",
+      "block": "railing",
+      "position_m": [
+        6,
+        -7.875,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p045",
+      "block": "railing",
+      "position_m": [
+        7.875,
+        -6,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        90
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p046",
+      "block": "railing",
+      "position_m": [
+        6,
+        -4.125,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "upper_guardrail"
+    },
+    {
+      "id": "p047",
+      "block": "cover",
+      "position_m": [
+        -6,
+        6,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "cover"
+    },
+    {
+      "id": "p048",
+      "block": "cover",
+      "position_m": [
+        6,
+        -6,
+        4.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "cover"
+    },
+    {
+      "id": "p049",
+      "block": "cover",
+      "position_m": [
+        -2,
+        0,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "cover"
+    },
+    {
+      "id": "p050",
+      "block": "wall",
+      "position_m": [
+        -7.75,
+        0,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        90
+      ],
+      "role": "perimeter"
+    },
+    {
+      "id": "p051",
+      "block": "wall_corner",
+      "position_m": [
+        -7,
+        3,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "perimeter"
+    },
+    {
+      "id": "p052",
+      "block": "doorway",
+      "position_m": [
+        7.75,
+        0,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        90
+      ],
+      "role": "opening_test"
+    },
+    {
+      "id": "p053",
+      "block": "window",
+      "position_m": [
+        -2,
+        -7.75,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "opening_test"
+    },
+    {
+      "id": "p054",
+      "block": "wall_half",
+      "position_m": [
+        2,
+        7.75,
+        0.5
+      ],
+      "rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "role": "perimeter"
+    }
+  ]
+}

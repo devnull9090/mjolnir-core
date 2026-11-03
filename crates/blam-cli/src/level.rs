@@ -190,6 +190,9 @@ pub fn run(a: LevelArgs) -> Result<()> {
 #[allow(dead_code)] // several fields exist so files carrying them deserialize
 pub struct LevelFile {
     pub schema_version: u32,
+    /// Runtime kill plane in Unreal centimetres; the level loader enforces it.
+    #[serde(default)]
+    pub kill_floor: Option<f64>,
     pub name: String,
     #[serde(default)]
     pub title: Option<String>,
@@ -298,6 +301,15 @@ pub struct BlamSection {
     /// `forge` defaults: see [`ForgeLimits`].
     #[serde(default)]
     pub forge: Option<ForgeLimits>,
+    /// Namespaced building pieces to preload into this map's Forge palette.
+    /// The map archive pins these packs as dependencies; their order is saved
+    /// in the scenario and never depends on a player's installed pack order.
+    #[serde(default)]
+    pub forge_packs: Vec<ForgePackRef>,
+    /// Existing runtime utility objects available to Forge without placing
+    /// hidden instances in the starting layout (spawns and teleporters).
+    #[serde(default)]
+    pub forge_objects: Vec<ForgeObjectRef>,
     /// Load only these structure BSPs (scenario indices) in the starting zone
     /// set. A standalone map built on its own BSP needs none of the canvas
     /// mission's others, and any that stay active claim their own space:
@@ -573,6 +585,82 @@ pub struct ForgeLimits {
     pub maximum: BTreeMap<String, i32>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgePackRef {
+    pub slug: String,
+    pub version: String,
+    pub blocks: Vec<ForgeBlockRef>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeBlockRef {
+    pub id: String,
+    pub tag: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgeObjectRef {
+    pub group: String,
+    pub tag: String,
+}
+
+impl ForgeObjectRef {
+    fn fourcc(&self) -> &'static str {
+        if self.group == "scenery" { "scen" } else { "bloc" }
+    }
+}
+
+fn validate_forge_objects(objects: &[ForgeObjectRef]) -> Result<()> {
+    if objects.len() > 64 { bail!("forge_objects permits at most 64 utility references"); }
+    let mut seen = std::collections::BTreeSet::new();
+    for object in objects {
+        if !matches!(object.group.as_str(), "scenery" | "crates")
+            || !object.tag.starts_with("objects\\") || object.tag.len() >= 224
+            || object.tag.split('\\').any(|part| part.is_empty() || !part.bytes().all(|b|
+                b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-'))
+            || !seen.insert((&object.group, &object.tag)) {
+            bail!("invalid or duplicate Forge utility {}:{}", object.group, object.tag);
+        }
+        if object.tag.starts_with("objects\\mjolnir\\forge\\") {
+            bail!("custom Forge pieces belong in forge_packs with an exact dependency version");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_forge_packs(packs: &[ForgePackRef]) -> Result<()> {
+    // Map archives already depend on the CE runtime; the launcher accepts 64
+    // archive dependencies total, including the packs below.
+    if packs.len() > 63 { bail!("forge_packs permits at most 63 packs beside the map runtime dependency"); }
+    let mut slugs = std::collections::BTreeSet::new();
+    let mut total = 0;
+    for pack in packs {
+        if !crate::forge::valid_slug(&pack.slug) || !slugs.insert(&pack.slug) {
+            bail!("forge_packs has an invalid or duplicate slug {:?}", pack.slug);
+        }
+        // A complete version is required: a changing range must never change
+        // what a saved flat palette index means.
+        if pack.version.len() > 96 || semver::Version::parse(&pack.version).is_err() {
+            bail!("forge pack {} needs an exact semantic version", pack.slug);
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for block in &pack.blocks {
+            let id_ok = crate::forge::valid_block_id(&block.id);
+            let expected = format!("objects\\mjolnir\\forge\\{}\\{}", pack.slug, block.id);
+            if !id_ok || !ids.insert(&block.id) || block.tag != expected {
+                bail!("forge pack {} has an invalid, duplicate or foreign block {:?}", pack.slug, block.id);
+            }
+        }
+        if pack.blocks.is_empty() { bail!("forge pack {} lists no blocks", pack.slug); }
+        total += pack.blocks.len();
+    }
+    if total > 200 { bail!("forge_packs lists {total} blocks; at most 200 leave room for the map's standard palette"); }
+    Ok(())
+}
+
 impl ForgeLimits {
     /// `over`'s values where it has them, else these.
     fn merged(&self, over: Option<&ForgeLimits>) -> ForgeLimits {
@@ -630,6 +718,14 @@ const SCENARIOS: [&str; 13] = [
 
 fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     let mut notes = Vec::new();
+    validate_forge_packs(&level.blam.forge_packs)?;
+    validate_forge_objects(&level.blam.forge_objects)?;
+    if (!level.blam.forge_packs.is_empty() || !level.blam.forge_objects.is_empty()) && !level.blam.map_variant {
+        bail!("forge_packs and forge_objects require blam.map_variant=true");
+    }
+    if level.kill_floor.is_some_and(|z| !z.is_finite()) {
+        bail!("kill_floor must be finite Unreal centimetres");
+    }
     let scen = level.canvas.scenario.to_uppercase();
     if !SCENARIOS.contains(&scen.as_str()) {
         bail!(
@@ -2375,6 +2471,9 @@ fn bake(a: BakeArgs) -> Result<()> {
     for note in validate_level(&level)? {
         println!("note: {note}");
     }
+    if (!level.blam.forge_packs.is_empty() || !level.blam.forge_objects.is_empty()) && a.standalone.is_none() {
+        bail!("Forge pack palettes require --standalone so their package preloads are registered");
+    }
     let map = palette_map()?;
     let scen = level.canvas.scenario.to_uppercase();
 
@@ -2478,6 +2577,10 @@ fn bake(a: BakeArgs) -> Result<()> {
         }
         let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
         for o in &level.blam.objects {
+            if level.blam.forge_packs.iter().flat_map(|p| &p.blocks).any(|b| b.tag == o.tag)
+                || level.blam.forge_objects.iter().any(|u| u.tag == o.tag && u.group == o.group) {
+                continue; // retain the declared palette order even when pieces are preplaced
+            }
             let group = if o.group == "scenery" { "scen" } else { "bloc" };
             *tags
                 .entry((format!("{group}:{}", o.tag), String::new()))
@@ -2492,6 +2595,18 @@ fn bake(a: BakeArgs) -> Result<()> {
             .map(|(_, tag)| ((tag.clone(), String::new()), 0))
             .collect();
         palettes.push(("blocks", blocks));
+        // Keep every custom reference in one extra palette: the engine has
+        // only four bits for the palette number. Author order is deliberate.
+        let custom: Vec<_> = level.blam.forge_packs.iter().flat_map(|pack| {
+            pack.blocks.iter().map(|block| ((format!("bloc:{}", block.tag), String::new()),
+                level.blam.objects.iter().filter(|o| o.tag == block.tag && o.group == "crates").count()))
+        }).collect();
+        palettes.push(("forge packs", custom));
+        let utilities = level.blam.forge_objects.iter().map(|object| {
+            ((format!("{}:{}", object.fourcc(), object.tag), String::new()),
+                level.blam.objects.iter().filter(|o| o.tag == object.tag && o.group == object.group).count())
+        }).collect();
+        palettes.push(("utilities", utilities));
         let mut kinds: BTreeMap<String, String> = [&map.weapons, &map.vehicles, &map.equipment]
             .into_iter()
             .flat_map(|t| t.iter().map(|(k, p)| (p.clone(), k.clone())))
@@ -2822,17 +2937,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         let new_dir = old_dir.replace(&format!("/{old_code}/"), &format!("/{code}/"));
         let new_pkg = format!("{new_dir}/{new_leaf}");
         ensure_same_len(&old_pkg, &new_pkg)?;
-        let imported: Vec<u64> = donor
-            .imported_package_names
-            .iter()
-            .map(|n| ue_iostore::city::package_id(n))
-            .collect();
-        println!(
-            "  package  {old_pkg}\n        -> {new_pkg}\n  imports  {} package(s)",
-            imported.len()
-        );
-
-        let uasset = crate::rename::clone_tag_uasset(
+        let mut uasset = crate::rename::clone_tag_uasset(
             &donor_uasset,
             &[
                 (old_leaf.clone(), new_leaf.clone()),
@@ -2841,6 +2946,28 @@ fn bake(a: BakeArgs) -> Result<()> {
             original.len(),
             file.len(),
         )?;
+        if !level.blam.forge_packs.is_empty() || !level.blam.forge_objects.is_empty() {
+            let resolve = crate::newtag::body_ref_resolver(&idx, &a.src.oodle_roots())?;
+            let mut targets = forge_preload_targets(&level.blam.forge_packs, &resolve)?;
+            for object in &level.blam.forge_objects {
+                targets.push(resolve(object.fourcc(), &object.tag).with_context(|| format!(
+                    "Forge utility {} is unavailable; include its runtime containers in the bake input Paks", object.tag
+                ))?);
+            }
+            uasset = append_forge_preloads(&uasset, &targets, crate::embedded_usmap()?)?;
+            println!("  forge    {} custom and utility package preloads", targets.len());
+        }
+        // The container store and wrapper must agree on these indices. Keep
+        // FName numbers: hashing the stored base alone addresses another asset.
+        let package = ue_asset::package::ZenPackage::parse(&uasset)?;
+        let imported: Vec<u64> = package.imported_package_names.names.iter()
+            .zip(&package.imported_package_name_numbers)
+            .map(|(base, number)| ue_iostore::city::package_id(&ue_asset::tagwrap::fname_join(base, *number)))
+            .collect();
+        println!(
+            "  package  {old_pkg}\n        -> {new_pkg}\n  imports  {} package(s)",
+            imported.len()
+        );
 
         let container_name = format!("pakchunk997-MJOLNIRMAP-{code}");
         let mut packages = vec![blam_pack::NewPackage {
@@ -3443,9 +3570,253 @@ fn slot_named(usmap: &ue_asset::Usmap, class: &str, want: &str) -> Result<u16> {
     bail!("{class} has no property {want}")
 }
 
+fn forge_preload_targets(
+    packs: &[ForgePackRef],
+    resolve: impl Fn(&str, &str) -> Option<String>,
+) -> Result<Vec<String>> {
+    packs.iter().flat_map(|pack| &pack.blocks).map(|block| {
+        resolve("bloc", &block.tag).with_context(|| format!(
+            "Forge crate {} is unavailable; include the pack's cooked containers in the bake input Paks", block.tag
+        ))
+    }).collect()
+}
+
+/// Keep the proven scenario wrapper, including donor flags/native data, while
+/// adding custom crates to its loader preloads and dependency bundle. Rebuilding
+/// scenario wrappers from scratch has not been proven to launch a map.
+fn append_forge_preloads(data: &[u8], targets: &[String], usmap: &ue_asset::Usmap) -> Result<Vec<u8>> {
+    use ue_asset::{package::{name_hash, ZenPackage, NAME_HASH_VERSION}, props::Val, tagwrap};
+    let mut pkg = ZenPackage::parse(data)?;
+    if pkg.export_map.len() != 1 || pkg.dependency_bundle_headers.len() != 1 {
+        bail!("Forge scenario preload relink needs a single-export tag wrapper");
+    }
+    let header = pkg.dependency_bundle_headers[0];
+    if header.first_entry_index != 0 || header.counts.iter().map(|n| *n as usize).sum::<usize>() != pkg.dependency_bundle_entries.len() {
+        bail!("invalid scenario dependency bundle");
+    }
+    let schema = tagwrap::schema_class(usmap, "scenario");
+    let slot = slot_named(usmap, &schema, "CookedAssetsReferencedByTag")?;
+    let mut block = ue_asset::props::decode_tag_body(usmap, &schema, &pkg.export_data)?;
+    let mut refs = match block.get(slot) {
+        Some(Val::Array(refs)) => refs.clone(),
+        None => Vec::new(),
+        _ => bail!("scenario cooked preloads are not an array"),
+    };
+    let mut dependencies = Vec::new();
+    for path in targets {
+        let target = tagwrap::ImportTarget::asset(path);
+        let existing = (0..pkg.import_map.len()).find(|i| {
+            tagwrap::resolve_import(&pkg, -(*i as i32) - 1).as_ref() == Some(&target)
+        });
+        let index = if let Some(i) = existing { -(i as i32) - 1 } else {
+            let (base, number) = tagwrap::fname_split(path);
+            let package_index = pkg.imported_package_names.names.iter().enumerate().find(|(i, n)| {
+                n.as_str() == base && pkg.imported_package_name_numbers.get(*i) == Some(&number)
+            }).map(|(i, _)| i).unwrap_or_else(|| {
+                let i = pkg.imported_package_names.names.len();
+                pkg.imported_package_names.names.push(base.into());
+                pkg.imported_package_names.hashes.push(name_hash(base));
+                pkg.imported_package_names.hash_version = NAME_HASH_VERSION;
+                pkg.imported_package_name_numbers.push(number);
+                pkg.import_map.push(u64::MAX); // package's Null import slot
+                i
+            });
+            let hash_index = pkg.imported_public_export_hashes.len();
+            pkg.imported_public_export_hashes.push(target.object_hash);
+            pkg.import_map.push((2u64 << 62) | ((package_index as u64) << 32) | hash_index as u64);
+            -(pkg.import_map.len() as i32)
+        };
+        if !refs.iter().any(|value| matches!(value, Val::Object(i) if *i == index)) {
+            refs.push(Val::Object(index));
+        }
+        if !pkg.dependency_bundle_entries.contains(&index) && !dependencies.contains(&index) {
+            dependencies.push(index);
+        }
+    }
+    block.set(slot, Val::Array(refs));
+    pkg.set_export_data(ue_asset::props::encode_tag_body(usmap, &schema, &block)?)?;
+    // Match cooked tag wrappers' create-before-serialize group; preserve any
+    // existing serialize-before-serialize entries after the insertion.
+    let insert = header.counts[..3].iter().map(|n| *n as usize).sum::<usize>();
+    pkg.dependency_bundle_headers[0].counts[2] += dependencies.len() as u32;
+    pkg.dependency_bundle_entries.splice(insert..insert, dependencies);
+    // CookedHeaderSize describes the legacy header, not this Zen header. Its
+    // import-name data is unavailable and tag loads do not consult the field
+    // (docs/iostore_packaging.md); retain it instead of inventing a Zen delta.
+    let out = pkg.write();
+    let reread = ZenPackage::parse(&out)?;
+    let read = tagwrap::read(&reread, usmap)?;
+    for path in targets {
+        let target = tagwrap::ImportTarget::asset(path);
+        if !read.spec.cooked_refs.contains(&target) || !read.dependencies.contains(&target) {
+            bail!("scenario preload readback lost {path}");
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utility_palette_refs_reject_aliases_traversal_duplicates_and_unpinned_packs() {
+        let sender = ForgeObjectRef { group: "scenery".into(), tag: "objects\\multi\\teleporters\\teleporter_sender".into() };
+        validate_forge_objects(std::slice::from_ref(&sender)).unwrap();
+        assert_eq!(sender.fourcc(), "scen");
+        let crate_ref = ForgeObjectRef { group: "crates".into(), tag: "objects\\props\\crate-test".into() };
+        validate_forge_objects(std::slice::from_ref(&crate_ref)).unwrap();
+        assert_eq!(crate_ref.fourcc(), "bloc");
+        for (group, tag) in [
+            ("machines", sender.tag.as_str()), ("scen", sender.tag.as_str()),
+            ("scenery", "objects\\..\\teleporter"), ("scenery", "objects\\multi\\"),
+            ("scenery", "objects\\multi\\\\teleporter"), ("scenery", "objects/multi/teleporter"),
+            ("scenery", "Objects\\multi\\teleporter"), ("scenery", "objects\\multi\\Teleporter"),
+            ("crates", "objects\\mjolnir\\forge\\foundry\\light_pylon"),
+        ] {
+            let bad = ForgeObjectRef { group: group.into(), tag: tag.into() };
+            assert!(validate_forge_objects(&[bad]).is_err(), "{group}:{tag}");
+        }
+        assert!(validate_forge_objects(&[sender.clone(), sender]).is_err());
+        let many: Vec<_> = (0..65).map(|i| ForgeObjectRef {
+            group: "scenery".into(), tag: format!("objects\\utility\\marker_{i}"),
+        }).collect();
+        validate_forge_objects(&many[..64]).unwrap();
+        assert!(validate_forge_objects(&many).unwrap_err().to_string().contains("64 utility"));
+        let long = ForgeObjectRef { group: "scenery".into(), tag: format!("objects\\{}", "x".repeat(216)) };
+        assert!(validate_forge_objects(&[long]).is_err());
+        assert!(serde_json::from_value::<ForgeObjectRef>(serde_json::json!({
+            "group":"scenery", "tag":"objects\\multi\\marker", "script":"ignored?"
+        })).is_err());
+    }
+
+    #[test]
+    fn utility_palettes_need_map_variants_and_kill_floor_is_finite_runtime_centimetres() {
+        let mut level: LevelFile = serde_json::from_value(serde_json::json!({
+            "schema_version":1, "name":"forge_test", "canvas":{"scenario":"A30", "origin":[0,0,0]},
+            "kill_floor":-600,
+            "blam":{"map_variant":true,"forge_objects":[{
+                "group":"scenery","tag":"objects\\multi\\teleporters\\teleporter_sender"
+            }]}
+        })).unwrap();
+        validate_level(&level).unwrap();
+        assert_eq!(level.kill_floor, Some(-600.0));
+        level.blam.map_variant = false;
+        assert!(validate_level(&level).unwrap_err().to_string().contains("map_variant=true"));
+        level.blam.map_variant = true;
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            level.kill_floor = Some(bad);
+            assert!(validate_level(&level).unwrap_err().to_string().contains("kill_floor"));
+        }
+        for floor in [None, Some(0.0), Some(-10000.0), Some(1234.5)] {
+            level.kill_floor = floor;
+            validate_level(&level).unwrap();
+        }
+    }
+
+    #[test]
+    fn palette_limit_counts_utilities_and_packs_before_editing_the_scenario() {
+        let entry = (("scen:objects\\multi\\marker".to_string(), String::new()), 0);
+        let palettes = vec![("standard", vec![entry.clone(); 32]), ("packs", vec![entry.clone(); 200]),
+                            ("utilities", vec![entry; 24])];
+        let mut baker = Baker { file: vec![0x42], origin: [0.0;3], next_unique: 0,
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![] };
+        let error = baker.map_variant_palettes(&palettes, &ForgeLimits::default(), &BTreeMap::new()).unwrap_err();
+        assert!(error.to_string().contains("256 map variant palette entries"));
+        assert_eq!(baker.file, vec![0x42]); // refuse before touching the donor
+    }
+
+    #[test]
+    fn utility_preloads_are_retained_once_and_include_all_three_teleporter_types() {
+        use ue_asset::{package::ZenPackage, tagwrap::{self, ImportTarget, WrapperSpec}};
+        let usmap = crate::embedded_usmap().unwrap();
+        let sender = "/Game/Tags/objects/multi/teleporters/teleporter_sender-scenery";
+        let donor = tagwrap::build(&WrapperSpec {
+            group: "scenario".into(), package_path: "/Game/Tags/levels/FCL/FCL-scenario".into(),
+            ubulk_len: 64, cooked_refs: vec![ImportTarget::asset(sender)], ..Default::default()
+        }, usmap).unwrap();
+        let targets = vec![sender.into(), sender.into(),
+            "/Game/Tags/objects/multi/teleporters/teleporter_receiver-scenery".into(),
+            "/Game/Tags/objects/multi/teleporters/teleporter_2way-scenery".into()];
+        let out = append_forge_preloads(&donor.write(), &targets, usmap).unwrap();
+        let package = ZenPackage::parse(&out).unwrap();
+        let read = tagwrap::read(&package, usmap).unwrap();
+        assert_eq!(read.spec.cooked_refs.len(), 3);
+        for target in targets {
+            let target = ImportTarget::asset(&target);
+            assert_eq!(read.spec.cooked_refs.iter().filter(|r| **r == target).count(), 1);
+            assert!(read.dependencies.contains(&target));
+        }
+    }
+
+    #[test]
+    fn forge_preloads_preserve_donor_and_bind_new_package_store_indices() {
+        use ue_asset::{package::ZenPackage, tagwrap::{self, ImportTarget, WrapperSpec}};
+        let usmap = crate::embedded_usmap().unwrap();
+        let old = ImportTarget::asset("/Game/Tags/objects/props/existing-crate");
+        let donor = tagwrap::build(&WrapperSpec {
+            group: "scenario".into(), package_path: "/Game/Tags/levels/FPK/FPK-scenario".into(),
+            ubulk_len: 4321, cooked_refs: vec![old.clone()], ..Default::default()
+        }, usmap).unwrap();
+        let targets = vec!["/Game/Tags/objects/mjolnir/forge/foundry/floor_2x2-crate".into(),
+                           "/Game/Numbered_4".into()];
+        let out = append_forge_preloads(&donor.write(), &targets, usmap).unwrap();
+        let pkg = ZenPackage::parse(&out).unwrap();
+        let read = tagwrap::read(&pkg, usmap).unwrap();
+        assert_eq!(read.spec.cooked_refs.len(), 3);
+        assert_eq!(read.spec.cooked_refs[0], old);
+        assert_eq!(pkg.bulk, donor.bulk);
+        assert_eq!(pkg.package_flags, donor.package_flags);
+        assert_eq!(pkg.cooked_header_size, donor.cooked_header_size);
+        assert_eq!(pkg.export_map[0].class, donor.export_map[0].class);
+        assert_eq!(&pkg.import_map[..donor.import_map.len()], donor.import_map);
+        let ids: Vec<_> = pkg.imported_package_names.names.iter().zip(&pkg.imported_package_name_numbers)
+            .map(|(base, n)| ue_iostore::city::package_id(&tagwrap::fname_join(base, *n))).collect();
+        for target in &targets { assert!(ids.contains(&ue_iostore::city::package_id(target))); }
+        assert_eq!(append_forge_preloads(&out, &targets, usmap).unwrap(), out);
+    }
+
+    #[test]
+    fn forge_preloads_refuse_missing_crates_instead_of_emitting_dangling_palette() {
+        let packs = vec![ForgePackRef { slug: "foundry".into(), version: "0.1.0".into(), blocks: vec![
+            ForgeBlockRef { id: "floor_2x2".into(), tag: "objects\\mjolnir\\forge\\foundry\\floor_2x2".into() }
+        ] }];
+        assert!(forge_preload_targets(&packs, |_, _| None).unwrap_err().to_string().contains("unavailable"));
+        let target = "/Game/Tags/objects/mjolnir/forge/foundry/floor_2x2-crate";
+        assert_eq!(forge_preload_targets(&packs, |cc, path| {
+            assert_eq!(cc, "bloc"); assert_eq!(path, packs[0].blocks[0].tag); Some(target.into())
+        }).unwrap(), vec![target]);
+    }
+
+    #[test]
+    fn forge_pack_refs_pin_exact_versions_and_namespaced_unique_blocks() {
+        let valid = ForgePackRef { slug: "foundry".into(), version: "1.0.0-beta.1".into(), blocks: vec![
+            ForgeBlockRef { id: "platform_4x4".into(), tag: "objects\\mjolnir\\forge\\foundry\\platform_4x4".into() }
+        ] };
+        validate_forge_packs(std::slice::from_ref(&valid)).unwrap();
+        for slug in ["a", "-foundry", "_foundry", "Foundry", "../foundry"] {
+            let mut bad = valid.clone(); bad.slug = slug.into();
+            assert!(validate_forge_packs(&[bad]).is_err());
+        }
+        for version in ["1", "1.0", "01.0.0", "1.0.0-", "^1.0.0", "1.0.0-01", "1.0.0+", "latest"] {
+            let mut bad = valid.clone(); bad.version = version.into();
+            assert!(validate_forge_packs(&[bad]).is_err(), "{version}");
+        }
+        assert!(validate_forge_packs(&[valid.clone(), valid.clone()]).is_err());
+        let mut bad = valid.clone(); bad.blocks.push(bad.blocks[0].clone());
+        assert!(validate_forge_packs(&[bad]).is_err());
+        let mut bad = valid.clone(); bad.blocks[0].tag = "objects\\mjolnir\\forge\\another\\platform_4x4".into();
+        assert!(validate_forge_packs(&[bad]).is_err());
+        let mut bad = valid; bad.blocks.clear();
+        assert!(validate_forge_packs(&[bad]).is_err());
+        let many: Vec<_> = (0..64).map(|i| ForgePackRef {
+            slug: format!("pack-{i}"), version: "1.0.0".into(), blocks: vec![ForgeBlockRef {
+                id: "floor".into(), tag: format!("objects\\mjolnir\\forge\\pack-{i}\\floor")
+            }]
+        }).collect();
+        validate_forge_packs(&many[..63]).unwrap();
+        assert!(validate_forge_packs(&many).unwrap_err().to_string().contains("63 packs"));
+    }
 
     #[test]
     fn palette_map_blocks_name_object_tags() {

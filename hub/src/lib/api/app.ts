@@ -26,6 +26,7 @@ import { registerMatchRoutes } from "./matches";
 import { registerPlayerRoutes } from "./players";
 import { registerCrashRoutes } from "./crashes";
 import { registerBenchRoutes } from "./benches";
+import { registerForgeRoutes } from "./forge";
 import {
   ErrorSchema,
   HealthSchema,
@@ -275,7 +276,7 @@ app.openapi(
     },
   }),
   async (c) => {
-    const { q, category, type, sort, cursor, limit, map } = c.req.valid("query");
+    const { q, category, type, sort, cursor, limit, map, forge } = c.req.valid("query");
     const s = SORTS[sort];
 
     const where: string[] = ["m.status = 'published'"];
@@ -296,6 +297,12 @@ app.openapi(
       where.push(
         `${map === "1" ? "" : "NOT "}EXISTS (SELECT 1 FROM map_listings ml WHERE ml.mod_id = m.id)`,
       );
+    }
+
+    if (forge !== undefined) {
+      where.push(`${forge === "1" ? "" : "NOT "}EXISTS (
+        SELECT 1 FROM mod_releases fr WHERE fr.mod_id = m.id
+          AND fr.status = 'published' AND fr.forge_pack_json IS NOT NULL)`);
     }
 
     const cur = decodeCursor(cursor);
@@ -431,6 +438,7 @@ app.openapi(
 // ── Publishing & conflicts ────────────────────────────────────────────
 
 registerPublishRoutes(app);
+registerForgeRoutes(app);
 
 // ── Community: media, ratings, comments ───────────────────────────────
 

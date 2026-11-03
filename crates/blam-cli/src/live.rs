@@ -133,7 +133,7 @@ pub fn locate_via_table(
     let segments = Segments::read(process, attached.base, attached.profile)?;
     let tags = LiveTags::new(table.walk(process)?);
     let name = tagtable::from_ubulk_path(ubulk_path);
-    let Some(tag) = tags.find(group, &name) else {
+    let Some(tag) = tags.find_container(group, ubulk_path) else {
         println!(
             "  table    {} tags loaded, none is {} {name}; sweeping instead",
             tags.len(),

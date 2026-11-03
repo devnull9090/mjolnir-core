@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description: "Browse and download community mods for Halo Campaign Evolved.",
 };
 
-const CATEGORIES = ["all", "gameplay", "maps", "textures", "weapons", "camera", "tools", "framework", "multiplayer"];
+const CATEGORIES = ["all", "gameplay", "maps", "forge", "textures", "weapons", "camera", "tools", "framework", "multiplayer"];
 const SORTS = [
   { key: "newest", label: "Newest" },
   { key: "downloads", label: "Most downloaded" },
@@ -87,9 +87,9 @@ export default async function ModsPage({
         <FilterChips
           label="Category"
           options={CATEGORIES.map((cat) => ({
-            label: cat === "all" ? "All mods" : cat[0].toUpperCase() + cat.slice(1),
+            label: cat === "all" ? "All mods" : cat === "forge" ? "Forge packs" : cat[0].toUpperCase() + cat.slice(1),
             // Maps have their own catalog.
-            href: cat === "maps" ? "/maps" : qs({ category: cat }),
+            href: cat === "maps" ? "/maps" : cat === "forge" ? "/forge" : qs({ category: cat }),
             active: category === cat,
           }))}
         />

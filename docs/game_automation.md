@@ -121,6 +121,15 @@ Run on 2026-07-27, in this order, all of it without touching the keyboard:
 5. `game_console` → `stat fps`, dispatched via the Kismet fallback, visible in the next capture.
 6. `game_input` → fire and reload, and the HUD reflected it.
 
+For automated multiplayer or Forge tests after a fresh launch, clear the
+**PRESS ENTER TO START** screen and finish sign-in before issuing
+`mjolnir_auto host`. Wait for `MULTIPLAYER is on the main menu` in the current
+`UE4SS.log`; `tools/remote/jip-test.mjs` also checks `signed_in` before hosting.
+Starting from the title screen can load the Unreal world and its pawn while
+the native simulation remains inactive, producing a black scene. This was
+reproduced with an unchanged Roadworks installation on 2026-11-02; signing
+in first restored normal play. See the [startup investigation](multiplayer_investigation_notes.md).
+
 The capture path is worth calling out, and the 2026-07-27 reading of it was too generous.
 
 **`PrintWindow` captures the UI layer only — the 3D scene comes back black.** Verified
@@ -275,6 +284,17 @@ MJOLNIRLobby answers `mjolnir_auto <verb>` at the console and writes its answer 
 the menus: `state`, `host <CODE> <mode> [private]`, `public on|off`, `join [host]`,
 `download <CODE>` and `install <CODE>`. `host` lists the game publicly unless given `private`,
 and a listed game is joinable by anyone on the hub, so solo tests use `private`.
+
+After every fresh launch, clear **PRESS ENTER TO START** and wait for the stock
+main menu before hosting. A responsive bridge or a signed-in hub identity is
+not sufficient: skipping the stock login/profile initialization can load the
+Unreal map while the Blam mission never starts. `mjolnir_auto state` must report
+`signed_in=1`; `host` refuses earlier requests without changing the map or
+starting a countdown. The readiness flag survives MJOLNIR menu overlays and
+post-game voting, and resets when the title screen becomes active again.
+For input-free sign-in, `remote.mjs signin` calls the title screen's own click
+event and waits for `MULTIPLAYER is on the main menu`. The two-PC test's
+`signIn()` step performs this prerequisite before hosting.
 
 [`tools/remote/remote.mjs`](../tools/remote/remote.mjs) drives a second PC's game through
 [`tools/remote/mjolnir-agent.ps1`](../tools/remote/mjolnir-agent.ps1) running there: status,

@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "name": "Foundry",
+  "version": "0.2.0",
+  "type": "content",
+  "license": "MIT",
+  "summary": "24 original modular construction pieces, including portal and light housings, on a 2 m grid.",
+  "description": "Original modular industrial construction kit: 24 pieces on a 2 m module, with concrete, gunmetal, amber and illuminated lens details.",
+  "forge_pack": {
+    "schema_version": 1,
+    "id": "foundry",
+    "blocks": [
+      {
+        "id": "block_1x1",
+        "name": "Block 1 x 1",
+        "tag": "objects\\mjolnir\\forge\\foundry\\block_1x1",
+        "category": "blocks",
+        "dimensions_m": [
+          2,
+          2,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "block_1x2",
+        "name": "Block 1 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\block_1x2",
+        "category": "blocks",
+        "dimensions_m": [
+          2,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_1x1",
+        "name": "Floor 1 x 1",
+        "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x1",
+        "category": "floors",
+        "dimensions_m": [
+          2,
+          2,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_1x2",
+        "name": "Floor 1 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x2",
+        "category": "floors",
+        "dimensions_m": [
+          2,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "floor_2x2",
+        "name": "Floor 2 x 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\floor_2x2",
+        "category": "floors",
+        "dimensions_m": [
+          4,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "bridge_straight",
+        "name": "Bridge Straight",
+        "tag": "objects\\mjolnir\\forge\\foundry\\bridge_straight",
+        "category": "bridges",
+        "dimensions_m": [
+          2,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "bridge_corner",
+        "name": "Bridge Corner",
+        "tag": "objects\\mjolnir\\forge\\foundry\\bridge_corner",
+        "category": "bridges",
+        "dimensions_m": [
+          4,
+          4,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "ramp",
+        "name": "Ramp 1 : 2",
+        "tag": "objects\\mjolnir\\forge\\foundry\\ramp",
+        "category": "ramps",
+        "dimensions_m": [
+          2,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "ramp_shallow",
+        "name": "Ramp 1 : 4",
+        "tag": "objects\\mjolnir\\forge\\foundry\\ramp_shallow",
+        "category": "ramps",
+        "dimensions_m": [
+          2,
+          8,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall",
+        "name": "Wall Full",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall",
+        "category": "walls",
+        "dimensions_m": [
+          4,
+          0.5,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall_half",
+        "name": "Wall Half",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "category": "walls",
+        "dimensions_m": [
+          4,
+          0.5,
+          1.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "wall_corner",
+        "name": "Wall Corner",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_corner",
+        "category": "walls",
+        "dimensions_m": [
+          2,
+          2,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "doorway",
+        "name": "Doorway",
+        "tag": "objects\\mjolnir\\forge\\foundry\\doorway",
+        "category": "openings",
+        "dimensions_m": [
+          4,
+          0.5,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "window",
+        "name": "Window Wall",
+        "tag": "objects\\mjolnir\\forge\\foundry\\window",
+        "category": "openings",
+        "dimensions_m": [
+          4,
+          0.5,
+          3
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "railing",
+        "name": "Railing",
+        "tag": "objects\\mjolnir\\forge\\foundry\\railing",
+        "category": "trim",
+        "dimensions_m": [
+          4,
+          0.25,
+          1
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "column",
+        "name": "Column",
+        "tag": "objects\\mjolnir\\forge\\foundry\\column",
+        "category": "supports",
+        "dimensions_m": [
+          1,
+          1,
+          4
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "cover",
+        "name": "Low Cover",
+        "tag": "objects\\mjolnir\\forge\\foundry\\cover",
+        "category": "cover",
+        "dimensions_m": [
+          2,
+          0.75,
+          1
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "stairs",
+        "name": "Stairs",
+        "tag": "objects\\mjolnir\\forge\\foundry\\stairs",
+        "category": "ramps",
+        "dimensions_m": [
+          2,
+          4,
+          2
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "portal_frame",
+        "name": "Portal Frame",
+        "tag": "objects\\mjolnir\\forge\\foundry\\portal_frame",
+        "category": "openings",
+        "dimensions_m": [
+          4,
+          1,
+          4
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "teleporter_pad",
+        "name": "Teleporter Pad",
+        "tag": "objects\\mjolnir\\forge\\foundry\\teleporter_pad",
+        "category": "floors",
+        "dimensions_m": [
+          2,
+          2,
+          0.5
+        ],
+        "snap_m": 0.5
+      },
+      {
+        "id": "light_strip",
+        "name": "Light Strip",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_strip",
+        "category": "lighting",
+        "dimensions_m": [
+          2,
+          0.5,
+          0.5
+        ],
+        "snap_m": 0.5,
+        "light": {
+          "offset_m": [
+            0,
+            -0.35,
+            0.25
+          ],
+          "color_rgb": [
+            1,
+            0.72,
+            0.32
+          ],
+          "intensity_cd": 2500,
+          "radius_m": 6
+        }
+      },
+      {
+        "id": "light_pylon",
+        "name": "Light Pylon",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon",
+        "category": "lighting",
+        "dimensions_m": [
+          1,
+          1,
+          3
+        ],
+        "snap_m": 0.5,
+        "light": {
+          "offset_m": [
+            0,
+            0,
+            3.1
+          ],
+          "color_rgb": [
+            1,
+            0.72,
+            0.32
+          ],
+          "intensity_cd": 7000,
+          "radius_m": 8
+        }
+      },
+      {
+        "id": "light_pylon_red",
+        "name": "Light Pylon / Red",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon_red",
+        "category": "lighting",
+        "dimensions_m": [
+          1,
+          1,
+          3
+        ],
+        "snap_m": 0.5,
+        "light": {
+          "offset_m": [
+            0,
+            0,
+            3.1
+          ],
+          "color_rgb": [
+            1,
+            0.05,
+            0.03
+          ],
+          "intensity_cd": 7000,
+          "radius_m": 8
+        }
+      },
+      {
+        "id": "light_pylon_blue",
+        "name": "Light Pylon / Blue",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon_blue",
+        "category": "lighting",
+        "dimensions_m": [
+          1,
+          1,
+          3
+        ],
+        "snap_m": 0.5,
+        "light": {
+          "offset_m": [
+            0,
+            0,
+            3.1
+          ],
+          "color_rgb": [
+            0.04,
+            0.2,
+            1
+          ],
+          "intensity_cd": 7000,
+          "radius_m": 8
+        }
+      }
+    ]
+  }
+}
