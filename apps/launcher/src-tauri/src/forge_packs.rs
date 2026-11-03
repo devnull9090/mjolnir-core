@@ -77,16 +77,28 @@ pub fn dependencies(manifest: &serde_json::Value, owner: &str) -> Result<Vec<Dep
     Ok(deps)
 }
 
+/// Entry kinds this launcher, the bake and Forge handle (docs/forge_packs.md).
+/// A pack with any other kind, a weapon say, needs a newer launcher: it must
+/// never be installed and handed to Forge as building blocks.
+pub const KINDS: &[&str] = &["block"];
+/// Features a pack may require beyond catalog schema 1. None exist yet.
+pub const FEATURES: &[&str] = &[];
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ForgePack {
     pub schema_version: u32,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
     pub blocks: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Block {
     pub id: String,
+    /// Absent means "block".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     pub name: String,
     pub tag: String,
     pub category: String,
@@ -166,8 +178,36 @@ impl Light {
     }
 }
 
+/// Why this launcher cannot use a catalog written for a newer one, read from
+/// the raw JSON so the answer is "update" rather than a parse error about a
+/// field a newer catalog may legitimately have.
+fn needs_newer_launcher(value: &serde_json::Value, slug: &str) -> Option<String> {
+    let schema = value.get("schema_version").and_then(|v| v.as_u64());
+    if schema.is_some_and(|n| n > 1) {
+        return Some(format!("{slug} is a Forge pack for a newer MJOLNIR launcher (catalog schema {}). Update the launcher to use it.", schema.unwrap_or(0)));
+    }
+    let unknown = |list: Option<&serde_json::Value>, known: &[&str]| {
+        list.and_then(|v| v.as_array()).into_iter().flatten()
+            .filter_map(|v| v.as_str())
+            .find(|s| !known.contains(s))
+            .map(str::to_string)
+    };
+    if let Some(feature) = unknown(value.get("requires"), FEATURES) {
+        return Some(format!("{slug} needs the Forge pack feature \"{feature}\", which needs a newer MJOLNIR launcher. Update the launcher to use it."));
+    }
+    let kinds: Vec<_> = value.get("blocks").and_then(|v| v.as_array()).into_iter().flatten()
+        .filter_map(|b| b.get("kind")).cloned().collect();
+    if let Some(kind) = unknown(Some(&serde_json::Value::Array(kinds)), KINDS) {
+        return Some(format!("{slug} has {kind} pieces, which need a newer MJOLNIR launcher. Update the launcher to use it."));
+    }
+    None
+}
+
 impl ForgePack {
     pub fn validate(&self, slug: &str) -> Result<(), String> {
+        if let Some(why) = serde_json::to_value(self).ok().and_then(|v| needs_newer_launcher(&v, slug)) {
+            return Err(why);
+        }
         if self.schema_version != 1 || self.id != slug || !valid_slug(slug) {
             return Err("Forge pack identity or schema version is invalid".into());
         }
@@ -225,6 +265,9 @@ pub fn read_pack(manifest: &serde_json::Value, slug: &str) -> Result<Option<Forg
     let version = manifest["version"].as_str().ok_or("Forge pack version is missing")?;
     if version.len() > 96 || !semver::Version::parse(version).is_ok_and(|v| v.build.is_empty()) {
         return Err("Forge pack version must be exact SemVer without build metadata, at most 96 bytes".into());
+    }
+    if let Some(why) = needs_newer_launcher(value, slug) {
+        return Err(why);
     }
     let pack: ForgePack =
         serde_json::from_value(value.clone()).map_err(|e| format!("Invalid Forge pack: {e}"))?;
@@ -294,6 +337,37 @@ pub fn layout_pins(text: &str) -> Result<Vec<LayoutPin>, String> {
         pins.insert(slug.to_string(), pin);
     }
     Ok(pins.into_values().collect())
+}
+
+/// The releases a saved layout loads with: the one it was saved with, or a
+/// later one in its caret line. The Hub refuses a release that drops or
+/// changes an entry of an earlier one in the same line, and the recorded
+/// SHA-256 stays for diagnostics, not as a gate.
+pub fn layout_range(pin: &LayoutPin) -> String {
+    format!("^{}", pin.version)
+}
+
+/// Combine one more layout's pin on a pack: two layouts saved in the same
+/// caret line need the later release; different lines cannot share a game.
+pub fn merge_layout_pin(
+    pins: &mut std::collections::BTreeMap<String, LayoutPin>,
+    pin: LayoutPin,
+) -> Result<(), String> {
+    let Some(old) = pins.get(&pin.slug) else {
+        pins.insert(pin.slug.clone(), pin);
+        return Ok(());
+    };
+    let parse = |v: &str| semver::Version::parse(v).map_err(|e| e.to_string());
+    let (lower, higher) = if parse(&old.version)? <= parse(&pin.version)? { (old, &pin) } else { (&pin, old) };
+    if !matches(&layout_range(lower), &higher.version)? {
+        return Err(format!(
+            "Saved Forge layouts need incompatible releases of {} ({} and {}). Move one layout aside before launching.",
+            pin.slug, old.version, pin.version
+        ));
+    }
+    let higher = higher.clone();
+    pins.insert(higher.slug.clone(), higher);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -367,6 +441,55 @@ mod tests {
             .unwrap()
             .push(manifest["forge_pack"]["blocks"][0].clone());
         assert!(read_pack(&duplicate, "alloy").is_err());
+    }
+
+    #[test]
+    fn a_pack_for_a_newer_launcher_asks_for_an_update_instead_of_installing_as_blocks() {
+        let manifest = serde_json::json!({"type":"content", "version":"1.0.0", "forge_pack":{
+            "schema_version":1,"id":"alloy","blocks":[{
+                "id":"block_2m","kind":"block","name":"Block","category":"blocks",
+                "tag":"objects\\mjolnir\\forge\\alloy\\block_2m","dimensions_m":[2,2,2]
+            }]
+        }});
+        let pack = read_pack(&manifest, "alloy").unwrap().unwrap();
+        assert_eq!(pack.blocks[0].kind.as_deref(), Some("block"));
+        let mut weapon = manifest.clone();
+        weapon["forge_pack"]["blocks"][0]["kind"] = "weapon".into();
+        // A newer weapon entry may carry fields this launcher has never seen.
+        weapon["forge_pack"]["blocks"][0]["light"] = serde_json::json!({"flash": true});
+        let why = read_pack(&weapon, "alloy").unwrap_err();
+        assert!(why.contains("weapon pieces") && why.contains("newer MJOLNIR launcher"), "{why}");
+        let mut feature = manifest.clone();
+        feature["forge_pack"]["requires"] = serde_json::json!(["turrets"]);
+        let why = read_pack(&feature, "alloy").unwrap_err();
+        assert!(why.contains("\"turrets\"") && why.contains("newer MJOLNIR launcher"), "{why}");
+        let mut schema = manifest.clone();
+        schema["forge_pack"]["schema_version"] = 2.into();
+        let why = read_pack(&schema, "alloy").unwrap_err();
+        assert!(why.contains("catalog schema 2"), "{why}");
+        let mut none = manifest.clone();
+        none["forge_pack"]["requires"] = serde_json::json!([]);
+        assert!(read_pack(&none, "alloy").unwrap().is_some());
+        // A validated pack keeps its gates when the launcher writes it out.
+        let mut stored = pack.clone();
+        stored.blocks[0].kind = Some("vehicle".into());
+        assert!(stored.validate("alloy").unwrap_err().contains("vehicle pieces"));
+    }
+
+    #[test]
+    fn saved_layouts_accept_later_releases_in_their_caret_line() {
+        let pin = |version: &str| LayoutPin { slug: "alloy".into(), version: version.into(), sha256: "a".repeat(64) };
+        assert!(matches(&layout_range(&pin("0.2.0")), "0.2.3").unwrap());
+        assert!(!matches(&layout_range(&pin("0.2.3")), "0.2.0").unwrap());
+        assert!(!matches(&layout_range(&pin("0.2.0")), "0.3.0").unwrap());
+        assert!(matches(&layout_range(&pin("1.2.0")), "1.9.0").unwrap());
+        assert!(!matches(&layout_range(&pin("1.2.0")), "2.0.0").unwrap());
+        let mut pins = std::collections::BTreeMap::new();
+        merge_layout_pin(&mut pins, pin("0.2.1")).unwrap();
+        merge_layout_pin(&mut pins, pin("0.2.4")).unwrap();
+        merge_layout_pin(&mut pins, pin("0.2.0")).unwrap();
+        assert_eq!(pins["alloy"].version, "0.2.4");
+        assert!(merge_layout_pin(&mut pins, pin("0.3.0")).unwrap_err().contains("incompatible releases"));
     }
 
     #[test]

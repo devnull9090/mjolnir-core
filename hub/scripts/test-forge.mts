@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { zipSync } from "fflate";
 import { app } from "../src/lib/api/app";
-import { ForgePackSchema } from "../src/lib/api/forge";
+import { compareForgeVersions, ForgePackSchema, forgeUpdateIssues, sameForgeLine } from "../src/lib/api/forge";
 import { forgePackageId, requiredForgePackages } from "../src/lib/api/forge-content";
 import { ManifestSchema } from "../src/lib/api/manifest";
 import { scanArchive } from "../src/lib/api/scan";
@@ -233,4 +233,73 @@ test("publishing retains versioned inventory, dependencies, download, catalog an
   h.sqlite.prepare("UPDATE mod_releases SET status = 'published' WHERE id = ?1").run(id);
   h.sqlite.prepare("UPDATE mods SET status = 'hidden' WHERE id = ?1").run(modId);
   assert.equal((await h.call("GET", `/releases/${id}/forge-pack`, null)).status, 404);
+});
+
+test("entry kinds and required features refuse what MJOLNIR cannot place yet", () => {
+  assert.equal(ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, kind: "block" }] }).success, true);
+  assert.equal(ForgePackSchema.safeParse({ ...pack, requires: [] }).success, true);
+  for (const kind of ["weapon", "vehicle", "biped", "scenery", "equipment", "spaceship", "Block"]) {
+    const result = ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, kind }] });
+    assert.equal(result.success, false, kind);
+  }
+  const reserved = ForgePackSchema.safeParse({ ...pack, blocks: [{ ...block, kind: "weapon" }] });
+  assert.match(reserved.error?.issues.map((i) => i.message).join() ?? "", /reserved for a later release/);
+  const feature = ForgePackSchema.safeParse({ ...pack, requires: ["turrets"] });
+  assert.match(feature.error?.issues.map((i) => i.message).join() ?? "", /does not support the Forge pack feature "turrets"/);
+  // Declared, so publishing keeps the gate rather than stripping it.
+  assert.deepEqual(Object.keys(ForgePackSchema.parse({ ...pack, requires: [] })), ["schema_version", "id", "requires", "blocks"]);
+});
+
+test("pack versions follow SemVer precedence and caret lines", () => {
+  for (const [a, b] of [["0.2.0", "0.2.1"], ["1.0.0-beta.2", "1.0.0-beta.10"], ["1.0.0-alpha", "1.0.0"], ["1.9.9", "1.10.0"]]) {
+    assert.ok(compareForgeVersions(a, b) < 0, `${a} < ${b}`);
+    assert.ok(compareForgeVersions(b, a) > 0, `${b} > ${a}`);
+  }
+  assert.equal(compareForgeVersions("1.2.3", "1.2.3"), 0);
+  assert.ok(sameForgeLine("0.2.0", "0.2.5"));
+  assert.ok(!sameForgeLine("0.2.0", "0.3.0"));
+  assert.ok(sameForgeLine("1.0.0", "1.4.2"));
+  assert.ok(!sameForgeLine("1.4.2", "2.0.0"));
+  assert.ok(!sameForgeLine("0.0.3", "0.0.4"));
+  const grown = { ...pack, blocks: [block, { ...block, id: "ramp", tag: "objects\\mjolnir\\forge\\test-pack\\ramp" }] };
+  assert.deepEqual(forgeUpdateIssues(ForgePackSchema.parse(pack), ForgePackSchema.parse(grown)), []);
+  assert.deepEqual(forgeUpdateIssues(ForgePackSchema.parse(grown), ForgePackSchema.parse(pack)), ["removes ramp"]);
+  const resized = { ...pack, blocks: [{ ...block, dimensions_m: [4, 4, 1] }] };
+  assert.deepEqual(forgeUpdateIssues(ForgePackSchema.parse(pack), ForgePackSchema.parse(resized)), ["changes the size or snap of platform_4x4"]);
+});
+
+test("a release in a published caret line must keep the earlier releases' entries", async () => {
+  const h = hub();
+  const key = await h.account("author");
+  h.sqlite.prepare("UPDATE api_keys SET scopes = 'mods:write' WHERE user_id = 'author'").run();
+  const stored = new Map<string, Uint8Array>();
+  Object.assign(h.env, { MODS_BUCKET: {
+    async put(path: string, bytes: Uint8Array) { stored.set(path, bytes); },
+    async get(path: string) {
+      const bytes = stored.get(path);
+      return bytes ? { body: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }) } : null;
+    },
+  } });
+  assert.equal((await h.call("POST", "/mods", key, { slug: "test-pack", name: "test-pack" })).status, 201);
+  async function release(version: string, blocks: unknown[]) {
+    const value = { ...manifest, version, forge_pack: { ...pack, blocks } };
+    const created = await h.call("POST", "/mods/test-pack/releases", key, { version });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.id as string;
+    const uploaded = await app.request(`/api/v1/releases/${id}/archive`, {
+      method: "PUT", headers: { authorization: `Bearer ${key}`, "content-type": "application/zip" },
+      body: archive(value),
+    }, h.env, { waitUntil() {}, passThroughOnException() {}, props: {} } as never);
+    assert.equal(uploaded.status, 200, await uploaded.text());
+    return (await h.call("POST", `/releases/${id}/complete`, key)).body as { status: string; findings: { code: string }[] };
+  }
+  const ramp = { ...block, id: "ramp", tag: "objects\\mjolnir\\forge\\test-pack\\ramp" };
+  assert.equal((await release("1.0.0", [block])).status, "published");
+  assert.equal((await release("1.1.0", [block, ramp])).status, "published");
+  const dropped = await release("1.2.0", [block]);
+  assert.equal(dropped.status, "rejected");
+  assert.ok(dropped.findings.some((f) => f.code === "forge_pack_breaking_update"));
+  const resized = await release("1.2.1", [{ ...block, dimensions_m: [8, 8, 0.5] }, ramp]);
+  assert.equal(resized.status, "rejected");
+  assert.equal((await release("2.0.0", [{ ...block, dimensions_m: [8, 8, 0.5] }])).status, "published");
 });

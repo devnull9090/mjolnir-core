@@ -317,9 +317,12 @@ fn pack(a: PackArgs) -> Result<()> {
         let packs: Vec<crate::level::ForgePackRef> = serde_json::from_value(packs.clone())
             .context("reading blam.forge_packs")?;
         crate::level::validate_forge_packs(&packs)?;
+        // The map names its pieces by tag path, so a later release in the
+        // pack's caret line, which the Hub requires to keep every earlier
+        // entry, serves it as well: an update never strands a map.
         for pack in packs {
             manifest["deps"].as_array_mut().unwrap().push(serde_json::json!({
-                "slug": pack.slug, "range": format!("={}", pack.version)
+                "slug": pack.slug, "range": format!("^{}", pack.version)
             }));
         }
     }

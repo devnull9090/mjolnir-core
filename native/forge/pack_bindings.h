@@ -3,6 +3,7 @@
 #ifndef MJOLNIR_PACK_BINDINGS_H
 #define MJOLNIR_PACK_BINDINGS_H
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define FORGE_PACK_PREFIX "objects\\mjolnir\\forge\\"
@@ -70,16 +71,59 @@ static int forge_binding_valid(const forge_pack_binding *b) {
     return forge_token(b->tag + strlen(prefix), 1);
 }
 
-// Used before a layout's palette index creates an object. An installed pack
-// with the same name alone is not sufficient: its exact bytes and tag matter.
+// A validated version's numeric core, and its prerelease (NULL when none;
+// build metadata never counts).
+static void forge_version_parts(const char *s, unsigned long long core[3], const char **pre) {
+    char *end = (char *)s;
+    for (int i = 0; i < 3; i++) core[i] = strtoull(i ? end + 1 : s, &end, 10);
+    *pre = *end == '-' ? end + 1 : NULL;
+}
+
+// SemVer prerelease precedence; a version without one ranks higher.
+static int forge_prerelease_cmp(const char *a, const char *b) {
+    if (!a || !b) return (a ? -1 : 0) + (b ? 1 : 0);
+    for (;;) {
+        size_t la = strcspn(a, ".+"), lb = strcspn(b, ".+");
+        int na = la && strspn(a, "0123456789") >= la, nb = lb && strspn(b, "0123456789") >= lb;
+        int c;
+        if (na && nb) c = la != lb ? (la < lb ? -1 : 1) : strncmp(a, b, la);
+        else if (na != nb) c = na ? -1 : 1;
+        else { c = strncmp(a, b, la < lb ? la : lb); if (!c && la != lb) c = la < lb ? -1 : 1; }
+        if (c) return c < 0 ? -1 : 1;
+        a += la; b += lb;
+        int more_a = *a == '.', more_b = *b == '.';
+        if (!more_a || !more_b) return more_a - more_b;
+        a++; b++;
+    }
+}
+
+// Whether `installed` satisfies the caret requirement ^saved, as the launcher
+// (Rust semver) reads it: the same major, the same minor while the major is 0,
+// the same patch while both are 0, and not older. A prerelease is only taken
+// for the saved version's own core when that was a prerelease too.
+static int forge_version_accepts(const char *saved, const char *installed) {
+    unsigned long long s[3], v[3];
+    const char *sp, *vp;
+    forge_version_parts(saved, s, &sp);
+    forge_version_parts(installed, v, &vp);
+    if (v[0] != s[0] || (!s[0] && v[1] != s[1]) || (!s[0] && !s[1] && v[2] != s[2])) return 0;
+    int same_core = v[1] == s[1] && v[2] == s[2];
+    if (vp && !(same_core && sp)) return 0;
+    if (!same_core) return v[1] > s[1] || (v[1] == s[1] && v[2] > s[2]);
+    return forge_prerelease_cmp(vp, sp) >= 0;
+}
+
+// Used before a layout's palette index creates an object. The palette entry
+// must still be the saved tag; the installed pack may be the saved release or
+// a later one in its caret line, which the Hub refuses to publish unless it
+// keeps every earlier entry. The saved SHA-256 is diagnostic only.
 static int forge_binding_matches(const forge_pack_binding *required,
                                  const forge_pack_binding *installed, const char *palette_tag) {
     return required && installed && palette_tag
         && forge_binding_valid(required) && forge_binding_valid(installed)
         && !strcmp(required->tag, palette_tag) && !strcmp(installed->tag, palette_tag)
         && !strcmp(required->slug, installed->slug)
-        && !strcmp(required->version, installed->version)
-        && !strcmp(required->sha256, installed->sha256);
+        && forge_version_accepts(required->version, installed->version);
 }
 
 // Split exactly n tab-separated fields, rejecting overlong/empty rows.

@@ -52,16 +52,25 @@ struct Manifest {
     summary: Option<String>,
 }
 
+/// Entry kinds the bake, launcher and Forge handle; the rest of
+/// docs/forge_packs.md's list is reserved until they do.
+pub(crate) const KINDS: &[&str] = &["block"];
+/// Features a pack may require beyond catalog schema 1. None exist yet.
+pub(crate) const FEATURES: &[&str] = &[];
+
 #[derive(Debug, Deserialize)]
 struct ForgePack {
     schema_version: u32,
     id: String,
+    #[serde(default)]
+    requires: Vec<String>,
     blocks: Vec<Block>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Block {
     id: String,
+    kind: Option<String>,
     name: String,
     tag: String,
     category: String,
@@ -143,8 +152,14 @@ fn validate_manifest(value: &Value) -> Result<Manifest> {
     if pack.schema_version != 1 || !valid_slug(&pack.id) || pack.blocks.is_empty() || pack.blocks.len() > 256 {
         bail!("forge_pack needs schema_version 1, a valid Hub slug and 1–256 blocks");
     }
+    if let Some(feature) = pack.requires.iter().find(|f| !FEATURES.contains(&f.as_str())) {
+        bail!("MJOLNIR does not support the Forge pack feature {feature:?} yet");
+    }
     let mut ids = BTreeSet::new();
     for block in &pack.blocks {
+        if let Some(kind) = block.kind.as_deref().filter(|k| !KINDS.contains(k)) {
+            bail!("Forge block {} is a {kind:?}; packs can only carry {} pieces so far", block.id, KINDS.join(", "));
+        }
         if !valid_block_id(&block.id) || !ids.insert(&block.id) || !valid_block_id(&block.category) {
             bail!("invalid or duplicate Forge block id/category: {}", block.id);
         }
@@ -468,6 +483,23 @@ mod tests {
             let stray: Vec<_> = surface_members(&required, 1).into_iter().map(|(n,b)| (n.replace("content/", "docs/"),b)).collect();
             assert!(validate_runtime_packages(&m.forge_pack, &stray).is_err());
         }
+    }
+
+    #[test]
+    fn packs_carry_only_supported_kinds_and_features() {
+        let mut block = manifest();
+        block["forge_pack"]["blocks"][0]["kind"] = "block".into();
+        block["forge_pack"]["requires"] = serde_json::json!([]);
+        validate_manifest(&block).unwrap();
+        for kind in ["weapon", "vehicle", "biped", "scenery", "equipment"] {
+            let mut value = manifest();
+            value["forge_pack"]["blocks"][0]["kind"] = kind.into();
+            let error = validate_manifest(&value).unwrap_err().to_string();
+            assert!(error.contains(kind) && error.contains("only carry block"), "{error}");
+        }
+        let mut value = manifest();
+        value["forge_pack"]["requires"] = serde_json::json!(["turrets"]);
+        assert!(validate_manifest(&value).unwrap_err().to_string().contains("\"turrets\""));
     }
 
     #[test]

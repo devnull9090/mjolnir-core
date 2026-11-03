@@ -46,6 +46,7 @@ const MIN_PART_BYTES = 5 * 1024 * 1024;
 const MAX_PART_BYTES = 64 * 1024 * 1024;
 import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
+import { compareForgeVersions, ForgePackSchema, forgeUpdateIssues, sameForgeLine } from "./forge";
 
 type Ctx = Context<ApiEnv>;
 
@@ -548,6 +549,28 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           level: "error", code: "forge_pack_id_mismatch",
           message: `Forge pack id must match its Hub slug (${release.mod_slug}).`,
         });
+      }
+      // Maps and saved layouts accept any later release in their pack's
+      // caret line, so a release in a published line has to keep every entry
+      // of the earlier ones. Breaking changes take the next major (or 0.x
+      // minor), or a new pack.
+      if (forgePack && scan.manifest) {
+        const earlier = await c.env.DB.prepare(
+          `SELECT version, forge_pack_json FROM mod_releases
+           WHERE mod_id = ?1 AND status = 'published' AND forge_pack_json IS NOT NULL`,
+        ).bind(release.mod_id as string).all<{ version: string; forge_pack_json: string }>();
+        for (const row of earlier.results) {
+          const version = scan.manifest.version;
+          if (!sameForgeLine(row.version, version) || compareForgeVersions(row.version, version) >= 0) continue;
+          const previous = ForgePackSchema.safeParse(JSON.parse(row.forge_pack_json));
+          if (!previous.success) continue;
+          for (const issue of forgeUpdateIssues(previous.data, forgePack)) {
+            scan.findings.push({
+              level: "error", code: "forge_pack_breaking_update",
+              message: `${version} ${issue}, which ${row.version} has; keep it, or release a new major version (a new minor before 1.0).`,
+            });
+          }
+        }
       }
 
       // Author signature. The crypto check is self-contained; the identity

@@ -109,11 +109,24 @@ most 80 characters. Dimensions and optional snap are finite positive metres.
 
 Every block tag must be exactly `objects\mjolnir\forge\<pack-id>\<block-id>`.
 Keep IDs stable, and add new entries after existing ones when maintaining a
-map's palette. Use a new exact semantic version when geometry, collision or
-release bytes change; versions cannot contain `+build` metadata. Do not
-replace published bytes under the same version. Saved layouts bind the exact
-version, archive hash and map palette, so a changed release is not a silent
-upgrade for old placements.
+map's palette. Every change gets a new semantic version; versions cannot
+contain `+build` metadata, and published bytes never change under the same
+version.
+
+Plan updates as SemVer lines ([updating a pack](forge_packs.md#updating-a-pack)).
+Maps and saved layouts built with a release keep working with any later
+release in its line, so within a line keep every existing piece's ID, kind,
+dimensions, snap, origin and join heights. Fix a piece's look or collision
+within that shape, or add pieces, in the next release of the line: a patch
+release before 1.0 (`0.2.0` to `0.2.1`), a minor or patch one after it. To
+change or remove a piece, start a new line (`0.3.0`, or `2.0.0`), and expect
+maps and layouts that use it to be rebuilt. The Hub refuses a release that
+drops or resizes a piece of an earlier release in its line.
+
+Catalog entries are building blocks for now. `kind` names are reserved for
+scenery, weapons, vehicles, equipment and bipeds, and a `requires` list for
+features later launchers add; packs using either are refused until MJOLNIR
+supports them ([entry kinds](forge_packs.md#entry-kinds)).
 
 Ordinary pieces need no behavior metadata. Optional lights, lifts, doors and
 approved glass/portal surfaces are described in the
@@ -205,9 +218,10 @@ or campaign starting locations. Record what passed and what remains untested.
 The [reference validation record](forge_pack_validation.md) separates offline
 checks, Blender previews and live-game evidence.
 
-Map archives carry exact pack dependencies. Saved layouts use both `.mvar` and
-`.mvar.packs`; keep the pair together. The launcher resolves missing published
-releases before launch and refuses incompatible identities. A changed installed
+Map archives depend on the line of each pack they were baked with (`^0.2.0`).
+Saved layouts use both `.mvar` and `.mvar.packs`; keep the pair together. The
+launcher resolves missing published releases before launch and refuses a pack
+outside the line a map or layout needs. A changed installed
 pack requires a restart. Include a clean launcher profile in release testing
 so you also check downloads and dependency resolution.
 

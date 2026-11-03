@@ -142,7 +142,7 @@ function PackLifts.new(deps, adapter)
                 if type(data)=="table" and data.schema_version==1 and identifier(data.id,true) and pack.slug==data.id
                     and type(data.blocks)=="table" and #data.blocks<=256 then
                     for _, block in ipairs(data.blocks) do
-                        if type(block)=="table" and identifier(block.id,false)
+                        if type(block)=="table" and (block.kind==nil or block.kind=="block") and identifier(block.id,false)
                             and block.tag=="objects\\mjolnir\\forge\\"..data.id.."\\"..block.id then
                             local path="/Game/MJOLNIR/Forge/"..data.id.."/BP_"..block.id..".BP_"..block.id.."_C"
                             if seen[path] then defs[path]=nil else

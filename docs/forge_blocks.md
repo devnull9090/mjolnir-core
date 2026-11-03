@@ -75,7 +75,7 @@ palettes, and again at each new map before a saved layout is applied, from
   it change too: pointing BGL's health-pack entry at a crate turned every
   health pack into a crate.
 - A saved layout's engine payload names entries. New community-pack layouts
-  also save tag/version/hash bindings and refuse changed custom entries; see
+  also save tag/version bindings and refuse an entry whose tag or pack line changed; see
   [saved-layout checks](forge_packs.md#saved-layouts-and-downloads).
 
 ## Community packs
@@ -84,14 +84,14 @@ The earlier proposal for 32 global slot tags and Hub-assigned slot ranges is
 retired. Packs now own `objects\mjolnir\forge\<pack-id>\<block-id>` tag paths.
 Each map declares its supported subset and order in `blam.forge_packs` before a
 standalone bake. The scenario includes these references and their package
-preloads; the map archive pins the corresponding Hub releases as dependencies.
+preloads; the map archive depends on the corresponding Hub release lines.
 There is no shared global slot allocation and installing a pack does not
 automatically add it to an existing map.
 
 The Hub's Forge catalog displays validated content releases. The launcher
-downloads map dependencies and missing exact releases required by saved layout
-sidecars. Native Forge checks each saved index against its tag path, pack
-version and archive hash before recreating objects. The complete contract and
+downloads map dependencies and missing releases required by saved layout
+sidecars. Native Forge checks each saved index against its tag path and pack
+line before recreating objects. The complete contract and
 current limits are in [forge_packs.md](forge_packs.md).
 
 ## Making blocks

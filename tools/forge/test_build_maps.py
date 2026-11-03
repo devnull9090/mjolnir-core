@@ -545,10 +545,10 @@ class ForgeMapBuildTests(unittest.TestCase):
             check_level(self.level, self.spec, [self.pack, stale], self.collision)
         with self.assertRaisesRegex(ValueError, "unique"):
             check_level(self.level, self.spec, [self.pack, road, road], self.collision)
-        with self.assertRaisesRegex(ValueError, "pin"):
+        with self.assertRaisesRegex(ValueError, "caret line"):
             verify_archive(self.archive(), self.spec, self.level, "0.1.0", "^1.17.0", False)
         def pin(members):
-            members["mjolnir.json"]["deps"].append({"slug": "roadworks", "range": "=0.1.0"})
+            members["mjolnir.json"]["deps"].append({"slug": "roadworks", "range": "^0.1.0"})
         verify_archive(self.archive(pin), self.spec, self.level, "0.1.0", "^1.17.0", False)
 
     def test_vehicle_listing_must_match_authored_placements_and_archive(self):
@@ -586,7 +586,7 @@ class ForgeMapBuildTests(unittest.TestCase):
     def archive(self, change=None):
         manifest = {"type": "map", "version": "0.1.0", "map": {"code": "FBK", "modes": ["forge", "slayer"]},
                     "deps": [{"slug": "mjolnir-ce-runtime", "range": "^1.17.0"},
-                             {"slug": "foundry", "range": "=0.2.0"}]}
+                             {"slug": "foundry", "range": "^0.2.0"}]}
         members = {"mjolnir.json": manifest, "map/level.json": self.level,
                    "map/registration.json": {"code": "FBK", "from": "B40", "world": "/Game/Levels/Halo1/Solo/FBK/FBK.FBK"},
                    "content/pakchunk997-MJOLNIRMAP-FBK_P.utoc": b"table",
@@ -599,15 +599,15 @@ class ForgeMapBuildTests(unittest.TestCase):
                 z.writestr(name, value if isinstance(value, bytes) else json.dumps(value))
         return archive
 
-    def test_archive_preserves_level_and_requires_exact_pack_dependency(self):
+    def test_archive_preserves_level_and_requires_its_packs_caret_line(self):
         archive = self.archive()
         result = verify_archive(archive, self.spec, self.level, "0.1.0", "^1.17.0", False)
-        self.assertEqual(result["deps"][1], {"slug": "foundry", "range": "=0.2.0"})
+        self.assertEqual(result["deps"][1], {"slug": "foundry", "range": "^0.2.0"})
         self.assertEqual(len(result["sha256"]), 64)
-        def unpin(members):
-            members["mjolnir.json"]["deps"][1]["range"] = "^0.2.0"
-        with self.assertRaisesRegex(ValueError, "pin"):
-            verify_archive(self.archive(unpin), self.spec, self.level, "0.1.0", "^1.17.0", False)
+        def exact(members):
+            members["mjolnir.json"]["deps"][1]["range"] = "=0.2.0"
+        with self.assertRaisesRegex(ValueError, "caret line"):
+            verify_archive(self.archive(exact), self.spec, self.level, "0.1.0", "^1.17.0", False)
 
     def test_archive_cannot_ship_a_private_layout_or_shared_registration(self):
         for name in ("map/FBK.mvar", "content/pakchunk996-MJOLNIRREG_P.ucas"):

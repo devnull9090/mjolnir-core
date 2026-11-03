@@ -157,7 +157,7 @@ function Materials.new(data, adapter)
                     for _, block in ipairs(catalog.blocks) do
                         visited = visited + 1
                         if visited > 4096 then break end
-                        if count < MAX_CLASSES and type(block) == "table" and slug(block.id, false) and Materials.validSurfaces(block.surfaces)
+                        if count < MAX_CLASSES and type(block) == "table" and (block.kind == nil or block.kind == "block") and slug(block.id, false) and Materials.validSurfaces(block.surfaces)
                             and block.tag == "objects\\mjolnir\\forge\\" .. pack.slug .. "\\" .. block.id then
                             local path = "/Game/MJOLNIR/Forge/" .. pack.slug .. "/BP_" .. block.id .. ".BP_" .. block.id .. "_C"
                             if not definitions[path] then count = count + 1 end

@@ -96,7 +96,7 @@ their dimensions and clear openings.
 ## Play and build
 
 Once the compatible launcher, mods and map releases are published, install
-each map from its Hub listing. The launcher downloads its exact pack releases
+each map from its Hub listing. The launcher downloads compatible pack releases
 and the compatible CE runtime dependency first. Restart the game if
 the launcher needs to replace an already mounted pack.
 
@@ -135,7 +135,7 @@ for their results and limits.
 Press **F5** to save, **F6** to reload the saved layout, or **F2** to restore the
 map's authored starting layout. Saved layouts also apply when the map is
 played outside Forge. Keep both `<MAP>.mvar` and `<MAP>.mvar.packs` together
-when copying a save; the second file records its exact pack and palette
+when copying a save; the second file records its pack releases and palette
 bindings. The launcher resolves missing saved-layout packs before launch.
 See [Forge controls](../docs/forge.md) and [pack dependencies](../docs/forge_packs.md).
 

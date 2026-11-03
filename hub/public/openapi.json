@@ -992,6 +992,14 @@
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
           },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "maxItems": 32
+          },
           "blocks": {
             "type": "array",
             "items": {
@@ -1011,6 +1019,10 @@
         "type": "object",
         "properties": {
           "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          },
+          "kind": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
           },

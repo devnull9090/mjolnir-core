@@ -77,7 +77,7 @@ remains at 0.1.0. The default manifests are each pack's
 `build/game/all/mjolnir.json`. Repeat
 `--pack-manifest` to override them. The builder verifies every required
 container pair, palette, version and canvas bound before baking, then checks
-the map archive's exact dependency pins and vehicle listing. It creates a
+the map archive's pack dependency lines and vehicle listing. It creates a
 fresh output folder and never installs into the game.
 
 Run `python -m unittest discover -s tools/forge -p test_build_maps.py` for

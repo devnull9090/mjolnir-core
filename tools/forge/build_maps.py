@@ -136,9 +136,9 @@ def verify_archive(archive, spec, level, version, runtime, signed):
         if map_info.get("vehicles", False) != spec.get("vehicles", False):
             raise ValueError("Archive vehicle flag differs from the source")
         expected_deps = [{"slug": "mjolnir-ce-runtime", "range": runtime}] + [
-            {"slug": p["slug"], "range": "=" + p["version"]} for p in level["blam"]["forge_packs"]]
+            {"slug": p["slug"], "range": "^" + p["version"]} for p in level["blam"]["forge_packs"]]
         if manifest.get("deps") != expected_deps:
-            raise ValueError("Archive does not pin its Forge pack dependencies")
+            raise ValueError("Archive does not depend on the caret line of its Forge packs")
         if json.loads(z.read("map/level.json")) != level:
             raise ValueError("Archive did not preserve the complete authored level")
         registration = json.loads(z.read("map/registration.json"))

@@ -4,7 +4,10 @@ A Forge pack is a normal `.mjolnir` **content** release with a validated catalog
 of namespaced building pieces. The Hub lists them in its `/forge` catalog; the
 launcher downloads published containers and exposes their catalog to Forge. A map
 declares which pieces it supports when its scenario is baked. A saved layout
-records the exact pack releases and palette bindings it used.
+records the pack releases and palette bindings it used. Packs can be
+[updated](#updating-a-pack) without stranding the maps and layouts built with
+them, and the format leaves room for [other kinds of content](#entry-kinds)
+than building pieces.
 
 For a practical first contribution, see [creating a community Forge pack](forge_pack_authoring.md).
 For placing existing pieces, use the [Forge building guide](forge_guide.md).
@@ -26,8 +29,9 @@ Foundry, while [Roadworks Circuit 0.2](../forge-maps/roadworks/README.md) provid
 a roughly 731 m course on a 320 × 320 m recovery deck with three stock Warthogs.
 
 Road connectors describe exact source assembly; current Forge placement does
-not automatically dock them. Separate namespaces and exact version/hash checks
-keep new geometry from silently resizing old builds. Historical Roadworks 0.1
+not automatically dock them. Separate namespaces, and the rule that a
+compatible update keeps every existing piece, keep new geometry from silently
+resizing old builds. Historical Roadworks 0.1
 used 8 m lanes, and Crossline 0.2 used the 18-piece Wide 0.1 kit in a 48 × 80 m
 arena; those layouts need an explicit compatible rebuild to use the larger sets.
 
@@ -71,16 +75,94 @@ handling applies. Its optional `forge_pack` block identifies the catalog:
 - Block IDs and categories are 1–64 lowercase letters, digits, hyphens or
   underscores, beginning with a letter or digit. IDs are unique within a pack.
   Names contain 1–80 characters and cannot be blank.
-- Every tag is exactly `objects\mjolnir\forge\<pack-id>\<block-id>`. It names a
-  crate (`bloc`) with its associated model, physics and collision tags.
+- Every tag is exactly `objects\mjolnir\forge\<pack-id>\<block-id>`, whatever
+  the entry's [kind](#entry-kinds). For a block it names a crate (`bloc`) with
+  its associated model, physics and collision tags.
 - A catalog contains 1–256 blocks. Dimensions and optional snap are finite,
   positive metres. They describe authoring metadata; they do not change engine
   collision or configure the editor's global snap setting.
 - Release versions are exact SemVer, at most 96 bytes. Hub versions exclude `+build`
-  metadata. Changing a piece's geometry or collision requires a new release.
-- Optional `deps` use the existing `{ "slug": "other-pack", "range": "=1.2.3" }`
+  metadata. A published version's bytes never change; see
+  [updating a pack](#updating-a-pack) for what each kind of new version may change.
+- Optional `deps` use the existing `{ "slug": "other-pack", "range": "^1.2.3" }`
   format. The launcher supports Rust SemVer requirements such as `^1.2.3`,
   `~1.2.3` and `>=1.2.3, <2.0.0`; a bare complete version is an exact pin.
+
+### Entry kinds
+
+Each catalog entry may name its `kind`. Without one it is a `block`, which is
+all the format carries today. The names below are reserved so that packs can
+carry other objects once the bake, the launcher and Forge handle them:
+
+| `kind` | Object tag class | Status |
+| --- | --- | --- |
+| `block` | crate (`bloc`) | Supported |
+| `scenery` | `scen` | Reserved |
+| `weapon` | `weap` | Reserved |
+| `vehicle` | `vehi` | Reserved |
+| `equipment` | `eqip` | Reserved |
+| `biped` | `bipd` | Reserved |
+
+The Hub, the packer (`mjolnir forge pack`) and the launcher refuse an entry of
+any kind they do not support. A launcher meeting a pack built for a newer one
+says to update instead of installing it, so a weapon is never handed to Forge
+as a building block. Forge's light, lift and material code also skips entries
+that are not blocks.
+
+An entry's tag path stays `objects\mjolnir\forge\<pack-id>\<entry-id>` for every
+kind. The tags an object needs besides its own (projectiles, effects, sounds,
+animations, a weapon's first-person model) belong below
+`objects\mjolnir\forge\<pack-id>\` too, and Unreal assets below
+`/Game/MJOLNIR/Forge/<pack-id>/`. A pack replaces nothing outside its own
+namespace. The Hub enforces this for catalog tags today; checking every package
+in a pack's containers against it is follow-up work before packs carry kinds
+with dependency tags.
+
+### Required features and new fields
+
+Catalogs stay at `schema_version` 1 while they only gain optional fields;
+2 is kept for a change older launchers must not read at all, and they refuse
+it with a request to update.
+
+A pack lists in `requires` any feature it needs beyond what schema 1 readers
+understand, for example `"requires": ["turrets"]`. None are defined yet: the
+Hub accepts only features it knows, and a launcher refuses a pack that needs
+one it does not, asking for an update. A pack that uses no new feature stays
+installable by every launcher. The rule for extending the format:
+
+- A new field that changes what MJOLNIR does with a pack (a new utility, a new
+  surface profile, a field inside `light`, `lift` or `door`) comes with a
+  `requires` feature name, added to the Hub, the packer and the launcher in the
+  release that supports it.
+- A field that only describes the pack (a credit, a preview hint) needs none;
+  older readers ignore unknown top-level and entry fields.
+
+### Updating a pack
+
+Releases follow SemVer, and maps and saved layouts accept any later release in
+the caret line of the version they were built with:
+
+| Line | Same line | New line |
+| --- | --- | --- |
+| 1.0.0 and later | the same major version: `1.4.2` serves a map built with `1.2.0` | `2.0.0` |
+| 0.x | the same minor version: `0.2.7` serves one built with `0.2.0` | `0.3.0` |
+
+Within a line, a release must keep every entry of the earlier ones: the same
+ID and kind, dimensions and snap, origin, and the heights where pieces meet.
+It may fix an entry's look and collision within that shape, and add new
+entries. In 0.x the patch number carries both fixes and additions. The Hub
+refuses a release that drops an entry of an earlier release in its line, or
+changes one's kind, dimensions or snap; origin and joins are the author's to
+keep. Anything else starts a new line, or a new pack: Foundry Wide is its own
+pack so that its larger pieces could never resize a Foundry build.
+
+Maps record `^<version>` for each pack they were baked with. When the launcher
+has to download a pack it takes the newest release of that line, and updating
+an installed pack within the line is allowed while maps that use it are
+enabled. A saved layout records the version
+it was saved with and loads with it or any later release of the same line; the
+palette entry must still be the saved tag path exactly. Two maps or layouts
+that need different lines of one pack cannot be enabled together.
 
 A block may also contain a data-only `light` object (omit it for ordinary
 pieces; `null` is also treated as absent):
@@ -226,8 +308,9 @@ dependency bundle and container package-store imports, preserving the donor
 wrapper. A declared crate absent from the input Paks fails the bake.
 
 Package the newly baked map with the existing `mjolnir map pack` command.
-It preserves `blam.forge_packs` in the archived level JSON and adds exact
-`=0.2.0` dependencies for the listed packs. Installing the map through the
+It preserves `blam.forge_packs` in the archived level JSON and adds a `^0.2.0`
+dependency on each listed pack (see [updating a pack](#updating-a-pack)).
+Installing the map through the
 launcher resolves those dependencies, selecting a compatible published release
 rather than blindly installing each dependency's latest version. The launcher
 validates the enabled profile's dependencies before mounting content. A first
@@ -256,30 +339,35 @@ a layout. The sidecar starts with `forge-packs 1`; each following tab-separated
 row contains:
 
 ```text
-flat-palette-index    full-tag-path    pack-slug    exact-version    archive-sha256
+flat-palette-index    full-tag-path    pack-slug    saved-version    archive-sha256
 ```
+
+The archive SHA-256 records which bytes the layout was saved with, for
+diagnosing a report; it is not a load condition.
 
 Only custom pieces actually used by the layout produce rows. Every new `.mvar`
 contains an `fpk1` marker, including saves with no custom pieces, so removing
 its sidecar cannot make it appear to be a legacy layout. Old layouts without
 the marker remain usable when they do not reference custom pack tags.
 
-Before launch, the launcher reads saved-layout pack requirements and downloads
-missing exact releases through the normal verified Hub install flow. It checks
-the sidecar fingerprint against the published archive and enables the dependency
-closure. Conflicting versions required by saved layouts or enabled maps stop
-launch with an explanation; move the affected layout pair aside or use
-compatible map/pack versions. The launcher does not silently reinterpret old
-placements using a newer pack.
+Before launch, the launcher reads saved-layout pack requirements. A pack
+installed at the saved version or a later one in its line serves the layout
+as it is; otherwise the launcher downloads the newest release of that line
+through the normal verified Hub install flow and enables the dependency
+closure. Layouts saved with different releases of one line need the later
+one. Layouts or enabled maps that need different lines of one pack are
+reported with an explanation, and the launcher still restores everything else;
+move the affected layout pair aside or use compatible map/pack versions.
 Orphan sidecars without a matching `.mvar` and files in layout history do not
 trigger downloads.
 
 Before the engine recreates saved objects, native Forge checks each recorded
-flat palette index against the current full tag path and installed pack version
-and hash. Missing inventory, a different palette binding, a missing sidecar on
-a new save, or changed release bytes refuse the layout. These checks prevent a
-saved custom index from becoming an unrelated object after a profile or map
-change. They do not migrate a layout to a different palette.
+flat palette index against the current full tag path and the installed pack's
+version. Missing inventory, a different palette binding, a missing sidecar on
+a new save, or an installed release outside the saved one's line (or older
+than it) refuse the layout. These checks prevent a saved custom index from
+becoming an unrelated object after a profile or map change. They do not
+migrate a layout to a different palette.
 
 Downloads happen at launcher installation/launch time. Opening an incompatible
 layout while the game is already running reports the dependency problem and

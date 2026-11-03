@@ -56,6 +56,10 @@ local bad=copy(inventory);bad.packs[1].forge_pack.blocks[2]=copy(block)
 pack:setInventory(bad);assert(#pack:collect(world)==0,"ambiguous duplicate tag disabled")
 bad=copy(inventory);bad.packs[1].forge_pack.blocks[1].tag="objects\\other"
 pack:setInventory(bad);assert(#pack:collect(world)==0,"cross-namespace alias disabled")
+bad=copy(inventory);bad.packs[1].forge_pack.blocks[1].kind="weapon"
+pack:setInventory(bad);assert(#pack:collect(world)==0,"a later entry kind is never a lift block")
+bad=copy(inventory);bad.packs[1].forge_pack.blocks[1].kind="block"
+pack:setInventory(bad);assert(#pack:collect(world)==1,"an explicit block kind is a block")
 pack:setInventory(inventory)
 world.actors={};for i=1,100 do world.actors[i]={datum=i,pose=pose} end
 assert(#pack:collect(world)==64,"actor work bounded")

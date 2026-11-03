@@ -37,14 +37,38 @@ static void identity_tests(void) {
     CHECK(!forge_binding_matches(&layout, &inventory, NULL));
     CHECK(!forge_binding_matches(&layout, &inventory, FORGE_PACK_PREFIX "foundry\\wall"));
     CHECK(!forge_binding_matches(&layout, &inventory, "objects\\props\\crate"));
+    // A later release in the line has other bytes: the hash is diagnostic.
     inventory.sha256[0] = 'f';
-    CHECK(!forge_binding_matches(&layout, &inventory, tag));
+    CHECK(forge_binding_matches(&layout, &inventory, tag));
     inventory.sha256[0] = hash[0];
     inventory.version[0] = '2';
     CHECK(!forge_binding_matches(&layout, &inventory, tag));
     inventory.version[0] = '1';
     inventory.tag[strlen(inventory.tag) - 1] = '8';
     CHECK(!forge_binding_matches(&layout, &inventory, tag));
+    inventory.tag[strlen(inventory.tag) - 1] = '4';
+    CHECK(forge_binding_matches(&layout, &inventory, tag));
+
+    // ^saved, read as Rust semver reads it (the launcher's resolution).
+    static const struct { const char *saved, *installed; int ok; } lines[] = {
+        { "0.2.0", "0.2.0", 1 }, { "0.2.0", "0.2.7", 1 }, { "0.2.3", "0.2.1", 0 },
+        { "0.2.0", "0.3.0", 0 }, { "0.2.0", "1.0.0", 0 }, { "0.0.3", "0.0.4", 0 },
+        { "1.2.0", "1.9.1", 1 }, { "1.2.0", "1.10.0", 1 }, { "1.2.5", "1.2.4", 0 },
+        { "1.2.0", "2.0.0", 0 }, { "1.2.0", "1.3.0-beta.1", 0 }, { "1.2.0", "1.2.0-rc.1", 0 },
+        { "1.2.0-rc.1", "1.2.0-rc.2", 1 }, { "1.2.0-rc.2", "1.2.0-rc.10", 1 },
+        { "1.2.0-rc.2", "1.2.0-rc.1", 0 }, { "1.2.0-rc.1", "1.2.0", 1 }, { "1.2.0-rc.1", "1.4.0", 1 },
+        { "1.2.0-alpha", "1.2.0-alpha.1", 1 }, { "1.2.0-beta", "1.2.0-alpha", 0 },
+        { "1.2.0-alpha.1", "1.2.0-alpha.beta", 1 }, { "1.2.0+one", "1.2.0+two", 1 },
+    };
+    for (size_t i = 0; i < sizeof lines / sizeof *lines; i++) {
+        snprintf(layout.version, sizeof layout.version, "%s", lines[i].saved);
+        snprintf(inventory.version, sizeof inventory.version, "%s", lines[i].installed);
+        if (forge_binding_matches(&layout, &inventory, tag) != lines[i].ok) {
+            fprintf(stderr, "FAIL ^%s against %s\n", lines[i].saved, lines[i].installed);
+            exit(1);
+        }
+        checks++;
+    }
 
     const char *bad_slugs[] = { "", "a", "-a", "_a", "Foundry", "found_ry", "../foundry", "foundry/other" };
     for (size_t i = 0; i < sizeof bad_slugs / sizeof *bad_slugs; i++) {

@@ -168,7 +168,7 @@ function Lights.new(adapter)
                 if type(data) == "table" and data.schema_version == 1 and id(data.id, true)
                     and data.id == pack.slug and type(data.blocks) == "table" and #data.blocks <= 256 then
                     for _, block in ipairs(data.blocks) do
-                        if type(block) == "table" and id(block.id, false)
+                        if type(block) == "table" and (block.kind == nil or block.kind == "block") and id(block.id, false)
                             and block.tag == "objects\\mjolnir\\forge\\" .. data.id .. "\\" .. block.id then
                             local path = "/Game/MJOLNIR/Forge/" .. data.id .. "/BP_" .. block.id .. ".BP_" .. block.id .. "_C"
                             if duplicates[path] then definitions[path] = nil

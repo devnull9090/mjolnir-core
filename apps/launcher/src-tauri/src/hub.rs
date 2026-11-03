@@ -653,10 +653,7 @@ fn saved_layout_pins(paks: &Path) -> Result<Vec<forge_packs::LayoutPin>, String>
         fs::File::open(entry.path()).map_err(|e| e.to_string())?.take(1024 * 1024 + 1)
             .read_to_string(&mut text).map_err(|e| e.to_string())?;
         for pin in forge_packs::layout_pins(&text).map_err(|e| format!("{}: {e}", entry.path().display()))? {
-            if pins.get(&pin.slug).is_some_and(|old| old != &pin) {
-                return Err(format!("Saved Forge layouts need conflicting releases of {}. Move one layout aside before launching.", pin.slug));
-            }
-            pins.insert(pin.slug.clone(), pin);
+            forge_packs::merge_layout_pin(&mut pins, pin)?;
         }
     }
     Ok(pins.into_values().collect())
@@ -667,24 +664,26 @@ fn resolve_saved_layout_packs(paks: &Path) -> Result<(), String> {
     let before = load_state();
     let result = (|| {
         for pin in pins {
+            // Any later release in the saved one's line keeps the layout's
+            // pieces, so an installed update is never downgraded for it.
+            let range = forge_packs::layout_range(&pin);
+            let fits = |version: &str| forge_packs::matches(&range, version).unwrap_or(false);
             let state = load_state();
             let installed = state.installed.iter().find(|m| m.slug == pin.slug);
-            let ready = installed.is_some_and(|m| m.version == pin.version && m.sha256 == pin.sha256
+            let ready = installed.is_some_and(|m| fits(&m.version)
                 && m.forge_pack.is_some() && cache_complete(m)
                 && m.deps.iter().all(|d| dependency_tree_ready(&state, &d.slug)));
             if !ready {
                 let releases = fetch_releases(&pin.slug)?;
-                let release = releases.iter().find(|r| r.version == pin.version)
-                    .ok_or_else(|| format!("Saved Forge layout needs unavailable {} {}", pin.slug, pin.version))?;
-                let status = get_json(&format!("{}/releases/{}", hub_api(), release.id))?;
-                if status["status"] != "published" || status["sha256"].as_str() != Some(pin.sha256.as_str()) {
-                    return Err(format!("Saved Forge layout's fingerprint for {} {} does not match the published pack", pin.slug, pin.version));
-                }
+                let release = releases.iter()
+                    .filter(|r| fits(&r.version))
+                    .max_by_key(|r| semver::Version::parse(&r.version).ok())
+                    .ok_or_else(|| format!("Saved Forge layout needs {} {range}, which the Hub does not have", pin.slug))?;
                 install_one(&pin.slug, Some(release.id.clone()), 0)?;
             }
             let mut state = load_state();
             let pack = state.installed.iter().find(|m| m.slug == pin.slug).ok_or("Forge dependency did not install")?;
-            if pack.forge_pack.is_none() || pack.version != pin.version || pack.sha256 != pin.sha256 {
+            if pack.forge_pack.is_none() || !fits(&pack.version) {
                 return Err(format!("{} is not the Forge pack required by the saved layout", pin.slug));
             }
             for slug in dependency_closure(&state, &pin.slug)? {

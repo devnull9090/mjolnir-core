@@ -109,7 +109,7 @@ The [community pack-authoring guide](/docs/guides/forge-pack-authoring) covers t
 4. **Test a small map.** Place, rotate, freeze, save and reload the pieces. Walk the seams, drive the corners, and check that a doorway is actually clear.
 5. **Package, sign and submit the release.** The guide includes the build commands and explains the Hub's author-key, upload and validation requirements. Your catalogue gives other builders a way to discover the pieces and see what fits their map.
 
-A map declares its pack dependencies and supported palette when it is baked. The launcher resolves the required releases before play, downloading missing dependencies, and saved Forge layouts retain exact version and archive-hash bindings. Downloading another pack does not add arbitrary new entries to an already-baked map's palette. Those boundaries keep a later asset update from quietly changing someone else's level.
+A map declares its pack dependencies and supported palette when it is baked. The launcher resolves the required releases before play, downloading missing dependencies, and saved Forge layouts record the pack releases they were built with. A pack can be updated later, but an update has to keep every piece that existing maps and layouts use, and the Hub checks that before it publishes one. Downloading another pack does not add arbitrary new entries to an already-baked map's palette. Those boundaries keep a later asset update from quietly changing someone else's level.
 
 ## Make a place of your own
 
