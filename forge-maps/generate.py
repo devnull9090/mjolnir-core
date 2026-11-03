@@ -138,7 +138,7 @@ def arena_layout():
         "blocks": [{"id": b["id"], "tag": b["tag"]} for b in blocks]})
     level["blam"]["world_bounds"] = [{"bsp": 8, "min": [-96/3.048, -96/3.048, -8/3.048],
                                      "max": [96/3.048, 96/3.048, 64/3.048]}]
-    level["description"] = ("A 96 Ã— 160 m Red versus Blue construction showcase: raised bases, broad ramps, "
+    level["description"] = ("A 96 × 160 m Red versus Blue construction showcase: raised bases, broad ramps, "
         "side galleries, a ground-level Warthog route, green teleporters and bypassable door, glass and lift bays. "
         "All 38 Foundry Wide pieces are available in Forge.")
     grid(level, 96, 160, 4)

@@ -673,3 +673,43 @@ placement/save/reload of the new utility pieces beyond the door checks above.
 Earlier Crossline 0.2 and original Foundry results do not establish these
 Crossline 0.3 outcomes. See the [utility contract](forge_pack_utilities.md)
 and [map tour](../forge-maps/crossline/README.md).
+
+## Overlap, z-fighting and reflection fixes (2026-11-02)
+
+A playtest found Crossline's glass flickering where it met its frame and a
+red lamp inside a teleporter housing. `tools/forge/check_overlaps.py` checks
+every pack piece's parts and every map placement for interpenetration and
+for coplanar faces (z-fighting), and the map generators and CI now run it.
+It found the glass fault in all three Foundry Wide glass pieces, shared faces
+in Foundry's lamp heads, light strip and pad, Crossline's pylons, pads,
+railing corners and perimeter corners, and 42 Roadworks Circuit barrier
+joins; all were fixed in source (commit f57f5cb7). Every pack surface is
+`+MIP_FR_Gen_Metal` at roughness 0.15, so the maps now set
+`post.max_traced_roughness` 0.1: at 4K on PC 1 (RTX 5090) in one Crossline
+view, GPU time went from 7.18 to 5.93 ms (reflections off: 5.85 ms).
+
+Rebuilt from a clean view of the stock game and runtime containers and
+installed locally, unsigned, with a backup receipt:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Foundry 0.2.0 | 1,315,844 | `b0762cc45d4f6732cc65afc3367767308252d608f2a2b06711978fd9a419e76c` |
+| Foundry Wide 0.2.0 | 2,336,020 | `49a9a331f1447de4a1d1ccff508156d0ebddd6bd9f4a0ef235daa8916eadaca9` |
+| Crossline 0.3.0 | 120,790 | `25b240ea85cba0ead62f898a477cd409ece2997c34172b65b33ea2c3478bdd24` |
+| Forge Canvas 0.1.0 | 113,295 | `079490973348d947395a36a98cc501504d8d2ae1e8889af5f3d140c02a085b71` |
+| Roadworks Circuit 0.2.0 | 114,140 | `dd6a17accfcfc7c10d5b1e55923d41be39fee39715072429dd13dd395313769a` |
+
+Observed in a private Forge game on Crossline:
+
+- The glass wall shows one clean pane from the frame's inner corner and at a
+  grazing angle along the pane; the dark triangle at the jamb is gone.
+- The red pylon stands 2.5 m clear of the teleporter housing.
+- The loader set the post volume's `LumenMaxRoughnessToTraceReflections` to
+  0.1 from the level file.
+- With no lift or bot used, F5 saved the layout: the lobby DLL armed its main
+  tick at world load (`forge doors: world ..., 2 definitions`). The sidecar
+  bound 30 pieces at 0.2.0 with the new archive hashes. The test save was
+  removed afterwards.
+
+Not checked in game: the other glass pieces, the lamp heads and light strip
+up close, Forge Canvas, and Roadworks Circuit's barrier joins.
