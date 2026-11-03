@@ -1,0 +1,2970 @@
+{
+  "schema_version": 1,
+  "name": "roadworks_circuit",
+  "title": "Roadworks Circuit",
+  "description": "A Warthog test circuit with 16 m lanes, 24/48 m straights, R40 curves, a gradual 4 m climb and a connected vehicle test pad. Guarded roads stand 3 m above a 320 m recovery deck.",
+  "game": "halo1",
+  "multiplayer": true,
+  "variant": "slayer",
+  "modes": [
+    "slayer",
+    "forge"
+  ],
+  "kill_floor": -600,
+  "canvas": {
+    "scenario": "B40",
+    "origin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "environment": {
+    "sun": {
+      "pitch": -48,
+      "yaw": 25,
+      "intensity": 4,
+      "atmosphere_sun": true
+    },
+    "skylight": {
+      "intensity": 1.6,
+      "physical": true
+    },
+    "atmosphere": true,
+    "post": {
+      "manual_exposure": true,
+      "exposure_bias": 0,
+      "tone_curve": 0,
+      "expand_gamut": 0,
+      "blue_correction": 0,
+      "max_traced_roughness": 0.1
+    }
+  },
+  "blam": {
+    "clear": {
+      "squads": true,
+      "bipeds": true,
+      "weapons": true,
+      "vehicles": true,
+      "equipment": true,
+      "scripts": true,
+      "blocks": [
+        "scenery",
+        "machines",
+        "terminals",
+        "controls",
+        "effect scenery",
+        "sound scenery",
+        "giants",
+        "squad groups",
+        "zones",
+        "actual cues",
+        "quick cues",
+        "trigger volumes",
+        "zone set switch trigger volumes",
+        "scenario kill triggers",
+        "cutscene titles",
+        "cutscene camera points",
+        "cutscene spline points",
+        "crates",
+        "device groups",
+        "object names",
+        "cutscene flags",
+        "cinematics",
+        "ai objectives",
+        "reference frames",
+        "user interface objectives block",
+        "ai user hint data",
+        "scripting data"
+      ]
+    },
+    "active_bsps": [
+      8
+    ],
+    "single_bsp": 8,
+    "map_variant": true,
+    "world_bounds": [
+      {
+        "bsp": 8,
+        "min": [
+          -62.99212598425197,
+          -62.99212598425197,
+          -2.6246719160104988
+        ],
+        "max": [
+          62.99212598425197,
+          62.99212598425197,
+          20.99737532808399
+        ]
+      }
+    ],
+    "set": {
+      "type": "multiplayer",
+      "zone sets[0].structure design zone flags": "0x0",
+      "zone sets[0].sruntime tructure design zone flags": "0x0"
+    },
+    "player_starts": [
+      {
+        "pos": [
+          100,
+          600,
+          335.0
+        ],
+        "yaw": 0
+      },
+      {
+        "pos": [
+          -1000,
+          -400,
+          335.0
+        ],
+        "yaw": 0
+      },
+      {
+        "pos": [
+          1200,
+          -1200,
+          335.0
+        ],
+        "yaw": -180
+      },
+      {
+        "pos": [
+          2000,
+          1400,
+          335.0
+        ],
+        "yaw": -90
+      }
+    ],
+    "objects": [
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded",
+        "pos": [
+          8800.0,
+          7200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48",
+        "pos": [
+          8800.0,
+          2400.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24_guarded",
+        "pos": [
+          8800.0,
+          -2400.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24_guarded",
+        "pos": [
+          8800.0,
+          -4800.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\curve_90_guarded",
+        "pos": [
+          8800.0,
+          -7200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded",
+        "pos": [
+          4800.0,
+          -11200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded",
+        "pos": [
+          0.0,
+          -11200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\curve_45_guarded",
+        "pos": [
+          -4800.0,
+          -11200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\curve_45_guarded",
+        "pos": [
+          -7628.4271,
+          -10028.4271,
+          250.0
+        ],
+        "rot": [
+          0,
+          225.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24_guarded",
+        "pos": [
+          -8800.0,
+          -7200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_48_guarded",
+        "pos": [
+          -8800.0,
+          -4800.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24_guarded",
+        "pos": [
+          -8800.0,
+          -0.0,
+          650.0
+        ],
+        "rot": [
+          0,
+          180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_48_guarded",
+        "pos": [
+          -8800.0,
+          7200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\curve_90_guarded",
+        "pos": [
+          -8800.0,
+          7200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded",
+        "pos": [
+          -4800.0,
+          11200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded",
+        "pos": [
+          0.0,
+          11200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\curve_45_guarded",
+        "pos": [
+          4800.0,
+          11200.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\curve_45_guarded",
+        "pos": [
+          7628.4271,
+          10028.4271,
+          250.0
+        ],
+        "rot": [
+          0,
+          45.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded",
+        "pos": [
+          7920.0,
+          -0.0,
+          250.0
+        ],
+        "rot": [
+          0,
+          -90.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48",
+        "pos": [
+          -1280.0,
+          2400,
+          250.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48",
+        "pos": [
+          480.0,
+          2400,
+          250.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48",
+        "pos": [
+          2240.0,
+          2400,
+          250.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9625.0,
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          1798.3636,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9625.0,
+          1398.7273,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          999.0909,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9625.0,
+          599.4545,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          199.8182,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9625.0,
+          -199.8182,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          -599.4545,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9625.0,
+          -999.0909,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          -1398.7273,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9625.0,
+          -1798.3636,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          9626.0,
+          -2198.0,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7945.0,
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7946.0,
+          1825.3333,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7945.0,
+          1452.6667,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7946.0,
+          1080.0,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7945.0,
+          -1080.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7946.0,
+          -1452.6667,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7945.0,
+          -1825.3333,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          7946.0,
+          -2198.0,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2135.0,
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          1798.3636,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2135.0,
+          1398.7273,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          999.0909,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2135.0,
+          599.4545,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          199.8182,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2135.0,
+          -199.8182,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          -599.4545,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2135.0,
+          -999.0909,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          -1398.7273,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2135.0,
+          -1798.3636,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -2134.0,
+          -2198.0,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1958.0,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1582.9231,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1207.8462,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -832.7692,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -457.6923,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -82.6154,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          292.4615,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          667.5385,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1042.6154,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1417.6923,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1792.7692,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2167.8462,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2542.9231,
+          2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2918.0,
+          2374.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1958.0,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1582.9231,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -1207.8462,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -832.7692,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -457.6923,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          -82.6154,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          292.4615,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          667.5385,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1042.6154,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1417.6923,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          1792.7692,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2167.8462,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2542.9231,
+          -2375.0,
+          296.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          2918.0,
+          -2376.0,
+          295.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3095.0,
+          2198.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3096.0,
+          1825.3333,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3095.0,
+          1452.6667,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3096.0,
+          1080.0,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3095.0,
+          -1080.0,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3096.0,
+          -1452.6667,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3095.0,
+          -1825.3333,
+          300.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\wall_half",
+        "pos": [
+          3096.0,
+          -2198.0,
+          299.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          100,
+          600,
+          335.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          -1000,
+          -400,
+          335.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          1200,
+          -1200,
+          335.0
+        ],
+        "rot": [
+          0,
+          -180,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          2000,
+          1400,
+          335.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon",
+        "pos": [
+          -1600,
+          1800,
+          300
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon",
+        "pos": [
+          -1600,
+          -1800,
+          300
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon",
+        "pos": [
+          2600,
+          1800,
+          300
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "crates",
+        "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon",
+        "pos": [
+          2600,
+          -1800,
+          300
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      }
+    ],
+    "weapons": [],
+    "equipment": [],
+    "forge_packs": [
+      {
+        "slug": "foundry",
+        "version": "0.2.0",
+        "blocks": [
+          {
+            "id": "block_1x1",
+            "tag": "objects\\mjolnir\\forge\\foundry\\block_1x1"
+          },
+          {
+            "id": "block_1x2",
+            "tag": "objects\\mjolnir\\forge\\foundry\\block_1x2"
+          },
+          {
+            "id": "floor_1x1",
+            "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x1"
+          },
+          {
+            "id": "floor_1x2",
+            "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x2"
+          },
+          {
+            "id": "floor_2x2",
+            "tag": "objects\\mjolnir\\forge\\foundry\\floor_2x2"
+          },
+          {
+            "id": "bridge_straight",
+            "tag": "objects\\mjolnir\\forge\\foundry\\bridge_straight"
+          },
+          {
+            "id": "bridge_corner",
+            "tag": "objects\\mjolnir\\forge\\foundry\\bridge_corner"
+          },
+          {
+            "id": "ramp",
+            "tag": "objects\\mjolnir\\forge\\foundry\\ramp"
+          },
+          {
+            "id": "ramp_shallow",
+            "tag": "objects\\mjolnir\\forge\\foundry\\ramp_shallow"
+          },
+          {
+            "id": "wall",
+            "tag": "objects\\mjolnir\\forge\\foundry\\wall"
+          },
+          {
+            "id": "wall_half",
+            "tag": "objects\\mjolnir\\forge\\foundry\\wall_half"
+          },
+          {
+            "id": "wall_corner",
+            "tag": "objects\\mjolnir\\forge\\foundry\\wall_corner"
+          },
+          {
+            "id": "doorway",
+            "tag": "objects\\mjolnir\\forge\\foundry\\doorway"
+          },
+          {
+            "id": "window",
+            "tag": "objects\\mjolnir\\forge\\foundry\\window"
+          },
+          {
+            "id": "railing",
+            "tag": "objects\\mjolnir\\forge\\foundry\\railing"
+          },
+          {
+            "id": "column",
+            "tag": "objects\\mjolnir\\forge\\foundry\\column"
+          },
+          {
+            "id": "cover",
+            "tag": "objects\\mjolnir\\forge\\foundry\\cover"
+          },
+          {
+            "id": "stairs",
+            "tag": "objects\\mjolnir\\forge\\foundry\\stairs"
+          },
+          {
+            "id": "portal_frame",
+            "tag": "objects\\mjolnir\\forge\\foundry\\portal_frame"
+          },
+          {
+            "id": "teleporter_pad",
+            "tag": "objects\\mjolnir\\forge\\foundry\\teleporter_pad"
+          },
+          {
+            "id": "light_strip",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_strip"
+          },
+          {
+            "id": "light_pylon",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon"
+          },
+          {
+            "id": "light_pylon_red",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon_red"
+          },
+          {
+            "id": "light_pylon_blue",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon_blue"
+          }
+        ]
+      },
+      {
+        "slug": "roadworks",
+        "version": "0.2.0",
+        "blocks": [
+          {
+            "id": "straight_24",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24"
+          },
+          {
+            "id": "straight_48",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48"
+          },
+          {
+            "id": "curve_45",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\curve_45"
+          },
+          {
+            "id": "curve_90",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\curve_90"
+          },
+          {
+            "id": "ramp_48",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_48"
+          },
+          {
+            "id": "straight_24_guarded",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\straight_24_guarded"
+          },
+          {
+            "id": "straight_48_guarded",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\straight_48_guarded"
+          },
+          {
+            "id": "curve_45_guarded",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\curve_45_guarded"
+          },
+          {
+            "id": "curve_90_guarded",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\curve_90_guarded"
+          },
+          {
+            "id": "ramp_48_guarded",
+            "tag": "objects\\mjolnir\\forge\\roadworks\\ramp_48_guarded"
+          }
+        ]
+      }
+    ],
+    "forge_objects": [
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn"
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\teleporters\\teleporter_sender"
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\teleporters\\teleporter_receiver"
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\teleporters\\teleporter_2way"
+      }
+    ],
+    "vehicles": [
+      {
+        "type": "warthog",
+        "pos": [
+          480.0,
+          600,
+          380.0
+        ],
+        "yaw": -90
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          -9200,
+          -6000,
+          380.0
+        ],
+        "yaw": 90
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          -8400,
+          -6000,
+          380.0
+        ],
+        "yaw": -90
+      }
+    ]
+  },
+  "decor": [
+    {
+      "id": "canvas_slab",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        -50
+      ],
+      "scale": [
+        320,
+        320,
+        1
+      ],
+      "tint": [
+        0.095,
+        0.12,
+        0.135,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-160",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -16000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-144",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -14400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-128",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -12800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-112",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -11200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-96",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -9600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-80",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -8000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-64",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -6400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-48",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -4800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -3200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -1600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_0",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        1600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        3200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_48",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        4800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_64",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        6400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_80",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        8000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_96",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        9600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_112",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        11200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_128",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        12800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_144",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        14400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_160",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        16000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        320,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-160",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        16000,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-144",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        14400,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-128",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        12800,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-112",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        11200,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-96",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        9600,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-80",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        8000,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-64",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        6400,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-48",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        4800,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        3200,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        1600,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_0",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -1600,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -3200,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_48",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -4800,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_64",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -6400,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_80",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -8000,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_96",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -9600,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_112",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -11200,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_128",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -12800,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_144",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -14400,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_160",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -16000,
+        0.6
+      ],
+      "scale": [
+        320,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "start_line",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        8800,
+        3600,
+        301.2
+      ],
+      "scale": [
+        15.8,
+        0.18,
+        0.012
+      ],
+      "tint": [
+        0.94,
+        0.94,
+        0.88,
+        1
+      ]
+    },
+    {
+      "id": "scale_2m",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -90.0,
+        600,
+        301.2
+      ],
+      "scale": [
+        0.08,
+        2,
+        0.012
+      ],
+      "tint": [
+        1,
+        0.55,
+        0.06,
+        1
+      ]
+    },
+    {
+      "id": "scale_tick_-7",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -90.0,
+        700,
+        301.2
+      ],
+      "scale": [
+        0.4,
+        0.06,
+        0.012
+      ],
+      "tint": [
+        1,
+        0.55,
+        0.06,
+        1
+      ]
+    },
+    {
+      "id": "scale_tick_-6",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -90.0,
+        600,
+        301.2
+      ],
+      "scale": [
+        0.4,
+        0.06,
+        0.012
+      ],
+      "tint": [
+        1,
+        0.55,
+        0.06,
+        1
+      ]
+    },
+    {
+      "id": "scale_tick_-5",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -90.0,
+        500,
+        301.2
+      ],
+      "scale": [
+        0.4,
+        0.06,
+        0.012
+      ],
+      "tint": [
+        1,
+        0.55,
+        0.06,
+        1
+      ]
+    }
+  ]
+}

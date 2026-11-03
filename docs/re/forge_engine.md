@@ -642,6 +642,92 @@ which is what the consumer calls after decoding: the permission check
 an index alone refuses held objects. VERIFIED: respawn 45, order 1, team
 blue and a label all landed, and survive a save.
 
+### Physics modes (CU4 native code, 2026-11-02)
+
+The per-object physics choice is stored in the **same saved properties byte**
+at `properties + 0x16` (`entry + 0x46`). It is separate from the tag's
+*phased physics in forge* flag described below. The mode resolver
+`0x2fe9f0(object)` reads the saved byte, then asks `0x2fe8e0(object)` which
+player currently holds the object:
+
+| Saved flags, masked with `0xc0` | Mode | Native state while held | Native state after release |
+|---|---|---|---|
+| `0x00` | Normal | 1 | 0 |
+| `0x40` | Fixed | 1 | 3 |
+| `0x80` or `0xc0` | Phased | 2 | 3 |
+
+Bit 7 takes precedence over bit 6. Preserve the lower six bits when changing
+the mode. The Normal row also has a native temporary-held-state exception:
+`0x2fec80(object)` can return state 1 for an unheld object whose runtime
+multiplayer flag `+0x12 & 0x2000` is set. This is not a saved physics mode.
+
+The tag flag does seed the initial choice: `0x32eff0` copies tag multiplayer
+flags bit 1 into **both** saved bits 6 and 7 when creating an entry. Because
+the mod sets that tag flag on structural palette objects, a newly inserted
+piece commonly starts with flags `0xcc` (the other default bits are `0x0c`).
+That is already Phased; the tag flag is not merely a clearance bypass.
+
+`0x2feb20(object, state)` applies the resolved state to the live object's
+flags at `+0xdc`. Considering just mask `0x600040`, state 0 writes zero,
+state 1 writes `0x200000`, state 2 writes `0x600000`, and state 3 writes
+`0x40`. State 3 also sets `+0xdc & 0x400`. The function rebuilds an existing
+physics component through `0x2df480(object, 0)` or creates one through
+`0x2df810(object)` when needed. This is a native physical state change;
+Fixed does not require a mod to restore the object's position every tick.
+The Havok body builder `0x249ed0` confirms the effect: live `+0xdc` bit 6
+forces body motion type 5 (fixed), overriding the tag's normal motion choice.
+
+The guard is important: the object's model reference must resolve
+(`object` tag root `+0x60` is its handle), and that model must reference a
+physics model (`hlmt + 0x2c`, the handle in the reference starting at `+0x20`).
+If either handle is `-1`, the applier makes no physical change. The property
+refresh enumerates native type mask `0x5ce`: vehicle, weapon, equipment,
+scenery, machine, control and crate. Marker scenery without a physics model
+can retain the saved bits but does not acquire a rigid body from this setting.
+The mod's existing carry-and-recreate path remains necessary for such markers.
+
+**Apply, release and persistence.** The host's existing property applier
+`0x3071e0(player handle, object, properties)` copies the complete property
+block into the entry and calls `0x32fcd0`, which refreshes matching live
+objects through `0x32f940`. That refresh starts with
+`0x2fe9f0` → `0x2feb20`. It then reapplies the entry's transform through
+`0x32e870` and marks the entry changed with `0x4d1b70(entry, 1)`. Use this
+path rather than writing only the live `+0xdc` flags. The request-5 event
+queue corruption described above remains a reason to keep the mod's current
+host-only property-edit boundary.
+
+The native entry replication receiver `0x579350` copies all `0x1c` property
+bytes from the update and calls `0x32fcd0`. `0x4d1b70` marks the corresponding
+entry property bit in its 21-entry replication group. This verifies the
+replication path in code; it is not a substitute for a two-PC live test.
+
+Grabbing (`0x306890`) assigns the holder and applies the resolved held state;
+it does not clear either saved physics bit. Releasing
+(`0x3070e0` → `0x306d80`) clears the holder, records the current transform
+through `0x305250`, and resolves/applies the released state. A set `0x80`
+forces the fixed-release branch, which also ORs `0x40` into the saved byte;
+thus `0x80` becoming `0xc0` on release is expected. A pre-existing `0x40`
+survives an ordinary release even when the request's extra boolean is zero.
+That boolean can request a fixed release independently; it is not the saved
+three-way mode itself.
+
+The property writer `0x32ff40` and reader `0x330230` serialize all eight flag
+bits. Object recreation (`0x32f450`) calls `0x32f940`, restoring the resolved
+mode from the loaded entry. The mod's marker carry/duplicate code copies the
+entire `0x1c` property block, so those operations preserve the bits too.
+
+The pack collision builder currently authors `rigid bodies[0].motion type`
+as `fixed`; that asset setting alone is not evidence that the native grab,
+release and render paths retained a stationary object. For a reported falling
+object, inspect its actual `+0x1c` entry, saved `+0x46`, holder and live
+`+0xdc` together. In particular, a saved byte of `0xcc` is already Phased.
+After release its resolved state must be 3 and `+0xdc & 0x600040` must be
+`0x40`; changing only its UI label to Fixed cannot explain or repair a
+disagreement. These mode findings are verified from the CU4 native code.
+The new F3 control and local freeze/save/reload checks are recorded in
+[forge_pack_validation.md](../forge_pack_validation.md#forge-placement-controls-and-hud-recovery).
+Multiplayer verification remains separate.
+
 ### The grab crash
 
 Placing a flag stand from the palette crashed the simulation thread. UE4SS
@@ -720,6 +806,154 @@ simulation thread, copying them to `+0x70`, and setting the snap to 0.
 VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
 (`mjolnir live objects`).
 
+### Native snapping and a placement grid (CU4, 2026-11-02)
+
+These findings come from read-only disassembly/decompilation of the CU4
+`HaloSimulation_tag_release.dll`, MD5
+`e42f3f342ca816ca3a24aa0deda5581e`. RVAs below are relative to that DLL.
+Local research output is under the ignored `.dream-loop/forge-controls/`
+and `.dream-loop/forge-physics/` directories. This section records the
+native contract behind the implemented F4 placement grid. Bounded local
+validation is recorded separately in
+[forge_pack_validation.md](../forge_pack_validation.md#forge-placement-controls-and-hud-recovery).
+
+**Rotation has a native snap setting.** Per-player editor state is returned
+by `0x2fe740(player)`, at `G + 0x17a4 + player * 300` where
+`G = [TLS + 0x38]`. Its `+0xc8` integer selects the six-entry degree table
+at `0x85dad0`: `{0, 90, 45, 30, 15, 5}`. Zero means free rotation.
+`0x307400(axes, step_radians)` extracts Euler angles, rounds all three to
+the selected increment, and rebuilds an orthonormal basis. This is not
+limited to the yaw-only controls in the mod.
+
+The ordinary `0x40`-byte Forge request has its payload at `+0`, player
+index at `+0x38` and 16-bit type at `+0x3c`; send through `0x4074c0` on
+the simulation thread. Relevant requests are:
+
+| Request | Payload and application | Meaning |
+|---|---|---|
+| 12 | One byte, index 0 through 5. Applier `0x306024` clears state `+0x70..+0x93` and writes the index to `+0xc8`. | Rotation snap increment. The wire codec uses three bits, but the applier does not reject indices 6 or 7; callers must do so. |
+| 14 | One byte, 0 or 1. Applier `0x30609c` changes state `+0x38` while editing. | Rotation composition mode: the two modes change matrix multiplication order around the reference basis. It is not a positional grid. |
+| 13 | One-byte boolean. Sets `G + 0x2c69` while editing and marks its native state dirty. | Enables Megalo trigger execution in Forge; unrelated to snapping. |
+| 11 | Object datum at `+0`; scale at `+4`; forward, left and up at `+8`, `+0x14`, `+0x20`; translation at `+0x2c`. | Sets the held target transform, after validating the holder and clamping translation to map-variant bounds. It does not immediately teleport the object. |
+
+Request 11's applier is `0x305f6a`. Its codec's quantized position and
+orientation are network representations, not an authoring grid. Slot 30
+sends request 14 for native control entry `0x5a`, using state `+0xf4` as
+the input latch. The inspected native input, request and carry paths contain
+no corresponding positional-grid selector or position-rounding operation.
+This is a scoped negative finding, not proof that no other game mode has one.
+
+The hold update at `0x2ff820` integrates monitor movement, clamps the target
+with `0x1a4940(mv + 0x2c8, point, out)`, applies distance/contact constraints,
+snaps the orientation, and sends the resulting matrix to the Havok component
+through `0x241ea0`. `0x2feff0` handles analog rotation and respects the
+composition mode. The translation at editor state `+0x64` originates from
+the held Havok body's matrix (`0x306890` reads body `+0x1a0..+0x1a8`).
+It is **not necessarily the authored model origin**. Quantizing that target
+would introduce an offset for pieces whose body center differs from their
+bottom-center placement origin.
+
+The earlier comma/period implementation described above rotates by 22.5
+degrees, copies the axes to the reference basis, and forces snap index zero.
+Exposing request 12 while retaining that reset would disable the chosen
+setting as soon as those keys were used. Rotation commands must preserve
+the selected mode; marker carry/recreate and new-placement yaw also need
+an explicit policy because they do not pass through the native held-body
+snapper. Pack `snap_m` metadata alone does not enable any engine behavior.
+
+**A dependable position grid applies at placement/drop.** Native release
+`0x3070e0(player, object, flag)` calls `0x306d80`, clears the held datum,
+records the object's actual pose and restores its resolved physics mode.
+It does not move the body to editor state `+0x64` before releasing it.
+Sending request 11 and release in the same tick therefore cannot guarantee
+an exact grid result.
+
+For new placement and marker recreation, quantize the authored origin before
+the existing creation path. For an existing rigid body, wait until a queued
+native release has completed, then move its actual origin on a later
+simulation tick. A bounded pending operation should retain scene identity,
+the full salted object datum and map-variant entry identity; cancel on scene
+change, deletion, re-grab, identity mismatch or timeout. Confirm host/Forge
+state and that no player still holds the object. Do not force a different
+saved physics mode as a side effect of snapping.
+
+One world unit is 3.048 metres. For a positive finite grid size in metres,
+round each world-aligned origin coordinate with
+`roundf(origin_wu * 3.048f / grid_m) * grid_m / 3.048f`.
+Use a consistent rule for negative coordinates and bypass rounding when the
+grid is off. Reject non-finite inputs and candidates outside the current
+map-variant bounds. The native setter's much larger coordinate limit is
+not a replacement for map bounds.
+
+The relevant native transform functions are:
+
+| RVA | Verified callable contract and behavior |
+|---|---|
+| `0x5a6780` | `float *get_origin(uint32_t object, float out[3])`. Produces world-space origin, resolving parenting when present. |
+| `0x5a6ae0` | `void get_axes(uint32_t object, float forward[3], float up[3])`. Either output may be NULL. The implementation indexes by the datum's low 16 bits and does not validate its salt. |
+| `0x5ec880` | `void notify_transform(uint32_t object, float *position, float *forward, float *up)`. Calls type-specific callbacks with mutable pose buffers; native callers invoke it before setting the transform. |
+| `0x59f600` | Byte/boolean result: `set_transform(object, position, forward, up, location_hint, update_spatial, sync_physics, flag8, flag9)`. Native map-variant and teleporter callers use `NULL, 1, 1, 0, 0` for the last five arguments. |
+| `0x59f470` | `void mark_modified(uint32_t object)`. Sets the object-slot modified flag and propagates to parents. |
+| `0x305250` | `void capture_pose(char reset_motion, uint32_t object)`. Copies actual origin/axes into the object's variant entry, marks transform dirty, and re-applies the pose through the setter. See the failure caveat below. |
+| `0x32e870` | Applies a map-variant entry's transform to its object. Its data flow is variant to object, not capture. |
+| `0x32ed40` | `void client_variant_sync(void *mv, uint32_t object)`. Runs only for game-options `+0x11 == 4`, applying a fixed/phased entry to a client object. It is not a host capture helper and has no boolean result. |
+
+The object's parent datum is at object data `+0x14`. A world-origin grid
+operation should require it to equal `0xffffffff`; otherwise the getter's
+world-space result and setter's parent-relative storage need an explicit
+conversion. For an unparented object, origin is `+0x44..+0x4c`, forward is
+`+0x50..+0x58`, and up is `+0x5c..+0x64`. Read them through the getters and
+validate the full datum before invoking any of these index-based functions.
+
+`0x59f600` updates the native pose, object/network dirty flags, physics
+through `0x2e13f0`, and spatial registration through `0x5b0070`. Its normal
+unparented coordinate range is +/-32768 world units. An invalid position
+returns false, but other work, including orientation changes, can still
+occur; validate the complete pose first, including the buffers after the
+mutable type callback. This setter performs **no collision-penetration
+test**. A Normal object may subsequently settle away from the grid under
+physics, whereas Fixed/Phased retain their existing native behavior.
+
+The native convenience wrappers `0x59f8c0` and `0x59f9d0` call the type
+callback, setter and modified notification, but can delete the object when
+the setter fails. A grid implementation can instead call the explicit
+sequence and inspect the setter's result. `0x305250(0, object)`, used by
+native release, is the correct host pose-capture helper: it writes actual
+origin to entry `+0x8`, forward/up to `+0x14`/`+0x20`, and calls
+`0x4d1b70(entry, 2)` for a **transform** update. Its nonzero first argument
+also overwrites velocities using a gravity step, so use zero when preserving
+motion semantics. However, capture then re-applies the pose with setter
+flags `NULL, 1, 1, 1, 0` and also has the native delete-on-failure branch.
+It is not a pure copy. If the integration must exclude that branch entirely,
+copy validated post-setter getter results into those three entry fields and
+call `0x4d1b70(entry, 2)` explicitly. Mask 4 is creation, not transform.
+
+`0x2cf130` is a free-placement search based on the tag's bounding sphere;
+it is not an exact mesh penetration check and can reject valid flush modular
+placements. `0x2cedb0` also searches alternative free positions rather than
+validating only the requested coordinate. Neither establishes exact grid
+collision safety. A release grid should use the engine transform path,
+preserve collision/physics mode, and be described as placement snapping,
+not continuous collision-constrained movement while held.
+
+The implementation uses the explicit callback/setter/modified sequence,
+then reads back the accepted pose and copies its three transform fields into
+the variant entry with dirty bit 2. It does not call the secondary setter in
+`0x305250`. Pending drops retain the full object datum, map-variant pointer,
+layout generation, entry index and chosen grid, and expire after 30 ticks.
+The marker fallback uses `0x603860(unit, out)` for the native view origin,
+rather than the unit's model origin, and only considers the visible cursor
+segment within a 0.35 m radius.
+
+Local checks cover positive/negative grid coordinates, Normal/Fixed/Phased,
+marker recreation, rigid-body release, 45/90-degree turns and saved transforms.
+The native held-body spring can retain a small angular error, and collision
+in Fixed mode can obstruct a requested orientation; Phased is appropriate for
+precise structural assembly. Position snapping preserves the accepted axes.
+All increments and invalid numeric inputs have portable regression coverage.
+Forced deletion/map travel during a pending drop and multiplayer synchronization
+remain unverified live; the cancellation guards have code review coverage.
+
 ## Next steps
 
 1. Several layouts per map, picked in the lobby; a hub content type.
@@ -734,7 +968,8 @@ VERIFIED: a held energy sword went from 0° to -90° after four 22.5° turns
    it never asks the host to grab, place or copy a marker, which would run the
    faulting grab on the host. It never applies a local layout at new map, so
    a client's objects stay the host's.
-3. UI: a properties screen; tilting (only yaw so far), the snap setting.
+3. UI: a properties screen; tilting (only yaw so far). Physics, position grid
+   and native angle snapping now have keyboard controls and HUD labels.
 4. Republish the converted maps with the new palettes (the lift covers the
    old ones meanwhile, for the kinds they already place).
 5. Building blocks: [../forge_blocks.md](../forge_blocks.md). Palette

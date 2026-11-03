@@ -1,0 +1,1178 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1120" viewBox="0 0 1200 1120" role="img" aria-labelledby="title desc">
+<title id="title">Crossline: routes and utility lanes</title><desc id="desc">Source-derived top-down plan of Crossline 0.3, ninety-six by one-hundred-sixty metres. Footprints show the actual authored construction pieces; raised routes and ground routes overlap in plan. Blue base is north, red base south. Galleries are four-and-a-half metres high.</desc>
+<defs><marker id="arrow" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L8 4L0 8Z" fill="#9bb0bd"/></marker></defs>
+<rect width="1200" height="1120" fill="#0b131c"/>
+<g font-family="Arial, Helvetica, sans-serif">
+<metadata>Source SHA-256: 95c2d17be4bd57fba3f16809271899dbec05f8ef9ed106ca1d9c56eb4159ea5f; metres Z-up; UE centimetres and yaw converted before projection.</metadata>
+<text x="54" y="54" font-size="13" fill="#69d8e5" font-weight="bold" text-anchor="start" letter-spacing="2">FORGE / CROSSLINE 0.3</text>
+<text x="54" y="99" font-size="36" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Room to build. Routes to explore.</text>
+<text x="54" y="131" font-size="18" fill="#9bb0bd" font-weight="normal" text-anchor="start" >96 × 160 m · Red vs Blue bases · native utility demonstration lanes</text>
+<rect x="360" y="170" width="480" height="800" rx="0" fill="#111f2b" stroke="#38505f" />
+<line x1="360" y1="970" x2="360" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="400" y1="970" x2="400" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="440" y1="970" x2="440" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="480" y1="970" x2="480" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="520" y1="970" x2="520" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="560" y1="970" x2="560" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="600" y1="970" x2="600" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="640" y1="970" x2="640" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="680" y1="970" x2="680" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="720" y1="970" x2="720" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="760" y1="970" x2="760" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="800" y1="970" x2="800" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="840" y1="970" x2="840" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="970" x2="840" y2="970" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="930" x2="840" y2="930" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="890" x2="840" y2="890" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="850" x2="840" y2="850" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="810" x2="840" y2="810" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="770" x2="840" y2="770" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="730" x2="840" y2="730" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="690" x2="840" y2="690" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="650" x2="840" y2="650" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="610" x2="840" y2="610" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="570" x2="840" y2="570" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="530" x2="840" y2="530" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="490" x2="840" y2="490" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="450" x2="840" y2="450" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="410" x2="840" y2="410" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="370" x2="840" y2="370" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="330" x2="840" y2="330" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="290" x2="840" y2="290" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="250" x2="840" y2="250" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="210" x2="840" y2="210" stroke="#1e313e" stroke-width="0.7" />
+<line x1="360" y1="170" x2="840" y2="170" stroke="#1e313e" stroke-width="0.7" />
+<rect x="580" y="210" width="40" height="720" rx="0" fill="#182b38" stroke="none" />
+<line x1="600" y1="930" x2="600" y2="210" stroke="#536f7d" stroke-width="1" stroke-dasharray="4 7"/>
+<g><title>Wide Floor 2 x 2; bottom Z 0 m</title>
+<polygon points="540.000,650.000 580.000,650.000 580.000,610.000 540.000,610.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 0 m</title>
+<polygon points="620.000,650.000 660.000,650.000 660.000,610.000 620.000,610.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 0 m</title>
+<polygon points="540.000,530.000 580.000,530.000 580.000,490.000 540.000,490.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 0 m</title>
+<polygon points="620.000,530.000 660.000,530.000 660.000,490.000 620.000,490.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 1; bottom Z 0 m</title>
+<polygon points="390.000,440.000 410.000,440.000 410.000,420.000 390.000,420.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Bridge T Junction; bottom Z 0 m</title>
+<polygon points="370.000,380.000 430.000,380.000 430.000,360.000 370.000,360.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,420.000 410.000,420.000 410.000,380.000 390.000,380.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 1; bottom Z 0 m</title>
+<polygon points="390.000,360.000 410.000,360.000 410.000,340.000 390.000,340.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Bridge Cross Junction; bottom Z 0 m</title>
+<polygon points="370.000,320.000 430.000,320.000 430.000,300.000 370.000,300.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,340.000 410.000,340.000 410.000,320.000 390.000,320.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,300.000 410.000,300.000 410.000,280.000 390.000,280.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Bridge Corner 8 m; bottom Z 0 m</title>
+<polygon points="370.000,280.000 410.000,280.000 410.000,200.000 370.000,200.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="410.000,280.000 450.000,280.000 450.000,240.000 410.000,240.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 0 m</title>
+<polygon points="780.000,890.000 820.000,890.000 820.000,850.000 780.000,850.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 0 m</title>
+<polygon points="780.000,710.000 820.000,710.000 820.000,670.000 780.000,670.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 1; bottom Z 0 m</title>
+<polygon points="790.000,550.000 810.000,550.000 810.000,530.000 790.000,530.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 1; bottom Z 0 m</title>
+<polygon points="790.000,390.000 810.000,390.000 810.000,370.000 790.000,370.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Lift Station; bottom Z 0 m</title>
+<polygon points="780.000,500.000 800.000,500.000 800.000,480.000 780.000,480.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="770.000,510.000 780.000,510.000 780.000,500.000 770.000,500.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="770.000,480.000 780.000,480.000 780.000,470.000 770.000,470.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="800.000,510.000 810.000,510.000 810.000,500.000 800.000,500.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="800.000,480.000 810.000,480.000 810.000,470.000 800.000,470.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="780.000,510.000 800.000,510.000 800.000,500.000 780.000,500.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="800.000,500.000 810.000,500.000 810.000,480.000 800.000,480.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="780.000,480.000 800.000,480.000 800.000,470.000 780.000,470.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="770.000,500.000 780.000,500.000 780.000,480.000 770.000,480.000" fill="#286c79" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 0.5 m</title>
+<polygon points="580.000,650.000 540.000,650.000 540.000,730.000 580.000,730.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 0.5 m</title>
+<polygon points="660.000,650.000 620.000,650.000 620.000,730.000 660.000,730.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 0.5 m</title>
+<polygon points="540.000,490.000 580.000,490.000 580.000,410.000 540.000,410.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 0.5 m</title>
+<polygon points="620.000,490.000 660.000,490.000 660.000,410.000 620.000,410.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Rise 2 m; bottom Z 0.5 m</title>
+<polygon points="780.000,670.000 820.000,670.000 820.000,630.000 780.000,630.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Stairs; bottom Z 0.5 m</title>
+<polygon points="810.000,550.000 790.000,550.000 790.000,555.000 810.000,555.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,555.000 790.000,555.000 790.000,560.000 810.000,560.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,560.000 790.000,560.000 790.000,565.000 810.000,565.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,565.000 790.000,565.000 790.000,570.000 810.000,570.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,570.000 790.000,570.000 790.000,575.000 810.000,575.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,575.000 790.000,575.000 790.000,580.000 810.000,580.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,580.000 790.000,580.000 790.000,585.000 810.000,585.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="810.000,585.000 790.000,585.000 790.000,590.000 810.000,590.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,970.000 365.000,890.000 360.000,890.000 360.000,970.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,890.000 365.000,810.000 360.000,810.000 360.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,810.000 365.000,730.000 360.000,730.000 360.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,730.000 365.000,650.000 360.000,650.000 360.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,650.000 365.000,570.000 360.000,570.000 360.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,570.000 365.000,490.000 360.000,490.000 360.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,490.000 365.000,410.000 360.000,410.000 360.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,410.000 365.000,330.000 360.000,330.000 360.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,330.000 365.000,250.000 360.000,250.000 360.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="365.000,250.000 365.000,170.000 360.000,170.000 360.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,970.000 840.000,890.000 835.000,890.000 835.000,970.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,890.000 840.000,810.000 835.000,810.000 835.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,810.000 840.000,730.000 835.000,730.000 835.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,730.000 840.000,650.000 835.000,650.000 835.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,650.000 840.000,570.000 835.000,570.000 835.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,570.000 840.000,490.000 835.000,490.000 835.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,490.000 840.000,410.000 835.000,410.000 835.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,410.000 840.000,330.000 835.000,330.000 835.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,330.000 840.000,250.000 835.000,250.000 835.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="840.000,250.000 840.000,170.000 835.000,170.000 835.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="360.000,970.000 440.000,970.000 440.000,965.000 360.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="440.000,970.000 520.000,970.000 520.000,965.000 440.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="520.000,970.000 600.000,970.000 600.000,965.000 520.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="600.000,970.000 680.000,970.000 680.000,965.000 600.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="680.000,970.000 760.000,970.000 760.000,965.000 680.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="760.000,970.000 840.000,970.000 840.000,965.000 760.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="360.000,175.000 440.000,175.000 440.000,170.000 360.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="440.000,175.000 520.000,175.000 520.000,170.000 440.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="520.000,175.000 600.000,175.000 600.000,170.000 520.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="600.000,175.000 680.000,175.000 680.000,170.000 600.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="680.000,175.000 760.000,175.000 760.000,170.000 680.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 0 m</title>
+<polygon points="760.000,175.000 840.000,175.000 840.000,170.000 760.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Glass Wall; bottom Z 0 m</title>
+<polygon points="380.000,532.500 382.500,532.500 382.500,527.500 380.000,527.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="417.500,532.500 420.000,532.500 420.000,527.500 417.500,527.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.500,532.500 417.500,532.500 417.500,527.500 382.500,527.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.500,532.500 417.500,532.500 417.500,527.500 382.500,527.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.500,530.300 417.500,530.300 417.500,529.700 382.500,529.700" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Glazed Window; bottom Z 0 m</title>
+<polygon points="380.000,492.500 390.000,492.500 390.000,487.500 380.000,487.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="410.000,492.500 420.000,492.500 420.000,487.500 410.000,487.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,492.500 410.000,492.500 410.000,487.500 390.000,487.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,492.500 410.000,492.500 410.000,487.500 390.000,487.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,490.300 410.000,490.300 410.000,489.700 390.000,489.700" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Glass Corner; bottom Z 0 m</title>
+<polygon points="380.000,470.000 382.500,470.000 382.500,465.000 380.000,465.000" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="417.500,470.000 420.000,470.000 420.000,465.000 417.500,465.000" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.500,470.000 417.500,470.000 417.500,465.000 382.500,465.000" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.500,470.000 417.500,470.000 417.500,465.000 382.500,465.000" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.500,467.800 417.500,467.800 417.500,467.200 382.500,467.200" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="380.000,465.000 385.000,465.000 385.000,462.500 380.000,462.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="380.000,432.500 385.000,432.500 385.000,430.000 380.000,430.000" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="380.000,462.500 385.000,462.500 385.000,432.500 380.000,432.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="380.000,462.500 385.000,462.500 385.000,432.500 380.000,432.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="382.200,462.500 382.800,462.500 382.800,432.500 382.200,432.500" fill="#326674" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Light Pylon; bottom Z 0 m</title>
+<polygon points="422.500,712.500 427.500,712.500 427.500,707.500 422.500,707.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="424.000,711.000 426.000,711.000 426.000,709.000 424.000,709.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="422.500,712.500 427.500,712.500 427.500,707.500 422.500,707.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Light Pylon; bottom Z 0 m</title>
+<polygon points="772.500,412.500 777.500,412.500 777.500,407.500 772.500,407.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="774.000,411.000 776.000,411.000 776.000,409.000 774.000,409.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="772.500,412.500 777.500,412.500 777.500,407.500 772.500,407.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Door Panel; bottom Z 0 m</title>
+<polygon points="390.000,655.000 410.000,655.000 410.000,652.500 390.000,652.500" fill="#a67e40" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="495.000,835.000 505.000,835.000 505.000,825.000 495.000,825.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="495.000,915.000 505.000,915.000 505.000,905.000 495.000,905.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="695.000,835.000 705.000,835.000 705.000,825.000 695.000,825.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="695.000,915.000 705.000,915.000 705.000,905.000 695.000,905.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="495.000,315.000 505.000,315.000 505.000,305.000 495.000,305.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="495.000,235.000 505.000,235.000 505.000,225.000 495.000,225.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="695.000,315.000 705.000,315.000 705.000,305.000 695.000,305.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Column; bottom Z 0 m</title>
+<polygon points="695.000,235.000 705.000,235.000 705.000,225.000 695.000,225.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Tall Doorway; bottom Z 0 m</title>
+<polygon points="380.000,652.500 390.000,652.500 390.000,647.500 380.000,647.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="410.000,652.500 420.000,652.500 420.000,647.500 410.000,647.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="390.000,652.500 410.000,652.500 410.000,647.500 390.000,647.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Guarded Landing; bottom Z 2 m</title>
+<polygon points="780.000,630.000 820.000,630.000 820.000,590.000 780.000,590.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="780.000,630.000 782.500,630.000 782.500,590.000 780.000,590.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="817.500,630.000 820.000,630.000 820.000,590.000 817.500,590.000" fill="#263b46" stroke="#526f7c" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 4 x 4; bottom Z 4 m</title>
+<polygon points="480.000,890.000 560.000,890.000 560.000,810.000 480.000,810.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 4 x 4; bottom Z 4 m</title>
+<polygon points="560.000,890.000 640.000,890.000 640.000,810.000 560.000,810.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 4 x 4; bottom Z 4 m</title>
+<polygon points="640.000,890.000 720.000,890.000 720.000,810.000 640.000,810.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="480.000,930.000 520.000,930.000 520.000,890.000 480.000,890.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="520.000,930.000 560.000,930.000 560.000,890.000 520.000,890.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="560.000,930.000 600.000,930.000 600.000,890.000 560.000,890.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="600.000,930.000 640.000,930.000 640.000,890.000 600.000,890.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="640.000,930.000 680.000,930.000 680.000,890.000 640.000,890.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="680.000,930.000 720.000,930.000 720.000,890.000 680.000,890.000" fill="#63353b" stroke="#ba6a70" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 2.5 m</title>
+<polygon points="580.000,730.000 540.000,730.000 540.000,810.000 580.000,810.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 2.5 m</title>
+<polygon points="660.000,730.000 620.000,730.000 620.000,810.000 660.000,810.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 4 x 4; bottom Z 4 m</title>
+<polygon points="480.000,330.000 560.000,330.000 560.000,250.000 480.000,250.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 4 x 4; bottom Z 4 m</title>
+<polygon points="560.000,330.000 640.000,330.000 640.000,250.000 560.000,250.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 4 x 4; bottom Z 4 m</title>
+<polygon points="640.000,330.000 720.000,330.000 720.000,250.000 640.000,250.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="480.000,250.000 520.000,250.000 520.000,210.000 480.000,210.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="520.000,250.000 560.000,250.000 560.000,210.000 520.000,210.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="560.000,250.000 600.000,250.000 600.000,210.000 560.000,210.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="600.000,250.000 640.000,250.000 640.000,210.000 600.000,210.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="640.000,250.000 680.000,250.000 680.000,210.000 640.000,210.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="680.000,250.000 720.000,250.000 720.000,210.000 680.000,210.000" fill="#244b72" stroke="#598bc1" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 2.5 m</title>
+<polygon points="540.000,410.000 580.000,410.000 580.000,330.000 540.000,330.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Gentle Rise 2 m; bottom Z 2.5 m</title>
+<polygon points="620.000,410.000 660.000,410.000 660.000,330.000 620.000,330.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,930.000 480.000,930.000 480.000,890.000 440.000,890.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,890.000 480.000,890.000 480.000,850.000 440.000,850.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,850.000 480.000,850.000 480.000,810.000 440.000,810.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,810.000 480.000,810.000 480.000,770.000 440.000,770.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,770.000 480.000,770.000 480.000,730.000 440.000,730.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,730.000 480.000,730.000 480.000,690.000 440.000,690.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,690.000 480.000,690.000 480.000,650.000 440.000,650.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,650.000 480.000,650.000 480.000,610.000 440.000,610.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,610.000 480.000,610.000 480.000,570.000 440.000,570.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,570.000 480.000,570.000 480.000,530.000 440.000,530.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,530.000 480.000,530.000 480.000,490.000 440.000,490.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,490.000 480.000,490.000 480.000,450.000 440.000,450.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,450.000 480.000,450.000 480.000,410.000 440.000,410.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,410.000 480.000,410.000 480.000,370.000 440.000,370.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,370.000 480.000,370.000 480.000,330.000 440.000,330.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,330.000 480.000,330.000 480.000,290.000 440.000,290.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,290.000 480.000,290.000 480.000,250.000 440.000,250.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="440.000,250.000 480.000,250.000 480.000,210.000 440.000,210.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,930.000 760.000,930.000 760.000,890.000 720.000,890.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,890.000 760.000,890.000 760.000,850.000 720.000,850.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,850.000 760.000,850.000 760.000,810.000 720.000,810.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,810.000 760.000,810.000 760.000,770.000 720.000,770.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,770.000 760.000,770.000 760.000,730.000 720.000,730.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,730.000 760.000,730.000 760.000,690.000 720.000,690.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,690.000 760.000,690.000 760.000,650.000 720.000,650.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,650.000 760.000,650.000 760.000,610.000 720.000,610.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,610.000 760.000,610.000 760.000,570.000 720.000,570.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,570.000 760.000,570.000 760.000,530.000 720.000,530.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,530.000 760.000,530.000 760.000,490.000 720.000,490.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,490.000 760.000,490.000 760.000,450.000 720.000,450.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,450.000 760.000,450.000 760.000,410.000 720.000,410.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,410.000 760.000,410.000 760.000,370.000 720.000,370.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,370.000 760.000,370.000 760.000,330.000 720.000,330.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,330.000 760.000,330.000 760.000,290.000 720.000,290.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,290.000 760.000,290.000 760.000,250.000 720.000,250.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="720.000,250.000 760.000,250.000 760.000,210.000 720.000,210.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="480.000,590.000 520.000,590.000 520.000,550.000 480.000,550.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="520.000,590.000 560.000,590.000 560.000,550.000 520.000,550.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="560.000,590.000 600.000,590.000 600.000,550.000 560.000,550.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="600.000,590.000 640.000,590.000 640.000,550.000 600.000,550.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="640.000,590.000 680.000,590.000 680.000,550.000 640.000,550.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="680.000,590.000 720.000,590.000 720.000,550.000 680.000,550.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Rise 4 m; bottom Z 0.5 m</title>
+<polygon points="780.000,850.000 820.000,850.000 820.000,770.000 780.000,770.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="780.000,770.000 820.000,770.000 820.000,730.000 780.000,730.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 1; bottom Z 4 m</title>
+<polygon points="760.000,760.000 780.000,760.000 780.000,740.000 760.000,740.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 2; bottom Z 4 m</title>
+<polygon points="760.000,510.000 780.000,510.000 780.000,470.000 760.000,470.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 4 m / Rise 4 m; bottom Z 0.5 m</title>
+<polygon points="790.000,370.000 810.000,370.000 810.000,290.000 790.000,290.000" fill="#5e5036" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 2 x 2; bottom Z 4 m</title>
+<polygon points="780.000,290.000 820.000,290.000 820.000,250.000 780.000,250.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Floor 1 x 1; bottom Z 4 m</title>
+<polygon points="760.000,280.000 780.000,280.000 780.000,260.000 760.000,260.000" fill="#294959" stroke="#678b9a" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Teleporter Pad; bottom Z 4.02 m</title>
+<polygon points="510.000,920.000 530.000,920.000 530.000,900.000 510.000,900.000" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Teleporter Pad; bottom Z 4.02 m</title>
+<polygon points="670.000,240.000 690.000,240.000 690.000,220.000 670.000,220.000" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Low Cover; bottom Z 4.5 m</title>
+<polygon points="490.000,853.750 510.000,853.750 510.000,846.250 490.000,846.250" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Low Cover; bottom Z 4.5 m</title>
+<polygon points="690.000,853.750 710.000,853.750 710.000,846.250 690.000,846.250" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Low Cover; bottom Z 4.5 m</title>
+<polygon points="490.000,293.750 510.000,293.750 510.000,286.250 490.000,286.250" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Low Cover; bottom Z 4.5 m</title>
+<polygon points="690.000,293.750 710.000,293.750 710.000,286.250 690.000,286.250" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,930.000 442.500,928.500 440.000,928.500 440.000,930.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,891.500 442.500,890.000 440.000,890.000 440.000,891.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,930.000 442.500,890.000 440.000,890.000 440.000,930.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,928.500 441.750,891.500 440.750,891.500 440.750,928.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,890.000 442.500,888.500 440.000,888.500 440.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,851.500 442.500,850.000 440.000,850.000 440.000,851.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,890.000 442.500,850.000 440.000,850.000 440.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,888.500 441.750,851.500 440.750,851.500 440.750,888.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,850.000 442.500,848.500 440.000,848.500 440.000,850.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,811.500 442.500,810.000 440.000,810.000 440.000,811.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,850.000 442.500,810.000 440.000,810.000 440.000,850.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,848.500 441.750,811.500 440.750,811.500 440.750,848.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,810.000 442.500,808.500 440.000,808.500 440.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,771.500 442.500,770.000 440.000,770.000 440.000,771.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,810.000 442.500,770.000 440.000,770.000 440.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,808.500 441.750,771.500 440.750,771.500 440.750,808.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,810.000 480.000,808.500 477.500,808.500 477.500,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,771.500 480.000,770.000 477.500,770.000 477.500,771.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,810.000 480.000,770.000 477.500,770.000 477.500,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,808.500 479.250,771.500 478.250,771.500 478.250,808.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,770.000 442.500,768.500 440.000,768.500 440.000,770.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,731.500 442.500,730.000 440.000,730.000 440.000,731.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,770.000 442.500,730.000 440.000,730.000 440.000,770.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,768.500 441.750,731.500 440.750,731.500 440.750,768.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,770.000 480.000,768.500 477.500,768.500 477.500,770.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,731.500 480.000,730.000 477.500,730.000 477.500,731.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,770.000 480.000,730.000 477.500,730.000 477.500,770.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,768.500 479.250,731.500 478.250,731.500 478.250,768.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,730.000 442.500,728.500 440.000,728.500 440.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,691.500 442.500,690.000 440.000,690.000 440.000,691.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,730.000 442.500,690.000 440.000,690.000 440.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,728.500 441.750,691.500 440.750,691.500 440.750,728.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,730.000 480.000,728.500 477.500,728.500 477.500,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,691.500 480.000,690.000 477.500,690.000 477.500,691.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,730.000 480.000,690.000 477.500,690.000 477.500,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,728.500 479.250,691.500 478.250,691.500 478.250,728.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,690.000 442.500,688.500 440.000,688.500 440.000,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,651.500 442.500,650.000 440.000,650.000 440.000,651.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,690.000 442.500,650.000 440.000,650.000 440.000,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,688.500 441.750,651.500 440.750,651.500 440.750,688.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,690.000 480.000,688.500 477.500,688.500 477.500,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,651.500 480.000,650.000 477.500,650.000 477.500,651.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,690.000 480.000,650.000 477.500,650.000 477.500,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,688.500 479.250,651.500 478.250,651.500 478.250,688.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,650.000 442.500,648.500 440.000,648.500 440.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,611.500 442.500,610.000 440.000,610.000 440.000,611.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,650.000 442.500,610.000 440.000,610.000 440.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,648.500 441.750,611.500 440.750,611.500 440.750,648.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,650.000 480.000,648.500 477.500,648.500 477.500,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,611.500 480.000,610.000 477.500,610.000 477.500,611.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,650.000 480.000,610.000 477.500,610.000 477.500,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,648.500 479.250,611.500 478.250,611.500 478.250,648.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,610.000 442.500,608.500 440.000,608.500 440.000,610.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,571.500 442.500,570.000 440.000,570.000 440.000,571.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,610.000 442.500,570.000 440.000,570.000 440.000,610.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,608.500 441.750,571.500 440.750,571.500 440.750,608.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,570.000 442.500,568.500 440.000,568.500 440.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,531.500 442.500,530.000 440.000,530.000 440.000,531.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,570.000 442.500,530.000 440.000,530.000 440.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,568.500 441.750,531.500 440.750,531.500 440.750,568.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,530.000 442.500,528.500 440.000,528.500 440.000,530.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,491.500 442.500,490.000 440.000,490.000 440.000,491.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,530.000 442.500,490.000 440.000,490.000 440.000,530.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,528.500 441.750,491.500 440.750,491.500 440.750,528.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,530.000 480.000,528.500 477.500,528.500 477.500,530.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,491.500 480.000,490.000 477.500,490.000 477.500,491.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,530.000 480.000,490.000 477.500,490.000 477.500,530.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,528.500 479.250,491.500 478.250,491.500 478.250,528.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,490.000 442.500,488.500 440.000,488.500 440.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,451.500 442.500,450.000 440.000,450.000 440.000,451.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,490.000 442.500,450.000 440.000,450.000 440.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,488.500 441.750,451.500 440.750,451.500 440.750,488.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,490.000 480.000,488.500 477.500,488.500 477.500,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,451.500 480.000,450.000 477.500,450.000 477.500,451.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,490.000 480.000,450.000 477.500,450.000 477.500,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,488.500 479.250,451.500 478.250,451.500 478.250,488.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,450.000 442.500,448.500 440.000,448.500 440.000,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,411.500 442.500,410.000 440.000,410.000 440.000,411.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,450.000 442.500,410.000 440.000,410.000 440.000,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,448.500 441.750,411.500 440.750,411.500 440.750,448.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,450.000 480.000,448.500 477.500,448.500 477.500,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,411.500 480.000,410.000 477.500,410.000 477.500,411.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,450.000 480.000,410.000 477.500,410.000 477.500,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,448.500 479.250,411.500 478.250,411.500 478.250,448.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,410.000 442.500,408.500 440.000,408.500 440.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,371.500 442.500,370.000 440.000,370.000 440.000,371.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,410.000 442.500,370.000 440.000,370.000 440.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,408.500 441.750,371.500 440.750,371.500 440.750,408.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,410.000 480.000,408.500 477.500,408.500 477.500,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,371.500 480.000,370.000 477.500,370.000 477.500,371.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,410.000 480.000,370.000 477.500,370.000 477.500,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,408.500 479.250,371.500 478.250,371.500 478.250,408.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,370.000 442.500,368.500 440.000,368.500 440.000,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,331.500 442.500,330.000 440.000,330.000 440.000,331.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,370.000 442.500,330.000 440.000,330.000 440.000,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,368.500 441.750,331.500 440.750,331.500 440.750,368.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="480.000,370.000 480.000,368.500 477.500,368.500 477.500,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,331.500 480.000,330.000 477.500,330.000 477.500,331.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="480.000,370.000 480.000,330.000 477.500,330.000 477.500,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="479.250,368.500 479.250,331.500 478.250,331.500 478.250,368.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,330.000 442.500,328.500 440.000,328.500 440.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,291.500 442.500,290.000 440.000,290.000 440.000,291.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,330.000 442.500,290.000 440.000,290.000 440.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,328.500 441.750,291.500 440.750,291.500 440.750,328.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,290.000 442.500,288.500 440.000,288.500 440.000,290.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,251.500 442.500,250.000 440.000,250.000 440.000,251.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,290.000 442.500,250.000 440.000,250.000 440.000,290.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,288.500 441.750,251.500 440.750,251.500 440.750,288.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="442.500,250.000 442.500,248.500 440.000,248.500 440.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,211.500 442.500,210.000 440.000,210.000 440.000,211.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="442.500,250.000 442.500,210.000 440.000,210.000 440.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.750,248.500 441.750,211.500 440.750,211.500 440.750,248.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="440.000,930.000 441.500,930.000 441.500,927.500 440.000,927.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="478.500,930.000 480.000,930.000 480.000,927.500 478.500,927.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="440.000,930.000 480.000,930.000 480.000,927.500 440.000,927.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.500,929.250 478.500,929.250 478.500,928.250 441.500,928.250" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="440.000,212.500 441.500,212.500 441.500,210.000 440.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="478.500,212.500 480.000,212.500 480.000,210.000 478.500,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="440.000,212.500 480.000,212.500 480.000,210.000 440.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="441.500,211.750 478.500,211.750 478.500,210.750 441.500,210.750" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,930.000 760.000,928.500 757.500,928.500 757.500,930.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,891.500 760.000,890.000 757.500,890.000 757.500,891.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,930.000 760.000,890.000 757.500,890.000 757.500,930.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,928.500 759.250,891.500 758.250,891.500 758.250,928.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,890.000 760.000,888.500 757.500,888.500 757.500,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,851.500 760.000,850.000 757.500,850.000 757.500,851.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,890.000 760.000,850.000 757.500,850.000 757.500,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,888.500 759.250,851.500 758.250,851.500 758.250,888.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,850.000 760.000,848.500 757.500,848.500 757.500,850.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,811.500 760.000,810.000 757.500,810.000 757.500,811.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,850.000 760.000,810.000 757.500,810.000 757.500,850.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,848.500 759.250,811.500 758.250,811.500 758.250,848.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,810.000 760.000,808.500 757.500,808.500 757.500,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,771.500 760.000,770.000 757.500,770.000 757.500,771.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,810.000 760.000,770.000 757.500,770.000 757.500,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,808.500 759.250,771.500 758.250,771.500 758.250,808.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,810.000 722.500,808.500 720.000,808.500 720.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,771.500 722.500,770.000 720.000,770.000 720.000,771.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,810.000 722.500,770.000 720.000,770.000 720.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,808.500 721.750,771.500 720.750,771.500 720.750,808.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,770.000 722.500,768.500 720.000,768.500 720.000,770.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,731.500 722.500,730.000 720.000,730.000 720.000,731.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,770.000 722.500,730.000 720.000,730.000 720.000,770.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,768.500 721.750,731.500 720.750,731.500 720.750,768.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,730.000 760.000,728.500 757.500,728.500 757.500,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,691.500 760.000,690.000 757.500,690.000 757.500,691.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,730.000 760.000,690.000 757.500,690.000 757.500,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,728.500 759.250,691.500 758.250,691.500 758.250,728.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,730.000 722.500,728.500 720.000,728.500 720.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,691.500 722.500,690.000 720.000,690.000 720.000,691.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,730.000 722.500,690.000 720.000,690.000 720.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,728.500 721.750,691.500 720.750,691.500 720.750,728.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,690.000 760.000,688.500 757.500,688.500 757.500,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,651.500 760.000,650.000 757.500,650.000 757.500,651.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,690.000 760.000,650.000 757.500,650.000 757.500,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,688.500 759.250,651.500 758.250,651.500 758.250,688.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,690.000 722.500,688.500 720.000,688.500 720.000,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,651.500 722.500,650.000 720.000,650.000 720.000,651.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,690.000 722.500,650.000 720.000,650.000 720.000,690.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,688.500 721.750,651.500 720.750,651.500 720.750,688.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,650.000 760.000,648.500 757.500,648.500 757.500,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,611.500 760.000,610.000 757.500,610.000 757.500,611.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,650.000 760.000,610.000 757.500,610.000 757.500,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,648.500 759.250,611.500 758.250,611.500 758.250,648.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,650.000 722.500,648.500 720.000,648.500 720.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,611.500 722.500,610.000 720.000,610.000 720.000,611.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,650.000 722.500,610.000 720.000,610.000 720.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,648.500 721.750,611.500 720.750,611.500 720.750,648.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,610.000 760.000,608.500 757.500,608.500 757.500,610.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,571.500 760.000,570.000 757.500,570.000 757.500,571.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,610.000 760.000,570.000 757.500,570.000 757.500,610.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,608.500 759.250,571.500 758.250,571.500 758.250,608.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,570.000 760.000,568.500 757.500,568.500 757.500,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,531.500 760.000,530.000 757.500,530.000 757.500,531.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,570.000 760.000,530.000 757.500,530.000 757.500,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,568.500 759.250,531.500 758.250,531.500 758.250,568.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,530.000 722.500,528.500 720.000,528.500 720.000,530.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,491.500 722.500,490.000 720.000,490.000 720.000,491.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,530.000 722.500,490.000 720.000,490.000 720.000,530.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,528.500 721.750,491.500 720.750,491.500 720.750,528.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,490.000 722.500,488.500 720.000,488.500 720.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,451.500 722.500,450.000 720.000,450.000 720.000,451.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,490.000 722.500,450.000 720.000,450.000 720.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,488.500 721.750,451.500 720.750,451.500 720.750,488.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,450.000 760.000,448.500 757.500,448.500 757.500,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,411.500 760.000,410.000 757.500,410.000 757.500,411.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,450.000 760.000,410.000 757.500,410.000 757.500,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,448.500 759.250,411.500 758.250,411.500 758.250,448.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,450.000 722.500,448.500 720.000,448.500 720.000,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,411.500 722.500,410.000 720.000,410.000 720.000,411.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,450.000 722.500,410.000 720.000,410.000 720.000,450.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,448.500 721.750,411.500 720.750,411.500 720.750,448.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,410.000 760.000,408.500 757.500,408.500 757.500,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,371.500 760.000,370.000 757.500,370.000 757.500,371.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,410.000 760.000,370.000 757.500,370.000 757.500,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,408.500 759.250,371.500 758.250,371.500 758.250,408.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,410.000 722.500,408.500 720.000,408.500 720.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,371.500 722.500,370.000 720.000,370.000 720.000,371.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,410.000 722.500,370.000 720.000,370.000 720.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,408.500 721.750,371.500 720.750,371.500 720.750,408.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,370.000 760.000,368.500 757.500,368.500 757.500,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,331.500 760.000,330.000 757.500,330.000 757.500,331.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,370.000 760.000,330.000 757.500,330.000 757.500,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,368.500 759.250,331.500 758.250,331.500 758.250,368.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="722.500,370.000 722.500,368.500 720.000,368.500 720.000,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,331.500 722.500,330.000 720.000,330.000 720.000,331.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="722.500,370.000 722.500,330.000 720.000,330.000 720.000,370.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.750,368.500 721.750,331.500 720.750,331.500 720.750,368.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,330.000 760.000,328.500 757.500,328.500 757.500,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,291.500 760.000,290.000 757.500,290.000 757.500,291.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,330.000 760.000,290.000 757.500,290.000 757.500,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,328.500 759.250,291.500 758.250,291.500 758.250,328.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="760.000,250.000 760.000,248.500 757.500,248.500 757.500,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,211.500 760.000,210.000 757.500,210.000 757.500,211.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="760.000,250.000 760.000,210.000 757.500,210.000 757.500,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="759.250,248.500 759.250,211.500 758.250,211.500 758.250,248.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="720.000,930.000 721.500,930.000 721.500,927.500 720.000,927.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="758.500,930.000 760.000,930.000 760.000,927.500 758.500,927.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="720.000,930.000 760.000,930.000 760.000,927.500 720.000,927.500" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.500,929.250 758.500,929.250 758.500,928.250 721.500,928.250" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Railing; bottom Z 4.5 m</title>
+<polygon points="720.000,212.500 721.500,212.500 721.500,210.000 720.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="758.500,212.500 760.000,212.500 760.000,210.000 758.500,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="720.000,212.500 760.000,212.500 760.000,210.000 720.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="721.500,211.750 758.500,211.750 758.500,210.750 721.500,210.750" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Vehicle Door Panel; bottom Z 0 m</title>
+<polygon points="380.000,815.000 420.000,815.000 420.000,812.500 380.000,812.500" fill="#a67e40" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,970.000 365.000,890.000 360.000,890.000 360.000,970.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,890.000 365.000,810.000 360.000,810.000 360.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,810.000 365.000,730.000 360.000,730.000 360.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,730.000 365.000,650.000 360.000,650.000 360.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,650.000 365.000,570.000 360.000,570.000 360.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,570.000 365.000,490.000 360.000,490.000 360.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,490.000 365.000,410.000 360.000,410.000 360.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,410.000 365.000,330.000 360.000,330.000 360.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,330.000 365.000,250.000 360.000,250.000 360.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="365.000,250.000 365.000,170.000 360.000,170.000 360.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,970.000 840.000,890.000 835.000,890.000 835.000,970.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,890.000 840.000,810.000 835.000,810.000 835.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,810.000 840.000,730.000 835.000,730.000 835.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,730.000 840.000,650.000 835.000,650.000 835.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,650.000 840.000,570.000 835.000,570.000 835.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,570.000 840.000,490.000 835.000,490.000 835.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,490.000 840.000,410.000 835.000,410.000 835.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,410.000 840.000,330.000 835.000,330.000 835.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,330.000 840.000,250.000 835.000,250.000 835.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="840.000,250.000 840.000,170.000 835.000,170.000 835.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="360.000,970.000 440.000,970.000 440.000,965.000 360.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="440.000,970.000 520.000,970.000 520.000,965.000 440.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="520.000,970.000 600.000,970.000 600.000,965.000 520.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="600.000,970.000 680.000,970.000 680.000,965.000 600.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="680.000,970.000 760.000,970.000 760.000,965.000 680.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="760.000,970.000 840.000,970.000 840.000,965.000 760.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="360.000,175.000 440.000,175.000 440.000,170.000 360.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="440.000,175.000 520.000,175.000 520.000,170.000 440.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="520.000,175.000 600.000,175.000 600.000,170.000 520.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="600.000,175.000 680.000,175.000 680.000,170.000 600.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="680.000,175.000 760.000,175.000 760.000,170.000 680.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 3 m</title>
+<polygon points="760.000,175.000 840.000,175.000 840.000,170.000 760.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Vehicle Doorway; bottom Z 0 m</title>
+<polygon points="370.000,812.500 380.000,812.500 380.000,807.500 370.000,807.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="420.000,812.500 430.000,812.500 430.000,807.500 420.000,807.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="380.000,812.500 420.000,812.500 420.000,807.500 380.000,807.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 4.5 m</title>
+<polygon points="480.000,930.000 560.000,930.000 560.000,925.000 480.000,925.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 4.5 m</title>
+<polygon points="560.000,930.000 640.000,930.000 640.000,925.000 560.000,925.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 4.5 m</title>
+<polygon points="640.000,930.000 720.000,930.000 720.000,925.000 640.000,925.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Light Pylon / Red; bottom Z 4.5 m</title>
+<polygon points="497.500,912.500 502.500,912.500 502.500,907.500 497.500,907.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="499.000,911.000 501.000,911.000 501.000,909.000 499.000,909.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="497.500,912.500 502.500,912.500 502.500,907.500 497.500,907.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Light Pylon / Red; bottom Z 4.5 m</title>
+<polygon points="697.500,912.500 702.500,912.500 702.500,907.500 697.500,907.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="699.000,911.000 701.000,911.000 701.000,909.000 699.000,909.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="697.500,912.500 702.500,912.500 702.500,907.500 697.500,907.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 4.5 m</title>
+<polygon points="480.000,215.000 560.000,215.000 560.000,210.000 480.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 4.5 m</title>
+<polygon points="560.000,215.000 640.000,215.000 640.000,210.000 560.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 4.5 m</title>
+<polygon points="640.000,215.000 720.000,215.000 720.000,210.000 640.000,210.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Light Pylon / Blue; bottom Z 4.5 m</title>
+<polygon points="497.500,232.500 502.500,232.500 502.500,227.500 497.500,227.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="499.000,231.000 501.000,231.000 501.000,229.000 499.000,229.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="497.500,232.500 502.500,232.500 502.500,227.500 497.500,227.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Light Pylon / Blue; bottom Z 4.5 m</title>
+<polygon points="697.500,232.500 702.500,232.500 702.500,227.500 697.500,227.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="699.000,231.000 701.000,231.000 701.000,229.000 699.000,229.000" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="697.500,232.500 702.500,232.500 702.500,227.500 697.500,227.500" fill="#526874" stroke="#8ea7b2" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Teleporter Housing; bottom Z 4.5 m</title>
+<polygon points="500.000,912.500 510.000,912.500 510.000,907.500 500.000,907.500" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="530.000,912.500 540.000,912.500 540.000,907.500 530.000,907.500" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="510.000,912.500 530.000,912.500 530.000,907.500 510.000,907.500" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Teleporter Housing; bottom Z 4.5 m</title>
+<polygon points="660.000,232.500 670.000,232.500 670.000,227.500 660.000,227.500" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="690.000,232.500 700.000,232.500 700.000,227.500 690.000,227.500" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+<polygon points="670.000,232.500 690.000,232.500 690.000,227.500 670.000,227.500" fill="#426545" stroke="#94e791" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,970.000 365.000,890.000 360.000,890.000 360.000,970.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,890.000 365.000,810.000 360.000,810.000 360.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,810.000 365.000,730.000 360.000,730.000 360.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,730.000 365.000,650.000 360.000,650.000 360.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,650.000 365.000,570.000 360.000,570.000 360.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,570.000 365.000,490.000 360.000,490.000 360.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,490.000 365.000,410.000 360.000,410.000 360.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,410.000 365.000,330.000 360.000,330.000 360.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,330.000 365.000,250.000 360.000,250.000 360.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="365.000,250.000 365.000,170.000 360.000,170.000 360.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,970.000 840.000,890.000 835.000,890.000 835.000,970.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,890.000 840.000,810.000 835.000,810.000 835.000,890.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,810.000 840.000,730.000 835.000,730.000 835.000,810.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,730.000 840.000,650.000 835.000,650.000 835.000,730.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,650.000 840.000,570.000 835.000,570.000 835.000,650.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,570.000 840.000,490.000 835.000,490.000 835.000,570.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,490.000 840.000,410.000 835.000,410.000 835.000,490.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,410.000 840.000,330.000 835.000,330.000 835.000,410.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,330.000 840.000,250.000 835.000,250.000 835.000,330.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="840.000,250.000 840.000,170.000 835.000,170.000 835.000,250.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="360.000,970.000 440.000,970.000 440.000,965.000 360.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="440.000,970.000 520.000,970.000 520.000,965.000 440.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="520.000,970.000 600.000,970.000 600.000,965.000 520.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="600.000,970.000 680.000,970.000 680.000,965.000 600.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="680.000,970.000 760.000,970.000 760.000,965.000 680.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="760.000,970.000 840.000,970.000 840.000,965.000 760.000,965.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="360.000,175.000 440.000,175.000 440.000,170.000 360.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="440.000,175.000 520.000,175.000 520.000,170.000 440.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="520.000,175.000 600.000,175.000 600.000,170.000 520.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="600.000,175.000 680.000,175.000 680.000,170.000 600.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="680.000,175.000 760.000,175.000 760.000,170.000 680.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Long; bottom Z 6 m</title>
+<polygon points="760.000,175.000 840.000,175.000 840.000,170.000 760.000,170.000" fill="#69777e" stroke="#a2b0b7" stroke-width="0.7" stroke-linejoin="round" />
+</g>
+<circle cx="540.0" cy="870.0" r="3" fill="#0b131c" stroke="#ef8b91" stroke-width="1.4"/>
+<circle cx="580.0" cy="870.0" r="3" fill="#0b131c" stroke="#ef8b91" stroke-width="1.4"/>
+<circle cx="620.0" cy="870.0" r="3" fill="#0b131c" stroke="#ef8b91" stroke-width="1.4"/>
+<circle cx="660.0" cy="870.0" r="3" fill="#0b131c" stroke="#ef8b91" stroke-width="1.4"/>
+<circle cx="540.0" cy="270.0" r="3" fill="#0b131c" stroke="#8ab6f6" stroke-width="1.4"/>
+<circle cx="580.0" cy="270.0" r="3" fill="#0b131c" stroke="#8ab6f6" stroke-width="1.4"/>
+<circle cx="620.0" cy="270.0" r="3" fill="#0b131c" stroke="#8ab6f6" stroke-width="1.4"/>
+<circle cx="660.0" cy="270.0" r="3" fill="#0b131c" stroke="#8ab6f6" stroke-width="1.4"/>
+<circle cx="500.0" cy="690.0" r="3" fill="#0b131c" stroke="#f1e2b0" stroke-width="1.4"/>
+<circle cx="500.0" cy="450.0" r="3" fill="#0b131c" stroke="#f1e2b0" stroke-width="1.4"/>
+<circle cx="700.0" cy="690.0" r="3" fill="#0b131c" stroke="#f1e2b0" stroke-width="1.4"/>
+<circle cx="700.0" cy="450.0" r="3" fill="#0b131c" stroke="#f1e2b0" stroke-width="1.4"/>
+<circle cx="520.0" cy="910.0" r="10" fill="#0b131c" stroke="#94e791" stroke-width="2"/>
+<text x="520.0" y="914.0" font-size="12" fill="#94e791" font-weight="bold" text-anchor="middle" >T</text>
+<circle cx="680.0" cy="230.0" r="10" fill="#0b131c" stroke="#94e791" stroke-width="2"/>
+<text x="680.0" y="234.0" font-size="12" fill="#94e791" font-weight="bold" text-anchor="middle" >T</text>
+<rect x="510" y="259" width="180" height="47" rx="4" fill="#0b131c" stroke="none" fill-opacity=".88"/>
+<text x="600" y="278" font-size="17" fill="#99c3fa" font-weight="bold" text-anchor="middle" >BLUE BASE</text>
+<text x="600" y="297" font-size="12" fill="#9bb0bd" font-weight="normal" text-anchor="middle" >deck +4.5 m</text>
+<rect x="510" y="839" width="180" height="47" rx="4" fill="#0b131c" stroke="none" fill-opacity=".88"/>
+<text x="600" y="858" font-size="17" fill="#f2a0a3" font-weight="bold" text-anchor="middle" >RED BASE</text>
+<text x="600" y="877" font-size="12" fill="#9bb0bd" font-weight="normal" text-anchor="middle" >deck +4.5 m</text>
+<polyline points="400.0,310.0 323,310.0 323,267 275,267" fill="none" stroke="#69d8e5" stroke-width="1.2"/>
+<circle cx="400.0" cy="310.0" r="3.5" fill="#69d8e5" stroke="none" />
+<text x="55" y="259" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Bridge shape tour</text>
+<text x="55" y="283" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >T, cross and open-corner decks</text>
+<polyline points="400.0,490.0 323,490.0 323,460 275,460" fill="none" stroke="#69d8e5" stroke-width="1.2"/>
+<circle cx="400.0" cy="490.0" r="3.5" fill="#69d8e5" stroke="none" />
+<text x="55" y="452" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Glass lane</text>
+<text x="55" y="476" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Solid transparent panes</text>
+<polyline points="400.0,653.75 323,653.75 323,653 275,653" fill="none" stroke="#e9b969" stroke-width="1.2"/>
+<circle cx="400.0" cy="653.75" r="3.5" fill="#e9b969" stroke="none" />
+<text x="55" y="645" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Infantry door</text>
+<text x="55" y="669" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >4 × 3.5 m opening</text>
+<polyline points="400.0,813.75 323,813.75 323,816 275,816" fill="none" stroke="#e9b969" stroke-width="1.2"/>
+<circle cx="400.0" cy="813.75" r="3.5" fill="#e9b969" stroke="none" />
+<text x="55" y="808" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Vehicle gate</text>
+<text x="55" y="832" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >8 × 5.5 m opening</text>
+<polyline points="680.0,230.0 865,230.0 865,231 880,231" fill="none" stroke="#94e791" stroke-width="1.2"/>
+<circle cx="680.0" cy="230.0" r="3.5" fill="#94e791" stroke="none" />
+<text x="887" y="223" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Paired teleporters</text>
+<text x="887" y="247" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Green fields + native markers</text>
+<polyline points="640,410 865,410 865,374 880,374" fill="none" stroke="#e9b969" stroke-width="1.2"/>
+<circle cx="640" cy="410" r="3.5" fill="#e9b969" stroke="none" />
+<text x="887" y="366" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Broad base ramps</text>
+<text x="887" y="390" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >8 m wide · 4 m rise / 32 m run</text>
+<polyline points="790.0,490.0 865,490.0 865,494 880,494" fill="none" stroke="#69d8e5" stroke-width="1.2"/>
+<circle cx="790.0" cy="490.0" r="3.5" fill="#69d8e5" stroke="none" />
+<text x="887" y="486" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Lift + landing</text>
+<text x="887" y="510" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >0.5 m deck → 4.5 m gallery</text>
+<polyline points="740.0,570.0 865,570.0 865,623 880,623" fill="none" stroke="#69d8e5" stroke-width="1.2"/>
+<circle cx="740.0" cy="570.0" r="3.5" fill="#69d8e5" stroke="none" />
+<text x="887" y="615" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Raised galleries</text>
+<text x="887" y="639" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Crossbridge at +4.5 m</text>
+<polyline points="800.0,810.0 865,810.0 865,816 880,816" fill="none" stroke="#e9b969" stroke-width="1.2"/>
+<circle cx="800.0" cy="810.0" r="3.5" fill="#e9b969" stroke="none" />
+<text x="887" y="808" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Ramp experiments</text>
+<text x="887" y="832" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Wide, high and shallow pieces</text>
+<line x1="902" y1="975" x2="902" y2="940" stroke="#69d8e5" stroke-width="2" />
+<polygon points="902.000,935.000 897.000,947.000 907.000,947.000" fill="#69d8e5" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<text x="902" y="923" font-size="12" fill="#69d8e5" font-weight="bold" text-anchor="middle" >N / +Y</text>
+<line x1="360" y1="990" x2="840" y2="990" stroke="#9bb0bd" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<rect x="566" y="979" width="68" height="22" rx="0" fill="#0b131c" stroke="none" />
+<text x="600" y="996" font-size="15" fill="#e8f0f4" font-weight="bold" text-anchor="middle" >96 m</text>
+<text x="345" y="570" font-size="14" fill="#9bb0bd" font-weight="normal" text-anchor="middle" transform="rotate(-90 345 570)">160 m</text>
+<text x="55" y="1034" font-size="12" fill="#69d8e5" font-weight="bold" text-anchor="start" letter-spacing="1.3">SOURCE-DERIVED TOP VIEW</text>
+<text x="55" y="1063" font-size="15" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Ground routes pass beneath raised decks. Outlines are projected piece footprints, not a single walking surface.</text>
+<text x="55" y="1088" font-size="14" fill="#9bb0bd" font-weight="normal" text-anchor="start" >8 m grid · perimeter 9 m high · small circles mark team / neutral starts · all dimensions in metres</text>
+</g></svg>

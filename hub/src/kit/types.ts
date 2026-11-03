@@ -56,6 +56,8 @@ export interface ModListQuery {
   limit?: number;
   /** true: only map packs; false: everything but them; absent: both. */
   map?: boolean;
+  /** Only mods with a published Forge pack inventory. */
+  forge?: boolean;
 }
 
 export interface Release {
@@ -85,6 +87,34 @@ export interface ScanFinding {
   level: "error" | "warning";
   code: string;
   message: string;
+}
+
+export interface ForgeBlock {
+  id: string;
+  name: string;
+  tag: string;
+  category: string;
+  dimensions_m: [number, number, number];
+  snap_m?: number;
+  light?: { offset_m: [number, number, number]; color_rgb: [number, number, number]; intensity_cd: number; radius_m: number } | null;
+  lift?: { offset_m: [number, number, number]; size_m: [number, number, number]; direction: [number, number, number]; acceleration_m_s2: number; max_speed_m_s: number; negates_gravity: boolean } | null;
+  door?: { travel_m: number; speed_m_s: number; trigger_size_m: [number, number, number]; hold_open_s: number } | null;
+  surfaces?: { slot: number; profile: "glass_cyan" | "teleporter_green" }[] | null;
+}
+
+export interface ForgePack {
+  schema_version: 1;
+  id: string;
+  blocks: ForgeBlock[];
+}
+
+export interface ReleaseForgePack {
+  release_id: string;
+  slug: string;
+  version: string;
+  sha256: string | null;
+  forge_pack: ForgePack;
+  deps: { slug: string; range: string }[];
 }
 
 export interface ReleaseStatusDetail {

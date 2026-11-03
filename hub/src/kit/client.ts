@@ -41,6 +41,7 @@ import type {
   RatingSummary,
   Release,
   ReleaseChanges,
+  ReleaseForgePack,
   ReleaseStatusDetail,
   Report,
   ReportReason,
@@ -223,16 +224,24 @@ export class HubClient {
   // ── Mods ────────────────────────────────────────────────────────────
 
   listMods(query: ModListQuery = {}): Promise<ModList> {
-    const { map, ...rest } = query;
+    const { map, forge, ...rest } = query;
     return this.call({
       method: "GET",
       path: "/mods",
-      query: { ...rest, map: map === undefined ? undefined : map ? "1" : "0" },
+      query: {
+        ...rest,
+        map: map === undefined ? undefined : map ? "1" : "0",
+        forge: forge === undefined ? undefined : forge ? "1" : "0",
+      },
     });
   }
 
   getMod(slug: string): Promise<ModDetail> {
     return this.call({ method: "GET", path: `/mods/${encodeURIComponent(slug)}` });
+  }
+
+  getForgePack(releaseId: string): Promise<ReleaseForgePack> {
+    return this.call({ method: "GET", path: `/releases/${encodeURIComponent(releaseId)}/forge-pack` });
   }
 
   async listReleases(slug: string): Promise<Release[]> {

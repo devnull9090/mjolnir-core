@@ -85,6 +85,11 @@ end
 --- hitch on every menu (post-game vote screen profile, 2026-10-25, #232).
 local liveCache = {}
 
+local function isScreen(w)
+    local name = nameOf(w)
+    return name and not name:find("^Default__") and not name:find("^MJOLNIR_UI_ClassPin_")
+end
+
 local function worldAddress()
     local pc = UI.playerController()
     local ok, a = pcall(function() return pc:GetWorld():GetAddress() end)
@@ -95,13 +100,13 @@ UI.worldAddress = worldAddress
 function UI.liveWidget(className, alive)
     local world = worldAddress()
     local kept = liveCache[className]
-    if kept and world and kept.world == world and valid(kept.widget) then
+    if kept and world and kept.world == world and valid(kept.widget) and isScreen(kept.widget) then
         local ok, yes = pcall(alive, kept.widget)
         if ok and yes then return kept.widget end
     end
     liveCache[className] = nil
     for _, w in ipairs(FindAllOf(className) or {}) do
-        if valid(w) and not (nameOf(w) or "Default__"):find("^Default__") then
+        if valid(w) and isScreen(w) then
             local ok, yes = pcall(alive, w)
             if ok and yes then
                 liveCache[className] = { widget = w, world = world }

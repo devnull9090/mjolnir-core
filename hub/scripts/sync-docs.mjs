@@ -34,6 +34,12 @@ const ORDER = [
   "hub_architecture.md",
   "mod_authoring_design.md",
   "level_format.md",
+  "forge.md",
+  "forge_packs.md",
+  "forge_blocks.md",
+  "forge_canvas.md",
+  "forge_pack_materials.md",
+  "forge_pack_utilities.md",
   "bots.md",
   "ce_map_conversion.md",
   "map_distribution.md",
@@ -52,6 +58,8 @@ const GUIDES = [
   "tag_editing_guide.md",
   "texture_swapping.md",
   "level_authoring.md",
+  "forge_guide.md",
+  "forge_pack_authoring.md",
   "game_automation.md",
 ];
 
@@ -165,19 +173,40 @@ for (const name of GUIDES.filter((name) => present.has(name))) {
   guides.push(parseNote(name, await readFile(path.join(docsDir, name), "utf8")));
 }
 
+// Preserve nested paths: images/forge/example.png is served at
+// /docs-images/forge/example.png. Sort each directory for reproducible traversal,
+// and ignore symlinks so only files inside the source image tree are copied.
+async function collectImages(relativeDir = "") {
+  let entries;
+  try {
+    entries = await readdir(path.join(imagesDir, relativeDir), { withFileTypes: true });
+  } catch (error) {
+    if (relativeDir === "" && error.code === "ENOENT") {
+      console.warn("sync-docs: no docs/images directory");
+      return [];
+    }
+    throw error;
+  }
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const images = [];
+  for (const entry of entries) {
+    const relativePath = path.join(relativeDir, entry.name);
+    if (entry.isDirectory()) {
+      images.push(...await collectImages(relativePath));
+    } else if (entry.isFile() && /\.(png|jpe?g|gif|webp|svg)$/i.test(entry.name)) {
+      images.push(relativePath);
+    }
+  }
+  return images;
+}
+
 // Screenshots live beside the Markdown so the files render on GitHub; the hub
 // needs them under public/ to serve them.
-let images = [];
-try {
-  images = (await readdir(imagesDir)).filter((name) => /\.(png|jpe?g|gif|webp|svg)$/i.test(name));
-} catch {
-  console.warn("sync-docs: no docs/images directory");
-}
-if (images.length > 0) {
-  await mkdir(publicImagesDir, { recursive: true });
-  for (const name of images) {
-    await copyFile(path.join(imagesDir, name), path.join(publicImagesDir, name));
-  }
+const images = await collectImages();
+for (const name of images) {
+  const destination = path.join(publicImagesDir, name);
+  await mkdir(path.dirname(destination), { recursive: true });
+  await copyFile(path.join(imagesDir, name), destination);
 }
 
 await mkdir(path.dirname(outFile), { recursive: true });

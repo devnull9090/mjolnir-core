@@ -20,7 +20,12 @@ jobs:
           sudo luarocks install luacheck > /dev/null 2>&1 || true
 
       - name: Test multiplayer HUD and team presentation
-        run: lua5.4 tools/tests/test_multiplayer_ui.lua
+        run: |
+          lua5.4 tools/tests/test_multiplayer_ui.lua
+          lua5.4 tools/tests/test_lobby_startup.lua
+
+      - name: Test UI class retention across map travel
+        run: lua5.4 tools/tests/test_ui_class_lifetime.lua
 
       - name: Test the game type picker
         run: lua5.4 tools/tests/test_gametype_picker.lua
@@ -31,8 +36,11 @@ jobs:
       - name: Test kill floors
         run: lua5.4 tools/tests/test_kill_floor.lua
 
-      - name: Test Halo 2's lifts
-        run: lua5.4 tools/tests/test_lifts.lua
+      - name: Test Halo 2 and Forge pack lifts
+        run: |
+          lua5.4 tools/tests/test_lifts.lua
+          lua5.4 tools/tests/test_pack_lifts.lua
+          lua5.4 tools/tests/test_lifts_runtime.lua
 
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
@@ -48,6 +56,14 @@ jobs:
 
       - name: Test team colours (CTF flags and team armour)
         run: lua5.4 tools/tests/test_teams.lua
+
+      - name: Test Forge labels, controls, dispatch, lights and materials
+        run: |
+          lua5.4 tools/tests/test_forge_pack_labels.lua
+          lua5.4 tools/tests/test_forge_controls.lua
+          lua5.4 tools/tests/test_forge_dispatch.lua
+          lua5.4 tools/tests/test_forge_lights.lua
+          lua5.4 tools/tests/test_forge_materials.lua
 
       - name: Lint Lua scripts
         run: |
@@ -101,6 +117,10 @@ jobs:
         shell: pwsh
         run: .\native\lobby\test-discord.ps1
 
+      - name: Test automatic Forge door contract and motion
+        shell: pwsh
+        run: .\native\lobby\test-forge-doors.ps1
+
       - name: Build mjolnir_frame_times.dll
         shell: pwsh
         run: .\native\frame_times\build.ps1
@@ -108,6 +128,10 @@ jobs:
       - name: Build mjolnir_forge.dll
         shell: pwsh
         run: .\native\forge\build.ps1
+
+      - name: Test Forge pack bindings
+        shell: pwsh
+        run: .\native\forge\test-pack-bindings.ps1
 
       - uses: actions/upload-artifact@v4
         with:
@@ -154,6 +178,25 @@ jobs:
           test -f LICENSE || (echo "FAIL: LICENSE missing" && exit 1)
           echo "✅ All checks passed."
 
+      # The map generators check for colliding pieces with numpy.
+      - name: Test Forge map archive builder
+        env:
+          # Ubuntu's system Python is externally managed; this runner is throwaway.
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        run: |
+          python -m pip install --quiet numpy
+          python -m unittest discover -s tools/forge -p test_build_maps.py
+          python -m unittest discover -s tools/forge -p test_build_materials.py
+
+      - name: Check Forge packs and maps for colliding and z-fighting pieces
+        run: python -m unittest discover -s tools/forge -p test_check_overlaps.py
+
+      - name: Validate original Forge pack geometry and connectors
+        run: |
+          python forge-packs/foundry/validate.py
+          python forge-packs/foundry-wide/validate.py
+          python forge-packs/roadworks/validate.py
+
       - name: Ensure no secrets in repo
         run: |
           echo "Scanning for potential secrets..."
@@ -195,6 +238,10 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+        working-directory: hub
+
+      - name: Test archive scans and API routes
+        run: pnpm test
         working-directory: hub
 
       # Build the worker the way the deploy does and answer one request with

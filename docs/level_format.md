@@ -144,6 +144,16 @@ effects) come down to their designed strength next to it. At scale 1 a
 Warthog headlight was 160 times the sun and turned whatever it reached white.
 `mjolnir_light_scale <k>` tries a value live; `default` hands it back to the file.
 
+`post.max_traced_roughness` caps which surfaces get ray-traced Lumen
+reflections: anything rougher reflects from Lumen's radiance cache instead.
+Use it only where the surfaces are actually rough. The cache is too coarse for
+near-mirror metal: on the Forge pieces' first material, the game's layered
+`+MIP_FR_Gen_Metal` at roughness 0.15, a cap of 0.1 turned the metal blotchy.
+With the UNSC painted and rough metal the packs use now, the Forge maps' 0.1
+looks the same as tracing and took a floor-heavy 4K view on Crossline from 7.61
+to 5.86 ms of GPU time (RTX 5090, 2026-11-02). Turning Lumen reflections off
+instead leaves metal black.
+
 Two more keys come from a CE map's sky and BSP:
 
 - `sky_fog: { color, start, density, height }`. A CE sky with no model,
@@ -253,6 +263,45 @@ weapons — a cutscene lock with no cutscene. The stub the bake writes does the 
 A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
 fields of the placement, relative to its element
 (`"multiplayer data.owner team": "neutral"`).
+
+### `blam.forge_packs` and `blam.forge_objects`
+
+Both add palette entries without placing objects in the starting layout and
+require `blam.map_variant: true` and `level bake --standalone`. The baker also
+adds their tag packages to the scenario's cooked preloads. Missing references
+fail the bake; their runtime/pack containers must be in its input Paks view.
+
+`forge_packs` declares exact community pack versions and an ordered subset of
+their block IDs/tags. The map packer keeps these declarations and emits exact
+Hub dependencies. See [the Forge pack contract](forge_packs.md#add-a-pack-to-a-map)
+for the complete shape. There are at most 63 packs and 200 custom references.
+
+`forge_objects` lists up to 64 existing runtime tags, for example:
+
+```json
+"forge_objects": [
+  { "group": "scenery", "tag": "objects\\multi\\spawning\\player_spawn" },
+  { "group": "scenery", "tag": "objects\\multi\\teleporters\\teleporter_sender" },
+  { "group": "scenery", "tag": "objects\\multi\\teleporters\\teleporter_receiver" },
+  { "group": "scenery", "tag": "objects\\multi\\teleporters\\teleporter_2way" }
+]
+```
+
+Groups are `scenery` or `crates`; tag path segments contain lowercase letters,
+digits, underscores or hyphens. Duplicate group/tag pairs are rejected. Paths
+under `objects\mjolnir\forge\` must use `forge_packs` so a model cannot lose
+its versioned dependency. Preplaced objects that also appear in either list
+retain the declared palette order instead of gaining a second scenery entry.
+The combined palette, including standard weapons/vehicles/equipment, must fit
+the engine's 255-entry limit.
+
+### `kill_floor`
+
+Top-level `"kill_floor": -600` kills players below absolute Unreal Z −600 cm.
+The value must be finite. This is a runtime host check in MJOLNIRLevelLoader;
+the bake does not create a collision plane or kill volume. The original level
+JSON is retained in the map archive, so the value reaches the loader. Omit it
+or use `null` to leave the loader's per-map default in effect.
 
 ### `blam.bots` — AI bots ([bots.md](bots.md))
 

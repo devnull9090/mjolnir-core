@@ -11,3 +11,7 @@ blam-tag = { path = "../blam-tag" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[[example]]
+name = "forge_canvas"
+test = true

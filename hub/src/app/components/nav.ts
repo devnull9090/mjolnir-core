@@ -15,6 +15,7 @@ export const DESKTOP_NAV = [
  * page belongs to Matches; a profile has no section.
  */
 export function isActive(href: string, pathname: string): boolean {
+  if (href === "/mods" && pathname === "/forge") return true;
   if (href === "/matches" && pathname.startsWith("/players")) return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }

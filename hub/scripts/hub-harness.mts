@@ -33,7 +33,8 @@ class Stmt {
     private readonly params: unknown[] = [],
   ) {}
   bind(...params: unknown[]) {
-    return new Stmt(this.db, this.sql, params);
+    // D1 accepts ArrayBuffer BLOBs; node:sqlite wants an ArrayBufferView.
+    return new Stmt(this.db, this.sql, params.map((p) => p instanceof ArrayBuffer ? new Uint8Array(p) : p));
   }
   exec() {
     const rows = this.db.prepare(this.sql).all(...this.params);

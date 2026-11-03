@@ -1,0 +1,1717 @@
+{
+  "schema_version": 1,
+  "name": "forge_canvas",
+  "title": "Forge Canvas",
+  "description": "A clean 64 m construction deck with a 2 m grid, open sky and the full Foundry palette. Start building here.",
+  "game": "halo1",
+  "multiplayer": true,
+  "variant": "forge",
+  "modes": [
+    "forge",
+    "slayer"
+  ],
+  "kill_floor": -600,
+  "canvas": {
+    "scenario": "B40",
+    "origin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "environment": {
+    "sun": {
+      "pitch": -48,
+      "yaw": 25,
+      "intensity": 4,
+      "atmosphere_sun": true
+    },
+    "skylight": {
+      "intensity": 1.6,
+      "physical": true
+    },
+    "atmosphere": true,
+    "post": {
+      "manual_exposure": true,
+      "exposure_bias": 0,
+      "tone_curve": 0,
+      "expand_gamut": 0,
+      "blue_correction": 0,
+      "max_traced_roughness": 0.1
+    }
+  },
+  "blam": {
+    "clear": {
+      "squads": true,
+      "bipeds": true,
+      "weapons": true,
+      "vehicles": true,
+      "equipment": true,
+      "scripts": true,
+      "blocks": [
+        "scenery",
+        "machines",
+        "terminals",
+        "controls",
+        "effect scenery",
+        "sound scenery",
+        "giants",
+        "squad groups",
+        "zones",
+        "actual cues",
+        "quick cues",
+        "trigger volumes",
+        "zone set switch trigger volumes",
+        "scenario kill triggers",
+        "cutscene titles",
+        "cutscene camera points",
+        "cutscene spline points",
+        "crates",
+        "device groups",
+        "object names",
+        "cutscene flags",
+        "cinematics",
+        "ai objectives",
+        "reference frames",
+        "user interface objectives block",
+        "ai user hint data",
+        "scripting data"
+      ]
+    },
+    "active_bsps": [
+      8
+    ],
+    "single_bsp": 8,
+    "map_variant": true,
+    "world_bounds": [
+      {
+        "bsp": 8,
+        "min": [
+          -20.99737532808399,
+          -20.99737532808399,
+          -2.6246719160104988
+        ],
+        "max": [
+          20.99737532808399,
+          20.99737532808399,
+          20.99737532808399
+        ]
+      }
+    ],
+    "set": {
+      "type": "multiplayer",
+      "zone sets[0].structure design zone flags": "0x0",
+      "zone sets[0].sruntime tructure design zone flags": "0x0"
+    },
+    "player_starts": [
+      {
+        "pos": [
+          0,
+          400,
+          35.0
+        ],
+        "yaw": -90
+      },
+      {
+        "pos": [
+          -400,
+          0,
+          35.0
+        ],
+        "yaw": 0
+      },
+      {
+        "pos": [
+          0,
+          -400,
+          35.0
+        ],
+        "yaw": 90
+      },
+      {
+        "pos": [
+          400,
+          0,
+          35.0
+        ],
+        "yaw": -180
+      }
+    ],
+    "objects": [
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          0,
+          400,
+          35.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          -400,
+          0,
+          35.0
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          0,
+          -400,
+          35.0
+        ],
+        "rot": [
+          0,
+          90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          400,
+          0,
+          35.0
+        ],
+        "rot": [
+          0,
+          -180,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      }
+    ],
+    "weapons": [],
+    "equipment": [],
+    "forge_packs": [
+      {
+        "slug": "foundry",
+        "version": "0.2.0",
+        "blocks": [
+          {
+            "id": "block_1x1",
+            "tag": "objects\\mjolnir\\forge\\foundry\\block_1x1"
+          },
+          {
+            "id": "block_1x2",
+            "tag": "objects\\mjolnir\\forge\\foundry\\block_1x2"
+          },
+          {
+            "id": "floor_1x1",
+            "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x1"
+          },
+          {
+            "id": "floor_1x2",
+            "tag": "objects\\mjolnir\\forge\\foundry\\floor_1x2"
+          },
+          {
+            "id": "floor_2x2",
+            "tag": "objects\\mjolnir\\forge\\foundry\\floor_2x2"
+          },
+          {
+            "id": "bridge_straight",
+            "tag": "objects\\mjolnir\\forge\\foundry\\bridge_straight"
+          },
+          {
+            "id": "bridge_corner",
+            "tag": "objects\\mjolnir\\forge\\foundry\\bridge_corner"
+          },
+          {
+            "id": "ramp",
+            "tag": "objects\\mjolnir\\forge\\foundry\\ramp"
+          },
+          {
+            "id": "ramp_shallow",
+            "tag": "objects\\mjolnir\\forge\\foundry\\ramp_shallow"
+          },
+          {
+            "id": "wall",
+            "tag": "objects\\mjolnir\\forge\\foundry\\wall"
+          },
+          {
+            "id": "wall_half",
+            "tag": "objects\\mjolnir\\forge\\foundry\\wall_half"
+          },
+          {
+            "id": "wall_corner",
+            "tag": "objects\\mjolnir\\forge\\foundry\\wall_corner"
+          },
+          {
+            "id": "doorway",
+            "tag": "objects\\mjolnir\\forge\\foundry\\doorway"
+          },
+          {
+            "id": "window",
+            "tag": "objects\\mjolnir\\forge\\foundry\\window"
+          },
+          {
+            "id": "railing",
+            "tag": "objects\\mjolnir\\forge\\foundry\\railing"
+          },
+          {
+            "id": "column",
+            "tag": "objects\\mjolnir\\forge\\foundry\\column"
+          },
+          {
+            "id": "cover",
+            "tag": "objects\\mjolnir\\forge\\foundry\\cover"
+          },
+          {
+            "id": "stairs",
+            "tag": "objects\\mjolnir\\forge\\foundry\\stairs"
+          },
+          {
+            "id": "portal_frame",
+            "tag": "objects\\mjolnir\\forge\\foundry\\portal_frame"
+          },
+          {
+            "id": "teleporter_pad",
+            "tag": "objects\\mjolnir\\forge\\foundry\\teleporter_pad"
+          },
+          {
+            "id": "light_strip",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_strip"
+          },
+          {
+            "id": "light_pylon",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon"
+          },
+          {
+            "id": "light_pylon_red",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon_red"
+          },
+          {
+            "id": "light_pylon_blue",
+            "tag": "objects\\mjolnir\\forge\\foundry\\light_pylon_blue"
+          }
+        ]
+      }
+    ],
+    "forge_objects": [
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn"
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\teleporters\\teleporter_sender"
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\teleporters\\teleporter_receiver"
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\teleporters\\teleporter_2way"
+      }
+    ]
+  },
+  "decor": [
+    {
+      "id": "canvas_slab",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        -50
+      ],
+      "scale": [
+        64,
+        64,
+        1
+      ],
+      "tint": [
+        0.19,
+        0.23,
+        0.27,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -3200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-30",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -3000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-28",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -2800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-26",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -2600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-24",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -2400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-22",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -2200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-20",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -2000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-18",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -1800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -1600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-14",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -1400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-12",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -1200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-10",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -1000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-8",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-6",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-4",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_-2",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        -200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_0",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_2",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_4",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_6",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_8",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_10",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        1000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_12",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        1200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_14",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        1400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        1600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_18",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        1800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_20",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        2000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_22",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        2200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_24",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        2400,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_26",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        2600,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_28",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        2800,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_30",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        3000,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_x_32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        3200,
+        0,
+        0.6
+      ],
+      "scale": [
+        0.018,
+        64,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        3200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-30",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        3000,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-28",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        2800,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-26",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        2600,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-24",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        2400,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-22",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        2200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-20",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        2000,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-18",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        1800,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        1600,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-14",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        1400,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-12",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        1200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-10",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        1000,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-8",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        800,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-6",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        600,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-4",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        400,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_-2",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_0",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_2",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_4",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -400,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_6",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -600,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_8",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -800,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_10",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -1000,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_12",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -1200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_14",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -1400,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_16",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -1600,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_18",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -1800,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_20",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -2000,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_22",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -2200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_24",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -2400,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_26",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -2600,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_28",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -2800,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_30",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -3000,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "grid_y_32",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        -3200,
+        0.6
+      ],
+      "scale": [
+        64,
+        0.018,
+        0.008
+      ],
+      "tint": [
+        0.31,
+        0.37,
+        0.42,
+        1
+      ]
+    },
+    {
+      "id": "origin_x",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        1.2
+      ],
+      "scale": [
+        2,
+        0.06,
+        0.012
+      ],
+      "tint": [
+        0.95,
+        0.5,
+        0.08,
+        1
+      ]
+    },
+    {
+      "id": "origin_y",
+      "mesh": "/Engine/BasicShapes/Cube.Cube",
+      "pos": [
+        0,
+        0,
+        1.2
+      ],
+      "scale": [
+        0.06,
+        2,
+        0.012
+      ],
+      "tint": [
+        0.95,
+        0.5,
+        0.08,
+        1
+      ]
+    }
+  ]
+}

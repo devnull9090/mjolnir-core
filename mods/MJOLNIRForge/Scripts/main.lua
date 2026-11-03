@@ -30,7 +30,12 @@
 --   F2         revert: the map's own layout (the saved one goes to history)
 --   K / L      the target's team (neutral, red, blue) / Megalo label
 --   J / O      the target's respawn time / spawn order
+--   P          the target teleporter's channel (sender and receiver must match)
 --   , / .      turn what you carry, or place next, left / right
+--   F3         physics: cycle the target's Normal / Fixed / Phased mode
+--   F4         grid: cycle position snapping (off, 0.25, 0.5, 1, 2, 4 metres)
+--   F10        rotation_snap: cycle angle snapping (off, 90, 45, 30, 15, 5 degrees)
+--              With snapping off, comma / period still turn by 22.5 degrees.
 --
 -- A map with a saved layout starts every game with it, Forge or not (the DLL
 -- swaps it in where the engine builds the map's objects).
@@ -54,6 +59,8 @@ local STATE = MOD .. "native\\forge_state.txt"
 local PALETTE = MOD .. "native\\forge_palette.txt"
 local STATUS = MOD .. "native\\status.txt"
 local KEYS_FILE = MOD .. "keys.txt"
+local PACK_INVENTORY = MOD .. "..\\..\\MJOLNIRForgePacks\\installed.json"
+local Hud
 
 local POLL_MS = 100
 
@@ -81,8 +88,12 @@ local DEFAULT_KEYS = {
     label = "L",
     respawn = "J",
     order = "O",
+    channel = "P",
     rotate_left = "OEM_COMMA",
     rotate_right = "OEM_PERIOD",
+    physics = "F3",
+    grid = "F4",
+    rotation_snap = "F10",
 }
 
 local LABELS = {
@@ -104,22 +115,47 @@ local LABELS = {
     label = "label",
     respawn = "respawn",
     order = "spawn order",
+    channel = "teleporter channel",
     rotate_left = "turn left",
     rotate_right = "turn right",
+    physics = "physics mode",
+    grid = "position grid",
+    rotation_snap = "rotation snap",
 }
 
 local ORDER = { "toggle", "grab", "duplicate", "delete", "nearer", "farther", "place",
     "prev_category", "next_category", "prev_item", "next_item", "save", "load", "revert",
-    "team", "label", "respawn", "order", "rotate_left", "rotate_right" }
+    "team", "label", "respawn", "order", "channel", "rotate_left", "rotate_right", "physics", "grid", "rotation_snap" }
+
+-- Updating Lua before the DLL must not disable the existing editor. Older
+-- snapshots omit these fields, so the HUD keeps its original controls.
+local OPTIONAL_ACTIONS = { physics = true, grid = true, rotation_snap = true }
 
 local function log(text)
     print("[MJOLNIR Forge] " .. tostring(text) .. "\n")
 end
 
-local function readFile(path)
+-- Report game-thread work through the same bounded channel as the other
+-- mods. Otherwise the hitch log misleadingly says "none of our timed loops"
+-- when a Forge light scan or HUD update stalls a frame.
+local function reportWork(name, started)
+    local took = os.clock() - started
+    if took < 0.001 then return end
+    pcall(function()
+        local mod = rawget(_G, "ModRef")
+        local work = mod:GetSharedVariable("MJOLNIR.work")
+        work = type(work) == "string" and work or ""
+        if #work < 4000 then
+            mod:SetSharedVariable("MJOLNIR.work",
+                string.format("%s%.3f|Forge|%s|%.0f;", work, started, name, took * 1000))
+        end
+    end)
+end
+
+local function readFile(path, limit)
     local f = io.open(path, "rb")
     if not f then return nil end
-    local text = f:read("a")
+    local text = f:read(limit or "a")
     f:close()
     return text
 end
@@ -142,8 +178,12 @@ local function loadNative()
     for _, name in ipairs(names) do
         local f, err = package.loadlib(DLL, "mjolnir_forge_" .. name)
         if not f then
-            log("cannot load " .. DLL .. ": " .. tostring(err))
-            return false
+            if OPTIONAL_ACTIONS[name] then
+                log(name .. " needs an updated native Forge DLL")
+            else
+                log("cannot load " .. DLL .. ": " .. tostring(err))
+                return false
+            end
         end
         loaded[name] = f
     end
@@ -168,13 +208,27 @@ end
 -- MJOLNIRHud's chat box: a key typed there is not a Forge command.
 local chat = { widget = nil, nextFind = 0 }
 
+local function activeChat(w)
+    local ok, active = pcall(function()
+        if not (w and w:IsValid()) then return false end
+        local name = w:GetFName():ToString()
+        return not name:find("^Default__") and not name:find("^MJOLNIR_UI_ClassPin_") and w:IsInViewport()
+    end)
+    return ok and active
+end
+
 local function typingInChat()
     local w = chat.widget
-    if not (w and w:IsValid()) then
+    if not activeChat(w) then
+        chat.widget = nil
         if os.clock() < chat.nextFind then return false end
         chat.nextFind = os.clock() + 2
-        w = FindFirstOf("WBP_MJOLNIRChat_C")
-        chat.widget = (w and w:IsValid()) and w or nil
+        for _, candidate in ipairs(FindAllOf("WBP_MJOLNIRChat_C") or {}) do
+            if activeChat(candidate) then
+                w, chat.widget = candidate, candidate
+                break
+            end
+        end
         if not chat.widget then return false end
     end
     local ok, focused = pcall(function() return w.ChatInput:HasKeyboardFocus() end)
@@ -278,19 +332,7 @@ end
 
 -- forge_palette.txt: one row per palette entry, in the DLL's order.
 local function parsePalette(text)
-    local rows = {}
-    for line in (text or ""):gmatch("[^\r\n]+") do
-        -- palette, entry, group, tag, placeable; then (DLL 0.3.0) placed,
-        -- maximum (0: no quota) and price.
-        local p, e, group, tag, ok, rest = line:match("^(%d+)\t(%d+)\t([^\t]*)\t([^\t]*)\t(%d)(.*)$")
-        if p then
-            local placed, maximum, price = rest:match("^\t(%-?%d+)\t(%-?%d+)\t(%-?%d+)")
-            rows[#rows + 1] = { palette = tonumber(p), entry = tonumber(e), group = group, tag = tag,
-                placeable = ok == "1", placed = tonumber(placed) or 0, maximum = tonumber(maximum) or 0,
-                price = tonumber(price) or 0 }
-        end
-    end
-    return rows
+    return Hud.parsePalette(text)
 end
 
 -- The selected row of `palette` (rows from parsePalette) for state `s`.
@@ -313,10 +355,10 @@ local function describe(s, keys, palette)
     end
     local lines = { "FORGE" .. (s.editing == "1" and " - MONITOR" or ""), table.concat(hint, "   ") }
     if s.editing == "1" then
-        if s.held ~= "ffffffff" then
-            lines[#lines + 1] = string.format("Holding: %s  (%s m)", s.held_tag ~= "" and s.held_tag or "object", s.distance or "?")
-        elseif s.cursor ~= "ffffffff" then
-            lines[#lines + 1] = "Aiming at: " .. (s.cursor_tag ~= "" and s.cursor_tag or "object")
+        if s.held and s.held ~= "ffffffff" then
+            lines[#lines + 1] = string.format("Holding: %s  (%s m)", Hud.prettyName(s.held_tag, s.held_path), s.distance or "?")
+        elseif s.cursor and s.cursor ~= "ffffffff" then
+            lines[#lines + 1] = "Aiming at: " .. Hud.prettyName(s.cursor_tag, s.cursor_path)
         else
             lines[#lines + 1] = "Aiming at: nothing"
         end
@@ -324,10 +366,15 @@ local function describe(s, keys, palette)
             lines[#lines + 1] = string.format("Team %s  label %s  respawn %s s  spawn order %s",
                 s.team, s.label ~= "" and s.label or "none", s.respawn or "?", s.order or "?")
         end
+        if s.channel then lines[#lines + 1] = "Teleporter channel: " .. s.channel .. "  [" .. keys.channel .. "] change" end
+        local settings = Hud.editSettings(s, keys)
+        if settings ~= "" then lines[#lines + 1] = settings end
+        local physics = Hud.physicsName(s.physics)
+        if physics then lines[#lines + 1] = "Physics: " .. physics .. "  [" .. keys.physics .. "] change" end
         local row = selectedRow(s, palette)
         if row then
             lines[#lines + 1] = string.format("Palette: %s%s%s  [%s/%s] object  [%s/%s] category",
-                row.tag, row.maximum > 0 and string.format(" %d/%d", row.placed, row.maximum) or "",
+                Hud.paletteCategory(row) .. " · " .. Hud.paletteName(row), row.maximum > 0 and string.format(" %d/%d", row.placed, row.maximum) or "",
                 row.placeable and "" or " (cannot place)", keys.prev_item, keys.next_item,
                 keys.prev_category, keys.next_category)
         end
@@ -352,14 +399,47 @@ end
 
 -- The HUD (Scripts/hud.lua, WBP_MJOLNIRForge), with the text panel above as
 -- its stand-in when the HUD's container is not installed.
-local Hud = dofile(MOD .. "Scripts\\hud.lua")
+Hud = dofile(MOD .. "Scripts\\hud.lua")
+local retainUIClass = dofile(MOD .. "Scripts\\class_lifetime.lua").new({ "WBP_MJOLNIRForge" }, log)
 Hud.init({
     log = log,
+    retainClass = retainUIClass,
     pc = function()
         local ok, pc = pcall(function() return require("UEHelpers").GetPlayerController() end)
         return (ok and pc and pc:IsValid()) and pc or nil
     end,
 })
+
+-- Reuse the level loader's data-only JSON parser; a missing/corrupt inventory
+-- simply leaves ordinary tag-derived labels. Never execute catalog contents.
+local jsonOk, Json = pcall(dofile, MOD .. "..\\MJOLNIRLevelLoader\\Scripts\\json.lua")
+local Lights = dofile(MOD .. "Scripts\\lights.lua").new()
+local surfaceData
+if jsonOk and type(Json) == "table" and type(Json.decode) == "function" then
+    local ok, value = pcall(Json.decode, readFile(MOD .. "Scripts\\material_profiles.json", 65536) or "")
+    if ok then surfaceData = value end
+end
+local Materials = dofile(MOD .. "Scripts\\materials.lua").new(surfaceData)
+local lastPackInventory = false
+local function setPackInventory(inventory)
+    Hud.setPackInventory(inventory)
+    Lights:setInventory(inventory)
+    Materials:setInventory(inventory)
+end
+local function refreshPackInventory()
+    local raw = readFile(PACK_INVENTORY, 4 * 1024 * 1024 + 1)
+    if raw == lastPackInventory then return end
+    lastPackInventory = raw
+    if not raw then setPackInventory(nil); return end
+    if not jsonOk or type(Json) ~= "table" or type(Json.decode) ~= "function" or #raw > 4 * 1024 * 1024 then
+        setPackInventory(nil)
+        return
+    end
+    local ok, inventory = pcall(Json.decode, raw)
+    setPackInventory(ok and inventory or nil)
+    if not ok then log("Forge pack labels unavailable: invalid installed.json") end
+end
+refreshPackInventory()
 
 -- The map's title, from MJOLNIRLevelLoader's running.txt ("CODE\tforge\tTitle").
 local function mapTitle()
@@ -370,30 +450,91 @@ local function mapTitle()
 end
 
 -- Game thread only.
+local lastLayoutNotice, layoutWarning = nil, nil
+local warningGeneration = 0
 local function render(s, title, palette)
-    if Hud.render(s, keys, title, palette, selectedRow(s, palette)) then
-        showPanel(nil)
-    else
-        showPanel(describe(s, keys, palette))
+    local identity = s.layout_id or s.layout
+    if identity ~= lastLayoutNotice then
+        lastLayoutNotice = identity
+        layoutWarning = Hud.layoutWarning(s.layout)
+        warningGeneration = warningGeneration + 1
+        if layoutWarning then
+            local generation = warningGeneration
+            log(layoutWarning:gsub("\n", "; "))
+            -- The existing text panel also works outside Forge, where the
+            -- Forge widget is hidden. Show each startup refusal once.
+            ExecuteInGameThreadWithDelay(10000, function()
+                if warningGeneration == generation then
+                    layoutWarning = nil
+                    showPanel(nil)
+                end
+            end)
+        end
     end
+    local drawn = Hud.render(s, keys, title, palette, selectedRow(s, palette))
+    showPanel(layoutWarning or (not drawn and describe(s, keys, palette) or nil))
 end
 
 local lastStatus = nil
 local lastState = false
 local palette = {}
 local paletteVersion = nil
+local lightTicks, lightsDue, lightError = 0, false, false
+local materialError = false
+local pendingRender, renderError = nil, false
+
+-- Retain one game-thread callback for the lifetime of the mod. Repeatedly
+-- registering ExecuteInGameThread work from LoopAsync can invalidate a
+-- UE4SS Lua registry ref and remove its shared engine-tick hook (also
+-- reproduced by tools/remote/audio-probe.lua). A mailbox coalesces snapshots
+-- while the game thread is busy; neither HUD updates nor lamp scans backlog.
+local function gameThreadTick()
+    local nextRender = pendingRender
+    pendingRender = nil
+    if nextRender then
+        local started = os.clock()
+        local ok, err = pcall(render, nextRender.state, nextRender.title, nextRender.palette)
+        if not ok and not renderError then log("HUD: " .. tostring(err)) end
+        renderError = not ok
+        if not ok and not pendingRender then pendingRender = nextRender end
+        reportWork("HUD", started)
+    end
+    if lightsDue then
+        lightsDue = false
+        local started = os.clock()
+        local ok, err = pcall(Lights.tick, Lights)
+        if not ok and not lightError then log("pack lights: " .. tostring(err)) end
+        lightError = not ok
+        reportWork("pack lights", started)
+        started = os.clock()
+        ok, err = pcall(Materials.tick, Materials)
+        if not ok and not materialError then log("pack surfaces: " .. tostring(err)) end
+        materialError = not ok
+        reportWork("pack surfaces", started)
+    end
+    ExecuteInGameThreadWithDelay(POLL_MS, gameThreadTick)
+end
+
 ExecuteInGameThreadWithDelay(5000, function()
     if not loadNative() then return end
     pcall(native.open)
+    ExecuteInGameThreadWithDelay(POLL_MS, gameThreadTick)
     LoopAsync(POLL_MS, function()
+        -- Lamp actors also exist in Slayer and after saved-layout startup;
+        -- they do not depend on the Forge editor producing a new snapshot.
+        lightTicks = lightTicks + 1
+        if lightTicks >= 5 and not lightsDue then
+            lightTicks, lightsDue = 0, true
+            refreshPackInventory()
+        end
         pcall(native.pump)
         local status = readFile(STATUS)
         if status and status ~= lastStatus then
             lastStatus = status
             log("native: " .. status)
         end
-        -- The HUD changes only when the editor's state does; the game
-        -- thread hears about it only then.
+        -- The HUD changes only when the editor's state does. Publish data
+        -- for the persistent game-thread callback, not a new Lua closure.
         local raw = readFile(STATE) or ""
         if raw ~= lastState then
             lastState = raw
@@ -401,10 +542,10 @@ ExecuteInGameThreadWithDelay(5000, function()
             local title = s.forge == "1" and mapTitle() or ""
             if s.palette_version and s.palette_version ~= paletteVersion then
                 paletteVersion = s.palette_version
+                refreshPackInventory()
                 palette = parsePalette(readFile(PALETTE))
             end
-            local rows = palette
-            ExecuteInGameThread(function() render(s, title, rows) end)
+            pendingRender = { state = s, title = title, palette = palette }
         end
         return false
     end)

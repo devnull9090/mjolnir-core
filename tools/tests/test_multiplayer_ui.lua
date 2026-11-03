@@ -52,6 +52,9 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         end, close = function() end }
     end
     local widgets, names, teams = {}, { "Alpha", "Bravo", "Charlie" }, {}
+    local classPins = {}
+    local transient = { IsValid = function() return true end,
+        GetFullName = function() return "Package /Engine/Transient" end }
     -- A remote player's controller on the host: what it is sent.
     local remote = { sent = {}, IsValid = function() return true end, GetAddress = function() return 4242 end,
         IsLocalController = function() return false end,
@@ -112,6 +115,15 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local modes = {}
     local pumps = { 0 }
     env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
+        EObjectFlags = { RF_Transient = 64 }, EInternalObjectFlags = { RootSet = 1073741824 },
+        StaticConstructObject = function(cls, outer, name, flags, internal)
+            assert(outer == transient and flags == 64 and internal == 1073741824)
+            local pin = { IsValid = function() return true end,
+                IsA = function(_, expected) return expected == cls end,
+                HasAnyInternalFlags = function(_, expected) return expected == internal end }
+            classPins["/Engine/Transient." .. name] = pin
+            return pin
+        end,
         Key = setmetatable({}, { __index = function(_, k) return k end }),
         -- MJOLNIRBlamConsole's native half: each pump counted.
         package = { loadlib = function() return function() pumps[1] = pumps[1] + 1 end end },
@@ -159,6 +171,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         FindFirstOf = function(class)
             if class ~= "GameEngine" then return nil end
             return { IsValid = function() return true end,
+                GetOuter = function() return transient end,
                 GameViewport = { GameInstance = { LocalPlayers = { { PlayerController = pc } } } } }
         end,
         RegisterHook = function(path, fn) hooks[path] = fn end,
@@ -166,6 +179,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         ExecuteInGameThread = function(fn) fn() end,
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,
         StaticFindObject = function(path)
+            if path:find("^/Engine/Transient%.MJOLNIR_UI_ClassPin_") then return classPins[path] end
             if path:find("GameplayStatics") then return { GetPlayerController = function() return pc end } end
             -- The feed's pictures: our glyphs, the game's silhouettes and
             -- icon material, its fonts.

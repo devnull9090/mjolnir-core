@@ -198,6 +198,9 @@ export const ModListQuerySchema = CursorQuerySchema.extend({
   category: z.string().optional(),
   type: z.enum(["content", "script", "native"]).optional(),
   sort: z.enum(["newest", "downloads", "rating"]).default("newest"),
+  forge: z.enum(["0", "1"]).optional().openapi({
+    description: "`1` lists mods with a published Forge pack inventory; `0` excludes them.",
+  }),
   map: z.enum(["0", "1"]).optional().openapi({
     description:
       "`1` lists only map packs, `0` everything but them; absent lists both. Maps have " +
