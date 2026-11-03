@@ -4193,6 +4193,14 @@ static void sound_trace_arm(void);
 
 __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     (void)L;
+    /* Every game needs the main tick, not only one where a lift, kill floor,
+       bot or public lobby happened to install it: the Forge door exports
+       refuse any caller but the thread it records, and with it never run
+       every Forge save and edit was refused. games.lua calls this each
+       second from startup, so it is in place before the first match. */
+    static int main_tick_failed;
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (sim && !main_tick_failed && !install_main_tick(sim)) main_tick_failed = 1;
     sound_trace_arm();
     teams_balance_once();
     if (keep_lobby && join_in_progress && !jip_host_auto) {
