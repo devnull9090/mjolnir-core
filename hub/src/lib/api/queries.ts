@@ -259,6 +259,11 @@ export async function getModPage(db: D1Database, slug: string) {
       .bind(mod.id)
       .first<{ id: string; version: string; changes_json: string | null; forge_pack_json: string | null; chunk_count: number }>(),
   ]);
+  // Stored inventories passed the schema of their day. A later, stricter
+  // schema must hide an old pack's table, not fail the whole mod page.
+  const forgePack = latest?.forge_pack_json
+    ? ForgePackSchema.safeParse(JSON.parse(latest.forge_pack_json))
+    : null;
   return {
     mod,
     // `url` is derived, not stored — the API's mediaFromRow does the same.
@@ -267,8 +272,8 @@ export async function getModPage(db: D1Database, slug: string) {
       url: `/api/v1/media/${r.id}`,
     })) as unknown as MediaRow[],
     releases: releases.results as unknown as ReleaseRow[],
-    forgePack: latest?.forge_pack_json
-      ? { version: latest.version, pack: ForgePackSchema.parse(JSON.parse(latest.forge_pack_json)) }
+    forgePack: latest && forgePack?.success
+      ? { version: latest.version, pack: forgePack.data }
       : null,
     latestChanges: latest
       ? ({
