@@ -705,7 +705,19 @@ fn resolve_saved_layout_packs(paks: &Path) -> Result<(), String> {
 /// replaces the tables it was built from), and no containers are copied.
 pub fn prepare_launch() -> Result<(), String> {
     let paks = paks_dir()?;
-    resolve_saved_layout_packs(&paks)?;
+    // A saved layout's pins come first so the packs they install are mounted
+    // below, but one stale sidecar, or a pinned pack that cannot download
+    // offline, must not cost every mod its containers and registration.
+    let pinned = resolve_saved_layout_packs(&paks);
+    let restored = restore_paks(&paks);
+    match (pinned, restored) {
+        (Ok(()), restored) => restored,
+        (Err(pinned), Ok(())) => Err(pinned),
+        (Err(pinned), Err(restored)) => Err(format!("{restored}; {pinned}")),
+    }
+}
+
+fn restore_paks(paks: &Path) -> Result<(), String> {
     let state = load_state();
     if state.installed.is_empty() {
         return sync_forge_packs(&state, &paks);
