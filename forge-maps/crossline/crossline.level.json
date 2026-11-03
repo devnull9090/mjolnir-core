@@ -167,6 +167,38 @@
           485.0
         ],
         "yaw": 90
+      },
+      {
+        "pos": [
+          -2000,
+          2400,
+          35.0
+        ],
+        "yaw": -90
+      },
+      {
+        "pos": [
+          -2000,
+          -2400,
+          35.0
+        ],
+        "yaw": 90
+      },
+      {
+        "pos": [
+          2000,
+          2400,
+          35.0
+        ],
+        "yaw": -90
+      },
+      {
+        "pos": [
+          2000,
+          -2400,
+          35.0
+        ],
+        "yaw": 90
       }
     ],
     "objects": [
@@ -5085,6 +5117,74 @@
         "rot": [
           0,
           0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          -2000,
+          2400,
+          35.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          -2000,
+          -2400,
+          35.0
+        ],
+        "rot": [
+          0,
+          90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          2000,
+          2400,
+          35.0
+        ],
+        "rot": [
+          0,
+          -90,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "group": "scenery",
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "pos": [
+          2000,
+          -2400,
+          35.0
+        ],
+        "rot": [
+          0,
+          90,
           0
         ],
         "set": {

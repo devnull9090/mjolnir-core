@@ -21,7 +21,9 @@ Crossline 0.3 checks from earlier versions' results.
 
 ## Routes and showcase
 
-The bases have mirrored spawn positions, weapons and cover. Two broad
+The bases have four team-owned spawn positions each, weapons and cover.
+Four neutral starts in the lower midfield support free-for-all Slayer.
+Two broad
 approaches per base connect the lower landings to the 48 × 24 m upper decks.
 Each approach is 8 m wide and rises 4 m over 32 m. Side galleries and a central
 crossbridge connect the bases above an open, 8 m-wide ground vehicle corridor.
@@ -45,8 +47,8 @@ back into the arena, with room to leave the trigger before returning.
 
 All **twenty new Foundry Wide pieces** appear in the authored layout. The
 palette contains all **38 Wide pieces**, alongside all **24 original Foundry
-pieces**. There are **289 simulation objects**, two Warthogs, three weapon
-pickups and two equipment pickups: **296 authored objects**, leaving **355**
+pieces**. There are **293 simulation objects**, two Warthogs, three weapon
+pickups and two equipment pickups: **300 authored objects**, leaving **351**
 of the native 651 object slots for editing. Decorative ground markings do
 not consume those slots. This map does not provide bot navigation.
 

@@ -273,6 +273,13 @@ def arena_layout():
     for side in (-1, 1):
         cube(level, f"utility_lane_{side}", (side*33, -16, .012), (.08, 96, .012), [.95, .5, .08, 1])
 
+    # Multiplayer ignores campaign player_starts. FFA players cannot use
+    # red/blue-only spawn scenery, so keep neutral starts in common ground
+    # without changing the eight team-owned base starts or existing indices.
+    for x in (-20, 20):
+        for y in (-24, 24):
+            spawn(level, (x, y, .35), 90 if y < 0 else -90)
+
     placed = {o["tag"].split("\\")[-1] for o in level["blam"]["objects"] if "\\foundry-wide\\" in o["tag"]}
     if not set(SHOWCASE_IDS).issubset(placed):
         raise ValueError("Every new Wide piece needs a visible showcase placement")
@@ -293,6 +300,10 @@ def validate(level):
             raise ValueError("undeclared piece " + item["tag"])
     if not any(o["tag"] == SPAWN for o in level["blam"]["objects"]):
         raise ValueError("multiplayer requires spawn scenery")
+    if "slayer" in level.get("modes", []) and not any(
+            o["tag"] == SPAWN and o.get("set", {}).get("multiplayer data.owner team") == "neutral"
+            for o in level["blam"]["objects"]):
+        raise ValueError("Slayer requires neutral player spawn scenery; campaign starts cannot provide FFA spawns")
 
 
 def main():

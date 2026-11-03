@@ -276,13 +276,30 @@ class ForgeMapBuildTests(unittest.TestCase):
         self.assertEqual(layout["authored_object_count"], count)
         self.assertLessEqual(count, 500, "at least151 native slots stay available for user edits")
         spawns = [o for o in level["blam"]["objects"] if o["tag"] == generator.SPAWN]
-        self.assertEqual(len(spawns), 8)
+        self.assertEqual(len(spawns), 12)
         for sign, team in [(-1, "defender"), (1, "attacker")]:
             own = [s for s in spawns if s["set"]["multiplayer data.owner team"] == team]
             self.assertEqual(len(own), 4)
             self.assertTrue(all(-s["pos"][1] * sign > 0 for s in own))
         self.assertEqual([o["tag"] for o in level["blam"]["forge_objects"]],
                          [generator.SPAWN, generator.TELE+"sender", generator.TELE+"receiver", generator.TELE+"2way"])
+
+    def test_crossline_slayer_has_neutral_spawn_scenery_in_common_ground(self):
+        _, generator, level, _, _ = crossline_fixture()
+        generator.validate(level)
+        spawns = [o for o in level["blam"]["objects"] if o["tag"] == generator.SPAWN]
+        neutral = [o for o in spawns if o["set"]["multiplayer data.owner team"] == "neutral"]
+        self.assertEqual({tuple(o["pos"]) for o in neutral},
+                         {(x, y, 35) for x in (-2000, 2000) for y in (-2400, 2400)})
+        # Appending preserves every existing authored placement's index.
+        self.assertEqual(level["blam"]["objects"][-4:], neutral)
+        old = copy.deepcopy(level)
+        old["blam"]["objects"] = [o for o in old["blam"]["objects"]
+                                     if o["tag"] != generator.SPAWN
+                                     or o["set"]["multiplayer data.owner team"] != "neutral"]
+        self.assertEqual(len(old["blam"]["player_starts"]), 12)
+        with self.assertRaisesRegex(ValueError, "Slayer requires neutral"):
+            generator.validate(old)
 
     def test_crossline_long_wall_perimeter_and_query_volume(self):
         _, _, level, layout, geometry = crossline_fixture()
@@ -461,7 +478,7 @@ class ForgeMapBuildTests(unittest.TestCase):
                 continue
             receiver = teleports.get(i)
             x, y = marker["pos"][0]/100, -marker["pos"][1]/100
-            ground = receiver["support_z_m"] if receiver else 4.5
+            ground = receiver["support_z_m"] if receiver else marker["pos"][2]/100-.35
             top = ground+1.9812+(.61 if receiver else 0)
             for angle in range(0, 360, 45):
                 px, py = x+.5334*math.cos(math.radians(angle)), y+.5334*math.sin(math.radians(angle))
