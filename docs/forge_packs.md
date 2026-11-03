@@ -356,7 +356,7 @@ as it is; otherwise the launcher downloads the newest release of that line
 through the normal verified Hub install flow and enables the dependency
 closure. Layouts saved with different releases of one line need the later
 one. Layouts or enabled maps that need different lines of one pack are
-reported with an explanation, and the launcher still restores everything else;
+written to the launcher log, and the launcher still restores everything else;
 move the affected layout pair aside or use compatible map/pack versions.
 Orphan sidecars without a matching `.mvar` and files in layout history do not
 trigger downloads.

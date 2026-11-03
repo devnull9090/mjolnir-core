@@ -83,7 +83,7 @@ Only those generated files are replaced; adjacent authoring files stay intact.
 Before launch it reads `Mods/MJOLNIRForge/layouts/*.mvar.packs`. A layout
 accepts its saved release or a later one in the same caret line; when none is
 installed the launcher downloads the newest of that line and enables it.
-Layouts needing different lines of one pack are reported and the other mods
+Layouts needing different lines of one pack are logged and the other mods
 are still restored; move one conflicting layout aside.
 Layout history is excluded.
 
