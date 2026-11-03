@@ -145,9 +145,9 @@ end
 
 function Materials.new(data, adapter)
     local api = adapter or engineAdapter()
-    local self = { definitions = {}, live = {}, failed = {}, world = nil }
+    local materials = { definitions = {}, live = {}, failed = {}, world = nil }
     local enabled = validProfiles(data)
-    function self:setInventory(inventory)
+    function materials:setInventory(inventory)
         local definitions, count, visited = {}, 0, 0
         if enabled and type(inventory) == "table" and inventory.schema_version == 1 and type(inventory.packs) == "table" then
             for _, pack in ipairs(inventory.packs) do
@@ -170,7 +170,7 @@ function Materials.new(data, adapter)
         end
         self.definitions, self.live, self.failed = definitions, {}, {}
     end
-    function self:tick()
+    function materials:tick()
         if not enabled then return 0 end
         local world = api.world()
         local key = api.valid(world) and api.key(world) or nil
@@ -213,6 +213,6 @@ function Materials.new(data, adapter)
         self.live = nextLive
         return count
     end
-    return self
+    return materials
 end
 return Materials

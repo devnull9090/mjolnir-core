@@ -133,8 +133,8 @@ local function identifier(s, pack)
 end
 function PackLifts.new(deps, adapter)
     local api = adapter or engineAdapter()
-    local self = { definitions={}, paths={}, raw=false }
-    function self:setInventory(inventory)
+    local lifts = { definitions={}, paths={}, raw=false }
+    function lifts:setInventory(inventory)
         local defs, seen = {}, {}
         if type(inventory)=="table" and inventory.schema_version==1 and type(inventory.packs)=="table" and #inventory.packs<=64 then
             for _, pack in ipairs(inventory.packs) do
@@ -162,7 +162,7 @@ function PackLifts.new(deps, adapter)
             self.paths[i]=paths[i]; self.definitions[paths[i]]=defs[paths[i]]
         end
     end
-    function self:refresh()
+    function lifts:refresh()
         if not deps or not deps.inventoryPath then return end
         local file=io.open(deps.inventoryPath,"rb")
         local raw=file and file:read(4*1024*1024+1) or nil
@@ -173,7 +173,7 @@ function PackLifts.new(deps, adapter)
         if raw and #raw<=4*1024*1024 then ok,inventory=pcall(deps.decode,raw) end
         self:setInventory(ok and inventory or nil)
     end
-    function self:collect(world,canvas)
+    function lifts:collect(world,canvas)
         local out={}
         for _, path in ipairs(self.paths) do
             local okActors, actors=pcall(api.actors,world,path)
@@ -190,7 +190,7 @@ function PackLifts.new(deps, adapter)
         table.sort(out,function(a,b) return a.key<b.key end)
         return out
     end
-    function self:players(world) return api.players(world) end
-    return self
+    function lifts:players(world) return api.players(world) end
+    return lifts
 end
 return PackLifts

@@ -88,7 +88,7 @@ local function engineAdapter()
         key = function(object) return object:GetFullName() .. ":" .. tostring(object:GetAddress()) end,
         valid = valid,
         report = report,
-        actors = function(world, path)
+        actors = function(currentWorld, path)
             local cls = blueprintClass(path)
             local gs = nativeObject("/Script/Engine.Default__GameplayStatics")
             if not (cls and gs) then return {} end
@@ -96,7 +96,7 @@ local function engineAdapter()
             -- One reusable table serves every class and inventory revision;
             -- it is empty between calls and holds no world-owned actors.
             local out, actors = actorOutput, {}
-            gs:GetAllActorsOfClass(world, cls, out)
+            gs:GetAllActorsOfClass(currentWorld, cls, out)
             for i, actor in ipairs(out) do
                 actors[#actors + 1] = unwrap(actor)
                 out[i] = nil
@@ -159,8 +159,8 @@ end
 -- Adapter injection keeps lifecycle/cap tests independent of the game.
 function Lights.new(adapter)
     local api = adapter or engineAdapter()
-    local self = { definitions = {}, live = {}, world = nil }
-    function self:setInventory(inventory)
+    local lights = { definitions = {}, live = {}, world = nil }
+    function lights:setInventory(inventory)
         local definitions, duplicates = {}, {}
         if type(inventory) == "table" and inventory.schema_version == 1 and type(inventory.packs) == "table" then
             for _, pack in ipairs(inventory.packs) do
@@ -183,7 +183,7 @@ function Lights.new(adapter)
         end
         self.definitions = definitions
     end
-    function self:tick()
+    function lights:tick()
         local world = api.world()
         local worldKey = api.valid(world) and api.key(world) or nil
         if self.world ~= worldKey then
@@ -232,6 +232,6 @@ function Lights.new(adapter)
         end
         return count
     end
-    return self
+    return lights
 end
 return Lights
