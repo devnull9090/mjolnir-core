@@ -1,18 +1,18 @@
 # Forge
 
-**Status:** 2026-11-01. On any converted multiplayer map, host only (the
-fireteam side is built but waits on a two-PC test). Layouts
-(save, load, start a game with one), object properties, markers, turning
-and budgets are in mods 0.42.0 (MJOLNIRForge 0.3.0).
-First released in mods 0.34.0 with CE runtime 1.14.0; placing from the
-palette needs MJOLNIRForge 0.2.0 and CE runtime 1.15.0 (the panel).
-**How it works:** [re/forge_engine.md](re/forge_engine.md).
+Forge lets you build with a map's palette, change object properties and save
+layouts for play. **F3** selects physics modes, **F4** sets the position grid
+and **F10** selects rotation increments. Custom packs add modular building
+pieces and utilities. Forge editing is host-only.
 
-**In development, not yet released:** physics modes (**F3**), a position
-grid (**F4**) and rotation snapping (**F10**). Live checks cover mode changes,
-placement, movement, turning and save/reload with weapons and a Wide floor.
-The [validation record](forge_pack_validation.md) lists the tested cases
-and remaining limits.
+Use **MJOLNIRForge 0.4.0**, **MJOLNIRLobby 0.19.2** and
+**MJOLNIRLevelLoader 0.9.8** or newer together, with the matching CE runtime
+and map dependencies.
+
+New to building? Start with [Your first Forge build](forge_guide.md), a raised
+courtyard walkthrough with doors, lifts and teleporters. This page is the
+complete control reference. See [how the engine works](re/forge_engine.md)
+for implementation details.
 
 Halo Reach's Forge is still inside Halo: Campaign Evolved's simulation.
 MJOLNIR switches it on: you turn into the Monitor, fly around the map, and
@@ -25,8 +25,7 @@ Community model sets use [Forge packs](forge_packs.md). Maps declare their
 supported pack pieces when baked; the Hub catalog and launcher handle their
 releases and dependencies. That guide includes the original Foundry set,
 authoring commands and saved-layout compatibility checks.
-The [Foundry validation record](forge_pack_validation.md) separates observed
-game behavior from the remaining collision, visual and multiplayer checks.
+For a model-to-pack walkthrough, see [Community pack authoring](forge_pack_authoring.md).
 
 ## Starting a Forge game
 
@@ -66,14 +65,13 @@ sign-in can load the Unreal world without starting the native simulation.
   picture, and the category's list around it. A dimmed entry is one the map
   cannot place right now.
 
-The development HUD also shows the target's physics mode and keeps the
+The HUD also shows the target's physics mode and keeps the
 grid and rotation settings visible in Monitor mode. The palette header
 shows the turn increment separately: snapping off still leaves comma and
 period turning by 22.5°.
 
 The HUD ships in the CE runtime pack (`pakchunk980-MJOLNIRFORGEUI-Windows`).
-Without it, a plain text panel shows the same things. The HUD from CE runtime
-1.14.0 has no palette panel; with it a note names each object you select.
+Without it, a plain text panel shows the same things.
 
 ## Keys
 
@@ -96,9 +94,9 @@ Without it, a plain text panel shows the same things. The HUD from CE runtime
 | **O** | Spawn order of the target: 0 to 9 |
 | **P** | Teleporter channel of the target: alpha through zulu, then 26–31 |
 | **, / .** | Turn what you hold or carry, or the next marker you place, left / right; 22.5° with rotation snapping off |
-| **F3** *(development)* | Cycle the target's physics: Normal → Fixed → Phased |
-| **F4** *(development)* | Cycle the position grid: off → 0.25 → 0.5 → 1 → 2 → 4 m |
-| **F10** *(development)* | Cycle rotation snapping: off → 90° → 45° → 30° → 15° → 5° |
+| **F3** | Cycle the target's physics: Normal → Fixed → Phased |
+| **F4** | Cycle the position grid: off → 0.25 → 0.5 → 1 → 2 → 4 m |
+| **F10** | Cycle rotation snapping: off → 90° → 45° → 30° → 15° → 5° |
 
 As the Monitor you move with your usual movement keys and the mouse; jump
 flies up.
@@ -107,27 +105,24 @@ To use other keys, create `keys.txt` in the MJOLNIRForge mod folder with
 lines like `grab=H` (actions `toggle`, `grab`, `duplicate`, `delete`,
 `nearer`, `farther`, `place`, `prev_category`, `next_category`, `prev_item`,
 `next_item`, `save`, `load`, `revert`, `team`, `label`, `respawn`, `order`, `channel`,
-`rotate_left`, `rotate_right`; the development build adds `physics`, `grid`
-and `rotation_snap`; key names as UE4SS spells them, such as `PAGE_UP` or
+`rotate_left`, `rotate_right`, `physics`, `grid` and `rotation_snap`;
+key names as UE4SS spells them, such as `PAGE_UP` or
 `LEFT_ARROW`).
 The defaults are keys the game does not use. G, C, Z and X are taken;
 MJOLNIRFlyCam uses F7–F9 and the square brackets.
 
 ## The palette
 
-A map's palette is its scenario's own Forge palette. Converted maps baked
-since 2026-10-24 list the whole CE arsenal: 13 weapons, 6 vehicles (not the
-campaign's flyers), grenades, power-ups and ammo, and the map's scenery
-(spawn points, teleporters, flag stands, health packs). Maps baked before
-list only the kinds they already place, so you can place and duplicate
-those but not, say, a Wraith on Blood Gulch, until the map is republished.
-There is no limit on how many of each, unless the map sets one (*Budgets
-and quotas*).
+A map's palette is its scenario's own Forge palette. Current converted maps
+can offer the CE arsenal: 13 weapons, 6 vehicles (not the campaign's flyers),
+grenades, power-ups, ammo and scenery such as spawn points, teleporters, flag
+stands and health packs. A map with a smaller palette only offers its baked
+selection. Adding installed assets does not change that selection.
 
-Maps baked from 2026-11-01 also have a **blocks** palette: a Covenant crate
-and the Covenant portable shield, the only shipped pieces that are already
-Forge-ready. Maps can also include original namespaced model sets such as
-Foundry through [Forge packs](forge_packs.md).
+The **blocks** palette includes a Covenant crate and portable shield. Maps
+can also include original namespaced model sets such as Foundry through
+[Forge packs](forge_packs.md). Per-kind quotas and overall object capacity
+still depend on the map and engine (*Budgets and quotas*).
 
 ## Object properties
 
@@ -136,13 +131,14 @@ and O change the target's (what you hold, else what you aim at); the target
 card shows its team and label.
 
 - **Team**: a red flag stand is where the red flag starts in CTF; spawn
-  points with a team are that team's.
+  points with a team are that team's. Include neutral spawn markers for
+  free-for-all Slayer; red/blue starts alone do not cover that mode.
 - **Label**: what a game type looks objects up by. CTF finds flag stands by
   `ctf_flag_return` and team spawns by `ctf_spawn_red` / `ctf_spawn_blue`.
   The list is the map's own labels.
 - **Respawn time** and **spawn order** for weapons, vehicles and equipment.
 
-### Physics and snapping — development build
+### Physics and snapping
 
 Aim at an object or hold it, then press **F3** to change its physics mode.
 These are the game's native Forge object properties:
@@ -220,11 +216,7 @@ The first 64 active lights receive illumination; additional fixtures still
 render. Lights currently cast no shadows. Colors and brightness are properties
 of the piece's catalog, so use the red or blue variant for team bases.
 
-These utility additions have automated coverage; the
-[validation record](forge_pack_validation.md) distinguishes live game evidence
-from checks still awaiting a playtest.
-
-### Automatic doors and lifts — development build
+### Automatic doors and lifts
 
 Use MJOLNIRForge **0.4.0**, MJOLNIRLobby **0.19.2** and
 MJOLNIRLevelLoader **0.9.8** or newer together for these utilities.
@@ -247,35 +239,22 @@ open. Door saves require the host's known closed pose; client saves containing
 enabled doors are deferred, and a migrated host must rehost before using them.
 
 For a lift, place the station with open space above its central deck, then
-step onto it as a Spartan. A green teleporter frame or pad still needs the
-separate sender/receiver markers and matching **P** channel described above.
-These new utilities await live verification; their metadata, implementation
-and current limits are in [Forge pack utilities](forge_pack_utilities.md).
+walk up its ramps as a Spartan and steer onto a nearby landing during ascent.
+Crossline demonstrates a landing at 4.5 m above ground, four metres above
+the station deck. A green teleporter frame or pad still needs the separate
+sender/receiver markers and matching **P** channel described above.
+Their metadata and current limits are in
+[Forge pack utilities](forge_pack_utilities.md).
 
 ## With your fireteam
 
-**For now FORGE is host only:** the lobby refuses to start it with fireteam
-members, as before. Everything below is built (FORGE has its own insertion
-slot, 5, and the Forge DLL's client guards are in), but the first two-PC
-test (2026-11-01) lost the second PC to a GPU crash while it loaded, so the
-lobby's refusal stays until one passes. Lifting it is the members check in
-MJOLNIRLobby's `startGame`.
+**Forge editing is host-only.** Start it without fireteam members; the lobby
+refuses a Forge session with members present. Forge sessions do not appear
+in **Find Games**.
 
-Fireteam members who are in the lobby, or who join a FORGE game under way,
-would start Forge too, and need MJOLNIRForge and the CE runtime pack the host has.
-Each of them can be the Monitor, pick up, drop, delete, duplicate and place
-weapons, vehicles and equipment: those go to the host's game as the engine's
-own Forge requests, as in Reach. The rest stays with the host for now: saving
-and loading layouts that start games, object properties, turning, and
-markers (flag stands, spawn points). A FORGE game is never listed in FIND
-GAMES.
-
-On 2026-11-01 PC 2 joined PC 1's fireteam, PC 1 started FORGE on Blood Gulch
-(with the refusal lifted), and PC 2 travelled and started the sandbox engine
-as a client ("BGL starts under the sandbox engine, FORGE (client travel)").
-PC 2 then dropped out during the load and went off the network. It had had
-a GPU crash at its title screen ten minutes before, with no Forge code
-running, so the hardware is the likely cause, but nothing proves it yet.
+Save your layout, return to the lobby and choose the game type you want to
+play with your fireteam. The hosted map uses your saved layout. Players need
+the map's matching runtime and pack dependencies.
 
 ## Budgets and quotas
 
@@ -286,8 +265,8 @@ The palette shows `placed/most` and the price beside an object that has them,
 and the budget spent in its title. The text panel shows the same.
 
 Maps set them when they are built (`blam.forge` in the level file,
-[level_format.md](level_format.md)). The maps released so far set none, so
-there is no limit.
+[level_format.md](level_format.md)). A map without prices or per-kind quotas
+still has the engine's overall object capacity.
 
 ## Layouts
 

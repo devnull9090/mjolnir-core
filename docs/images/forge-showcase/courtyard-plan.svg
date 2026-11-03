@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+<title id="title">Build a raised courtyard</title><desc id="desc">Ten real Foundry Wide pieces. A sixteen-metre square deck sits two metres above ground, reached by an eight-metre ramp. Overall footprint sixteen by twenty-four metres. Four-metre planning grid.</desc>
+<defs><marker id="arrow" viewBox="0 0 8 8" refX="4" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L8 4L0 8Z" fill="#9bb0bd"/></marker></defs>
+<rect width="1200" height="900" fill="#0b131c"/>
+<g font-family="Arial, Helvetica, sans-serif">
+<text x="54" y="54" font-size="13" fill="#69d8e5" font-weight="bold" text-anchor="start" letter-spacing="2">FORGE / BUILD RECIPE 01</text>
+<text x="54" y="99" font-size="38" fill="#e8f0f4" font-weight="bold" text-anchor="start" >A raised courtyard</text>
+<text x="54" y="130" font-size="18" fill="#9bb0bd" font-weight="normal" text-anchor="start" >10 pieces · 16 × 16 m deck · 2 m rise · open sky</text>
+<rect x="270" y="165" width="540" height="615" rx="12" fill="#111f2b" stroke="#243b4b" />
+<line x1="374" y1="732" x2="374" y2="204" stroke="#263b48" stroke-width="1" />
+<line x1="462" y1="732" x2="462" y2="204" stroke="#263b48" stroke-width="1" />
+<line x1="550" y1="732" x2="550" y2="204" stroke="#263b48" stroke-width="1" />
+<line x1="638" y1="732" x2="638" y2="204" stroke="#263b48" stroke-width="1" />
+<line x1="726" y1="732" x2="726" y2="204" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="732" x2="726" y2="732" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="644" x2="726" y2="644" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="556" x2="726" y2="556" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="468" x2="726" y2="468" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="380" x2="726" y2="380" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="292" x2="726" y2="292" stroke="#263b48" stroke-width="1" />
+<line x1="374" y1="204" x2="726" y2="204" stroke="#263b48" stroke-width="1" />
+<g><title>Wide Floor 4 x 4; bottom Z 1.5 m</title>
+<polygon points="374.000,556.000 726.000,556.000 726.000,204.000 374.000,204.000" fill="#244b59" stroke="#69d8e5" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Ramp 8 m / Rise 2 m; bottom Z 0 m</title>
+<polygon points="462.000,732.000 638.000,732.000 638.000,556.000 462.000,556.000" fill="#665232" stroke="#e9b969" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Full; bottom Z 2 m</title>
+<polygon points="374.000,226.000 550.000,226.000 550.000,204.000 374.000,204.000" fill="#6a7c85" stroke="#c6d1d6" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Full; bottom Z 2 m</title>
+<polygon points="550.000,226.000 726.000,226.000 726.000,204.000 550.000,204.000" fill="#6a7c85" stroke="#c6d1d6" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Full; bottom Z 2 m</title>
+<polygon points="396.000,556.000 396.000,380.000 374.000,380.000 374.000,556.000" fill="#6a7c85" stroke="#c6d1d6" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Full; bottom Z 2 m</title>
+<polygon points="396.000,380.000 396.000,204.000 374.000,204.000 374.000,380.000" fill="#6a7c85" stroke="#c6d1d6" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Full; bottom Z 2 m</title>
+<polygon points="726.000,556.000 726.000,380.000 704.000,380.000 704.000,556.000" fill="#6a7c85" stroke="#c6d1d6" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Wall Full; bottom Z 2 m</title>
+<polygon points="726.000,380.000 726.000,204.000 704.000,204.000 704.000,380.000" fill="#6a7c85" stroke="#c6d1d6" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Low Cover; bottom Z 2 m</title>
+<polygon points="374.000,550.500 462.000,550.500 462.000,517.500 374.000,517.500" fill="#80673c" stroke="#e9b969" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<g><title>Wide Low Cover; bottom Z 2 m</title>
+<polygon points="638.000,550.500 726.000,550.500 726.000,517.500 638.000,517.500" fill="#80673c" stroke="#e9b969" stroke-width="1.2" stroke-linejoin="round" />
+</g>
+<line x1="462" y1="534" x2="462" y2="226" stroke="#47717b" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="550" y1="534" x2="550" y2="226" stroke="#47717b" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="638" y1="534" x2="638" y2="226" stroke="#47717b" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="396" y1="468" x2="704" y2="468" stroke="#47717b" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="396" y1="380" x2="704" y2="380" stroke="#47717b" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="396" y1="292" x2="704" y2="292" stroke="#47717b" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="550" y1="710" x2="550" y2="578" stroke="#e9b969" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="550" y="353" font-size="20" fill="#e8f0f4" font-weight="bold" text-anchor="middle" >COURTYARD</text>
+<text x="550" y="379" font-size="16" fill="#69d8e5" font-weight="normal" text-anchor="middle" >finished floor +2 m</text>
+<text x="550" y="618" font-size="14" fill="#e9b969" font-weight="bold" text-anchor="middle" >UP</text>
+<text x="550" y="706" font-size="14" fill="#e9b969" font-weight="normal" text-anchor="middle" >8 m run / 2 m rise</text>
+<text x="550" y="757" font-size="12" fill="#9bb0bd" font-weight="bold" text-anchor="middle" letter-spacing="1.5">GROUND APPROACH</text>
+<line x1="374" y1="184" x2="726" y2="184" stroke="#9bb0bd" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<rect x="516" y="173" width="68" height="20" rx="0" fill="#111f2b" stroke="none" />
+<text x="550" y="189" font-size="15" fill="#e8f0f4" font-weight="bold" text-anchor="middle" >16 m</text>
+<line x1="374" y1="195" x2="374" y2="204" stroke="#9bb0bd" stroke-width="1" />
+<line x1="726" y1="195" x2="726" y2="204" stroke="#9bb0bd" stroke-width="1" />
+<line x1="323" y1="204" x2="323" y2="732" stroke="#9bb0bd" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<line x1="332" y1="204" x2="365" y2="204" stroke="#9bb0bd" stroke-width="1" />
+<line x1="332" y1="732" x2="365" y2="732" stroke="#9bb0bd" stroke-width="1" />
+<text x="308" y="468" font-size="14" fill="#e8f0f4" font-weight="normal" text-anchor="middle" transform="rotate(-90 308 468)">24 m overall</text>
+<line x1="773" y1="266" x2="773" y2="231" stroke="#69d8e5" stroke-width="2" />
+<polygon points="773.000,226.000 768.000,238.000 778.000,238.000" fill="#69d8e5" stroke="#69d8e5" stroke-width="0.7" stroke-linejoin="round" />
+<text x="773" y="214" font-size="12" fill="#69d8e5" font-weight="bold" text-anchor="middle" >N / +Y</text>
+<text x="850" y="202" font-size="13" fill="#69d8e5" font-weight="bold" text-anchor="start" letter-spacing="1.5">THE TEN PIECES</text>
+<text x="850" y="240" font-size="12" fill="#69d8e5" font-weight="bold" text-anchor="start" >01</text>
+<text x="880" y="240" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >One large floor</text>
+<text x="880" y="265" font-size="14" fill="#69d8e5" font-weight="normal" text-anchor="start" >16 × 16 × 0.5 m</text>
+<text x="880" y="286" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Underside at +1.5 m</text>
+<text x="850" y="331" font-size="12" fill="#e9b969" font-weight="bold" text-anchor="start" >02</text>
+<text x="880" y="331" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >One broad ramp</text>
+<text x="880" y="356" font-size="14" fill="#e9b969" font-weight="normal" text-anchor="start" >8 × 8 m · rise 2 m</text>
+<text x="880" y="377" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >High edge meets floor top</text>
+<text x="850" y="422" font-size="12" fill="#c6d1d6" font-weight="bold" text-anchor="start" >03</text>
+<text x="880" y="422" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Six full walls</text>
+<text x="880" y="447" font-size="14" fill="#c6d1d6" font-weight="normal" text-anchor="start" >8 × 1 × 3 m each</text>
+<text x="880" y="468" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Two on each of three sides</text>
+<text x="850" y="513" font-size="12" fill="#e9b969" font-weight="bold" text-anchor="start" >04</text>
+<text x="880" y="513" font-size="17" fill="#e8f0f4" font-weight="bold" text-anchor="start" >Two low cover pieces</text>
+<text x="880" y="538" font-size="14" fill="#e9b969" font-weight="normal" text-anchor="start" >4 × 1.5 × 1 m each</text>
+<text x="880" y="559" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Leave the 8 m entrance clear</text>
+<text x="850" y="640" font-size="13" fill="#69d8e5" font-weight="bold" text-anchor="start" letter-spacing="1">KEEP THE JOIN FLUSH</text>
+<polygon points="850.000,724.000 950.000,699.000 950.000,724.000" fill="#665232" stroke="#e9b969" stroke-width="0.7" stroke-linejoin="round" />
+<rect x="950" y="699" width="180" height="6.25" rx="0" fill="#244b59" stroke="#69d8e5" />
+<line x1="840" y1="724" x2="1140" y2="724" stroke="#455863" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="850" y="747" font-size="12" fill="#9bb0bd" font-weight="normal" text-anchor="start" >ramp nose 0 m</text>
+<text x="1130" y="682" font-size="13" fill="#69d8e5" font-weight="normal" text-anchor="end" >walking surface +2 m</text>
+<text x="1130" y="770" font-size="13" fill="#9bb0bd" font-weight="normal" text-anchor="end" >0.5 m slab → underside +1.5 m</text>
+<text x="54" y="824" font-size="12" fill="#69d8e5" font-weight="bold" text-anchor="start" letter-spacing="1">PLAN, NOT AN IN-GAME SCREENSHOT</text>
+<text x="54" y="851" font-size="16" fill="#9bb0bd" font-weight="normal" text-anchor="start" >4 m grid. All heights measured from ground. Piece origins and dimensions match the building guide.</text>
+<text x="54" y="878" font-size="14" fill="#9bb0bd" font-weight="normal" text-anchor="start" >Forge has placement snapping, not automatic edge docking or numeric coordinate entry.</text>
+</g></svg>

@@ -24,9 +24,9 @@ metres (right-handed, Z up):
 `offset_m` is the trigger's bottom centre; `size_m` is its full box size.
 The trigger follows the piece's live translation and full rotation, independently
 of its visual mesh normalization. The example overlaps a 0.5 m deck by 5 cm to
-avoid a floating-point gap. It is a proposed four-metre-rise preset: its nominal
-column ends at 3.95 m, with an additional ballistic rise after exiting. Live
-trajectory and landing verification remain necessary; the speed is not a
+avoid a floating-point gap. Foundry Wide uses this four-metre-rise preset: its
+nominal column ends at 3.95 m, with an additional ballistic rise after exiting.
+Verify the trajectory and landing in your own layout; the speed is not a
 guaranteed landing height. Horizontal steering is preserved.
 
 Offsets are limited to ±100 m per axis; sizes to 0.1–100 m. Direction must be a
@@ -69,7 +69,7 @@ on any axis. Unknown fields are rejected. The infantry preset above travels
 4 m; the vehicle preset travels 6 m with a `[12,20,8]` trigger, the same
 4 m/s speed and two-second hold.
 
-### Native behavior — development build
+### Native behavior
 
 Use **MJOLNIRForge 0.4.0**, **MJOLNIRLobby 0.19.2** and
 **MJOLNIRLevelLoader 0.9.8** or newer together. Lobby checks the Forge native
@@ -189,7 +189,8 @@ the standing-deck overlap, player ownership, actor pooling, class lookup cost
 boundaries, world travel and use of the shared script writer. Existing Halo 2
 math tests remain unchanged. Hub/CLI/launcher tests cover schema limits,
 unknown keys, normalized inventory round trips, companion fields and stale-row
-removal. These are code checks, not claims of a completed live utility test.
+removal. Live gameplay coverage is recorded separately in the
+[validation record](forge_pack_validation.md).
 
 `native/lobby/test-forge-doors.ps1` runs the portable door parser and movement
 tests with MSVC warnings treated as errors. They cover field limits, rejected

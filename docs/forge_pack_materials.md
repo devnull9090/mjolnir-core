@@ -70,7 +70,7 @@ target/debug/mjolnir.exe forge pack forge-packs/foundry-wide/build/game/all/mjol
   --out forge-packs/foundry-wide/build/foundry-wide-0.2.0.mjolnir --sign
 ```
 
-Reserve an unused shader chunk in `900..999`. This candidate uses **967**; its
+Reserve an unused shader chunk in `900..999`. Foundry Wide uses **967**; its
 number must stay in `pakchunk967-MJOLNIRFORGEMAT-foundry-wide_P`, because Unreal
 opens the matching numbered shader library. A different pack needs its own
 reserved number. Asset paths are derived from the validated pack slug:
@@ -136,19 +136,16 @@ lua tools/tests/test_forge_dispatch.lua
 cargo test -p ue-asset --lib
 ```
 
-The candidate's package audit found eight material/texture packages, with all
-`/Game/` imports inside its own pack namespace. The glass and portal masters
-decode as two-sided translucent/additive respectively. The first live probe
-found that nine reflected `StaticMaterials` entries were being overwritten by
-the donor's one-entry native array. The corrected `mesh_rewrite --asset-imports`
-also writes that native suffix, using the old reflected entries as an exact
-format guard ([serialization details](ue_mesh_write.md)). All five corrected
-surface mesh candidates declare nine slots in both arrays, including slots 7/8;
-their geometry and preceding native bytes are unchanged. Component overrides
-alone would not establish translucent renderer relevance. Cold-load tests
-subsequently verified transparency and solid collision from both sides of the
-glass, plus visible green-field animation and native teleport travel in both
-directions. Appearance while moving, pooling and restoring surface placements
-remains a separate live check. See the [validation record](forge_pack_validation.md)
-for the tested artifacts and images; these results do not follow from the
-Blender render or shader cook alone.
+Foundry Wide contains eight material/texture packages, with all `/Game/`
+imports inside its own pack namespace. The glass and portal masters are
+two-sided translucent/additive respectively. Each surface mesh declares nine
+slots in both its reflected `StaticMaterials` and native arrays, including
+slots 7/8. `mesh_rewrite --asset-imports` writes both arrays and uses the old
+reflected entries as an exact format guard ([serialization details](ue_mesh_write.md)).
+Component overrides alone do not establish translucent renderer relevance.
+
+Cold-load tests verified transparency and solid collision from both sides of
+the glass, plus visible green-field animation and native teleport travel in
+both directions. Appearance while moving, pooling and restoring surface
+placements remains a separate live check. See the
+[validation record](forge_pack_validation.md) for the tested artifacts and images.

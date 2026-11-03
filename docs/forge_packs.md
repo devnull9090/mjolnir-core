@@ -1,50 +1,41 @@
 # Community Forge packs
 
 A Forge pack is a normal `.mjolnir` **content** release with a validated catalog
-of namespaced building pieces. The Hub lists these releases at `/forge`; the
-launcher downloads their containers and exposes their catalog to Forge. A map
+of namespaced building pieces. The Hub lists them in its `/forge` catalog; the
+launcher downloads published containers and exposes their catalog to Forge. A map
 declares which pieces it supports when its scenario is baked. A saved layout
 records the exact pack releases and palette bindings it used.
 
-The first authored set is [Foundry](../forge-packs/foundry/README.md): 24 original
-industrial pieces on a 2 m module, with a 0.5 m suggested placement snap.
-Version 0.2 adds a portal frame, teleporter pad, light strip and three light
-pylons to the 18-piece set tested below.
-[Roadworks 0.2.0](../forge-packs/roadworks/README.md) is a separate vehicle kit:
-ten original road pieces with 16 m clear decks, 24/48 m straights, 45/90-degree
-curves at a 40 m centreline radius, and 48 m eased ramps rising 4 m. Guarded
-variants add 1.5 m barriers outside the lane. Its entry-anchored
-origins and connector data are documented with the sources; current Forge
-placement does not automatically snap road connectors. The Roadworks Circuit
-0.2.0 fixture depends on both packs and provides a roughly 731 m course on a
-320 m recovery deck, with three stock Warthogs for scale and passing tests.
-The enlarged source has passed geometry, connector and native collision-ray
-checks. The user reported the enlarged scale was much better; the automated
-driving review of 0.2 remains pending.
+For a practical first contribution, see [creating a community Forge pack](forge_pack_authoring.md).
+For placing existing pieces, use the [Forge building guide](forge_guide.md).
+This page describes the release format, build pipeline and dependency checks.
 
-Historical Roadworks 0.1.0 used 8 m lanes, 12/24 m straights, R20 curves,
-24 m ramps and 1 m rails on a roughly 366 m circuit. The larger revision
-follows playtest feedback about that kit's tight scale. Existing 0.1.0 game
-captures and driving evidence apply to that earlier geometry. Old layout
-coordinates and palette bindings require an explicit rebuild for 0.2.0;
-the exact version/hash checks below prevent silent reinterpretation.
+| Reference pack | Current version | Contents |
+| --- | --- | --- |
+| [Foundry](../forge-packs/foundry/README.md) | 0.2.0 | 24 original pieces on a 2 m module, including portal frames/pads and warm/red/blue lights |
+| [Foundry Wide](../forge-packs/foundry-wide/README.md) | 0.2.0 | 38 pieces on a 4 m module; the original 18 retain their exact geometry and catalog order, with 20 additions for larger floors, walls, ramps, junctions, glass, doors, a gravity lift and green teleporter housings |
+| [Roadworks](../forge-packs/roadworks/README.md) | 0.2.0 | Ten road pieces with 16 m clear decks, 24/48 m straights, R40 curves and 48 m ramps rising 4 m; open and guarded variants |
 
-Following Crossline's first playtest, version 0.2 uses the separate
-[Foundry Wide 0.1 pack](../forge-packs/foundry-wide/README.md): eighteen
-structural pieces with twice the horizontal dimensions and unchanged heights.
-Its arena is 48 × 80 m; the raised decks remain 4.5 m high and perimeter 9 m
-high. Original Foundry portal frames, pads and lights remain player-sized.
-Separate tag names and exact dependencies preserve existing Foundry builds,
-Forge Canvas and Roadworks. Local installation does not mean these maps or
-packs have been published to the Hub.
-[Design research](forge_pack_design.md) explains the piece selection and future
-sets. A private CU4 fixture loaded and placed all 18 original Foundry 0.1 types, exercised movement,
-rotation, save/reload, restart persistence and identity refusal, and checked
-cube/floor collision, ramp climbing and the doorway opening. See
-[validation evidence and remaining checks](forge_pack_validation.md). Crossline
-0.2 has also passed live ramp traversal, two-way teleporting and a Wide floor
-placement/save/reload check. Exhaustive piece-by-piece live review and
-multiplayer behavior remain separate checks.
+[Crossline 0.3](../forge-maps/crossline/README.md) combines Foundry and Foundry
+Wide in a **96 × 160 m** Red versus Blue arena and utility showcase. Raised
+decks remain 4.5 m high inside a 9 m perimeter. Its 300 authored objects include
+two stock Warthogs, eight team-owned starts and four neutral midfield starts;
+351 native slots remain available. Original Foundry's lights retain their size.
+The [Forge Canvas](../forge-maps/README.md) stays a blank 64 × 64 m deck using
+Foundry, while [Roadworks Circuit 0.2](../forge-maps/roadworks/README.md) provides
+a roughly 731 m course on a 320 × 320 m recovery deck with three stock Warthogs.
+
+Road connectors describe exact source assembly; current Forge placement does
+not automatically dock them. Separate namespaces and exact version/hash checks
+keep new geometry from silently resizing old builds. Historical Roadworks 0.1
+used 8 m lanes, and Crossline 0.2 used the 18-piece Wide 0.1 kit in a 48 × 80 m
+arena; those layouts need an explicit compatible rebuild to use the larger sets.
+
+[Design research](forge_pack_design.md) explains the piece selection. The
+[validation record](forge_pack_validation.md) records the tested artifacts,
+gameplay checks and remaining coverage. Full vehicle-route, surface-placement
+lifecycle and second-machine utility checks remain separate work; a representative
+live check is not an exhaustive review of every piece.
 
 ## Release contract
 
@@ -55,7 +46,7 @@ handling applies. Its optional `forge_pack` block identifies the catalog:
 {
   "schema_version": 1,
   "name": "Foundry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "content",
   "summary": "Modular industrial construction pieces",
   "forge_pack": {
@@ -114,6 +105,12 @@ centimetres with Y reflected. It does not execute pack code or accept an
 arbitrary actor path. Illumination is capped at 64 active fixtures, is currently
 shadowless, and has no exposure multiplier. Deleted/pooled actors and world
 changes remove their attached lights. See [Forge utilities](forge.md#pack-lights).
+
+Optional `lift`, `door` and `surfaces` fields provide the additional bounded
+features used by Wide 0.2. See the [utility contract](forge_pack_utilities.md)
+for their schemas and runtime limits, and [material authoring](forge_pack_materials.md)
+for pack-owned glass/portal assets and shader-chunk reservations. A portal
+surface is visual; native teleporter markers still perform travel.
 
 The archive contains `mjolnir.json`, cooked `.utoc`/`.ucas` pairs under
 `content/`, optional `docs/README.md` and `changes.json`, and author signatures
@@ -178,7 +175,7 @@ writes the archive. The Hub independently scans the submitted archive.
 `build_pack.py --only <block-id>` produces a reduced diagnostic inventory in
 `build/game/<block-id>/`; package that directory only for local tests. Do not
 publish a reduced diagnostic build with the same version as the full set. Use
-a fresh output directory when changing the set's inventory: these development
+a fresh output directory when changing the set's inventory: these
 builders retain prior outputs.
 
 The visual cooker writes a namespaced mesh and synchronized actor per piece.
@@ -206,7 +203,7 @@ references and preload dependencies resolve.
     "forge_packs": [
       {
         "slug": "foundry",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "blocks": [
           {
             "id": "floor_2x2",
@@ -230,7 +227,7 @@ wrapper. A declared crate absent from the input Paks fails the bake.
 
 Package the newly baked map with the existing `mjolnir map pack` command.
 It preserves `blam.forge_packs` in the archived level JSON and adds exact
-`=0.1.0` dependencies for the listed packs. Installing the map through the
+`=0.2.0` dependencies for the listed packs. Installing the map through the
 launcher resolves those dependencies, selecting a compatible published release
 rather than blindly installing each dependency's latest version. The launcher
 validates the enabled profile's dependencies before mounting content. A first
