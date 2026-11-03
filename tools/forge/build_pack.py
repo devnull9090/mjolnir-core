@@ -163,9 +163,11 @@ def main():
             # mesh_rewrite takes the first matching pattern. Anchor names so
             # light_lens cannot consume light_lens_red or light_lens_blue.
             spec.extend(["--material", f"{mat}={path}={'*' if k == 0 else mat + '$'}"])
+        # Every piece imports its slot materials. Without that the mesh keeps
+        # only the donor cube's one slot, and a piece's deck panels, trim,
+        # amber strips and lenses all drew as its body material.
         run(a.examples / "mesh_rewrite.exe", a.paks, "basicshapes/cube", pack / f"build/models/{ident}.gltf",
-            mesh_file, "--offset", "0,0,0", "--rename", mesh, *spec,
-            *(["--asset-imports"] if block.get("surfaces") else []))
+            mesh_file, "--offset", "0,0,0", "--rename", mesh, *spec, "--asset-imports")
         # mesh_rewrite centres/normalizes the mesh; restore the authored
         # origin on the synchronized component (Blender Y -> UE -Y). This
         # also supports Roadworks' entry-anchored roads and asymmetric curves.
