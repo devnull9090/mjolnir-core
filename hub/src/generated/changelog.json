@@ -41,6 +41,75 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.21.0",
+      "tag": "launcher-v0.21.0",
+      "title": "Forge packs come with the maps that use them",
+      "date": "2026-11-02",
+      "summary": "The launcher installs the Forge packs a map or a saved Forge layout needs, at the exact versions they were built with, and keeps them while anything still needs them.",
+      "body": "### Added\n\n- **Forge packs.** A map built with a Forge pack names the pack and the\n  version it was built with, and the launcher installs that release with the\n  map. Its hash and signature are checked before anything is unpacked. A\n  map the game downloads during a session brings its packs too, unless a\n  different version of one is already installed: that takes a restart\n  through the launcher, because the game cannot swap pieces it has already\n  loaded.\n- **Saved layouts keep their packs.** A layout saved with F5 records the\n  packs and versions it was built from. Before each launch the launcher\n  installs any that are missing and checks they are the same archives.\n- **Packs stay while a map needs them.** Disabling, uninstalling or updating\n  a pack that an enabled map needs is refused.\n- **Pack materials keep their shaders.** A pack whose glass or energy\n  materials carry their own shader library keeps the container number that\n  library needs, and two packs that need the same number are refused rather\n  than drawn without shaders.\n\n### Changed\n\n- **Dependency versions** follow the usual rules: a bare version such as\n  `1.0.0` means exactly that release, and `^`, `~`, comparisons and ranges\n  work. A range the launcher cannot read is refused instead of matching any\n  version.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge packs. A map built with a Forge pack names the pack and the version it was built with, and the launcher installs that release with the map. Its hash and signature are checked before anything is unpacked. A map the game downloads during a session brings its packs too, unless a different version of one is already installed: that takes a restart through the launcher, because the game cannot swap pieces it has already loaded.",
+            "Saved layouts keep their packs. A layout saved with F5 records the packs and versions it was built from. Before each launch the launcher installs any that are missing and checks they are the same archives.",
+            "Packs stay while a map needs them. Disabling, uninstalling or updating a pack that an enabled map needs is refused.",
+            "Pack materials keep their shaders. A pack whose glass or energy materials carry their own shader library keeps the container number that library needs, and two packs that need the same number are refused rather than drawn without shaders."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependency versions follow the usual rules: a bare version such as 1.0.0 means exactly that release, and ^, ~, comparisons and ranges work. A range the launcher cannot read is refused instead of matching any version."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.21.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.21.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.21.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.43.0",
+      "tag": "mods-v0.43.0",
+      "title": "Forge packs: modular pieces, doors, lifts and placement controls",
+      "date": "2026-11-02",
+      "summary": "Forge builds with modular packs of floors, walls, ramps and roads, with automatic doors, gravity lifts, and controls for physics, grid and angle snapping.",
+      "body": "### Added\n\n- **Placement controls** (MJOLNIRForge 0.4.0). F3 sets the target's physics:\n  Normal, Fixed (held in place) or Phased (held in place, and may overlap\n  other pieces while you build). F4 snaps positions to a world grid of 0.25,\n  0.5, 1, 2 or 4 metres. F10 sets the angle `,` and `.` turn by (90, 45, 30,\n  15 or 5 degrees; 22.5 with snapping off). P sets a teleporter's channel:\n  a sender and a receiver must match. The HUD shows these settings and the\n  target's properties.\n- **Forge packs in the palette** (MJOLNIRForge 0.4.0). Pieces from the\n  installed packs a map was built with appear under their own names. A\n  saved layout records the packs it uses, and loading one whose packs are\n  missing or a different version is refused instead of placing the wrong\n  pieces.\n- **Pack lights, glass and teleporter fields** (MJOLNIRForge 0.4.0). Light\n  fixtures give off warm, red or blue light, glass panes are transparent\n  and solid, and teleporter housings show the animated green field from\n  Halo CE. The teleporter markers still do the travelling.\n- **Automatic doors** (MJOLNIRLobby 0.19.2). A pack's door panels open as a\n  player approaches and close once the doorway is clear. Saving with F5\n  stores a door closed, even while it stands open.\n- **Gravity lifts** (MJOLNIRLevelLoader 0.9.8). A pack's lift pieces carry\n  players up, each player's own game moving them.\n\n### Changed\n\n- **Hosting waits for the main menu** (MJOLNIRLobby 0.19.2). Hosting before\n  the title screen's sign-in has finished travelled to the map without\n  starting the game. It now asks you to wait for the main menu.\n\n### Fixed\n\n- **A crash at the start of a second match** (MJOLNIRHud 0.14.4,\n  MJOLNIRLobby 0.19.2, MJOLNIRForge 0.4.0). The kill feed, scoreboard, chat\n  and menus could crash the game after a map change, when the game had\n  unloaded and reloaded their screens. Those screens now stay loaded\n  between matches.\n- **Quitting after a match** (MJOLNIRLobby 0.19.2). The fix described in\n  0.42.0, for a crash when closing the game shortly after leaving a match,\n  missed that release; it is in this one.\n- **Cheats** (MJOLNIRBlamConsole 0.3.0): `cheat_all_weapons`,\n  `cheat_all_vehicles` and `drop_safe` work again from the console.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Placement controls (MJOLNIRForge 0.4.0). F3 sets the target's physics: Normal, Fixed (held in place) or Phased (held in place, and may overlap other pieces while you build). F4 snaps positions to a world grid of 0.25, 0.5, 1, 2 or 4 metres. F10 sets the angle , and . turn by (90, 45, 30, 15 or 5 degrees; 22.5 with snapping off). P sets a teleporter's channel: a sender and a receiver must match. The HUD shows these settings and the target's properties.",
+            "Forge packs in the palette (MJOLNIRForge 0.4.0). Pieces from the installed packs a map was built with appear under their own names. A saved layout records the packs it uses, and loading one whose packs are missing or a different version is refused instead of placing the wrong pieces.",
+            "Pack lights, glass and teleporter fields (MJOLNIRForge 0.4.0). Light fixtures give off warm, red or blue light, glass panes are transparent and solid, and teleporter housings show the animated green field from Halo CE. The teleporter markers still do the travelling.",
+            "Automatic doors (MJOLNIRLobby 0.19.2). A pack's door panels open as a player approaches and close once the doorway is clear. Saving with F5 stores a door closed, even while it stands open.",
+            "Gravity lifts (MJOLNIRLevelLoader 0.9.8). A pack's lift pieces carry players up, each player's own game moving them."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Hosting waits for the main menu (MJOLNIRLobby 0.19.2). Hosting before the title screen's sign-in has finished travelled to the map without starting the game. It now asks you to wait for the main menu."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A crash at the start of a second match (MJOLNIRHud 0.14.4, MJOLNIRLobby 0.19.2, MJOLNIRForge 0.4.0). The kill feed, scoreboard, chat and menus could crash the game after a map change, when the game had unloaded and reloaded their screens. Those screens now stay loaded between matches.",
+            "Quitting after a match (MJOLNIRLobby 0.19.2). The fix described in 0.42.0, for a crash when closing the game shortly after leaving a match, missed that release; it is in this one.",
+            "Cheats (MJOLNIRBlamConsole 0.3.0): cheatallweapons, cheatallvehicles and dropsafe work again from the console."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.43.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.43.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.43.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.20.0",
       "tag": "launcher-v0.20.0",
       "title": "The launcher updates itself first",

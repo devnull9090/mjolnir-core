@@ -82,7 +82,7 @@ The launcher writes the enabled catalogs to
 Only those generated files are replaced; adjacent authoring files stay intact.
 Before launch it reads `Mods/MJOLNIRForge/layouts/*.mvar.packs`, downloads
 missing exact versions, verifies their pinned archive hashes and enables them.
-Conflicting saved-layout pins stop launch; move one conflicting layout aside.
+Conflicting saved-layout pins are reported and the other mods are still restored; move one conflicting layout aside.
 Layout history is excluded.
 
 While the game runs, map downloads may add previously absent Forge packs and
