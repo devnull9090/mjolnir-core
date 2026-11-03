@@ -505,7 +505,10 @@ changes during a pending drop remain unverified live.
 The 2026-11-02 development candidate expands Crossline to **96 × 160 m**
 with **Foundry Wide 0.2.0**. Its original eighteen Wide palette entries stay
 in order and twenty new pieces follow them. The authored map contains
-296 native objects, including two stock Warthogs, with 355 slots remaining.
+300 native objects, including two stock Warthogs and four neutral fallback
+spawns, with 351 slots remaining. The live utility checks below used the
+preceding 296-object bake; the four fallback spawns were added after its
+free-for-all spawn failure was isolated.
 Original Foundry 0.2.0 supplies the unchanged lights. Forge Canvas and
 Roadworks are unchanged by this map build.
 
@@ -513,7 +516,7 @@ The initial offline build passed 21,330 collision probes across all 38 Wide
 pieces, verified all 38 cooked physics payloads, and passed 13,068 canvas
 checks. The revised lift later passed 691 cooked-collision probes and had its
 nine-hull physics payload recooked and verified; other pieces were unchanged.
-Fifteen map-builder tests cover the palette prefix, player and vehicle
+Sixteen map-builder tests cover the palette prefix, player and vehicle
 clearance, closed/open door geometry, panel travel, bypasses, glass collision,
 lift shaft and landing clearance, spawn/teleporter clearance and exact pack
 dependencies. These checks do not establish runtime door motion or lift tuning.
@@ -521,15 +524,21 @@ dependencies. These checks do not establish runtime door motion or lift tuning.
 | Local candidate | Bytes | SHA-256 |
 | --- | ---: | --- |
 | Foundry Wide 0.2.0, device-signed | 2,355,479 | `c2b1a57546649cec8f2b2cd5f65f62f062ccc3882b80cdba95da1a8b7634f4f6` |
-| Crossline 0.3.0, repackaged, unsigned | 120,431 | `63d0b7a27fb73ffcd7ace4d2ae5fb02c603e9b7eba03ac1650d56f0b9e134be7` |
+| Crossline 0.3.0, current neutral-spawn bake, unsigned | 120,715 | `fb3566b9b78185a8741af83cf2d37cfc2cfb5893b51893ce2aa3c5e45c62b279` |
+| Crossline 0.3.0, pre-fallback utility test bake, unsigned | 120,431 | `63d0b7a27fb73ffcd7ace4d2ae5fb02c603e9b7eba03ac1650d56f0b9e134be7` |
 
-The final map package reuses the original native bake byte-for-byte, including
-its level and registration data, and includes updated play instructions.
-Its build receipt verifies the final pack view and unchanged map members.
-No placement or native scenario rebake was needed for the material-slot and
-lift-geometry corrections. The final pack retains the five corrected surface
-meshes tested below; the subsequent lift update changes only its collision,
-physics and visual mesh, leaving the catalog and other pieces unchanged.
+The current map was freshly baked after adding four neutral midfield starts.
+Decoded native scenario data confirms four defender, four attacker and four
+neutral spawn markers at the intended positions. The existing eight team
+records and scenery palette are unchanged, as are the map registration and
+exact pack dependencies. The installation plan changes only the Crossline
+container pair and level data, with fresh backups; it preserves all 53 menu
+entries, the merged registry, runtime and pack inventories.
+
+The earlier material-slot and lift-geometry corrections did not require a
+scenario rebake. The final pack retains the five corrected surface meshes
+tested below; the lift update changes only its collision, physics and visual
+mesh, leaving the catalog and other pieces unchanged.
 
 These are local test artifacts. No Hub deployment or published-release
 download is established by this session. Installation takes a fresh,
@@ -602,6 +611,14 @@ the ground starting point. A later steering sample held near the landing edge
 at (36.18, 17.91, 4.4686) m. This run verifies ordinary walk-in ascent and edge
 support; it does not repeat the earlier full gallery walk.
 
+**The final ground-entry run also completed the gallery walk.** In process
+55600 with the same `c2b1` pack, the Spartan walked up a ramp from ground
+level, rode the lift and steered onto the gallery without jumping after the
+ground start. A subsequent five-second sample moved from
+(32.3973, 17.4423, 4.5) m to (26.3323, 17.4399, 4.5) m; all 100 recorded
+positions stayed within 7 mm of the 4.5 m deck height. This supersedes the earlier run's edge-only
+limitation without changing what that earlier sample established.
+
 ![Final lift ramps and adjacent gallery, viewed in Monitor mode](images/forge/crossline-03-lift.png)
 
 **Green teleporter rendering and both routes passed after a cold start.**
@@ -624,6 +641,31 @@ see-through from either side while blocking passage. These are local Forge
 observations in process 29020, not multiplayer replication evidence.
 
 ![Transparent cyan glass in Crossline 0.3](images/forge/crossline-03-glass.png)
+
+**Team Slayer spawned and operated the vehicle door in the same process.**
+After returning through the lobby, the Spartan spawned on the red gallery
+at (-12, -60, 4.5) m, jumped its west rail to ground near
+(-36.3, -51.94, 0) m and walked through the vehicle doorway to
+(-36.67, -42.82, 0) m. The visible panel reached 599.99976 cm. This
+establishes local door operation outside Forge, not peer replication.
+
+Free-for-all Slayer on that earlier map did not produce a player unit:
+all eight native spawn markers were team-owned. The native collector admits
+neutral markers for free-for-all, while initial team spawns prioritize their
+own team's markers. Four symmetric neutral ground starts were therefore
+appended without changing the eight team starts or utility placements.
+Ordinary team respawns may also use neutral starts. The revised bake passed
+the cooked-scenario readback above and was installed with a fresh backup;
+**free-for-all Slayer then passed in fresh process 4180.** Hosting FRB Slayer
+privately created native player unit `E3A10132` at (-20, 24, 0) m, matching
+one of the new neutral points, with the normal Slayer HUD visible. This
+verifies initial spawning on the final `fb3566b9…` map; it is not a
+multiplayer respawn or sixteen-player load test.
+
+A bounded nine-minute sample of the final utility test session covered
+119,844 frames at 1280 × 720: median 4 ms, p95 6 ms, p99 7 ms and worst
+171 ms. It is one local sample, not a controlled comparison or a long-session
+performance guarantee.
 
 Still pending for the final installed candidate: full player and Warthog
 routes, driving a vehicle beneath the operating gate, and
