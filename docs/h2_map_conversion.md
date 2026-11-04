@@ -281,9 +281,10 @@ units and axes, so every later step reads them unchanged:
   world's +Z, the axis in
   Unreal's axes beside it (`.motion.json`); the level's decor entry carries
   them as `motion`, and MJOLNIRLevelLoader turns the actor about the pivot.
-  Every other machine (doors, lifts, Triplicate's train, Backwash's
+  Every other machine's motion (doors, lifts, Triplicate's train, Backwash's
   monitor) is left out as before, listed in staging's notes: still, a
-  closed gate or a parked train would block a way Halo 2 opens.
+  closed gate or a parked train would block a way Halo 2 opens. A lift's
+  push does not need its motion; see the next item.
 - **Lifts, jump pads and vents.** Halo 2 pushes through physics model
   phantoms (`crate::h2::phantom`): shapes nothing collides with, each with a
   phantom type (accelerations and top speeds along a render model marker's
@@ -296,9 +297,17 @@ units and axes, so every later step reads them unchanged:
   inside one through `(object_set_velocity (player_get N) ...)` every 50 ms.
   Each game pushes its own players only: a joiner's motion is its own game's,
   and a push the host sends a joiner's unit does nothing (two PCs,
-  2026-10-25). Maps with player lifts: Lockout, Midship, Cyclotron,
-  Colossus, Coagulation, Headlong, High Plains (hvac), Backwash, Foundation,
-  Warlock, Derelict, Dune (watchtowers), Ascension and Gemini (jump pads).
+  2026-10-25). Maps with player lifts: Lockout, Midship, Cyclotron (Ivory
+  Tower), Colossus, Coagulation, Headlong, High Plains (Tombstone, hvac),
+  Backwash, Foundation, Warlock, Derelict (Desolation), Dune (Relic,
+  watchtowers), Ascension and Gemini (jump pads).
+  `lifts` is a key only the loader reads, so a published pack gets them
+  without a rebake: `tools/level/add_lifts.py` stages the map, adds the block
+  to the pack's level file and packs the next version, and checks nothing
+  else changed (the bots stay as baked). Those 14 maps shipped this way at
+  1.3.0 on 2026-11-04, with the gaps in testing listed in
+  `docs/h2_lifts_release.md`. The other 11 maps have no phantom that pushes
+  players and stay at 1.2.0.
 - **Moving collision.** The simulation does all collision, never reads
   Unreal geometry, and its structure BSP cannot move: an arm's collision
   baked at rest stood where the arm only sometimes is. Rewriting a live
