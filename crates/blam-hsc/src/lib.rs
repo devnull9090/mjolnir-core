@@ -25,7 +25,7 @@ pub mod parse;
 pub mod read;
 
 pub use compile::{Compiled, Compiler, Diagnostic, Severity};
-pub use corpus::{CorpusBuilder, FunctionDef, ScriptCorpus};
+pub use corpus::{CorpusBuilder, DeclaredFunction, FunctionDef, ScriptCorpus};
 pub use decompile::Decompiler;
 pub use expr::{DatumHandle, Expression, ExpressionType, ValueTypes};
 pub use parse::{Declaration, Vocabulary};

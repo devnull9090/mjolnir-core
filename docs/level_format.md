@@ -226,6 +226,25 @@ Until 2026-11-02 that stub never actually loaded, in any bake: the bake dropped 
 scripts at all ([re/ce_map_scripts.md](re/ce_map_scripts.md)). The bake now keeps the source and
 refuses any `string_id` literal missing from `defs/hce/string-ids.json`.
 
+### Names, volumes and flags for a script
+
+`blam.object_names` lists names a script can use; a placement claims one with
+`name`. A name no placement claims stays in the block, and the engine drops any
+script that uses it. `placed: false` leaves a placement for `object_create`.
+`blam.trigger_volumes` are box volumes (`name`, `pos` their corner, `forward`,
+`up`, `extents` in wu). `blam.cutscene_flags` are `pos`, `yaw`, optional `pitch`
+and `name`, and go past the canvas's count by cloning. `blam.device_groups` are
+`name`, `initial_value`, `flags`, for a placement's `power_group` and
+`position_group`; a device with neither gets private groups, which is all a
+script watching a control needs. `objects[].group` takes `controls`.
+
+Machines and controls stay out of the map variant's palettes: a tag listed there
+is not created from its placement.
+
+`tools/level/add_devices.py` writes all of this for a converted CE map
+([re/ce_map_scripts.md](re/ce_map_scripts.md)), and the runtime level's `devices`
+list, which `MJOLNIRLevelLoader/Scripts/devices.lua` rides the map's meshes on.
+
 ### `blam.script` — the level's own scripts
 
 `"script": "my_level.hsc"` (a path relative to the level file) is compiled into the scenario

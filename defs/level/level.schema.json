@@ -140,6 +140,53 @@
           "maxItems": 256,
           "items": { "$ref": "#/$defs/typedPlacement" }
         },
+        "script": { "type": "string" },
+        "object_names": { "type": "array", "maxItems": 2048, "items": { "type": "string", "minLength": 1, "maxLength": 127 } },
+        "device_groups": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "maxLength": 31 },
+              "initial_value": { "type": "number" },
+              "flags": { "type": "integer" }
+            }
+          }
+        },
+        "trigger_volumes": {
+          "type": "array",
+          "maxItems": 350,
+          "items": {
+            "type": "object",
+            "required": ["name", "pos", "forward", "up", "extents"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "pos": { "$ref": "#/$defs/vec3" },
+              "forward": { "$ref": "#/$defs/vec3" },
+              "up": { "$ref": "#/$defs/vec3" },
+              "extents": { "$ref": "#/$defs/vec3" }
+            }
+          }
+        },
+        "cutscene_flags": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "required": ["pos"],
+            "additionalProperties": false,
+            "properties": {
+              "pos": { "$ref": "#/$defs/vec3" },
+              "yaw": { "type": "number" },
+              "pitch": { "type": "number" },
+              "name": { "type": "string" }
+            }
+          }
+        },
         "objects": {
           "type": "array",
           "maxItems": 1024,
@@ -149,10 +196,14 @@
             "additionalProperties": false,
             "properties": {
               "tag": { "type": "string", "pattern": "^objects\\\\", "maxLength": 256 },
-              "group": { "enum": ["scenery", "crates"] },
+              "group": { "enum": ["scenery", "crates", "machines", "controls"] },
               "pos": { "$ref": "#/$defs/vec3" },
               "rot": { "$ref": "#/$defs/rot3" },
-              "name": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" }
+              "name": { "type": "string", "minLength": 1, "maxLength": 127 },
+              "placed": { "type": "boolean" },
+              "power_group": { "type": "string" },
+              "position_group": { "type": "string" },
+              "set": { "type": "object", "additionalProperties": { "type": "string" } }
             }
           }
         }
