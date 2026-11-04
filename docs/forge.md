@@ -286,6 +286,10 @@ A layout file is a Halo Reach map variant (`.mvar`), the same format MCC
 uses, so `cargo run -p blam-megalo --example mvar_summary -- BGL.mvar`
 lists what is in it. Layouts belong to one map: the file name says which.
 
+Forge checks a layout file before loading it and refuses a malformed one with
+the reason, for example "FRB.mvar refused: it has more than 256 labels". The
+map then plays its original layout. Layouts saved in game always pass.
+
 ## Not there yet
 
 - **Several layouts per map, and picking one in the lobby.** One saved layout
