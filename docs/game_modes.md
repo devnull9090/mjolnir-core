@@ -60,9 +60,9 @@ variant at `GG+0x15f0` and `o = v+4` (variant-format offsets are o-relative);
 
 ## Summary
 
-1. **Two game types run: free-for-all Slayer and CTF.** MJOLNIR's encoder
-   writes both. Team Slayer, KOTH and Oddball exist only as names in menu and
-   HUD tables.
+1. **Five game types run:** free-for-all Slayer, Team Slayer, CTF, and since
+   2026-11-04 free-for-all King and Oddball (section 3.4). This summary was
+   written when only Slayer and CTF did; the rest of it stands.
 2. **The engine is all there.** It is Reach's game-engine layer, and every
    Reach mode is data for it. Read statically, a MJOLNIR match runs with the
    options' mode byte 3 (multiplayer) and 60 ticks a second, and the fireteam
@@ -111,8 +111,8 @@ variant at `GG+0x15f0` and `o = v+4` (variant-format offsets are o-relative);
 | Step | Where | What | Status |
 |---|---|---|---|
 | Encode | `crates/blam-megalo` (`variant.rs`, `script.rs`, `ctf.rs`, `powerups.rs`); `mjolnir megalo write --mode empty\|slayer\|tick\|ctf` (`crates/blam-cli/src/megalo.rs:40-50`, `211-250`) | builds the bitstream; Slayer and CTF get a time-limit trigger, and every mode but empty and tick gets CE health packs unless `--no-health-packs` | Verified |
-| Release | `.github/workflows/release-mods.yml:109-110` | writes `variants/slayer.mglo` and `variants/ctf.mglo` with `--vehicle-label-pool`; zipped into the signed MJOLNIRLevelLoader | Verified |
-| A map's modes | `tools/level/gen_ce_level.py:1331` | `["slayer"]`, plus `"ctf"` when the CE scenario has flags | Verified |
+| Release | `.github/workflows/release-mods.yml` | writes `slayer`, `team_slayer`, `ctf`, `koth` and `oddball` `.mglo` files in `variants/` with `--vehicle-label-pool`; zipped into the signed MJOLNIRLevelLoader | Verified |
+| A map's modes | `tools/level/gen_ce_level.py` | `["slayer"]`, plus `"ctf"` when the CE scenario has flags, plus `"koth"` and `"oddball"` from its markers (section 3.4) | Verified |
 | Menu | `mods/MJOLNIRLobby/Scripts/main.lua:61-67` (`MODES`), `118-128` (`modesFor`) | five names (slayer, team_slayer, koth, oddball, ctf); a mode is offered only if the map lists it and `variants/<id>.mglo` exists, so only Slayer and CTF appear | Verified |
 | Host's choice to its loader | Lobby `main.lua:181-186` writes `pending_variant.txt`; `mods/MJOLNIRLevelLoader/Scripts/main.lua:6031-6043` reads it once in the `SetAndBeginCampaign` hook | | Verified |
 | Host's choice to clients | the travel URL's insertion point index; loader `GAME_TYPE_SLOTS` (`main.lua:5919`: 0 slayer, 1 ctf, 2 team_slayer, 3 koth, 4 oddball, 5 forge); FIND GAMES joins through `mods/MJOLNIRLobby/Scripts/games.lua:169, 221` | an id missing from the table falls back to the level's own variant (slayer) on clients | Verified |

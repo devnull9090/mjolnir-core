@@ -12,7 +12,7 @@ RVA into one of them, and says which. Each engine fact is marked
 Flag, as Megalo variants (`.mglo`) that `crates/blam-megalo` writes in CI
 (`.github/workflows/release-mods.yml:101-110`) and that ship inside the
 signed MJOLNIRLevelLoader zip. Team Slayer, King of the Hill and Oddball
-exist only as names in UI tables. The engine side is in
+ship the same way ([game_modes.md](game_modes.md), section 3.4). The engine side is in
 [re/megalo_engine.md](re/megalo_engine.md) and the bitstream in
 [re/megalo_variant_format.md](re/megalo_variant_format.md).
 

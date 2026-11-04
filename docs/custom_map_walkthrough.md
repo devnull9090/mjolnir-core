@@ -16,13 +16,13 @@ game outputs do not contain that addition. See the
 geometry, inspection workflow and validation limits. The release notes record
 the in-game checks for the downloadable beta. Full-match balance testing and a
 clean-machine authoring rebuild remain follow-up work.
-This branch also includes candidate Oddball/KOTH rules; a map archive alone
-cannot add those to an older code-mod installation.
+Oddball and KOTH rules ship in mods 0.44.0; a map archive alone cannot add
+them to an older code-mod installation.
 
 For the public TST beta, see [the player/release notes](../levels/test/tst/BETA.md).
 Use `prepare_runtime.py --release-beta` and `upgrade_ce_map.py TST --release-beta`
 to advertise only Slayer, Team Slayer and CTF and use sky controls supported by
-the published loader. Candidate Oddball/KOTH experiments below are for source
+the published loader. The Oddball and KOTH tests below are for source
 development, not requirements for installing that beta.
 
 ## 1. Set up your source and tools
@@ -417,8 +417,8 @@ published loader and CE runtime. Install those dependencies from the launcher
 first; testing with private copies of shared materials or scripts can hide
 compatibility errors. Back up any prior local map before replacing it.
 
-Candidate Oddball/KOTH development requires matching HUD scripts and compiled
-variant files. Those experiments are separate from the supported-mode beta.
+Oddball and KOTH need mods 0.44.0 or later. Those tests are separate from the
+supported-mode beta.
 
 Launch through Steam, reach the main menu and host privately:
 
