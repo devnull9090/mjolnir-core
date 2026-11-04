@@ -9,6 +9,8 @@
     server for that PC, driven by tools/remote/remote.mjs on the development PC:
 
         GET  /status                          game process, bridge heartbeat
+        GET  /memory                          free memory, the biggest processes, kernel
+                                              pools, boot time, recent exhaustion events
         POST /bridge?op=lua|console|ping      a call through the MJOLNIR bridge
         POST /launch                          start the game through Steam (closing a crash reporter left open)
         POST /quit[?force=1]                  close it
@@ -53,7 +55,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "8"
+$AgentVersion = "9"
 
 # --- Where things are --------------------------------------------------------
 
@@ -235,6 +237,41 @@ function Write-RootFile([string]$full, [byte[]]$bytes) {
     return "written"
 }
 
+# Where this PC's memory is: a process list misses what drivers hold, so the
+# kernel pools come too, and Windows' own events name past offenders (2004) and
+# unclean restarts (41, 6008, 1001).
+function Get-MemoryReport {
+    $os = Get-CimInstance Win32_OperatingSystem
+    $mb = { param($bytes) [math]::Round($bytes / 1MB) }
+    $processes = @(Get-Process | Group-Object ProcessName | ForEach-Object {
+        @{
+            name = $_.Name; count = $_.Count
+            private_mb = & $mb (($_.Group | Measure-Object PrivateMemorySize64 -Sum).Sum)
+            working_mb = & $mb (($_.Group | Measure-Object WorkingSet64 -Sum).Sum)
+            handles = ($_.Group | Measure-Object HandleCount -Sum).Sum
+        }
+    } | Sort-Object { $_.private_mb } -Descending | Select-Object -First 15)
+    $pools = $null
+    try {
+        $samples = (Get-Counter '\Memory\Pool Nonpaged Bytes', '\Memory\Pool Paged Bytes', '\Memory\Committed Bytes', '\Memory\Cache Bytes').CounterSamples
+        $pools = @{}
+        foreach ($s in $samples) { $pools[($s.Path -replace '^.*\\', '')] = & $mb $s.CookedValue }
+    } catch { $pools = "$_" }
+    $events = @()
+    try {
+        $events = @(Get-WinEvent -MaxEvents 12 -FilterHashtable @{ LogName = "System"; Id = 2004, 41, 6008, 1001; StartTime = (Get-Date).AddDays(-14) } | ForEach-Object {
+            $text = "$($_.Message)"
+            @{ at = $_.TimeCreated.ToString("s"); id = $_.Id; message = $text.Substring(0, [math]::Min(1500, $text.Length)) }
+        })
+    } catch { }
+    return @{
+        booted = $os.LastBootUpTime.ToString("s"); now = (Get-Date).ToString("s")
+        total_mb = [math]::Round($os.TotalVisibleMemorySize / 1KB); free_mb = [math]::Round($os.FreePhysicalMemory / 1KB)
+        commit_limit_mb = [math]::Round($os.TotalVirtualMemorySize / 1KB); commit_free_mb = [math]::Round($os.FreeVirtualMemory / 1KB)
+        pools = $pools; processes = $processes; events = $events
+    }
+}
+
 # --- HTTP --------------------------------------------------------------------
 
 function Send-Response($stream, [int]$status, [byte[]]$body, [string]$type = "application/json") {
@@ -296,6 +333,7 @@ function Handle($request, $stream) {
                 bridge = Get-BridgeStatus
             }
         }
+        "GET /memory" { Send-Json $stream 200 (Get-MemoryReport) }
         "POST /bridge" {
             $timeout = if ($p["timeout"]) { [int]$p["timeout"] } else { 15000 }
             $op = if ($p["op"]) { $p["op"] } else { "lua" }

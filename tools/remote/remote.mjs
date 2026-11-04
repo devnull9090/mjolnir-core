@@ -3,6 +3,7 @@
 // Drive a second PC's game through tools/remote/mjolnir-agent.ps1.
 //
 //   node tools/remote/remote.mjs status
+//   node tools/remote/remote.mjs memory                    free memory, biggest processes, exhaustion events (agent 9)
 //   node tools/remote/remote.mjs lua 'print(1 + 1)'        (or lua @file.lua)
 //   node tools/remote/remote.mjs console 'stat fps'
 //   node tools/remote/remote.mjs launch | quit [--force]
@@ -110,6 +111,9 @@ export async function autoState() {
 export const commands = {
   async status() {
     return JSON.stringify(await json("GET", "/status"), null, 1);
+  },
+  async memory() {
+    return JSON.stringify(await json("GET", "/memory"), null, 1);
   },
   async lua(code, timeout) {
     if (code?.startsWith("@")) code = fs.readFileSync(code.slice(1), "utf8");
