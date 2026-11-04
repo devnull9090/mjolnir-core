@@ -134,6 +134,21 @@ static inline int forge_door_basis(const float forward[3], const float up[3], fl
     return 1;
 }
 
+/* Forge fills the map variant's bounds; other game modes leave all six at
+   zero. All zero means there is no box to check, not a box at the origin. */
+static inline int forge_door_in_bounds(const float position[3], const float bounds[6]) {
+    int unset = 1;
+    for (int k = 0; k < 6; k++) {
+        if (!isfinite(bounds[k])) return 0;
+        if (bounds[k] != 0) unset = 0;
+    }
+    for (int k = 0; k < 3; k++) if (!isfinite(position[k])) return 0;
+    if (unset) return 1;
+    for (int k = 0; k < 3; k++)
+        if (position[k] < bounds[k * 2] || position[k] > bounds[k * 2 + 1]) return 0;
+    return 1;
+}
+
 static inline int forge_door_local(const float point[3], const float origin[3], const float forward[3],
                                   const float left[3], const float up[3], float local[3]) {
     float d[3];
