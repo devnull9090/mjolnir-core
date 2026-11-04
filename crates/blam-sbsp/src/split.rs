@@ -8,7 +8,7 @@
 //! the polygon becomes a chain of 2D nodes along the fan's diagonals so a
 //! point in the old polygon still resolves to exactly one piece.
 
-use crate::ce::{Bsp2dNode, Bsp3dNode, Collision, Edge, Leaf, Surface, Vertex};
+use crate::ce::{Bsp2dNode, Bsp2dReference, Bsp3dNode, Collision, Edge, Leaf, Surface, Vertex};
 use crate::pack16::projection_axes;
 use crate::Error;
 
@@ -310,6 +310,225 @@ pub fn split_standalone(
     c.planes.truncate(cut_planes);
     c.edges.truncate(cut_edges);
     c.vertices.truncate(cut_vertices);
+    Ok(pieces)
+}
+
+/// Every surface a tree child reaches, through its leaves' 2D references.
+fn surfaces_under(c: &Collision, child: i32, out: &mut std::collections::BTreeSet<usize>) {
+    fn in_2d(c: &Collision, node: i32, out: &mut std::collections::BTreeSet<usize>) {
+        if node == -1 {
+        } else if node < 0 {
+            out.insert((node as u32 & !SURFACE_FLAG) as usize);
+        } else if let Some(n) = c.bsp2d_nodes.get(node as usize) {
+            in_2d(c, n.left, out);
+            in_2d(c, n.right, out);
+        }
+    }
+    let mut work = vec![child];
+    while let Some(k) = work.pop() {
+        if k == -1 {
+        } else if k < 0 {
+            let leaf = c.leaves[(k as u32 & !SURFACE_FLAG) as usize];
+            let first = leaf.first_reference.max(0) as usize;
+            for r in &c.bsp2d_references[first..first + leaf.reference_count.max(0) as usize] {
+                in_2d(c, r.node, out);
+            }
+        } else {
+            let n = c.bsp3d_nodes[k as usize];
+            work.extend([n.front, n.back]);
+        }
+    }
+}
+
+/// `c` with only what its tree reaches from the root: the leaves' references,
+/// the 2D nodes and surfaces under them and those surfaces' edges. Vertices
+/// stay, so the BSP's bounds do, and the shell still calls the region a cut
+/// took inside the world. An edge a dropped surface shared loses that side.
+fn compact(c: &Collision) -> Collision {
+    use std::collections::BTreeMap;
+    fn copy_2d(
+        c: &Collision,
+        node: i32,
+        surface: &BTreeMap<usize, i32>,
+        out: &mut Vec<Bsp2dNode>,
+    ) -> i32 {
+        if node == -1 {
+            -1
+        } else if node < 0 {
+            (SURFACE_FLAG | surface[&((node as u32 & !SURFACE_FLAG) as usize)] as u32) as i32
+        } else {
+            let n = c.bsp2d_nodes[node as usize];
+            let at = out.len();
+            out.push(n);
+            let (left, right) = (
+                copy_2d(c, n.left, surface, out),
+                copy_2d(c, n.right, surface, out),
+            );
+            (out[at].left, out[at].right) = (left, right);
+            at as i32
+        }
+    }
+    let mut used = std::collections::BTreeSet::new();
+    surfaces_under(c, 0, &mut used);
+    let surface: BTreeMap<usize, i32> = used
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| (s, i as i32))
+        .collect();
+    let mut edge: BTreeMap<usize, i32> = BTreeMap::new();
+    for &s in &used {
+        if let Some(l) = walk(c, s) {
+            for e in l.edges {
+                let next = edge.len() as i32;
+                edge.entry(e).or_insert(next);
+            }
+        }
+    }
+    let mut out = Collision {
+        bsp3d_nodes: c.bsp3d_nodes.clone(),
+        planes: c.planes.clone(),
+        leaves: c.leaves.clone(),
+        vertices: c.vertices.clone(),
+        ..Default::default()
+    };
+    // The leaves the tree still reaches keep their references; the rest empty.
+    let mut reached = vec![false; c.leaves.len()];
+    let mut work = vec![0i32];
+    while let Some(k) = work.pop() {
+        if k == -1 {
+        } else if k < 0 {
+            reached[(k as u32 & !SURFACE_FLAG) as usize] = true;
+        } else {
+            let n = c.bsp3d_nodes[k as usize];
+            work.extend([n.front, n.back]);
+        }
+    }
+    for (l, leaf) in out.leaves.iter_mut().enumerate() {
+        let (first, count) = (
+            leaf.first_reference.max(0) as usize,
+            leaf.reference_count.max(0) as usize,
+        );
+        leaf.first_reference = out.bsp2d_references.len() as i32;
+        if !reached[l] {
+            leaf.reference_count = 0;
+            continue;
+        }
+        for r in &c.bsp2d_references[first..first + count] {
+            let node = copy_2d(c, r.node, &surface, &mut out.bsp2d_nodes);
+            out.bsp2d_references.push(Bsp2dReference {
+                plane: r.plane,
+                node,
+            });
+        }
+    }
+    let side = |s: i32| {
+        surface
+            .get(&(s.max(0) as usize))
+            .copied()
+            .filter(|_| s >= 0)
+            .unwrap_or(-1)
+    };
+    let link = |e: i32| {
+        edge.get(&(e.max(0) as usize))
+            .copied()
+            .filter(|_| e >= 0)
+            .unwrap_or(-1)
+    };
+    out.edges = vec![c.edges[0]; edge.len()];
+    for (&old, &new) in &edge {
+        let e = c.edges[old];
+        out.edges[new as usize] = Edge {
+            forward: link(e.forward),
+            reverse: link(e.reverse),
+            left: side(e.left),
+            right: side(e.right),
+            ..e
+        };
+    }
+    out.surfaces = used
+        .iter()
+        .map(|&s| Surface {
+            first_edge: link(c.surfaces[s].first_edge),
+            ..c.surfaces[s]
+        })
+        .collect();
+    for v in &mut out.vertices {
+        v.first_edge = link(v.first_edge).max(0);
+    }
+    out
+}
+
+/// Bring a BSP too big for the 16-bit tables under them: cut subtrees out of
+/// `c` until `fits` holds, each cut region becoming open space, and return the
+/// surfaces that left as standalone pieces of at most `max` surfaces, which
+/// have trees of their own as scenery does. Precipice and Sanctuary Final are
+/// 37,000 to 40,000 surfaces against a limit of 32,767.
+///
+/// A piece's surfaces are two-sided: nothing behind them is solid any more,
+/// so a player meets them as a shell through the MOPP and a bullet through
+/// the tree. A surface another leaf still reaches stays in the BSP as well.
+pub fn shed(
+    c: &mut Collision,
+    max: usize,
+    fits: impl Fn(&Collision) -> bool,
+) -> Result<Vec<Collision>, Error> {
+    let mut pieces = Vec::new();
+    while !fits(c) {
+        let total = c.surfaces.len();
+        // A sixth of the BSP at a time: enough to clear an overflow of a few
+        // thousand surfaces in one or two cuts, with room for the edges.
+        let want = (total / 6).max(1);
+        let (mut parent, mut front);
+        parent = 0usize;
+        loop {
+            let n = c.bsp3d_nodes[parent];
+            let count = |k: i32| {
+                let mut s = std::collections::BTreeSet::new();
+                surfaces_under(c, k, &mut s);
+                s.len()
+            };
+            let (f, b) = (count(n.front), count(n.back));
+            front = f >= b;
+            let (bigger, child) = if front { (f, n.front) } else { (b, n.back) };
+            if child < 0 || bigger / 2 < want {
+                break;
+            }
+            parent = child as usize;
+        }
+        let open = c.leaves.len() as u32;
+        c.leaves.push(Leaf {
+            flags: 0,
+            reference_count: 0,
+            first_reference: 0,
+        });
+        let before = c.clone();
+        let node = &mut c.bsp3d_nodes[parent];
+        if front {
+            node.front = leaf_child(open);
+        } else {
+            node.back = leaf_child(open);
+        }
+        let mut kept = std::collections::BTreeSet::new();
+        surfaces_under(c, 0, &mut kept);
+        let mut loops = Vec::new();
+        for s in (0..total).filter(|s| !kept.contains(s)) {
+            if let Some(l) = walk(&before, s) {
+                loops.push((
+                    Surface {
+                        flags: before.surfaces[s].flags | 1,
+                        ..before.surfaces[s]
+                    },
+                    l,
+                ));
+            }
+        }
+        if loops.is_empty() {
+            return Err(Error::Staging("a cut freed no surfaces".into()));
+        }
+        let items: Vec<(Surface, &Loop)> = loops.iter().map(|(s, l)| (*s, l)).collect();
+        pieces.extend(pieces_of(&before, &items, max)?);
+        *c = compact(c);
+    }
     Ok(pieces)
 }
 
@@ -630,5 +849,90 @@ mod tests {
     #[test]
     fn an_octagon_fans_into_quads() {
         check_fan(4, 3);
+    }
+}
+
+#[cfg(test)]
+mod shed_tests {
+    use super::*;
+    use crate::ce::Plane;
+
+    /// Two triangles, one in each of a root's leaves.
+    fn two_leaves() -> Collision {
+        let mut c = Collision::default();
+        c.planes.push(Plane {
+            n: [1.0, 0.0, 0.0],
+            d: 0.0,
+        });
+        for k in 0..2 {
+            let (s, v0, e0) = (k as i32, c.vertices.len() as i32, c.edges.len() as i32);
+            let x = if k == 0 { 1.0 } else { -1.0 };
+            for j in 0..3 {
+                c.vertices.push(Vertex {
+                    point: [x, j as f32, (j % 2) as f32],
+                    first_edge: e0 + j,
+                });
+                c.edges.push(Edge {
+                    start: v0 + j,
+                    end: v0 + (j + 1) % 3,
+                    forward: e0 + (j + 1) % 3,
+                    reverse: -1,
+                    left: s,
+                    right: -1,
+                });
+            }
+            c.surfaces.push(Surface {
+                plane: 0,
+                first_edge: e0,
+                flags: 0,
+                breakable: -1,
+                material: k as i16,
+            });
+            c.bsp2d_references.push(Bsp2dReference {
+                plane: 0,
+                node: (SURFACE_FLAG | k as u32) as i32,
+            });
+            c.leaves.push(Leaf {
+                flags: 0,
+                reference_count: 1,
+                first_reference: k as i32,
+            });
+        }
+        c.bsp3d_nodes.push(Bsp3dNode {
+            plane: 0,
+            front: leaf_child(0),
+            back: leaf_child(1),
+        });
+        c
+    }
+
+    #[test]
+    fn a_cut_leaves_open_space_and_a_two_sided_piece() {
+        let mut c = two_leaves();
+        let pieces = shed(&mut c, 8, |c| c.surfaces.len() < 2).unwrap();
+        assert_eq!(c.surfaces.len(), 1);
+        assert_eq!(c.edges.len(), 3);
+        assert_eq!(c.bsp2d_references.len(), 1);
+        assert_eq!(c.vertices.len(), 6, "the bounds stay");
+        assert!(walk(&c, 0).is_some());
+        assert_eq!(pieces.len(), 1);
+        assert_eq!(pieces[0].surfaces.len(), 1);
+        assert_eq!(pieces[0].surfaces[0].flags & 1, 1);
+        let n = c.bsp3d_nodes[0];
+        let leaf = |k: i32| c.leaves[(k as u32 & !SURFACE_FLAG) as usize];
+        let (kept, open) = if leaf(n.front).reference_count == 1 {
+            (n.front, n.back)
+        } else {
+            (n.back, n.front)
+        };
+        assert_eq!(leaf(kept).first_reference, 0);
+        assert_eq!(leaf(open).reference_count, 0);
+    }
+
+    #[test]
+    fn a_bsp_that_fits_is_untouched() {
+        let mut c = two_leaves();
+        assert!(shed(&mut c, 8, |_| true).unwrap().is_empty());
+        assert_eq!(c.surfaces.len(), 2);
     }
 }

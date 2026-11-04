@@ -38,7 +38,12 @@ end
 
 --- Whether two { X, Y, Z } points are the same place.
 function Devices.near(a, b)
-    return math.abs(a.X - b.X) + math.abs(a.Y - b.Y) + math.abs(a.Z - b.Z) < Devices.NEAR_CM
+    return Devices.distance(a, b) < Devices.NEAR_CM
+end
+
+--- How far apart two { X, Y, Z } points are, as `near` measures it.
+function Devices.distance(a, b)
+    return math.abs(a.X - b.X) + math.abs(a.Y - b.Y) + math.abs(a.Z - b.Z)
 end
 
 --- Whether a shield's mesh shows, from its actor's hidden flag and position.
@@ -91,21 +96,30 @@ function Devices.tick()
     if state.done or os.time() - state.scanned < Devices.SCAN_S then return end
     state.scanned = os.time()
     local origin = (level.canvas and level.canvas.origin) or { 0, 0, 0 }
-    local scans, left = {}, 0
+    local scans, left, taken = {}, 0, {}
+    for _, bound in pairs(state.bound) do
+        if bound.actor:IsValid() then taken[bound.actor:GetAddress()] = true end
+    end
     for i, device in ipairs(level.devices) do
         if not state.bound[i] then
             left = left + 1
             scans[device.class] = scans[device.class] or FindAllOf(device.class) or {}
             local want = { X = origin[1] + device.pos[1], Y = origin[2] + device.pos[2], Z = origin[3] + device.pos[3] }
+            -- A door's parts stand centimetres apart, so the nearest actor
+            -- not yet taken is this device's.
+            local best, distance
             for _, actor in ipairs(scans[device.class]) do
-                local ok, done = pcall(function()
-                    return Devices.near(actor:K2_GetActorLocation(), want) and bind(device, actor)
-                end)
-                if ok and done then
-                    state.bound[i], left = { actor = actor }, left - 1
-                    env.Log(string.format("device %s rides its machine", tostring(device.name)))
-                    break
+                local ok, at = pcall(function() return actor:K2_GetActorLocation() end)
+                if ok and not taken[actor:GetAddress()] and Devices.near(at, want) then
+                    local d = Devices.distance(at, want)
+                    if not best or d < distance then best, distance = actor, d end
                 end
+            end
+            local ok, done = pcall(function() return best and bind(device, best) end)
+            if ok and done then
+                taken[best:GetAddress()] = true
+                state.bound[i], left = { actor = best }, left - 1
+                env.Log(string.format("device %s rides its machine", tostring(device.name)))
             end
         end
     end

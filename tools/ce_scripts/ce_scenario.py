@@ -25,6 +25,11 @@ import ce_hs  # noqa: E402
 BSP_ARRAYS = [("bsp3d_nodes", 12), ("planes", 16), ("leaves", 8), ("bsp2d_references", 8),
               ("bsp2d_nodes", 20), ("surfaces", 12), ("edges", 24), ("vertices", 16)]
 
+# The placement blocks an object name can point into: kind, field, element size.
+OBJECT_BLOCKS = [("scenery", 0x210, 72), ("biped", 0x228, 120), ("vehicle", 0x240, 120), ("equipment", 0x258, 40),
+                 ("weapon", 0x270, 92), ("machine", 0x294, 64), ("control", 0x2AC, 64),
+                 ("light_fixture", 0x2C4, 88), ("sound_scenery", 0x2DC, 40)]
+
 
 class Scenario:
     def __init__(self, path, tags=None):
@@ -87,6 +92,18 @@ class Scenario:
     def machines(self):
         return self.placements(0x294, 0x2A0)
 
+    def named_objects(self):
+        """Which block each object name's placement is in: name -> {kind, index,
+        position, rotation}. Scripts type a name by what it was placed as."""
+        names, out = self.names(), {}
+        for kind, field, size in OBJECT_BLOCKS:
+            for i, o in enumerate(self.block(self.s, field, size)):
+                n = self.i16(o + 2)
+                if 0 <= n < len(names):
+                    out.setdefault(names[n], {"kind": kind, "index": i, "not_placed": self.u16(o + 4),
+                                              "position": self.f(o + 8, 3), "rotation": self.f(o + 0x14, 3)})
+        return out
+
     def controls(self):
         return self.placements(0x2AC, 0x2B8)
 
@@ -110,6 +127,14 @@ class Scenario:
         return {"bounding_radius": self.f(o + 4), "position_transition": self.f(o + 0x188),
                 "power_transition": self.f(o + 0x180), "animated": self.datum_of(o + 0x38) is not None,
                 "bsps": self.collision(coll) if coll is not None else []}
+
+    def scenery_tag(self, index):
+        """What `device_tag` gives, for a scenery placement."""
+        at = self.block(self.s, 0x210, 72)[index]
+        datum = self.palette(0x21C)[self.i16(at)]
+        o = self.map.off(self.map.tags[datum][2])
+        coll = self.datum_of(o + 0x70)
+        return {"bounding_radius": self.f(o + 4), "bsps": self.collision(coll) if coll is not None else []}
 
     def collision(self, datum):
         """Each BSP of a collision model: its node's name and its raw arrays."""

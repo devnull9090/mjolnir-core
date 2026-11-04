@@ -11,8 +11,10 @@ dir` is tools/level/ce_machines.py's output.
 
 The script decides what comes across: the machines and controls it names
 become placements of the simulation's own, the trigger volumes and cutscene
-flags it names are carried over, and nothing else. A name the map has no
-object for stops the tool, since the engine would silently drop that script.
+flags it names are carried over. So does each automatic door machines.json
+holds, one machine per moving part, and scenery ce_promote.py marked. A machine
+the script names and machines.json lacks stops the tool, since the engine would
+silently drop every script that uses it.
 
 - The parts that move leave the map's meshes (triangles matched to the staged
   model, so every other section keeps its slot and lighting) and become meshes
@@ -43,10 +45,21 @@ import ce_scenario  # noqa: E402
 from merge_ce_scene import ce_rotation, ce_to_gltf, load_gltf, primitives, write_gltf  # noqa: E402
 
 CM = 304.8
+WU_M = 3.048
 
 
 def to_ue(p):
     return [round(p[0] * CM, 1), round(-p[1] * CM, 1), round(p[2] * CM, 1)]
+
+
+def group_lanes(device):
+    """A placement's `power_group` and `position_group`, where it has them."""
+    return {k: device[k + "_name"] for k in ("power_group", "position_group") if k + "_name" in device}
+
+
+def gltf_to_ce(p):
+    """`ce_to_gltf` undone: glTF metres, y up, to CE world units."""
+    return [float(p[0]) / WU_M, -float(p[2]) / WU_M, float(p[1]) / WU_M]
 
 
 def yaw_ue(rot):
@@ -136,26 +149,45 @@ def main():
     text = open(a.script, encoding="utf-8").read()
     words = script_words(text)
 
-    machines = [m for m in scenario.machines() if m["name"] in words]
+    # Every part of what moves: a device, its tag, the node it rides and where
+    # it stands (a door's parts stand at their nodes). An unnamed door gets a
+    # name of its own: the level's lanes and the loader's list go by name.
+    machines = []
+    staged = [e for e in placement["entries"] if e["kind"] == "machine" and not e.get("promoted")]
+    if len(staged) != len(scenario.machines()):
+        sys.exit("the staging's machines do not line up with the scenario's")
+    for m in scenario.machines():
+        spec = built.get(m["tag"])
+        if m["name"] in words and not spec:
+            sys.exit(f"{m['name']}: {m['tag']} is not in machines.json")
+        if m["name"] in words and spec and "parts" not in spec:
+            machines.append({**m, "spec": spec, "entry": staged[m["index"]], "auto": False})
+        elif spec and "parts" in spec and (m["name"] in words or not m["flags"] & 1):
+            r = ce_rotation(*m["rotation"])
+            for j, part in enumerate(spec["parts"]):
+                at = ce_to_gltf(m["position"]) + r @ ce_to_gltf(part["offset"])
+                machines.append({**m, "name": f"{m['name'] or 'door%d' % m['index']}_{j}", "spec": part,
+                                 "position": gltf_to_ce(at), "entry": staged[m["index"]], "auto": part["kind"] == "door"})
+    objects = scenario.named_objects()
+    for e in placement["entries"]:
+        name = e.get("promoted")
+        if name and name in words and e["asset"] in built:
+            o = objects[name]
+            machines.append({"name": name, "tag": e["asset"], "position": o["position"], "rotation": o["rotation"],
+                             "spec": built[e["asset"]], "entry": e, "auto": False})
     controls = [c for c in scenario.controls() if c["name"] in words]
     volumes = [v for v in scenario.trigger_volumes() if v["name"] in words]
     flags = [f for f in scenario.cutscene_flags() if f["name"] in words]
-    for m in machines:
-        if m["tag"] not in built:
-            sys.exit(f"{m['name']}: {m['tag']} is not in machines.json")
     print(f"{len(machines)} machine(s), {len(controls)} control(s), {len(volumes)} volume(s), {len(flags)} flag(s)")
 
     # The staged entries, in machine order, and each moving part's vertices.
-    staged = [e for e in placement["entries"] if e["kind"] == "machine"]
-    if len(staged) != len(scenario.machines()):
-        sys.exit("the staging's machines do not line up with the scenario's")
     moving = []
     for m in machines:
-        e = staged[m["index"]]
+        e = m["entry"]
         g, buf = load_gltf(os.path.join(a.staging, e["model"]))
         r = ce_rotation(*e.get("rot", [0, 0, 0]))
         t = ce_to_gltf(e["pos"])
-        node = built[m["tag"]]["node"]
+        node = m["spec"]["node"]
         verts = set()
         for p in primitives(g, buf):
             pos = p["pos"] @ r.T + t
@@ -165,7 +197,11 @@ def main():
         moving.append(verts)
 
     # The two meshes the parts leave.
-    jobs = [("scene.gltf", "basicshapes/cylinder", "Terrain"), ("scene_translucent_nowater.gltf", "basicshapes/cone", "Translucent")]
+    # A map with no water has no water-free copy of its transparent parts.
+    clear = "scene_translucent_nowater.gltf"
+    if not os.path.exists(os.path.join(a.scene, clear)):
+        clear = "scene_translucent.gltf"
+    jobs = [("scene.gltf", "basicshapes/cylinder", "Terrain"), (clear, "basicshapes/cone", "Translucent")]
     parts = [{"opaque": [], "clear": []} for _ in machines]
     spawned = {}
     for gltf, donor, suffix in jobs:
@@ -190,7 +226,6 @@ def main():
     # A mesh per machine's opaque and transparent parts.
     decor, devices, added = [], [], []
     for k, (m, part) in enumerate(zip(machines, parts)):
-        e = staged[m["index"]]
         ids = []
         for kind, prims in (("", part["opaque"]), ("t", part["clear"])):
             if not prims:
@@ -214,14 +249,16 @@ def main():
                           "materials": [s["material"] for s in slots], "cast_shadow": False})
         if not ids:
             sys.exit(f"{m['name']}: no triangles matched; is the scene built from this staging?")
-        devices.append({"name": m["name"], "class": built[m["tag"]]["class"], "pos": to_ue(e["pos"]), "decor": ids,
-                        "shield": built[m["tag"]]["kind"] == "shield"})
+        devices.append({"name": m["name"], "class": m["spec"]["class"], "pos": to_ue(m["position"]), "decor": ids,
+                        "shield": m["spec"]["kind"] == "shield"})
         print(f"  {m['name']}: {ids}")
 
     for leaf in ("Terrain", "Translucent", "Sky", "Water"):
         name = f"SM_{code}_{leaf}"
         at = os.path.join(a.out, name + ".uasset")
         if not os.path.exists(at):
+            if not os.path.exists(os.path.join(a.scene, name + ".uasset")):
+                continue
             shutil.copyfile(os.path.join(a.scene, name + ".uasset"), at)
         added += ["--package", f"{root}/{name}={at}"]
     po = subprocess.run([os.path.join(a.examples, "package_add.exe"), a.paks, a.out, "--name", f"pakchunk986-MJOLNIRMESH-{code}_P"] + added,
@@ -236,15 +273,27 @@ def main():
     blam["object_names"] = [m["name"] for m in machines] + [c["name"] for c in controls]
     blam["trigger_volumes"] = [{"name": v["name"], "pos": to_ue(v["position"]), "forward": v["forward"], "up": v["up"],
                                 "extents": v["extents"]} for v in volumes]
+    # A group a script names, or that ties a carried control to a machine.
+    groups = scenario.device_groups()
+    used = {g["name"] for g in groups if g["name"] in words}
+    for d in machines + controls:
+        for lane in ("power_group", "position_group"):
+            k = d.get(lane, -1)
+            if 0 <= k < len(groups):
+                d[lane + "_name"] = groups[k]["name"]
+                used.add(groups[k]["name"])
+    blam["device_groups"] = [{"name": g["name"], "initial_value": g["initial_value"], "flags": g["flags"]}
+                             for g in groups if g["name"] in used]
     blam["cutscene_flags"] = [{"name": f["name"], "pos": to_ue(f["position"]), "yaw": round(-math.degrees(f["facing"][0]), 2),
                                "pitch": round(math.degrees(f["facing"][1]), 2)} for f in flags]
     for m in machines:
         r = m["rotation"]
-        blam["objects"].append({"tag": built[m["tag"]]["tag"], "group": "machines", "pos": to_ue(m["position"]),
+        blam["objects"].append({"tag": m["spec"]["tag"], "group": "machines", "pos": to_ue(m["position"]),
                                 "rot": [0, yaw_ue(r), 0], "name": m["name"],
                                 "set": {"object data.rotation": "({}, {}, {})".format(*r),
                                         # "does not operate automatically" and "does not close automatically".
-                                        "machine data.flags": "0x21"}})
+                                        "machine data.flags": "0x0" if m["auto"] else "0x21"},
+                                **group_lanes(m)})
     for c in controls:
         r = c["rotation"]
         blam["objects"].append({"tag": built["_control"]["tag"], "group": "controls", "pos": to_ue(c["position"]),
@@ -252,7 +301,8 @@ def main():
                                 # The game's panel faces its actor's forward; CE's holo
                                 # panel's front is the other way.
                                 "set": {"object data.rotation": "({}, {}, {})".format(r[0] + math.pi, r[1], r[2]),
-                                        "control data.flags": "0x1"}})
+                                        "control data.flags": "0x1"},
+                                **group_lanes(c)})
     script = f"{code.lower()}.hsc"
     shutil.copyfile(a.script, os.path.join(a.out, script))
     blam["script"] = script
