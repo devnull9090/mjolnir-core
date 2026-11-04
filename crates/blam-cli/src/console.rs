@@ -679,3 +679,29 @@ pub fn run(a: ConsoleArgs) -> Result<()> {
     }
     Ok(())
 }
+
+/// The scripting corpus at `path`, plus every function of the engine's table
+/// (`console.json` beside it) that the campaign never calls.
+pub fn corpus_with_declared(path: &std::path::Path) -> Result<blam_hsc::ScriptCorpus> {
+    let mut corpus = blam_hsc::ScriptCorpus::load(path)?;
+    let table = path.with_file_name("console.json");
+    let text = std::fs::read_to_string(&table).with_context(|| format!("reading {}", table.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)?;
+    let functions = value["functions"].as_array().context("console.json has no functions")?;
+    let declared: Vec<_> = functions
+        .iter()
+        .filter_map(|f| {
+            let flags = f["flags"].as_u64()?;
+            Some(blam_hsc::DeclaredFunction {
+                opcode: f["index"].as_u64()? as u16,
+                name: f["name"].as_str()?.to_string(),
+                returns: f["returns"].as_str()?.to_string(),
+                parameters: f["parameters"].as_array()?.iter().filter_map(|p| Some(p.as_str()?.to_string())).collect(),
+                special_form: flags & 2 != 0,
+                illegal_in_scripts: flags & 4 != 0,
+            })
+        })
+        .collect();
+    corpus.merge_declared(&declared);
+    Ok(corpus)
+}

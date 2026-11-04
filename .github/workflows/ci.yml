@@ -42,6 +42,9 @@ jobs:
           lua5.4 tools/tests/test_pack_lifts.lua
           lua5.4 tools/tests/test_lifts_runtime.lua
 
+      - name: Test a CE map's device helpers
+        run: lua5.4 tools/tests/test_devices.lua
+
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 

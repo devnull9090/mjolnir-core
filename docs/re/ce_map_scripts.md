@@ -7,6 +7,36 @@
 the corpus calls against `defs/hce/console.json` and the compiler corpus)
 **Example:** [`yoyorast_island_v2.decompiled.hsc`](yoyorast_island_v2.decompiled.hsc)
 
+## Status (2026-11-04)
+
+Yoyorast Island V2's buttons, gates and panic shields work on a host, in a
+private Megalo Slayer game on PC 1. See [Yoyorast in game](#yoyorast-in-game).
+No fireteam client has seen them yet, and nothing has been published.
+
+Corrections to what follows, from reading the sim and from the game:
+
+- **The engine compiles `source files` at load.** A scenario's `scripts` block
+  is emptied at load (`0x2b7800` → `0x2d7160`) and rebuilt from the source by
+  `0x1f5900`, so the tree `blam_hsc` writes has no effect at run time. The
+  product is HSC text the engine accepts.
+- **One bad literal costs that script and its dependents**, not every script
+  (`0x1f64cf` marks one bit). Only a first-pass error, such as a bad script
+  header, loses the rest of its source file.
+- **An unregistered `string_id` literal can be made legal.** Script names
+  register in the compiler's first pass (`0x1f60fa`), before literals are read:
+  `(script static void bluedanube (sleep 0))` lets `"bluedanube"` through.
+  Proven on DVT. Names in `object names`, `cutscene flags` and `trigger volumes`
+  register themselves: unregistered ones resolve.
+- **A name no placement claims kills every script that uses it** (`0x34fb00`:
+  "no object exists with this name").
+- **YOY has 51 scripts**, not 59, and nothing wakes the two dormant ones, so
+  its three absent functions never run.
+- **`sleep` counts 30 Hz units at any tick rate**, so `(sleep 1800)` stays
+  60 seconds at 60 ticks a second.
+- **`h2_machines.py` is on main.**
+- `game_multiplayer` and `game_player_count` are void setup commands that take
+  an argument, not queries, so neither can gate anything. None is needed.
+
 ## Summary
 
 Community CE maps lose all of their scripting when we convert them, and the
@@ -241,16 +271,94 @@ string table also holds a map's own script names (`red_fb_kill`, `wave1`, ...).
 A few hundred maps are protected. Script names with spaces (`is_server check`)
 are the protector's renames and do not affect the tree.
 
-## Still unverified
+## Yoyorast in game
 
-1. **A fireteam client's press on a `device_control` reaches the host, and the
-   machine's position replicates back to the client.** If it does not, the
-   sync layer has to stay in some form.
-2. **Whether HS runs on clients at all.** If it runs on every machine without
-   being synced, `object_create` fires twice and the host-gating stubs above
-   become necessary.
+Tested on PC 1 as host, 2026-11-04, with real presses through `game_input`
+(`game_input` mouse and keys do reach a player in a match).
 
-Both are DVT tests with PC 2 joined: one person presses the top switch on the
-client, and both screens should show the door open, then close 10 s later.
-Then a press on the host. The bottom switch drives the elevator through its
-device group with no script at all, which tests the native path the same way.
+| Check | Result |
+|---|---|
+| prompt on a button, "E ACTIVATE DEVICE" | yes |
+| real press on `gateramp_control` | control 1, machine travels 1.856 wu down |
+| `gatemain` rises, drawn with the CE mesh | yes |
+| `gatemain` raised stops a player; lowered lets one walk through | yes |
+| `panichall2` shield appears, blocks, and disappears | yes |
+| a control resets 60 s after a press, and its device follows | yes |
+| the random teleporter sends a player to a destination | yes |
+| `deathbox` kills a player | yes |
+| `gatepath` moves | yes; a player blocked by it was **not** walked |
+| `gateflag1`/`gateflag2` hatches | **not** walked |
+| fireteam client (press, position, shield, teleporter) | **not tested** |
+| bots at a raised gate | **not tested**; their pathfinding does not know gates |
+
+How it is built, with no reconvert:
+
+- `tools/ce_scripts/ce_scenario.py` reads the scenario blocks scripts name.
+- `tools/level/ce_machines.py` builds a machine tag family per CE tag from
+  B40's elevator. The elevator's own position animation is a root slide, so a
+  gate only needs new frames (`slide_resource`). CE's collision BSP crosses
+  unchanged: the node's rest offset goes in the donor's second node instead.
+- `tools/level/add_devices.py` takes the moving parts out of the map's meshes
+  by matching triangles to the staged model (slots and lighting stay), builds a
+  mesh per machine, and writes the level lanes.
+- `tools/level/data/yoy.hsc` is YOY's script by hand: one rule and the original
+  60 s reset per device, the random teleporter and `deathbox`.
+- `MJOLNIRLevelLoader/Scripts/devices.lua` rides each mesh on its machine.
+
+What the game taught:
+
+- A gate retracted flush with the floor stops a biped dead where CE walks over
+  it: moving collision has no step-up. The low end of a vertical slide sinks
+  0.15 wu further (`SINK`).
+- A panic shield stays a machine, parked 300 wu down at position 0, rather than
+  being created and destroyed. A destroyed actor returns to a shared pool, which
+  an attached mesh cannot follow. The game stops updating an actor it hides, so
+  `Devices.shows` shows a shield's mesh only while its actor is shown and home.
+- A device the player cannot see shows its old position in Unreal until it is
+  seen. The sim moves it regardless.
+- A CE control's yaw points into its wall, so the game's panel, which faces its
+  actor's forward, turns 180°.
+- Buttons are B40's Forerunner panel with an `activate_device` prompt, which
+  draws itself. CE's holo panel has no material in the map's cook, and its four
+  custom prompts ("toggle the main gate") have no route.
+
+Not carried yet: the teleporter's direction pips (scenery permutations),
+vehicle respawns and the volumes that test a named vehicle (a vehicle comes
+through the map variant, which holds no name), race detection, device sounds,
+`panicbal`'s 1.1 scale. YOY's original names for two kill volumes are not
+carried either.
+
+The clean build also hosts CTF: the devices bind and its scripts run. A
+device's rule does not depend on the game type, since HS has no mode gate.
+YOY's King, Oddball and Race markers are another matter, and need the work in
+[`../game_modes.md`](../game_modes.md).
+
+## Other maps
+
+The tools are general; `yoy.hsc` is not. Of the corpus's 62 maps whose scripts
+move devices, 15 use a sync layer like YOY's (a unit's death moving a device,
+or crushers): Sanctuary, Precipice, Discovery and others. Each needs its script
+rewritten by hand, or a pattern tool that turns that layer into rules. A map
+whose script drives a device directly needs only the name, volume and flag
+lanes. Over the whole corpus, 482 of the 759 scripted maps pass the function,
+string id and AI checks with no further work; 191 use tag literals, which need
+a CE to CU4 path table.
+
+## Clients, from reading the sim
+
+Both questions are answered statically; only the two-PC run is left.
+
+1. **HS on a client.** `0x1fca30` spawns only dormant threads on a client
+   (simulation type 4), so startup and continuous scripts run on the host alone.
+   `is_server` is the constant `true`. The byte has not been read live on a
+   joiner.
+2. **A client's press.** `0x193b90` sends simulation event `0x22`; the host's
+   `0x591dc0` checks the unit and a distance under 2 wu, then runs the press.
+   Device position and power reach clients by entity update (`0x58f950`).
+
+One open risk: `teleport_player` moves a player from the host, and on Halo 2's
+lifts a push the host sends a joiner's unit did nothing.
+
+The test: host on PC 1, PC 2 joins YOY. Press a gate button on each, watch both
+screens, walk into a raised gate on the client, press a panic shield, and go
+through the teleporter on the client.

@@ -173,6 +173,19 @@ impl FunctionDef {
     }
 }
 
+/// One function as the engine's table declares it.
+#[derive(Debug, Clone)]
+pub struct DeclaredFunction {
+    pub opcode: u16,
+    pub name: String,
+    pub returns: String,
+    pub parameters: Vec<String>,
+    /// Parsed by a form of its own: its declared parameters are empty.
+    pub special_form: bool,
+    /// The engine refuses it in a script file.
+    pub illegal_in_scripts: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ParameterDef {
     /// Value types passed at this position, with counts.
@@ -210,6 +223,42 @@ impl ScriptCorpus {
         let mut text = serde_json::to_string_pretty(self)?;
         text.push('\n');
         Ok(text)
+    }
+
+    /// Add the functions the campaign never calls, from the engine's own
+    /// table (`defs/hce/console.json`), so a script can use anything the
+    /// engine accepts. `opcode == console index` holds for all 483 attested
+    /// functions (`mjolnir console` asserts it), and their declared types
+    /// agree with every observed argument. Attested entries are left alone,
+    /// so what the corpus learned about quoting stays.
+    pub fn merge_declared(&mut self, declared: &[DeclaredFunction]) {
+        for d in declared {
+            if d.illegal_in_scripts || self.functions.contains_key(&d.opcode) {
+                continue;
+            }
+            let n = d.parameters.len();
+            let (min_args, max_args) = if d.special_form { (0, 255) } else { (n, n) };
+            self.functions.insert(
+                d.opcode,
+                FunctionDef {
+                    name: d.name.clone(),
+                    returns: BTreeMap::from([(d.returns.clone(), 2)]),
+                    min_args,
+                    max_args,
+                    parameters: d
+                        .parameters
+                        .iter()
+                        .map(|t| ParameterDef {
+                            types: BTreeMap::from([(t.clone(), 2)]),
+                            always_present: true,
+                            ..Default::default()
+                        })
+                        .collect(),
+                    call_sites: 2,
+                    scenarios: 0,
+                },
+            );
+        }
     }
 
     /// Look an opcode up by the name a script would call it with.
