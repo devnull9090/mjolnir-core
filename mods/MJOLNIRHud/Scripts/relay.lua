@@ -30,6 +30,9 @@ local CARRIED = {
     kill = true, suicide = true, death = true, first_blood = true, flag_scored = true,
     player_joined = true, player_rejoined = true, player_quit = true, player_booted_player = true,
     ball_taken = true, hill_controlled = true,
+    -- The hill line's place in the rotation: nobody is its player, so a
+    -- client's own incidents may not bring it (Scripts/hill.lua).
+    hill_moved = true,
     -- Who is alive on the scoreboard (#249): a client hears only its own spawns.
     player_spawn = true,
 }

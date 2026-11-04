@@ -672,9 +672,9 @@ maps counted, 46 offer both, with 4 to 14 hills. Nightfall has one stray
 - **Telling where the hill is.** No waypoint or boundary reaches Unreal (B4,
   B5). The variant raises `hill_moved` with the hill's place as its value, the
   level file lists `koth_hills`, and `mods/MJOLNIRHud/Scripts/hill.lua` draws one
-  line under the score: "HILL 12 M LEFT ABOVE", "ON THE HILL". There is still no
-  boundary in the world, and `hill_moved` is not yet seen on a client (a client
-  would stay on hill 1 if it never arrives).
+  line under the score: "HILL 12 M LEFT ABOVE", "ON THE HILL". The HUD's relay
+  carries `hill_moved` to clients, untested on two PCs; a player joining mid-match
+  shows hill 1 until the next move. There is still no boundary in the world.
 - **Oddball's ball** is the flag tag (type 18) drawn as the skull, always made at
   the first spawn the label loop reaches: other spawns are unused. There is no
   marker for a loose or carried ball, so a player finds it by eye.
@@ -699,7 +699,8 @@ lobby menu by hand (`mjolnir_auto` hosted both modes).
 
 Shipping needs a mods release (DLL, both variants, HUD) and then each map
 rebaked: the placements are in the scenario. `add_bots.py` is the pattern for
-rebaking hub packs.
+rebaking hub packs. `upgrade_ce_map.py`'s install stage refuses a level whose
+`modes` name a variant not installed, so it needs the new variants first.
 
 ### 3.5 Race: assessment, not built
 
