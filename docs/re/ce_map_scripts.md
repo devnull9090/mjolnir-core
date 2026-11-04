@@ -11,7 +11,10 @@ the corpus calls against `defs/hce/console.json` and the compiler corpus)
 
 Yoyorast Island V2's buttons, gates and panic shields work on a host, in a
 private Megalo Slayer game on PC 1. See [Yoyorast in game](#yoyorast-in-game).
-No fireteam client has seen them yet, and nothing has been published.
+Sanctuary Final's buttons, floor and automatic doors work the same way from a
+translated script: see [the translator](#other-maps-the-translator) and
+[Sanctuary Final in game](#sanctuary-final-in-game). No fireteam client has seen
+either, and nothing has been published.
 
 Corrections to what follows, from reading the sim and from the game:
 
@@ -333,16 +336,110 @@ device's rule does not depend on the game type, since HS has no mode gate.
 YOY's King, Oddball and Race markers are another matter, and need the work in
 [`../game_modes.md`](../game_modes.md).
 
-## Other maps
+## Other maps: the translator
 
-The tools are general; `yoy.hsc` is not. Of the corpus's 62 maps whose scripts
-move devices, 15 use a sync layer like YOY's (a unit's death moving a device,
-or crushers): Sanctuary, Precipice, Discovery and others. Each needs its script
-rewritten by hand, or a pattern tool that turns that layer into rules. A map
-whose script drives a device directly needs only the name, volume and flag
-lanes. Over the whole corpus, 482 of the 759 scripted maps pass the function,
-string id and AI checks with no further work; 191 use tag literals, which need
-a CE to CU4 path table.
+`tools/ce_scripts/ce_translate.py` turns a map's own script into HSC, so
+`yoy.hsc` is no longer the pattern to copy by hand. It reads the syntax data as
+a tree that keeps each literal's type, and writes the script and a report: what
+to carry, and everything left out, with why.
+
+| Pass | What it does |
+|---|---|
+| Normalise | names without spaces, spelled as their blocks spell them (CE kept what the script typed); initialisers folded |
+| Host | a flag set by a health probe, or named for the server or host, becomes `true`, and client branches go |
+| Sync | a check and sync script pair around a control becomes one rule, with its direction read from the sync script. Any other signal biped becomes a boolean, and a wait straight after its own signal goes |
+| Create and destroy | scenery and unanimated machines are parked by position; `*_containing` expands over names |
+| Functions | the rename and drop table, seat labels, `ce_tag_paths.json` for tag literals |
+| Names | a statement naming something the bake does not carry goes, not the script; a script left with nothing to do goes too |
+| Registrars | a static script for each unregistered `string_id` literal |
+
+Over the 759 scripted maps of the mirror (`check_corpus.py`), every map's output
+compiles. (One failed on an empty script name, 7063; fixed, and that map rechecked.)
+Over the 65 that move a device, 0 are refused. **Compiling is not running:** only
+YOY's rules and Sanctuary have been in a game. 69 maps have signals, and only YOY
+has the check and sync shape; the rest keep their logic on booleans (Hypothermia's
+elevators read correctly, by eye). Yoyorast's translation matches `yoy.hsc`: the
+same 10 rules, resets, `gatepath`'s inversion and start, the teleporter and
+`deathbox` (`test_ce_translate.py`, with `CE_YOY_MAP` set).
+
+The brief's count of 191 maps needing a tag table was high. 203 distinct tag
+literals survive to that pass, in 111 maps, and only 11 are stock paths; the rest
+are the maps' own tags, which the game does not have. So the table holds six
+entries, four chosen by hand, and none has been heard or seen in game. What a
+map loses that way is an effect or a sound, and the report names each one.
+
+Building a map:
+
+```
+ce_translate.py <map> <code>.hsc --report report.json --tags <staging>/tags.json
+ce_promote.py <map> <staging> --names <report's promote>     # before converting
+convert_ce_map.sh <staging> <CODE> <out>
+ce_machines.py <map> <staging> <CODE> <machines> --report report.json --auto
+add_devices.py <map> <staging> <out> <level> <level> <CODE> <dir> --script <code>.hsc --machines <machines>
+mjolnir level bake <dir>/<code>.base.level.json --standalone <CODE> ...
+```
+
+`ce_promote.py` has to run first: scenery goes into the BSP's collision at
+conversion, where nothing can move it.
+
+## Sanctuary Final in game
+
+Tested on PC 1 as host, 2026-11-04, private Slayer, real presses through
+`game_input`. Lightmaps were the map's shipped pages and foliage was off: the
+solver had not finished Sanctuary after 35 minutes. Reaching the devices took a
+test-only copy with teleports; the clean build was then loaded and its devices
+checked, not pressed.
+
+| Check | Result |
+|---|---|
+| map converts, loads, 69 machines and 2 controls bind | yes |
+| translated script runs (the startup script raises the platforms) | yes |
+| `pod_switch`: prompt, real press | yes |
+| platforms leave after the original's `delay_time` of 20 s | yes: still up 2 s after the press, gone at 23 s |
+| deck opens, meshes and collision gone, vehicles on it fall | yes |
+| platforms return after `pod_time`, 60 s more | yes: gone at 35 s, back at 93 s, the times read |
+| `reset_switch` press reaches its script | yes |
+| automatic door: closed at rest, opens at about 5 m, both halves drawn moving | yes |
+| walk through the open door; it closes behind | yes |
+| a closed door stops a player | **not tested**: it opens first |
+| a second `pod_switch` press after the cycle | **not tested** |
+| fireteam client | **not tested** |
+
+What is different from CE: the 12 HEV pods are not carried, since a vehicle comes
+through the map variant, which holds no name. Stand-ins from the vehicle palette
+sit on the deck and fall, but no script loads players into them, and `reset_switch`
+has nothing left to reset. Sanctuary's pods were the map's way down from the
+station, so the drop is a hole in the floor for now.
+
+Precipice stages and translates but was not converted. Its 16 controls are unnamed
+and belong to no device group, so they drive nothing; its boss is custom effects,
+sounds and AI.
+
+What these maps taught:
+
+- **Neither map's doors are scripted.** They are door-type machines no script
+  names, which open by themselves. `ce_machines.py --auto` carries them.
+- **A CE door is several parts moving apart**, each with a BSP, and a clone of
+  B40's elevator has one moving root. Each part is a door of its own, placed at
+  its node. Sanctuary's doors are 66 machines this way, and every tag family is
+  five containers. Two door tags stay still: `882` has rotated nodes and `827`'s
+  collision names nodes its render model lacks.
+- **Both maps overflow the 16-bit collision tables** (37,784 and 40,304 surfaces
+  against 32,767). `split::shed` cuts subtrees out of the tree, leaves open space
+  there, and gives their surfaces to two-sided standalone pieces. Players walked
+  the deck and a corridor; bullets and bots were not tried in a cut region, and
+  bots may find no sectors there. Sanctuary's BSP and scenery came to six
+  instances.
+- **halo2ue died on both maps**: a lightmap vertex pointer held a heap address
+  above the BSP's magic. The fix is branch `fix/bsp-lightmap-pointer-bounds` in
+  HalcyonRing, not pushed, so `convert_ce_map.sh`'s default exporter still fails;
+  YOY stages byte-identically with it.
+- A teleport into solid reads as the Guardians taking the player. Check a flag
+  against the staged BSP first.
+
+Turning devices are built (`ce_machines.py`, by `h2_machines.turn_resource`, the
+node's frames read as one axis) and tested on frames only. Neither map scripts one
+with collision, so no CE turning device has been in a game.
 
 ## Clients, from reading the sim
 

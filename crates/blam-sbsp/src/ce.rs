@@ -31,7 +31,7 @@ pub struct Manifest {
     pub scenery_surfaces: Option<ScenerySurfaces>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
 pub struct ScenerySurfaces {
     pub objects: usize,
     /// How many of the last surfaces are scenery.

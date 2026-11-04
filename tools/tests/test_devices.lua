@@ -11,4 +11,5 @@ assert(not Devices.near({ X = 0, Y = 0, Z = 0 }, { X = 40, Y = 0, Z = 0 }), "ano
 assert(Devices.shows(false, 1.0), "a shield at home shows")
 assert(not Devices.shows(false, 0.0), "a parked shield does not")
 assert(not Devices.shows(true, 0.583), "the game stopped updating a hidden shield mid-move: it is parking")
+assert(Devices.distance({ X = 0, Y = 0, Z = 0 }, { X = 1, Y = -2, Z = 3 }) == 6)
 print("ok")

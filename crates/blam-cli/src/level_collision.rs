@@ -237,7 +237,9 @@ pub fn run(a: CollisionArgs) -> Result<()> {
         // the structure body, each piece with a tree of its own.
         let mut collision = staged.collision;
         let mut scenery = Vec::new();
-        if let Some(tail) = staged.manifest.scenery_surfaces {
+        // A map with no scenery can overflow by itself too: an empty tail.
+        let tail = staged.manifest.scenery_surfaces.unwrap_or_default();
+        if tail.surfaces > 0 || !blam_sbsp::scenery::fits(&collision) {
             let first = collision.surfaces.len().saturating_sub(tail.surfaces);
             let (c, pieces, placed) =
                 blam_sbsp::scenery::place(collision, first, convert::MAX_SURFACE_KEYS)

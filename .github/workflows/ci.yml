@@ -194,6 +194,8 @@ jobs:
 
       - name: Test the weekly update tool
         run: python -m unittest discover -s tools/weekly -p test_weekly_update.py
+      - name: CE script translator tests
+        run: python -m unittest discover -s tools/ce_scripts -p test_ce_translate.py
 
       - name: Check Forge packs and maps for colliding and z-fighting pieces
         run: python -m unittest discover -s tools/forge -p test_check_overlaps.py

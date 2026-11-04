@@ -1,0 +1,11 @@
+{
+ "comment": "CE tag path to CU4 tag path, for tag literals in scripts. tools/ce_scripts/build_tag_paths.py adds leaf-name matches; the explosions are chosen by hand. Untested in game.",
+ "paths": {
+  "sound\\sfx\\ui\\countdown_for_respawn": "sound/game_sfx/multiplayer/countdown_for_respawn.sound",
+  "vehicles\\scorpion\\shell explosion": "objects/vehicles/human/scorpion/fx/weapon/cannon/detonation.effect",
+  "weapons\\flag\\flag": "objects/weapons/multiplayer/flag/flag.weapon",
+  "weapons\\plasma grenade\\effects\\explosion": "objects/weapons/grenade/plasma_grenade/fx/detonation.effect",
+  "weapons\\rocket launcher\\effects\\rocket explosion": "objects/weapons/support_high/rocket_launcher/fx/detonation.effect",
+  "weapons\\rocket launcher\\explosion": "objects/weapons/support_high/rocket_launcher/fx/detonation.effect"
+ }
+}
