@@ -299,6 +299,11 @@ units and axes, so every later step reads them unchanged:
   2026-10-25). Maps with player lifts: Lockout, Midship, Cyclotron,
   Colossus, Coagulation, Headlong, High Plains (hvac), Backwash, Foundation,
   Warlock, Derelict, Dune (watchtowers), Ascension and Gemini (jump pads).
+  `lifts` is a key only the loader reads, so a published pack gets them
+  without a rebake: `tools/level/add_lifts.py` stages the map, adds the block
+  to the pack's level file and packs the next version, and checks nothing
+  else changed (the bots stay as baked). The other 11 maps have no phantom
+  that pushes players and need no new pack.
 - **Moving collision.** The simulation does all collision, never reads
   Unreal geometry, and its structure BSP cannot move: an arm's collision
   baked at rest stood where the arm only sometimes is. Rewriting a live
