@@ -39,25 +39,78 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.7.0",
+      "tag": "cli-v0.7.0",
+      "title": "Forge packs, bots on every map, and scripts that load",
+      "date": "2026-11-03",
+      "summary": "The CLI packages Forge packs, bakes the pathfinding and tasks bots need into each level, and makes a level's baked scripts load.",
+      "body": "### Added\n\n- **Forge packs.** `mjolnir forge pack` packages a Forge manifest and cooked\n  containers as a `.mjolnir` file for the hub, optionally signed by its author.\n- **Bots in baked levels.** `mjolnir level bake` generates the pathfinding,\n  firing positions and area tasks bots use, and writes them to `bots.json`.\n- **A level's own scripts.** A level file can bring its own scripts.\n\n### Fixed\n\n- **Baked scripts load.** Scripts in a baked level were dropped when the map\n  loaded. They now run.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge packs. mjolnir forge pack packages a Forge manifest and cooked containers as a .mjolnir file for the hub, optionally signed by its author.",
+            "Bots in baked levels. mjolnir level bake generates the pathfinding, firing positions and area tasks bots use, and writes them to bots.json.",
+            "A level's own scripts. A level file can bring its own scripts."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Baked scripts load. Scripts in a baked level were dropped when the map loaded. They now run."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.7.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.7.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.7.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.43.1",
       "tag": "mods-v0.43.1",
       "title": "Forge checks layout files before loading them",
       "date": "2026-11-03",
-      "summary": "Forge checks a saved layout's label tables before handing it to the game, and refuses a malformed file with the reason instead of loading it.",
-      "body": "### Fixed\n\n- **Malformed layouts are refused** (MJOLNIRForge 0.4.1). Forge checks a\n  layout's labels and their names before loading it. A file outside the\n  game's limits is refused with the reason, for example \"FRB.mvar refused:\n  it has more than 256 labels\", and the map plays its original layout.\n  Layouts saved in game load as before.",
+      "summary": "Forge refuses malformed saved layouts with the reason instead of loading them, and automatic doors now open in Slayer and other game modes, not just Forge.",
+      "body": "### Fixed\n\n- **Malformed layouts are refused** (MJOLNIRForge 0.4.1). Forge checks a\n  layout's labels and their names before loading it. A file outside the\n  game's limits is refused with the reason, for example \"FRB.mvar refused:\n  it has more than 256 labels\", and the map plays its original layout.\n  Layouts saved in game load as before.\n- **Automatic doors outside Forge** (MJOLNIRLobby 0.19.3). Door panels stayed\n  shut in Slayer and every other mode because the door refused to move without\n  Forge's map bounds. They now open and close in all modes.\n- **Elites fit through low doorways** (MJOLNIRLobby 0.19.3). Once bots start\n  in a match, elites stand a little lower, so they pass low doors.",
       "sections": [
         {
           "heading": "Fixed",
           "items": [
-            "Malformed layouts are refused (MJOLNIRForge 0.4.1). Forge checks a layout's labels and their names before loading it. A file outside the game's limits is refused with the reason, for example \"FRB.mvar refused: it has more than 256 labels\", and the map plays its original layout. Layouts saved in game load as before."
+            "Malformed layouts are refused (MJOLNIRForge 0.4.1). Forge checks a layout's labels and their names before loading it. A file outside the game's limits is refused with the reason, for example \"FRB.mvar refused: it has more than 256 labels\", and the map plays its original layout. Layouts saved in game load as before.",
+            "Automatic doors outside Forge (MJOLNIRLobby 0.19.3). Door panels stayed shut in Slayer and every other mode because the door refused to move without Forge's map bounds. They now open and close in all modes.",
+            "Elites fit through low doorways (MJOLNIRLobby 0.19.3). Once bots start in a match, elites stand a little lower, so they pass low doors."
           ]
         }
       ],
       "path": "/changelog/mods/0.43.1",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.43.1.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.43.1"
+    },
+    {
+      "product": "tag-editor",
+      "productName": "MJOLNIR Tag Editor",
+      "version": "0.25.0",
+      "tag": "tag-editor-v0.25.0",
+      "title": "Dependency updates",
+      "date": "2026-11-03",
+      "summary": "The tag editor picks up security updates to its dependencies and the latest shared tag and asset libraries.",
+      "body": "### Changed\n\n- **Dependencies** were updated after a security audit.\n- **Shared libraries** for tags and game assets carry the same fixes as\n  CLI 0.7.0.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependencies were updated after a security audit.",
+            "Shared libraries for tags and game assets carry the same fixes as CLI 0.7.0."
+          ]
+        }
+      ],
+      "path": "/changelog/tag-editor/0.25.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/tag-editor/0.25.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/tag-editor-v0.25.0"
     },
     {
       "product": "launcher",

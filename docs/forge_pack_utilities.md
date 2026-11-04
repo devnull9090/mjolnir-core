@@ -72,7 +72,8 @@ on any axis. Unknown fields are rejected. The infantry preset above travels
 ### Native behavior
 
 Use **MJOLNIRForge 0.4.0**, **MJOLNIRLobby 0.19.2** and
-**MJOLNIRLevelLoader 0.9.8** or newer together. Lobby checks the Forge native
+**MJOLNIRLevelLoader 0.9.8** or newer together; doors outside Forge need
+**MJOLNIRLobby 0.19.3**. Lobby checks the Forge native
 utility API marker and waits for a compatible native Forge module before
 animating. It refuses door automation with an older loaded Forge
 DLL, whose save path would otherwise serialize the animated position.
@@ -89,6 +90,10 @@ because scenario placements do not encode this physics choice. This happens
 before the objects are created. Loading a saved layout replaces those defaults
 with its saved properties, including an explicit Normal choice; other pieces
 and existing Fixed/Phased choices are unchanged.
+
+Forge mode keeps a panel inside the map variant's bounds. Other modes leave
+those bounds empty, so no box applies there; travel is still limited by the
+pack's `travel_m`.
 
 The runtime checks a conservative sphere against the panel's swept box before
 closing. Bipeds, vehicles and movable Normal crates can keep a door open or reopen it.

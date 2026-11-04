@@ -248,11 +248,29 @@ static void test_motion_timing(void) {
     CHECK(close_to(forge_door_advance(&c,&m,.05f,0,0,0),.8f));
 }
 
+static void test_bounds(void) {
+    const float zero[6] = {0, 0, 0, 0, 0, 0}, box[6] = {-20, 20, -30, 30, -1, 10};
+    const float inside[3] = {-13.1f, -16, 0.5f}, outside[3] = {-21, 0, 0}, above[3] = {0, 0, 10.5f};
+    const float origin[3] = {0, 0, 0}, nan_pos[3] = {NAN, 0, 0};
+    float nan_box[6] = {-20, 20, -30, 30, -1, 10};
+    nan_box[3] = NAN;
+    /* Slayer and other modes: nothing to check against, but still finite. */
+    CHECK(forge_door_in_bounds(inside, zero));
+    CHECK(forge_door_in_bounds(origin, zero));
+    CHECK(!forge_door_in_bounds(nan_pos, zero));
+    /* Forge: a real box is enforced on every axis. */
+    CHECK(forge_door_in_bounds(inside, box));
+    CHECK(!forge_door_in_bounds(outside, box));
+    CHECK(!forge_door_in_bounds(above, box));
+    CHECK(!forge_door_in_bounds(nan_pos, box));
+    CHECK(!forge_door_in_bounds(inside, nan_box));
+}
+
 int main(void) {
     test_authored_binding();
     test_stationary_physics();
     test_inventory_parser(); test_transforms_and_triggers();
-    test_obstruction_sweep(); test_motion_timing();
+    test_obstruction_sweep(); test_motion_timing(); test_bounds();
     printf("test_forge_doors: %d checks passed\n",checks);
     return 0;
 }

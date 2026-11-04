@@ -144,11 +144,7 @@ static int fd_same_pose(const fd_panel *p, const unsigned char *entry) {
 static int fd_bounds(const float position[3], const float forward[3], const float up[3]) {
     float left[3];
     if (!forge_door_basis(forward, up, left)) return 0;
-    const float *bounds = (const float *)(fd.mv + 0x2c8);
-    for (int k = 0; k < 3; k++)
-        if (!isfinite(position[k]) || !isfinite(bounds[k * 2]) || !isfinite(bounds[k * 2 + 1])
-            || position[k] < bounds[k * 2] || position[k] > bounds[k * 2 + 1]) return 0;
-    return 1;
+    return forge_door_in_bounds(position, (const float *)(fd.mv + 0x2c8));
 }
 
 static int fd_move(fd_panel *p, float offset) {
