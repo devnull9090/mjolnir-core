@@ -147,9 +147,18 @@ const components: Components = {
   img: ({ src, alt }: { src?: string | Blob; alt?: string }) => {
     if (typeof src !== "string") return null;
     // `after.jpg?before=before.jpg`: a before-and-after pair (CompareImage).
-    const pair = src.match(/^([^?]+)\?before=([^&]+)$/);
+    // `&labels=First%20boot,Now` names the two sides.
+    const pair = src.match(/^([^?]+)\?before=([^&]+)(?:&labels=([^,&]+),([^,&]+))?$/);
     if (pair) {
-      return <CompareImage after={pair[1]} before={decodeURIComponent(pair[2])} alt={alt ?? ""} />;
+      return (
+        <CompareImage
+          after={pair[1]}
+          before={decodeURIComponent(pair[2])}
+          alt={alt ?? ""}
+          beforeLabel={pair[3] ? decodeURIComponent(pair[3]) : undefined}
+          afterLabel={pair[4] ? decodeURIComponent(pair[4]) : undefined}
+        />
+      );
     }
     // Spans, not figure/figcaption: Markdown wraps a standalone image in a
     // paragraph, and flow content inside a `p` is invalid HTML that React

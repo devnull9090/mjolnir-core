@@ -39,13 +39,14 @@ grammar (lowercase letters, digits, hyphens) and the build fails otherwise.
 Reuse existing tags before inventing one: `game-update` marks every update
 report, `cu3`/`cu4`/… pin the specific update, `tag-data` marks posts built on
 the tag-diff pipeline. `multiplayer` and `maps` mark the classic-map posts,
-`lighting` the ones that cover how those maps are lit, and `alpha` the alpha
-announcement.
+`lighting` the ones that cover how those maps are lit, `alpha` the alpha
+announcement, and `weekly-update` the weekly community updates.
 
 New post images go in `hub/public/blog-images/<slug>/`. An image whose path
 ends `?before=<path>`, as in
 `![alt](/blog-images/<slug>/after.jpg?before=/blog-images/<slug>/before.jpg)`,
-draws a before-and-after slider.
+draws a before-and-after slider. Its sides read Classic and Remastered unless
+the path adds `&labels=First%20boot,Now`.
 
 ## Game-update posts
 
@@ -55,3 +56,11 @@ update pipeline — see `docs/game_update_pipeline.md` and the
 measurement the pipeline actually took (`tools/game_snapshot.py diff`,
 `mjolnir tagdiff`, `tools/pe/aob_scan.py`); a claim without a measurement
 behind it does not ship.
+
+## Weekly updates
+
+Once a week a community post rounds up what reached players: features, maps,
+Forge packs, fixes and new guides. `tools/weekly/weekly_update.py gather` lists
+everything since the last `weekly-update` post, `check` tests a finished draft,
+and the `weekly-update` skill is the run book. The matching X post sits in
+`blog/social/<slug>.x.txt`, which the build does not read.

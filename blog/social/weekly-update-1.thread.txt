@@ -1,0 +1,16 @@
+1/ Our first weekly update is out. Since Oct 17, Halo Campaign Evolved multiplayer has gained AI bots, all 25 Halo 2 maps, Forge, Team Slayer, match chat and a lot of fixes.
+https://mjolnircore.com/blog/weekly-update-1
+[image: featured.jpg]
+---
+2/ AI bots: the host can add up to 15 Spartans, Elites, Grunts and Jackals, at up to Legendary. They play for red and blue, show on the scoreboard, and can be changed mid-match with /bots.
+[image: bots-scoreboard.jpg]
+---
+3/ All 25 Halo 2 multiplayer maps are on the Hub, from Lockout to Zanzibar, with Slayer and CTF. Lifts and jump pads are in too, on the 14 maps that have them.
+[image: lockout.jpg]
+---
+4/ Forge has grown fast: place objects from a palette, set their properties, save layouts, and build with modular kits. Saved layouts carry into Slayer and CTF too.
+https://mjolnircore.com/blog/forge-building
+[image: /blog-images/forge-building/crossline-overview.webp]
+---
+5/ Also new: a rebuilt post-game vote, Discord Join Game, smoother remastered maps, and a launcher that checks everything before you play.
+[image: post-game-vote.jpg]

@@ -188,6 +188,9 @@ jobs:
           python -m unittest discover -s tools/forge -p test_build_maps.py
           python -m unittest discover -s tools/forge -p test_build_materials.py
 
+      - name: Test the weekly update tool
+        run: python -m unittest discover -s tools/weekly -p test_weekly_update.py
+
       - name: Check Forge packs and maps for colliding and z-fighting pieces
         run: python -m unittest discover -s tools/forge -p test_check_overlaps.py
 
