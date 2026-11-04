@@ -270,12 +270,26 @@ pub struct BlamSection {
     pub clear: Clear,
     #[serde(default)]
     pub player_starts: Vec<PlayerStart>,
-    /// Cutscene flags at these points: the canvas's own first flags, moved,
-    /// so their names (`string id`s the canvas already has) stay valid. For
-    /// `player_teleport` / `object_teleport` from the Blam console. Kept by a
-    /// `clear` of "cutscene flags".
+    /// Cutscene flags at these points: the canvas's own first flags, moved
+    /// (cloned past the canvas's count). A flag with no `name` keeps the
+    /// canvas's name, a `string id` it already has. For `player_teleport` /
+    /// `object_teleport`, from the Blam console or a level's script. Kept by
+    /// a `clear` of "cutscene flags".
     #[serde(default)]
-    pub cutscene_flags: Vec<PlayerStart>,
+    pub cutscene_flags: Vec<CutsceneFlag>,
+    /// Names a script can call objects by. A placement claims one with its
+    /// `name`; a name no placement claims stays in the block and the engine
+    /// refuses any script that uses it. Kept by a `clear` of "object names".
+    #[serde(default)]
+    pub object_names: Vec<String>,
+    /// Device groups, for a placement's `power_group` / `position_group`.
+    /// Kept by a `clear` of "device groups".
+    #[serde(default)]
+    pub device_groups: Vec<DeviceGroup>,
+    /// Box trigger volumes, for a script's `volume_test_*`. Kept by a `clear`
+    /// of "trigger volumes".
+    #[serde(default)]
+    pub trigger_volumes: Vec<TriggerVolume>,
     #[serde(default)]
     pub vehicles: Vec<TypedPlacement>,
     #[serde(default)]
@@ -541,12 +555,54 @@ pub struct PlayerStart {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct CutsceneFlag {
+    pub pos: [f64; 3],
+    #[serde(default)]
+    pub yaw: f64,
+    /// Degrees, positive up.
+    #[serde(default)]
+    pub pitch: f64,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceGroup {
+    pub name: String,
+    #[serde(default)]
+    pub initial_value: f64,
+    #[serde(default)]
+    pub flags: u32,
+}
+
+/// A box volume. `pos` is its corner, in Unreal centimetres from the canvas
+/// origin like every other position; `forward` and `up` are unit vectors in
+/// Blam's frame and `extents` its size along forward, left and up, in wu.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerVolume {
+    pub name: String,
+    pub pos: [f64; 3],
+    pub forward: [f64; 3],
+    pub up: [f64; 3],
+    pub extents: [f64; 3],
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TypedPlacement {
     #[serde(rename = "type")]
     pub kind: String,
     pub pos: [f64; 3],
     #[serde(default)]
     pub yaw: f64,
+    /// An entry of `blam.object_names`, for a level's script.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// `false` leaves it for a script's `object_create` ("not automatically").
+    #[serde(default = "yes")]
+    pub placed: bool,
     /// Further fields of the placement, relative to its element, e.g.
     /// `"permutation data.variant name": "rocket"` (the Warthog's rocket
     /// turret).
@@ -563,8 +619,19 @@ pub struct ObjectPlacement {
     pub pos: [f64; 3],
     #[serde(default)]
     pub rot: [f64; 3],
+    /// An entry of `blam.object_names`, for a level's script.
     #[serde(default)]
     pub name: Option<String>,
+    /// `false` leaves it for a script's `object_create` ("not automatically").
+    #[serde(default = "yes")]
+    pub placed: bool,
+    /// Machines and controls: entries of `blam.device_groups`. With neither,
+    /// the engine gives the device private groups of its own, which is all a
+    /// script that watches a control needs.
+    #[serde(default)]
+    pub power_group: Option<String>,
+    #[serde(default)]
+    pub position_group: Option<String>,
     /// Further fields of the placement, relative to its element, e.g.
     /// `"multiplayer data.owner team": "neutral"`.
     #[serde(default)]
@@ -696,6 +763,50 @@ struct PaletteMap {
     rest: serde_json::Value,
 }
 
+/// The form the engine keeps a name in (lowercase, spaces and hyphens as
+/// underscores): two names that fold together are one name to it, and it
+/// silently clears the second object to claim one.
+fn fold_name(name: &str) -> String {
+    name.to_lowercase().replace([' ', '-'], "_")
+}
+
+/// Every name a placement uses exists, and no name is claimed twice: the
+/// engine would say nothing and the script would drive the wrong object.
+fn validate_script_names(blam: &BlamSection) -> Result<()> {
+    let mut names = std::collections::BTreeMap::new();
+    for n in &blam.object_names {
+        if n.is_empty() || n.len() > 127 {
+            bail!("object name {n:?} is empty or over 127 characters");
+        }
+        if names.insert(fold_name(n), false).is_some() {
+            bail!("object name {n:?} is listed twice");
+        }
+    }
+    let placements = blam.vehicles.iter().chain(&blam.weapons).chain(&blam.equipment)
+        .map(|p| &p.name).chain(blam.objects.iter().map(|o| &o.name));
+    for name in placements.flatten() {
+        match names.get_mut(&fold_name(name)) {
+            None => bail!("placement name {name:?} is not in blam.object_names"),
+            Some(true) => bail!("two placements claim the name {name:?}"),
+            Some(claimed) => *claimed = true,
+        }
+    }
+    let groups: Vec<&str> = blam.device_groups.iter().map(|g| g.name.as_str()).collect();
+    for g in blam.objects.iter().flat_map(|o| [&o.power_group, &o.position_group]).flatten() {
+        if !groups.contains(&g.as_str()) {
+            bail!("device group {g:?} is not in blam.device_groups");
+        }
+    }
+    if let Some(g) = blam.device_groups.iter().find(|g| g.name.len() > 31) {
+        bail!("device group {:?} is over 31 characters", g.name);
+    }
+    Ok(())
+}
+
+fn yes() -> bool {
+    true
+}
+
 fn load_level(path: &Path) -> Result<LevelFile> {
     let raw =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -763,9 +874,9 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
         }
     }
     for o in &level.blam.objects {
-        if !matches!(o.group.as_str(), "scenery" | "crates" | "machines") {
+        if !matches!(o.group.as_str(), "scenery" | "crates" | "machines" | "controls") {
             bail!(
-                "objects[].group must be \"scenery\", \"crates\" or \"machines\", got {:?}",
+                "objects[].group must be \"scenery\", \"crates\", \"machines\" or \"controls\", got {:?}",
                 o.group
             );
         }
@@ -776,6 +887,7 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
             );
         }
     }
+    validate_script_names(&level.blam)?;
     if level.blam.player_starts.len() == 1 {
         notes.push("only one player start: co-op needs at least two".to_string());
     }
@@ -1050,7 +1162,13 @@ const OBJECT_BLOCKS: [&str; 12] = [
     "crates",
 ];
 
-const PLACEMENT_BLOCKS: [&str; 8] = [
+const PLACEMENT_BLOCKS: [&str; 14] = [
+    "object names",
+    "device groups",
+    "trigger volumes",
+    "cutscene flags",
+    "machines",
+    "controls",
     "player starting locations",
     "vehicles",
     "weapons",
@@ -1106,6 +1224,10 @@ struct Baker {
     /// Each zone area's extent, `[x0, y0, x1, y1]` in Unreal cm, for the same
     /// file.
     bot_areas: Vec<[f64; 4]>,
+    /// Each `blam.object_names` entry's final index, by folded name.
+    object_index: std::collections::BTreeMap<String, usize>,
+    /// Each `blam.device_groups` entry's final index.
+    group_index: std::collections::BTreeMap<String, usize>,
 }
 
 impl Baker {
@@ -1593,27 +1715,165 @@ impl Baker {
 
     /// Move the canvas's first cutscene flags to `flags` (see
     /// `BlamSection::cutscene_flags`), printing each one's name.
-    fn cutscene_flags(&mut self, flags: &[PlayerStart]) -> Result<()> {
+    fn cutscene_flags(&mut self, flags: &[CutsceneFlag]) -> Result<()> {
         if flags.is_empty() {
             return Ok(());
         }
         let count = block_count(&self.file, "cutscene flags")?;
-        if flags.len() > count {
-            bail!("{} cutscene flag(s) asked for, the canvas has {count}", flags.len());
-        }
         // Keep the first ones: a clear keeps the block's last `added` elements.
-        let (out, _) = blockedit::resize(&self.file, "cutscene flags", &[Op::Truncate { keep: flags.len() }])?;
+        let op = if flags.len() > count {
+            if count == 0 {
+                bail!("{} cutscene flag(s) asked for, the canvas has none to clone", flags.len());
+            }
+            Op::CloneAppend { donor: 0, copies: flags.len() - count }
+        } else {
+            Op::Truncate { keep: flags.len() }
+        };
+        let (out, _) = blockedit::resize(&self.file, "cutscene flags", &[op])?;
         self.file = out;
         for (i, f) in flags.iter().enumerate() {
             let (x, y, z) = ue_to_blam(abs_pos(self.origin, f.pos));
             let p = |n: &str| format!("cutscene flags[{i}].{n}");
             apply_set(&mut self.file, &p("position"), &format!("({x}, {y}, {z})"))?;
-            apply_set(&mut self.file, &p("facing"), &format!("({}, 0)", ue_yaw_to_blam(f.yaw)))?;
+            apply_set(&mut self.file, &p("facing"), &format!("({}, {})", ue_yaw_to_blam(f.yaw), f.pitch.to_radians()))?;
+            if let Some(name) = &f.name {
+                apply_set(&mut self.file, &p("name"), &fold_name(name))?;
+            }
             let name = read_value(&self.file, &p("name"))?;
             println!("  flag    [{i}] {} <- ({x:.3}, {y:.3}, {z:.3}) wu", name.display());
         }
         *self.added.entry("cutscene flags").or_default() += flags.len();
         Ok(())
+    }
+
+    /// The index a block's next appended element will have once `clears`
+    /// has run: those before it are gone if the block is cleared.
+    fn final_index(&self, block: &str, clear: &Clear, before: usize) -> usize {
+        if clear.blocks.iter().any(|b| b == block) {
+            self.added.get(block).copied().unwrap_or(0)
+        } else {
+            before
+        }
+    }
+
+    /// Append `blam.object_names`. Only a name is written: the engine fills
+    /// each one's object type and index at load, from the placements whose
+    /// `name` points at it.
+    fn object_names(&mut self, names: &[String], clear: &Clear) -> Result<()> {
+        if names.is_empty() {
+            return Ok(());
+        }
+        let before = block_count(&self.file, "object names")?;
+        if before == 0 {
+            bail!("the canvas has no object names to clone");
+        }
+        let base = self.final_index("object names", clear, before);
+        let (out, _) = blockedit::resize(
+            &self.file,
+            "object names",
+            &[Op::CloneAppend { donor: 0, copies: names.len() }],
+        )?;
+        self.file = out;
+        for (j, name) in names.iter().enumerate() {
+            let folded = fold_name(name);
+            apply_set(&mut self.file, &format!("object names[{}].name", before + j), &folded)?;
+            self.object_index.insert(folded, base + j);
+        }
+        *self.added.entry("object names").or_default() += names.len();
+        println!("  names   {} object name(s)", names.len());
+        Ok(())
+    }
+
+    /// Append `blam.device_groups`.
+    fn device_groups(&mut self, groups: &[DeviceGroup], clear: &Clear) -> Result<()> {
+        if groups.is_empty() {
+            return Ok(());
+        }
+        let before = block_count(&self.file, "device groups")?;
+        if before == 0 {
+            bail!("the canvas has no device groups to clone");
+        }
+        let base = self.final_index("device groups", clear, before);
+        let (out, _) = blockedit::resize(
+            &self.file,
+            "device groups",
+            &[Op::CloneAppend { donor: 0, copies: groups.len() }],
+        )?;
+        self.file = out;
+        for (j, g) in groups.iter().enumerate() {
+            let p = |f: &str| format!("device groups[{}].{f}", before + j);
+            apply_set(&mut self.file, &p("name"), &g.name)?;
+            apply_set(&mut self.file, &p("initial value"), &format!("{}", g.initial_value))?;
+            apply_set(&mut self.file, &p("flags"), &format!("{:#x}", g.flags))?;
+            apply_set(&mut self.file, &p("editor folder"), "none")?;
+            self.group_index.insert(g.name.clone(), base + j);
+        }
+        *self.added.entry("device groups").or_default() += groups.len();
+        println!("  groups  {} device group(s)", groups.len());
+        Ok(())
+    }
+
+    /// Append `blam.trigger_volumes`, cloned from the canvas's first plain
+    /// box (a kill volume or one tied to an object would bring that along).
+    fn trigger_volumes(&mut self, volumes: &[TriggerVolume]) -> Result<()> {
+        if volumes.is_empty() {
+            return Ok(());
+        }
+        let before = block_count(&self.file, "trigger volumes")?;
+        let mut donor = None;
+        for i in 0..before {
+            let p = |f: &str| format!("trigger volumes[{i}].{f}");
+            let ty = read_value(&self.file, &p("type"))?.display();
+            let kill = read_value(&self.file, &p("kill trigger volume"))?.display();
+            if ty.contains("bounding box") && kill.contains("none") {
+                donor = Some(i);
+                break;
+            }
+        }
+        let donor = donor.context("the canvas has no plain box trigger volume to clone")?;
+        let (out, _) = blockedit::resize(
+            &self.file,
+            "trigger volumes",
+            &[Op::CloneAppend { donor, copies: volumes.len() }],
+        )?;
+        self.file = out;
+        for (j, v) in volumes.iter().enumerate() {
+            let i = before + j;
+            let (x, y, z) = ue_to_blam(abs_pos(self.origin, v.pos));
+            let p = |f: &str| format!("trigger volumes[{i}].{f}");
+            let vec3 = |a: [f64; 3]| format!("({}, {}, {})", a[0], a[1], a[2]);
+            apply_set(&mut self.file, &p("name"), &fold_name(&v.name))?;
+            apply_set(&mut self.file, &p("object name"), "none")?;
+            apply_set(&mut self.file, &p("forward"), &vec3(v.forward))?;
+            apply_set(&mut self.file, &p("up"), &vec3(v.up))?;
+            apply_set(&mut self.file, &p("position"), &format!("({x}, {y}, {z})"))?;
+            apply_set(&mut self.file, &p("extents"), &vec3(v.extents))?;
+            apply_set(&mut self.file, &p("z sink"), "0")?;
+            let half = 0.5 * v.extents.iter().map(|e| e * e).sum::<f64>().sqrt();
+            apply_set(&mut self.file, &p("C"), &format!("{half}"))?;
+            for k in 0..4 {
+                apply_set(
+                    &mut self.file,
+                    &p(&format!("sector points[{k}].position")),
+                    &format!("({}, {}, {})", x + if k % 3 == 0 { -0.5 } else { 0.5 }, y + if k < 2 { -0.5 } else { 0.5 }, z),
+                )?;
+            }
+            apply_set(&mut self.file, &p("editor folder"), "none")?;
+        }
+        *self.added.entry("trigger volumes").or_default() += volumes.len();
+        println!("  volumes {} trigger volume(s) from [{donor}]", volumes.len());
+        Ok(())
+    }
+
+    /// The `name` field's value for a placement.
+    fn name_ref(&self, name: Option<&String>) -> Result<String> {
+        Ok(match name {
+            None => "none".to_string(),
+            Some(n) => format!(
+                "#{}",
+                self.object_index.get(&fold_name(n)).with_context(|| format!("no object name {n:?}"))?
+            ),
+        })
     }
 
     /// Append typed placements (vehicles / weapons / equipment) cloned from
@@ -1701,7 +1961,8 @@ impl Baker {
             let uid = self.unique_id();
             let p = |f: &str| format!("{block}[{i}].{f}");
             apply_set(&mut self.file, &p("type"), &format!("#{palette_idx}"))?;
-            apply_set(&mut self.file, &p("name"), "none")?;
+            let name = self.name_ref(item.name.as_ref())?;
+            apply_set(&mut self.file, &p("name"), &name)?;
             apply_set(
                 &mut self.file,
                 &p("object data.position"),
@@ -1713,8 +1974,10 @@ impl Baker {
                 &format!("({yaw}, 0, 0)"),
             )?;
             // Bit 0 is "not automatically" (never spawns without a script);
-            // bit 5 is "create at rest". Clones must actually spawn.
-            apply_set(&mut self.file, &p("object data.placement flags"), "0x20")?;
+            // bit 5 is "create at rest". Clones must actually spawn, unless
+            // a script is to create them.
+            let flags = if item.placed { "0x20" } else { "0x21" };
+            apply_set(&mut self.file, &p("object data.placement flags"), flags)?;
             apply_set(
                 &mut self.file,
                 &p("object data.object id.unique id"),
@@ -1743,7 +2006,7 @@ impl Baker {
     /// is cloned from the canvas's own and cut loose from its device
     /// groups, which the clear empties.
     fn objects(&mut self, items: &[ObjectPlacement]) -> Result<()> {
-        for group in ["scenery", "crates", "machines"] {
+        for group in ["scenery", "crates", "machines", "controls"] {
             let of_group: Vec<&ObjectPlacement> =
                 items.iter().filter(|o| o.group == group).collect();
             if of_group.is_empty() {
@@ -1752,6 +2015,7 @@ impl Baker {
             let (block, palette, ref_group) = match group {
                 "scenery" => ("scenery", "scenery palette", "scen"),
                 "machines" => ("machines", "machine palette", "mach"),
+                "controls" => ("controls", "control palette", "ctrl"),
                 _ => ("crates", "crate palette", "bloc"),
             };
             let before = block_count(&self.file, block)?;
@@ -1808,7 +2072,8 @@ impl Baker {
                 let uid = self.unique_id();
                 let p = |f: &str| format!("{block}[{i}].{f}");
                 apply_set(&mut self.file, &p("type"), &format!("#{palette_idx}"))?;
-                apply_set(&mut self.file, &p("name"), "none")?;
+                let name = self.name_ref(o.name.as_ref())?;
+                apply_set(&mut self.file, &p("name"), &name)?;
                 apply_set(
                     &mut self.file,
                     &p("object data.position"),
@@ -1819,15 +2084,23 @@ impl Baker {
                     &p("object data.rotation"),
                     &format!("({yaw}, 0, 0)"),
                 )?;
-                apply_set(&mut self.file, &p("object data.placement flags"), "0x20")?;
+                let flags = if o.placed { "0x20" } else { "0x21" };
+                apply_set(&mut self.file, &p("object data.placement flags"), flags)?;
                 apply_set(
                     &mut self.file,
                     &p("object data.object id.unique id"),
                     &format!("{uid}"),
                 )?;
-                if group == "machines" {
-                    for field in ["device data.power group", "device data.position group"] {
-                        apply_set(&mut self.file, &p(field), "none")?;
+                if matches!(group, "machines" | "controls") {
+                    for (field, g) in [
+                        ("device data.power group", &o.power_group),
+                        ("device data.position group", &o.position_group),
+                    ] {
+                        let value = match g {
+                            None => "none".to_string(),
+                            Some(g) => format!("#{}", self.group_index.get(g).with_context(|| format!("no device group {g:?}"))?),
+                        };
+                        apply_set(&mut self.file, &p(field), &value)?;
                     }
                 }
                 for (field, value) in &o.set {
@@ -1881,7 +2154,7 @@ impl Baker {
     (unit_raise_weapon player0 30)))
 ";
         let corpus_path = crate::resolve_data_path(Path::new("defs/hce/scripting.json"));
-        let corpus = blam_hsc::ScriptCorpus::load(&corpus_path).with_context(|| {
+        let corpus = crate::console::corpus_with_declared(&corpus_path).with_context(|| {
             format!(
                 "clear.scripts needs the scripting corpus at {}; run `mjolnir scripting` first",
                 corpus_path.display()
@@ -1924,13 +2197,17 @@ impl Baker {
                 continue;
             }
             let text = compiled.section.string_at(e.string_offset);
-            if !blam_live::stringid::is_shipped(text) && !unregistered.iter().any(|u| u == text) {
+            // A script's own name registers in the compiler's first pass,
+            // before any literal is read (sim 0x1f60fa), so a level can make
+            // an id legal with `(script static void <id> (sleep 0))`.
+            let declared = compiled.section.scripts.iter().any(|s| s.name.eq_ignore_ascii_case(text));
+            if !declared && !blam_live::stringid::is_shipped(text) && !unregistered.iter().any(|u| u == text) {
                 unregistered.push(text.to_string());
             }
         }
         if !unregistered.is_empty() {
             bail!(
-                "the level's script uses string ids the game does not register: {} (the engine drops every script over one; see defs/hce/string-ids.json)",
+                "the level's script uses string ids the game does not register: {} (the engine drops any script that does; see defs/hce/string-ids.json, or declare a static script of that name)",
                 unregistered.join(", ")
             );
         }
@@ -2503,13 +2780,18 @@ fn bake(a: BakeArgs) -> Result<()> {
         added: Default::default(),
         bot_starts: Vec::new(),
         bot_areas: Vec::new(),
+        object_index: Default::default(),
+        group_index: Default::default(),
     };
 
     // Placements first — their donors are cloned from the shipped blocks —
     // then the clears, which keep only what this bake appended. Clears never
     // touch player starts or the structure blocks.
+    baker.object_names(&level.blam.object_names, &level.blam.clear)?;
+    baker.device_groups(&level.blam.device_groups, &level.blam.clear)?;
     baker.player_starts(&level.blam.player_starts)?;
     baker.cutscene_flags(&level.blam.cutscene_flags)?;
+    baker.trigger_volumes(&level.blam.trigger_volumes)?;
     baker.typed(
         "vehicles",
         "vehicle palette",
@@ -2582,6 +2864,11 @@ fn bake(a: BakeArgs) -> Result<()> {
         }
         let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
         for o in &level.blam.objects {
+            // A tag listed in a map variant palette is not created from its
+            // placement (sim 0x5ef0cc), which would lose the level's devices.
+            if matches!(o.group.as_str(), "machines" | "controls") {
+                continue;
+            }
             if level.blam.forge_packs.iter().flat_map(|p| &p.blocks).any(|b| b.tag == o.tag)
                 || level.blam.forge_objects.iter().any(|u| u.tag == o.tag && u.group == o.group) {
                 continue; // retain the declared palette order even when pieces are preplaced
@@ -3720,12 +4007,53 @@ mod tests {
     }
 
     #[test]
+    fn names_fold_as_the_engine_keeps_them() {
+        assert_eq!(fold_name("Gate-Main Control"), "gate_main_control");
+    }
+
+    fn scripted(names: &[&str], placed: &[&str]) -> BlamSection {
+        BlamSection {
+            object_names: names.iter().map(|n| n.to_string()).collect(),
+            objects: placed
+                .iter()
+                .map(|n| ObjectPlacement {
+                    tag: "objects\\x".into(), group: "machines".into(), pos: [0.0; 3], rot: [0.0; 3],
+                    name: Some(n.to_string()), placed: true, power_group: None, position_group: None,
+                    set: Default::default(),
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_placement_name_must_exist_and_be_claimed_once() {
+        assert!(validate_script_names(&scripted(&["gate"], &["gate"])).is_ok());
+        assert!(validate_script_names(&scripted(&["gate"], &["door"])).is_err());
+        assert!(validate_script_names(&scripted(&["gate"], &["gate", "GATE"])).is_err());
+        assert!(validate_script_names(&scripted(&["gate", "Gate"], &[])).is_err());
+    }
+
+    #[test]
+    fn appended_elements_land_after_the_clear() {
+        let mut baker = Baker { file: vec![], origin: [0.0; 3], next_unique: 0,
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![],
+            object_index: Default::default(), group_index: Default::default() };
+        let clear = Clear { blocks: vec!["object names".into()], ..Default::default() };
+        assert_eq!(baker.final_index("object names", &clear, 405), 0);
+        baker.added.insert("object names", 3);
+        assert_eq!(baker.final_index("object names", &clear, 408), 3);
+        assert_eq!(baker.final_index("device groups", &clear, 7), 7);
+    }
+
+    #[test]
     fn palette_limit_counts_utilities_and_packs_before_editing_the_scenario() {
         let entry = (("scen:objects\\multi\\marker".to_string(), String::new()), 0);
         let palettes = vec![("standard", vec![entry.clone(); 32]), ("packs", vec![entry.clone(); 200]),
                             ("utilities", vec![entry; 24])];
         let mut baker = Baker { file: vec![0x42], origin: [0.0;3], next_unique: 0,
-            added: Default::default(), bot_starts: vec![], bot_areas: vec![] };
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![],
+            object_index: Default::default(), group_index: Default::default() };
         let error = baker.map_variant_palettes(&palettes, &ForgeLimits::default(), &BTreeMap::new()).unwrap_err();
         assert!(error.to_string().contains("256 map variant palette entries"));
         assert_eq!(baker.file, vec![0x42]); // refuse before touching the donor

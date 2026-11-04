@@ -2724,7 +2724,7 @@ fn walk_difference(
 /// committed corpus, so a mod author can check a script without one.
 fn compile(a: CompileArgs) -> Result<()> {
     let corpus =
-        blam_hsc::ScriptCorpus::load(&resolve_data_path(&a.corpus)).with_context(|| {
+        console::corpus_with_declared(&resolve_data_path(&a.corpus)).with_context(|| {
             format!(
                 "cannot read {}. Run `mjolnir scripting` against an installed game to generate it.",
                 a.corpus.display()

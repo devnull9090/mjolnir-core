@@ -5129,6 +5129,8 @@ local function watch()
     every(500, "kill floor", function() if Teams.KillFloor then Teams.KillFloor.tick() end end)
     -- Halo 2's lifts push this game's own players (lifts.lua).
     every(500, "lifts", function() if Teams.Lifts then Teams.Lifts.tick() end end)
+    -- A CE map's gates and shields ride their machines (devices.lua).
+    every(250, "devices", function() if Teams.Devices then Teams.Devices.tick() end end)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so
     -- the pass that arms it sweeps for them too, once: a FindAllOf is a
@@ -5980,6 +5982,8 @@ local function initialize()
         inventoryPath = MOD_DIR .. "\\..\\..\\MJOLNIRForgePacks\\installed.json", decode = Json.decode,
     })
     Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script, PackLifts = Teams.PackLifts })
+    Teams.Devices = dofile(MOD_DIR .. "\\Scripts\\devices.lua")
+    Teams.Devices.init({ Log = Log, Current = Current })
     Teams.init({
         Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
         hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,
