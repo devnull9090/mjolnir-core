@@ -1,0 +1,4 @@
+Our first weekly update is out. Since Oct 17, Halo Campaign Evolved multiplayer has gained AI bots, all 25 Halo 2 maps, Forge, Team Slayer, match chat and a lot of fixes.
+
+Here's everything new and what to try first:
+https://mjolnircore.com/blog/weekly-update-1

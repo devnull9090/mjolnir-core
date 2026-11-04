@@ -1,0 +1,4 @@
+Lockout's first boot in Halo Campaign Evolved: a black sky and rooms too dark to see. Now all 25 Halo 2 maps are on the Hub, and as of today their lifts work.
+
+Here's how we got there, including the bugs:
+https://mjolnircore.com/blog/halo-2-maps
