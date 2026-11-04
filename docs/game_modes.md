@@ -661,9 +661,13 @@ maps counted, 46 offer both, with 4 to 14 hills. Nightfall has one stray
   or neutral. It has no type test: MP type 15 only marks a valid first spawn in
   `0x2f77a0`. Neutral markers took 5 of 13 respawns on Prisoner. With owner team
   `eighth party` (7), 0 of 23 landed on one, and the label loop and the boundary
-  test do not look at the team. **Health pack spots are neutral too and still
-  take spawns on every map:** in the last run 17 of 23 respawns cycled through
-  three of them.
+  test do not look at the team. **Health pack spots had the same bug** on every
+  released map: 17 of 23 respawns cycled through three of them. They take the
+  same team now. On a rebaked Prisoner, 0 of 24 respawns in Slayer and 0 of 24
+  in CTF landed on a spot, the five packs appear, and a pack is consumed when
+  a hurt player stands on it (`lap_complete`, health 100%) and returns after
+  30 s. CTF's flag stands took none of those 24 either, for the red team; a
+  blue player was not tried. Stands keep their team, which the script reads.
 - **The staging guard has to know the operand.** `mjolnir_map_registry.dll`
   links `blam-megalo`'s reader and refused the first `koth.mglo` ("failed
   variant validation"), and the default variant ran with the HUD still reading
@@ -690,7 +694,7 @@ seen):
 | Oddball: pick up and score | skull in hand, 1 a second; sim and HUD agree |
 | Oddball: round end | `round_over` at 120 |
 | Oddball: abandoned ball | carrier killed; score stopped at 16; 30 s later a new ball at its spawn |
-| Spawns | 0 of 23 on a hill or ball marker |
+| Spawns | 0 of 23 on a hill or ball marker; 0 of 48 on a health spot (Slayer, CTF) |
 | Hill line | drawn under the score bar |
 
 Not tested: two PCs, a contested hill (needs a second player), `hill_moved`

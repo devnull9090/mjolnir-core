@@ -42,6 +42,12 @@ class Objectives(unittest.TestCase):
         self.assertEqual(co.objective_objects([corner(0, 0)])[1], [])
         self.assertEqual(co.objective_objects([ball(8), ball(8, 100.0)])[1], ["oddball"])
 
+    def test_apply_takes_health_spots_out_of_the_spawn_search(self):
+        spot = {"tag": "a", "set": {co.LABEL: co.HEALTH_LABEL, "multiplayer data.owner team": "neutral"}}
+        level = {"blam": {"objects": [spot]}}
+        co.apply(level)
+        self.assertEqual(spot["set"]["multiplayer data.owner team"], co.MARKER_TEAM)
+
     def test_apply_keeps_other_objects_and_is_idempotent(self):
         level = {"modes": ["slayer", "ctf"], "blam": {"objects": [{"tag": "a", "set": {co.LABEL: "ctf_flag_return"}}]},
                  "markers": [corner(0, 0), corner(900, 0), corner(0, 900), ball(0)]}

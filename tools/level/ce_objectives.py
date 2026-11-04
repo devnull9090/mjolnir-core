@@ -26,11 +26,12 @@ from pathlib import Path
 MARKER_SCENERY = r"objects\multi\ctf\flag_stand"
 HILL_LABEL = "koth_hill"
 BALL_LABEL = "oddball_spawn"
+HEALTH_LABEL = "ce_health_pack"
 LABEL = "multiplayer data.megalo label"
 # The spawn search takes any scenery with a multiplayer block whose owner team
 # is the player's, or neutral: it never asks for a spawn location (sim
-# 0x2f84e0). Neutral markers took a third of Prisoner's respawns. No game type
-# plays an eighth team.
+# 0x2f84e0). Neutral markers and health pack spots took most of Prisoner's
+# respawns. No game type plays an eighth team.
 MARKER_TEAM = "eighth party"
 CM_PER_WORLD_UNIT = 304.8
 # Fewer corners than this draw no area (Nightfall's one stray HillFlag).
@@ -135,6 +136,9 @@ def apply(level):
     """Put a level's objective placements and modes in place. Idempotent."""
     objects = level["blam"]["objects"]
     objects[:] = [o for o in objects if o.get("set", {}).get(LABEL) not in (HILL_LABEL, BALL_LABEL)]
+    for o in objects:
+        if o.get("set", {}).get(LABEL) == HEALTH_LABEL:
+            o["set"]["multiplayer data.owner team"] = MARKER_TEAM
     added, modes = objective_objects(level.get("markers") or [])
     objects.extend(added)
     level["modes"] = [m for m in level.get("modes", ["slayer"]) if m not in ("koth", "oddball")] + modes

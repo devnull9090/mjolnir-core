@@ -30,7 +30,7 @@ import re
 import struct
 import sys
 
-from ce_objectives import hill_list, objective_objects
+from ce_objectives import MARKER_TEAM, hill_list, objective_objects
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TAG_MAP = os.path.join(ROOT, "defs", "level", "ce-tag-map.json")
@@ -1380,7 +1380,7 @@ def main():
                     "group": "scenery",
                     "pos": to_ue(e["pos"]),
                     "rot": [0, yaw_ue(e.get("rot", [0, 0, 0])), 0],
-                    "set": {"multiplayer data.owner team": "neutral",
+                    "set": {"multiplayer data.owner team": MARKER_TEAM,
                             "multiplayer data.megalo label": HEALTH_SPOT_LABEL},
                 })
                 continue

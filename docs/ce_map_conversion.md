@@ -832,7 +832,8 @@ variant the loader ships carries CE's health packs as Megalo script
 `mjolnir megalo write`):
 
 - Each CE health pack becomes a spot, invisible scenery labelled
-  `ce_health_pack` (`objects\multi\powerups\health_pack_spot`).
+  `ce_health_pack` (`objects\multi\powerups\health_pack_spot`), owned by the
+  eighth team: neutral scenery with a multiplayer block takes respawns.
 - Each tick, a spot with no pack whose countdown has run out creates one: the
   equipment `objects\multi\powerups\health_pack`, multiplayer object type list
   entry 19, which nobody can pick up.
