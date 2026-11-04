@@ -213,6 +213,11 @@ struct CompileArgs {
     /// Print the tree the compiler produced, decompiled.
     #[arg(long)]
     show: bool,
+    /// A JSON object of scenario block names to their elements' names
+    /// (`{"object names": [...], "trigger volumes": [...]}`), so literals
+    /// resolve as they would in that scenario.
+    #[arg(long)]
+    names: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -2746,7 +2751,22 @@ fn compile(a: CompileArgs) -> Result<()> {
         .map(|(n, t)| (n.as_str(), t.as_str()))
         .collect();
 
-    let compiled = blam_hsc::Compiler::from_corpus(&corpus).compile(&files);
+    let names = match &a.names {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("cannot read {}", path.display()))?;
+            let blocks = serde_json::from_str(&text)
+                .with_context(|| format!("cannot parse {}", path.display()))?;
+            Some(blam_hsc::read::ScenarioNames::new(blocks, Default::default()))
+        }
+        None => None,
+    };
+    let compiler = blam_hsc::Compiler::from_corpus(&corpus);
+    let compiler = match &names {
+        Some(n) => compiler.with_names(n),
+        None => compiler,
+    };
+    let compiled = compiler.compile(&files);
     for d in &compiled.diagnostics {
         eprintln!("{d}");
     }

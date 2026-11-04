@@ -151,6 +151,65 @@ def decompiler(syntax, strings):
     return expr, calls
 
 
+class Lit:
+    """A literal: its text as the source would give it and its value type."""
+
+    def __init__(self, text, vtype, is_global=False):
+        self.text, self.vtype, self.is_global = text, vtype, is_global
+
+    def __repr__(self):
+        return f"Lit({self.text!r}, {self.vtype})"
+
+
+class Call:
+    """A call of a function, special form or script."""
+
+    def __init__(self, fn, args, vtype="void", script=False):
+        self.fn, self.args, self.vtype, self.script = fn, args, vtype, script
+
+    def __repr__(self):
+        return f"Call({self.fn}, {self.args})"
+
+
+def tree_reader(syntax, strings):
+    """`read(handle)`: a syntax node as a tree of Lit and Call, keeping each
+    literal's value type, which the printed text loses."""
+    hdr = 56
+    nsize = struct.unpack_from("<H", syntax, 34)[0] or 20
+    count = (len(syntax) - hdr) // nsize
+    nodes = [struct.unpack_from("<HHHHIII", syntax, hdr + i * nsize) for i in range(count)]
+    sdata = strings.decode("latin-1")
+
+    def s_at(o):
+        return sdata[o:sdata.find("\0", o)]
+
+    def read(h):
+        if h == 0xFFFFFFFF:
+            return None
+        _, _, typ, flags, _, so, data = nodes[h & 0xFFFF]
+        tname = TYPES[typ] if typ < len(TYPES) else str(typ)
+        if flags & 1:
+            if flags & 4:
+                return Lit(s_at(so), "global", True)
+            if tname == "boolean":
+                return Lit("true" if data & 0xFF else "false", tname)
+            if tname == "real":
+                return Lit(repr(round(struct.unpack("<f", struct.pack("<I", data))[0], 4)), tname)
+            if tname == "short":
+                return Lit(str(struct.unpack("<h", struct.pack("<H", data & 0xFFFF))[0]), tname)
+            if tname == "long":
+                return Lit(str(struct.unpack("<i", struct.pack("<I", data))[0]), tname)
+            return Lit(s_at(so), tname)
+        first = nodes[data & 0xFFFF]
+        args, a = [], first[4]
+        while a != 0xFFFFFFFF:
+            args.append(read(a))
+            a = nodes[a & 0xFFFF][4]
+        return Call(s_at(first[5]), args, tname, bool(flags & 2))
+
+    return read
+
+
 def main():
     path = sys.argv[1]
     m, s, syntax, strings, scripts, globs, out = load(path)

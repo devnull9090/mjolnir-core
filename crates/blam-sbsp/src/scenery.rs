@@ -496,6 +496,15 @@ pub enum Placed {
     Pieces(String),
 }
 
+/// Whether `c` fits the 16-bit tables after the fan split the transplant does
+/// (split::fan_split_fit, quads where triangles overflow): Coldsnap fits
+/// before it and not after.
+pub fn fits(c: &Collision) -> bool {
+    let mut check = c.clone();
+    split::fan_split_fit(&mut check, 4);
+    check.fits_16bit().is_ok()
+}
+
 /// Make the scenery tail `first..` of `c` reachable by a tree: linked into
 /// the BSP's own when the result (fan split as the transplant will) still
 /// fits the 16-bit tables, otherwise moved out into pieces of at most `max`
@@ -505,25 +514,25 @@ pub fn place(
     first: usize,
     max: usize,
 ) -> Result<(Collision, Vec<Collision>, Placed), Error> {
-    // Judged after the fan split the transplant does (split::fan_split_fit,
-    // quads where triangles overflow): Coldsnap fits before it and not after.
-    let fits = |c: &Collision| {
+    let check = |c: &Collision| {
         let mut check = c.clone();
         split::fan_split_fit(&mut check, 4);
         check.fits_16bit()
     };
-    let why = match fits(&c) {
+    let why = match check(&c) {
         Ok(()) => {
             let mut linked = c.clone();
             let r = link(&mut linked, first);
-            match fits(&linked) {
+            match check(&linked) {
                 Ok(()) => return Ok((linked, Vec::new(), Placed::Tree(r))),
                 Err(e) => format!("{e} once the scenery is in the tree"),
             }
         }
         Err(e) => e.to_string(),
     };
-    let pieces = split::split_standalone(&mut c, first, max)?;
+    let mut pieces = split::split_standalone(&mut c, first, max)?;
+    // The BSP on its own can be over the limit too.
+    pieces.extend(split::shed(&mut c, max, |c| check(c).is_ok())?);
     Ok((c, pieces, Placed::Pieces(why)))
 }
 
