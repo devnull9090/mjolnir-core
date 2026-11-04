@@ -62,6 +62,7 @@
 #include "pack_bindings.h"
 #include "layout_files.h"
 #include "layout_blf.h"
+#include "layout_bounds.h"
 #include "utility_properties.h"
 #include "authored_utilities.h"
 #include "forge_liveness.h"
@@ -891,8 +892,16 @@ static int mv_encode(void *mv, uint8_t *out, int cap) {
     return bytes > 0 && bytes <= cap ? (int)bytes : 0;
 }
 
-// Decode a payload into `mv` (MV_SIZE bytes) with the engine's decoder.
+// Why the last mv_decode refused its payload before decoding it, or NULL.
+static const char *g_mv_refused;
+
+// Decode a payload into `mv` (MV_SIZE bytes) with the engine's decoder,
+// unless it is outside the limits in layout_bounds.h.
 static int mv_decode(void *mv, const uint8_t *in, int len) {
+    if (len <= 0 || !forge_mv_bounds(in, (size_t)len, &g_mv_refused)) {
+        if (len <= 0) g_mv_refused = "it is empty";
+        return 0;
+    }
     uint8_t r[BITS_STRUCT];
     memset(r, 0, sizeof r);
     *(const uint8_t **)(r + BITS_BEGIN) = in;
@@ -1012,7 +1021,8 @@ static int layout_read(const char *code, char *why, size_t size) {
         return -1;
     }
     if (!mv_decode(g_mv_scratch, g_bits, len)) {
-        snprintf(why, size, "%s.mvar does not decode", code);
+        if (g_mv_refused) snprintf(why, size, "%s.mvar refused: %s", code, g_mv_refused);
+        else snprintf(why, size, "%s.mvar does not decode", code);
         return -1;
     }
     int32_t want = scenario_map_id(), got = *(int32_t *)(g_mv_scratch + MV_MAP_ID);

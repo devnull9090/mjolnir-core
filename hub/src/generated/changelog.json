@@ -39,6 +39,27 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.43.1",
+      "tag": "mods-v0.43.1",
+      "title": "Forge checks layout files before loading them",
+      "date": "2026-11-03",
+      "summary": "Forge checks a saved layout's label tables before handing it to the game, and refuses a malformed file with the reason instead of loading it.",
+      "body": "### Fixed\n\n- **Malformed layouts are refused** (MJOLNIRForge 0.4.1). Forge checks a\n  layout's labels and their names before loading it. A file outside the\n  game's limits is refused with the reason, for example \"FRB.mvar refused:\n  it has more than 256 labels\", and the map plays its original layout.\n  Layouts saved in game load as before.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Malformed layouts are refused (MJOLNIRForge 0.4.1). Forge checks a layout's labels and their names before loading it. A file outside the game's limits is refused with the reason, for example \"FRB.mvar refused: it has more than 256 labels\", and the map plays its original layout. Layouts saved in game load as before."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.43.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.43.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.43.1"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.21.0",
