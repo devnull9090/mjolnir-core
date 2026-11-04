@@ -108,7 +108,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Write slayer.mglo, team_slayer.mglo and ctf.mglo
+      - name: Write slayer.mglo, team_slayer.mglo, ctf.mglo, koth.mglo and oddball.mglo
         run: |
           set -euo pipefail
           cargo build --release -q -p blam-cli
@@ -119,6 +119,8 @@ jobs:
           ./target/release/mjolnir megalo write --mode slayer --vehicle-label-pool --out variants/slayer.mglo
           ./target/release/mjolnir megalo write --mode team-slayer --vehicle-label-pool --out variants/team_slayer.mglo
           ./target/release/mjolnir megalo write --mode ctf --vehicle-label-pool --out variants/ctf.mglo
+          ./target/release/mjolnir megalo write --mode koth --vehicle-label-pool --out variants/koth.mglo
+          ./target/release/mjolnir megalo write --mode oddball --vehicle-label-pool --out variants/oddball.mglo
           for f in variants/*.mglo; do
             ./target/release/mjolnir megalo read "$f" | grep -E "score_to_win|rounds"
             echo "$(basename "$f") sha256 $(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
@@ -186,7 +188,9 @@ jobs:
           done
           for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo \
                       mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json \
-                      mods/MJOLNIRLevelLoader/variants/team_slayer.mglo mods/MJOLNIRLevelLoader/variants/team_slayer.layout.json; do
+                      mods/MJOLNIRLevelLoader/variants/team_slayer.mglo mods/MJOLNIRLevelLoader/variants/team_slayer.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/koth.mglo mods/MJOLNIRLevelLoader/variants/koth.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/oddball.mglo mods/MJOLNIRLevelLoader/variants/oddball.layout.json; do
             test -s "$mglo" || { echo "::error::$(basename "$mglo") did not arrive from build-game-types"; exit 1; }
             sha256sum "$mglo"
           done

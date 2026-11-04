@@ -43,6 +43,7 @@ local Rows = dofile(MOD_DIR .. "\\Scripts\\feed.lua")
 local Anim = dofile(MOD_DIR .. "\\Scripts\\anim.lua")
 local Icons = dofile(MOD_DIR .. "\\Scripts\\hudicons.lua")
 local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
+local Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
@@ -490,6 +491,9 @@ HANDLERS.ball_taken = function(inc)
     local p = stats(inc.cause)
     p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
     boardDirty = true
+end
+HANDLERS.hill_moved = function(inc)
+    if Match.hill then Match.hill.moved(inc.value) end
 end
 HANDLERS.hill_controlled = function(inc)
     if Match.variant ~= "koth" or type(inc.cause) ~= "number" or inc.cause < 0
@@ -1487,6 +1491,7 @@ local function endMatch()
     widgetTries = 0
     if Feed and Feed:IsValid() then setVisible(Feed, false) end
     if Board and Board:IsValid() then setVisible(Board, false) end
+    if Match and Match.hill then Match.hill.hide() end
     Match, Feed, Board = nil, nil, nil
     Queue = {}
 end
@@ -1661,6 +1666,17 @@ local function tick()
     ensureFrameHook()
     refreshLocalPlayer()
     Match.host = isHostWorld(pc)
+    if Match.variant == "koth" then
+        if not Match.hill then
+            Match.hill = Hill.new(function(map)
+                local root = MOD_DIR:match("^(.*)\\Mods\\[^\\]*$") or MOD_DIR
+                return readFile(root .. "\\MJOLNIRMaps\\" .. map .. "\\level.json")
+                    or readFile(LOADER_DIR .. "\\levels\\" .. map .. ".json")
+            end)
+            Log("hill marker: " .. Match.hill.start(Match.code) .. " hill(s)")
+        end
+        Match.hill.tick(now(), pc, HudHidden)
+    end
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets.
     if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then

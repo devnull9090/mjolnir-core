@@ -126,9 +126,6 @@ pub struct WriteArgs {
     /// docs/game_modes.md, 1.2); at 30 both lasted half as long as asked.
     #[arg(long, default_value_t = 60)]
     pub tick_rate: u16,
-    /// KOTH: number of authored koth_hill_N markers (1..=8).
-    #[arg(long, default_value_t = 3)]
-    pub hills: u8,
     /// KOTH: seconds before moving to the next hill.
     #[arg(long, default_value_t = 60)]
     pub hill_seconds: u16,
@@ -259,7 +256,6 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 w.tick_rate > 0 && w.tick_rate <= 32767,
                 "--tick-rate must be 1..32767"
             );
-            anyhow::ensure!((1..=8).contains(&w.hills), "--hills must be 1..8");
             if matches!(w.mode, Mode::Ctf) && !w.single_flag && w.blue_flag_type == w.flag_type {
                 anyhow::bail!(
                     "--blue-flag-type is --flag-type ({}): one type for both teams is --single-flag",
@@ -283,7 +279,6 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     w.tick_rate as i16,
                     i16::try_from(u32::from(w.hill_seconds) * u32::from(w.tick_rate))
                         .context("hill duration exceeds 32767 ticks")?,
-                    w.hills,
                 ),
                 Mode::Ctf => Variant::ctf(blam_megalo::ctf::Ctf {
                     flag_type: w.flag_type,

@@ -5,7 +5,9 @@ to 5 are designs and test plans. **Update 2026-10-22:** the two colour fixes
 of section 2 and the CLI's 60-tick default are built on branch
 `work/reach-game-mode-support-2eca91` (each fix's *Built* paragraph says
 where) and untested in game. None of it ships before the user has tested it
-in game.
+in game. **Update 2026-11-04:** King and Oddball are built on converted CE
+maps and were hosted and scored on PC 1 on Prisoner (section 3.4). Nothing is
+released.
 **Binaries:** `HaloSimulation_tag_release.dll` ("sim", image base
 0x180000000) and `HaloCampaignEvolved.exe` ("exe", image base 0x140000000),
 CU4 (build lock in [`build_lock.md`](build_lock.md)). Every address is an RVA
@@ -566,7 +568,7 @@ values. MJOLNIR writes its own scripts. Bungie's are a reference for behaviour.
 | B4 | Megalo HUD | widgets (`G+0x2a4`), objective text and icon, progress meters and waypoint icons never reach the snapshot; Unreal's navpoints come only from the HaloScript `chud_track` list (`[TLS+0x428]+0xcd0`) | read them natively and draw with UMG from Lua; or mirror waypoints into the HaloScript list (sim `0x473960`, per player), which shows a label and priority but no icon (inferred feasibility) | every objective mode |
 | B5 | Boundaries | the snapshot has no shape; whether the sim's own boundary drawing (slot 29 -> `0x66b900`/`0x66ba00`) reaches the screen is unknown, probably not (inferred) | a zone actor drawn from the object's shape (`MP+0x00..+0x10`) | KOTH, Territories, Infection havens, Headhunter, Stockpile, Assault |
 | B6 | Object type list | 20 entries: 18 weapons, MJOLNIR's flag (18) and health pack (19) | list entries and tags (section 3.2) | all but Slayer and Infection |
-| B7 | Map placements | converted maps carry flag stands, CTF spawn labels and vehicle labels; CE's `OddballSpawn`, `HillFlag` and `RaceTrack` markers are kept in the level file (`defs/level/ce-tag-map.json:56-66`, `gen_ce_level.py:1290-1294`) but not placed as labelled objects | placements with label, owner team, spawn order and shape; a CE hill polygon fitted to one shape (inferred) | Oddball, KOTH, Race; Headhunter, Territories, Stockpile, Assault need authoring |
+| B7 | Map placements | converted maps carry flag stands, CTF spawn labels and vehicle labels. Since 2026-11-04 `tools/level/ce_objectives.py` places CE's `HillFlag` polygons and `OddballSpawn` flags as labelled objects (section 3.4); `RaceTrack` markers stay in the level file only | Race's checkpoints, the same way | Race; Headhunter, Territories, Stockpile, Assault need authoring |
 | B8 | Rounds | MJOLNIR ends a match at the first `round_over`; designator switching acts only from round index 1 | let the sim play the variant's rounds | one-flag CTF, one-bomb Assault, any side swap |
 | B9 | Announcer | 3 of 339 sounds ship | `events.json` lines by incident name, as for CTF | all |
 | B10 | Out of bounds | always false on converted maps | kill (MP type 26) or safe (25) volume objects with shapes in levels | CTF, Assault, Oddball, Headhunter resets |
@@ -620,19 +622,107 @@ section 3.1.
 | 3 | Juggernaut | `juggernaut` | gravity hammer 30 (tag exists), fire emitter 141 (drop) | forced white and black colours; Juggernaut waypoint | script teams under a free-for-all header work in the sim; Unreal sees the slot index | B3, B4, B6, B12 | Low-medium |
 | 4 | Infection (Safe Havens) | `infection`, `inf_spawn`, `inf_haven` (1) with shapes | none; zombie trait weapon -> CU4 energy sword, ability none | forced zombie colour (essential); haven boundary; widget | as Juggernaut | B3, B4, B5, B7, B12 | Medium |
 | 5 | Headhunter | `headhunter`, `hh_drop_point` (1) with shapes | skull 5 | carrier skull-count waypoint; drop-point boundaries; widget; kill-feed text | skull pickup by walking untested | B4, B5, B6, B7 | Medium |
-| 6 | Oddball (Team, Hot Potato) | `oddball`, `oddball_ball` (1), from CE `OddballSpawn` markers | skull 5, bomb 4, anti zone 151; flag stand and capture plate only tested | ball waypoint following the carrier; ball colour follows the carrier's team | the ball's team changes during play | B2 (native), B4, B6, B7, B10 | Medium |
-| 7 | KOTH (Crazy King) | `koth`, `koth_hill` (1) with map-authored shape, from CE `HillFlag` polygons | anti zone 151 | hill boundary in the holder's colour (essential); crown waypoint | the hill's team changes during play | B2 (native), B4, B5, B6, B7 | Medium |
+| 6 | Oddball (Team, Hot Potato). Free-for-all built, section 3.4 | `oddball`, `oddball_ball` (1), from CE `OddballSpawn` markers | skull 5, bomb 4, anti zone 151; flag stand and capture plate only tested | ball waypoint following the carrier; ball colour follows the carrier's team | the ball's team changes during play | B2 (native), B4, B6, B7, B10 | Medium |
+| 7 | KOTH (Crazy King). Free-for-all built, section 3.4 | `koth`, `koth_hill` (1) with map-authored shape, from CE `HillFlag` polygons | anti zone 151 | hill boundary in the holder's colour (essential); crown waypoint | the hill's team changes during play | B2 (native), B4, B5, B6, B7 | Medium |
 | 8 | Escalation (Gun Game) | Slayer's | 18 weapon types: 7 remap, 9 need entries (tags exist), golf club absent | weapon-tier widgets | `Add Weapon To Biped` untested | B4, B6 | Medium |
 | 9 | CTF variants (One Flag, Neutral, Multi-team) | have `ctf_flag_return` with teams; neutral needs a placed flag; multi-team 3-4 stands; optional `ctf_res_zone`, `ctf_res_zone_away` | flag 3, hill marker 6 | colours for 3-4 teams (`EBlamMultiplayerTeam` has 8); attack and defend markers; return progress bar | side swap per round | B2, B4, B6, B8 | Medium-high |
 | 10 | Territories (Land Grab, 3-Plot) | `territories`, `terr_object` (1) with spawn order | flag 3 per territory, anti zone 151 | boundaries; letter waypoints (icons absent); progress bars; territory flag colour that changes on capture | placements authored per map | B2 (native), B4, B5, B6, B7 | High |
 | 11 | Stockpile | `stockpile`, `stp_flag` (1), `stp_goal` (1) | flag 3, respawn zone 60 | flag and goal markers; goal boundary; flag colour that changes in a goal | respawn zones honoured | B2 (native), B4, B5, B6, B7 | High |
 | 12 | Assault (One Bomb, Neutral, Grifball) | `assault`, `as_bomb` (1), `as_goal` (1), authored (CE has no bomb data) | bomb 4 (needs an Unreal actor), hill marker 6, anti zone 151; Grifball adds hammer 30 | three widgets; arm and defuse progress bars; bomb colour that changes when planted; goal boundary | attach to the goal; detonation effect; side swap | B2 (native), B4, B5, B6, B7, B8 | High |
-| 13 | Race and Rally | `race`, `race_spawn`, `race_flag` (1) in order, from CE `RaceTrack` markers | warthog, ghost, banshee (tags exist), mongoose (none), landmine (none, optional) | per-player waypoints with text and distance; speed widgets from the `local` trigger | `Force Player Into Vehicle` untested; the `local` trigger is what clients run | B4, B6, B7 | High |
+| 13 | Race and Rally. Assessed, section 3.5 | `race`, `race_spawn`, `race_flag` (1) in order, from CE `RaceTrack` markers | warthog, ghost, banshee (tags exist), mongoose (none, and CE's Race never needed it), landmine (none, optional) | per-player waypoints with text and distance; speed widgets from the `local` trigger | `Force Player Into Vehicle` untested; the `local` trigger is what clients run | B4, B6, B7 | High |
 | - | Invasion, Invasion Slayer, HaloBall | map devices, cinematic interpolators, cores, Elite tiers, Reach-only props | - | - | - | - | Not realistic |
 
 Two colour channels decide whether team modes read correctly in Unreal: the
 owner team of objects (B2) and the forced colour or script team of players
 (B3). Both are exact in the sim and absent from the host today.
+
+### 3.4 King and Oddball on converted CE maps
+
+Built 2026-11-04. The mode list comes from each map's own markers: a map offers
+`koth` when it has a `HillFlag` polygon and `oddball` when it has an
+`OddballSpawn` (`tools/level/ce_objectives.py`, called by `gen_ce_level.py`;
+run on a level file, it upgrades a map already converted). Of the 48 converted
+maps counted, 46 offer both, with 4 to 14 hills. Nightfall has one stray
+`HillFlag` and no ball spawn, and TST authors its own (`prepare_runtime.py`).
+
+- **A hill is a polygon.** Its corners are the `HillFlag`s sharing a team index,
+  and that index is the hill's number. The simulation's boundaries are simple
+  shapes, so each hill is a cylinder of the polygon's area around its centroid,
+  from its lowest corner to 1.5 world units over its highest. A player in a
+  sharp corner of a long polygon is outside the cylinder. Fitted radii run from
+  1.9 m to 78 m, median 6.4 m (Coldsnap's hills are the wide ones).
+- **One `koth.mglo` serves every map.** A label per hill would pass the
+  simulation's 16 filters, so every hill has the label `koth_hill` and the
+  script reads its place in the rotation from `object.spawn_sequence` (Number
+  kind 6, new in the typed builder), counting the hills as it walks the label.
+  `--hills` is gone.
+- **Markers are owned by a team nobody plays.** The spawn search `0x2f84e0`
+  takes any scenery with a multiplayer block whose owner team is the player's
+  or neutral. It has no type test: MP type 15 only marks a valid first spawn in
+  `0x2f77a0`. Neutral markers took 5 of 13 respawns on Prisoner. With owner team
+  `eighth party` (7), 0 of 23 landed on one, and the label loop and the boundary
+  test do not look at the team. **Health pack spots are neutral too and still
+  take spawns on every map:** in the last run 17 of 23 respawns cycled through
+  three of them.
+- **The staging guard has to know the operand.** `mjolnir_map_registry.dll`
+  links `blam-megalo`'s reader and refused the first `koth.mglo` ("failed
+  variant validation"), and the default variant ran with the HUD still reading
+  "to win 120". **So `koth.mglo` needs a registry DLL built from this code, in
+  the same mods release.** Check `map_registry.log` before reading any result.
+- **Telling where the hill is.** No waypoint or boundary reaches Unreal (B4,
+  B5). The variant raises `hill_moved` with the hill's place as its value, the
+  level file lists `koth_hills`, and `mods/MJOLNIRHud/Scripts/hill.lua` draws one
+  line under the score: "HILL 12 M LEFT ABOVE", "ON THE HILL". There is still no
+  boundary in the world, and `hill_moved` is not yet seen on a client (a client
+  would stay on hill 1 if it never arrives).
+- **Oddball's ball** is the flag tag (type 18) drawn as the skull, always made at
+  the first spawn the label loop reaches: other spawns are unused. There is no
+  marker for a loose or carried ball, so a player finds it by eye.
+
+Tested on PC 1, Prisoner, private, bots off, 2026-11-04 (the table says what was
+seen):
+
+| Check | Result |
+|---|---|
+| King: staged, not wiped | `mjolnir.mglo installed`; `hill_moved` value 1 after 60 s |
+| King: scoring | 60 points in the 60 s standing on hill 3, read from the sim at the end of the window, and none before it; HUD in step at 27. Scored again on the final build |
+| King: rotation by spawn order | hill 3 went live at minute 3, as ordered; markers read orders 0 to 5 from the sim |
+| Oddball: pick up and score | skull in hand, 1 a second; sim and HUD agree |
+| Oddball: round end | `round_over` at 120 |
+| Oddball: abandoned ball | carrier killed; score stopped at 16; 30 s later a new ball at its spawn |
+| Spawns | 0 of 23 on a hill or ball marker |
+| Hill line | drawn under the score bar |
+
+Not tested: two PCs, a contested hill (needs a second player), `hill_moved`
+reaching a client, Slayer and CTF on a map with the new markers, and the
+lobby menu by hand (`mjolnir_auto` hosted both modes).
+
+Shipping needs a mods release (DLL, both variants, HUD) and then each map
+rebaked: the placements are in the scenario. `add_bots.py` is the pattern for
+rebaking hub packs.
+
+### 3.5 Race: assessment, not built
+
+Twenty-one converted maps carry `RaceTrack` markers, numbered by team index, and
+ten carry `RaceVehicle` markers. The doc's "no mongoose" is not the blocker it
+looked like: CE's Race never used one. It is a checkpoint run on foot or in
+whatever the map places, and those vehicles already exist.
+
+What it takes, cheapest first:
+
+1. Place checkpoints as `ce_objectives.py` does hills: label `race_flag`, a
+   cylinder each, owner team `eighth party`, spawn order the team index.
+2. A `Variant::race`: a player number for the next checkpoint, `Object In
+   Boundary` against the checkpoint of that order, a lap at the last one, score
+   per lap. The typed builder needs the player number operand; the rest it has.
+3. **The blocker: every player has their own next checkpoint.** It lives in a
+   per-player Megalo number, and B4 keeps it from Unreal. The hill line works
+   because the hill is one fact shared by all, sent by incident. Race would need
+   a personal incident per checkpoint, or a native reader of `G+0x344`.
+
+The script and placements are about the size of King. The per-player marker is
+the real work, and without it a racer cannot see where to go, so it should wait
+for B4. `lap_complete` is already borrowed by the health packs.
 
 ---
 

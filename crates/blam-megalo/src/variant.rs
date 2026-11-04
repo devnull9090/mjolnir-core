@@ -105,6 +105,8 @@ pub enum Number {
     ObjectNumber { object: u8, index: u8 },
     /// Kind 4: `global.number[index]`.
     GlobalNumber(u8),
+    /// Kind 6: `object.spawn_sequence`, the placement's spawn order.
+    SpawnSequence(u8),
     /// Kind 7: a team's score (stored team reference, see [`team`]).
     TeamScore(i8),
     /// Kind 8: a player's score.
@@ -1014,6 +1016,10 @@ fn write_number(w: &mut BitWriter, n: &Number) -> Result<(), Error> {
             put(w, 4, 6)?;
             put(w, *i as u64, 4)
         }
+        Number::SpawnSequence(o) => {
+            put(w, 6, 6)?;
+            put(w, *o as u64, 5)
+        }
         Number::TeamScore(t) => {
             put(w, 7, 6)?;
             put_minus_one(w, *t as i64, 5)
@@ -1645,6 +1651,7 @@ fn read_number(r: &mut BitReader) -> Result<Number, Error> {
             index: get(r, 3)? as u8,
         },
         4 => Number::GlobalNumber(get(r, 4)? as u8),
+        6 => Number::SpawnSequence(get(r, 5)? as u8),
         7 => Number::TeamScore(get_minus_one(r, 5)? as i8),
         8 => Number::PlayerScore(get(r, 5)? as u8),
         16 => Number::ScoreToWin,

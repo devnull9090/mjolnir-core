@@ -50,11 +50,12 @@ def apply(level, placements, *, release_beta=False):
             edge["pos"][0]+=dx
             objects.append(edge)
 
-    def marker(position, label, radius=1):
+    def marker(position, label, radius=1, order=0):
         x, y, z = position
         objects.append({"tag": r"objects\multi\ctf\flag_stand", "group": "scenery",
             "pos": [round(x * 100, 3), round(-y * 100, 3), round(z * 100, 3)], "rot": [0, 0, 0],
-            "set": {"multiplayer data.megalo label": label, "multiplayer data.owner team": "neutral",
+            "set": {"multiplayer data.megalo label": label, "multiplayer data.owner team": "eighth party",
+                    "multiplayer data.spawn order": str(order),
                     "multiplayer data.boundary shape": "cylinder",
                     "multiplayer data.boundary width or radius": str(radius),
                     "multiplayer data.boundary positive height": "1.5",
@@ -63,7 +64,7 @@ def apply(level, placements, *, release_beta=False):
     if not release_beta:
         marker(markers["oddball"]["position_m"], "oddball_spawn")
         for index, position in enumerate(markers["king"]["positions_m"]):
-            marker(position, f"koth_hill_{index}", 2)
+            marker(position, "koth_hill", 2, index)
     level["modes"] = ["slayer", "team_slayer", "ctf"]
     if not release_beta:
         level["modes"] += ["oddball", "koth"]
@@ -87,7 +88,6 @@ def main():
         args.rules_out.mkdir(parents=True, exist_ok=True)
     for mode in (() if args.release_beta else ("oddball", "koth")):
         subprocess.run([str(args.cli), "megalo", "write", "--mode", mode,
-            "--hills", str(len(placements["objective_markers"]["king"]["positions_m"])),
             "--vehicle-label-pool", "--tick-rate", "60",
             "--out", str(args.rules_out / f"{mode}.mglo")], check=True)
     args.level.write_text(json.dumps(level, indent=2) + "\n")

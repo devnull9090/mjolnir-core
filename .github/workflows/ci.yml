@@ -23,6 +23,7 @@ jobs:
         run: |
           lua5.4 tools/tests/test_multiplayer_ui.lua
           lua5.4 tools/tests/test_lobby_startup.lua
+          lua5.4 tools/tests/test_hill_marker.lua
 
       - name: Test UI class retention across map travel
         run: lua5.4 tools/tests/test_ui_class_lifetime.lua

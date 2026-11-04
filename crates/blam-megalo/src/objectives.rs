@@ -166,10 +166,15 @@ impl Variant {
 
     /// Moving free-for-all hill. Exactly one living player in the current
     /// authored boundary scores; contested or empty hills award no points.
-    pub fn koth(score: u16, tick_rate: i16, move_ticks: i16, hills: u8) -> Self {
+    ///
+    /// One file serves every map: CE maps carry 1 to 14 hills, and a label
+    /// each would pass the simulation's 16 filters. Every hill has the label
+    /// `koth_hill`, its spawn order is its place in the rotation (0, 1, ...),
+    /// and the script counts them as it walks the label each tick.
+    pub fn koth(score: u16, tick_rate: i16, move_ticks: i16) -> Self {
         let mut b = Builder::new(Variant {
             vars: Variables {
-                global_numbers: 5,
+                global_numbers: 6,
                 global_objects: 1,
                 global_players: 1,
                 ..Variables::default()
@@ -233,14 +238,11 @@ impl Variant {
         let wrap = b.sub(
             TriggerKind::Do,
             vec![
-                compare(
-                    number(0),
-                    constant(i16::from(hills)),
-                    Compare::GreaterOrEqual,
-                ),
+                compare(number(0), number(5), Compare::GreaterOrEqual),
                 set(number(0), constant(0)),
             ],
         );
+        // The value is the new hill's place in the rotation, for the HUD.
         let rotate = b.sub(
             TriggerKind::Do,
             vec![
@@ -249,6 +251,12 @@ impl Variant {
                 set(number(1), constant(0)),
                 set(number(3), constant(0)),
                 Item::Do(Action::CallTrigger(wrap)),
+                Item::Do(Action::SendIncident {
+                    incident: 73, // game_incident: hill_moved
+                    cause: Subject::None,
+                    effect: Subject::None,
+                    value: Some(Number::GlobalNumber(0)),
+                }),
             ],
         );
         b.trigger(
@@ -256,33 +264,41 @@ impl Variant {
             ATTR_NORMAL,
             vec![add(1, 1), Item::Do(Action::CallTrigger(rotate))],
         );
-        for i in 0..hills {
-            let label = b.label(&format!("koth_hill_{i}"));
-            b.trigger(
-                TriggerKind::EachObjectWithLabel(label),
-                ATTR_NORMAL,
-                vec![
-                    Item::Do(Action::SetWaypointVisibility {
-                        object: Object::Ref(object::CURRENT),
-                        who: PlayerSet::NoOne,
-                    }),
-                    eq(number(0), constant(i16::from(i))),
-                    set(obj(hill), obj(object::CURRENT)),
-                    set(number(2), constant(0)),
-                    Item::Do(Action::SetWaypointVisibility {
-                        object: Object::Ref(hill),
-                        who: PlayerSet::Everyone,
-                    }),
-                    Item::Do(Action::SetWaypointIcon {
-                        object: Object::Ref(hill),
-                        icon: 7,
-                    }),
-                    Item::Do(Action::CallTrigger(scan)),
-                    Item::Do(Action::CallTrigger(held)),
-                    Item::Do(Action::CallTrigger(contested)),
-                ],
-            );
-        }
+        let order = Var::Number(Number::SpawnSequence(object::CURRENT));
+        let count = b.sub(
+            TriggerKind::Do,
+            vec![
+                compare(order.clone(), number(5), Compare::GreaterOrEqual),
+                set(number(5), order.clone()),
+                add(5, 1),
+            ],
+        );
+        let label = b.label("koth_hill");
+        b.trigger(
+            TriggerKind::EachObjectWithLabel(label),
+            ATTR_NORMAL,
+            vec![
+                Item::Do(Action::SetWaypointVisibility {
+                    object: Object::Ref(object::CURRENT),
+                    who: PlayerSet::NoOne,
+                }),
+                Item::Do(Action::CallTrigger(count)),
+                eq(order, number(0)),
+                set(obj(hill), obj(object::CURRENT)),
+                set(number(2), constant(0)),
+                Item::Do(Action::SetWaypointVisibility {
+                    object: Object::Ref(hill),
+                    who: PlayerSet::Everyone,
+                }),
+                Item::Do(Action::SetWaypointIcon {
+                    object: Object::Ref(hill),
+                    icon: 7,
+                }),
+                Item::Do(Action::CallTrigger(scan)),
+                Item::Do(Action::CallTrigger(held)),
+                Item::Do(Action::CallTrigger(contested)),
+            ],
+        );
         end_at_score(&mut b);
         b.v
     }
@@ -295,8 +311,8 @@ mod tests {
     #[test]
     fn timed_objectives_roundtrip_with_shared_health_and_vehicle_filters() {
         for v in [
-            Variant::oddball(120, 18, 30, 900),
-            Variant::koth(120, 30, 1800, 3),
+            Variant::oddball(120, 18, 60, 1800),
+            Variant::koth(120, 60, 3600),
         ] {
             let v = v
                 .with_time_limit()
@@ -310,5 +326,12 @@ mod tests {
             assert_eq!(Variant::read(&v.write().unwrap()).unwrap(), v);
             assert!(v.filters.len() < 16);
         }
+    }
+
+    #[test]
+    fn koth_is_one_label_whatever_the_map() {
+        let v = Variant::koth(120, 60, 3600);
+        assert_eq!(v.filters.len(), 1);
+        assert_eq!(v.strings[v.filters[0].label as usize], "koth_hill");
     }
 }
