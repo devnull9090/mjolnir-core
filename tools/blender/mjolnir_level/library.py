@@ -52,8 +52,9 @@ class MJOLNIR_OT_place_mesh(bpy.types.Operator):
         # origin matches the mesh's local origin so the exported transform is
         # the actor transform, not the box centre.
         mn, mx = row["min"], row["max"]
-        size = [max((mx[i] - mn[i]) / 100.0, 0.01) for i in range(3)]
-        centre = [(mx[i] + mn[i]) / 200.0 for i in range(3)]
+        unit = context.scene.unit_settings.scale_length
+        size = [max((mx[i] - mn[i]) / 100.0, 0.01)/unit for i in range(3)]
+        centre = [(mx[i] + mn[i]) / (200.0*unit) for i in range(3)]
 
         mesh = bpy.data.meshes.new("proxy")
         obj = bpy.data.objects.new(row["path"].rsplit(".", 1)[-1], mesh)

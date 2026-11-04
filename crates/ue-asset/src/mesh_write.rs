@@ -25,8 +25,9 @@
 //! * **Keep inside the donor's bounds.** The bounds live in the tail this
 //!   preserves, and the engine culls against them, so geometry is expected
 //!   pre-normalised into the donor's box; scale it back up on the component.
-//! * **Sections may only name materials the donor has.** The material slots
-//!   are properties, which are not rewritten.
+//! * **Sections need corresponding material slots.** Geometry rewriting does
+//!   not change them. The opt-in material writer must update both reflected
+//!   properties and the separate native suffix using [`rewrite_native_materials`].
 //!
 //! The gate is that [`parse_static_mesh`](crate::mesh::parse_static_mesh) —
 //! which is verified against the game's own cooked meshes — reads back exactly
@@ -34,6 +35,66 @@
 
 use crate::mesh::Error;
 use crate::unversioned::{Ctx, Walker};
+
+/// The cooked native `FStaticMaterial` record, serialized again after the
+/// render-data tail. Editing only the reflected StaticMaterials property is
+/// insufficient: UStaticMesh::Serialize reads this array last and replaces it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeMaterialSlot {
+    pub material: i32,
+    pub name: crate::props::Name,
+    pub initialized: bool,
+    pub override_densities: bool,
+    pub uv_densities: [f32; 4],
+}
+
+fn native_material_bytes(slots: &[NativeMaterialSlot]) -> Result<Vec<u8>, Error> {
+    if slots.is_empty() || slots.len() > 64 {
+        return Err(Error::Format("native material count must be 1..64".into()));
+    }
+    let mut out = Vec::with_capacity(4 + slots.len() * 36);
+    u32le(&mut out, slots.len() as u32);
+    for slot in slots {
+        if slot.name.index >> 30 != 0
+            || slot.uv_densities.iter().any(|v| !v.is_finite() || *v < 0.0)
+        {
+            return Err(Error::Format(
+                "unsupported native material name or UV density".into(),
+            ));
+        }
+        out.extend_from_slice(&slot.material.to_le_bytes());
+        u32le(&mut out, slot.name.index);
+        u32le(&mut out, slot.name.number);
+        u32le(&mut out, slot.initialized as u32);
+        u32le(&mut out, slot.override_densities as u32);
+        for density in slot.uv_densities {
+            f32le(&mut out, density);
+        }
+    }
+    Ok(out)
+}
+
+/// Replace the UE 5.5 cooked native material suffix, preserving all preceding
+/// bytes. The caller supplies the old reflected slots as an independent format
+/// guard. A donor with a different native layout, trailing bytes, or disagreeing
+/// reflected/native slots is rejected rather than scanning for a byte pattern.
+/// The caller must also replace the reflected array and update package imports.
+pub fn rewrite_native_materials(
+    tail: &[u8],
+    old_slots: &[NativeMaterialSlot],
+    new_slots: &[NativeMaterialSlot],
+) -> Result<Vec<u8>, Error> {
+    let expected = native_material_bytes(old_slots)?;
+    if !tail.ends_with(&expected) {
+        return Err(Error::Format(
+            "native StaticMaterials suffix does not match reflected donor slots".into(),
+        ));
+    }
+    let replacement = native_material_bytes(new_slots)?;
+    let mut out = tail[..tail.len() - expected.len()].to_vec();
+    out.extend_from_slice(&replacement);
+    Ok(out)
+}
 
 /// The geometry to write. One section per material slot used.
 #[derive(Debug, Default, Clone)]
@@ -483,6 +544,95 @@ pub fn rewrite_static_mesh(ctx: &Ctx<'_>, export: &[u8], geo: &Geometry) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Captured final native record of the shipped non-Nanite Cube donor:
+    // one WorldGrid import, slot name 3, initialized UV density 100/356.3928.
+    const CUBE_MATERIAL: [u8; 40] = [
+        1, 0, 0, 0, 252, 255, 255, 255, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200,
+        66, 71, 50, 178, 67, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
+    fn cube_slot() -> NativeMaterialSlot {
+        NativeMaterialSlot {
+            material: -4,
+            name: crate::props::Name {
+                index: 3,
+                number: 0,
+            },
+            initialized: true,
+            override_densities: false,
+            uv_densities: [100.0, f32::from_bits(0x43b23247), 0.0, 0.0],
+        }
+    }
+
+    #[test]
+    fn native_materials_expand_real_donor_suffix_and_preserve_mesh_tail() {
+        let prefix: Vec<u8> = (0..=255).collect();
+        let mut original = prefix.clone();
+        original.extend_from_slice(&CUBE_MATERIAL);
+        let old = [cube_slot()];
+        let new: Vec<_> = (0..9)
+            .map(|i| NativeMaterialSlot {
+                material: -8 - i,
+                name: crate::props::Name {
+                    index: 100 + i as u32,
+                    number: i as u32,
+                },
+                ..cube_slot()
+            })
+            .collect();
+        let out = rewrite_native_materials(&original, &old, &new).unwrap();
+        assert_eq!(&out[..prefix.len()], &prefix);
+        let native = &out[prefix.len()..];
+        assert_eq!(native.len(), 4 + 9 * 36);
+        assert_eq!(&native[..4], &9u32.to_le_bytes());
+        for (i, record) in native[4..].chunks_exact(36).enumerate() {
+            assert_eq!(
+                i32::from_le_bytes(record[..4].try_into().unwrap()),
+                -8 - i as i32
+            );
+            assert_eq!(
+                u32::from_le_bytes(record[4..8].try_into().unwrap()),
+                100 + i as u32
+            );
+            assert_eq!(
+                u32::from_le_bytes(record[8..12].try_into().unwrap()),
+                i as u32
+            );
+            assert_eq!(&record[12..], &CUBE_MATERIAL[16..]);
+        }
+        assert_eq!(
+            rewrite_native_materials(&out, &new, &old).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn native_materials_reject_layout_mismatch_and_unbounded_values() {
+        let old = [cube_slot()];
+        for at in 0..CUBE_MATERIAL.len() {
+            let mut corrupted = CUBE_MATERIAL;
+            corrupted[at] ^= 1;
+            assert!(
+                rewrite_native_materials(&corrupted, &old, &old).is_err(),
+                "byte {at}"
+            );
+        }
+        assert!(rewrite_native_materials(&CUBE_MATERIAL[..39], &old, &old).is_err());
+        let mut trailing = CUBE_MATERIAL.to_vec();
+        trailing.push(0);
+        assert!(rewrite_native_materials(&trailing, &old, &old).is_err());
+        assert!(rewrite_native_materials(&CUBE_MATERIAL, &old, &[]).is_err());
+        assert!(rewrite_native_materials(&CUBE_MATERIAL, &old, &vec![cube_slot(); 65]).is_err());
+        for density in [f32::NAN, f32::INFINITY, -1.0] {
+            let mut slot = cube_slot();
+            slot.uv_densities[0] = density;
+            assert!(rewrite_native_materials(&CUBE_MATERIAL, &old, &[slot]).is_err());
+        }
+        let mut slot = cube_slot();
+        slot.name.index = 1 << 30;
+        assert!(rewrite_native_materials(&CUBE_MATERIAL, &old, &[slot]).is_err());
+    }
 
     #[test]
     fn half_round_trips_through_the_readers_decoder() {

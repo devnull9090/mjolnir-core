@@ -285,6 +285,7 @@ local function resetState()
     Current.weatherHidden = nil
     Current.weatherAt = nil
     Current.world = nil
+    Current.skyRecapture = nil
     Current.fluxPending = nil
     -- The console variables a level changed (the sun's shadows,
     -- spawnEnvironment) back as the game had them.
@@ -302,6 +303,9 @@ local function resetState()
 end
 
 local function clearActors()
+    -- Reloads keep the world but replace its actors. Invalidate any pending
+    -- capture before destroying them, and allow the replacement sky to capture.
+    Current.skyRecapture = nil
     for _, actor in pairs(Current.actors) do
         if actor and actor:IsValid() then
             -- Sounds are components, not actors.
@@ -1562,7 +1566,7 @@ local function spawnEnvironment(world)
             pcall(function()
                 actor:K2_SetActorRotation({ Pitch = sun.pitch or -50.0, Yaw = sun.yaw or 30.0, Roll = 0 }, false)
             end)
-            pcall(function() c:SetAtmosphereSunLight(false) end)
+            pcall(function() c:SetAtmosphereSunLight(sun.atmosphere_sun == true) end)
             if type(sun.color) == "table" then
                 -- bSRGB true: the component keeps an 8-bit colour the renderer
                 -- decodes as sRGB, so the linear colour the level names must be
@@ -1580,7 +1584,9 @@ local function spawnEnvironment(world)
         local c = actor.LightComponent
         c.Mobility = MOBILITY_MOVABLE
         c.bRealTimeCapture = true
-        c:SetIntensity((skylight.intensity or 3.0) * k)
+        -- A physical atmosphere already captures the scaled sun radiance.
+        -- Multiplying its capture by k again washes native foliage white.
+        c:SetIntensity((skylight.intensity or 3.0) * (skylight.physical and 1 or k))
         if type(skylight.color) == "table" then
             c:SetLightColor({ R = skylight.color[1], G = skylight.color[2], B = skylight.color[3], A = 1.0 })
         end
@@ -1693,6 +1699,9 @@ local function spawnEnvironment(world)
             set("expand_gamut", "ExpandGamut", post.expand_gamut)
             set("blue_correction", "BlueCorrection", post.blue_correction)
             set("bloom", "BloomIntensity", post.bloom)
+            -- Rougher surfaces reflect from the radiance cache, not traced
+            -- rays (docs/level_format.md); a level of glossy metal saves ms.
+            set("max_traced_roughness", "LumenMaxRoughnessToTraceReflections", post.max_traced_roughness)
             if post.manual_exposure then
                 set("manual_exposure", "AutoExposureMethod", 2) -- AEM_Manual
                 set("manual_exposure", "AutoExposureApplyPhysicalCameraExposure", false)
@@ -2252,6 +2261,10 @@ local function hookIncidents()
                 local i = incident:get()
                 return i.Name:ToString(), i.CausePlayerAbsoluteIndex, i.CustomValue, i.EffectPlayerAbsoluteIndex
             end)
+            -- Positive values are timed-objective score snapshots for the
+            -- HUD, not another pickup/control announcement every second.
+            if okI and (name == "ball_taken" or name == "hill_controlled")
+                and type(value) == "number" and value > 0 then return end
             -- Flag incidents and the end of a round count without sounds
             -- too: they place the flags and reset them (teams.lua).
             if not (okI and name) or not (next(EventWaves) or name:find("^flag_") or name == "round_over") then return end
@@ -3309,6 +3322,8 @@ end
 --- lights: `pos` (cm, from the canvas origin), `colour`, `intensity` (cd
 --- before the light scale, lightScale; unitless with `falloff`), `falloff`
 --- (optional: Unreal's non-physical falloff exponent), `radius` (cm),
+--- `source_radius` (optional: emitter radius in cm, default 8),
+--- `specular_scale` (optional: specular contribution, clamped to 0..1),
 --- `shadow_distance` (optional: cm from the camera they shadow to, default
 --- 8000). The terrain shades
 --- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
@@ -3360,7 +3375,9 @@ function Placed.lights(world)
                     c.MaxShadowDistance = tonumber(l.shadow_distance) or 8000
                     c.ShadowFadeRange = 1000
                     c:SetCastShadows(true)
-                    c.SourceRadius = 8
+                    c:SetSourceRadius(math.max(0, tonumber(l.source_radius) or 8))
+                    local specular = tonumber(l.specular_scale)
+                    if specular then c:SetSpecularScale(math.max(0, math.min(1, specular))) end
                 end)
                 Current.actors[key] = actor
                 n = n + 1
@@ -4753,6 +4770,47 @@ function Footprints.command(args)
         Footprints.cy))
 end
 
+--- Opt-in one-shot capture after the runtime sky mesh and decor are present.
+--- The initial environment capture runs before decor. A CE sky mesh can
+--- therefore leave native surfaces shaded against an empty capture on load.
+--- This opt-in captures the currently rendered sky, including any restored
+--- height haze; it intentionally does not repeat the earlier clear-haze capture.
+--- Capture once after furnishing; no polling or recurring per-frame work.
+function Current.recaptureSkyAfterDecor(world)
+    local level = Current.level
+    local env = type(level) == "table" and level.environment
+    local settings = type(env) == "table" and env.skylight
+    if type(settings) ~= "table" or settings.recapture_after_load ~= true or Current.skyRecapture then return false end
+    local sky = Current.actors.__sky
+    local function identity(object)
+        if not (object and object:IsValid()) then return nil end
+        return tostring(object:GetAddress()) .. "|" .. object:GetFullName()
+    end
+    local ok, worldId, skyId, component, componentId = pcall(function()
+        local c = sky and sky:IsValid() and sky.LightComponent
+        return identity(world), identity(sky), c, identity(c)
+    end)
+    if not ok or not worldId or not skyId or not componentId then return false end
+    local request = { world = worldId, sky = skyId, component = componentId }
+    Current.skyRecapture = request
+    ExecuteInGameThreadWithDelay(500, function()
+        -- Level reload/travel may replace actors while a delayed callback is
+        -- pending. Check current state before touching any saved UE handles.
+        if Current.skyRecapture ~= request or Current.level ~= level
+            or Current.world ~= world or Current.actors.__sky ~= sky then return end
+        local captured, err = pcall(function()
+            if identity(getWorld()) ~= request.world or identity(world) ~= request.world
+                or identity(sky) ~= request.sky or identity(component) ~= request.component then return end
+            if identity(sky.LightComponent) ~= request.component then return end
+            component:RecaptureSky()
+            request.complete = true
+            Log("skylight recaptured after decor")
+        end)
+        if not captured then Log("post-decor skylight capture: " .. tostring(err)) end
+    end)
+    return true
+end
+
 local function spawnDecor(world)
     local level = Current.level
     Current.world = world
@@ -4762,6 +4820,7 @@ local function spawnDecor(world)
     local decor = level and level.decor
     if type(decor) ~= "table" or #decor == 0 then
         Log("level '" .. tostring(level and level.name) .. "': no decor to spawn")
+        Current.recaptureSkyAfterDecor(world)
         return
     end
     local origin = level.canvas.origin
@@ -4882,6 +4941,7 @@ local function spawnDecor(world)
     Land.apply(world)
     ok, err = pcall(Footprints.deformStart, world)
     if not ok then Log("deformation: " .. tostring(err)) end
+    Current.recaptureSkyAfterDecor(world)
 end
 
 --------------------------------------------------------------------------------
@@ -5464,7 +5524,7 @@ local function setLightScale(args)
     local sun, sky, post = actor("__sun"), actor("__sky"), actor("__post")
     local sunEnv, skyEnv = env.sun or {}, env.skylight or {}
     if sun then pcall(function() sun.LightComponent:SetIntensity((sunEnv.intensity or 8.0) * k) end) end
-    if sky then pcall(function() sky.LightComponent:SetIntensity((skyEnv.intensity or 3.0) * k) end) end
+    if sky then pcall(function() sky.LightComponent:SetIntensity((skyEnv.intensity or 3.0) * (skyEnv.physical and 1 or k)) end) end
     for i, l in ipairs(type(Current.level.lights) == "table" and Current.level.lights or {}) do
         local a = actor("__light_" .. i)
         if a then pcall(function() a.LightComponent:SetIntensity((tonumber(l.intensity) or 25) * k) end) end
@@ -5684,7 +5744,7 @@ end
 --- the index to every fireteam client (`?InsertionPointIndex=1` is CTF), the
 --- one choice of the host's that reaches them. Keep in step with
 --- MJOLNIRLobby's GAME_TYPE_SLOTS.
-local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball" }
+local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball", [5] = "forge" }
 
 local function loadMegaloSwitch()
     if not package or not package.loadlib then return end
@@ -5916,7 +5976,10 @@ local function initialize()
     Teams.KillFloor = dofile(MOD_DIR .. "\\Scripts\\kill_floor.lua")
     Teams.KillFloor.init({ Log = Log, getWorld = getWorld, isHost = isHostWorld, Current = Current, Script = Teams.Script })
     Teams.Lifts = dofile(MOD_DIR .. "\\Scripts\\lifts.lua")
-    Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script })
+    Teams.PackLifts = dofile(MOD_DIR .. "\\Scripts\\pack_lifts.lua").new({
+        inventoryPath = MOD_DIR .. "\\..\\..\\MJOLNIRForgePacks\\installed.json", decode = Json.decode,
+    })
+    Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script, PackLifts = Teams.PackLifts })
     Teams.init({
         Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
         hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,

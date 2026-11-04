@@ -34,6 +34,8 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::forge_packs::{self, Dependency, ForgePack};
+
 /// The hub API. Override with MJOLNIR_HUB_URL for local development.
 pub(crate) fn hub_api() -> String {
     std::env::var("MJOLNIR_HUB_URL").unwrap_or_else(|_| "https://mjolnircore.com/api/v1".into())
@@ -105,6 +107,11 @@ pub struct InstalledHubMod {
     /// (`map_gaps`).
     #[serde(default)]
     pub map_files_kept: bool,
+    /// Requirements from the verified archive, checked again before mounting.
+    #[serde(default)]
+    pub deps: Vec<Dependency>,
+    #[serde(default)]
+    pub forge_pack: Option<ForgePack>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -141,6 +148,10 @@ impl Default for HubState {
 }
 
 pub(crate) fn config_dir() -> PathBuf {
+    #[cfg(test)]
+    if let Some(path) = std::env::var_os("MJOLNIR_TEST_CONFIG_DIR") {
+        return PathBuf::from(path);
+    }
     let mut dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     dir.push("com.devnull9090.mjolnir-launcher");
     dir
@@ -285,6 +296,13 @@ impl Mount {
 
 /// Every container the active profile mounts, in load order.
 fn mounts(state: &HubState) -> Result<Vec<Mount>, String> {
+    validate_profile_dependencies(state)?;
+    mount_plan(state)
+}
+
+// Dependency installs may be midway through a graph update. Their shader
+// preflight needs the current plan without prematurely validating the graph.
+fn mount_plan(state: &HubState) -> Result<Vec<Mount>, String> {
     let profile = state
         .profiles
         .iter()
@@ -313,11 +331,37 @@ fn mounts(state: &HubState) -> Result<Vec<Mount>, String> {
     Ok(out)
 }
 
+fn check_forge_shader_mounts(paks: &Path, mounts: &[Mount], replacing_hub_files: bool) -> Result<(), String> {
+    let planned: Vec<_> = mounts.iter().map(|m| crate::forge_shaders::Planned {
+        slug: &m.slug, source: &m.container, target: &m.base,
+    }).collect();
+    crate::forge_shaders::check(paks, &planned, replacing_hub_files)
+}
+
+fn preflight_forge_shaders(state: &HubState, replacing_hub_files: bool) -> Result<(), String> {
+    if !state.installed.iter().any(|m| m.containers.iter().any(|c| crate::forge_shaders::is_surface_container(c))) {
+        return Ok(());
+    }
+    let planned = mount_plan(state)?;
+    if planned.iter().any(|m| crate::forge_shaders::is_surface_container(&m.container)) {
+        check_forge_shader_mounts(&paks_dir()?, &planned, replacing_hub_files)?;
+    }
+    Ok(())
+}
+
 /// Make the Paks directory agree with the active profile: remove every
 /// container this module owns, then write back the enabled ones in order.
 fn materialize(state: &HubState) -> Result<(), String> {
+    forge_inventory(state)?;
     let paks = paks_dir()?;
     let mounts = mounts(state)?;
+    for m in &mounts {
+        if !m.cached("utoc").is_file() || !m.cached("ucas").is_file() {
+            return Err(format!("{} is missing cached assets; reinstall before applying this profile", m.slug));
+        }
+    }
+
+    check_forge_shader_mounts(&paks, &mounts, true)?;
 
     for entry in fs::read_dir(&paks).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -493,7 +537,165 @@ fn sync_maps(state: &HubState, paks: &Path) -> Result<(), String> {
         })
         .collect();
     crate::maps::sync(paks, &maps).map_err(|e| format!("Registering maps: {e}"))?;
+    sync_forge_packs(state, paks)?;
     Ok(())
+}
+
+/// Installed is not enough: a disabled or incompatible pack must never let
+/// a saved palette resolve to different models after a profile change.
+fn validate_profile_dependencies(state: &HubState) -> Result<(), String> {
+    let profile = state.profiles.iter().find(|p| p.name == state.active)
+        .ok_or("Active profile missing")?;
+    let enabled: BTreeSet<&str> = profile.entries.iter().filter(|e| e.enabled)
+        .map(|e| e.slug.as_str()).collect();
+    for inst in state.installed.iter().filter(|m| enabled.contains(m.slug.as_str())) {
+        for dep in &inst.deps {
+            let have = state.installed.iter().find(|m| m.slug == dep.slug);
+            if !enabled.contains(dep.slug.as_str())
+                || !have.is_some_and(|m| forge_packs::matches(&dep.range, &m.version).unwrap_or(false))
+            {
+                return Err(format!("{} needs {} {} enabled in this profile. Install that version or disable {} first.",
+                    inst.name, dep.slug, dep.range, inst.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn forge_inventory(state: &HubState) -> Result<serde_json::Value, String> {
+    validate_profile_dependencies(state)?;
+    let profile = state.profiles.iter().find(|p| p.name == state.active).ok_or("Active profile missing")?;
+    let mut packs = Vec::new();
+    let mut tags = BTreeSet::new();
+    for entry in profile.entries.iter().filter(|e| e.enabled) {
+        let inst = state.installed.iter().find(|m| m.slug == entry.slug).ok_or("Installed pack missing")?;
+        let Some(pack) = &inst.forge_pack else { continue };
+        pack.validate(&inst.slug)?;
+        for block in &pack.blocks {
+            if !tags.insert(&block.tag) {
+                return Err(format!("Two enabled Forge packs claim {}", block.tag));
+            }
+            if tags.len() > 4096 {
+                return Err("Enabled Forge packs exceed the supported total of 4096 blocks. Disable unused packs in this profile.".into());
+            }
+        }
+        packs.push(serde_json::json!({
+            "slug": inst.slug, "name": inst.name, "version": inst.version,
+            "release_id": inst.release_id, "sha256": inst.sha256, "forge_pack": pack,
+        }));
+    }
+    Ok(serde_json::json!({"schema_version": 1, "packs": packs}))
+}
+
+/// Only this generated file belongs to the launcher. Local authoring files
+/// and hand-installed packs beside it are left intact.
+fn sync_forge_packs(state: &HubState, paks: &Path) -> Result<(), String> {
+    let inventory = forge_inventory(state)?;
+    let layout = blam_pack::maps::Layout::for_paks(paks);
+    let root = layout.maps.parent().ok_or("UE4SS path missing")?;
+    if !root.is_dir() { return Ok(()) }
+    let dir = root.join("MJOLNIRForgePacks");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    let mut doors = String::from("forge-doors 1\n");
+    let mut door_count = 0;
+    for pack in inventory["packs"].as_array().into_iter().flatten() {
+        for block in pack["forge_pack"]["blocks"].as_array().into_iter().flatten() {
+            text.push_str(&format!("{}\t{}\t{}\t{}\n", pack["slug"].as_str().unwrap(),
+                pack["version"].as_str().unwrap(), pack["sha256"].as_str().unwrap(), block["tag"].as_str().unwrap()));
+            if let Some(door) = block.get("door").filter(|v| !v.is_null()) {
+                door_count += 1;
+                if door_count > 256 { return Err("Enabled Forge packs exceed 256 automatic-door definitions".into()) }
+                doors.push_str(block["tag"].as_str().unwrap());
+                for value in [&door["travel_m"], &door["speed_m_s"], &door["trigger_size_m"][0],
+                    &door["trigger_size_m"][1], &door["trigger_size_m"][2], &door["hold_open_s"],
+                    &block["dimensions_m"][0], &block["dimensions_m"][1], &block["dimensions_m"][2]] {
+                    doors.push('\t'); doors.push_str(&value.as_f64().unwrap().to_string());
+                }
+                doors.push('\n');
+            }
+        }
+    }
+    // Prepare every file before publishing, then replace each atomically.
+    // Even an empty inventory replaces doors.txt, removing stale utilities.
+    let files = [("installed.json", serde_json::to_vec_pretty(&inventory).map_err(|e| e.to_string())?),
+        ("doors.txt", doors.into_bytes()), ("installed.txt", text.into_bytes())];
+    for (name, bytes) in &files {
+        fs::write(dir.join(format!("{name}.tmp")), bytes).map_err(|e| e.to_string())?;
+    }
+    for (name, _) in files {
+        fs::rename(dir.join(format!("{name}.tmp")), dir.join(name)).map_err(|e| format!("Writing Forge {name}: {e}"))?;
+    }
+    Ok(())
+}
+
+fn saved_layout_pins(paks: &Path) -> Result<Vec<forge_packs::LayoutPin>, String> {
+    let layout = blam_pack::maps::Layout::for_paks(paks);
+    let root = layout.maps.parent().ok_or("UE4SS path missing")?;
+    let dir = root.join("Mods/MJOLNIRForge/layouts");
+    if !dir.is_dir() { return Ok(Vec::new()) }
+    let mut pins = std::collections::BTreeMap::new();
+    let mut total = 0u64;
+    let mut count = 0;
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_name().to_string_lossy().ends_with(".mvar.packs") { continue }
+        // A deleted/moved layout leaves no dependency to resolve. In
+        // particular, an orphan sidecar must not pin an old pack forever.
+        if !entry.path().with_extension("").is_file() { continue }
+        count += 1;
+        let meta = entry.metadata().map_err(|e| e.to_string())?;
+        total += meta.len();
+        if !meta.is_file() || meta.len() > 1024 * 1024 || total > 4 * 1024 * 1024 || count > 256 {
+            return Err("Saved Forge layout pack sidecars exceed the supported limits".into());
+        }
+        let mut text = String::new();
+        fs::File::open(entry.path()).map_err(|e| e.to_string())?.take(1024 * 1024 + 1)
+            .read_to_string(&mut text).map_err(|e| e.to_string())?;
+        for pin in forge_packs::layout_pins(&text).map_err(|e| format!("{}: {e}", entry.path().display()))? {
+            forge_packs::merge_layout_pin(&mut pins, pin)?;
+        }
+    }
+    Ok(pins.into_values().collect())
+}
+
+fn resolve_saved_layout_packs(paks: &Path) -> Result<(), String> {
+    let pins = saved_layout_pins(paks)?;
+    let before = load_state();
+    let result = (|| {
+        for pin in pins {
+            // Any later release in the saved one's line keeps the layout's
+            // pieces, so an installed update is never downgraded for it.
+            let range = forge_packs::layout_range(&pin);
+            let fits = |version: &str| forge_packs::matches(&range, version).unwrap_or(false);
+            let state = load_state();
+            let installed = state.installed.iter().find(|m| m.slug == pin.slug);
+            let ready = installed.is_some_and(|m| fits(&m.version)
+                && m.forge_pack.is_some() && cache_complete(m)
+                && m.deps.iter().all(|d| dependency_tree_ready(&state, &d.slug)));
+            if !ready {
+                let releases = fetch_releases(&pin.slug)?;
+                let release = releases.iter()
+                    .filter(|r| fits(&r.version))
+                    .max_by_key(|r| semver::Version::parse(&r.version).ok())
+                    .ok_or_else(|| format!("Saved Forge layout needs {} {range}, which the Hub does not have", pin.slug))?;
+                install_one(&pin.slug, Some(release.id.clone()), 0)?;
+            }
+            let mut state = load_state();
+            let pack = state.installed.iter().find(|m| m.slug == pin.slug).ok_or("Forge dependency did not install")?;
+            if pack.forge_pack.is_none() || !fits(&pack.version) {
+                return Err(format!("{} is not the Forge pack required by the saved layout", pin.slug));
+            }
+            for slug in dependency_closure(&state, &pin.slug)? {
+                enable_dependency(&mut state, &slug)?;
+            }
+            validate_profile_dependencies(&state)?;
+            save_state(&state)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() { save_state(&before)? }
+    result
 }
 
 /// What a launch runs. Paks is put back the way the launcher's state says it
@@ -501,12 +703,26 @@ fn sync_maps(state: &HubState, paks: &Path) -> Result<(), String> {
 /// nothing is out of place only the registration is rebuilt (a game update
 /// replaces the tables it was built from), and no containers are copied.
 pub fn prepare_launch() -> Result<(), String> {
+    let paks = paks_dir()?;
+    // A saved layout's pins come first so the packs they install are mounted
+    // below, but one stale sidecar, or a pinned pack that cannot download
+    // offline, must not cost every mod its containers and registration.
+    let pinned = resolve_saved_layout_packs(&paks);
+    let restored = restore_paks(&paks);
+    match (pinned, restored) {
+        (Ok(()), restored) => restored,
+        (Err(pinned), Ok(())) => Err(pinned),
+        (Err(pinned), Err(restored)) => Err(format!("{restored}; {pinned}")),
+    }
+}
+
+fn restore_paks(paks: &Path) -> Result<(), String> {
     let state = load_state();
     if state.installed.is_empty() {
-        return Ok(());
+        return sync_forge_packs(&state, &paks);
     }
-    let paks = paks_dir()?;
     let mounts = mounts(&state)?;
+    check_forge_shader_mounts(&paks, &mounts, true)?;
 
     // `materialize` clears Paks before it copies, so a cache that cannot
     // supply its containers would take every mod after it down too. Leave
@@ -633,17 +849,8 @@ fn version_key(v: &str) -> (Vec<u64>, bool, String) {
     (parts, tag.is_empty(), tag)
 }
 
-/// The lowest version a dependency range accepts (`^1.8.0`, `~1.8`,
-/// `>=1.8.0`, `1.8.0`); None for `*` or anything unreadable, which any
-/// installed version satisfies.
-fn range_floor(range: &str) -> Option<String> {
-    let v = range.trim().trim_start_matches(['^', '~', '=', '>', ' ']);
-    let core = v.split_whitespace().next()?;
-    (!core.is_empty() && core.chars().next()?.is_ascii_digit()).then(|| core.to_string())
-}
-
 /// True when `candidate` is strictly newer than `installed`.
-fn is_newer(candidate: &str, installed: &str) -> bool {
+pub(crate) fn is_newer(candidate: &str, installed: &str) -> bool {
     version_key(candidate) > version_key(installed)
 }
 
@@ -658,6 +865,64 @@ fn newest_release(releases: &[HubRelease]) -> Option<&HubRelease> {
     };
     pool.into_iter()
         .max_by(|a, b| version_key(&a.version).cmp(&version_key(&b.version)))
+}
+
+fn dependency_release<'a>(releases: &'a [HubRelease], range: &str) -> Result<Option<&'a HubRelease>, String> {
+    let req = forge_packs::requirement(range)?;
+    Ok(releases.iter().filter_map(|release| {
+        let version = semver::Version::parse(&release.version).ok()?;
+        req.matches(&version).then_some((release, version))
+    }).max_by(|a, b| a.1.cmp(&b.1)).map(|(release, _)| release))
+}
+
+fn enable_dependency(state: &mut HubState, slug: &str) -> Result<(), String> {
+    let profile = state.profiles.iter_mut().find(|p| p.name == state.active)
+        .ok_or("Active profile missing")?;
+    if let Some(entry) = profile.entries.iter_mut().find(|e| e.slug == slug) {
+        entry.enabled = true;
+    } else {
+        profile.entries.push(ProfileEntry { slug: slug.to_string(), enabled: true });
+    }
+    Ok(())
+}
+
+/// Never update a shared pack out from under another enabled map's pin.
+/// Ancestors are being replaced by this install, so their old constraints
+/// do not apply; the verified manifests checked while descending do.
+fn check_dependency_replacement(state: &HubState, slug: &str, version: &str, ancestors: &[String]) -> Result<(), String> {
+    let profile = state.profiles.iter().find(|p| p.name == state.active).ok_or("Active profile missing")?;
+    for inst in state.installed.iter().filter(|m| !ancestors.contains(&m.slug)
+        && profile.entries.iter().any(|e| e.slug == m.slug && e.enabled)) {
+        for dep in inst.deps.iter().filter(|d| d.slug == slug) {
+            if !forge_packs::matches(&dep.range, version)? {
+                return Err(format!("{} needs {} {}; installing {version} would break it. Use another profile or disable {} first.", inst.name, slug, dep.range, inst.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dependency_closure(state: &HubState, slug: &str) -> Result<BTreeSet<String>, String> {
+    let mut pending = vec![slug.to_string()];
+    let mut seen = BTreeSet::new();
+    while let Some(slug) = pending.pop() {
+        if !seen.insert(slug.clone()) { continue }
+        if seen.len() > 256 { return Err("Too many dependencies".into()) }
+        let inst = state.installed.iter().find(|m| m.slug == slug)
+            .ok_or_else(|| format!("Missing dependency {slug}"))?;
+        pending.extend(inst.deps.iter().map(|d| d.slug.clone()));
+    }
+    Ok(seen)
+}
+
+fn remove_superseded_caches(before: &HubState, after: &HubState) {
+    for previous in &before.installed {
+        if after.installed.iter().any(|m| m.slug == previous.slug && m.release_id != previous.release_id)
+            && !after.installed.iter().any(|m| m.release_id == previous.release_id)
+        {
+            let _ = fs::remove_dir_all(cache_dir().join(&previous.release_id));
+        }
+    }
 }
 
 fn fetch_releases(slug: &str) -> Result<Vec<HubRelease>, String> {
@@ -701,15 +966,23 @@ fn check_release_signature(sha256_hex: &str, signature_b64: &str) -> Result<(), 
 /// hub described: the archive is hashed against the release record, and any
 /// signature the release carries is checked against the pinned key.
 pub fn install(slug: String, release_id: Option<String>) -> Result<HubState, String> {
-    install_one(&slug, release_id, 0)?;
+    let before = load_state();
+    if let Err(error) = install_one(&slug, release_id, 0) {
+        save_state(&before)?;
+        return Err(error);
+    }
     let state = load_state();
+    if let Err(error) = validate_profile_dependencies(&state) {
+        save_state(&before)?;
+        return Err(error);
+    }
     materialize(&state)?;
+    remove_superseded_caches(&before, &state);
     Ok(state)
 }
 
-/// How far dependencies may chain. A map needs the CE runtime pack, which
-/// needs nothing; anything deeper is a loop or a mistake.
-const MAX_DEP_DEPTH: usize = 3;
+/// Bound untrusted dependency graphs as well as detecting cycles explicitly.
+const MAX_DEP_DEPTH: usize = 16;
 
 /// The code mods a map plays through: the loader that starts it, the lobby
 /// that offers it, the HUD, and the library they all load. A map pack names
@@ -801,20 +1074,34 @@ fn read_map(
 /// Install (or update) one mod into the cache and the state, with whatever
 /// it depends on. Materializing is the caller's, once, after everything.
 fn install_one(slug: &str, release_id: Option<String>, depth: usize) -> Result<(), String> {
-    install_one_as(slug, release_id, depth, None)
+    install_one_as(slug, release_id, depth, None, &[], &mut BTreeSet::new())
 }
 
 /// [`install_one`], or with `live` the install a running game asked for
 /// ([`install_live`]): its download reports progress, and nothing it needs
 /// may change under the game — no code mod is installed or updated (their
-/// DLLs are loaded), and a missing dependency is an error rather than an
-/// install (the runtime pack's containers are mounted).
+/// DLLs are loaded). A previously absent namespaced Forge pack can be added;
+/// replacing an installed dependency still requires restarting the game.
 fn install_one_as(
     slug: &str,
     release_id: Option<String>,
     depth: usize,
     live: Option<&Live>,
+    ancestors: &[String],
+    visited: &mut BTreeSet<String>,
 ) -> Result<(), String> {
+    if !forge_packs::valid_slug(slug) {
+        return Err(format!("Invalid mod slug: {slug:?}"));
+    }
+    if depth >= MAX_DEP_DEPTH || ancestors.iter().any(|s| s == slug) {
+        return Err(format!("Dependency cycle or excessive depth: {} -> {slug}", ancestors.join(" -> ")));
+    }
+    visited.insert(slug.to_string());
+    if visited.len() > 256 {
+        return Err("An install may resolve at most 256 distinct dependencies".into());
+    }
+    let mut chain = ancestors.to_vec();
+    chain.push(slug.to_string());
     let client = http()?;
     let api = hub_api();
     let slug = slug.to_string();
@@ -932,6 +1219,20 @@ fn install_one_as(
         .find(|(p, _)| p == "mjolnir.json")
         .and_then(|(_, b)| serde_json::from_slice(b).ok())
         .unwrap_or(serde_json::Value::Null);
+    if manifest["schema_version"] != 1 || manifest["version"].as_str() != Some(&release.version) {
+        return Err("Archive manifest schema or version does not match the release".into());
+    }
+    let deps = forge_packs::dependencies(&manifest, &slug)?;
+    let forge_pack = forge_packs::read_pack(&manifest, &slug)?;
+    // Loading a new namespaced asset pack is safe. Replacing an existing
+    // pack cannot replace tags the simulation already loaded, even if UE
+    // can mount another container above it.
+    if live.is_some() && depth > 0 {
+        if forge_pack.is_none() || load_state().installed.iter().any(|m| m.slug == slug) {
+            return Err(format!("{name} must be installed or updated from the launcher, then restart the game."));
+        }
+    }
+    check_dependency_replacement(&load_state(), &slug, &release.version, &chain)?;
     // The archive's own manifest decides too: the hub kept map packs at the
     // `content` trust tier, and launchers that went by the mod page's type
     // alone installed the official maps as plain content (no level data, no
@@ -953,46 +1254,39 @@ fn install_one_as(
     } else {
         None
     };
-    for dep in manifest["deps"].as_array().into_iter().flatten() {
-        let Some(dep_slug) = dep["slug"].as_str() else {
-            continue;
-        };
-        // Installed is not enough when the pack asks for a newer one: a
-        // remastered map needs the runtime release that carries its
-        // masters, and an older runtime left it drawing without them.
-        let floor = dep["range"].as_str().and_then(range_floor);
-        if load_state().installed.iter().any(|m| {
-            m.slug == dep_slug
-                && cache_complete(m)
-                && floor.as_deref().is_none_or(|f| version_key(&m.version) >= version_key(f))
-        }) {
-            continue;
+    for dep in &deps {
+        if chain.contains(&dep.slug) {
+            return Err(format!("Dependency cycle: {} -> {}", chain.join(" -> "), dep.slug));
         }
-        if live.is_some() {
-            let range = dep["range"].as_str().unwrap_or("");
-            let have = load_state()
-                .installed
-                .iter()
-                .find(|m| m.slug == dep_slug)
-                .map(|m| m.version.clone());
-            return Err(match have {
-                Some(v) => format!(
-                    "{name} needs {dep_slug} {range}, and {v} is installed. Update it from the \
-                     MJOLNIR launcher and restart the game."
-                ),
-                None => format!(
-                    "{name} needs {dep_slug}, which is not installed. Install it from the \
-                     MJOLNIR launcher and restart the game."
-                ),
-            });
+        let state = load_state();
+        let have = state.installed.iter().find(|m| m.slug == dep.slug);
+        let version_available = have.is_some_and(|m| cache_complete(m)
+            && forge_packs::matches(&dep.range, &m.version).unwrap_or(false));
+        let satisfied = version_available && have.is_some_and(|m| m.deps.iter()
+            .all(|d| dependency_tree_ready(&state, &d.slug)
+                && state.installed.iter().any(|i| i.slug == d.slug
+                    && forge_packs::matches(&d.range, &i.version).unwrap_or(false))));
+        let enabled = state.profiles.iter().find(|p| p.name == state.active)
+            .is_some_and(|p| p.entries.iter().any(|e| e.slug == dep.slug && e.enabled));
+        if live.is_some() && have.is_some() && (!satisfied || !enabled) {
+            return Err(format!("{name} needs {} {} enabled. Install that version in the launcher and restart the game.", dep.slug, dep.range));
         }
-        if depth + 1 >= MAX_DEP_DEPTH {
-            return Err(format!(
-                "{name}: dependencies nest too deeply at {dep_slug}"
-            ));
+        if !satisfied {
+            let releases = fetch_releases(&dep.slug)?;
+            let matching = if version_available {
+                releases.iter().find(|r| have.is_some_and(|m| r.id == m.release_id))
+            } else {
+                dependency_release(&releases, &dep.range)?
+            }
+                .ok_or_else(|| format!("{name} needs {} {}, but no published release matches", dep.slug, dep.range))?;
+            install_one_as(&dep.slug, Some(matching.id.clone()), depth + 1, live, &chain, visited)
+                .map_err(|e| format!("{name} needs {}: {e}", dep.slug))?;
         }
-        install_one(dep_slug, None, depth + 1)
-            .map_err(|e| format!("{name} needs {dep_slug}: {e}"))?;
+        // A dependency already cached under a different profile still has
+        // to be enabled for this install. This does not reorder other mods.
+        let mut state = load_state();
+        enable_dependency(&mut state, &dep.slug)?;
+        save_state(&state)?;
     }
     if map.is_some() && live.is_none() {
         ensure_code_mods(MAP_CODE_MODS)
@@ -1063,16 +1357,15 @@ fn install_one_as(
     }
 
     let mut state = load_state();
-    // Replacing an install leaves the previous release's cache behind;
-    // clear it so updating does not grow the cache without bound. The
+    // Replacing an install keeps the previous cache until the whole graph
+    // succeeds; the caller then removes superseded caches. The
     // previous entry is also the pin: a key that changed, or a signature
     // that quietly disappeared, is exactly what tampering looks like — and
     // also what an author with a second machine looks like, so it warns
     // rather than refuses (docs/mod_signing_design.md).
     if let Some(previous) = state.installed.iter().find(|m| m.slug == slug) {
-        if previous.release_id != release.id {
-            let _ = fs::remove_dir_all(cache_dir().join(&previous.release_id));
-        }
+        // Keep the previous cache until the entire dependency install has
+        // succeeded, so a failed graph can restore the previous state.
         match (&previous.signer_fingerprint, &signer_fingerprint) {
             (Some(old), Some(new)) if old != new => notices.push(format!(
                 "The signing key changed since the last install ({}… → {}…). A new device \
@@ -1112,6 +1405,8 @@ fn install_one_as(
         },
         map_code: map.map(|m| m.code),
         map_files_kept: true,
+        deps,
+        forge_pack,
     });
     let active = state.active.clone();
     for profile in &mut state.profiles {
@@ -1122,6 +1417,7 @@ fn install_one_as(
             });
         }
     }
+    preflight_forge_shaders(&state, live.is_none())?;
     save_state(&state)?;
     // The files just written are the ones whose hashes were checked: the
     // launch check's quick pass starts from here.
@@ -1206,13 +1502,15 @@ pub fn install_live(
         .ok_or_else(|| format!("The hub has no map {code}"))?
         .to_string();
 
-    let before = load_state()
+    let before_state = load_state();
+    let before = before_state
         .installed
         .iter()
         .find(|m| m.map_code.as_deref() == Some(code) && containers_cached(m))
         .cloned();
     let have = before.as_ref().is_some_and(|m| {
         release.is_none_or(|id| m.release_id == id) && map_gaps(m).is_empty()
+            && dependency_tree_ready(&before_state, &m.slug)
     });
     if !have {
         // A map missing files its level needs (`map_gaps`) is fetched again
@@ -1226,7 +1524,10 @@ pub fn install_live(
                 .and_then(|r| r["file_size"].as_u64()),
             None => listing.pointer("/release/file_size").and_then(|v| v.as_u64()),
         };
-        install_one_as(&slug, wanted, 0, Some(&Live { progress, size }))?;
+        if let Err(error) = install_one_as(&slug, wanted, 0, Some(&Live { progress, size }), &[], &mut BTreeSet::new()) {
+            save_state(&before_state)?;
+            return Err(error);
+        }
     }
 
     let mut state = load_state();
@@ -1255,10 +1556,31 @@ pub fn install_live(
     let paks = paks_dir()?;
     let mut mount = Vec::new();
     let mut unmount = Vec::new();
-    for m in mounts(&state)?.iter().filter(|m| m.slug == inst.slug) {
+    let required = dependency_closure(&state, &inst.slug)?;
+    let mut live_mounts = mounts(&state)?;
+    if let Err(error) = check_forge_shader_mounts(&paks, &live_mounts, false) {
+        save_state(&before_state)?;
+        return Err(error);
+    }
+    live_mounts.sort_by_key(|m| m.slug == inst.slug);
+    for m in live_mounts.iter().filter(|m| required.contains(&m.slug)) {
         let present = ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(&paks, ext).is_file());
-        if present && !updated {
+        if present && (m.slug != inst.slug || !updated) {
             continue;
+        }
+        if m.slug != inst.slug {
+            // Only a pack first installed by this operation may be added
+            // live. Existing data could already be loaded by the simulation.
+            if before_state.installed.iter().any(|i| i.slug == m.slug)
+                || !state.installed.iter().any(|i| i.slug == m.slug && i.forge_pack.is_some())
+            {
+                return Err(format!("{} needs its assets restored. Restart through the launcher before joining.", m.slug));
+            }
+            for ext in ["utoc", "ucas", "pak"] {
+                if m.in_paks(&paks, ext).exists() {
+                    return Err(format!("{} already has files in the game. Restart through the launcher before joining.", m.slug));
+                }
+            }
         }
         // All of a container or none of it: the engine holds a mounted
         // `.ucas` open (its `.utoc` it reads once), so the `.ucas` is tried
@@ -1328,6 +1650,8 @@ pub fn install_live(
             data: cache_dir().join(&inst.release_id).join("map"),
         },
     )?;
+    sync_forge_packs(&state, &paks)?;
+    remove_superseded_caches(&before_state, &state);
     Ok(LiveInstall {
         code: code.to_string(),
         slug: inst.slug,
@@ -1335,6 +1659,18 @@ pub fn install_live(
         release_id: inst.release_id,
         mount,
         unmount,
+    })
+}
+
+fn dependency_tree_ready(state: &HubState, slug: &str) -> bool {
+    let Ok(required) = dependency_closure(state, slug) else { return false };
+    let Some(profile) = state.profiles.iter().find(|p| p.name == state.active) else { return false };
+    required.iter().all(|slug| {
+        state.installed.iter().find(|m| &m.slug == slug).is_some_and(|m| {
+            cache_complete(m) && profile.entries.iter().any(|e| &e.slug == slug && e.enabled)
+                && m.deps.iter().all(|d| state.installed.iter().any(|i| i.slug == d.slug
+                    && forge_packs::matches(&d.range, &i.version).unwrap_or(false)))
+        })
     })
 }
 
@@ -1347,7 +1683,7 @@ pub fn record_exe_path() {
         // line, for the game to check before it asks: a launcher from before
         // a feature would otherwise just open its window. A separate file
         // because an older game reads launcher_exe.txt whole as the path.
-        let _ = fs::write(config_dir().join("launcher_features.txt"), "check-updates\nupdate-link\n");
+        let _ = fs::write(config_dir().join("launcher_features.txt"), "check-updates\nupdate-link\nforge-packs\n");
     }
 }
 
@@ -1666,15 +2002,22 @@ pub fn verify_quick(inst: &InstalledHubMod) -> (VerifiedMod, usize) {
 
 pub fn uninstall(slug: String) -> Result<HubState, String> {
     let mut state = load_state();
-    if let Some(inst) = state.installed.iter().find(|m| m.slug == slug) {
-        let _ = fs::remove_dir_all(cache_dir().join(&inst.release_id));
-    }
+    let removed = state.installed.iter().find(|m| m.slug == slug).cloned();
     state.installed.retain(|m| m.slug != slug);
     for profile in &mut state.profiles {
         profile.entries.retain(|e| e.slug != slug);
     }
+    for profile in &state.profiles {
+        let mut check = state.clone();
+        check.active = profile.name.clone();
+        validate_profile_dependencies(&check)?;
+    }
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
+    if let Some(inst) = removed {
+        let _ = fs::remove_dir_all(cache_dir().join(&inst.release_id));
+    }
     Ok(state)
 }
 
@@ -1700,6 +2043,7 @@ pub fn set_order(slug: String, new_index: usize) -> Result<HubState, String> {
     profile
         .entries
         .insert(new_index.min(profile.entries.len()), entry);
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -1719,6 +2063,8 @@ pub fn set_enabled(slug: String, enabled: bool) -> Result<HubState, String> {
         .find(|e| e.slug == slug)
         .ok_or("Not in this profile")?;
     entry.enabled = enabled;
+    validate_profile_dependencies(&state)?;
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -1750,6 +2096,7 @@ pub fn profile_create(name: String, copy_active: bool) -> Result<HubState, Strin
         entries,
     });
     state.active = name;
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -1761,6 +2108,8 @@ pub fn profile_switch(name: String) -> Result<HubState, String> {
         return Err("No such profile".into());
     }
     state.active = name;
+    validate_profile_dependencies(&state)?;
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -1775,6 +2124,7 @@ pub fn profile_delete(name: String) -> Result<HubState, String> {
     if state.active == name {
         state.active = state.profiles[0].name.clone();
     }
+    preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
     materialize(&state)?;
     Ok(state)
@@ -3270,9 +3620,28 @@ mod tests {
         let mut more = members("BGL");
         more.push(("map/foliage.bin".to_string(), b"MJF3".to_vec()));
         more.push(("map/decals/sym_0.png".to_string(), vec![1, 2]));
+        for file in ["state.json", "height.exr", "velocity.exr"] {
+            more.push((format!("map/flux_state/{file}"), file.as_bytes().to_vec()));
+        }
         let map = read_map(&manifest, &more).expect("extra files read");
         let names: Vec<&str> = map.extra.iter().map(|(p, _)| p.as_str()).collect();
-        assert_eq!(names, ["foliage.bin", "decals/sym_0.png"]);
+        assert_eq!(
+            names,
+            [
+                "foliage.bin",
+                "decals/sym_0.png",
+                "flux_state/state.json",
+                "flux_state/height.exr",
+                "flux_state/velocity.exr"
+            ]
+        );
+        for (path, bytes) in map
+            .extra
+            .iter()
+            .filter(|(path, _)| path.starts_with("flux_state/"))
+        {
+            assert_eq!(bytes, path.strip_prefix("flux_state/").unwrap().as_bytes());
+        }
         for bad in ["map/../evil.dll", "map/decals/../../x", "map/C:/x", "map/a\\b"] {
             let mut evil = members("BGL");
             evil.push((bad.to_string(), vec![0]));
@@ -3339,14 +3708,202 @@ mod tests {
     }
 
     #[test]
-    fn a_dependency_range_has_a_floor() {
-        assert_eq!(range_floor("^1.8.0").as_deref(), Some("1.8.0"));
-        assert_eq!(range_floor(">=1.8.0").as_deref(), Some("1.8.0"));
-        assert_eq!(range_floor("~1.8").as_deref(), Some("1.8"));
-        assert_eq!(range_floor("1.8.0").as_deref(), Some("1.8.0"));
-        assert_eq!(range_floor("*"), None);
-        assert!(version_key("1.7.0") < version_key("1.8.0"));
-        assert!(version_key("1.10.0") >= version_key("1.8.0"));
+    fn dependencies_select_a_matching_release_not_the_latest_incompatible_one() {
+        let releases = vec![release("old", "1.8.0", "stable"), release("new", "2.0.0", "stable"),
+            release("patch", "1.8.1", "stable"), release("beta", "3.0.0-beta.2", "beta")];
+        assert_eq!(dependency_release(&releases, "^1.8.0").unwrap().unwrap().id, "patch");
+        assert_eq!(dependency_release(&releases, "1.8.0").unwrap().unwrap().id, "old");
+        assert_eq!(dependency_release(&releases, "3.0.0-beta.2").unwrap().unwrap().id, "beta");
+        assert!(dependency_release(&releases, "=9.0.0").unwrap().is_none());
+        assert!(dependency_release(&releases, "nonsense").is_err());
+    }
+
+    fn forge_test_state() -> HubState {
+        serde_json::from_value(serde_json::json!({
+            "active":"Default", "profiles":[{"name":"Default","entries":[
+                {"slug":"alloy","enabled":true},{"slug":"arena","enabled":true}]}],
+            "installed":[
+                {"slug":"alloy","name":"Alloy","version":"1.0.0","release_id":"pack-r1",
+                 "sha256":"a".repeat(64),"containers":[],"forge_pack":{
+                    "schema_version":1,"id":"alloy","blocks":[{"id":"block","name":"Block",
+                    "tag":"objects\\mjolnir\\forge\\alloy\\block","category":"blocks","dimensions_m":[2,2,2]}]}},
+                {"slug":"arena","name":"Arena","version":"1.0.0","release_id":"arena-r1",
+                 "sha256":"b".repeat(64),"containers":[],"deps":[{"slug":"alloy","range":"1.0.0"}]}
+            ]
+        })).unwrap()
+    }
+
+    #[test]
+    fn profiles_cannot_disable_or_replace_a_required_forge_pack() {
+        let mut state = forge_test_state();
+        validate_profile_dependencies(&state).unwrap();
+        assert!(check_dependency_replacement(&state, "alloy", "2.0.0", &[]).is_err());
+        check_dependency_replacement(&state, "alloy", "2.0.0", &["arena".into()]).unwrap();
+        state.profiles[0].entries[0].enabled = false;
+        assert!(validate_profile_dependencies(&state).is_err());
+        enable_dependency(&mut state, "alloy").unwrap();
+        assert_eq!(state.profiles[0].entries[0].slug, "alloy");
+        validate_profile_dependencies(&state).unwrap();
+        state.installed[0].version = "1.0.1".into();
+        assert!(validate_profile_dependencies(&state).is_err());
+        state.profiles[0].entries[1].enabled = false;
+        validate_profile_dependencies(&state).unwrap();
+    }
+
+    #[test]
+    fn forge_inventory_uses_enabled_verified_release_identity_and_preserves_local_files() {
+        let mut state = forge_test_state();
+        state.installed[0].forge_pack.as_mut().unwrap().blocks[0].door=Some(forge_packs::Door {
+            travel_m:4.0,speed_m_s:4.0,trigger_size_m:[8.0,16.0,6.0],hold_open_s:2.0 });
+        let inventory = forge_inventory(&state).unwrap();
+        assert_eq!(inventory["packs"].as_array().unwrap().len(), 1);
+        assert_eq!(inventory["packs"][0]["release_id"], "pack-r1");
+        let root = std::env::temp_dir().join(format!("mjolnir-forge-inventory-{}", std::process::id()));
+        let paks = root.join("Meteorite/Content/Paks");
+        let dir = root.join("Meteorite/Binaries/Win64/ue4ss/MJOLNIRForgePacks");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("local-authoring.json"), b"keep me").unwrap();
+        sync_forge_packs(&state, &paks).unwrap();
+        let text = fs::read_to_string(dir.join("installed.txt")).unwrap();
+        assert_eq!(text, format!("alloy\t1.0.0\t{}\tobjects\\mjolnir\\forge\\alloy\\block\n", "a".repeat(64)));
+        assert_eq!(fs::read_to_string(dir.join("doors.txt")).unwrap(),
+            "forge-doors 1\nobjects\\mjolnir\\forge\\alloy\\block\t4\t4\t8\t16\t6\t2\t2\t2\t2\n");
+        sync_forge_packs(&HubState::default(), &paks).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("installed.txt")).unwrap(), "");
+        assert_eq!(fs::read_to_string(dir.join("doors.txt")).unwrap(), "forge-doors 1\n");
+        assert_eq!(fs::read(dir.join("local-authoring.json")).unwrap(), b"keep me");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn forge_inventory_cannot_exceed_the_native_reader_capacity() {
+        let mut state = HubState::default();
+        let template = forge_test_state().installed.remove(0);
+        for p in 0..17 {
+            let mut pack = template.clone();
+            pack.slug = format!("pack-{p}");
+            let catalog = pack.forge_pack.as_mut().unwrap();
+            catalog.id = pack.slug.clone();
+            let block = catalog.blocks[0].clone();
+            catalog.blocks = (0..256).map(|b| {
+                let mut block = block.clone();
+                block.id = format!("block-{b}");
+                block.tag = format!("objects\\mjolnir\\forge\\{}\\{}", pack.slug, block.id);
+                block
+            }).collect();
+            state.profiles[0].entries.push(ProfileEntry { slug: pack.slug.clone(), enabled: true });
+            state.installed.push(pack);
+            if p == 15 { assert!(forge_inventory(&state).is_ok(), "4096 is supported") }
+        }
+        assert!(forge_inventory(&state).unwrap_err().contains("4096"));
+    }
+
+    #[test]
+    fn saved_layout_pins_ignore_orphans_and_history() {
+        let root = std::env::temp_dir().join(format!("mjolnir-forge-sidecars-{}", std::process::id()));
+        let paks = root.join("Meteorite/Content/Paks");
+        let dir = root.join("Meteorite/Binaries/Win64/ue4ss/Mods/MJOLNIRForge/layouts");
+        fs::create_dir_all(dir.join("history")).unwrap();
+        fs::write(dir.join("OLD.mvar.packs"), b"obsolete invalid sidecar").unwrap();
+        fs::write(dir.join("history/OLD.mvar"), b"old layout").unwrap();
+        fs::write(dir.join("history/OLD.mvar.packs"), b"obsolete invalid sidecar").unwrap();
+        assert!(saved_layout_pins(&paks).unwrap().is_empty());
+        fs::write(dir.join("NEW.mvar"), b"active layout").unwrap();
+        fs::write(dir.join("NEW.mvar.packs"), format!("forge-packs 1\n0\tobjects\\mjolnir\\forge\\alloy\\block\talloy\t1.0.0\t{}\n", "a".repeat(64))).unwrap();
+        let pins = saved_layout_pins(&paks).unwrap();
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].slug, "alloy");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Run the real HTTP/archive/cache path in a subprocess so environment
+    /// overrides cannot redirect another parallel test or touch user state.
+    #[test]
+    fn forge_dependencies_download_matching_releases_from_a_local_hub() {
+        let root = std::env::temp_dir().join(format!("mjolnir-forge-download-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "hub::tests::forge_dependency_install_child", "--ignored", "--nocapture"])
+            .env("MJOLNIR_TEST_CONFIG_DIR", &root)
+            .env("NO_PROXY", "127.0.0.1,localhost")
+            .output().unwrap();
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; run forge_dependencies_download_matching_releases_from_a_local_hub"]
+    fn forge_dependency_install_child() {
+        use std::io::Write;
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+        assert!(std::env::var_os("MJOLNIR_TEST_CONFIG_DIR").is_some(), "must run in isolated fixture");
+        let make_archive = |manifest: serde_json::Value| {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (name, bytes) in [("mjolnir.json", manifest.to_string().into_bytes()),
+                ("content/test.utoc", b"fixture index".to_vec()), ("content/test.ucas", b"fixture data".to_vec())] {
+                zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            zip.finish().unwrap().into_inner()
+        };
+        let pack = forge_test_state().installed.remove(0).forge_pack.unwrap();
+        let pack_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Alloy","version":"1.0.0","type":"content","forge_pack":pack}));
+        let arena_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Arena","version":"1.0.0","type":"content","deps":[{"slug":"alloy","range":"1.0.0"}]}));
+        let bad_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Bad arena","version":"1.0.0","type":"content","deps":[{"slug":"alloy","range":"2.0.0"}]}));
+        let mut routes = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        for (slug, archive) in [("alloy", pack_archive), ("arena", arena_archive), ("bad-arena", bad_archive)] {
+            routes.insert(format!("/mods/{slug}"), serde_json::json!({"name":slug,"type":"content"}).to_string().into_bytes());
+            let mut releases = vec![serde_json::json!({"id":format!("{slug}-1"),"version":"1.0.0","channel":"stable"})];
+            if slug == "alloy" { releases.push(serde_json::json!({"id":"alloy-2","version":"2.0.0","channel":"stable"})) }
+            routes.insert(format!("/mods/{slug}/releases"), serde_json::json!({"releases":releases}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1"), serde_json::json!({"status":"published","sha256":sha256_hex(&archive)}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1/download"), archive);
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        std::env::set_var("MJOLNIR_HUB_URL", format!("http://{}", listener.local_addr().unwrap()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = stop.clone();
+        let server = std::thread::spawn(move || {
+            while !stopped.load(Ordering::Relaxed) {
+                let Ok((mut socket, _)) = listener.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    continue;
+                };
+                // Windows inherits the listener's nonblocking mode; wait
+                // for the complete request rather than treating WouldBlock
+                // as an empty request and returning a spurious 404/reset.
+                socket.set_nonblocking(false).unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0u8];
+                while !request.ends_with(b"\r\n\r\n") && request.len() < 8192 {
+                    if socket.read(&mut byte).unwrap_or(0) == 0 { break }
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8_lossy(&request);
+                let path = request.lines().next().unwrap_or("").split_whitespace().nth(1).unwrap_or("");
+                let body = routes.get(path);
+                let status = if body.is_some() { "200 OK" } else { "404 Not Found" };
+                let body = body.map(Vec::as_slice).unwrap_or(b"missing");
+                write!(socket, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+                socket.write_all(body).unwrap();
+            }
+        });
+        let live = Live { progress: &|_, _| {}, size: None };
+        let result = install_one_as("arena", Some("arena-1".into()), 0, Some(&live), &[], &mut BTreeSet::new());
+        let state = load_state();
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(state.installed.iter().find(|m| m.slug == "alloy").unwrap().version, "1.0.0");
+        assert!(state.installed.iter().find(|m| m.slug == "alloy").unwrap().forge_pack.is_some());
+        assert!(cache_complete(state.installed.iter().find(|m| m.slug == "alloy").unwrap()));
+        validate_profile_dependencies(&state).unwrap();
+        let err = install_one_as("bad-arena", Some("bad-arena-1".into()), 0, Some(&live), &[], &mut BTreeSet::new()).unwrap_err();
+        assert!(err.contains("restart the game"), "{err}");
+        assert!(!load_state().installed.iter().any(|m| m.slug == "bad-arena"));
+        assert_eq!(load_state().installed.iter().find(|m| m.slug == "alloy").unwrap().version, "1.0.0");
+        stop.store(true, Ordering::Relaxed);
+        server.join().unwrap();
     }
 
     #[test]

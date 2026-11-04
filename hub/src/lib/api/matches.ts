@@ -30,7 +30,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { ApiEnv } from "./bindings";
 import { requireModerator } from "./account";
 import { requireScoped } from "./auth";
-import { ErrorSchema, avatarUrl } from "./schemas";
+import { ErrorSchema, avatarUrl, mediaUrl } from "./schemas";
 
 type Db = ApiEnv["Bindings"]["DB"];
 
@@ -179,6 +179,20 @@ const MatchPlayerSchema = z
   })
   .openapi("MatchPlayer");
 
+const PodiumSeatSchema = z
+  .object({
+    index: z.number(),
+    name: z.string(),
+    team: z.enum(["red", "blue"]).nullable(),
+    score: z.number(),
+    kills: z.number(),
+    deaths: z.number(),
+    place: z.number(),
+    outcome: z.enum(OUTCOMES).nullable(),
+    user: LinkedUserSchema.nullable(),
+  })
+  .openapi("MatchPodiumSeat");
+
 const MatchSummarySchema = z
   .object({
     id: z.string(),
@@ -186,6 +200,8 @@ const MatchSummarySchema = z
     map_title: z.string().nullable(),
     /** The map's hub page (/mods/{slug}), when its listing is published. */
     map_slug: z.string().nullable(),
+    /** The map listing's first approved gallery image, hub-relative. */
+    map_cover_url: z.string().nullable(),
     game_type: z.string(),
     team_game: z.boolean(),
     score_to_win: z.number().nullable(),
@@ -203,6 +219,8 @@ const MatchSummarySchema = z
     player_count: z.number(),
     event_count: z.number(),
     host: z.string(),
+    /** The top three seats by place, best first. */
+    podium: z.array(PodiumSeatSchema),
     /** With a player or user filter: that player's line. */
     player: MatchPlayerSchema.omit({ user: true }).nullable(),
   })
@@ -240,7 +258,7 @@ const MatchChatEntrySchema = z
   })
   .openapi("MatchChatEntry");
 
-const MatchDetailSchema = MatchSummarySchema.omit({ player: true })
+const MatchDetailSchema = MatchSummarySchema.omit({ player: true, podium: true })
   .extend({
     players: z.array(MatchPlayerSchema),
     events: z.array(MatchEventSchema),
@@ -280,6 +298,7 @@ const PlayerTotalsSchema = z
 export type MatchSummary = z.infer<typeof MatchSummarySchema>;
 export type MatchDetail = z.infer<typeof MatchDetailSchema>;
 export type MatchPlayer = z.infer<typeof MatchPlayerSchema>;
+export type MatchPodiumSeat = z.infer<typeof PodiumSeatSchema>;
 export type MatchEvent = z.infer<typeof MatchEventSchema>;
 export type MatchChatEntry = z.infer<typeof MatchChatEntrySchema>;
 export type PlayerTotals = z.infer<typeof PlayerTotalsSchema>;
@@ -374,7 +393,17 @@ const SUMMARY_COLUMNS = `
   m.*, ml.title AS map_title, mo.slug AS map_slug,
   COALESCE(h.display_name, h.discord_username) AS host,
   wp.name AS winner_name, wu.id AS w_id, wu.display_name AS w_display_name,
-  wu.discord_username AS w_username, wu.discord_id AS w_discord_id, wu.discord_avatar AS w_avatar`;
+  wu.discord_username AS w_username, wu.discord_id AS w_discord_id, wu.discord_avatar AS w_avatar,
+  (SELECT md.id FROM media md
+   WHERE md.mod_id = mo.id AND md.status = 'approved' AND md.kind <> 'video'
+   ORDER BY md.position, md.created_at LIMIT 1) AS map_cover_id,
+  (SELECT json_group_array(json_object(
+            'index', pp.player_index, 'name', pp.name, 'team', pp.team, 'score', pp.score,
+            'kills', pp.kills, 'deaths', pp.deaths, 'place', pp.place, 'outcome', pp.outcome,
+            'u_id', pu.id, 'u_display_name', pu.display_name, 'u_username', pu.discord_username,
+            'u_discord_id', pu.discord_id, 'u_avatar', pu.discord_avatar))
+   FROM (SELECT * FROM match_players WHERE match_id = m.id ORDER BY place, player_index LIMIT 3) pp
+   LEFT JOIN users pu ON pu.id = pp.user_id AND pu.banned_at IS NULL) AS podium_json`;
 
 /** The host, the map's listing and page, and a free-for-all winner's seat and account. */
 const SUMMARY_JOINS = `
@@ -384,12 +413,29 @@ const SUMMARY_JOINS = `
   LEFT JOIN match_players wp ON wp.match_id = m.id AND CAST(wp.player_index AS TEXT) = m.winner
   LEFT JOIN users wu ON wu.id = wp.user_id AND wu.banned_at IS NULL`;
 
+/** The podium subquery's JSON array; a JSON array keeps its order, so best first. */
+function podiumFromJson(json: unknown): MatchPodiumSeat[] {
+  if (typeof json !== "string") return [];
+  return (JSON.parse(json) as Row[]).map((r) => ({
+    index: r.index as number,
+    name: r.name as string,
+    team: (r.team as "red" | "blue" | null) ?? null,
+    score: r.score as number,
+    kills: r.kills as number,
+    deaths: r.deaths as number,
+    place: r.place as number,
+    outcome: (r.outcome as (typeof OUTCOMES)[number] | null) ?? null,
+    user: linkedUser(r),
+  }));
+}
+
 function summaryFromRow(r: Row): MatchSummary {
   return {
     id: r.id as string,
     map_code: r.map_code as string,
     map_title: (r.map_title as string) ?? null,
     map_slug: (r.map_slug as string) ?? null,
+    map_cover_url: r.map_cover_id ? mediaUrl(r.map_cover_id as string) : null,
     game_type: r.game_type as string,
     team_game: r.team_game === 1,
     score_to_win: (r.score_to_win as number) ?? null,
@@ -405,6 +451,7 @@ function summaryFromRow(r: Row): MatchSummary {
     player_count: r.player_count as number,
     event_count: r.event_count as number,
     host: (r.host as string) ?? "",
+    podium: podiumFromJson(r.podium_json),
     player: r.player_index === undefined || r.player_index === null ? null : playerFromRow(r),
   };
 }
@@ -419,7 +466,17 @@ export interface MatchListQuery {
   /** ended_at of the last match on the previous page. */
   before?: string;
   limit?: number;
+  /** Only real matches: see REAL_MATCH. */
+  real?: boolean;
 }
+
+/**
+ * A real match: two players or more, and someone scored or killed. A host
+ * alone on a map, or a lobby that ended before anyone fought, stays in the
+ * history (and on its players' pages) but off the main list by default.
+ */
+const REAL_MATCH = `m.player_count >= 2
+  AND EXISTS (SELECT 1 FROM match_players rp WHERE rp.match_id = m.id AND (rp.score <> 0 OR rp.kills > 0))`;
 
 /** Matches, newest first; with a player or user, that player's line on each. */
 export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches: MatchSummary[]; next: string | null }> {
@@ -442,6 +499,7 @@ export async function listMatches(db: Db, q: MatchListQuery): Promise<{ matches:
   if (q.map) clauses.push(`m.map_code = ${bind(q.map)}`);
   if (q.game_type) clauses.push(`m.game_type = ${bind(q.game_type)}`);
   if (q.before) clauses.push(`m.ended_at < ${bind(q.before)}`);
+  if (q.real) clauses.push(REAL_MATCH);
   const rows = await db
     .prepare(
       `SELECT ${SUMMARY_COLUMNS}${seat}
@@ -493,8 +551,11 @@ export async function getMatch(db: Db, id: string): Promise<MatchDetail | null> 
   ]);
   const row = head.results[0] as Row | undefined;
   if (!row) return null;
-  const summary: Omit<MatchSummary, "player"> & { player?: unknown } = summaryFromRow(row);
+  // The detail carries every seat, so the summary's podium would only repeat them.
+  const summary: Omit<MatchSummary, "player" | "podium"> & { player?: unknown; podium?: unknown } =
+    summaryFromRow(row);
   delete summary.player;
+  delete summary.podium;
   const pos = (r: Row, k: string): [number, number, number] | null =>
     r[`${k}_x`] === null || r[`${k}_x`] === undefined
       ? null
@@ -971,6 +1032,11 @@ export function registerMatchRoutes(app: OpenAPIHono<ApiEnv>) {
           user: z.string().max(64).optional().openapi({ description: "A hub account id." }),
           before: z.string().max(32).optional().openapi({ description: "`next` from the previous page." }),
           limit: z.coerce.number().int().min(1).max(50).optional(),
+          real: z
+            .enum(["0", "1"])
+            .optional()
+            .transform((v) => v === "1")
+            .openapi({ description: "1: only matches with two or more players where someone scored or killed." }),
         }),
       },
       responses: {

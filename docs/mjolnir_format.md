@@ -41,6 +41,13 @@ signed CI releases instead (`docs/hub_architecture.md` §2).
   are per-build, so a container built against one build may point at moved
   or vanished chunks after a game patch.
 
+### Forge pack archives
+
+A community building-piece pack keeps `"type": "content"` and adds a validated
+`forge_pack` catalog of stable block IDs, namespaced tag paths and dimensions.
+See [forge_packs.md](forge_packs.md) for the schema, `mjolnir forge pack`
+authoring command, map dependencies and saved-layout identity checks.
+
 ### Map archives
 
 A converted map is a content archive with `"type": "map"` and a `map` block,
@@ -126,9 +133,9 @@ member set to exactly equal the statement's — nothing added, nothing removed,
 nothing changed — so anyone holding the archive can prove who bundled exactly
 these bytes, without asking the hub.
 
-The tag editor writes this automatically, and `mjolnir map pack --sign` and
-`mjolnir map runtime --sign` sign the archives the CLI writes (map packs and
-the CE runtime pack). The hub
+The tag editor writes this automatically, and `mjolnir map pack --sign`,
+`mjolnir forge pack --sign` and `mjolnir map runtime --sign` sign the archives
+the CLI writes (maps, Forge packs and the CE runtime pack). The hub
 verifies it at upload: mjolnircore.com requires a signature
 (`REQUIRE_SIGNED_UPLOADS`), so a missing one is an error (`unsigned`), as are
 `bad_signature` and `foreign_signature`. The launcher verifies it again at

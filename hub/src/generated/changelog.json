@@ -39,6 +39,197 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.21.0",
+      "tag": "launcher-v0.21.0",
+      "title": "Forge packs come with the maps that use them",
+      "date": "2026-11-02",
+      "summary": "The launcher installs the Forge packs a map or a saved Forge layout needs, at the exact versions they were built with, and keeps them while anything still needs them.",
+      "body": "### Added\n\n- **Forge packs.** A map built with a Forge pack names the pack and the\n  version it was built with, and the launcher installs that release, or a\n  later one that keeps all its pieces, with the map. Its hash and signature\n  are checked before anything is unpacked. A\n  map the game downloads during a session brings its packs too, unless a\n  different version of one is already installed: that takes a restart\n  through the launcher, because the game cannot swap pieces it has already\n  loaded.\n- **Saved layouts keep their packs.** A layout saved with F5 records the\n  packs and versions it was built from. Before each launch the launcher\n  installs any that are missing, or a later compatible release of them.\n- **Packs stay while a map needs them.** Disabling or uninstalling a pack\n  that an enabled map needs is refused, and so is changing it to a release\n  the map was not built for. Pack updates that keep every piece install as\n  usual.\n- **Pack materials keep their shaders.** A pack whose glass or energy\n  materials carry their own shader library keeps the container number that\n  library needs, and two packs that need the same number are refused rather\n  than drawn without shaders.\n\n### Changed\n\n- **Dependency versions** follow the usual rules: a bare version such as\n  `1.0.0` means exactly that release, and `^`, `~`, comparisons and ranges\n  work. A range the launcher cannot read is refused instead of matching any\n  version.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Forge packs. A map built with a Forge pack names the pack and the version it was built with, and the launcher installs that release, or a later one that keeps all its pieces, with the map. Its hash and signature are checked before anything is unpacked. A map the game downloads during a session brings its packs too, unless a different version of one is already installed: that takes a restart through the launcher, because the game cannot swap pieces it has already loaded.",
+            "Saved layouts keep their packs. A layout saved with F5 records the packs and versions it was built from. Before each launch the launcher installs any that are missing, or a later compatible release of them.",
+            "Packs stay while a map needs them. Disabling or uninstalling a pack that an enabled map needs is refused, and so is changing it to a release the map was not built for. Pack updates that keep every piece install as usual.",
+            "Pack materials keep their shaders. A pack whose glass or energy materials carry their own shader library keeps the container number that library needs, and two packs that need the same number are refused rather than drawn without shaders."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Dependency versions follow the usual rules: a bare version such as 1.0.0 means exactly that release, and ^, ~, comparisons and ranges work. A range the launcher cannot read is refused instead of matching any version."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.21.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.21.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.21.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.43.0",
+      "tag": "mods-v0.43.0",
+      "title": "Forge packs: modular pieces, doors, lifts and placement controls",
+      "date": "2026-11-02",
+      "summary": "Forge builds with modular packs of floors, walls, ramps and roads, with automatic doors, gravity lifts, and controls for physics, grid and angle snapping.",
+      "body": "### Added\n\n- **Placement controls** (MJOLNIRForge 0.4.0). F3 sets the target's physics:\n  Normal, Fixed (held in place) or Phased (held in place, and may overlap\n  other pieces while you build). F4 snaps positions to a world grid of 0.25,\n  0.5, 1, 2 or 4 metres. F10 sets the angle `,` and `.` turn by (90, 45, 30,\n  15 or 5 degrees; 22.5 with snapping off). P sets a teleporter's channel:\n  a sender and a receiver must match. The HUD shows these settings and the\n  target's properties.\n- **Forge packs in the palette** (MJOLNIRForge 0.4.0). Pieces from the\n  installed packs a map was built with appear under their own names. A\n  saved layout records the packs it uses, and loading one whose packs are\n  missing, or installed at a release that does not keep its pieces, is\n  refused instead of placing the wrong pieces.\n- **Pack lights, glass and teleporter fields** (MJOLNIRForge 0.4.0). Light\n  fixtures give off warm, red or blue light, glass panes are transparent\n  and solid, and teleporter housings show the animated green field from\n  Halo CE. The teleporter markers still do the travelling.\n- **Automatic doors** (MJOLNIRLobby 0.19.2). A pack's door panels open as a\n  player approaches and close once the doorway is clear. Saving with F5\n  stores a door closed, even while it stands open.\n- **Gravity lifts** (MJOLNIRLevelLoader 0.9.8). A pack's lift pieces carry\n  players up, each player's own game moving them.\n- **Lighter reflections on rough surfaces** (MJOLNIRLevelLoader 0.9.8). A\n  map can stop ray-tracing reflections on rough materials. The Forge maps\n  do, which took about a quarter off the GPU time of a 4K view on Crossline\n  with no visible difference.\n\n### Changed\n\n- **Hosting waits for the main menu** (MJOLNIRLobby 0.19.2). Hosting before\n  the title screen's sign-in has finished travelled to the map without\n  starting the game. It now asks you to wait for the main menu.\n\n### Fixed\n\n- **A crash at the start of a second match** (MJOLNIRHud 0.14.4,\n  MJOLNIRLobby 0.19.2, MJOLNIRForge 0.4.0). The kill feed, scoreboard, chat\n  and menus could crash the game after a map change, when the game had\n  unloaded and reloaded their screens. Those screens now stay loaded\n  between matches.\n- **Quitting after a match** (MJOLNIRLobby 0.19.2). The fix described in\n  0.42.0, for a crash when closing the game shortly after leaving a match,\n  missed that release; it is in this one.\n- **Cheats** (MJOLNIRBlamConsole 0.3.0): `cheat_all_weapons`,\n  `cheat_all_vehicles` and `drop_safe` work again from the console.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Placement controls (MJOLNIRForge 0.4.0). F3 sets the target's physics: Normal, Fixed (held in place) or Phased (held in place, and may overlap other pieces while you build). F4 snaps positions to a world grid of 0.25, 0.5, 1, 2 or 4 metres. F10 sets the angle , and . turn by (90, 45, 30, 15 or 5 degrees; 22.5 with snapping off). P sets a teleporter's channel: a sender and a receiver must match. The HUD shows these settings and the target's properties.",
+            "Forge packs in the palette (MJOLNIRForge 0.4.0). Pieces from the installed packs a map was built with appear under their own names. A saved layout records the packs it uses, and loading one whose packs are missing, or installed at a release that does not keep its pieces, is refused instead of placing the wrong pieces.",
+            "Pack lights, glass and teleporter fields (MJOLNIRForge 0.4.0). Light fixtures give off warm, red or blue light, glass panes are transparent and solid, and teleporter housings show the animated green field from Halo CE. The teleporter markers still do the travelling.",
+            "Automatic doors (MJOLNIRLobby 0.19.2). A pack's door panels open as a player approaches and close once the doorway is clear. Saving with F5 stores a door closed, even while it stands open.",
+            "Gravity lifts (MJOLNIRLevelLoader 0.9.8). A pack's lift pieces carry players up, each player's own game moving them.",
+            "Lighter reflections on rough surfaces (MJOLNIRLevelLoader 0.9.8). A map can stop ray-tracing reflections on rough materials. The Forge maps do, which took about a quarter off the GPU time of a 4K view on Crossline with no visible difference."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Hosting waits for the main menu (MJOLNIRLobby 0.19.2). Hosting before the title screen's sign-in has finished travelled to the map without starting the game. It now asks you to wait for the main menu."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A crash at the start of a second match (MJOLNIRHud 0.14.4, MJOLNIRLobby 0.19.2, MJOLNIRForge 0.4.0). The kill feed, scoreboard, chat and menus could crash the game after a map change, when the game had unloaded and reloaded their screens. Those screens now stay loaded between matches.",
+            "Quitting after a match (MJOLNIRLobby 0.19.2). The fix described in 0.42.0, for a crash when closing the game shortly after leaving a match, missed that release; it is in this one.",
+            "Cheats (MJOLNIRBlamConsole 0.3.0): cheatallweapons, cheatallvehicles and dropsafe work again from the console."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.43.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.43.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.43.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.20.0",
+      "tag": "launcher-v0.20.0",
+      "title": "The launcher updates itself first",
+      "date": "2026-11-01",
+      "summary": "When the launcher is out of date it updates itself before anything else, then restarts and finishes the rest. A launch never starts an out-of-date game.",
+      "body": "### Changed\n\n- **The launcher updates itself first.** The check before a launch, the\n  Updates screen and the game's own \"out of date\" prompt now include the\n  launcher. When it is behind, it installs only the launcher and restarts.\n  The new launcher then checks again, installs the remaining updates and\n  starts the game (or, from the Updates screen, applies the rest of what you\n  picked). Changes to how updates are installed are always in place before\n  they are used.\n- **No launching out of date.** When updates or damaged files are found, the\n  launch dialog offers **Update and launch** and **Cancel**: everyone in a\n  fireteam needs the same versions. A failed step offers **Try again**.\n  Being offline still never blocks a launch, and neither do mods MJOLNIR\n  did not install (you are still asked whether to move them aside).",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "The launcher updates itself first. The check before a launch, the Updates screen and the game's own \"out of date\" prompt now include the launcher. When it is behind, it installs only the launcher and restarts. The new launcher then checks again, installs the remaining updates and starts the game (or, from the Updates screen, applies the rest of what you picked). Changes to how updates are installed are always in place before they are used.",
+            "No launching out of date. When updates or damaged files are found, the launch dialog offers Update and launch and Cancel: everyone in a fireteam needs the same versions. A failed step offers Try again. Being offline still never blocks a launch, and neither do mods MJOLNIR did not install (you are still asked whether to move them aside)."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.20.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.20.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.20.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.42.0",
+      "tag": "mods-v0.42.0",
+      "title": "Forge layouts, properties and budgets",
+      "date": "2026-11-01",
+      "summary": "Forge saves and loads map layouts that start every game on the map, sets object properties, places spawns and flag stands, and turns objects.",
+      "body": "### Added\n\n- **Layouts** (MJOLNIRForge 0.3.0): F5 saves the map's layout, F6 loads it\n  again and F2 goes back to the map's own. A saved layout starts every game\n  on that map, in Forge, Slayer or CTF. Layouts are kept in\n  `MJOLNIRForge\\layouts\\<MAP>.mvar`, Reach's own map variant format.\n- **Object properties**: K sets the team, L the label, J the respawn time\n  and O the spawn order of the object you aim at or hold. The target card\n  shows them.\n- **Markers**: flag stands, spawn points, health packs and teleporters can\n  be placed, picked up and put down. Placing or picking one up used to crash\n  the game behind UE4SS's dialog, which looked like a hang.\n- **Turning**: `,` and `.` turn a held object.\n- **Budgets**: the palette shows each object's price and how many may be\n  placed, and the panel shows what the layout has spent. Maps baked from now\n  on can set a budget; the current maps have none.\n- **Palette slots**: `MJOLNIRForge\\slots.txt` points a palette entry at\n  another object the map loads, the start of block packs (docs/forge_blocks.md).\n\n### Changed\n\n- **FORGE game type** (MJOLNIRLobby 0.19.1, MJOLNIRLevelLoader 0.9.7): FORGE\n  has its own insertion slot, ready for Forge with your fireteam. It is still\n  host only: fireteam Forge waits on a two-PC test.\n\n### Fixed\n\n- **Quitting after a match** (MJOLNIRLobby 0.19.1): the game could crash\n  while closing if you had left a match a few seconds after it started. The\n  sound fix for players who join a match under way was running on the host\n  as the match ended, which left the closing game a stale sound object.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Layouts (MJOLNIRForge 0.3.0): F5 saves the map's layout, F6 loads it again and F2 goes back to the map's own. A saved layout starts every game on that map, in Forge, Slayer or CTF. Layouts are kept in MJOLNIRForge\\layouts\\<MAP>.mvar, Reach's own map variant format.",
+            "Object properties: K sets the team, L the label, J the respawn time and O the spawn order of the object you aim at or hold. The target card shows them.",
+            "Markers: flag stands, spawn points, health packs and teleporters can be placed, picked up and put down. Placing or picking one up used to crash the game behind UE4SS's dialog, which looked like a hang.",
+            "Turning: , and . turn a held object.",
+            "Budgets: the palette shows each object's price and how many may be placed, and the panel shows what the layout has spent. Maps baked from now on can set a budget; the current maps have none.",
+            "Palette slots: MJOLNIRForge\\slots.txt points a palette entry at another object the map loads, the start of block packs (docs/forgeblocks.md)."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "FORGE game type (MJOLNIRLobby 0.19.1, MJOLNIRLevelLoader 0.9.7): FORGE has its own insertion slot, ready for Forge with your fireteam. It is still host only: fireteam Forge waits on a two-PC test."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Quitting after a match (MJOLNIRLobby 0.19.1): the game could crash while closing if you had left a match a few seconds after it started. The sound fix for players who join a match under way was running on the host as the match ended, which left the closing game a stale sound object."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.42.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.42.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.42.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.41.0",
+      "tag": "mods-v0.41.0",
+      "title": "Facility lighting and preview cameras",
+      "date": "2026-11-01",
+      "summary": "Improved custom-map lighting and repeatable preview cameras accompany the TST facility update, retaining the team-aware bots from 0.40.0.",
+      "body": "### Changed\n\n- **Map lighting** (MJOLNIRLevelLoader 0.9.6): maps can refresh their sky\n  lighting after scenery loads and configure light source radius and specular\n  strength. TST uses these controls for softer highlights and more readable\n  shaded areas. Maps that omit the settings keep their existing behavior.\n- **Preview cameras** (MJOLNIRFlyCam 1.2.0): save named camera positions and\n  play timed paths with linear or eased movement. These optional tools support\n  repeatable map screenshots and video previews.\n- **Experimental objective presentation** (MJOLNIRHud 0.14.3): handle absolute\n  timed-objective scores without counting duplicate relay events twice.\n  Oddball and King of the Hill remain development modes; this release does\n  not add their game-type files to the supported multiplayer set.\n\n### TST Proving Ground\n\nThe accompanying map beta adds the enclosed facility below the balcony,\nrevised metal and floor materials, and fixture-aligned interior lighting.\nFitted red/blue emblems and backed lights replace the floating entrance strips.\nGreen lift doors inside the entry vestibules replace the exterior balcony pads.\n\nThe map is a separate Hub download and requires CE runtime 1.16.0 and this\ncode-mod set. Its supported modes remain Slayer, Team Slayer, and CTF.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Map lighting (MJOLNIRLevelLoader 0.9.6): maps can refresh their sky lighting after scenery loads and configure light source radius and specular strength. TST uses these controls for softer highlights and more readable shaded areas. Maps that omit the settings keep their existing behavior.",
+            "Preview cameras (MJOLNIRFlyCam 1.2.0): save named camera positions and play timed paths with linear or eased movement. These optional tools support repeatable map screenshots and video previews.",
+            "Experimental objective presentation (MJOLNIRHud 0.14.3): handle absolute timed-objective scores without counting duplicate relay events twice. Oddball and King of the Hill remain development modes; this release does not add their game-type files to the supported multiplayer set."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.41.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.41.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.41.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.40.0",
+      "tag": "mods-v0.40.0",
+      "title": "Bots on red and blue",
+      "date": "2026-11-01",
+      "summary": "In team games bots play for red and blue and leave their own side alone. Bots no longer stand still for minutes, and the post-game vote shows each option as a tile.",
+      "body": "### Added\n\n- **Bots play for red and blue in team games** (MJOLNIRHud 0.14.2,\n  MJOLNIRLobby 0.19.0). Each bot joins the side with fewer players. It\n  leaves players of its own side alone and fights the other side's bots and\n  players. Kills between bots reach the kill feed, the scoreboard and the\n  team score, and a player who kills a bot of their own side is counted a\n  betrayal.\n- **Bots come in where their side is** (MJOLNIRHud 0.14.2), away from\n  enemies and never on top of anyone, as the game's own respawns bring\n  players in. This needs a map released after this one (it ships the map's\n  `bots.json`); on an older map each bot keeps its fixed start.\n- **The post-game vote as tiles** (MJOLNIRLobby 0.19.0): each option shows\n  its map's screenshot, the game type's icon, its votes and its share of\n  them, with a countdown in the header. The winner is ringed in gold as\n  NEXT GAME. The tiles need the next CE runtime pack; with the current one\n  the vote looks as before.\n\n### Fixed\n\n- **Bots that stood still for minutes** (MJOLNIRHud 0.14.2). A bot's body\n  could stay asleep while its AI wanted to move, so it stood and took fire\n  without turning. Every order now wakes it. A bot that is still stuck after\n  a minute is placed again.\n- **Bots hunted the wrong player** (MJOLNIRHud 0.14.2) when the seats in use\n  had gaps.\n- **Bots in a team game no longer shoot players of their own side**\n  (MJOLNIRLobby 0.19.0).\n\n### Known issues\n\n- Elites can jam their heads under the lintels of Blood Gulch's side doors.\n- Bots leaving Blood Gulch's flag rooms, bots on Night Lockout, and bots\n  spreading over the whole map need the maps rebaked with this release's\n  tools and released again.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Bots play for red and blue in team games (MJOLNIRHud 0.14.2, MJOLNIRLobby 0.19.0). Each bot joins the side with fewer players. It leaves players of its own side alone and fights the other side's bots and players. Kills between bots reach the kill feed, the scoreboard and the team score, and a player who kills a bot of their own side is counted a betrayal.",
+            "Bots come in where their side is (MJOLNIRHud 0.14.2), away from enemies and never on top of anyone, as the game's own respawns bring players in. This needs a map released after this one (it ships the map's bots.json); on an older map each bot keeps its fixed start.",
+            "The post-game vote as tiles (MJOLNIRLobby 0.19.0): each option shows its map's screenshot, the game type's icon, its votes and its share of them, with a countdown in the header. The winner is ringed in gold as NEXT GAME. The tiles need the next CE runtime pack; with the current one the vote looks as before."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Bots that stood still for minutes (MJOLNIRHud 0.14.2). A bot's body could stay asleep while its AI wanted to move, so it stood and took fire without turning. Every order now wakes it. A bot that is still stuck after a minute is placed again.",
+            "Bots hunted the wrong player (MJOLNIRHud 0.14.2) when the seats in use had gaps.",
+            "Bots in a team game no longer shoot players of their own side (MJOLNIRLobby 0.19.0)."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "Elites can jam their heads under the lintels of Blood Gulch's side doors.",
+            "Bots leaving Blood Gulch's flag rooms, bots on Night Lockout, and bots spreading over the whole map need the maps rebaked with this release's tools and released again."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.40.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.40.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.40.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.39.0",

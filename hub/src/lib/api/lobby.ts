@@ -114,6 +114,8 @@ const LobbySchema = z
   })
   .openapi("Lobby");
 
+export type Lobby = z.infer<typeof LobbySchema>;
+
 interface Where {
   colo: string | null;
   country: string | null;

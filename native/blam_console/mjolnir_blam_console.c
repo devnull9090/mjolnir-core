@@ -40,6 +40,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
+#include <intrin.h>
 
 // ---- Build fingerprint and RVAs: HaloSimulation_tag_release.dll, CU4 ------
 // IMAGE_FILE_HEADER.TimeDateStamp: Steam's copy and the Xbox app's. The two
@@ -59,6 +61,21 @@
 #define RVA_TYPE_NAMES       0x9aa1c0      // const char*[] value-type names
 #define RVA_IN_GAME          0x209a20      // bool game_in_progress(void)
 #define RVA_ANCHOR_STRING    0x7f14c0      // "sleep_until"
+
+// Restored cheats (docs/re/restored_cheats.md). The release build points these
+// functions' evaluators at one stub; we point them back at our own.
+#define RVA_FUNCTION_TABLE   0x81ba20      // const hs_function_definition*[1695]
+#define RVA_STUB_EVALUATE    0x1b2430      // the shared stub: hs_return(thread, 0)
+#define RVA_HS_RETURN        0x1fe100      // void (int32 thread, int32 value)
+#define RVA_HS_ARGUMENTS     0x1feca0      // int32* (thread, count, u16* types, bool init); NULL = not yet
+#define RVA_TLS_INDEX        0xd72730      // u32: the game-state TLS slot
+#define RVA_PLACEMENT_NEW    0x5ee570      // void (placement*, tag, owner object, u64 0)
+#define RVA_OBJECT_NEW       0x5a0fc0      // u32 object (placement*), -1 on failure
+#define RVA_OBJECT_ORIGIN    0x5a6780      // void (u32 object, float out[3])
+#define RVA_TAG_TABLE        0x182d1e8     // pointer to the `tag instance` data array
+#define FN_CHEAT_ALL_WEAPONS  333
+#define FN_CHEAT_ALL_VEHICLES 334
+#define FN_DROP_SAFE          339
 
 typedef unsigned char (*evaluate_fn)(uint64_t unused, const char *source, const char *text,
                                      char interactive, uint32_t unused5, int32_t *value_out,
@@ -205,6 +222,213 @@ static void __fastcall hooked_drain(void *self) {
     LeaveCriticalSection(&g_lock);
 }
 
+// ---- Restored cheats ------------------------------------------------------------
+//
+// `cheat_all_weapons`, `cheat_all_vehicles` and `drop_safe` are still in the
+// function table with their names and parameter lists, but the release build
+// points every one at the shared stub. Halo 1 (MCC) still has the bodies:
+// gather the loaded tags of one group, then drop each near the player. The
+// pieces that does here all survive in this DLL and are what the Forge
+// editor's become-monitor uses (`0x3054f0`): placement data, the unit's
+// origin, object_new. The evaluators run inside HS evaluation on the
+// simulation thread, so scripts can call them as well as the console.
+
+typedef void (*hs_return_fn)(int32_t thread, int32_t value);
+typedef int32_t *(*hs_arguments_fn)(int32_t thread, uint16_t count, const uint16_t *types, uint8_t init);
+typedef void (*placement_new_fn)(void *placement, uint32_t tag, uint32_t owner, uint64_t zero);
+typedef uint32_t (*object_new_fn)(void *placement);
+typedef void (*object_origin_fn)(uint32_t object, float out[3]);
+typedef void (*hs_evaluate_fn)(int16_t function, int32_t thread, uint8_t init);
+
+#define PLACEMENT_SIZE     0x330           // placement_new clears this many bytes
+#define PLACEMENT_POSITION 0x1c            // real_point3d
+#define TLS_OBJECTS        0x20
+#define TLS_PLAYERS        0x30
+#define ARRAY_DATA         0x50
+#define OBJECT_ENTRY       0x18            // object array entry: +0x10 the object's data
+#define PLAYER_STRIDE      0x4b0
+#define PLAYER_UNIT        0x28
+#define UNIT_FORWARD       0x204           // the unit's facing, 3 floats
+#define TAG_HIGH_WATER     0x44
+#define TAG_ENTRIES        0x50
+#define TAG_BITSET         0x58
+#define TAG_ENTRY_STRIDE   0x30            // +0 generation, +4 group, +0x10 path
+#define DROP_MAX           20              // Halo 1 drops at most 16 weapons
+
+static uint8_t *game_state(void) {
+    uint32_t slot = *(uint32_t *)(g_base + RVA_TLS_INDEX);
+    uint8_t **tls = (uint8_t **)__readgsqword(0x58);
+    return tls[slot];
+}
+
+static uint8_t *object_data(uint32_t object) {
+    uint8_t *objects = *(uint8_t **)(game_state() + TLS_OBJECTS);
+    uint8_t *data = objects ? *(uint8_t **)(objects + ARRAY_DATA) : NULL;
+    return data ? *(uint8_t **)(data + 0x10 + (size_t)(object & 0xffff) * OBJECT_ENTRY) : NULL;
+}
+
+// The first player with a unit, as player0 would be; -1 for none.
+static uint32_t player_unit(void) {
+    uint8_t *players = *(uint8_t **)(game_state() + TLS_PLAYERS);
+    uint8_t *data = players ? *(uint8_t **)(players + ARRAY_DATA) : NULL;
+    if (!data) return 0xffffffffu;
+    for (int p = 0; p < 16; p++) {
+        uint8_t *player = data + (size_t)p * PLAYER_STRIDE;
+        uint32_t unit = *(uint32_t *)(player + PLAYER_UNIT);
+        if (*(uint16_t *)player && unit != 0xffffffffu && object_data(unit)) return unit;
+    }
+    return 0xffffffffu;
+}
+
+static uint8_t *tag_entry(uint32_t index) {
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    if (!table || index >= *(uint32_t *)(table + TAG_HIGH_WATER)) return NULL;
+    uint8_t *bits = *(uint8_t **)(table + TAG_BITSET);
+    if (!(bits[index / 8] & (1 << (index % 8)))) return NULL;
+    return *(uint8_t **)(table + TAG_ENTRIES) + (size_t)index * TAG_ENTRY_STRIDE;
+}
+
+static uint32_t tag_handle(uint32_t index, uint8_t *entry) {
+    return (uint32_t)*(uint16_t *)entry << 16 | index;
+}
+
+#pragma warning(disable : 4295 4305 4309)  // four-character group constants
+static int is_object_group(uint32_t group) {
+    static const uint32_t groups[] = { 'weap', 'vehi', 'eqip', 'bipd', 'scen', 'bloc',
+                                       'crat', 'mach', 'ctrl', 'ssce', 'term' };
+    for (size_t i = 0; i < sizeof groups / sizeof groups[0]; i++)
+        if (groups[i] == group) return 1;
+    return 0;
+}
+
+// The object tag a resolved `any_tag` names. A path such as
+// objects\weapons\rifle\assault_rifle\assault_rifle is shared by the weapon,
+// its model, its render model and more, and the compiler may hand back any of
+// them; prefer the object tag of the same path.
+static uint32_t object_tag_for(uint32_t handle) {
+    uint8_t *entry = tag_entry(handle & 0xffff);
+    if (!entry) return 0xffffffffu;
+    if (is_object_group(*(uint32_t *)(entry + 4))) return handle;
+    const char *path = *(const char **)(entry + 0x10);
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    uint32_t high = *(uint32_t *)(table + TAG_HIGH_WATER);
+    for (uint32_t i = 0; path && i < high; i++) {
+        uint8_t *e = tag_entry(i);
+        const char *p = e ? *(const char **)(e + 0x10) : NULL;
+        if (p && is_object_group(*(uint32_t *)(e + 4)) && strcmp(p, path) == 0) return tag_handle(i, e);
+    }
+    return 0xffffffffu;
+}
+
+// Create `tag` `distance` units from the player along `angle` radians off
+// their facing, half a unit up. Returns the object, or -1.
+static uint32_t drop_near_player(uint32_t tag, float distance, float angle) {
+    uint32_t unit = player_unit();
+    if (unit == 0xffffffffu) return 0xffffffffu;
+    float origin[3];
+    ((object_origin_fn)(g_base + RVA_OBJECT_ORIGIN))(unit, origin);
+    const float *forward = (const float *)(object_data(unit) + UNIT_FORWARD);
+    float fx = forward[0], fy = forward[1];
+    float len = sqrtf(fx * fx + fy * fy);
+    if (len < 1e-3f) { fx = 1.0f; fy = 0.0f; } else { fx /= len; fy /= len; }
+    float c = cosf(angle), s = sinf(angle);
+    float dx = fx * c - fy * s, dy = fx * s + fy * c;
+
+    __declspec(align(16)) uint8_t placement[PLACEMENT_SIZE];
+    ((placement_new_fn)(g_base + RVA_PLACEMENT_NEW))(placement, tag, 0xffffffffu, 0);
+    float *position = (float *)(placement + PLACEMENT_POSITION);
+    position[0] = origin[0] + dx * distance;
+    position[1] = origin[1] + dy * distance;
+    position[2] = origin[2] + 0.5f;
+    return ((object_new_fn)(g_base + RVA_OBJECT_NEW))(placement);
+}
+
+// What a player can carry or drive. Halo 1 took every loaded weapon; here the
+// vehicles' guns and turrets are tags of the same groups (the Pelican's chin
+// gun is both a `weap` and a `vehi`, the Warthog's chaingun a `vehi`), and a
+// Jackal's shield and a Skirmisher's bracers are `weap`s, the tuning fork's
+// turret a `vehi`. Picking up a vehicle's gun gives an unnamed weapon.
+static int droppable(uint32_t group, const char *path) {
+    if (group == 'weap')
+        return strncmp(path, "objects\\weapons\\", 16) == 0 && !strstr(path, "jackal_shield") &&
+               !strstr(path, "skirmisher_bracers");
+    return strncmp(path, "objects\\vehicles\\", 17) == 0 && !strstr(path, "\\weapons\\") &&
+           !strstr(path, "\\attachments\\") && !strstr(path, "\\turrets\\");
+}
+
+// Every droppable loaded tag of `group`, up to DROP_MAX, in an arc in front
+// of the player.
+static void drop_all(uint32_t group, float distance, const char *what) {
+    uint32_t tags[DROP_MAX];
+    int n = 0, found = 0, created = 0;
+    uint8_t *table = *(uint8_t **)(g_base + RVA_TAG_TABLE);
+    uint32_t high = table ? *(uint32_t *)(table + TAG_HIGH_WATER) : 0;
+    for (uint32_t i = 0; i < high; i++) {
+        uint8_t *e = tag_entry(i);
+        const char *path = e ? *(const char **)(e + 0x10) : NULL;
+        if (!path || *(uint32_t *)(e + 4) != group || !droppable(group, path)) continue;
+        found++;
+        if (n < DROP_MAX) tags[n++] = tag_handle(i, e);
+    }
+    for (int i = 0; i < n; i++) {
+        // Spread over 160 degrees, nearest the facing first.
+        float t = n > 1 ? (float)i / (float)(n - 1) - 0.5f : 0.0f;
+        if (drop_near_player(tags[i], distance, t * 2.79f) != 0xffffffffu) created++;
+    }
+    // The console's capture buffer is set only while run_command evaluates a
+    // line, so a script's call stays silent.
+    char *out = *g_out_buf;
+    if (out) {
+        size_t len = strlen(out);
+        if (len < (size_t)*g_out_size)
+            snprintf(out + len, (size_t)*g_out_size - len, "dropped %d of %d loaded %s%s\n", created,
+                     found, what, found > DROP_MAX ? " (the first by tag slot)" : "");
+    }
+}
+
+static void evaluate_cheat_all_weapons(int16_t function, int32_t thread, uint8_t init) {
+    (void)function; (void)init;
+    drop_all('weap', 2.0f, "weapons");
+    ((hs_return_fn)(g_base + RVA_HS_RETURN))(thread, 0);
+}
+
+static void evaluate_cheat_all_vehicles(int16_t function, int32_t thread, uint8_t init) {
+    (void)function; (void)init;
+    drop_all('vehi', 8.0f, "vehicles");
+    ((hs_return_fn)(g_base + RVA_HS_RETURN))(thread, 0);
+}
+
+static void evaluate_drop_safe(int16_t function, int32_t thread, uint8_t init) {
+    uint8_t *def = ((uint8_t **)(g_base + RVA_FUNCTION_TABLE))[function];
+    int32_t *args = ((hs_arguments_fn)(g_base + RVA_HS_ARGUMENTS))(
+        thread, *(uint16_t *)(def + 0x38), (const uint16_t *)(def + 0x3a), init);
+    if (!args) return;  // arguments still evaluating; called again
+    uint32_t tag = object_tag_for((uint32_t)args[0]);
+    if (tag != 0xffffffffu) drop_near_player(tag, 2.0f, 0.0f);
+    ((hs_return_fn)(g_base + RVA_HS_RETURN))(thread, 0);
+}
+
+// Point one stubbed function back at a working evaluator. Refuses unless the
+// slot holds the expected name and still points at the stub (or at us).
+static int restore_function(int index, const char *name, hs_evaluate_fn evaluate) {
+    uint8_t *def = ((uint8_t **)(g_base + RVA_FUNCTION_TABLE))[index];
+    void **slot = (void **)(def + 0x20);
+    if (strcmp(*(const char **)(def + 8), name) != 0) return 0;
+    if (*slot == (void *)evaluate) return 1;
+    if (*slot != (void *)(g_base + RVA_STUB_EVALUATE)) return 0;
+    DWORD old;
+    if (!VirtualProtect(slot, sizeof(void *), PAGE_READWRITE, &old)) return 0;
+    InterlockedExchangePointer(slot, (void *)evaluate);
+    VirtualProtect(slot, sizeof(void *), old, &old);
+    return 1;
+}
+
+static int restore_cheats(void) {
+    return restore_function(FN_CHEAT_ALL_WEAPONS, "cheat_all_weapons", evaluate_cheat_all_weapons)
+         + restore_function(FN_CHEAT_ALL_VEHICLES, "cheat_all_vehicles", evaluate_cheat_all_vehicles)
+         + restore_function(FN_DROP_SAFE, "drop_safe", evaluate_drop_safe);
+}
+
 // ---- Installation ---------------------------------------------------------------
 
 static int fingerprint_ok(HMODULE sim, char *why, size_t why_size) {
@@ -263,8 +487,9 @@ static int install(void) {
         VirtualProtect(g_vtable_slot, sizeof(void *), old, &old);
     }
     g_installed = 1;
+    int restored = restore_cheats();
     void *shell = *(void **)(g_base + RVA_SHELL_PTR);
-    set_status("ok base=%p shell=%p", (void *)g_base, shell);
+    set_status("ok base=%p shell=%p cheats=%d/3", (void *)g_base, shell, restored);
     return 1;
 }
 

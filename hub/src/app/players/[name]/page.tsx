@@ -1,11 +1,11 @@
-import Link from "next/link";
 import type { Metadata } from "next";
+import { Swords } from "lucide-react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { EmptyState, PageHeader, PageShell, Pager, PlayerAvatar, SectionHeading } from "../../components/ui";
 import { listMatches, playerTotals } from "@/lib/api/matches";
-import { MatchTable, PlayerTotalsStrip } from "../../matches/_components/MatchTable";
+import { MatchGrid } from "../../matches/_components/MatchCard";
+import { PlayerTotalsStrip } from "../../matches/_components/MatchTable";
 
 /**
  * A player's public matches, by the name the game gave them. Names are not
@@ -42,36 +42,42 @@ export default async function PlayerPage({
   const href = (b?: string) => `/players/${encodeURIComponent(name)}${b ? `?before=${encodeURIComponent(b)}` : ""}`;
 
   return (
-    <>
-      <Navbar />
+    <PageShell>
+      <PageHeader
+        back={{ href: "/matches", label: "Match history" }}
+        eyebrow="Player"
+        title={
+          <span className="flex items-center gap-4">
+            <PlayerAvatar name={name} user={null} size="lg" />
+            <span className="min-w-0 break-words">{name}</span>
+          </span>
+        }
+        description={
+          <>
+            Public matches played under this name{totals.last_played ? "" : ": none yet"}. Anyone can play under any
+            name; matches linked to a hub account are on that account&apos;s profile.
+          </>
+        }
+      />
 
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-6xl mx-auto">
-        <Link href="/matches" className="text-xs text-text-dim hover:text-foreground">← Match history</Link>
-        <h1 className="mt-2 mb-2 text-3xl md:text-4xl font-black text-foreground break-words">{name}</h1>
-        <p className="mb-6 text-sm text-text-muted max-w-2xl">
-          Public matches played under this name{totals.last_played ? "" : ": none yet"}. Anyone can
-          play under any name; matches linked to a hub account are on that account&apos;s profile.
-        </p>
-
-        {totals.matches > 0 && (
-          <section className="mb-10">
-            <PlayerTotalsStrip totals={totals} />
-          </section>
-        )}
-
-        <section>
-          <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Matches</h2>
-          <MatchTable matches={matches} seat />
-          {(before || next) && (
-            <div className="mt-6 flex gap-4 text-sm">
-              {before && <Link href={href()} className="text-text-muted hover:text-foreground">← Newest</Link>}
-              {next && <Link href={href(next)} className="text-gold hover:underline">Older →</Link>}
-            </div>
-          )}
+      {totals.matches > 0 && (
+        <section aria-labelledby="career" className="mb-12">
+          <SectionHeading id="career">Career</SectionHeading>
+          <PlayerTotalsStrip totals={totals} />
         </section>
-      </main>
+      )}
 
-      <Footer />
-    </>
+      <section aria-labelledby="matches">
+        <SectionHeading id="matches">Matches</SectionHeading>
+        {matches.length === 0 ? (
+          <EmptyState icon={Swords} title="No matches under this name">
+            Public games report each match when it ends; this name has not finished one yet.
+          </EmptyState>
+        ) : (
+          <MatchGrid matches={matches} />
+        )}
+        <Pager newest={before ? href() : undefined} older={next ? href(next) : undefined} />
+      </section>
+    </PageShell>
   );
 }

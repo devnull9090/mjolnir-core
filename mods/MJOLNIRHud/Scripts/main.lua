@@ -53,6 +53,9 @@ local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLev
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
+local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
+    "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat",
+}, Log)
 Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
 
 --- The match log must never break the HUD: a failure in it is logged, and
@@ -187,7 +190,7 @@ local function loadClass(path)
         local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
         return ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
     end)
-    if ok and cls and cls:IsValid() then return cls end
+    if ok and cls and cls:IsValid() then return retainUIClass(path, cls) end
     return nil
 end
 
@@ -478,6 +481,23 @@ end
 
 HANDLERS["30_seconds_remaining"] = function(inc) clockFrom(30, inc.at) end
 HANDLERS["10_seconds_remaining"] = function(inc) clockFrom(10, inc.at) end
+
+-- Timed objectives send the simulation's absolute total each scoring second.
+-- Repeated or delayed relay snapshots cannot award points twice.
+HANDLERS.ball_taken = function(inc)
+    if Match.variant ~= "oddball" or type(inc.cause) ~= "number" or inc.cause < 0
+        or type(inc.value) ~= "number" or inc.value <= 0 then return end
+    local p = stats(inc.cause)
+    p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
+    boardDirty = true
+end
+HANDLERS.hill_controlled = function(inc)
+    if Match.variant ~= "koth" or type(inc.cause) ~= "number" or inc.cause < 0
+        or type(inc.value) ~= "number" or inc.value <= 0 then return end
+    local p = stats(inc.cause)
+    p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
+    boardDirty = true
+end
 
 HANDLERS.player_spawn = function(inc)
     if inc.cause == LOCAL_PLAYER then Match.dead = false end

@@ -29,6 +29,7 @@ Relay.MAX = 16 -- incidents in one message
 local CARRIED = {
     kill = true, suicide = true, death = true, first_blood = true, flag_scored = true,
     player_joined = true, player_rejoined = true, player_quit = true, player_booted_player = true,
+    ball_taken = true, hill_controlled = true,
     -- Who is alive on the scoreboard (#249): a client hears only its own spawns.
     player_spawn = true,
 }
@@ -84,6 +85,9 @@ end
 --- when not. `recent` is the match's own table.
 function Relay.seen(recent, inc)
     local key = inc.name .. "|" .. tostring(inc.cause) .. "|" .. tostring(inc.effect)
+    if inc.name == "ball_taken" or inc.name == "hill_controlled" then
+        key = key .. "|" .. tostring(inc.value)
+    end
     local source = inc.source or (inc.relayed and "feed" or "own")
     local list = recent[key] or {}
     recent[key] = list

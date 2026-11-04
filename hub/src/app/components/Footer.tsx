@@ -1,15 +1,6 @@
 import Link from "next/link";
+import { Logo } from "./Logo";
 import { DiscordIcon, GitHubIcon } from "./icons";
-
-function MjolnirIcon({ className = "w-8 h-8" }: { className?: string }) {
-  return (
-    <img
-      src="/logo-transparent.png"
-      alt="MJOLNIR Core"
-      className={`${className} object-contain`}
-    />
-  );
-}
 
 const columns: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
@@ -58,7 +49,7 @@ export function Footer() {
         <div className="flex flex-col gap-10 md:flex-row md:justify-between">
           <div className="max-w-xs">
             <div className="flex items-center gap-2">
-              <MjolnirIcon />
+              <Logo />
               <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
               <span className="text-xs text-text-muted font-medium">CORE</span>
             </div>

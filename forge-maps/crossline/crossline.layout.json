@@ -1,0 +1,716 @@
+{
+  "schema_version": 1,
+  "version": "0.3.0",
+  "units": "metres",
+  "axes": "right_handed_z_up",
+  "dimensions_m": [
+    96,
+    160
+  ],
+  "deck_height_m": 4.5,
+  "perimeter_height_m": 9,
+  "routes": [
+    {
+      "name": "red main ramp -8",
+      "kind": "walk",
+      "width_m": 8,
+      "points_m": [
+        [
+          -8,
+          -8,
+          0.5
+        ],
+        [
+          -8,
+          -16,
+          0.5
+        ],
+        [
+          -8,
+          -32,
+          2.5
+        ],
+        [
+          -8,
+          -48,
+          4.5
+        ],
+        [
+          -8,
+          -60,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "red main ramp 8",
+      "kind": "walk",
+      "width_m": 8,
+      "points_m": [
+        [
+          8,
+          -8,
+          0.5
+        ],
+        [
+          8,
+          -16,
+          0.5
+        ],
+        [
+          8,
+          -32,
+          2.5
+        ],
+        [
+          8,
+          -48,
+          4.5
+        ],
+        [
+          8,
+          -60,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "blue main ramp -8",
+      "kind": "walk",
+      "width_m": 8,
+      "points_m": [
+        [
+          -8,
+          8,
+          0.5
+        ],
+        [
+          -8,
+          16,
+          0.5
+        ],
+        [
+          -8,
+          32,
+          2.5
+        ],
+        [
+          -8,
+          48,
+          4.5
+        ],
+        [
+          -8,
+          60,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "blue main ramp 8",
+      "kind": "walk",
+      "width_m": 8,
+      "points_m": [
+        [
+          8,
+          8,
+          0.5
+        ],
+        [
+          8,
+          16,
+          0.5
+        ],
+        [
+          8,
+          32,
+          2.5
+        ],
+        [
+          8,
+          48,
+          4.5
+        ],
+        [
+          8,
+          60,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "west gallery",
+      "kind": "walk",
+      "width_m": 7,
+      "points_m": [
+        [
+          -28,
+          -68,
+          4.5
+        ],
+        [
+          -28,
+          68,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "east gallery",
+      "kind": "walk",
+      "width_m": 7,
+      "points_m": [
+        [
+          28,
+          -68,
+          4.5
+        ],
+        [
+          28,
+          68,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "central crossbridge",
+      "kind": "walk",
+      "width_m": 8,
+      "points_m": [
+        [
+          -28,
+          0,
+          4.5
+        ],
+        [
+          28,
+          0,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "ground vehicle corridor",
+      "kind": "vehicle",
+      "width_m": 8,
+      "points_m": [
+        [
+          0,
+          -72,
+          0
+        ],
+        [
+          0,
+          72,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "red ground cross-route",
+      "kind": "vehicle",
+      "width_m": 8,
+      "points_m": [
+        [
+          -40,
+          -72,
+          0
+        ],
+        [
+          40,
+          -72,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "vehicle gate test",
+      "kind": "vehicle_door",
+      "width_m": 8,
+      "points_m": [
+        [
+          -40,
+          -64,
+          0
+        ],
+        [
+          -40,
+          -36,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "bridge shape tour",
+      "kind": "walk",
+      "width_m": 3,
+      "points_m": [
+        [
+          -40,
+          28,
+          0.5
+        ],
+        [
+          -40,
+          62,
+          0.5
+        ],
+        [
+          -32,
+          62,
+          0.5
+        ]
+      ]
+    },
+    {
+      "name": "west utility bypass",
+      "kind": "walk",
+      "width_m": 1.5,
+      "points_m": [
+        [
+          -33,
+          -56,
+          0
+        ],
+        [
+          -33,
+          28,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "wide high ramp",
+      "kind": "walk",
+      "width_m": 3,
+      "points_m": [
+        [
+          40,
+          -60,
+          0.5
+        ],
+        [
+          40,
+          -56,
+          0.5
+        ],
+        [
+          40,
+          -40,
+          4.5
+        ],
+        [
+          40,
+          -36,
+          4.5
+        ],
+        [
+          28,
+          -36,
+          4.5
+        ]
+      ]
+    },
+    {
+      "name": "short ramp and guarded landing",
+      "kind": "walk",
+      "width_m": 3,
+      "points_m": [
+        [
+          40,
+          -24,
+          0.5
+        ],
+        [
+          40,
+          -20,
+          0.5
+        ],
+        [
+          40,
+          -12,
+          2.5
+        ],
+        [
+          40,
+          -4,
+          2.5
+        ]
+      ]
+    },
+    {
+      "name": "narrow high ramp",
+      "kind": "walk",
+      "width_m": 3,
+      "points_m": [
+        [
+          40,
+          38,
+          0.5
+        ],
+        [
+          40,
+          40,
+          0.5
+        ],
+        [
+          40,
+          56,
+          4.5
+        ],
+        [
+          40,
+          60,
+          4.5
+        ],
+        [
+          28,
+          60,
+          4.5
+        ]
+      ]
+    }
+  ],
+  "doors": [
+    {
+      "name": "vehicle gate",
+      "frame_index": 260,
+      "panel_index": 261,
+      "opening_m": [
+        8,
+        5.5
+      ],
+      "travel_m": 6,
+      "bypass_m": [
+        [
+          -33,
+          -54,
+          0
+        ],
+        [
+          -33,
+          -42,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "infantry door",
+      "frame_index": 262,
+      "panel_index": 263,
+      "opening_m": [
+        4,
+        3.5
+      ],
+      "travel_m": 4,
+      "bypass_m": [
+        [
+          -33,
+          -22,
+          0
+        ],
+        [
+          -33,
+          -10,
+          0
+        ]
+      ]
+    }
+  ],
+  "lifts": [
+    {
+      "object_index": 281,
+      "landing_index": 282,
+      "launch_m": [
+        38,
+        16,
+        0.5
+      ],
+      "landing_m": [
+        34,
+        16,
+        4.5
+      ],
+      "clear_top_m": 8.5,
+      "note": "Steer west onto the adjacent gallery landing; main ramps provide a bypass."
+    }
+  ],
+  "showcase": [
+    {
+      "name": "red base platform",
+      "id": "floor_4x4",
+      "object_index": 96
+    },
+    {
+      "name": "red base platform",
+      "id": "floor_4x4",
+      "object_index": 98
+    },
+    {
+      "name": "red base platform",
+      "id": "floor_4x4",
+      "object_index": 100
+    },
+    {
+      "name": "red broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 121
+    },
+    {
+      "name": "red broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 122
+    },
+    {
+      "name": "red broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 124
+    },
+    {
+      "name": "red broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 125
+    },
+    {
+      "name": "red green teleporter",
+      "id": "teleporter_housing",
+      "object_index": 126
+    },
+    {
+      "name": "blue base platform",
+      "id": "floor_4x4",
+      "object_index": 129
+    },
+    {
+      "name": "blue base platform",
+      "id": "floor_4x4",
+      "object_index": 131
+    },
+    {
+      "name": "blue base platform",
+      "id": "floor_4x4",
+      "object_index": 133
+    },
+    {
+      "name": "blue broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 154
+    },
+    {
+      "name": "blue broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 155
+    },
+    {
+      "name": "blue broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 157
+    },
+    {
+      "name": "blue broad approach",
+      "id": "ramp_wide_shallow",
+      "object_index": 158
+    },
+    {
+      "name": "blue green teleporter",
+      "id": "teleporter_housing",
+      "object_index": 159
+    },
+    {
+      "name": "vehicle gate",
+      "id": "doorway_vehicle",
+      "object_index": 260
+    },
+    {
+      "name": "vehicle gate moving panel",
+      "id": "door_vehicle_panel",
+      "object_index": 261
+    },
+    {
+      "name": "infantry door",
+      "id": "doorway_tall",
+      "object_index": 262
+    },
+    {
+      "name": "infantry door moving panel",
+      "id": "door_panel",
+      "object_index": 263
+    },
+    {
+      "name": "solid glass wall",
+      "id": "glass_wall",
+      "object_index": 264
+    },
+    {
+      "name": "glazed window",
+      "id": "window_glazed",
+      "object_index": 265
+    },
+    {
+      "name": "glass corner",
+      "id": "glass_corner",
+      "object_index": 266
+    },
+    {
+      "name": "T bridge",
+      "id": "bridge_t",
+      "object_index": 268
+    },
+    {
+      "name": "cross bridge",
+      "id": "bridge_cross",
+      "object_index": 270
+    },
+    {
+      "name": "wide corner bridge",
+      "id": "bridge_corner_wide",
+      "object_index": 271
+    },
+    {
+      "name": "wide high ramp",
+      "id": "ramp_wide_high",
+      "object_index": 272
+    },
+    {
+      "name": "wide short ramp",
+      "id": "ramp_wide",
+      "object_index": 276
+    },
+    {
+      "name": "guarded landing",
+      "id": "landing_guarded",
+      "object_index": 278
+    },
+    {
+      "name": "gravity lift station",
+      "id": "lift_station",
+      "object_index": 281
+    },
+    {
+      "name": "narrow high ramp",
+      "id": "ramp_high",
+      "object_index": 283
+    }
+  ],
+  "perimeter": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95
+  ],
+  "teleporters": [
+    {
+      "object_index": 128,
+      "support_z_m": 4.53,
+      "exit_direction": [
+        0,
+        1,
+        0
+      ],
+      "rearm_clearance_m": 3.5
+    },
+    {
+      "object_index": 161,
+      "support_z_m": 4.53,
+      "exit_direction": [
+        0,
+        -1,
+        0
+      ],
+      "rearm_clearance_m": 3.5
+    }
+  ],
+  "authored_object_count": 300
+}

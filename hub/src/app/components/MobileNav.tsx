@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   BookOpen,
   Gamepad2,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { DiscordIcon, GitHubIcon } from "./icons";
 import { useHub } from "./HubKit";
+import { isActive } from "./nav";
 
 const navLinks = [
   { href: "/multiplayer", label: "Multiplayer", icon: Gamepad2 },
@@ -42,6 +44,7 @@ const externalLinks = [
 export function MobileNav() {
   const [open, setOpen] = useState(false);
   const { user, ready, signIn, signOut } = useHub();
+  const pathname = usePathname() ?? "/";
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -73,6 +76,7 @@ export function MobileNav() {
       {/* Hamburger button — below lg, where the desktop row does not fit */}
       <button
         onClick={() => setOpen(true)}
+        aria-expanded={open}
         className="lg:hidden p-2 -mr-2 text-text-muted hover:text-foreground transition-colors cursor-pointer"
         aria-label="Open navigation menu"
       >
@@ -130,7 +134,7 @@ export function MobileNav() {
               >
                 {user.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
+                  <img src={user.avatar_url} alt="" crossOrigin="anonymous" className="w-8 h-8 rounded-full" />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-surface-raised" />
                 )}
@@ -175,17 +179,25 @@ export function MobileNav() {
           )}
           {ready && <div className="border-t border-border my-4" />}
 
-          {navLinks.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              onClick={close}
-              className="flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium text-text-muted hover:text-foreground hover:bg-surface-raised transition-colors"
-            >
-              {Icon && <Icon className="w-5 h-5" />}
-              {label}
-            </Link>
-          ))}
+          {navLinks.map(({ href, label, icon: Icon }) => {
+            const active = isActive(href, pathname);
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={close}
+                aria-current={active ? "page" : undefined}
+                className={`flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
+                  active
+                    ? "bg-gold/10 text-gold"
+                    : "text-text-muted hover:text-foreground hover:bg-surface-raised"
+                }`}
+              >
+                {Icon && <Icon aria-hidden className="w-5 h-5" />}
+                {label}
+              </Link>
+            );
+          })}
 
           <div className="border-t border-border my-4" />
 

@@ -57,6 +57,51 @@ pnpm preview         # opennextjs build, then wrangler dev
 
 ## The API
 
+### Forge packs
+
+`/forge` lists community releases with a validated Forge model inventory;
+`GET /api/v1/mods?forge=1` exposes the same filter. Publish through the existing
+mod/release/archive flow with `type: "content"` and a `forge_pack` block in
+`mjolnir.json`:
+
+```json
+{
+  "schema_version": 1,
+  "name": "My Forge Pack",
+  "version": "1.0.0",
+  "type": "content",
+  "forge_pack": {
+    "schema_version": 1,
+    "id": "my-forge-pack",
+    "blocks": [{
+      "id": "platform_4x4",
+      "name": "Platform 4 × 4",
+      "tag": "objects\\mjolnir\\forge\\my-forge-pack\\platform_4x4",
+      "category": "platform",
+      "dimensions_m": [4, 4, 0.5],
+      "snap_m": 0.5
+    }]
+  }
+}
+```
+
+The pack ID must equal the Hub slug, and each block tag must be exactly
+`objects\mjolnir\forge\<pack-id>\<block-id>`. Inventories contain 1–256 distinct
+block IDs. Dimensions and optional grid spacing are positive metres. The
+existing container, signature and executable-file checks still apply; source
+`.blend` files and generator scripts belong in a source repository, not in the
+install archive. Inventory validation checks the declaration, not the shape or
+collision of the cooked models, which need an in-game check.
+
+Migration `0024_forge_packs.sql` stores the inventory on its immutable release.
+`GET /api/v1/releases/{id}/forge-pack` returns it together with the release hash
+and dependencies; pending, rejected, yanked and hidden content is not exposed.
+Map manifests declare required packs in the existing `deps` array, for example
+`{"slug":"my-forge-pack","range":"=1.0.0"}`. The launcher resolves those
+dependencies through the regular download and integrity checks.
+
+### General API
+
 Open by design: reads need no authentication, CORS is `*`, and the spec is generated from the
 implementation rather than written alongside it.
 

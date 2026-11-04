@@ -882,6 +882,8 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     w0, w1, w2 = 1 - sq, sq * (1 - r2), sq * r2
                     p = w0 * p0 + w1 * p1 + w2 * p2
                     x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2]
+                    if a.surface_policy and not a.surface_policy.allows(x-off[0], y-off[1], z-off[2], "cliff"):
+                        continue
                     if a.sea is not None and (z - a.sea) / 100.0 < CLADDING["above"]:
                         continue
                     path, smin, smax, depth, _ = rng.choices(CLADDING["meshes"], weights)[0]
@@ -990,6 +992,7 @@ def main():
                          "Without it a rock set into CE's ground lay buried under the landscape")
     ap.add_argument("--edge", help="a landscape.json (build_landscape.py) whose edge map places the lip rules")
     ap.add_argument("--no-cladding", action="store_true", help="leave the cliffs' cladding rocks out")
+    ap.add_argument("--surface-policy", help="Blender .surfaces.json permissions; preserves normal biome/slope/clearance rules")
     ap.add_argument("--detail", action="append", default=[], metavar="NAME=CLASS",
                     help="a detail bitmap (substring of its name) and its class, sand or grass; repeatable")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
@@ -1005,6 +1008,12 @@ def main():
     ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
+    ap.add_argument("--rule-scale", action="append", default=[], metavar="RULE=FACTOR",
+                    help="multiply a named rule's mesh scales for this map; positive and repeatable")
+    ap.add_argument("--rule-density", action="append", default=[], metavar="RULE=FACTOR",
+                    help="multiply a named rule's placement density for this map; positive and repeatable")
+    ap.add_argument("--rule-cluster", action="append", default=[], metavar="RULE=CELL,LOW,HIGH",
+                    help="soft world-space density patches: cell metres and noise thresholds in 0..1")
     ap.add_argument("--extra", action="append", default=[], metavar="RULE",
                     help="an optional rule to add (sea rocks); repeatable")
     ap.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
@@ -1013,6 +1022,9 @@ def main():
                     help="a rule's tint for this map (and the material parameter it goes through; Megascans "
                          "3D assets take 'Albedo Tint'): Blood Gulch's pebbles in its red earth; repeatable")
     a = ap.parse_args()
+    if a.surface_policy:
+        from surface_policy import SurfacePolicy
+        a.surface_policy = SurfacePolicy.load(a.surface_policy)
 
     for pair in a.detail:
         name, cls = pair.split("=", 1)
@@ -1024,6 +1036,31 @@ def main():
     rules = [dict(r) for r in (SNOW_RULES if a.biome == "snow" else RULES)
              if (not a.only or r["name"] in a.only.split(","))
              and (not r.get("optional") or r["name"] in a.extra)]
+    for option, pairs in (("scale", a.rule_scale), ("density", a.rule_density)):
+        for pair in pairs:
+            try:
+                name, value = pair.rsplit("=", 1)
+                factor = float(value)
+                if not math.isfinite(factor) or factor <= 0:
+                    raise ValueError()
+                rule = next(r for r in rules if r["name"] == name)
+            except (ValueError, StopIteration):
+                ap.error(f"--rule-{option}: expected an enabled RULE and positive finite FACTOR, got {pair!r}")
+            if option == "scale":
+                rule["meshes"] = [(mesh, low*factor, high*factor, sink)
+                                  for mesh, low, high, sink in rule["meshes"]]
+            else:
+                rule["density"] *= factor
+    for pair in a.rule_cluster:
+        try:
+            name, value = pair.rsplit("=", 1)
+            cell, low, high = map(float, value.split(","))
+            if not all(math.isfinite(v) for v in (cell, low, high)) or cell <= 0 or not 0 <= low < high <= 1:
+                raise ValueError()
+            rule = next(r for r in rules if r["name"] == name)
+        except (ValueError, StopIteration):
+            ap.error(f"--rule-cluster: expected enabled RULE=CELL,LOW,HIGH with cell>0 and 0<=low<high<=1, got {pair!r}")
+        rule["cluster"] = [cell, low, high]
     for spec in a.rule_tint:
         name, _, rest = spec.partition("=")
         rgb, _, param = rest.partition(":")
@@ -1184,6 +1221,8 @@ def main():
                         if R.random() > keep_share(sh, lo, hi, rule.get("falloff")) * (1.0 if thin is None else thin[j]):
                             continue
                         x, y, z = p[0] * 100.0 + off[0], p[2] * 100.0 + off[1], p[1] * 100.0 + off[2] + a.lift
+                        if a.surface_policy and not a.surface_policy.allows(x-off[0], y-off[1], z-a.lift-off[2], "ground"):
+                            continue
                         if center and math.hypot(x - center[0], y - center[1]) > a.radius:
                             continue
                         if a.sea is not None:
@@ -1202,8 +1241,14 @@ def main():
                         if (rule["on"] == "grass" or rule.get("edge") == "lip") and cover.covered(x, y, z - a.lift):
                             continue
                         cl = rule.get("cluster")
-                        if cl and value_noise(x, y, cl[0], a.seed) < cl[1]:
-                            continue
+                        if cl:
+                            density = value_noise(x, y, cl[0], a.seed)
+                            if len(cl) == 3:
+                                fade = max(0.0, min(1.0, (density-cl[1])/(cl[2]-cl[1])))
+                                if R.random() > fade*fade*(3-2*fade):
+                                    continue
+                            elif density < cl[1]:
+                                continue
                         sb = rule.get("shore")
                         if sb and not (shore and shore.within(x, y, sb[0], sb[1])):
                             continue
@@ -1269,6 +1314,8 @@ def main():
     if not a.no_cladding:
         n_clad = clad(doc, data, spec, off, a, groups, clad_bases, clad_lights, random.Random(a.seed + 13))
         counts["cladding"] = n_clad
+    if a.surface_policy:
+        print(f"authored surface permissions: {a.surface_policy.matched} candidate matches, {a.surface_policy.rejected} rejected")
     ordered = sorted(groups.items(), key=lambda kv: kv[0])
     with open(a.bin, "wb") as f:
         f.write(FOLIAGE_MAGIC + struct.pack("<II", 3, len(ordered)))

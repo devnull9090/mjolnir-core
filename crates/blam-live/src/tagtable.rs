@@ -665,6 +665,30 @@ impl LiveTags {
             .map(|i| &self.tags[*i])
     }
 
+    /// Resolve a cooked container entry, preferring its exact engine path.
+    /// Baked scenarios keep Unreal's `levels/.../<map>/_generated_/<map>`
+    /// package name but register as `levels/.../<map>/<map>` in the tag table.
+    /// Only that terminal scenario shape is an alias; other generated tags
+    /// and ordinary tag-reference lookups must retain their literal paths.
+    pub fn find_container(&self, group: [u8; 4], ubulk_path: &str) -> Option<&LiveTag> {
+        let path = from_ubulk_path(ubulk_path);
+        if let Some(tag) = self.find(group, &path) {
+            return Some(tag);
+        }
+        if group != *b"scnr" || !path.starts_with("levels\\") {
+            return None;
+        }
+        let (parent, leaf) = path.rsplit_once("\\_generated_\\")?;
+        if leaf.is_empty()
+            || leaf.contains('\\')
+            || parent.split('\\').any(|part| part == "_generated_")
+            || parent.rsplit('\\').next() != Some(leaf)
+        {
+            return None;
+        }
+        self.find(group, &format!("{parent}\\{leaf}"))
+    }
+
     /// The entry a handle names, if the generation still matches.
     pub fn by_handle(&self, handle: u32) -> Option<&LiveTag> {
         let index = handle & 0xFFFF;
@@ -967,6 +991,53 @@ mod tests {
             "sound\\x\\fol_mc-gear",
             "only the last hyphen is the group separator"
         );
+    }
+
+    fn named_tag(index: u32, group: [u8; 4], name: &str) -> LiveTag {
+        LiveTag {
+            index,
+            generation: 1,
+            group,
+            name: name.into(),
+            name_address: 0,
+            root: Descriptor { count: 1, data: 0, definition: 0 },
+        }
+    }
+
+    #[test]
+    fn baked_scenario_container_resolves_its_registered_path() {
+        let tags = LiveTags::new(vec![named_tag(7, *b"scnr", r"levels\halo1\solo\fpk\fpk")]);
+        let container = "../../../Meteorite/Content/Tags/Levels/Halo1/Solo/FPK/_Generated_/FPK-scenario.ubulk";
+        assert_eq!(tags.find_container(*b"scnr", container).map(|t| t.index), Some(7));
+        // A literal reference is not a container-name lookup.
+        assert!(tags.find(*b"scnr", &from_ubulk_path(container)).is_none());
+    }
+
+    #[test]
+    fn exact_generated_scenario_path_wins_over_alias() {
+        let path = r"levels\halo1\solo\fpk\_generated_\fpk";
+        let tags = LiveTags::new(vec![
+            named_tag(7, *b"scnr", r"levels\halo1\solo\fpk\fpk"),
+            named_tag(8, *b"scnr", path),
+        ]);
+        assert_eq!(
+            tags.find_container(*b"scnr", &format!("{path}-scenario.ubulk")).map(|t| t.index),
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn generated_alias_is_limited_to_the_baked_scenario_shape() {
+        for (group, registered, container) in [
+            (*b"sbsp", r"levels\halo1\solo\fpk\fpk", r"levels\halo1\solo\fpk\_generated_\fpk-scenario_structure_bsp.ubulk"),
+            (*b"scnr", r"objects\fpk\fpk", r"objects\fpk\_generated_\fpk-scenario.ubulk"),
+            (*b"scnr", r"levels\halo1\solo\fpk\other", r"levels\halo1\solo\fpk\_generated_\other-scenario.ubulk"),
+            (*b"scnr", r"levels\halo1\solo\fpk\nested\fpk", r"levels\halo1\solo\fpk\_generated_\nested\fpk-scenario.ubulk"),
+            (*b"scnr", r"levels\_generated_\fpk\fpk", r"levels\_generated_\fpk\_generated_\fpk-scenario.ubulk"),
+        ] {
+            let tags = LiveTags::new(vec![named_tag(7, group, registered)]);
+            assert!(tags.find_container(group, container).is_none(), "{container}");
+        }
     }
 
     #[test]

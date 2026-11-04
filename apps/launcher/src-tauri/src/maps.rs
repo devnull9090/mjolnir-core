@@ -263,6 +263,10 @@ mod tests {
         fs::write(src.join("level.json"), b"{}").unwrap();
         fs::write(src.join("foliage.bin"), b"MJF3").unwrap();
         fs::write(src.join("decals").join("a.png"), b"png").unwrap();
+        fs::create_dir_all(src.join("flux_state")).unwrap();
+        for file in ["state.json", "height.exr", "velocity.exr"] {
+            fs::write(src.join("flux_state").join(file), file.as_bytes()).unwrap();
+        }
         // A previous version's file goes; the marker stays.
         fs::write(dst.join("old.bin"), b"x").unwrap();
         fs::write(dst.join(MARKER), b"m").unwrap();
@@ -270,6 +274,12 @@ mod tests {
         copy_map_data(&src, &dst).unwrap();
         assert_eq!(fs::read(dst.join("foliage.bin")).unwrap(), b"MJF3");
         assert_eq!(fs::read(dst.join("decals").join("a.png")).unwrap(), b"png");
+        for file in ["state.json", "height.exr", "velocity.exr"] {
+            assert_eq!(
+                fs::read(dst.join("flux_state").join(file)).unwrap(),
+                file.as_bytes()
+            );
+        }
         assert!(!dst.join("old.bin").exists());
         assert!(dst.join(MARKER).exists());
 

@@ -313,6 +313,19 @@ fn pack(a: PackArgs) -> Result<()> {
         "deps": [{ "slug": RUNTIME_SLUG, "range": a.runtime }],
     });
     let mut manifest = manifest;
+    if let Some(packs) = level.pointer("/blam/forge_packs") {
+        let packs: Vec<crate::level::ForgePackRef> = serde_json::from_value(packs.clone())
+            .context("reading blam.forge_packs")?;
+        crate::level::validate_forge_packs(&packs)?;
+        // The map names its pieces by tag path, so a later release in the
+        // pack's caret line, which the Hub requires to keep every earlier
+        // entry, serves it as well: an update never strands a map.
+        for pack in packs {
+            manifest["deps"].as_array_mut().unwrap().push(serde_json::json!({
+                "slug": pack.slug, "range": format!("^{}", pack.version)
+            }));
+        }
+    }
     if let Some(size) = &a.size {
         manifest["map"]["size"] = serde_json::json!(size);
     }
@@ -356,6 +369,24 @@ fn pack(a: PackArgs) -> Result<()> {
         for p in files {
             let name = p.file_name().unwrap().to_string_lossy().to_string();
             extra.push((format!("decals/{name}"), p));
+        }
+    }
+    // A settled Fluid Flux domain carries metadata in level.flux.state and
+    // its texture data beside the level in flux_state/. Keep both together.
+    if level.pointer("/flux/state").is_some_and(|v| v.is_object()) {
+        let state_dir = a.dir.join("flux_state");
+        if !state_dir.join("state.json").is_file() {
+            bail!("level names baked water but flux_state/state.json is missing");
+        }
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&state_dir)?
+            .map(|e| e.map(|e| e.path())).collect::<std::io::Result<_>>()?;
+        files.sort();
+        for path in files {
+            if path.is_symlink() || !path.is_file() {
+                bail!("flux_state must contain regular files: {}", path.display());
+            }
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            extra.push((format!("flux_state/{name}"), path));
         }
     }
     members.push(("map/level.json".into(), level_bytes));
@@ -436,7 +467,7 @@ fn runtime(a: RuntimeArgs) -> Result<()> {
 /// Sign (when asked) and zip an archive's members. The signature covers
 /// every other member's digest, built from the same list that is zipped, so
 /// the two cannot drift.
-fn write_archive(
+pub(crate) fn write_archive(
     mut members: Vec<(String, Vec<u8>)>,
     slug: &str,
     version: &str,

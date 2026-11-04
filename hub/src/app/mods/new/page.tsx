@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { Navbar } from "../../components/Navbar";
-import { Footer } from "../../components/Footer";
+import { PageShell } from "../../components/ui";
 
-const CATEGORIES = ["gameplay", "maps", "textures", "weapons", "camera", "tools", "framework", "multiplayer"];
+const CATEGORIES = ["gameplay", "maps", "forge", "textures", "weapons", "camera", "tools", "framework", "multiplayer"];
 
 export default function NewModPage() {
   const router = useRouter();
@@ -49,12 +48,10 @@ export default function NewModPage() {
   };
 
   return (
-    <>
-      <Navbar />
-      <main className="pt-32 md:pt-36 pb-16 px-6 max-w-xl mx-auto">
+    <PageShell width="xl">
         <h1 className="text-3xl font-black text-foreground mb-2">Publish a mod</h1>
         <p className="text-text-muted mb-8 text-sm">
-          Content mods only — tags, textures, maps, sounds. Anything that runs code (Lua, DLLs)
+          Content mods only — tags, textures, maps, sounds and Forge model packs. Anything that runs code (Lua, DLLs)
           ships through{" "}
           <Link href="https://github.com/devnull9090/mjolnir-core" className="text-gold hover:underline">
             mjolnir-core
@@ -135,7 +132,7 @@ export default function NewModPage() {
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c}>
-                      {c}
+                      {c === "forge" ? "Forge pack" : c}
                     </option>
                   ))}
                 </select>
@@ -168,9 +165,7 @@ export default function NewModPage() {
             </p>
           </form>
         )}
-      </main>
-      <Footer />
-    </>
+    </PageShell>
   );
 }
 

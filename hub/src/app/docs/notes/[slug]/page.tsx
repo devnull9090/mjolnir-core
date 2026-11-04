@@ -36,7 +36,7 @@ export default async function DocNotePage({ params }: { params: Promise<{ slug: 
   if (!note) notFound();
 
   return (
-    <main className="mx-auto max-w-4xl">
+    <main id="main" className="mx-auto max-w-4xl">
       <Link
         href="/docs/notes"
         className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-foreground"

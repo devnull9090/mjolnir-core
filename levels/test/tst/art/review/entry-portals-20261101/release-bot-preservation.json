@@ -1,0 +1,380 @@
+{
+  "format": "tst-release-bot-preservation-v2",
+  "status": "verified-unsigned",
+  "completed": "2026-10-31T23:51:36.983301-07:00",
+  "unsigned_archive_sha256": "1d31b3e5a1c02db0913a98514d1254571c3d2d7ca7cba6d49855db19f5f25b6b",
+  "correction": {
+    "field": "instanced geometry instances[0]/position.z",
+    "offset": 176102,
+    "before_float": 113.1062240600586,
+    "after_float": 113.105224609375,
+    "before_bytes": "6336e242",
+    "after_bytes": "e035e242",
+    "before_sha256": "b1e85e74dbaea708912ed494d6431f4a5997cec3d0c27805f38b52670f7c34db",
+    "after_sha256": "569260fd1a7fa1d306ed69ab6facf0f7ba58be5646ca7ec79eb29724be74d8d4",
+    "requested_drop_wu": 0.001,
+    "nominal_drop_mm": 3.048,
+    "reason": "Main navigation-shell correction moves its duplicate collision copy below the shell so AI queries resolve to navigable sectors.",
+    "source_commit": "44ef187ee46d238da3bb8d15f478cc08d552f9bc"
+  },
+  "package_checks": {
+    "Levels/Halo1/Solo/TST/TST.ubulk": {
+      "before_sha256": "276e3753098829e47d6619c1ca9edee5e5ee15720d70f790a34d42b43764140c",
+      "after_sha256": "276e3753098829e47d6619c1ca9edee5e5ee15720d70f790a34d42b43764140c",
+      "status": "byte-identical"
+    },
+    "Levels/Halo1/Solo/TST/TST.umap": {
+      "before_sha256": "a7e29e9605a0db1f3b5ed09407560f3f4e74f034ad8563dc5575998eeb9457cc",
+      "after_sha256": "a7e29e9605a0db1f3b5ed09407560f3f4e74f034ad8563dc5575998eeb9457cc",
+      "status": "byte-identical"
+    },
+    "Tags/Levels/Halo1/Solo/TST/_Generated_/BSP_01_1_Start-scenario_structure_bsp.uasset": {
+      "before_sha256": "7a85d1ba28f42dc1fa432a9b7caab1341168a00c98c50445372b326fa836fe85",
+      "after_sha256": "7a85d1ba28f42dc1fa432a9b7caab1341168a00c98c50445372b326fa836fe85",
+      "status": "byte-identical"
+    },
+    "Tags/Levels/Halo1/Solo/TST/_Generated_/BSP_01_1_Start-scenario_structure_bsp.ubulk": {
+      "before_sha256": "b1e85e74dbaea708912ed494d6431f4a5997cec3d0c27805f38b52670f7c34db",
+      "after_sha256": "569260fd1a7fa1d306ed69ab6facf0f7ba58be5646ca7ec79eb29724be74d8d4",
+      "status": "only pinned duplicate-shell Z correction"
+    },
+    "Tags/Levels/Halo1/Solo/TST/_Generated_/BSP_01_1_Start-scenario_structure_lighting_info.uasset": {
+      "before_sha256": "76e851442305cb020761710e499baba39d21aa661a9f302a732c6a788702824a",
+      "after_sha256": "76e851442305cb020761710e499baba39d21aa661a9f302a732c6a788702824a",
+      "status": "byte-identical"
+    },
+    "Tags/Levels/Halo1/Solo/TST/_Generated_/BSP_01_1_Start-scenario_structure_lighting_info.ubulk": {
+      "before_sha256": "3fc845474208ddcf29310373249ec39cc08c1a149fdb406b7ac7fc98afcf66ba",
+      "after_sha256": "3fc845474208ddcf29310373249ec39cc08c1a149fdb406b7ac7fc98afcf66ba",
+      "status": "byte-identical"
+    },
+    "Tags/Levels/Halo1/Solo/TST/_Generated_/TST-scenario.uasset": {
+      "before_sha256": "9a8c139c457303a31ff4ac6a478028f2dfce9b8ed45e3f76d3dfaa011ed0d067",
+      "after_sha256": "c4186634fc0948e89a6445257fc62c0bd42a8b3be11872872ffe237de9cee847",
+      "status": "scenario rebaked for bot navigation, squads and current Forge palettes"
+    },
+    "Tags/Levels/Halo1/Solo/TST/_Generated_/TST-scenario.ubulk": {
+      "before_sha256": "66bd8afc5c1f17fd3744bb1da92c5d6bb947bfbb579b8065b0476fd0cd9e8f07",
+      "after_sha256": "371dbb647acef45341240de435a8c5a0ca5f6f2b75c8a87210a89f50c8af03ed",
+      "status": "scenario rebaked for bot navigation, squads and current Forge palettes"
+    }
+  },
+  "changed_staged_files": [
+    "TST.bots.json",
+    "pakchunk997-MJOLNIRMAP-TST_P.ucas",
+    "pakchunk997-MJOLNIRMAP-TST_P.utoc"
+  ],
+  "changed_archive_members": [
+    "content/pakchunk997-MJOLNIRMAP-TST_P.ucas",
+    "content/pakchunk997-MJOLNIRMAP-TST_P.utoc",
+    "map/bots.json",
+    "mjolnir.json"
+  ],
+  "final_staged_artifacts": {
+    "foliage.bin": "0d744b19ebec4d4d5e7d17085048aa85f3571c98b5eb369cb6602ba10704a2f7",
+    "pakchunk968-MJOLNIRCOOK-TST_P.ucas": "aeaa88e10d7990fd8fb1ba27ce70146ae318473778294544d55481b6c37601ab",
+    "pakchunk968-MJOLNIRCOOK-TST_P.utoc": "3efd8819be00a29ccc1db14aa89cbd0637b1c8dc346a4551a42c3a604e483ced",
+    "pakchunk969-MJOLNIRLAND-TST_P.ucas": "9c8fe3711084b7ce676e5bb156993429619222d29a65a8049a681223fb1a0568",
+    "pakchunk969-MJOLNIRLAND-TST_P.utoc": "cc8dad808c73ea978eda06541e66f52c323325719df67570cdef4b62491c1b14",
+    "pakchunk970-MJOLNIRROCK-TST_P.ucas": "39051abeedf7e44944ded4ee8c231694768b35c673f22cd9a44257aa9095b2f9",
+    "pakchunk970-MJOLNIRROCK-TST_P.utoc": "b6cb34f878a2a137748ff17f5aa7bd733241024238907487e96765884695d5ff",
+    "pakchunk986-MJOLNIRMESH-TST_P.ucas": "bc24bb9bdd4489164170769d7c5092cdb21cbde0577d4dd14867c33415be4d3f",
+    "pakchunk986-MJOLNIRMESH-TST_P.utoc": "66d0535dcac9191c7114df2e2bda2be11667509b359b63e5c8f00763ef3ec3ec",
+    "pakchunk997-MJOLNIRMAP-TST_P.ucas": "58f03335f8599836df1be4185443658948b1d022374e9189ce983be2f605a02f",
+    "pakchunk997-MJOLNIRMAP-TST_P.utoc": "4282f89fe1aefa0eee9538f4c3cdd6fef89a54a47442ac469ffc661da69333bd",
+    "TST.bots.json": "699ac51afcc4cff5d28e005e0f25353bbcc7fc6bcd5962023ce410452c053981",
+    "tst.level.json": "f8d639939f9b1cce303d833e317cee73823572d2b8bb60ee6120eef76241b39b",
+    "TST.registration.json": "800ef90e3596544d199c5f75cbe87d72d86744c6ddce9c9ff98d2b95625a6859",
+    "flux_state/height.exr": "7f70ec5ec037830f03597921ca1db2b3ee4c38f3d312a6ccfdf5b296543de1fe",
+    "flux_state/state.json": "573815cd7a2ae75bd1b414f20aa8e370f0630a688bf9f006c5656fa7b537a02d",
+    "flux_state/velocity.exr": "05c8b8a3c0fd240572b507a948d0ffd1c72df45d4d40ea52318e08ca983d284a"
+  },
+  "original_members": {
+    "mjolnir.json": "f15c2293d16861593b63694bc734f9a0b9e681c0d9de450c5b61821539296aaa",
+    "content/pakchunk968-MJOLNIRCOOK-TST_P.utoc": "3efd8819be00a29ccc1db14aa89cbd0637b1c8dc346a4551a42c3a604e483ced",
+    "content/pakchunk968-MJOLNIRCOOK-TST_P.ucas": "aeaa88e10d7990fd8fb1ba27ce70146ae318473778294544d55481b6c37601ab",
+    "content/pakchunk969-MJOLNIRLAND-TST_P.utoc": "cc8dad808c73ea978eda06541e66f52c323325719df67570cdef4b62491c1b14",
+    "content/pakchunk969-MJOLNIRLAND-TST_P.ucas": "9c8fe3711084b7ce676e5bb156993429619222d29a65a8049a681223fb1a0568",
+    "content/pakchunk970-MJOLNIRROCK-TST_P.utoc": "b6cb34f878a2a137748ff17f5aa7bd733241024238907487e96765884695d5ff",
+    "content/pakchunk970-MJOLNIRROCK-TST_P.ucas": "39051abeedf7e44944ded4ee8c231694768b35c673f22cd9a44257aa9095b2f9",
+    "content/pakchunk986-MJOLNIRMESH-TST_P.utoc": "66d0535dcac9191c7114df2e2bda2be11667509b359b63e5c8f00763ef3ec3ec",
+    "content/pakchunk986-MJOLNIRMESH-TST_P.ucas": "bc24bb9bdd4489164170769d7c5092cdb21cbde0577d4dd14867c33415be4d3f",
+    "content/pakchunk997-MJOLNIRMAP-TST_P.utoc": "f93476dd930d8f5828f59a8b8ff7da4cf82a46f62269534c16cb3ee7ea8096ac",
+    "content/pakchunk997-MJOLNIRMAP-TST_P.ucas": "776d0e337defe84bd5528c64332b73ad767c7d20b9184645f04ed5eb43998b69",
+    "map/level.json": "f8d639939f9b1cce303d833e317cee73823572d2b8bb60ee6120eef76241b39b",
+    "map/registration.json": "800ef90e3596544d199c5f75cbe87d72d86744c6ddce9c9ff98d2b95625a6859",
+    "map/foliage.bin": "0d744b19ebec4d4d5e7d17085048aa85f3571c98b5eb369cb6602ba10704a2f7",
+    "map/flux_state/height.exr": "7f70ec5ec037830f03597921ca1db2b3ee4c38f3d312a6ccfdf5b296543de1fe",
+    "map/flux_state/state.json": "573815cd7a2ae75bd1b414f20aa8e370f0630a688bf9f006c5656fa7b537a02d",
+    "map/flux_state/velocity.exr": "05c8b8a3c0fd240572b507a948d0ffd1c72df45d4d40ea52318e08ca983d284a"
+  },
+  "candidate_members": {
+    "mjolnir.json": "57d97588f83f2dcfeb10908fe62e02d5145c9f828d5a5e2333effded30826811",
+    "content/pakchunk968-MJOLNIRCOOK-TST_P.utoc": "3efd8819be00a29ccc1db14aa89cbd0637b1c8dc346a4551a42c3a604e483ced",
+    "content/pakchunk968-MJOLNIRCOOK-TST_P.ucas": "aeaa88e10d7990fd8fb1ba27ce70146ae318473778294544d55481b6c37601ab",
+    "content/pakchunk969-MJOLNIRLAND-TST_P.utoc": "cc8dad808c73ea978eda06541e66f52c323325719df67570cdef4b62491c1b14",
+    "content/pakchunk969-MJOLNIRLAND-TST_P.ucas": "9c8fe3711084b7ce676e5bb156993429619222d29a65a8049a681223fb1a0568",
+    "content/pakchunk970-MJOLNIRROCK-TST_P.utoc": "b6cb34f878a2a137748ff17f5aa7bd733241024238907487e96765884695d5ff",
+    "content/pakchunk970-MJOLNIRROCK-TST_P.ucas": "39051abeedf7e44944ded4ee8c231694768b35c673f22cd9a44257aa9095b2f9",
+    "content/pakchunk986-MJOLNIRMESH-TST_P.utoc": "66d0535dcac9191c7114df2e2bda2be11667509b359b63e5c8f00763ef3ec3ec",
+    "content/pakchunk986-MJOLNIRMESH-TST_P.ucas": "bc24bb9bdd4489164170769d7c5092cdb21cbde0577d4dd14867c33415be4d3f",
+    "content/pakchunk997-MJOLNIRMAP-TST_P.utoc": "4282f89fe1aefa0eee9538f4c3cdd6fef89a54a47442ac469ffc661da69333bd",
+    "content/pakchunk997-MJOLNIRMAP-TST_P.ucas": "58f03335f8599836df1be4185443658948b1d022374e9189ce983be2f605a02f",
+    "map/level.json": "f8d639939f9b1cce303d833e317cee73823572d2b8bb60ee6120eef76241b39b",
+    "map/registration.json": "800ef90e3596544d199c5f75cbe87d72d86744c6ddce9c9ff98d2b95625a6859",
+    "map/bots.json": "699ac51afcc4cff5d28e005e0f25353bbcc7fc6bcd5962023ce410452c053981",
+    "map/foliage.bin": "0d744b19ebec4d4d5e7d17085048aa85f3571c98b5eb369cb6602ba10704a2f7",
+    "map/flux_state/height.exr": "7f70ec5ec037830f03597921ca1db2b3ee4c38f3d312a6ccfdf5b296543de1fe",
+    "map/flux_state/state.json": "573815cd7a2ae75bd1b414f20aa8e370f0630a688bf9f006c5656fa7b537a02d",
+    "map/flux_state/velocity.exr": "05c8b8a3c0fd240572b507a948d0ffd1c72df45d4d40ea52318e08ca983d284a"
+  },
+  "bots_metadata": {
+    "areas": [
+      [
+        -6096.0,
+        952.4,
+        -3047.9,
+        3048.0
+      ],
+      [
+        -3047.9,
+        952.4,
+        0.2,
+        3048.0
+      ],
+      [
+        0.2,
+        952.4,
+        3048.2,
+        3048.0
+      ],
+      [
+        3048.2,
+        952.4,
+        6096.3,
+        3048.0
+      ],
+      [
+        -6096.0,
+        -1143.2,
+        -3047.9,
+        952.4
+      ],
+      [
+        -3047.9,
+        -1143.2,
+        0.2,
+        952.4
+      ],
+      [
+        0.2,
+        -1143.2,
+        3048.2,
+        952.4
+      ],
+      [
+        3048.2,
+        -1143.2,
+        6096.3,
+        952.4
+      ],
+      [
+        -6096.0,
+        -3238.7,
+        -3047.9,
+        -1143.2
+      ],
+      [
+        -3047.9,
+        -3238.7,
+        0.2,
+        -1143.2
+      ],
+      [
+        0.2,
+        -3238.7,
+        3048.2,
+        -1143.2
+      ],
+      [
+        3048.2,
+        -3238.7,
+        6096.3,
+        -1143.2
+      ],
+      [
+        -6096.0,
+        -5334.3,
+        -3047.9,
+        -3238.7
+      ],
+      [
+        -3047.9,
+        -5334.3,
+        0.2,
+        -3238.7
+      ],
+      [
+        0.2,
+        -5334.3,
+        3048.2,
+        -3238.7
+      ],
+      [
+        3048.2,
+        -5334.3,
+        6096.3,
+        -3238.7
+      ]
+    ],
+    "schema_version": 1,
+    "starts": [
+      [
+        -3400.0,
+        2000.0,
+        83.0
+      ],
+      [
+        5700.0,
+        -2000.0,
+        82.9
+      ],
+      [
+        2400.0,
+        1800.0,
+        72.9
+      ],
+      [
+        -5700.0,
+        -2000.0,
+        108.0
+      ],
+      [
+        1000.0,
+        -2000.0,
+        201.1
+      ],
+      [
+        5700.0,
+        2000.0,
+        82.9
+      ],
+      [
+        -2400.0,
+        -1800.0,
+        107.9
+      ],
+      [
+        -5600.0,
+        520.0,
+        95.5
+      ],
+      [
+        3400.0,
+        -1200.0,
+        118.0
+      ],
+      [
+        -1000.0,
+        2000.0,
+        108.0
+      ],
+      [
+        4200.0,
+        1000.0,
+        96.8
+      ],
+      [
+        -4200.0,
+        -1000.0,
+        94.5
+      ],
+      [
+        -5000.0,
+        2000.0,
+        103.8
+      ],
+      [
+        5250.0,
+        -520.0,
+        95.5
+      ],
+      [
+        -5250.0,
+        -520.0,
+        95.5
+      ]
+    ],
+    "tasks": [
+      [
+        0
+      ],
+      [
+        1
+      ],
+      [
+        2
+      ],
+      [
+        3
+      ],
+      [
+        4
+      ],
+      [
+        5
+      ],
+      [
+        6
+      ],
+      [
+        7
+      ],
+      [
+        8
+      ],
+      [
+        9
+      ],
+      [
+        10
+      ],
+      [
+        11
+      ],
+      [
+        12
+      ],
+      [
+        13
+      ],
+      [
+        14
+      ],
+      [
+        15
+      ]
+    ]
+  },
+  "scope": "All tested render, material, water, level, world and gameplay placement data preserved. BSP topology and all bytes except the pinned duplicate-shell position remain identical. Scenario refreshed for published bot/Forge support. No bot runtime test or publication claimed.",
+  "scenario_field_audit": {
+    "changed_field_counts": {
+      "ai objectives": 991,
+      "ai pathfinding data": 7511,
+      "ai user hint data": 15,
+      "character palette": 13,
+      "squads": 19441,
+      "structure bsps": 1,
+      "zones": 2526
+    },
+    "navigation_flag": {
+      "after": "none (0x0)",
+      "before": "no default structure pathfinding (0x8)",
+      "path": "structure bsps[0]/flags"
+    },
+    "report_sha256": "d3d2985c7fcccf922d9e455539c23a6155d5c6154ca68973df95bf62c284c5e7",
+    "report": "C:\\haloce\\ce_conversions\\tst-entry-portals-20261101\\release-0.3.0-beta.1\\bsp-diff.json",
+    "decoded_element_limit": 256,
+    "finding": "Only bot/navigation fields changed; no decoded existing gameplay placement or Forge palette fields differ."
+  }
+}

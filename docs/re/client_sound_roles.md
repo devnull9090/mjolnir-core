@@ -138,3 +138,48 @@ for _, a in ipairs(FindAllOf("BlamObjectActor") or {}) do
   end
 end
 ```
+
+## The joiner's forced bind, and a crash at quit
+
+The fix that shipped (MJOLNIRLobby 0.17.1) binds a joiner's audio block
+itself: `mjolnir_audio_bind` in `native/lobby/mjolnir_lobby.c` calls the
+game's own `0x7b20690` and `0x7544b80` on the block the object play hook last
+saw (`audio_play_block`). The bind registers `block + 8` with the exe's audio
+interface, the native object at `HaloAudioInterfaceSubSystem + 0x30`, whose
+list of registered blocks is at `+0x278` (count at `+0x280`).
+
+Leaving a match unbinds the block: the game unregisters it, then sets
+`block + 0x30` and the listener's `+0x78` (the block's `- 0x20 + 0x78`) back
+to 0. That reads exactly like a joiner's block the game never bound. A forced
+bind landing in that window registers the block again after the game's own
+unregister has run, and once the block is freed, nothing removes it.
+When the game quits, `UGameInstance::Shutdown` deinitializes the subsystem,
+and the interface's destructor (exe `0x7513a90`) calls slot 0 on every
+registered block, including the freed one: `EXCEPTION_ACCESS_VIOLATION
+reading address 0x0` at exe `+0x7513b3b`, with only exe frames on the stack
+(`+0x75178bb` the subsystem's Deinitialize, `+0x672194d`
+`FSubsystemCollectionBase::Deinitialize`, `+0x7c67f7a` the game instance's
+shutdown).
+
+Seen 2026-11-01 on a host, after a FORGE game. The lobby's once-a-second
+retry (games.lua `audioBindTick`) first looked at a world as its match was
+being left, so fireteam.log showed `audio: a joiner's audio world bound
+(block 2101f2451d0 -> 20fa0fc1120)` on the host, and the crash dump's
+dangling entry was `0x2101f2451d8` in the interface at `0x20fa0fc1120`.
+FORGE had nothing to do with it: any match left around the retry's first
+look can do it. Forcing the bind every frame during `LeaveGame` reproduced
+it: the reply went from `block+8 registered: no (0 registered)` to `yes (1 of
+1)` on a block the game had just unbound.
+
+Two guards since then:
+
+- `audioBindTick` never runs on a host (`Net.isHost()`), because the game
+  always binds a host's world itself.
+- The object play hook records the last block it saw bound and the UWorld
+  its listener held. `mjolnir_audio_bind` refuses that block for that world
+  once it is unbound ("refused: ... the match is ending"), and Lua takes the
+  refusal as settled. A joiner's block was never bound by the game, so it is
+  never recorded and the bind still goes through.
+
+The reply file also says whether `block + 8` is registered, before and after
+a bind, which is how the window above was measured.

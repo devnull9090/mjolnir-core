@@ -107,6 +107,7 @@ local loaded = {}
 local toast = { id = nil, generation = 0 }
 local lastTarget = nil
 local lastChoice = nil
+local packBlocks = {}
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -157,11 +158,110 @@ local function face(block, family, typeface, spacing)
     end)
 end
 
---- "assault_rifle" -> "Assault Rifle".
-function Hud.prettyName(tag)
+-- Inventory is data from the launcher's verified archive catalog. Look up
+-- full tag paths only: separate packs commonly use the same leaf IDs.
+function Hud.setPackInventory(inventory)
+    local blocks = {}
+    local function label(value, maxBytes)
+        if type(value) ~= "string" or #value > maxBytes then return nil end
+        local text = value:gsub("[%z\1-\31\127]", " "):match("^%s*(.-)%s*$")
+        return text ~= "" and text or nil
+    end
+    if type(inventory) == "table" and inventory.schema_version == 1 and type(inventory.packs) == "table" then
+        for _, pack in ipairs(inventory.packs) do
+            local catalog = type(pack) == "table" and pack.forge_pack or nil
+            local slug = type(pack) == "table" and pack.slug or nil
+            local packName = type(pack) == "table" and label(pack.name, 480) or nil
+            if type(slug) == "string" and #slug >= 2 and #slug <= 64 and slug:match("^[a-z0-9][a-z0-9%-]*$")
+                and packName and type(catalog) == "table" and catalog.schema_version == 1 and catalog.id == slug
+                and type(catalog.blocks) == "table" then
+                for _, block in ipairs(catalog.blocks) do
+                    if type(block) == "table" then
+                        local id, name, category = block.id, label(block.name, 320), block.category
+                        if type(id) == "string" and #id <= 64 and id:match("^[a-z0-9][a-z0-9_%-]*$")
+                            and name and type(category) == "string" and #category <= 64
+                            and category:match("^[a-z0-9][a-z0-9_%-]*$") then
+                            local tag = "objects\\mjolnir\\forge\\" .. slug .. "\\" .. id
+                            if block.tag == tag then
+                                -- Even malformed local inventories cannot let the last
+                                -- duplicate silently change an object's displayed identity.
+                                if blocks[tag] ~= nil then blocks[tag] = false
+                                else blocks[tag] = { name = name, pack = packName, category = category } end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    packBlocks = blocks
+end
+
+function Hud.packBlock(fullTag)
+    return type(fullTag) == "string" and packBlocks[fullTag] or nil
+end
+
+--- "assault_rifle" -> "Assault Rifle"; pack models use their authored name.
+function Hud.prettyName(tag, fullTag)
+    local block = Hud.packBlock(fullTag or tag)
+    if block then return block.name end
     if not tag or tag == "" then return "Object" end
+    tag = tag:match("([^\\/]+)$") or tag
     if NAMES[tag] then return NAMES[tag] end
-    return (tag:gsub("_", " "):gsub("(%a)([%w]*)", function(a, b) return string.upper(a) .. b end))
+    return (tag:gsub("[_%-]", " "):gsub("(%a)([%w]*)", function(a, b) return string.upper(a) .. b end))
+end
+
+function Hud.paletteName(row)
+    return Hud.prettyName(row.tag, row.full_tag)
+end
+
+function Hud.packCategory(fullTag)
+    local block = Hud.packBlock(fullTag)
+    if not block then return nil end
+    return string.upper(block.pack) .. " · " .. string.upper(block.category:gsub("[_%-]", " "))
+end
+
+function Hud.paletteCategory(row)
+    return Hud.packCategory(row.full_tag) or SHELVES[row.group] or Hud.category(row.group)
+end
+
+function Hud.layoutWarning(layout)
+    if type(layout) ~= "string" then return nil end
+    local why = layout:match("^[^:]+: own layout, saved one refused: (.+)$")
+    if not why then return nil end
+    return "SAVED FORGE LAYOUT NOT LOADED\n" .. why .. "\nPlaying the map's original layout."
+end
+
+-- Old DLLs publish five/eight fields; the new ninth field is the full path.
+-- Keep palette/group boundaries exactly as the native navigation counts them.
+function Hud.parsePalette(text)
+    local rows = {}
+    for line in (text or ""):gmatch("[^\r\n]+") do
+        local p, e, group, tag, ok, rest = line:match("^(%d+)\t(%d+)\t([^\t]*)\t([^\t]*)\t(%d)(.*)$")
+        if p then
+            local placed, maximum, price, tail = rest:match("^\t(%-?%d+)\t(%-?%d+)\t(%-?%d+)(.*)$")
+            local fullTag = tail and tail:match("^\t([^\t]+)") or nil
+            rows[#rows + 1] = { palette = tonumber(p), entry = tonumber(e), group = group, tag = tag,
+                placeable = ok == "1", placed = tonumber(placed) or 0, maximum = tonumber(maximum) or 0,
+                price = tonumber(price) or 0, full_tag = fullTag }
+        end
+    end
+    return rows
+end
+
+--- The target's Forge properties after its name: "  ·  RED  ·  ctf_flag_return".
+function Hud.properties(s, keys)
+    local parts = {}
+    local physics = Hud.physicsName(s.physics)
+    if physics then parts[#parts + 1] = physics end
+    if s.team and s.team ~= "neutral" then parts[#parts + 1] = string.upper(s.team) end
+    if s.label and s.label ~= "" then parts[#parts + 1] = s.label end
+    if s.channel then
+        local hint = keys and keys.channel and (" [" .. Hud.keyLabel(keys.channel) .. "]") or ""
+        parts[#parts + 1] = "CHANNEL " .. string.upper(s.channel) .. hint
+    end
+    if #parts == 0 then return "" end
+    return "  ·  " .. table.concat(parts, "  ·  ")
 end
 
 function Hud.category(group)
@@ -171,8 +271,42 @@ end
 --- A UE4SS key name as the key cap shows it: PAGE_UP -> PG UP.
 function Hud.keyLabel(name)
     local pretty = { PAGE_UP = "PG UP", PAGE_DOWN = "PG DN", DEL = "DEL", INS = "INS", SPACE = "SPACE",
-        LEFT_ARROW = "←", RIGHT_ARROW = "→", UP_ARROW = "↑", DOWN_ARROW = "↓" }
+        LEFT_ARROW = "←", RIGHT_ARROW = "→", UP_ARROW = "↑", DOWN_ARROW = "↓", OEM_COMMA = ",", OEM_PERIOD = "." }
     return pretty[name] or (tostring(name):gsub("_", " "))
+end
+
+-- Only present settings that the native editor actually reported. In
+-- particular, an old/missing snapshot must not imply Normal or snapping off.
+function Hud.physicsName(mode)
+    return ({ normal = "NORMAL", fixed = "FIXED", phased = "PHASED" })[mode]
+end
+
+function Hud.gridName(value)
+    local n = tonumber(value)
+    if n == 0 then return "OFF" end
+    if n == 0.25 or n == 0.5 or n == 1 or n == 2 or n == 4 then return string.format("%g m", n) end
+    return nil
+end
+
+function Hud.rotationName(value)
+    local n = tonumber(value)
+    if n == 0 then return "OFF" end
+    if n == 90 or n == 45 or n == 30 or n == 15 or n == 5 then return string.format("%d°", n) end
+    return nil
+end
+
+-- Three short lines fit the existing 380 px palette panel. The same text
+-- serves the fallback panel; no additional widget or class is needed.
+function Hud.editSettings(s, keys)
+    local lines = {}
+    local grid, rotation = Hud.gridName(s.grid_m), Hud.rotationName(s.rotation_snap)
+    if grid then lines[#lines + 1] = "[" .. Hud.keyLabel(keys.grid) .. "] GRID " .. grid end
+    if rotation then
+        lines[#lines + 1] = "[" .. Hud.keyLabel(keys.rotation_snap) .. "] SNAP " .. rotation
+        lines[#lines + 1] = "[" .. Hud.keyLabel(keys.rotate_left) .. " / " .. Hud.keyLabel(keys.rotate_right)
+            .. "] TURN " .. (rotation == "OFF" and "22.5°" or rotation)
+    end
+    return table.concat(lines, "\n")
 end
 
 --------------------------------------------------------------------------------
@@ -195,6 +329,8 @@ local function build()
         ctx.log("HUD: " .. CLASS .. " is not installed (pakchunk980-MJOLNIRFORGEUI); the text panel stands in")
         return nil
     end
+    cls = ctx.retainClass(CLASS, cls)
+    if not cls then return nil end
     local ok, w = pcall(function()
         local wbl = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
         local created = wbl:Create(pc, cls, pc)
@@ -304,7 +440,10 @@ local function showToast(text, color)
 end
 
 -- What the DLL says it did -> the toast's words and colour.
-local function toastFor(last, name)
+function Hud.notice(last, name)
+    -- A pack binding refusal includes the recovery action. Do not replace
+    -- it with the generic "no palette entry" message below.
+    if last:match("^%a+ failed:") then return string.upper(last), GOLD end
     if last == "monitor" then return "FORGE MONITOR", ACCENT end
     if last == "biped" then return "BACK TO YOUR SPARTAN", ACCENT end
     if last == "grabbed" then return "PICKED UP  " .. name, GREEN end
@@ -313,8 +452,28 @@ local function toastFor(last, name)
     if last == "duplicated" then return "DUPLICATED  " .. name, GREEN end
     local placed = last:match("^placed (.+)$")
     if placed then return "PLACED  " .. Hud.prettyName(placed), GREEN end
-    local refused = last:match("^cannot place (.+)$")
+    local refused = last:match("^cannot place ([%w_]+)$")
     if refused then return "THIS MAP CAN'T PLACE ANOTHER  " .. Hud.prettyName(refused), GOLD end
+    local saved = last:match("^saved layout %S+, (%d+) objects$")
+    if saved then return "LAYOUT SAVED  " .. saved .. " OBJECTS", GREEN end
+    local reloaded = last:match("^loaded layout %S+, (%d+) objects$")
+    if reloaded then return "LAYOUT LOADED  " .. reloaded .. " OBJECTS", GREEN end
+    if last == "reverted to the map's own layout" then return "THE MAP'S OWN LAYOUT", ACCENT end
+    local team = last:match("^team (%a+)$")
+    if team then return "TEAM  " .. string.upper(team), ACCENT end
+    local label = last:match("^label (.+)$")
+    if label then return "LABEL  " .. label, ACCENT end
+    local respawn = last:match("^respawn (%d+) s$")
+    if respawn then return "RESPAWN  " .. respawn .. " S", ACCENT end
+    local facing = last:match("^facing (%-?%d+)$")
+    if facing then return "FACING  " .. facing .. "°", ACCENT end
+    local order = last:match("^spawn order (%-?%d+)$")
+    if order then return "SPAWN ORDER  " .. order, ACCENT end
+    local channel = last:match("^channel ([%w]+)$")
+    if channel then return "TELEPORTER CHANNEL  " .. string.upper(channel), ACCENT end
+    local physics = Hud.physicsName(last:match("^physics (%a+)$"))
+    if physics then return "PHYSICS  " .. physics, ACCENT end
+    if last:match("^grid ") or last:match("^rotation snap ") then return string.upper(last), ACCENT end
     if last == "this map has no Forge palette" then return "This map has no Forge palette", GOLD end
     if last:find("palette") then return "This map has no Forge palette entry for that yet", GOLD end
     return string.upper(last), GOLD
@@ -338,7 +497,7 @@ local function categoryOf(palette, row)
 end
 
 -- The palette panel, or a toast where the HUD has none (CE runtime 1.14.0).
-local function drawPalette(palette, row, keys, editing)
+local function drawPalette(palette, row, keys, editing, budgetOf)
     local panel = valid(W.PaletteSize) and W.PaletteSize or nil
     if not (editing and row) then
         if panel then setVisible(panel, false) end
@@ -348,7 +507,7 @@ local function drawPalette(palette, row, keys, editing)
     local choice = row.palette .. ":" .. row.entry
     if not panel then
         if lastChoice and choice ~= lastChoice then
-            showToast(string.format("%s  %s", SHELVES[row.group] or "PALETTE", Hud.prettyName(row.tag)), ACCENT)
+            showToast(string.format("%s  %s", Hud.paletteCategory(row), Hud.paletteName(row)), ACCENT)
         end
         lastChoice = choice
         return
@@ -356,12 +515,20 @@ local function drawPalette(palette, row, keys, editing)
     lastChoice = choice
     local members, at = categoryOf(palette, row)
     setText(W.PaletteCount, string.format("%d / %d", at, #members))
-    setText(W.PaletteGroup, SHELVES[row.group] or Hud.category(row.group))
+    setText(W.PaletteGroup, Hud.paletteCategory(row))
     setText(W.PalettePrevKey, Hud.keyLabel(keys.prev_category))
     setText(W.PaletteNextKey, Hud.keyLabel(keys.next_category))
-    setText(W.PaletteName, Hud.prettyName(row.tag))
+    -- A quota and a price, where the map sets them (docs/forge.md, Budgets).
+    local extra = ""
+    if (row.maximum or 0) > 0 then extra = extra .. string.format("  %d/%d", row.placed or 0, row.maximum) end
+    if (row.price or 0) > 0 then extra = extra .. string.format("  $%d", row.price) end
+    setText(W.PaletteName, Hud.paletteName(row) .. extra)
+    local budget = tonumber(budgetOf.budget or "") or 0
+    local title = budget > 0 and string.format("PALETTE  $%s / $%d", budgetOf.spent or "0", budget) or "PALETTE"
+    local settings = Hud.editSettings(budgetOf, keys)
+    setText(W.PaletteTitle, title .. (settings ~= "" and ("\n" .. settings) or ""))
     setTextColor(W.PaletteName, row.placeable and WHITE or GREY)
-    weaponIcon(row.tag, W.PaletteIconBox, W.PaletteIcon)
+    weaponIcon(Hud.packBlock(row.full_tag) and "" or row.tag, W.PaletteIconBox, W.PaletteIcon)
     -- A window of the list with the selection in its middle where it can be.
     local first = math.max(1, math.min(at - math.floor(PALETTE_ROWS / 2), #members - PALETTE_ROWS + 1))
     for i = 0, PALETTE_ROWS - 1 do
@@ -369,7 +536,7 @@ local function drawPalette(palette, row, keys, editing)
         local r = members[first + i]
         if r then
             local selected = first + i == at
-            setText(W["PaletteRow" .. i .. "Name"], Hud.prettyName(r.tag))
+            setText(W["PaletteRow" .. i .. "Name"], Hud.paletteName(r))
             setTextColor(W["PaletteRow" .. i .. "Name"], selected and WHITE or GREY)
             pcall(function() line:SetBrushColor(selected and ROW_SELECTED or ROW_PLAIN) end)
             setOpacity(line, r.placeable and 1 or 0.4)
@@ -384,7 +551,7 @@ local function drawPalette(palette, row, keys, editing)
     setVisible(panel, true)
 end
 
---- deps: { log, pc }.
+--- deps: { log, pc, retainClass }.
 function Hud.init(deps)
     ctx = deps
 end
@@ -405,8 +572,9 @@ function Hud.render(s, keys, mapTitle, palette, choice)
     local holding = editing and s.held ~= nil and s.held ~= "ffffffff"
     local aiming = editing and not holding and s.cursor ~= nil and s.cursor ~= "ffffffff"
     local tag = holding and s.held_tag or (aiming and s.cursor_tag or nil)
+    local fullTag = holding and s.held_path or (aiming and s.cursor_path or nil)
     local group = holding and s.held_group or (aiming and s.cursor_group or nil)
-    local name = tag and Hud.prettyName(tag) or nil
+    local name = tag and Hud.prettyName(tag, fullTag) or nil
     if name then lastTarget = name end
 
     -- The badge.
@@ -422,10 +590,10 @@ function Hud.render(s, keys, mapTitle, palette, choice)
 
     -- The target card.
     if name then
-        setText(W.TargetCategory, Hud.category(group))
+        setText(W.TargetCategory, Hud.packCategory(fullTag) or Hud.category(group))
         setTextColor(W.TargetCategory, holding and GREEN or ACCENT)
-        setText(W.TargetName, name)
-        weaponIcon(tag)
+        setText(W.TargetName, name .. Hud.properties(s, keys))
+        weaponIcon(Hud.packBlock(fullTag) and "" or tag)
         local distance = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer)
         if holding then
             fillKeys("Target", CARD_HINTS, {
@@ -448,31 +616,52 @@ function Hud.render(s, keys, mapTitle, palette, choice)
         end
         setVisible(W.TargetCard, true)
     else
+        -- Clear content as well as visibility: a partial/missing target must
+        -- never leave the previous object's properties on the next card.
+        setText(W.TargetName, "")
+        setText(W.TargetCategory, "")
+        setVisible(W.DistanceRow, false)
         setVisible(W.TargetCard, false)
     end
 
     -- The control bar.
-    if editing then
+    if editing and (s.grid_m ~= nil or s.rotation_snap ~= nil or s.physics ~= nil) then
+        local physics, grid, rotation = Hud.physicsName(s.physics), Hud.gridName(s.grid_m), Hud.rotationName(s.rotation_snap)
+        fillKeys("Control", CONTROLS, {
+            { key = Hud.keyLabel(keys.toggle), act = "SPARTAN" },
+            { key = Hud.keyLabel(keys.grab), act = holding and "DROP" or "PICK UP", on = holding or aiming },
+            { key = Hud.keyLabel(keys.physics), act = physics and ("PHYSICS " .. physics) or "PHYSICS", on = (holding or aiming) and physics ~= nil },
+            { key = Hud.keyLabel(keys.grid), act = "GRID " .. (grid or "—"), on = grid ~= nil },
+            { key = Hud.keyLabel(keys.rotation_snap), act = "SNAP " .. (rotation or "—"), on = rotation ~= nil },
+            { key = Hud.keyLabel(keys.place), act = "PLACE", on = choice ~= nil and choice.placeable },
+        })
+    elseif editing then
         fillKeys("Control", CONTROLS, {
             { key = Hud.keyLabel(keys.toggle), act = "SPARTAN" },
             { key = Hud.keyLabel(keys.grab), act = holding and "DROP" or "PICK UP", on = holding or aiming },
             { key = Hud.keyLabel(keys.duplicate), act = "DUPLICATE", on = aiming or holding },
             { key = Hud.keyLabel(keys.delete), act = "DELETE", on = aiming or holding },
-            { key = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer), act = "DISTANCE", on = holding },
+            s.channel and { key = Hud.keyLabel(keys.channel), act = "CHANNEL", on = holding or aiming }
+                or { key = Hud.keyLabel(keys.farther) .. " / " .. Hud.keyLabel(keys.nearer), act = "DISTANCE", on = holding },
             { key = Hud.keyLabel(keys.place), act = "PLACE", on = choice ~= nil and choice.placeable },
         })
     else
-        fillKeys("Control", CONTROLS, { { key = Hud.keyLabel(keys.toggle), act = "FORGE MONITOR" } })
+        fillKeys("Control", CONTROLS, {
+            { key = Hud.keyLabel(keys.toggle), act = "FORGE MONITOR" },
+            { key = Hud.keyLabel(keys.save), act = "SAVE LAYOUT" },
+            { key = Hud.keyLabel(keys.load), act = "LOAD LAYOUT" },
+            { key = Hud.keyLabel(keys.revert), act = "MAP'S OWN LAYOUT" },
+        })
     end
 
-    drawPalette(palette or {}, choice, keys, editing)
+    drawPalette(palette or {}, choice, keys, editing, s)
 
     -- The toast, once per thing the DLL did.
     if s.last_id and s.last_id ~= toast.id then
         local first = toast.id == nil
         toast.id = s.last_id
         if not first and s.last and s.last ~= "" then
-            local text, color = toastFor(s.last, lastTarget or "Object")
+            local text, color = Hud.notice(s.last, lastTarget or "Object")
             showToast(text, color)
         end
     end

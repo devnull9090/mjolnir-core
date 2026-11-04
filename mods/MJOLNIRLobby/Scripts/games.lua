@@ -171,7 +171,7 @@ end
 --- once a second on the game thread.
 -- The insertion point each game type starts at (MJOLNIRLobby main.lua MODES,
 -- MJOLNIRLevelLoader GAME_TYPE_SLOTS).
-local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4 }
+local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4, forge = 5 }
 -- The game type of the listed game being joined, and the level loader switch
 -- still owed for a match joined under way: { code, url, tries }.
 local joiningGameType
@@ -212,8 +212,9 @@ end
 -- match's audio world from a world listener that a joiner's build of the game
 -- never runs, so the exe drops those sounds before Wwise
 -- (docs/re/client_sound_roles.md). mjolnir_audio_bind does that bind; it
--- answers "already bound" on a host or a player who was in the fireteam at the
--- start, and an error until the simulation has asked for its first object
+-- answers "already bound" on a player who was in the fireteam at the start,
+-- "refused" for a world the game bound and has since unbound (a match being
+-- left), and an error until the simulation has asked for its first object
 -- sound, so this retries each tick until the world is bound.
 --
 -- Not in a world's first AUDIO_BIND_WAIT seconds: a host and a player in the
@@ -225,6 +226,11 @@ local AUDIO_BIND_WAIT = 10
 local audioBoundWorld
 local audioSeen = { key = nil, at = 0 }
 local function audioBindTick()
+    -- Never on a host: the game binds a host's world itself. A host whose
+    -- first look came as its match was being left found the block already
+    -- unbound, bound it again, and the freed block crashed the game when it
+    -- quit (2026-11-01).
+    if Net.isHost() then return end
     -- The world through the engine's local player, not FindFirstOf: that
     -- walked every object each second of every match.
     local okW, world = pcall(Host.worldObject)
@@ -249,7 +255,7 @@ local function audioBindTick()
     if not r then return end
     local reply = r:read("a") or ""
     r:close()
-    if reply:find("already bound", 1, true) then
+    if reply:find("already bound", 1, true) or reply:find("\nrefused", 1, true) then
         audioBoundWorld = name
     elseif reply:find("\nok ", 1, true) then
         audioBoundWorld = name

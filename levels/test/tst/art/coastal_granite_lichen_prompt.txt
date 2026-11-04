@@ -1,0 +1,7 @@
+Built-in image_gen edit, 2026-10-20.
+Input: textures/coastal_granite_albedo.png (original generated project texture).
+Output: textures/coastal_granite_lichen_albedo.png.
+Use: Blender macro-cliff preview albedo; not an extracted game texture or runtime shader.
+
+Prompt:
+Edit the supplied flat granite texture into a production-quality seamless diffuse/albedo tile for a temperate coastal granite cliff, representing about 8 by 8 metres of real stone. Preserve the original granite grain and intersecting dark mineral fractures and flat orthographic texture orientation. Add LOCALIZED natural weathering: dense uneven charcoal-black crustose lichen islands, patches of pale ivory and ochre-orange lichen, scattered restrained olive moss concentrated in recessed fissures. These growths should occupy approximately 25% of the surface in asymmetric irregular clusters, with broad clean gray-beige granite remaining between them; no continuous green wash and no repeating obvious blobs. Strong readable mineral color differences at 8m scale, plus crisp fine granular texture. Tile seamlessly edge to edge. Even diffuse neutral overcast illumination, no cast shadows, no directional lighting, no glossy highlights, no perspective, no objects, no text, no border. This is a PBR BASE COLOR map, not a rendered landscape or a normal map. Maintain square aspect ratio.

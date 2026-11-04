@@ -3,8 +3,7 @@ import Link from "next/link";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { ArrowRight, Download, Wrench } from "lucide-react";
 
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { PageShell } from "../components/ui";
 import { ToolIcon } from "./_components/icons";
 import { listToolImages, type MediaRow } from "@/lib/api/queries";
 import { TOOLS, getToolVersion, type ToolAvailability } from "@/lib/tools";
@@ -62,14 +61,11 @@ export default async function ToolsIndexPage() {
   };
 
   return (
-    <>
-      <Navbar />
+    <PageShell width="6xl">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      <main className="mx-auto max-w-6xl px-4 pt-32 pb-24 sm:px-6 md:pt-36">
         <header className="mb-12">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold/10 text-gold">
@@ -195,9 +191,6 @@ export default async function ToolsIndexPage() {
             </div>
           </div>
         </section>
-      </main>
-
-      <Footer />
-    </>
+    </PageShell>
   );
 }

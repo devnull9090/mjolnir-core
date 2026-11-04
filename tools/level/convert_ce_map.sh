@@ -6,6 +6,8 @@
 #     tools/level/convert_ce_map.sh <map.map | halo2ue staging dir> <CODE> <out dir> [--install]
 #
 #   CODE   three characters, the new scenario's codename (e.g. BGL)
+#   CE_NATIVE_DETAIL=<facility-detail.gltf> opts TST into a complementary
+#   authored render-only mesh; CE_SURFACE_LIBRARY must name its palette.
 #
 # Steps, each a tool of its own:
 #
@@ -79,6 +81,19 @@ if [ "${#code}" -ne 3 ]; then
   echo "CODE must be exactly three characters (the scenario rename is same-length surgery)" >&2
   exit 2
 fi
+native_verify=()
+if [ -n "${CE_NATIVE_DETAIL:-}" ]; then
+  [ "$code" = "TST" ] || { echo "CE_NATIVE_DETAIL is currently supported for TST only" >&2; exit 2; }
+  [ -z "$install" ] || { echo "CE_NATIVE_DETAIL does not support direct --install; use a separately verified local test install" >&2; exit 2; }
+  [ -f "$src" ] || { echo "CE_NATIVE_DETAIL requires the matching built CE .map, not a staging directory" >&2; exit 2; }
+  [ -n "${CE_SURFACE_LIBRARY:-}" ] && [ -n "${CE_NATIVE_SOURCE_JMS:-}" ] && [ -n "${CE_NATIVE_BUILD_RECEIPT:-}" ] || {
+    echo "CE_NATIVE_DETAIL requires CE_SURFACE_LIBRARY, CE_NATIVE_SOURCE_JMS and CE_NATIVE_BUILD_RECEIPT" >&2; exit 2;
+  }
+  native_verify=(python "$here/verify_tst_facility_receipt.py" --partition-dir "$(dirname "$CE_NATIVE_DETAIL")"
+    --detail "$CE_NATIVE_DETAIL" --receipt "$CE_NATIVE_BUILD_RECEIPT" --source-jms "$CE_NATIVE_SOURCE_JMS"
+    --surfaces "$CE_SURFACE_LIBRARY" --map "$src")
+  "${native_verify[@]}" > /dev/null
+fi
 mkdir -p "$out"
 
 if [ -d "$src" ]; then
@@ -151,6 +166,12 @@ echo "== 3/6 terrain mesh and materials"
 delta="$(python -c "import json,sys; d=json.load(open(sys.argv[1]))['delta']; print(f'{d[0]*304.8},{-d[1]*304.8},{d[2]*304.8}')" "$out/$name.sbsp.transform.json")"
 ue_editor="C:/Program Files/Epic Games/UE_5.5/Engine/Binaries/Win64/UnrealEditor-Cmd.exe"
 cook="${CE_COOK:-$([ -x "$ue_editor" ] && echo 1 || echo 0)}"
+if [ -n "${CE_NATIVE_DETAIL:-}" ]; then
+  [ "$code" = "TST" ] || { echo "CE_NATIVE_DETAIL is currently supported for TST only" >&2; exit 2; }
+  [ "$cook" = "1" ] || { echo "CE_NATIVE_DETAIL requires CE_COOK=1" >&2; exit 2; }
+  [ -n "${CE_SURFACE_LIBRARY:-}" ] || { echo "CE_NATIVE_DETAIL requires CE_SURFACE_LIBRARY" >&2; exit 2; }
+  [ -f "$CE_NATIVE_DETAIL" ] || { echo "Native detail glTF not found: $CE_NATIVE_DETAIL" >&2; exit 2; }
+fi
 if [ "$cook" = "1" ]; then
   # The scenery the scenario places and the sky join the BSP's sections
   # (tools/level/merge_ce_scene.py, which also writes the placed lights the
@@ -224,8 +245,14 @@ if [ "$cook" = "1" ]; then
   # not stage: fog.json beside the staging, for the material spec.
   [ -f "$src" ] && [ "$source_game" = halo_ce ] && python "$here/ce_fog.py" "$src" "$staging"
   # One material per glTF material, i.e. per (shader, lightmap page).
-  python "$here/ce_material_spec.py" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
+  surface_args=()
+  [ -z "${CE_SURFACE_LIBRARY:-}" ] || surface_args+=(--surface-library "$CE_SURFACE_LIBRARY")
+  [ -z "${CE_NATIVE_DETAIL:-}" ] || surface_args+=(--authored-extra-gltf "$CE_NATIVE_DETAIL")
+  python "$here/ce_material_spec.py" "${surface_args[@]}" --code "$code" --bake "$out/bake" "${lightmaps_args[@]}" "$staging" "$name" "$out/materials.spec.json" \
     "$out/scene_sky.gltf" "$out/scene_translucent.gltf" "$out/scene.gltf" "${machine_gltfs[@]}"
+  if [ ${#native_verify[@]} -gt 0 ]; then
+    "${native_verify[@]}" --spec "$out/materials.spec.json" --out "$out/tst-native-detail-receipt.json" > /dev/null
+  fi
   # The meshes, packages of the map's own beside its materials
   # (<root>/SM_<map>_Terrain, _Translucent and _Sky, and _Water when the
   # translucent sections hold CE water), built from the shipped cylinder,
@@ -233,10 +260,12 @@ if [ "$cook" = "1" ]; then
   root="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['root'])" "$out/materials.spec.json")"
   root="${root%%[[:space:]]}"   # Windows Python ends its lines with CRLF
   leaf="${root##*/}"
+  native_detail_args=()
+  [ -z "${CE_NATIVE_DETAIL:-}" ] || native_detail_args+=(--native-detail "$CE_NATIVE_DETAIL=basicshapes/cylinder=$root/SM_${leaf}_FacilityDetail")
   MSYS2_ARG_CONV_EXCL="/Game" python "$here/build_terrain_meshes.py" --paks "$HCE_PAKS" \
     --spec "$out/materials.spec.json" --out "$out" --name "$name" --offset "$delta" \
     --fallback "$terrain_material" --examples "$examples" \
-    --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" \
+    --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" "${native_detail_args[@]}" \
     "$out/scene.gltf=basicshapes/cylinder=$root/SM_${leaf}_Terrain" \
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky" \
@@ -301,6 +330,15 @@ if [ "$cook" = "1" ]; then
   ue="$repo/tools/ue"
   powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_materials.py | head -1
   MJ_CE_SPEC="$(cygpath -w "$out/materials.spec.json")" powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_level.py | grep -E "editor exit|MJOLNIR CE level"
+  # editor_cmd reports its log without propagating Python failures. Refuse
+  # stale materials, especially when importing an authored surface library.
+  python - "$repo/unreal/MJOLNIRMaterials/Saved_build_ce_level.log" <<'PY_SURFACE_CHECK'
+import sys
+from pathlib import Path
+log = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+if "MJOLNIR CE level:" not in log or "Traceback" in log or "LogPython: Error" in log:
+    raise SystemExit("CE level material import failed; inspect " + sys.argv[1])
+PY_SURFACE_CHECK
   # The ambient sound (sound scenery and the BSP's background loops), from
   # the CE map and sounds.map beside it, imported beside the materials.
   sounds_map="${SOUNDS_MAP:-$(dirname "$src")/sounds.map}"
@@ -333,10 +371,20 @@ if [ "$cook" = "1" ]; then
   chunk="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json")"
   chunk="${chunk%%[[:space:]]}"
   staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
+  # Authored masters carry shaders: UE opens their library by the chunk
+  # number in the mounted filename. Texture-only legacy cooks may use 985.
+  cook_stem="$(python - "$here" "$out" "$code" <<'PY_COOK_STEM'
+import sys
+sys.path.insert(0, sys.argv[1])
+from cooked_map_container import cooked_map_container
+print(cooked_map_container(sys.argv[2], sys.argv[3]).name)
+PY_COOK_STEM
+)"
+  cook_stem="${cook_stem%%[[:space:]]}"
   for e in utoc ucas; do
-    cp -f "$staged/pakchunk${chunk}-Windows.$e" "$out/pakchunk985-MJOLNIRCOOK-${code}_P.$e"
+    cp -f "$staged/pakchunk${chunk}-Windows.$e" "$out/$cook_stem.$e"
   done
-  echo "  cooked   pakchunk${chunk} -> pakchunk985-MJOLNIRCOOK-${code}_P"
+  echo "  cooked   pakchunk${chunk} -> $cook_stem"
 fi
 
 echo "== 4/6 level file"
@@ -377,7 +425,7 @@ if [ "$install" = "--install" ]; then
   # The terrain meshes: with the cooked materials, the map's own packages
   # (986, one container per map, so maps install side by side); without,
   # an override of the shipped cylinder (989).
-  for c in "pakchunk986-MJOLNIRMESH-${code}_P" "pakchunk985-MJOLNIRCOOK-${code}_P" pakchunk989-MJOLNIRMESH-Windows_P; do
+  for c in "pakchunk986-MJOLNIRMESH-${code}_P" "${cook_stem:-pakchunk985-MJOLNIRCOOK-${code}_P}" pakchunk989-MJOLNIRMESH-Windows_P; do
     [ -e "$out/$c.utoc" ] || continue
     cp -f "$out/$c.utoc" "$out/$c.ucas" "$HCE_PAKS"/
     cp -f "$stub" "$HCE_PAKS/$c.pak"

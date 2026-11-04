@@ -52,6 +52,9 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         end, close = function() end }
     end
     local widgets, names, teams = {}, { "Alpha", "Bravo", "Charlie" }, {}
+    local classPins = {}
+    local transient = { IsValid = function() return true end,
+        GetFullName = function() return "Package /Engine/Transient" end }
     -- A remote player's controller on the host: what it is sent.
     local remote = { sent = {}, IsValid = function() return true end, GetAddress = function() return 4242 end,
         IsLocalController = function() return false end,
@@ -112,6 +115,15 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local modes = {}
     local pumps = { 0 }
     env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
+        EObjectFlags = { RF_Transient = 64 }, EInternalObjectFlags = { RootSet = 1073741824 },
+        StaticConstructObject = function(cls, outer, name, flags, internal)
+            assert(outer == transient and flags == 64 and internal == 1073741824)
+            local pin = { IsValid = function() return true end,
+                IsA = function(_, expected) return expected == cls end,
+                HasAnyInternalFlags = function(_, expected) return expected == internal end }
+            classPins["/Engine/Transient." .. name] = pin
+            return pin
+        end,
         Key = setmetatable({}, { __index = function(_, k) return k end }),
         -- MJOLNIRBlamConsole's native half: each pump counted.
         package = { loadlib = function() return function() pumps[1] = pumps[1] + 1 end end },
@@ -159,6 +171,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         FindFirstOf = function(class)
             if class ~= "GameEngine" then return nil end
             return { IsValid = function() return true end,
+                GetOuter = function() return transient end,
                 GameViewport = { GameInstance = { LocalPlayers = { { PlayerController = pc } } } } }
         end,
         RegisterHook = function(path, fn) hooks[path] = fn end,
@@ -166,6 +179,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         ExecuteInGameThread = function(fn) fn() end,
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,
         StaticFindObject = function(path)
+            if path:find("^/Engine/Transient%.MJOLNIR_UI_ClassPin_") then return classPins[path] end
             if path:find("GameplayStatics") then return { GetPlayerController = function() return pc end } end
             -- The feed's pictures: our glyphs, the game's silhouettes and
             -- icon material, its fonts.
@@ -237,6 +251,18 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
             end
             return nil
         end }
+end
+
+-- Timed objectives display simulation totals, ignoring duplicate/older snapshots.
+for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled" }) do
+    local timed = runHUD(mode)
+    timed.incident(event, 1, -1, 7)
+    eq(timed.feed.ScoreLeftValue.text, "7", mode .. " score")
+    timed.incident(event, 1, -1, 7)
+    timed.incident(event, 1, -1, 6)
+    eq(timed.feed.ScoreLeftValue.text, "7", mode .. " duplicate/old snapshot")
+    timed.incident(event, 1, -1, 8)
+    eq(timed.feed.ScoreLeftValue.text, "8", mode .. " next second")
 end
 
 local ctf = runHUD("ctf")
@@ -447,6 +473,12 @@ print("Multiplayer UI: hub avatars in the feed")
 -- Fireteam clients (Scripts/relay.lua): the host sends the feed's incidents
 -- to every remote player, one message per drain.
 local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
+-- Keep spawn-state updates and objective ownership when merging game-mode work.
+for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled" }) do
+    local events = Relay.decode(Relay.encode({ { name = name, cause = 2, effect = -1, value = 1 } }), 7)
+    assert(events and #events == 1, "missing relayed event: " .. name)
+    eq(events[1].name, name); eq(events[1].cause, 2); eq(events[1].value, 1)
+end
 local wire = Relay.encode({ { name = "kill", cause = 2, effect = 0, value = 0, modifier = 1, damage = DT .. "SniperRifle" },
     { name = "respawn_tick", cause = 0 }, { name = "multikill_x2", cause = 2, effect = -1, value = 0 } })
 eq(wire, "MJOLNIR|feed|kill,2,0,0,1,SniperRifle;multikill_x2,2,-1,0,0,")

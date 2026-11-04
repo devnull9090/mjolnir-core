@@ -50,6 +50,10 @@ local Outdated = dofile(MOD_DIR .. "\\Scripts\\outdated.lua")
 local MODS_DIR = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 local log = UI.log
+local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
+    "WBP_MJOLNIRLobby", "WBP_MJOLNIRMapSelect", "WBP_MJOLNIRFindGames", "WBP_MJOLNIRGameSettings",
+    "WBP_MJOLNIRMapDownload", "WBP_MJOLNIRGameTypeSelect", "WBP_MJOLNIRPostGame",
+}, log)
 Presence.init({ modDir = MOD_DIR, json = Json, log = log })
 
 local HELPERS = "/Game/UI/Frontend/CampaignMenu/Data/BPFL_CampaignMenuHelpers.Default__BPFL_CampaignMenuHelpers_C"
@@ -75,9 +79,10 @@ local MODES = {
     -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
     -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
     -- on every map once MJOLNIRForge's native half and the CE runtime's
-    -- monitor fix are installed. Host only for now: a fireteam client reads
-    -- the game type from slot 0 and would start Slayer.
-    { id = "forge", slot = 0, name = "FORGE", forge = true,
+    -- monitor fix are installed. Its own slot, 5, tells fireteam clients to
+    -- start the sandbox engine too (before 2026-11-01 it shared Slayer's 0,
+    -- and Forge was host only).
+    { id = "forge", slot = 5, name = "FORGE", forge = true,
         description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
         needs = "pakchunk990-MJOLNIRFORGEMON_P" },
 }
@@ -232,17 +237,41 @@ local function writeVariantSettings(line)
     log("game settings: " .. (line ~= "" and line or "the variant's own"))
 end
 
+-- The controller and campaign helpers already exist at PRESS ENTER TO START.
+-- Starting then travels to the UE world but never starts its Blam mission.
+-- Observe the stock main menu once, after its login/profile initialization.
+-- Keep that observation behind our screens and during post-game voting, but
+-- clear it if the stock title screen is activated again (for example logout).
+-- Store this on UI: the main chunk is already near Lua's local-variable limit.
+function UI.startupReady()
+    local title = UI.liveWidget("WBP_TitleMenu_C", function(w)
+        return w:IsVisible() and w:IsActivated()
+    end)
+    if UI.valid(title) then
+        UI.startupComplete = false
+        return false
+    end
+    local menu = UI.liveWidget("WBP_MainMenu_C", function(w) return w:IsVisible() end)
+    if UI.valid(menu) then UI.startupComplete = true end
+    return UI.startupComplete == true
+end
+
 local function startGame(map, mode)
+    if not UI.startupReady() then
+        return false, "finish the title-screen sign-in and wait for the main menu before hosting"
+    end
     local pc = UI.playerController()
     local helpers = StaticFindObject(HELPERS)
     local table_ = StaticFindObject(SCENARIOS)
     if not (UI.valid(pc) and UI.valid(helpers) and UI.valid(table_)) then
         return false, "the frontend is not ready"
     end
-    -- Forge runs on the host alone for now: a fireteam client reads the game
-    -- type from insertion slot 0 and would start Slayer under the Megalo
-    -- engine against the host's sandbox engine. So no guests, and never a
-    -- public listing strangers could join.
+    -- Forge with the fireteam: clients would start the sandbox engine from
+    -- slot 5 and edit through the engine's own requests (MJOLNIRForge's
+    -- client guards), but that has not passed a two-PC test yet: the first
+    -- one (2026-11-01) lost PC 2 to a GPU crash while it loaded. Host only
+    -- until it passes. Never a public listing either: strangers would join
+    -- someone's half-built layout.
     if mode.forge then
         local squad = FindFirstOf("MeteoriteSquadLobbyViewModel")
         local members = 1
@@ -591,7 +620,7 @@ local function loadClass(path)
         local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
         return ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
     end)
-    if ok and UI.valid(cls) then return cls end
+    if ok and UI.valid(cls) then return retainUIClass(path, cls) end
     return nil
 end
 
@@ -3901,7 +3930,7 @@ local function watchMainMenu()
             -- Signed in once a main menu has been up (it comes after "press
             -- start"); still so behind our screens, which may hide it. Only
             -- then a join from a link (a file read when there is none).
-            if UI.valid(menu) then entry.signedIn = true end
+            entry.signedIn = UI.startupReady()
             if entry.signedIn then
                 local picked, why = pcall(pickUpJoin, hookScreenEvents)
                 if not picked then log("join link: " .. tostring(why)) end
@@ -4291,7 +4320,7 @@ local function autoState(extra)
         if UI.valid(p) then pawn = p:GetClass():GetFName():ToString() end
     end)
     local fields = {
-        signed_in = UI.valid(liveMainMenu()) and 1 or (inFrontend() and 0 or 1),
+        signed_in = UI.startupReady() and 1 or 0,
         frontend = inFrontend() and 1 or 0,
         world = world,
         pawn = pawn,
@@ -4348,6 +4377,9 @@ local AUTO = {
         autoState({ result = "public " .. tostring(args[1] ~= "off") })
     end,
     host = function(args)
+        if not UI.startupReady() then
+            return autoState({ result = "error finish the title-screen sign-in and wait for the main menu before hosting" })
+        end
         local map = mapByCode(string.upper(args[1] or ""))
         if not map then return autoState({ result = "error no installed map " .. tostring(args[1]) }) end
         local mode = modeById(map, args[2] or "slayer") or modesFor(map)[1]

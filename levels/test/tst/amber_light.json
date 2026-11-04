@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "material": "tst_lights_amber!",
+  "tag": "levels/test/tst/shaders/tst_lights_amber",
+  "stock_tag": "levels/test/bloodgulch/shaders/mp lights small strips",
+  "atlas_texture": "levels_test_bloodgulch_bitmaps_mp_lights_small_strips.png",
+  "atlas_size": [1024, 256],
+  "atlas_pixels": [755, 186, 786, 201],
+  "color": [1.0, 0.28, 0.025],
+  "preview_spill_color": [1.0, 0.52, 0.22],
+  "radiosity_power": 80.0,
+  "note": "Constant amber primary self-illumination using the unchanged stock atlas as base and mask. Blender visible lenses use this same color. Desaturated preview_spill_color, area-light power and exposure describe the unbaked lighting study only."
+}

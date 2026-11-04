@@ -72,10 +72,10 @@ pub struct BuiltTag {
 /// Bring a user-typed tag path to the cooker's spelling: forward slashes, no
 /// leading or trailing slash, no empty segments.
 ///
-/// The leaf may not contain `-`, because the package name is `<leaf>-<group>`
-/// and the group is split off at the last hyphen; a `.` would read as an
-/// extension. Anything outside printable ASCII is refused too — the string
-/// becomes a file name in the container's directory index.
+/// Hyphens are valid in both namespace segments and the leaf: package names
+/// are `<leaf>-<group>` and readers split the group off at the last hyphen.
+/// A `.` would read as an extension. Anything outside printable ASCII is
+/// refused too — the string becomes a container directory entry.
 pub fn normalize_path(path: &str) -> Result<String, String> {
     let joined = path.trim().replace('\\', "/");
     let segments: Vec<&str> = joined
@@ -92,10 +92,10 @@ pub fn normalize_path(path: &str) -> Result<String, String> {
         }
         if let Some(bad) = s
             .chars()
-            .find(|c| !c.is_ascii_graphic() && *c != ' ' || matches!(c, '-' | '.' | ':' | '"'))
+            .find(|c| !c.is_ascii_graphic() && *c != ' ' || matches!(c, '.' | ':' | '"'))
         {
             return Err(format!(
-                "{bad:?} cannot appear in a tag path; use letters, digits, `_` and `/`"
+                "{bad:?} cannot appear in a tag path; use letters, digits, `_`, `-` and `/`"
             ));
         }
     }
@@ -213,12 +213,16 @@ mod tests {
             package_name("weapon", "objects/weapons/pistol/pistol_mk2"),
             "/Game/Tags/objects/weapons/pistol/pistol_mk2-weapon"
         );
+        let path = normalize_path("objects\\mjolnir\\forge\\industrial-kit\\floor-2x2").unwrap();
+        let package = package_name("crate", &path);
+        let (leaf, group) = package.rsplit('/').next().unwrap().rsplit_once('-').unwrap();
+        assert_eq!(path, "objects/mjolnir/forge/industrial-kit/floor-2x2");
+        assert_eq!((leaf, group), ("floor-2x2", "crate"));
     }
 
     #[test]
-    fn hyphens_dots_and_traversal_are_refused() {
+    fn dots_and_traversal_are_refused() {
         assert!(normalize_path("").is_err());
-        assert!(normalize_path("a/b-c").is_err());
         assert!(normalize_path("a/b.weapon").is_err());
         assert!(normalize_path("a/../b").is_err());
         assert!(normalize_path("a/\u{e9}").is_err());

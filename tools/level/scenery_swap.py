@@ -664,6 +664,16 @@ def swap(a):
     if snow:
         leaf_group["material"] = object_path(SNOW["leaves_material"])
         leaf_group["static"] = True
+    if getattr(a,'authored_decor',None):
+        from authored_decor import (load_authored_decor_document,expand_background_trees,
+                                    scale_leaf_clusters)
+        authored=load_authored_decor_document(a.authored_decor,existing_ids={d['id'] for d in decor})
+        background_parts,background_leaves=expand_background_trees(
+            authored,recipes,bounds,existing_ids={d['id'] for d in decor},leaf_mesh=leaf_mesh)
+        decor.extend(authored['decor'])
+        decor.extend(background_parts)
+        leaf_group['records'].extend(background_leaves)
+        scale_leaf_clusters(leaf_group['records'],authored.get('leaf_cluster_scale',1.0))
     json.dump({"decor": decor, "hide": hide, "count": sum(replaced.values()), "effects": effects,
                "leaves": leaf_group},
               open(a.out, "w", encoding="utf-8"), indent=1)
@@ -691,6 +701,7 @@ def main():
     s.add_argument("--biome", default="b30", choices=["b30", "snow"],
                    help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
     s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree, or comma-separated names in turn")
+    s.add_argument("--authored-decor",help="Source JSON of explicitly placed native meshes in Unreal cm")
     s.add_argument("--foliage", help="the map's foliage.json (its foliage.bin beside it): place the effects")
     s.add_argument("--sea", type=float, help="the sea's height (cm)")
     s.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "

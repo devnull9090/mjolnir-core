@@ -16,6 +16,7 @@ mod console;
 mod container;
 mod defs;
 mod extract;
+mod forge;
 mod hsc;
 mod index;
 mod level;
@@ -183,6 +184,8 @@ enum Command {
     Megalo(megalo::MegaloArgs),
     /// Package a converted map for the mod hub (docs/map_distribution.md).
     Map(map::MapArgs),
+    /// Package custom model sets for the Forge pack catalog.
+    Forge(forge::ForgeArgs),
     /// Read other Halo games' `.map` cache files: identify the game, list
     /// tags, stage a map for conversion (docs/h2_map_conversion.md).
     #[command(subcommand_help_heading = "Cache")]
@@ -582,6 +585,7 @@ fn main() -> Result<()> {
         Command::Level(a) => level::run(a),
         Command::Megalo(a) => megalo::run(a),
         Command::Map(a) => map::run(a),
+        Command::Forge(a) => forge::run(a),
         Command::Cache(a) => cache::run(a),
         Command::Mesh(a) => mesh::run(a),
         Command::Ue(a) => ue::run(a),

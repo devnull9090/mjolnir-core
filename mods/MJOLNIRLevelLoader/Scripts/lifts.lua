@@ -131,7 +131,7 @@ function Lifts.toUnit(v, yaw)
 end
 
 local env
-local state = { world = nil, seeded = false, bipeds = {}, watched = false, fast = false, idle = 0, inside = {}, pushed = {} }
+local state = { world = nil, seeded = false, bipeds = {}, watched = false, scheduled = false, idle = 0, inside = {}, pushed = {}, sources = {} }
 
 local SPARTAN = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C"
 local unitClass
@@ -143,7 +143,10 @@ end
 
 --- This game's own players' bipeds: those whose controlling player has a
 --- pawn here. Each as {actor, index}.
-local function localBipeds()
+local function localBipeds(world)
+    -- The pack adapter freshly enumerates only the native engine's Spartan
+    -- class list. No actor wrapper survives travel or a same-world GC.
+    if env.PackLifts then return env.PackLifts:players(world) end
     unitClass = unitClass or StaticFindObject("/Script/BlamSynchronization.BlamUnitComponent")
     local out = {}
     for key, actor in pairs(state.bipeds) do
@@ -165,9 +168,27 @@ local function localBipeds()
     return out
 end
 
-local function levelLifts()
+local function levelLifts(refresh)
+    local world = env.getWorld()
+    local ok, address = pcall(function() return world and world:GetAddress() end)
     local level = env.Current.level
-    return level and type(level.lifts) == "table" and #level.lifts > 0 and level.lifts or nil, level
+    if not ok or not address then
+        state.world, state.bipeds, state.inside, state.pushed, state.sources = nil, {}, {}, {}, {}
+        return nil
+    end
+    if address ~= state.world or level ~= state.level then
+        state.world, state.level, state.seeded = address, level, false
+        state.bipeds, state.inside, state.pushed, state.sources = {}, {}, {}, {}
+        -- Keep the one outstanding timer marked scheduled. It will consume
+        -- itself; resetting that flag here could start a second fast loop.
+    end
+    local lifts = {}
+    for _, lift in ipairs(level and level.lifts or {}) do lifts[#lifts+1] = lift end
+    if env.PackLifts then
+        if refresh then env.PackLifts:refresh() end
+        for _, lift in ipairs(env.PackLifts:collect(world, level and level.canvas and level.canvas.origin)) do lifts[#lifts+1] = lift end
+    end
+    return #lifts>0 and lifts or nil, level or {}, world
 end
 
 local function origin(level)
@@ -177,10 +198,12 @@ end
 
 --- One fast step: push every local player inside a phantom. True while any
 --- is near a lift.
-local function step(lifts, level, dt)
+local function step(lifts, level, world, dt)
     local ox, oy, oz = origin(level)
     local lines, near = {}, false
-    for _, b in ipairs(localBipeds()) do
+    local seen = {}
+    for _, b in ipairs(localBipeds(world)) do
+        seen[b.index] = true
         local okL, at = pcall(function() return b.actor:K2_GetActorLocation() end)
         if okL and at then
             local p = { at.X - ox, at.Y - oy, at.Z - oz }
@@ -193,7 +216,9 @@ local function step(lifts, level, dt)
                             local okV, vel = pcall(function() return b.actor:GetVelocity() end)
                             v = okV and vel and { vel.X, vel.Y, vel.Z } or { 0, 0, 0 }
                         end
-                        v = Lifts.push(lift, p, v, dt, state.pushed[b.index])
+                        local source = tostring(b.key or b.index)..":"..tostring(lift.key or k)
+                        v = Lifts.push(lift, p, v, dt, state.sources[b.index]==source and state.pushed[b.index] or nil)
+                        state.sources[b.index] = source
                         which = which or k
                         negates = negates or lift.negates_gravity
                     end
@@ -213,27 +238,30 @@ local function step(lifts, level, dt)
             end
         end
     end
+    for index in pairs(state.pushed) do
+        if not seen[index] then state.pushed[index], state.inside[index], state.sources[index] = nil, nil, nil end
+    end
     if #lines > 0 then env.Script.send(lines) end
     return near
 end
 
 local function fast()
-    local lifts, level = levelLifts()
+    state.scheduled = false
+    local lifts, level, world = levelLifts(false)
     if not lifts then
-        state.fast = false
+        state.inside, state.pushed, state.sources = {}, {}, {}
         return
     end
-    local ok, near = pcall(step, lifts, level, Lifts.FAST_MS / 1000)
+    local ok, near = pcall(step, lifts, level, world, Lifts.FAST_MS / 1000)
     if not ok then
         env.Log("lifts: " .. tostring(near))
-        state.fast = false
         return
     end
     state.idle = near and 0 or state.idle + 1
     if state.idle > 20 then
-        state.fast = false
         return
     end
+    state.scheduled = true
     ExecuteInGameThreadWithDelay(Lifts.FAST_MS, fast)
 end
 
@@ -241,31 +269,23 @@ end
 --- lift, and push at FAST_MS while one is.
 function Lifts.tick()
     if not env then return end
-    local lifts = levelLifts()
+    local lifts, level, world = levelLifts(true)
     if not lifts then return end
-    local world = env.getWorld()
-    if not world then return end
-    local okA, address = pcall(function() return world:GetAddress() end)
-    if not okA then return end
-    if address ~= state.world then
-        state.world, state.seeded, state.bipeds, state.inside, state.pushed = address, false, {}, {}, {}
-    end
-    if not state.watched then state.watched = pcall(NotifyOnNewObject, SPARTAN, remember) end
-    if not state.seeded then
+    if not env.PackLifts and not state.watched then state.watched = pcall(NotifyOnNewObject, SPARTAN, remember) end
+    if not env.PackLifts and not state.seeded then
         state.seeded = true
         for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do remember(actor) end
         env.Log(string.format("lifts: %d phantom(s) on %s", #lifts, tostring(env.Current.scenario)))
     end
-    if state.fast then return end
-    local level = env.Current.level
+    if state.scheduled then return end
     local ox, oy, oz = origin(level)
-    for _, b in ipairs(localBipeds()) do
+    for _, b in ipairs(localBipeds(world)) do
         local okL, at = pcall(function() return b.actor:K2_GetActorLocation() end)
         if okL and at then
             local p = { at.X - ox, at.Y - oy, at.Z - oz }
             for _, lift in ipairs(lifts) do
                 if Lifts.near(lift, p, Lifts.NEAR_CM * 3) then
-                    state.fast, state.idle = true, 0
+                    state.scheduled, state.idle = true, 0
                     ExecuteInGameThreadWithDelay(Lifts.FAST_MS, fast)
                     return
                 end

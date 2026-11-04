@@ -1,18 +1,10 @@
 import Link from "next/link";
+import { Logo } from "./Logo";
 import { Download, Construction } from "lucide-react";
 import { MobileNav } from "./MobileNav";
 import { AuthButton } from "./AuthButton";
 import { DiscordIcon, GitHubIcon } from "./icons";
-
-function MjolnirIcon({ className = "w-8 h-8" }: { className?: string }) {
-  return (
-    <img
-      src="/logo-transparent.png"
-      alt="MJOLNIR Core"
-      className={`${className} object-contain`}
-    />
-  );
-}
+import { NavLinks } from "./NavLinks";
 
 /* ── Alpha Banner ────────────────────────────────────────────────────── */
 
@@ -41,42 +33,19 @@ export function AlphaBanner() {
 
 export function Navbar() {
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background md:bg-background/60 md:backdrop-blur-xl">
+    <nav aria-label="Main" className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background md:bg-background/60 md:backdrop-blur-xl">
       <AlphaBanner />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3 shrink-0">
-          <MjolnirIcon />
+        <Link href="/" aria-label="MJOLNIR Core home" className="flex items-center gap-3 shrink-0">
+          <Logo />
           <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
           <span className="text-xs text-text-muted font-medium">CORE</span>
         </Link>
 
         {/* Changelog stays in the mobile menu and footer to leave room for
             the multiplayer landing page at desktop widths. */}
-        <div className="hidden lg:flex items-center gap-4 xl:gap-5">
-          <Link href="/multiplayer" className="text-sm text-gold hover:text-foreground transition-colors">
-            Multiplayer
-          </Link>
-          <Link href="/mods" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Mods
-          </Link>
-          <Link href="/maps" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Maps
-          </Link>
-          <Link href="/games" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Games
-          </Link>
-          <Link href="/matches" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Matches
-          </Link>
-          <Link href="/tools" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Tools
-          </Link>
-          <Link href="/docs" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Docs
-          </Link>
-          <Link href="/blog" className="text-sm text-text-muted hover:text-foreground transition-colors">
-            Blog
-          </Link>
+        <div className="hidden lg:flex items-center gap-3 xl:gap-4">
+          <NavLinks />
           <Link
             href="https://discord.gg/9gxYZsByW9"
             target="_blank"

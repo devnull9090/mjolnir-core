@@ -34,6 +34,6 @@ export function Avatar({
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt="" className={`${px} shrink-0 rounded-full object-cover ${className}`} />
+    <img src={url} alt="" crossOrigin="anonymous" className={`${px} shrink-0 rounded-full object-cover ${className}`} />
   );
 }

@@ -928,6 +928,394 @@
           "release_ids"
         ]
       },
+      "ReleaseForgePack": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "forge_pack": {
+            "$ref": "#/components/schemas/ForgePack"
+          },
+          "deps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string"
+                },
+                "range": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "slug",
+                "range"
+              ]
+            }
+          }
+        },
+        "required": [
+          "release_id",
+          "slug",
+          "version",
+          "sha256",
+          "forge_pack",
+          "deps"
+        ]
+      },
+      "ForgePack": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "maxItems": 32
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ForgeBlock"
+            },
+            "minItems": 1,
+            "maxItems": 256
+          }
+        },
+        "required": [
+          "schema_version",
+          "id",
+          "blocks"
+        ]
+      },
+      "ForgeBlock": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "category": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          },
+          "dimensions_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            ]
+          },
+          "snap_m": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "light": {
+            "$ref": "#/components/schemas/ForgeLight"
+          },
+          "lift": {
+            "$ref": "#/components/schemas/ForgeLift"
+          },
+          "door": {
+            "$ref": "#/components/schemas/ForgeDoor"
+          },
+          "surfaces": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ForgeSurface"
+            },
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tag",
+          "category",
+          "dimensions_m"
+        ]
+      },
+      "ForgeLight": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "offset_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              }
+            ]
+          },
+          "color_rgb": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            ]
+          },
+          "intensity_cd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "offset_m",
+          "color_rgb",
+          "intensity_cd",
+          "radius_m"
+        ],
+        "additionalProperties": false
+      },
+      "ForgeLift": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "offset_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              }
+            ]
+          },
+          "size_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 100
+              },
+              {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 100
+              }
+            ]
+          },
+          "direction": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              }
+            ]
+          },
+          "acceleration_m_s2": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 100
+          },
+          "max_speed_m_s": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 30
+          },
+          "negates_gravity": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "offset_m",
+          "size_m",
+          "direction",
+          "acceleration_m_s2",
+          "max_speed_m_s",
+          "negates_gravity"
+        ],
+        "additionalProperties": false
+      },
+      "ForgeDoor": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "travel_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 16
+          },
+          "speed_m_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 8
+          },
+          "trigger_size_m": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 32
+              },
+              {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 32
+              },
+              {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 32
+              }
+            ]
+          },
+          "hold_open_s": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "travel_m",
+          "speed_m_s",
+          "trigger_size_m",
+          "hold_open_s"
+        ],
+        "additionalProperties": false
+      },
+      "ForgeSurface": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 15
+          },
+          "profile": {
+            "type": "string",
+            "enum": [
+              "glass_cyan",
+              "teleporter_green"
+            ]
+          }
+        },
+        "required": [
+          "slot",
+          "profile"
+        ],
+        "additionalProperties": false
+      },
       "MediaList": {
         "type": "object",
         "properties": {
@@ -3047,6 +3435,12 @@
               "null"
             ]
           },
+          "map_cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "game_type": {
             "type": "string"
           },
@@ -3134,6 +3528,12 @@
           "host": {
             "type": "string"
           },
+          "podium": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchPodiumSeat"
+            }
+          },
           "player": {
             "type": [
               "object",
@@ -3215,6 +3615,7 @@
           "map_code",
           "map_title",
           "map_slug",
+          "map_cover_url",
           "game_type",
           "team_game",
           "score_to_win",
@@ -3230,7 +3631,90 @@
           "player_count",
           "event_count",
           "host",
+          "podium",
           "player"
+        ]
+      },
+      "MatchPodiumSeat": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "red",
+              "blue",
+              null
+            ]
+          },
+          "score": {
+            "type": "number"
+          },
+          "kills": {
+            "type": "number"
+          },
+          "deaths": {
+            "type": "number"
+          },
+          "place": {
+            "type": "number"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "win",
+              "loss",
+              "draw",
+              null
+            ]
+          },
+          "user": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "avatar_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "avatar_url"
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "team",
+          "score",
+          "kills",
+          "deaths",
+          "place",
+          "outcome",
+          "user"
         ]
       },
       "MatchDetail": {
@@ -3249,6 +3733,12 @@
             ]
           },
           "map_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "map_cover_url": {
             "type": [
               "string",
               "null"
@@ -3365,6 +3855,7 @@
           "map_code",
           "map_title",
           "map_slug",
+          "map_cover_url",
           "game_type",
           "team_game",
           "score_to_win",
@@ -5611,6 +6102,20 @@
                 "0",
                 "1"
               ],
+              "description": "`1` lists mods with a published Forge pack inventory; `0` excludes them."
+            },
+            "required": false,
+            "description": "`1` lists mods with a published Forge pack inventory; `0` excludes them.",
+            "name": "forge",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ],
               "description": "`1` lists only map packs, `0` everything but them; absent lists both. Maps have their own catalog at /maps."
             },
             "required": false,
@@ -6618,6 +7123,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ConflictCheckResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/releases/{id}/forge-pack": {
+      "get": {
+        "tags": [
+          "forge"
+        ],
+        "summary": "The models and dependencies in a Forge pack release",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The validated inventory, with stable pack and block IDs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseForgePack"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No published Forge pack release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -9524,6 +10069,20 @@
             },
             "required": false,
             "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1"
+              ],
+              "description": "1: only matches with two or more players where someone scored or killed."
+            },
+            "required": false,
+            "description": "1: only matches with two or more players where someone scored or killed.",
+            "name": "real",
             "in": "query"
           }
         ],

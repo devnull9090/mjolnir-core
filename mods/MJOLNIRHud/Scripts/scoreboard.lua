@@ -6,6 +6,8 @@ Board.modes = {
     slayer = { title = "SLAYER", toWin = 25, unit = "kills", stat = "kills" },
     team_slayer = { title = "TEAM SLAYER", toWin = 50, unit = "kills", stat = "kills", teams = true },
     ctf = { title = "CAPTURE THE FLAG", toWin = 3, unit = "captures", stat = "captures", teams = true },
+    oddball = { title = "ODDBALL", toWin = 120, unit = "seconds", stat = "objectiveScore" },
+    koth = { title = "KING OF THE HILL", toWin = 120, unit = "seconds", stat = "objectiveScore" },
 }
 
 function Board.team(value)

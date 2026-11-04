@@ -1,0 +1,14 @@
+Generated 2026-10-26 using the built-in image_gen tool.
+Input: textures/forerunner_floor_albedo.png (owned source image).
+Output: textures/forerunner_facility_floor_albedo.png.
+Sixteen unique 2-metre plates in an 8-metre repeat, used only by facility_floor.
+The albedo is sRGB; roughness and OpenGL +Y tangent normals are Non-Color data.
+Selected Blender study: roughness 0.18–0.70, metallic 0.30, normal strength 0.60.
+Exact generation prompt follows; numeric target values in the prompt are artistic direction, not measured output guarantees.
+
+Use case: precise-object-edit.
+Asset type: tileable 2K square BASE COLOR / ALBEDO texture data for a worn, dark titanium-and-mineral-composite sci-fi facility floor.
+Input image 1 is the existing owned floor material reference. Make a NEW matching material variant with a FOUR BY FOUR array of sixteen equal square plates, rather than the current two by two. Each plate is 2 metres across, the whole square represents 8 metres. Hairline seams form an exactly regular orthogonal grid at 0%,25%,50%,75%,100%; half-seams at outside edges so it tiles.
+Keep the neutral warm charcoal-grey material family and physical scale, but REMOVE all broad cloudy light/dark gradients, directional highlights and diagonal bands. This is unlit reflectance data with no illumination baked in. Each plate should have nearly uniform middle grey RGB128-143 on average, with restrained 5–8% local variation.
+Create convincing irregular worked-and-worn regions 0.3–1 metre wide: sharply broken but very shallow abrasion, exposed dense aggregate, short worn edges and fine scratches. Different asymmetric region shapes and directions on each of the sixteen plates. Mix firm and softened wear boundaries, quieter intact areas between them. Not mottled random noise, no repeating diagonal scuff stripe, no radial swirls, no clouds. Tiny grit and pits should be restrained and legible. No raised rivets, bolts, logos, decals, perspective, shadows or light glints.
+Orthographic full-bleed texture only. Preserve perfectly flat plate geometry, shallow dark hairline seams, restrained material age and clean AAA sci-fi architectural quality. No labels or border.

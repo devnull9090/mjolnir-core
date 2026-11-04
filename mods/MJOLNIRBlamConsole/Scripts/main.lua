@@ -220,6 +220,14 @@ else
     say("defs.lua missing or broken (" .. tostring(loaded) .. "); help will be empty")
 end
 
+-- Stubs the native half points back at working evaluators of its own
+-- (docs/re/restored_cheats.md). defs.lua is read from the DLL on disk, which
+-- still says stub.
+for _, name in ipairs({ "cheat_all_weapons", "cheat_all_vehicles", "drop_safe" }) do
+    local f = defs.functions[name]
+    if f then f.stub = nil end
+end
+
 local function signature(name, f)
     if f.text then return "(" .. name .. " " .. f.text .. ")" end
     local parts = {}
