@@ -221,6 +221,27 @@ and `(unit_raise_weapon player0 30)`. A stub that only fades the screen in and c
 `player_enable_input` leaves the player able to look around but not move, shoot or switch
 weapons — a cutscene lock with no cutscene. The stub the bake writes does the full handoff.
 
+Until 2026-11-02 that stub never actually loaded, in any bake: the bake dropped the script source
+(since the first stub), and from 2026-09-10 the stub also carried an unregistered string id. Either one makes the engine load the scenario with no
+scripts at all ([re/ce_map_scripts.md](re/ce_map_scripts.md)). The bake now keeps the source and
+refuses any `string_id` literal missing from `defs/hce/string-ids.json`.
+
+### `blam.script` — the level's own scripts
+
+`"script": "my_level.hsc"` (a path relative to the level file) is compiled into the scenario
+beside the startup stub, so it needs `clear.scripts`. Object, device-group, trigger-volume and
+flag names resolve against the scenario as the bake leaves it, so don't clear the blocks the
+script names (for example, keep `machines`, `controls` and `object names` for a script that
+drives doors). Startup, dormant and continuous scripts all run in a multiplayer match. Script
+names need not be registered string ids, but `string_id` arguments must be.
+
+Names compile to block indices when the clears run, before `map_variant`, `single_bsp`, `bots`
+and `set`. A later pass that adds or removes elements of `object names`, `trigger volumes`,
+`cutscene flags` or `device groups` would silently point the script at the wrong element.
+None does today. Keep it that way, or move the compile after them.
+`examples/levels/device_test/` is a worked example: a switch that opens a door, on B40's
+elevator room.
+
 ### `blam.world_bounds`, `blam.set`, `blam.active_bsps`, `blam.single_bsp`, `blam.map_variant`, `blam.forge`, `blam.cutscene_flags`
 
 - `world_bounds`: `[{ "bsp": 8, "min": [x, y, z], "max": [x, y, z] }]`, Halo

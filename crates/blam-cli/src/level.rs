@@ -332,6 +332,13 @@ pub struct BlamSection {
     /// and AI pathfinding generated from the kept BSP's collision.
     #[serde(default)]
     pub bots: Option<Bots>,
+    /// An `.hsc` file (relative to the level file) compiled into the scenario
+    /// next to the startup script `clear.scripts` writes. Its names (objects,
+    /// device groups, trigger volumes, flags) resolve against the scenario
+    /// as the bake leaves it, so the blocks it names must not be cleared.
+    /// Needs `clear.scripts`.
+    #[serde(default)]
+    pub script: Option<PathBuf>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1850,10 +1857,12 @@ impl Baker {
     /// never satisfy, and the weapon is lowered first the way the shipped
     /// helper does — which also makes a stalled script visible: a lowered
     /// weapon on a playable map means the wait never returned.
-    fn stub_scripts(&mut self) -> Result<()> {
+    ///
+    /// `extra` is the level's own script (`blam.script`), compiled with it.
+    /// Its names resolve against the scenario as the clears left it.
+    fn stub_scripts(&mut self, extra: Option<(&Path, &str)>) -> Result<()> {
         const STUB: &str = "(script startup mjolnir_level_startup
   (begin
-    (submit_incident_with_custom_string_id \"game_activity_begin\" \"mjolnir\")
     (unit_lower_weapon player0 1)
     (sleep_until (game_all_players_active) 1 (game_ticks_from_seconds 5.0))
     (sleep 1)
@@ -1879,28 +1888,63 @@ impl Baker {
         let block = tag.read_data(&layout)?;
         let original = blam_hsc::read::read(&layout, &block, &self.file)?;
 
-        let compiled =
-            blam_hsc::Compiler::from_corpus(&corpus).compile(&[("mjolnir_level_startup", STUB)]);
+        let names = blam_hsc::read::names(&layout, &block);
+        let mut files = vec![("mjolnir_level_startup", STUB)];
+        if let Some((_, text)) = extra {
+            files.push(("level", text));
+        }
+        let compiled = blam_hsc::Compiler::from_corpus(&corpus)
+            .with_names(&names)
+            .compile(&files);
         if !compiled.ok() {
-            let first = compiled
-                .errors()
-                .next()
-                .map(|e| e.message.clone())
-                .unwrap_or_default();
-            bail!("the startup script did not compile: {first}");
+            let what = match extra {
+                Some((path, _)) => format!("{} (with the startup script)", path.display()),
+                None => "the startup script".to_string(),
+            };
+            let all: Vec<String> = compiled.errors().map(|e| e.to_string()).collect();
+            bail!("{what} did not compile:\n  {}", all.join("\n  "));
+        }
+
+        // A string_id literal the game has not registered makes its load-time
+        // check fail, and the scenario then loads without its scripts, with
+        // nothing said anywhere (docs/re/ce_map_scripts.md). The startup
+        // script itself was lost this way for every level from 2026-09-10 to
+        // 2026-11-02 over one incident's `"mjolnir"`.
+        let mut unregistered: Vec<String> = Vec::new();
+        for e in &compiled.section.expressions {
+            if e.is_free() || e.kind() != blam_hsc::expr::ExpressionType::Expression {
+                continue;
+            }
+            if compiled.section.value_types.name_of(e.value_type) != Some("string_id") {
+                continue;
+            }
+            let text = compiled.section.string_at(e.string_offset);
+            if !blam_live::stringid::is_shipped(text) && !unregistered.iter().any(|u| u == text) {
+                unregistered.push(text.to_string());
+            }
+        }
+        if !unregistered.is_empty() {
+            bail!(
+                "the level's script uses string ids the game does not register: {} (the engine drops every script over one; see defs/hce/string-ids.json)",
+                unregistered.join(", ")
+            );
         }
 
         let mut section = compiled.section;
         section.shapes = original.shapes;
-        // The source text goes with it, so `mjolnir script --source` still
-        // shows what the level runs.
-        section.source_files = Vec::new();
+        // The source text goes with it. The engine needs it: a scenario whose
+        // scripts have no source files loads with none of its scripts (CU4,
+        // docs/re/ce_map_scripts.md), and with it a failing script is
+        // reported, by line, to the console's output capture. It also keeps
+        // `mjolnir script --source` showing what the level runs.
 
         self.file = blam_hsc::emit::rewrite(&section, &self.file)
             .map_err(|e| anyhow::anyhow!("writing the startup script: {e}"))?;
         println!(
-            "  clear   scripts: {} -> 1 script (startup: wait for players, fade input, HUD and screen in)",
-            original.scripts.len()
+            "  clear   scripts: {} -> {} script(s) (startup: wait for players, fade input, HUD and screen in{})",
+            original.scripts.len(),
+            section.scripts.len(),
+            if extra.is_some() { "; plus blam.script" } else { "" }
         );
         Ok(())
     }
@@ -2382,7 +2426,7 @@ impl Baker {
 
     /// Drop the host mission's own placements, keeping this bake's appends.
     /// Runs AFTER the placement passes so their donors still existed.
-    fn clears(&mut self, clear: &Clear) -> Result<()> {
+    fn clears(&mut self, clear: &Clear, script: Option<(&Path, &str)>) -> Result<()> {
         let added = self.added.clone();
         let mut wipe = |name: &str| -> Result<()> {
             let keep = added.get(name).copied().unwrap_or(0);
@@ -2416,7 +2460,7 @@ impl Baker {
         }
         drop(wipe);
         if clear.scripts {
-            self.stub_scripts()?;
+            self.stub_scripts(script)?;
         }
         Ok(())
     }
@@ -2484,7 +2528,19 @@ fn bake(a: BakeArgs) -> Result<()> {
         Some(b) => Some(baker.bots_clone(b, &level.blam.player_starts, &level.blam.clear)?),
         None => None,
     };
-    baker.clears(&level.blam.clear)?;
+    let script = match &level.blam.script {
+        Some(rel) => {
+            if !level.blam.clear.scripts {
+                bail!("blam.script needs clear.scripts: the script is compiled beside the startup script that clear writes");
+            }
+            let path = a.file.parent().unwrap_or(Path::new(".")).join(rel);
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading blam.script {}", path.display()))?;
+            Some((path, text))
+        }
+        None => None,
+    };
+    baker.clears(&level.blam.clear, script.as_ref().map(|(p, t)| (p.as_path(), t.as_str())))?;
     if level.blam.map_variant {
         // Equipment too: grenades, the overshield and camouflage are created
         // only through the map variant as well (they never appeared on Blood
