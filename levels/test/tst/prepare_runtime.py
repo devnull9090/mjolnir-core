@@ -87,7 +87,8 @@ def main():
     level = apply(json.loads(args.level.read_text()), placements, release_beta=args.release_beta)
     if not args.release_beta:
         args.rules_out.mkdir(parents=True, exist_ok=True)
-    variants = ("oddball", "team_oddball", "juggernaut", "koth", "crazy_king", "team_koth")
+    variants = ("oddball", "team_oddball", "juggernaut", "stalker", "reverse_tag",
+                "koth", "crazy_king", "team_koth")
     for mode in (() if args.release_beta else variants):
         subprocess.run([str(args.cli), "megalo", "write", "--mode", mode.replace("_", "-"),
             "--vehicle-label-pool", "--tick-rate", "60",

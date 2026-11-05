@@ -801,7 +801,11 @@ of its own. CE's Classic presets (Rockets, Snipers, Phantoms, Reverse Tag,
 Stalker and the rest) need weapon sets, traits or lives.
 
 Every new form needs the registry DLL from the same release, and the launcher's
-hub validator links `blam-megalo` too. Each map needs `add_objectives.py` and a
+hub validator links `blam-megalo` too. Release order for script traits
+(`juggernaut`, `stalker`, `reverse_tag`): a `launcher-v*` built from this code
+goes first, then `mods-v*`. Launcher 0.21.0 and older refuse those variants, so
+a mods update stops part way and stays unsaved until the launcher moves on. A
+manifest field cannot help, because those launchers would not read it. Each map needs `add_objectives.py` and a
 hub release before it offers King, Oddball or Race.
 
 Tested on PC 1, 2026-11-04, on the rebaked Blood Gulch and Prisoner, private, one player with bots:

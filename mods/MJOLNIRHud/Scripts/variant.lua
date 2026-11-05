@@ -3,8 +3,8 @@
 --
 -- A port of crates/blam-megalo's reader up to that one field: the variant is
 -- an MSB-first bitstream, and the score to win sits after the base options,
--- the traits and the string tables, whose sizes vary. Returns nil for
--- anything it does not follow (a compressed string table, player traits or
+-- the traits, the script's trait sets and the string tables, whose sizes
+-- vary. Returns nil for anything it does not follow (a compressed string table,
 -- user options), so the HUD keeps its default.
 
 local Variant = {}
@@ -51,6 +51,19 @@ local function traits(r)
     if r.bool() then r.skip(9) end
     r.skip(table.unpack(TRAITS[4]))
     r.skip(table.unpack(TRAITS[5]))
+end
+
+--- The script's trait sets, each a name and description string index and
+--- its traits; the store holds 16. Then the user options, which no variant of
+--- ours has.
+local function scriptTraits(r)
+    local count = r.read(5)
+    if count > 16 then error("too many script traits") end
+    for _ = 1, count do
+        r.skip(7, 7)
+        traits(r)
+    end
+    if r.read(5) ~= 0 then error("user options") end
 end
 
 local function strings(r, cw, ow, sw)
@@ -136,7 +149,7 @@ function Variant.scoreToWin(bytes)
         if version ~= 0x6a and version ~= 0x6b then error("version") end
         r.skip(32)
         base(r)
-        if r.read(5) ~= 0 or r.read(5) ~= 0 then error("player traits or user options") end
+        scriptTraits(r)
         strings(r, 7, 15, 15)
         r.skip(7)
         strings(r, 1, 9, 9)

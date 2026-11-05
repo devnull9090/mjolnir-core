@@ -152,7 +152,16 @@ function VariantSettings.layout(bytes)
             if not r.bool() then r.skip(7) end
             r.skip(8, 8, 8, 4)
         end
-        if r.read(5) ~= 0 or r.read(5) ~= 0 then error("player traits or user options") end
+        -- The script's trait sets (a name and description string index and
+        -- traits each; the store holds 16), then user options, which no
+        -- variant of ours has. Neither is a setting.
+        local sets = r.read(5)
+        if sets > 16 then error("too many script traits") end
+        for _ = 1, sets do
+            r.skip(7, 7)
+            traits(r)
+        end
+        if r.read(5) ~= 0 then error("user options") end
         strings(r, 7, 15, 15)
         r.skip(7)
         strings(r, 1, 9, 9)
@@ -198,7 +207,7 @@ end
 --- The insertion point slot of every game type (MJOLNIRLobby's modes.lua).
 VariantSettings.VARIANT_SLOTS = { slayer = 0, ctf = 1, team_slayer = 2,
     koth = 3, crazy_king = 3, team_koth = 3, oddball = 4, team_oddball = 4, juggernaut = 4,
-    forge = 5, race = 6, team_race = 6, rally = 6, team_rally = 6 }
+    stalker = 4, reverse_tag = 4, forge = 5, race = 6, team_race = 6, rally = 6, team_rally = 6 }
 
 --- The exact variant out of match_variant.txt's `text` ("CODE<TAB>id") for a
 --- travel to map `code` at insertion point `slot`, or nil for the slot's

@@ -4,6 +4,7 @@ local Presence = {}
 local MODES = { slayer = "Slayer", team_slayer = "Team Slayer", ctf = "Capture the Flag",
     koth = "King", crazy_king = "Crazy King", team_koth = "Team King",
     oddball = "Oddball", team_oddball = "Team Oddball", juggernaut = "Juggernaut",
+    stalker = "Stalker", reverse_tag = "Reverse Tag",
     race = "Race", team_race = "Team Race", rally = "Rally", team_rally = "Team Rally", forge = "Forge" }
 local context, nativeDir, hudFile, session, Json, log, nativeUpdate
 

@@ -333,8 +333,9 @@ eq(race.rank, 2, "touching it is the script's to judge")
 
 -- Juggernaut: a beacon on whoever it is, read afresh each update.
 local Juggernaut = dofile("mods/MJOLNIRHud/Scripts/juggernaut.lua")
+local Board = dofile("mods/MJOLNIRHud/Scripts/scoreboard.lua")
 local js = scene(all)
-local jug = Juggernaut.new(Hill)
+local jug = Juggernaut.new(Hill, Board.modes.juggernaut.holder)
 local bodies = {}
 local function list() return bodies end
 jug.tick(0, js.pc, false, 0, list)
@@ -370,4 +371,25 @@ eq(jug.widget.visibility, 1, "and the line")
 jug.named(0)
 jug.tick(7, js.pc, true, 0, list)
 eq(jug.beacon.hidden, true, "a hidden HUD hides it")
+
+-- Reverse Tag: the same beacon, its own line.
+local tag = Juggernaut.new(Hill, Board.modes.reverse_tag.holder)
+local here = { { index = 0, at = { X = 100, Y = 200, Z = 300 } } }
+local function herePlayers() return here end
+tag.named(0)
+tag.tick(0, scene(all).pc, false, 0, herePlayers)
+eq(tag.beacon.hidden, false, "whoever is it has a beacon")
+eq(tag.text.text, "YOU ARE IT", "and is told")
+
+-- Stalker: nobody gets a beacon, seen from either side; only they read a line.
+local hunted = Juggernaut.new(Hill, Board.modes.stalker.holder)
+local hs = scene(all)
+hunted.named(0)
+hunted.tick(0, hs.pc, false, 1, herePlayers)
+eq(hunted.beacon, nil, "no beacon on the Stalker for the others")
+eq(hunted.widget.visibility, 1, "and no line")
+hunted.tick(1, hs.pc, false, 0, herePlayers)
+eq(hunted.beacon, nil, "none for the Stalker either")
+eq(hunted.text.text, "YOU ARE THE STALKER", "who is told")
+eq(hunted.widget.visibility, 4, "the line shows")
 print("hill marker: ok")
