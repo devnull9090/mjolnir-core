@@ -28,6 +28,9 @@ folder = spec["folder"]
 wanted = {e["package"] for e in spec["instances"]}
 if eal.does_directory_exist(folder):
     for path in eal.list_assets(folder, recursive=True, include_folder=False):
+        # ce_vehicle_sounds.py's waves share the folder and the chunk.
+        if path.startswith(f"{folder}/Sounds/"):
+            continue
         if path.split(".")[0] not in wanted:
             eal.delete_asset(path.split(".")[0])
 

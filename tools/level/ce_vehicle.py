@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -258,6 +259,9 @@ def main():
     run(os.path.join(EXAMPLES, "package_add.exe"), paks, a.out, "--name",
         f"pakchunk987-MJOLNIR{a.code}-actor_P",
         *ce_vehicle_name.named(paks, a.out, uasset, a.label or a.name.capitalize()))
+    # The game mounts a .utoc/.ucas pair only beside a .pak.
+    shutil.copyfile(os.path.join(paks, "pakchunk115-Windows.pak"),
+                    os.path.join(a.out, f"pakchunk987-MJOLNIR{a.code}-actor_P.pak"))
 
     tag = B.join(["objects", "mjolnir", a.code.lower(), a.name])
     skeleton = values("skeleton_model", DONOR_TAG + "-skeleton_model")

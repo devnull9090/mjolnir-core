@@ -17,7 +17,8 @@ local function comp(wave, autoDestroy)
 end
 
 function NotifyOnNewObject(path, callback) watched = callback end -- luacheck: ignore
-function ExecuteInGameThreadWithDelay(_, f) f() end -- luacheck: ignore
+local delayed = 0
+function ExecuteInGameThreadWithDelay(_, f) delayed = delayed + 1; f() end -- luacheck: ignore
 function FName(s) return s end -- luacheck: ignore
 function StaticConstructObject() return { Attenuation = {} } end -- luacheck: ignore
 local placed = {}
@@ -59,15 +60,17 @@ local entry = {
     },
 }
 local logs = {}
+local file = "table"
+local current = { level = { _dir = "x" }, hit = {} }
 local V = require("vehicle_sounds")
 V.init({
     Log = function(m) logs[#logs + 1] = m end,
-    Current = { level = { _dir = "x" }, hit = {} },
+    Current = current,
     findObject = function() return statics end,
     resolveMesh = function(path) return { path = path } end,
     gameVolume = function() return 0.5 end,
     getWorld = function() return world end,
-    readFile = function() return "table" end,
+    readFile = function() return file end,
     decode = function() return { BP_VHTMongoose_C = entry } end,
 })
 local function find(wave)
@@ -80,6 +83,10 @@ end
 
 assert(watched, "the watch arms at init")
 watched(unit)
+assert(delayed == 0, "no table yet, so a new unit costs nothing")
+step()
+watched(unit)
+assert(delayed == 1, "with a table a new unit is looked at")
 step()
 assert(#spawned == 0, "an empty vehicle is silent")
 assert(#logs == 2, "the sweep and the watch bind one vehicle once: " .. table.concat(logs, "; "))
@@ -123,7 +130,32 @@ step()
 assert(find("/w/idle").playing, "boarding again reuses the loops")
 assert(#spawned == before + 1, "only the start is new")
 
+local function playing(wave)
+    local n = 0
+    for _, c in ipairs(spawned) do if c.wave == wave and c.playing then n = n + 1 end end
+    return n
+end
+
+local old = find("/w/idle")
+current.level = { _dir = "x" } -- a reload: same world, same vehicle
+step()
+assert(not old.playing, "a reload stops the loops it drops")
+assert(playing("/w/idle") == 1, "and the vehicle binds once more, one engine")
+
 actor.valid = false
 step()
-assert(not find("/w/idle").playing, "a vehicle gone takes its loops with it")
+assert(playing("/w/idle") == 0, "a vehicle gone takes its loops with it")
+
+-- A level with no table, then none at all: nothing runs and nothing is read.
+local made, logged = #spawned, #logs
+actor.valid = true
+for _, level in ipairs({ { _dir = "y" }, {}, false }) do
+    file = nil
+    current.level = level or nil
+    step()
+    delayed = 0
+    watched(unit)
+    step()
+    assert(delayed == 0 and #spawned == made and #logs == logged, "a stock map is left alone")
+end
 print("ok")

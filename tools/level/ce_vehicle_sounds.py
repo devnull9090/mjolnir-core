@@ -200,7 +200,7 @@ def vehicle(m, snd, tag, writer, name, skip):
             print(f"  attachment {i}: {path} skipped")
             continue
         if not drive:
-            print(f"  attachment {i}: {path} follows input {inputs[scale - 1] if scale else None}: left out")
+            print(f"  attachment {i}: {path} follows input {inputs[scale - 1] if 1 <= scale <= 4 else None}: left out")
             continue
         lsnd = m.looping_sound(path)
         if lsnd["details"]:
@@ -291,7 +291,11 @@ def main():
         json.dump({"sounds": writer.sounds}, f, indent=1)
     table = json.load(open(a.merge, encoding="utf-8")) if a.merge else {}
     # ce_vehicle.py's Blueprint: BP_<CODE><Name>, its class with _C.
-    table[f"BP_{a.code}{a.name.capitalize()}_C"] = entry
+    key = f"BP_{a.code}{a.name.capitalize()}_C"
+    # ce_vehicle_lights.py's entry is not this tool's to drop.
+    if "lights" in table.get(key, {}):
+        entry["lights"] = table[key]["lights"]
+    table[key] = entry
     path = os.path.join(a.out, "vehicle_sounds.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(table, f, indent=1)

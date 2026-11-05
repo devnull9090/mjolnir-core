@@ -299,6 +299,8 @@ local function bind(actor)
 end
 
 local function loadTable(level)
+    -- A reload keeps the world, so a loop dropped here would play on for good.
+    for _, bound in ipairs(state.bound) do silence(bound) end
     state.table, state.bound = {}, {}
     if type(level) ~= "table" or not level._dir then return end
     local raw = env.readFile(level._dir .. "\\vehicle_sounds.json")
@@ -361,6 +363,8 @@ end
 
 --- A unit component was made: its actor is looked at once it is on one.
 local function noted(component)
+    -- A level with no table pays nothing; loadTable sweeps for what came first.
+    if not state.table or next(state.table) == nil then return end
     ExecuteInGameThreadWithDelay(SETTLE_MS, function()
         pcall(function()
             if not component:IsValid() then return end

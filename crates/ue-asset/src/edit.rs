@@ -589,6 +589,80 @@ fn soft_path(names: &mut NameBatch, t: &str) -> Result<Val, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::usmap::{Prop, Schema};
+
+    /// A class with one array of ints, `Items`, in slot 0.
+    fn with_array() -> Usmap {
+        let mut usmap = Usmap::default();
+        usmap.structs.insert(
+            "Thing".into(),
+            Schema {
+                name: "Thing".into(),
+                super_name: None,
+                prop_count: 1,
+                props: vec![Prop {
+                    schema_index: 0,
+                    array_dim: 1,
+                    name: "Items".into(),
+                    ty: PropType::Array(Box::new(PropType::Int)),
+                }],
+            },
+        );
+        usmap
+    }
+
+    fn resized(start: Option<Val>, len: usize) -> (Result<(), String>, Block) {
+        let mut block = Block { values: Vec::new() };
+        if let Some(v) = start {
+            block.set(0, v);
+        }
+        let result = resize(&with_array(), "Thing", &[], &mut block, "Items", len);
+        (result, block)
+    }
+
+    fn ints(values: &[i32]) -> Val {
+        Val::Array(values.iter().copied().map(Val::Int).collect())
+    }
+
+    #[test]
+    fn resize_truncates_and_grows_by_the_last_element() {
+        let (result, block) = resized(Some(ints(&[1, 2, 3])), 1);
+        assert_eq!(result, Ok(()));
+        assert_eq!(block.get(0), Some(&ints(&[1])));
+
+        let (result, block) = resized(Some(ints(&[1, 2])), 4);
+        assert_eq!(result, Ok(()));
+        assert_eq!(block.get(0), Some(&ints(&[1, 2, 2, 2])));
+
+        let (result, block) = resized(Some(ints(&[1, 2])), 2);
+        assert_eq!(result, Ok(()));
+        assert_eq!(block.get(0), Some(&ints(&[1, 2])));
+    }
+
+    #[test]
+    fn resize_to_nothing_empties_present_zeroed_and_absent_arrays() {
+        let (result, block) = resized(Some(ints(&[1, 2])), 0);
+        assert_eq!(result, Ok(()));
+        assert_eq!(block.get(0), Some(&ints(&[])));
+
+        let (result, block) = resized(Some(Val::Zeroed), 0);
+        assert_eq!(result, Ok(()));
+        assert_eq!(block.get(0), Some(&Val::Zeroed));
+
+        let (result, block) = resized(None, 0);
+        assert_eq!(result, Ok(()));
+        assert_eq!(block.get(0), Some(&Val::Zeroed));
+    }
+
+    #[test]
+    fn resize_refuses_what_it_cannot_grow() {
+        assert!(resized(Some(ints(&[])), 1).0.unwrap_err().contains("empty"));
+        assert!(resized(Some(Val::Zeroed), 1).0.is_err());
+        assert!(resized(None, 1).0.is_err());
+        assert!(resized(Some(Val::Int(3)), 1).0.unwrap_err().contains("not an array"));
+        let mut block = Block { values: Vec::new() };
+        assert!(resize(&with_array(), "Thing", &[], &mut block, "Other", 0).is_err());
+    }
 
     #[test]
     fn paths_parse_fields_indexes_and_keys() {

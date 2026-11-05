@@ -8,7 +8,9 @@ Mongoose from Yoyorast Island V2 was the first, driven in game on the test map
     python tools/level/ce_vehicle_materials.py ...           # CE shaders as material instances
     python tools/level/ce_vehicle_mesh.py ... --instances    # CE parts as meshes, one per node
     python tools/level/ce_vehicle_numbers.py <map> <tags.json> <vehicle tag> <out>
-    HCE_PAKS=... python tools/level/ce_vehicle.py <manifest.json> <out dir> --numbers <out>/numbers.json \n        --driver-pose ghost_d --driver-offset=-0.02,0,0.262 --passenger-offset=-0.407,0,0.097 \n        --skel-set-file tools/level/data/mongoose_rider_ik.sets
+    HCE_PAKS=... python tools/level/ce_vehicle.py <manifest.json> <out dir> --numbers <out>/numbers.json \
+        --driver-pose ghost_d --driver-offset=-0.02,0,0.262 --passenger-offset=-0.407,0,0.097 \
+        --skel-set-file tools/level/data/mongoose_rider_ik.sets
 
 Everything lands in the out dirs; copy the containers to the Paks folder with
 the game closed. One vehicle per code, and never a map's own code:
@@ -111,7 +113,20 @@ The marker sets are measured for this vehicle: they do not generate yet.
 
 The prompt and E need the crosshair on the vehicle's collision. A small hull
 is easy to miss from a spawn that looks over it: no prompt means aim first, not
-a broken seat. 
+a broken seat.
+
+## In a map
+
+A CE map can park vehicles out of reach and teleport them out by script. Here a
+vehicle spawns and returns at its placement, so `tools/level/ce_place_vehicles.py`
+moves each one to its flag, on the ground, and makes the plan's custom ones `tag`
+placements (`tools/level/data/yoy_vehicles.json` for Yoyorast). It also copies the
+vehicle's containers with names `map pack` takes, such as
+`pakchunk985-MJOLNIRVCOOK-YOY_P`: the contents keep the `VHT` paths, so the tested
+bytes ship. `map pack` carries `vehicle_sounds.json` into `map/`. Without
+MJOLNIRLevelLoader 0.10.0 and the CE runtime such a map drives silent, with its
+lights floating.
+
 ## Not done
 
 - The vehicle data asset keeps the Warthog's HUD icons. Kill feed text is not traced.
@@ -122,10 +137,25 @@ a broken seat.
 - The passenger's left hand stops about 34 cm short of CE's fin grip, and its torso has none of CE's 37 degree lean. Firing from the seat is untested.
 - The Spartan is bigger than CE's cyborg, and the idle is the Ghost's, so it has no bob or lean into turns of CE's own.
 - Top speed and handling are the ratio recipe, not yet felt out by a player.
-- Not baked into Yoyorast, whose vehicles wait in a pen until a script teleports
-  them out, and which needs its own vehicle code. Not tested on a second PC.
+- Not tested on a second PC. Yoyorast's build (above) is baked and packs, but has
+  not been played yet. Its `rhog_1` stands within 1 wu of a ledge and an overhang.
+- Reloading a level in the same world silences the old engine loops, and stock
+  maps skip the spawn check: `vehicle_sounds.lua` passes its unit tests on both,
+  but neither has run in game.
+- Yoyorast holds the same packages as `VHT`, so the two sets must not be installed
+  together. Roadworks' Mongooses are only on PC 1 and need these containers too.
+- The installed vehicle model has 43 imports where build13's has 45, with the same
+  tag payload. Yoyorast ships the installed one, since that was played. A rebake of
+  the unchanged level differs from the installed bake by 22 bytes, cause unknown.
+- The song clip CE sometimes plays at engine start (`lsnd` 1057) is left out, as it
+  is likely licensed.
 - Weapons: the same route should hold (first-person actors use the same
   component), but no weapon has been tried.
 - Tooling: a `tag` placement is not checked against installed containers, so a
   wrong path bakes and fails in game. `ce_vehicle.py` holds the Warthog's
-  measured bone positions in code. `edit::resize` has no unit test.
+  measured bone positions in code. Duplicate plan regions and `material` or `node`
+  indices are not validated. `ce_vehicle_lights.py` assumes four headlights and two
+  taillights. `ce_vehicle.py` and `ce_vehicle_name.py` look up the `997` stub and
+  raise if no map is installed. The latest fixes to `ce_vehicle.py`,
+  `ce_vehicle_sounds.py` and `ce_vehicle_instances_editor.py` compile but have not
+  been run.
