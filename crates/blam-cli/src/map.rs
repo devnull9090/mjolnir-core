@@ -403,6 +403,15 @@ fn pack(a: PackArgs) -> Result<()> {
             .with_context(|| format!("reading {}", bots.display()))?;
         members.push(("map/bots.json".into(), bytes));
     }
+    // A custom vehicle's sounds and lights, which the loader reads from the
+    // level's folder (docs/custom_vehicles.md).
+    let vehicle_sounds = a.dir.join("vehicle_sounds.json");
+    if vehicle_sounds.is_file() {
+        let bytes = std::fs::read(&vehicle_sounds)?;
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .with_context(|| format!("reading {}", vehicle_sounds.display()))?;
+        members.push(("map/vehicle_sounds.json".into(), bytes));
+    }
     for (rel, path) in extra {
         let bytes =
             std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;

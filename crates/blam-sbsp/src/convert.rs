@@ -553,31 +553,125 @@ pub fn transplant_definition(
     ))
 }
 
+/// One region's BSP for [`collision_parts`], in the space of `node`.
+pub struct CollisionPart {
+    pub region: usize,
+    /// The node the BSP hangs from, when not the donor's. A vehicle's hull
+    /// donor hangs from a rotated node, so a part built in object space
+    /// names the identity one.
+    pub node: Option<i16>,
+    /// The index every surface carries into the model's materials, which is
+    /// what a hit is charged to. `None` is material 0.
+    pub material: Option<i16>,
+    pub collision: Collision,
+}
+
 /// A collision model's one BSP (`regions[0].permutations[0].bsps[0]`) and
 /// the Havok shape over it, rebuilt from a staged collision BSP in the
 /// part's own space: a machine's part the simulation turns (Halo 2's
 /// gears). A biped meets a machine's collision model, not its physics
 /// model's shapes: a player dropped onto a turning arm built of boxes alone
 /// fell through it (Ascension, 2026-10-22).
-///
+pub fn collision_model(donor: &[u8], collision: Collision) -> Result<Vec<u8>, Error> {
+    let part = CollisionPart {
+        region: 0,
+        node: None,
+        material: None,
+        collision,
+    };
+    collision_parts(donor, vec![part], false)
+}
+
+/// A donor collision model with `parts` in the first permutation of their
+/// regions. With `blank_others`, every other permutation loses its BSP, its
+/// shape and its mopp, the empty form shipped models use for a region that
+/// stops nothing (Spartan `armor_fx`, the monitor's `default`): a CE vehicle
+/// on a Warthog keeps the Warthog's 32 regions, for the names its model and
+/// friction points look up, and wears 5 of them.
+pub fn collision_parts(
+    donor: &[u8],
+    parts: Vec<CollisionPart>,
+    blank_others: bool,
+) -> Result<Vec<u8>, Error> {
+    let mut file = donor.to_vec();
+    if blank_others {
+        let keep: Vec<usize> = parts.iter().map(|p| p.region).collect();
+        let edits = blank_permutations(&file, &keep)?;
+        if !edits.is_empty() {
+            file = replace_nested(&file, &edits)?;
+        }
+    }
+    for part in parts {
+        file = collision_part(&file, part)?;
+    }
+    check_walks(&file)?;
+    Ok(file)
+}
+
+/// The permutations to empty: all but the first of each region in `keep`.
+/// A block that is already empty needs no edit.
+fn blank_permutations(file: &[u8], keep: &[usize]) -> Result<Vec<NestedReplace>, Error> {
+    with_tag(file, |layout, root| {
+        let count = |path: &str| {
+            find_block(layout, file, root, path)
+                .map(|f| f.block.count as usize)
+                .map_err(other)
+        };
+        let mut edits = Vec::new();
+        for region in 0..count("regions")? {
+            let perms = count(&format!("regions[{region}].permutations"))?;
+            for perm in blanked(region, perms, keep) {
+                for block in ["bsps", "bsp_physics", "mopp_codes"] {
+                    let path = format!("regions[{region}].permutations[{perm}].{block}");
+                    if count(&path)? > 0 {
+                        edits.push(NestedReplace {
+                            path,
+                            count: 0,
+                            elements: Vec::new(),
+                            wrappers: None,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(edits)
+    })
+}
+
+/// Which of a region's `perms` permutations go empty.
+fn blanked(region: usize, perms: usize, keep: &[usize]) -> std::ops::Range<usize> {
+    let first = usize::from(keep.contains(&region));
+    first.min(perms)..perms
+}
+
 /// As [`transplant_definition`] does for terrain: the tables fan-split and
 /// packed, one pass-through kd supernode, the MOPP compiled over the
 /// surfaces into `mopp_codes[0]`, and the shape's own copies of the local
 /// box and the tree's quantisation and length (`bsp_physics[0]`), which the
 /// Havok query reads instead of the tables'.
-pub fn collision_model(donor: &[u8], mut collision: Collision) -> Result<Vec<u8>, Error> {
-    const PERM: &str = "regions[0].permutations[0]";
-    let base = format!("{PERM}.bsps[0].bsp");
+fn collision_part(donor: &[u8], part: CollisionPart) -> Result<Vec<u8>, Error> {
+    let CollisionPart {
+        region,
+        node,
+        material,
+        mut collision,
+    } = part;
+    let perm = format!("regions[{region}].permutations[0]");
+    let base = format!("{perm}.bsps[0].bsp");
     split::fan_split_fit(&mut collision, 4);
     collision.fits_16bit()?;
     let b = collision
         .bounds()
         .ok_or_else(|| Error::Staging("the collision BSP has no vertices".into()))?;
-    let packed = pack16::pack(&collision, &material_map(false))?;
+    let packed = match material {
+        Some(m) => pack16::pack(&collision, &move |_: i16| m)?,
+        None => pack16::pack(&collision, &material_map(false))?,
+    };
     let mut edits = transplant::tables_at(&base, &packed);
+    // Most of a Warthog's BSPs ship without one: fall back on building it.
     let supernode = transplant::donor_element(donor, &format!("{base}.bsp3d supernodes"), 0)
         .map(|(e, _)| passthrough_from(&e))
-        .map_err(|e| Error::Other(format!("the donor collision model has no supernode: {e}")))?;
+        .unwrap_or_else(|_| transplant::passthrough_supernode(b));
     edits.push(NestedReplace {
         path: format!("{base}.bsp3d supernodes"),
         count: 1,
@@ -591,13 +685,13 @@ pub fn collision_model(donor: &[u8], mut collision: Collision) -> Result<Vec<u8>
         .map(|s| (s as u32, q.box_of(&unpack16::polygon(&collision, s))))
         .collect();
     let code = build_checked(&prims, "collision model")?;
-    let (mut element, _) = transplant::donor_element(&file, &format!("{PERM}.mopp_codes"), 0)
+    let (mut element, _) = transplant::donor_element(&file, &format!("{perm}.mopp_codes"), 0)
         .map_err(|e| Error::Other(format!("the donor collision model has no mopp: {e}")))?;
     mopp::patch_element(&mut element, q, code.len());
     file = replace_nested(
         &file,
         &[NestedReplace {
-            path: format!("{PERM}.mopp_codes"),
+            path: format!("{perm}.mopp_codes"),
             count: 1,
             elements: element,
             wrappers: Some(vec![mopp::wrapper(&code)]),
@@ -606,9 +700,9 @@ pub fn collision_model(donor: &[u8], mut collision: Collision) -> Result<Vec<u8>
     let v3 = |v: [f32; 3]| format!("({}, {}, {})", v[0], v[1], v[2]);
     let half = |k: usize| (b.max[k] - b.min[k]) / 2.0;
     let mid = |k: usize| (b.max[k] + b.min[k]) / 2.0;
-    let shape = format!("{PERM}.bsp_physics[0].collision bsp shape");
-    let tree = format!("{PERM}.bsp_physics[0].mopp bv tree shap");
-    let sets: Vec<(String, String)> = vec![
+    let shape = format!("{perm}.bsp_physics[0].collision bsp shape");
+    let tree = format!("{perm}.bsp_physics[0].mopp bv tree shap");
+    let mut sets: Vec<(String, String)> = vec![
         (format!("{shape}.center"), v3([mid(0), mid(1), mid(2)])),
         (format!("{shape}.half extent"), v3([half(0), half(1), half(2)])),
         (format!("{shape}.scale"), "1.0".into()),
@@ -616,10 +710,12 @@ pub fn collision_model(donor: &[u8], mut collision: Collision) -> Result<Vec<u8>
         (format!("{tree}.havok w code info copy"), format!("{}", q.scale)),
         (format!("{tree}.mopp data size"), format!("{}", code.len())),
     ];
+    if let Some(n) = node {
+        sets.push((format!("{perm}.bsps[0].node index"), n.to_string()));
+    }
     for (path, value) in &sets {
         file = set_scalar(&file, path, value)?;
     }
-    check_walks(&file)?;
     Ok(file)
 }
 
@@ -1699,6 +1795,15 @@ mod tests {
         assert!((b.min[0] + d[0] + b.max[0] + d[0] - 2.0 * B40_START_ANCHOR[0]).abs() < 1e-3);
         assert!((b.min[1] + d[1] + b.max[1] + d[1] - 2.0 * B40_START_ANCHOR[1]).abs() < 1e-3);
         assert!((b.min[2] + d[2] - B40_START_ANCHOR[2]).abs() < 1e-4);
+    }
+
+    #[test]
+    fn only_a_kept_regions_first_permutation_survives_blanking() {
+        assert_eq!(blanked(15, 1, &[15, 27]), 1..1);
+        assert_eq!(blanked(15, 3, &[15, 27]), 1..3);
+        assert_eq!(blanked(0, 1, &[15, 27]), 0..1);
+        assert_eq!(blanked(0, 0, &[15]), 0..0);
+        assert_eq!(blanked(15, 0, &[15]), 0..0);
     }
 
     #[test]

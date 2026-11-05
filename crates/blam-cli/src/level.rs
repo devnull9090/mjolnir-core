@@ -599,6 +599,11 @@ pub struct TriggerVolume {
 pub struct TypedPlacement {
     #[serde(rename = "type")]
     pub kind: String,
+    /// A tag of the level's own, by path, in place of the one `type` names
+    /// in the palette map: a custom vehicle or weapon built with `new-tag`.
+    /// `type` then only labels it.
+    #[serde(default)]
+    pub tag: Option<String>,
     pub pos: [f64; 3],
     #[serde(default)]
     pub yaw: f64,
@@ -864,17 +869,17 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     }
     let map = palette_map()?;
     for v in &level.blam.vehicles {
-        if !map.vehicles.contains_key(&v.kind) {
+        if v.tag.is_none() && !map.vehicles.contains_key(&v.kind) {
             bail!("unknown vehicle type {:?}", v.kind);
         }
     }
     for w in &level.blam.weapons {
-        if !map.weapons.contains_key(&w.kind) {
+        if w.tag.is_none() && !map.weapons.contains_key(&w.kind) {
             bail!("unknown weapon type {:?}", w.kind);
         }
     }
     for e in &level.blam.equipment {
-        if !map.equipment.contains_key(&e.kind) {
+        if e.tag.is_none() && !map.equipment.contains_key(&e.kind) {
             bail!("unknown equipment type {:?}", e.kind);
         }
     }
@@ -1912,8 +1917,10 @@ impl Baker {
         let mut indices = Vec::new();
         let mut appended = 0usize;
         for item in items {
-            let tag_path = map
-                .get(&item.kind)
+            let tag_path = item
+                .tag
+                .as_ref()
+                .or_else(|| map.get(&item.kind))
                 .with_context(|| format!("unknown type {:?}", item.kind))?;
             let idx = match palette_index(&self.file, palette, tag_path)? {
                 Some(i) => i,
@@ -2848,7 +2855,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         ] {
             let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
             for item in items {
-                if let Some(path) = table.get(&item.kind) {
+                if let Some(path) = item.tag.as_ref().or_else(|| table.get(&item.kind)) {
                     let variant = item
                         .set
                         .get("permutation data.variant name")

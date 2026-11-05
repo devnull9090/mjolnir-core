@@ -7,7 +7,7 @@
 //! the terrain went so the level generator and the mesh step place
 //! everything else with the same numbers.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
@@ -143,8 +143,13 @@ struct HostOut {
 pub struct MachineCollisionArgs {
     /// The staged collision BSP (`mjolnir cache stage`'s
     /// `collision/<part>.bsp.json`, its `.bin` beside it), in the part's own
-    /// space.
-    pub collision: PathBuf,
+    /// space. Omitted with `--plan`.
+    #[arg(required_unless_present = "plan", conflicts_with = "plan")]
+    pub collision: Option<PathBuf>,
+    /// A model of several regions, as JSON (see [`CollisionPlan`]): a CE
+    /// vehicle on a Warthog.
+    #[arg(long)]
+    pub plan: Option<PathBuf>,
     #[command(flatten)]
     pub src: Source,
     /// Substring of the shipped collision model to clone (its regions,
@@ -156,11 +161,78 @@ pub struct MachineCollisionArgs {
     pub out: PathBuf,
 }
 
-/// `level machine-collision`: a machine part's collision model.
-pub fn run_machine(a: MachineCollisionArgs) -> Result<()> {
-    let staged = blam_sbsp::ce::load(&a.collision)
+/// `--plan`: which staged BSPs go into which of the donor's regions.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollisionPlan {
+    pub parts: Vec<PlannedPart>,
+    /// Empty every region the plan does not name.
+    #[serde(default)]
+    pub blank_others: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlannedPart {
+    pub region: usize,
+    /// The staged BSP; a relative path is taken from the plan's folder.
+    pub bsp: PathBuf,
+    /// Added to the BSP before it is packed, in world units.
+    #[serde(default)]
+    pub offset: [f32; 3],
+    /// The node to hang it from, when not the donor's.
+    #[serde(default)]
+    pub node: Option<i16>,
+    /// The material every surface is charged to; material 0 without one.
+    #[serde(default)]
+    pub material: Option<i16>,
+}
+
+fn load_part(part: &PlannedPart, folder: &Path) -> Result<convert::CollisionPart> {
+    let path = folder.join(&part.bsp);
+    let mut collision = blam_sbsp::ce::load(&path)
         .map_err(|e| anyhow::anyhow!("{e}"))
-        .with_context(|| format!("reading {}", a.collision.display()))?;
+        .with_context(|| format!("reading {}", path.display()))?
+        .collision;
+    blam_sbsp::pack16::translate(&mut collision, part.offset);
+    Ok(convert::CollisionPart {
+        region: part.region,
+        node: part.node,
+        material: part.material,
+        collision,
+    })
+}
+
+/// `level machine-collision`: a machine part's collision model, or a plan's.
+pub fn run_machine(a: MachineCollisionArgs) -> Result<()> {
+    let (parts, blank_others) = match (&a.plan, &a.collision) {
+        (Some(plan), _) => {
+            let text = std::fs::read_to_string(plan)
+                .with_context(|| format!("reading {}", plan.display()))?;
+            let parsed: CollisionPlan = serde_json::from_str(&text)
+                .with_context(|| format!("reading {}", plan.display()))?;
+            let folder = plan.parent().unwrap_or(Path::new("."));
+            let parts = parsed
+                .parts
+                .iter()
+                .map(|p| load_part(p, folder))
+                .collect::<Result<Vec<_>>>()?;
+            (parts, parsed.blank_others)
+        }
+        (None, Some(bsp)) => {
+            let staged = blam_sbsp::ce::load(bsp)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .with_context(|| format!("reading {}", bsp.display()))?;
+            let part = convert::CollisionPart {
+                region: 0,
+                node: None,
+                material: None,
+                collision: staged.collision,
+            };
+            (vec![part], false)
+        }
+        (None, None) => bail!("name a staged BSP or a --plan"),
+    };
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
     let entry = by_group
@@ -169,8 +241,9 @@ pub fn run_machine(a: MachineCollisionArgs) -> Result<()> {
         .copied()
         .with_context(|| format!("no collision model matching {:?}", a.donor))?;
     let donor = idx.read(entry, None, &a.src.oodle_roots())?;
-    let surfaces = staged.collision.surfaces.len();
-    let out = convert::collision_model(&donor, staged.collision).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let surfaces: usize = parts.iter().map(|p| p.collision.surfaces.len()).sum();
+    let out = convert::collision_parts(&donor, parts, blank_others)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     std::fs::write(&a.out, &out).with_context(|| format!("writing {}", a.out.display()))?;
     println!("{surfaces} surface(s) -> {} ({} bytes, walks exactly)", a.out.display(), out.len());
     Ok(())
@@ -636,4 +709,31 @@ fn set_field(file: &mut Vec<u8>, path: &str, value: &blam_tag::Scalar) -> Result
     };
     *file = out;
     Ok(())
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    #[test]
+    fn a_plan_reads_with_its_defaults() {
+        let plan: CollisionPlan = serde_json::from_str(
+            r#"{"parts": [{"region": 15, "bsp": "hull.bsp.json", "offset": [0.5, 0, -0.1],
+                           "node": 2, "material": 15},
+                          {"region": 0, "bsp": "a.bsp.json"}],
+                "blank_others": true}"#,
+        )
+        .unwrap();
+        assert!(plan.blank_others);
+        assert_eq!(plan.parts[0].node, Some(2));
+        assert_eq!(plan.parts[0].offset, [0.5, 0.0, -0.1]);
+        assert_eq!(plan.parts[1].offset, [0.0; 3]);
+        assert_eq!(plan.parts[1].material, None);
+    }
+
+    #[test]
+    fn a_plan_with_a_misspelt_field_is_refused() {
+        let plan = serde_json::from_str::<CollisionPlan>(r#"{"parts": [], "blank_other": true}"#);
+        assert!(plan.is_err());
+    }
 }

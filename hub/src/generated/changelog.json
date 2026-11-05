@@ -39,21 +39,56 @@
   ],
   "releases": [
     {
-      "product": "mods",
-      "productName": "MJOLNIR Code Mods",
-      "version": "0.44.0",
-      "tag": "mods-v0.44.0",
-      "title": "King of the Hill and Oddball rules",
-      "date": "2026-11-04",
-      "summary": "The rules and HUD for King of the Hill and Oddball on converted maps. A map offers them once its next release adds the markers.",
-      "body": "### Added\n\n- **King of the Hill and Oddball rules** (MJOLNIRLevelLoader 0.10.0). The\n  loader ships both game types. The lobby offers one only on a map that lists\n  it, and maps start listing them with their next releases.\n- **The hill in the world** (MJOLNIRHud 0.15.0). A wall of plasma stands round the\n  live hill, with a beacon you can see across the map. It is gold when empty,\n  cyan when you hold it, orange-red when another player does, and flashing violet\n  when it is contested.\n- **Hill line** (MJOLNIRHud 0.15.0). In King of the Hill, a line under the score\n  says how far the hill is and which way: \"HILL 12 M LEFT ABOVE\" or \"ON THE\n  HILL\". Hosts relay each move of the hill to fireteam clients.",
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.8.0",
+      "tag": "cli-v0.8.0",
+      "title": "Custom vehicles, scripted devices and CE's game types in the level tools",
+      "date": "2026-11-05",
+      "summary": "The CLI carries a Custom Edition map's own vehicles, scripts and devices into a level, and writes King, Oddball, Race and CE's other game types.",
+      "body": "### Added\n\n- **Custom vehicles.** A level can place a vehicle of its own with `tag`.\n  `mjolnir level machine-collision --plan` writes a CE vehicle's hull and tyres\n  into its collision, and `mjolnir map pack` carries the map's\n  `vehicle_sounds.json`.\n- **A map's scripts and devices.** `mjolnir level bake` carries a Custom Edition\n  map's buttons, gates and automatic doors, and `mjolnir compile --names` checks\n  a script against a scenario's names.\n- **More game types.** The Megalo tools write King, Oddball, Race and their\n  variants.",
       "sections": [
         {
           "heading": "Added",
           "items": [
-            "King of the Hill and Oddball rules (MJOLNIRLevelLoader 0.10.0). The loader ships both game types. The lobby offers one only on a map that lists it, and maps start listing them with their next releases.",
+            "Custom vehicles. A level can place a vehicle of its own with tag. mjolnir level machine-collision --plan writes a CE vehicle's hull and tyres into its collision, and mjolnir map pack carries the map's vehiclesounds.json.",
+            "A map's scripts and devices. mjolnir level bake carries a Custom Edition map's buttons, gates and automatic doors, and mjolnir compile --names checks a script against a scenario's names.",
+            "More game types. The Megalo tools write King, Oddball, Race and their variants."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.8.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.8.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.8.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.44.0",
+      "tag": "mods-v0.44.0",
+      "title": "Drive a Mongoose on Custom Edition maps, and play CE's Standard game types",
+      "date": "2026-11-05",
+      "summary": "Custom Edition maps can bring their own vehicles, starting with the Mongoose, and hosts get King, Oddball, Race and CE's other game types on maps that list them.",
+      "body": "### Added\n\n- **Custom vehicles on Custom Edition maps** (MJOLNIRLevelLoader 0.10.0). A map\n  can carry a vehicle of its own, with its engine sounds, and headlights and\n  taillights on its own body. The Mongoose is the first, and Yoyorast Island V2's\n  next release brings it.\n- **CE's Standard game types** (MJOLNIRLobby 0.20.0, MJOLNIRHud 0.15.0,\n  MJOLNIRLevelLoader 0.10.0). Crazy King, Team King, Team Oddball, Juggernaut,\n  Race, Team Race, Rally and Team Rally join Slayer, CTF, King and Oddball. Click\n  a chosen tile on the game type screen to step through its variants. The lobby\n  offers a game type only on a map that lists it, and maps start listing them\n  with their next releases.\n- **King of the Hill and Oddball rules** (MJOLNIRLevelLoader 0.10.0). The\n  loader ships both game types.\n- **Buttons, gates and shields on converted maps** (MJOLNIRLevelLoader 0.10.0).\n  A Custom Edition map's scripted devices and automatic doors can work on a host,\n  starting with Yoyorast Island V2 and Sanctuary.\n- **The hill in the world** (MJOLNIRHud 0.15.0). A wall of plasma stands round the\n  live hill, with a beacon you can see across the map. It is gold when empty,\n  cyan when you hold it, orange-red when another player does, and flashing violet\n  when it is contested.\n- **Hill line** (MJOLNIRHud 0.15.0). In King of the Hill, a line under the score\n  says how far the hill is and which way: \"HILL 12 M LEFT ABOVE\" or \"ON THE\n  HILL\". Hosts relay each move of the hill to fireteam clients.\n\n### Known issues\n\n- **The Mongoose has only been tested on one PC.** Boarding, both seats, driving,\n  turning, collision, sounds, lights and its DRIVE MONGOOSE prompt were checked on\n  a test map. Nobody has yet ridden one with a second player on another PC.\n- **The Mongoose's handling is not final.** Its speed and steering are worked out\n  from CE's numbers and have not been tuned by players. It still shows the\n  Warthog's HUD icons, and whether it takes damage is unknown.\n- **The new game types have only been hosted on one PC, with bots.** Team scores,\n  contested hills, finishing a lap, Rally flags and passing the Juggernaut all\n  need a second player and are untested.\n- **Devices are host-tested only.** A fireteam client has not used them.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Custom vehicles on Custom Edition maps (MJOLNIRLevelLoader 0.10.0). A map can carry a vehicle of its own, with its engine sounds, and headlights and taillights on its own body. The Mongoose is the first, and Yoyorast Island V2's next release brings it.",
+            "CE's Standard game types (MJOLNIRLobby 0.20.0, MJOLNIRHud 0.15.0, MJOLNIRLevelLoader 0.10.0). Crazy King, Team King, Team Oddball, Juggernaut, Race, Team Race, Rally and Team Rally join Slayer, CTF, King and Oddball. Click a chosen tile on the game type screen to step through its variants. The lobby offers a game type only on a map that lists it, and maps start listing them with their next releases.",
+            "King of the Hill and Oddball rules (MJOLNIRLevelLoader 0.10.0). The loader ships both game types.",
+            "Buttons, gates and shields on converted maps (MJOLNIRLevelLoader 0.10.0). A Custom Edition map's scripted devices and automatic doors can work on a host, starting with Yoyorast Island V2 and Sanctuary.",
             "The hill in the world (MJOLNIRHud 0.15.0). A wall of plasma stands round the live hill, with a beacon you can see across the map. It is gold when empty, cyan when you hold it, orange-red when another player does, and flashing violet when it is contested.",
             "Hill line (MJOLNIRHud 0.15.0). In King of the Hill, a line under the score says how far the hill is and which way: \"HILL 12 M LEFT ABOVE\" or \"ON THE HILL\". Hosts relay each move of the hill to fireteam clients."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "The Mongoose has only been tested on one PC. Boarding, both seats, driving, turning, collision, sounds, lights and its DRIVE MONGOOSE prompt were checked on a test map. Nobody has yet ridden one with a second player on another PC.",
+            "The Mongoose's handling is not final. Its speed and steering are worked out from CE's numbers and have not been tuned by players. It still shows the Warthog's HUD icons, and whether it takes damage is unknown.",
+            "The new game types have only been hosted on one PC, with bots. Team scores, contested hills, finishing a lap, Rally flags and passing the Juggernaut all need a second player and are untested.",
+            "Devices are host-tested only. A fireteam client has not used them."
           ]
         }
       ],

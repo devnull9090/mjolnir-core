@@ -188,6 +188,8 @@ the 13 canvases already carries (B40: warthog, ghost, scorpion, banshee, wraith,
 The added object's assets may still not be streamed for that map; treat cross-map placements as
 experimental.
 
+A placement can also name a tag of its own with `tag`, a path built with `mjolnir new-tag`; `type` then only labels it. The tag's container must be installed beside the map. A clone of the Warthog placed this way loads, boards and drives, also when bound to a cloned Blueprint.
+
 ### `blam.objects` — the structures lane
 
 Each entry becomes a `scenery`, `crates` or `machines` placement in the scnr (palette entry

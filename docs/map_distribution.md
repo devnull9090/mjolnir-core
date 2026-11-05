@@ -57,6 +57,7 @@ map/
   level.json                  the level file the loader reads
   registration.json           the bake's registration record (below)
   bots.json                   where the bot squads stand, for MJOLNIRHud (a map with bots; docs/bots.md)
+  vehicle_sounds.json         a custom vehicle's sounds and lights, for the loader (docs/custom_vehicles.md)
   <foliage file>              the foliage placements the level file names
   decals/*.png                its decals' textures
 docs/README.md                optional
