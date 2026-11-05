@@ -696,10 +696,35 @@ seen):
 | Oddball: abandoned ball | carrier killed; score stopped at 16; 30 s later a new ball at its spawn |
 | Spawns | 0 of 23 on a hill or ball marker; 0 of 48 on a health spot (Slayer, CTF) |
 | Hill line | drawn under the score bar |
+| Hill wall | drawn in a real match on Prisoner, seen in the player's own view from across the map; followed the hill when it moved |
+| Hill colours | every colour drawn on Blood Gulch with stand-in players; `Hill.holder` unit tested |
 
-Not tested: two PCs, a contested hill (needs a second player), `hill_moved`
-reaching a client, Slayer and CTF on a map with the new markers, and the
-lobby menu by hand (`mjolnir_auto` hosted both modes).
+MJOLNIRHud draws the live hill (`Scripts/hill.lua`): a ring of plane panels
+round the scoring circle and a beacon at its centre, all one instance of
+`M_CE_Plasma`, the master CE's plasma shaders use (chunk 983, so no cook). Each
+game draws its own from `koth_hills` and `hill_moved`, so nothing replicates,
+and traces lay the panels along the ground. Without the master the hill has only
+its line. Stock `BasicShapes` has no open cylinder, and its lid roofed the hill.
+
+| Who is on the hill | Colour |
+|---|---|
+| Nobody | gold |
+| You alone | cyan |
+| Another player alone | orange-red |
+| Two or more | violet, flashing; the line reads HILL CONTESTED |
+| One team, in a team game | that team's colour |
+
+The rules count players, so two players contest a hill even on one team, and AI
+bots neither hold nor contest one: they are not players to the script. King has
+no team variant yet, so the team colours wait for one. The HUD works the colour
+out from the players' pawns, within 6 m of the hill's height, not from the
+simulation's boundary, so a hill with a floor just above it can show the wrong
+colour.
+
+Not tested: two PCs, a contested hill (needs a second player), the hill's
+colour with a real player on it, `hill_moved` reaching a client, Slayer and CTF
+on a map with the new markers, and the lobby menu by hand (`mjolnir_auto` hosted
+both modes).
 
 Shipping needs a mods release (DLL, both variants, HUD) and then each map
 rebaked: the placements are in the scenario. `add_bots.py` is the pattern for

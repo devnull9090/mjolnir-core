@@ -1675,7 +1675,24 @@ local function tick()
             end)
             Log("hill marker: " .. Match.hill.start(Match.code) .. " hill(s)")
         end
-        Match.hill.tick(now(), pc, HudHidden)
+        -- Players, not AI: the script walks players, so bots neither hold a
+        -- hill nor contest one.
+        Match.hill.tick(now(), pc, HudHidden, function()
+            local players = {}
+            pc:GetWorld().GameState.PlayerArray:ForEach(function(_, element)
+                local ps = element:get()
+                local pawn = ps:GetPawn()
+                if pawn and pawn:IsValid() then
+                    local index = ps.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
+                    players[#players + 1] = {
+                        at = pawn:K2_GetActorLocation(),
+                        team = Match.mode.teams and stats(index).team or nil,
+                        me = pawn:GetAddress() == pc.Pawn:GetAddress(),
+                    }
+                end
+            end)
+            return players
+        end)
     end
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets.
