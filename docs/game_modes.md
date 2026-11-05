@@ -778,11 +778,11 @@ slot 6.
 | Team Oddball | `team_oddball` | as Oddball, teams sum | 120 |
 | Juggernaut | `juggernaut` | first killer takes the slot; killing it passes it; +1 for killing it, for its kills and for a kill while nobody is it | 15 |
 | King | `koth` | fixed hill, the hill of spawn order 0 | 120 |
-| Crazy King | `crazy_king` | the hill moves to a random other one every 60 s | 120 |
+| Crazy King | `crazy_king` | the hill moves every 60 s, in a shuffled order | 120 |
 | Team King | `team_koth` | moves; teammates never contest | 120 |
 | Race | `race` | a lap is every flag in order, then the first | 3 |
 | Team Race | `team_race` | as Race, teams sum | 6 |
-| Rally | `rally` | one live flag; whoever touches it scores and it moves | 15 |
+| Rally | `rally` | one live flag; whoever touches it scores and it moves on, in a shuffled order | 15 |
 | Team Rally | `team_rally` | as Rally, teams sum | 15 |
 
 Where these differ from CE (`game_engine_*.c`, Xbox 2342; PC retail unconfirmed):
@@ -804,7 +804,19 @@ Every new form needs the registry DLL from the same release, and the launcher's
 hub validator links `blam-megalo` too. Each map needs `add_objectives.py` and a
 hub release before it offers King, Oddball or Race.
 
-TESTRESULTS
+Tested on PC 1, 2026-11-04, on the rebaked Blood Gulch and Prisoner, private, one player with bots:
+
+| Check | Result |
+|---|---|
+| Hosted and running | Race (PRS), Rally (PRS), Crazy King (PRS, BGL), Team King (BGL), Team Race (BGL), Juggernaut (BGL), Team Oddball (PRS), CTF (BGL); every file passed the registry DLL and the id reached the loader |
+| Game type screen | six engine tiles; clicking a tile steps its variants; SELECT shows Juggernaut in the lobby |
+| Race | `checkpoint_reached` reaches Unreal; walking through a flag moved the marker on (flag 3 to flag 4 of 9) |
+| Hill movement | Team King moved at 60 s on Blood Gulch |
+| Team HUD | RED / YOU against BLUE in Team King and Team Race |
+
+The sim's random pick (`Get Random Object With Label`, action 96) worked on Prisoner and never fired on Blood Gulch, so moving hills and rally flags walk by spawn order instead: the step grows each move, so the order looks random and a hill never repeats. The cause is unknown; Blood Gulch is the map with vehicle filters added. Crazy King's walk was seen moving on Blood Gulch only as Team King, which shares its code.
+
+Not tested: a full lap or a Race win, touching a Rally flag, any team score, a contested hill, passing the Juggernaut or its beacon (bots are not players to the script, so all of these need two PCs), a suicide in Slayer, Slayer and plain King on this build, and any vehicle in a race.
 
 ---
 
