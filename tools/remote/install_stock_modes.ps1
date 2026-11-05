@@ -43,9 +43,21 @@ if ($Check) {
 
 if (Get-Process -Name HaloCampaignEvolved -ErrorAction SilentlyContinue) { throw "Close the game first." }
 
+# A hub map's chunk number differs between PCs (Prisoner is 914 on one, 915 on
+# the other), so its containers go in under the name this PC already has: a
+# second name would mount the map twice.
+function Installed-Name([string]$name) {
+    if ($name -notmatch '^pakchunk\d+(-MJOLNIRHUB-.+)$') { return $name }
+    $found = @(Get-ChildItem -File (Join-Path $dest["Paks"] ("pakchunk*" + $Matches[1])))
+    if ($found.Count -ne 1) { throw "$name is not installed here once ($($found.Count) found). Install the map from the hub first." }
+    return $found[0].Name
+}
+
 $files = foreach ($top in "Win64", "Paks") {
     Get-ChildItem -Recurse -File (Join-Path $here $top) | ForEach-Object {
-        [pscustomobject]@{ Rel = $_.FullName.Substring((Join-Path $here $top).Length + 1); Top = $top; Src = $_.FullName }
+        $rel = $_.FullName.Substring((Join-Path $here $top).Length + 1)
+        if ($top -eq "Paks") { $rel = Installed-Name $rel }
+        [pscustomobject]@{ Rel = $rel; Top = $top; Src = $_.FullName }
     }
 }
 
@@ -61,12 +73,6 @@ if ($Restore) {
     $choice = Join-Path $win64 "ue4ss\Mods\MJOLNIRLevelLoader\match_variant.txt"
     if (Test-Path $choice) { Remove-Item -Force $choice }
     return
-}
-
-foreach ($p in "pakchunk902-MJOLNIRHUB-ce-blood-gulch-3_P.utoc", "pakchunk914-MJOLNIRHUB-ce-prisoner-2_P.utoc") {
-    if (-not (Test-Path (Join-Path $dest["Paks"] $p))) {
-        throw "$p is not installed. Install Blood Gulch and Prisoner from the hub first: the kit replaces their containers."
-    }
 }
 
 $fresh = -not (Test-Path $backup)
