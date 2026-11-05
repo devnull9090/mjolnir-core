@@ -776,7 +776,9 @@ slot 6.
 | CTF | `ctf` | | 3 |
 | Oddball | `oddball` | 1 a second while holding the ball | 120 |
 | Team Oddball | `team_oddball` | as Oddball, teams sum | 120 |
-| Juggernaut | `juggernaut` | first killer takes the slot; killing it passes it; +1 for killing it, for its kills and for a kill while nobody is it | 15 |
+| Juggernaut | `juggernaut` | first killer takes the slot; killing it passes it; +1 for killing it, for its kills and for a kill while nobody is it; it deals x1.5 damage | 15 |
+| Stalker | `stalker` | Juggernaut's rule: it is invisible and fast, everyone else takes half damage | 10 |
+| Reverse Tag | `reverse_tag` | a kill passes "it"; it scores 1 a second and runs at 75% | 120 |
 | King | `koth` | fixed hill, the hill of spawn order 0 | 120 |
 | Crazy King | `crazy_king` | the hill moves every 60 s, in a shuffled order | 120 |
 | Team King | `team_koth` | moves; teammates never contest | 120 |
@@ -791,14 +793,12 @@ Where these differ from CE (`game_engine_*.c`, Xbox 2342; PC retail unconfirmed)
   stop, as Reach does, by the user's choice (2026-11-04). `CONTESTED_HILL_SCORES` in `objectives.rs` and
   `Hill.CONTESTED_HILL_SCORES` in `hill.lua` flip it together.
 - **Team Race** cannot use CE's minimum team score, so a team sums to 6.
-- **Juggernaut** has no extra damage: three readers refuse a variant with script
-  traits (`Variant::read`, Hud `variant.lua`, loader `variant_settings.lua`).
-- **Oddball** speed and traits are missing for the same reason.
+- **Oddball** keeps normal speed, as CE's Standard bank does. Its Classic slow carrier and ball traits are not offered.
+- **Stalker** runs at 120%: the sim's speed table has no 125%. CE's motion tracker blip on the Stalker has no replacement, so hunters have only the feed line.
 - **Race vehicles**, section 3.5.
 
 Assault is the Standard game type not built: it needs side swap (B8) and a slot
-of its own. CE's Classic presets (Rockets, Snipers, Phantoms, Reverse Tag,
-Stalker and the rest) need weapon sets, traits or lives.
+of its own. CE's other Classic presets (Rockets, Snipers, Phantoms and the rest) need weapon sets, traits or lives.
 
 Every new form needs the registry DLL from the same release, and the launcher's
 hub validator links `blam-megalo` too. Release order for script traits
@@ -819,6 +819,8 @@ Tested on PC 1, 2026-11-04, on the rebaked Blood Gulch and Prisoner, private, on
 | Team HUD | RED / YOU against BLUE in Team King and Team Race |
 
 The sim's random pick (`Get Random Object With Label`, action 96) worked on Prisoner and never fired on Blood Gulch, so moving hills and rally flags walk by spawn order instead: the step grows each move, so the order looks random and a hill never repeats. The cause is unknown; Blood Gulch is the map with vehicle filters added. Crazy King's walk was seen moving on Blood Gulch only as Team King, which shares its code.
+
+Script traits, tested on PC 1, 2026-11-05: a test variant (`--mode trait-test`, never shipped) ran 22 m in a 2 s run against 13 to 15 m normally, the 1.5 it sets, and drew the player in active camo. Stalker and Reverse Tag host and run. Damage, damage resistance, and the traits on someone who is "it" were not measured: bots are not players to the script, so nobody becomes it solo.
 
 Not tested: a full lap or a Race win, touching a Rally flag, any team score, a contested hill, passing the Juggernaut or its beacon (bots are not players to the script, so all of these need two PCs), a suicide in Slayer, Slayer and plain King on this build, and any vehicle in a race.
 
