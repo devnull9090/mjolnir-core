@@ -108,6 +108,12 @@ eq(Teams.hubMounts(nil, stem), false, "no state")
 eq(Teams.TEAM_GAMES.ctf, true, "CTF is a team game")
 eq(Teams.TEAM_GAMES.team_slayer, true, "Team Slayer is a team game")
 eq(Teams.TEAM_GAMES.slayer, nil, "Slayer is not")
+for _, id in ipairs({ "team_koth", "team_oddball", "team_race", "team_rally" }) do
+    eq(Teams.TEAM_GAMES[id], true, id .. " is a team game")
+end
+for _, id in ipairs({ "koth", "crazy_king", "oddball", "juggernaut", "race", "rally" }) do
+    eq(Teams.TEAM_GAMES[id], nil, id .. " is not")
+end
 
 print("Teams: flag teams from model variants, player teams, the first-person flag's enemy, the pin "
     .. "rule, the Paks folder, the blue flag's container in the hub state")

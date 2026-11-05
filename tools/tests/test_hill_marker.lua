@@ -233,4 +233,141 @@ m.tick(5, s.pc, false)
 eq(m.beacon.hidden, true, "invalid world safely hides the marker")
 eq(m.anchor.hidden, true, "invalid world safely hides the anchor")
 eq(m.widget.visibility, 1, "invalid world keeps the HUD hidden")
+
+-- A team game: teammates share the hill, and a fixed hill never moves.
+eq(Hill.holder(hill, { { at = at(0), team = "Blue", me = true } }), "Blue", "a team's lone player")
+eq(Hill.holder(hill, { { at = at(0), team = "Blue" }, { at = at(100), team = "Blue" }, { at = at(900), team = "Red" } }),
+    "Blue", "teammates never contest, and an enemy outside changes nothing")
+
+-- CE's reading of a contest, one constant away: everyone on the hill scores.
+Hill.CONTESTED_HILL_SCORES = true
+eq(Hill.holder(hill, { { at = at(0) }, { at = at(100), me = true } }), "you", "CE: nothing is contested")
+eq(Hill.holder(hill, { { at = at(0) }, { at = at(100) } }), "other", "CE: without you")
+Hill.CONTESTED_HILL_SCORES = false
+
+-- Race: the flag lines.
+local Race = dofile("mods/MJOLNIRHud/Scripts/race.lua")
+eq(Race.flagLine(2, 9, false, false, 42, "AHEAD", ""), "FLAG 3 OF 9, 42 M AHEAD", "a flag ahead")
+eq(Race.flagLine(2, 9, false, true, 0, "AHEAD", ""), "FLAG 3 OF 9 HERE", "on the flag")
+eq(Race.flagLine(2, 9, false, true, 0, "AHEAD", " BELOW"), "FLAG 3 OF 9 BELOW", "over the flag")
+eq(Race.flagLine(2, 9, true, false, 7, "LEFT", " ABOVE"), "FLAG 7 M LEFT ABOVE", "Rally has no order")
+eq(Race.lapLine(0, 3), "LAP 1 OF 3", "first lap")
+eq(Race.lapLine(3, 3), "LAP 3 OF 3", "never past the last")
+eq(Race.lapLine(4, 0), "LAP 5", "no limit")
+
+local FLAGS = '"race_flags": [[0,0,0,500],[2000,0,0,300],[4000,0,0,300]], "koth_hills": [[9,9,9,9]]'
+eq(#Race.parse(Hill, FLAGS), 3, "race_flags, not another list")
+eq(Race.parse(Hill, FLAGS)[2].x, 2000, "in rank order")
+eq(#Race.parse(Hill, '{"modes": ["slayer"]}'), 0, "a map with no flags")
+
+local all = { [FIELD] = true, [BEACON] = true, [PLANE] = true, [CYLINDER] = true }
+local function standAt(scene_, x)
+    scene_.pc.Pawn.K2_GetActorLocation = function() return { X = x, Y = 0, Z = 0 } end
+end
+local function raceScene(rally)
+    local scene_ = scene(all)
+    local race = Race.new(Hill, function() return FLAGS end, rally)
+    eq(race.start("ABC"), 3, "race start")
+    return scene_, race
+end
+
+local rs, race = raceScene()
+standAt(rs, -2500)
+race.tick(0, rs.pc, false, 0, 3)
+eq(race.text.text, "LAP 1 OF 3 / FLAG 1 OF 3, 20 M AHEAD", "the first flag")
+eq(race.mid.params.FieldCenter.R, 0, "the ring stands on it")
+eq(race.mid.params.FieldCenter.A, 500, "with the flag's radius")
+race.checkpoint(1, 2, 0)
+eq(race.rank, 0, "another racer's checkpoint is not ours")
+race.checkpoint(0, 2, 0)
+eq(race.rank, 2, "our next rank")
+race.checkpoint(0, 9, 0)
+eq(race.rank, 2, "a rank past the list changes nothing")
+standAt(rs, 3000)
+race.tick(1, rs.pc, false, 2, 3)
+eq(race.text.text, "LAP 3 OF 3 / FLAG 3 OF 3, 7 M AHEAD", "the ring moved, and the lap count with the board")
+eq(race.mid.params.FieldCenter.R, 4000, "the ring followed the rank")
+eq(race.anchor.location.X, 4000, "so did the anchor")
+standAt(rs, 4000)
+race.tick(30, rs.pc, false, 2, 3)
+eq(race.rank, 2, "once heard, only the script advances")
+eq(race.text.text, "LAP 3 OF 3 / FLAG 3 OF 3 HERE", "standing on it")
+rs.pc.Pawn.valid = false
+race.tick(31, rs.pc, false, 2, 3)
+eq(race.widget.visibility, 1, "no body, no line")
+eq(race.beacon.hidden, false, "the flag stays up for a racer waiting to respawn")
+
+-- The script silent: the local count takes over after the grace.
+rs, race = raceScene()
+standAt(rs, 0)
+race.tick(0, rs.pc, false, 0, 3)
+race.tick(3, rs.pc, false, 0, 3)
+eq(race.rank, 0, "the script has a few seconds to speak")
+race.tick(5, rs.pc, false, 0, 3)
+eq(race.rank, 1, "then the pawn on the flag advances")
+race.tick(6, rs.pc, false, 0, 3)
+eq(race.rank, 1, "and only that flag counts")
+standAt(rs, 2000); race.tick(7, rs.pc, false, 0, 3)
+standAt(rs, 4000); race.tick(8, rs.pc, false, 0, 3)
+eq(race.rank, 0, "past the last, back to the first")
+eq(race.laps, 0, "not a lap until the first flag is touched")
+standAt(rs, 0); race.tick(9, rs.pc, false, 0, 3)
+eq(race.laps, 1, "a lap")
+eq(race.rank, 1, "and on")
+eq(race.text.text, "LAP 2 OF 3 / FLAG 2 OF 3, 17 M AHEAD", "the local lap count shows")
+race.checkpoint(0, 0, 0)
+eq(race.rank, 0, "a late incident takes over")
+race.tick(40, rs.pc, false, 0, 3)
+eq(race.rank, 0, "and the local count stops")
+
+-- Rally: one live flag for all, from an incident with no player.
+rs, race = raceScene(true)
+standAt(rs, 2500)
+race.tick(0, rs.pc, false, 0, 15)
+race.checkpoint(-1, 2, 0)
+race.tick(1, rs.pc, false, 0, 15)
+eq(race.text.text, "FLAG 12 M AHEAD", "Rally's line")
+standAt(rs, 4000)
+race.tick(9, rs.pc, false, 0, 15)
+eq(race.rank, 2, "touching it is the script's to judge")
+
+-- Juggernaut: a beacon on whoever it is, read afresh each update.
+local Juggernaut = dofile("mods/MJOLNIRHud/Scripts/juggernaut.lua")
+local js = scene(all)
+local jug = Juggernaut.new(Hill)
+local bodies = {}
+local function list() return bodies end
+jug.tick(0, js.pc, false, 0, list)
+eq(jug.beacon, nil, "nobody is it")
+eq(jug.named(2), true, "a new Juggernaut")
+eq(jug.named(2), false, "a resend is not news")
+jug.tick(1, js.pc, false, 0, list)
+eq(jug.beacon, nil, "their body is gone, nothing to mark")
+bodies = { { index = 0, at = { X = 1, Y = 1, Z = 1 } }, { index = 2, at = { X = 100, Y = 200, Z = 300 } } }
+jug.tick(2, js.pc, false, 0, list)
+eq(jug.beacon.location.X, 100, "the beacon stands on them")
+eq(jug.beacon.hidden, false, "shown")
+eq(jug.beaconMid.params.FieldCenter.G, 200, "the shader follows")
+eq(#jug.parts, 0, "no wall")
+eq(jug.widget.visibility, 1, "no line for the others")
+bodies[2].at = { X = 500, Y = 200, Z = 300 }
+jug.tick(3, js.pc, false, 0, list)
+eq(jug.beacon.location.X, 500, "and follows them")
+jug.named(0)
+jug.tick(4, js.pc, false, 0, list)
+eq(jug.beacon.location.X, 1, "a new Juggernaut has it")
+eq(jug.text.text, "YOU ARE THE JUGGERNAUT", "and is told")
+eq(jug.widget.visibility, 4, "the line shows")
+local beacon = jug.beacon
+beacon.valid = false
+jug.tick(5, js.pc, false, 0, list)
+assert(jug.beacon ~= beacon, "a freed beacon is replaced")
+eq(jug.beacon.StaticMeshComponent.material, jug.beaconMid, "with its material")
+eq(jug.named(-1), false, "a free slot is no one's news")
+jug.tick(6, js.pc, false, 0, list)
+eq(jug.beacon.hidden, true, "and hides the beacon")
+eq(jug.widget.visibility, 1, "and the line")
+jug.named(0)
+jug.tick(7, js.pc, true, 0, list)
+eq(jug.beacon.hidden, true, "a hidden HUD hides it")
 print("hill marker: ok")

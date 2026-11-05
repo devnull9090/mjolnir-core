@@ -25,7 +25,7 @@ local text = read(dir .. "settings.txt")
 local settings = VariantSettings.parse(text)
 eq(VariantSettings.format(settings), text, "format(parse(text))")
 
-for _, mode in ipairs({ "slayer", "ctf" }) do
+for _, mode in ipairs({ "slayer", "ctf", "team_koth", "juggernaut", "race" }) do
     local default = read(dir .. mode .. "_default.mglo")
     local expected = read(dir .. mode .. "_settings.mglo")
     local patched, err = VariantSettings.apply(default, settings)
@@ -54,4 +54,4 @@ assert(none == nil and why:find("does not fit"), "a value too wide is refused")
 none = VariantSettings.apply("not a variant", { time_limit = 1 })
 assert(none == nil, "a file that is not a variant is refused")
 
-print("Variant settings: patched Slayer and CTF match the Rust writer; bad settings are refused")
+print("Variant settings: patched Slayer, CTF, Team King, Juggernaut and Race match the Rust writer; bad settings are refused")

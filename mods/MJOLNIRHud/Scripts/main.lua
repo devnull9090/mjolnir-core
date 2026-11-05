@@ -43,7 +43,6 @@ local Rows = dofile(MOD_DIR .. "\\Scripts\\feed.lua")
 local Anim = dofile(MOD_DIR .. "\\Scripts\\anim.lua")
 local Icons = dofile(MOD_DIR .. "\\Scripts\\hudicons.lua")
 local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
-local Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
@@ -135,6 +134,20 @@ local function readFile(path)
     f:close()
     return data
 end
+
+--- What the match marks in the world: the hill, the next flag, the Juggernaut.
+local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
+    Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
+    Race = dofile(MOD_DIR .. "\\Scripts\\race.lua"),
+    Juggernaut = dofile(MOD_DIR .. "\\Scripts\\juggernaut.lua"),
+    Board = Scoreboard,
+    log = Log,
+    readLevel = function(map)
+        local root = MOD_DIR:match("^(.*)\\Mods\\[^\\]*$") or MOD_DIR
+        return readFile(root .. "\\MJOLNIRMaps\\" .. map .. "\\level.json")
+            or readFile(LOADER_DIR .. "\\levels\\" .. map .. ".json")
+    end,
+})
 
 --- The first local player's controller, read through the engine: a few
 --- property reads. It was FindAllOf("PlayerController"), which walks every
@@ -278,6 +291,7 @@ local function refreshNames()
                     if p.arriving and p.leftName and name ~= p.leftName then
                         Log(string.format("seat %d: %s took %s's seat; its tallies start again", index, name, p.leftName))
                         p.kills, p.rawKills, p.deaths, p.suicides, p.captures = 0, 0, 0, 0, 0
+                        p.objectiveScore = nil
                         p.display, p.userId, p.reports, p.team = nil, nil, nil, nil
                         boardDirty = true
                     end
@@ -405,6 +419,14 @@ HANDLERS.suicide = function(inc)
     if type(victim) ~= "number" or victim < 0 then return end
     stats(victim).suicides = stats(victim).suicides + 1
     stats(victim).lastLine = inc.at
+    -- Slayer's script takes a point for it, with no incident of its own, and
+    -- walks players, so a bot loses nothing.
+    if Match.mode.suicidePenalty and not Bots.isBot(victim) then
+        stats(victim).kills = stats(victim).kills - 1
+        if Match.mode.teams then
+            Match.teamKills[#Match.teamKills + 1] = { player = victim, team = stats(victim).team, points = -1 }
+        end
+    end
     eventLine(victim, "Skull", FEED.words, "committed suicide")
     boardDirty = true
 end
@@ -483,24 +505,28 @@ end
 HANDLERS["30_seconds_remaining"] = function(inc) clockFrom(30, inc.at) end
 HANDLERS["10_seconds_remaining"] = function(inc) clockFrom(10, inc.at) end
 
--- Timed objectives send the simulation's absolute total each scoring second.
--- Repeated or delayed relay snapshots cannot award points twice.
-HANDLERS.ball_taken = function(inc)
-    if Match.variant ~= "oddball" or type(inc.cause) ~= "number" or inc.cause < 0
+-- Objectives send the simulation's absolute total each time a player scores.
+-- Repeated or delayed relay snapshots cannot award points twice. Each game
+-- type family has its incident (Scoreboard.modes `snapshot`); a family's own
+-- is the only one that counts, as the same incident means other things too.
+local function scoreSnapshot(inc)
+    if Match.mode.snapshot ~= inc.name or type(inc.cause) ~= "number" or inc.cause < 0
         or type(inc.value) ~= "number" or inc.value <= 0 then return end
     local p = stats(inc.cause)
     p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
     boardDirty = true
 end
-HANDLERS.hill_moved = function(inc)
-    if Match.hill then Match.hill.moved(inc.value) end
+for _, mode in pairs(MODES) do
+    if mode.snapshot then HANDLERS[mode.snapshot] = scoreSnapshot end
 end
-HANDLERS.hill_controlled = function(inc)
-    if Match.variant ~= "koth" or type(inc.cause) ~= "number" or inc.cause < 0
-        or type(inc.value) ~= "number" or inc.value <= 0 then return end
-    local p = stats(inc.cause)
-    p.objectiveScore = math.max(p.objectiveScore or 0, inc.value)
-    boardDirty = true
+
+local function markerIncident(inc)
+    return Markers.incident(Match, inc, LOCAL_PLAYER)
+end
+HANDLERS.hill_moved = markerIncident
+HANDLERS.checkpoint_reached = markerIncident
+HANDLERS.new_juggernaut = function(inc)
+    if markerIncident(inc) then eventLine(inc.cause, "Medal", FEED.medal, "is the Juggernaut", FEED.medal) end
 end
 
 HANDLERS.player_spawn = function(inc)
@@ -1040,7 +1066,7 @@ local function drawBoard()
         setText(Board.Subtitle, string.upper(Match.title or Match.code) .. "   /   " ..
             string.format("FIRST TO %d %s", mode.toWin, string.upper(mode.unit)))
     end
-    setText(Board.ScoreH, mode.stat == "captures" and "CAPTURES" or "SCORE")
+    setText(Board.ScoreH, mode.stat == "captures" and "CAPTURES" or mode.family == "race" and string.upper(mode.unit) or "SCORE")
     refreshNames()
     local totals = Scoreboard.totals(Match)
     local rows = Scoreboard.rows(Match.players, mode, totals)
@@ -1491,7 +1517,7 @@ local function endMatch()
     widgetTries = 0
     if Feed and Feed:IsValid() then setVisible(Feed, false) end
     if Board and Board:IsValid() then setVisible(Board, false) end
-    if Match and Match.hill then Match.hill.hide() end
+    if Match then Markers.hide(Match) end
     Match, Feed, Board = nil, nil, nil
     Queue = {}
 end
@@ -1666,34 +1692,7 @@ local function tick()
     ensureFrameHook()
     refreshLocalPlayer()
     Match.host = isHostWorld(pc)
-    if Match.variant == "koth" then
-        if not Match.hill then
-            Match.hill = Hill.new(function(map)
-                local root = MOD_DIR:match("^(.*)\\Mods\\[^\\]*$") or MOD_DIR
-                return readFile(root .. "\\MJOLNIRMaps\\" .. map .. "\\level.json")
-                    or readFile(LOADER_DIR .. "\\levels\\" .. map .. ".json")
-            end)
-            Log("hill marker: " .. Match.hill.start(Match.code) .. " hill(s)")
-        end
-        -- Players, not AI: the script walks players, so bots neither hold a
-        -- hill nor contest one.
-        Match.hill.tick(now(), pc, HudHidden, function()
-            local players = {}
-            pc:GetWorld().GameState.PlayerArray:ForEach(function(_, element)
-                local ps = element:get()
-                local pawn = ps:GetPawn()
-                if pawn and pawn:IsValid() then
-                    local index = ps.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
-                    players[#players + 1] = {
-                        at = pawn:K2_GetActorLocation(),
-                        team = Match.mode.teams and stats(index).team or nil,
-                        me = pawn:GetAddress() == pc.Pawn:GetAddress(),
-                    }
-                end
-            end)
-            return players
-        end)
-    end
+    Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets.
     if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then

@@ -28,6 +28,15 @@ local forCtf = VariantSettings.forMode(VariantSettings.parse(Settings.variantLin
 eq(forCtf.score, 3, "CTF's score for a CTF variant")
 eq(forCtf["score.slayer"], nil, "other game types' scores dropped")
 eq(#Settings.changes("slayer"), 0, "no changes at the defaults")
+-- A variant without a score row keeps its file's score, and every field still
+-- patches: nothing in the line is keyed to the first six game types.
+for _, id in ipairs({ "crazy_king", "team_koth", "team_oddball", "juggernaut", "race", "team_race", "rally", "team_rally" }) do
+    local forVariant = VariantSettings.forMode(VariantSettings.parse(Settings.variantLine()), id)
+    eq(forVariant.score, nil, id .. " keeps its own score")
+    eq(Settings.option("score", id), nil, id .. " has no score row")
+    eq(forVariant.time_limit, 0, id .. " takes the host's time limit")
+    eq(#Settings.changes(id), 0, id .. ": no changes at the defaults")
+end
 eq(Settings.option("score", "oddball"), nil, "no score option for a game type without one")
 -- Bots: on the PLAYERS page, carried for MJOLNIRHud, never a variant field.
 eq(Settings.option("bots").page, 2, "BOTS on the PLAYERS page")

@@ -56,7 +56,7 @@ class PreviewSwapTests(unittest.TestCase):
         self.state_bytes = self.state.read_bytes()
         water = {'height': 'flux_state/height.exr', 'velocity': 'flux_state/velocity.exr',
                  'centre': [1, 2, 3], 'res': [8, 8], 'cell': 20, 'height_cm': 2000}
-        self.write_json(self.stage / 'tst.level.json', {'modes': ['slayer', 'team_slayer', 'ctf'],
+        self.write_json(self.stage / 'tst.level.json', {'modes': ['slayer', 'ctf'],
                         'foliage': {'file': 'foliage.bin'}, 'flux': {'state': water}})
         self.write_json(self.stage / 'TST.registration.json', {'code': 'TST',
                         'world': '/Game/Levels/Halo1/Solo/TST/TST.TST'})

@@ -9,6 +9,7 @@ end
 FText = function(value) return value end
 StaticFindObject = function() return nil end -- Missing icons must not prevent selection.
 local GameType = dofile("mods/MJOLNIRLobby/Scripts/gametype.lua")
+local Modes = dofile("mods/MJOLNIRLobby/Scripts/modes.lua")
 
 local MODES = {
     { id = "slayer", name = "SLAYER", description = "Every Spartan for themselves." },
@@ -60,7 +61,9 @@ local function harness()
         end
         return s
     end
+    Modes.memory = {}
     h.picker = GameType.new({
+        modes = Modes,
         valid = function(value) return type(value) == "table" and not value.invalid end,
         alive = function(value) return value ~= nil and value.active == true end,
         sameWidget = function(a, b) return a:GetAddress() == b:GetAddress() end,
@@ -195,6 +198,41 @@ h.open()
 h.event("mode:5")
 h.event("select")
 eq(h.commits[1].id, "forge", "sixth mode can be confirmed")
+
+-- A tile is an engine: a click on the chosen tile steps through its variants,
+-- and SELECT commits the variant, never the engine.
+local KING = {}
+for _, field in ipairs({ { "koth", "KING" }, { "crazy_king", "CRAZY KING" }, { "team_koth", "TEAM KING", true } }) do
+    KING[#KING + 1] = { id = field[1], engine = "koth", name = field[2], teams = field[3], description = field[2] }
+end
+h = harness()
+h.modes = { MODES[1], KING[1], KING[2], KING[3] }
+h.mode = KING[2]
+s = h.open()
+eq(s.ListCount.text, "2 GAME TYPES AVAILABLE", "variants share a tile")
+eq(s.Mode1Label.text, "KING OF THE HILL", "the tile names the engine")
+eq(s.Mode1Format.text, "CRAZY KING  /  VARIANT 2 OF 3", "and the variant it stands for")
+eq(s.Mode1Current.text, "CURRENT", "any variant of the engine marks the tile")
+eq(s.ModeTitle.text, "CRAZY KING", "the current variant previews")
+eq(h.focus, s.Mode1, "the current engine's tile receives focus")
+eq(s.Mode2.visibility, 1, "no third tile")
+h.event("mode:1")
+eq(s.ModeTitle.text, "TEAM KING", "a click on the chosen tile steps")
+eq(s.MatchFormat.text, "RED TEAM  /  BLUE TEAM", "and the format follows")
+eq(s.Mode1Format.text, "TEAM KING  /  VARIANT 3 OF 3", "and the tile's line")
+eq(#h.commits, 0, "stepping is a draft")
+h.event("mode:0")
+eq(s.ModeTitle.text, "SLAYER", "another tile chooses its variant")
+h.event("hover:1")
+eq(s.ModeTitle.text, "TEAM KING", "a tile left previews what it stands for")
+h.event("unhover:1")
+h.event("mode:1")
+eq(s.ModeTitle.text, "TEAM KING", "and returns to it")
+h.event("mode:1")
+eq(s.ModeTitle.text, "KING", "the last variant wraps round")
+h.event("mode:1")
+h.event("select")
+eq(h.commits[1].id, "crazy_king", "SELECT commits the variant")
 
 -- Empty maps remain navigable, while old UI containers retain a working route.
 h = harness()

@@ -8,8 +8,16 @@
 -- under the score, how far and which way, and the hill itself: a holographic
 -- boundary round the scoring cylinder and a beacon above it. Each game draws its
 -- own, so it needs no replication, and the sim never sees these actors.
+--
+-- Hill.field is that drawing on its own, for anything else that marks a spot in
+-- the world: Scripts/race.lua's flags and Scripts/juggernaut.lua's beacon.
 
 local Hill = {}
+
+--- The script's rule, CONTESTED_HILL_SCORES in crates/blam-megalo/src/objectives.rs:
+--- flip the two together. False: a contested hill scores nothing, and shows it.
+--- True: everyone on it scores (CE), so nothing is shown as contested.
+Hill.CONTESTED_HILL_SCORES = false
 
 local COLLAPSED = 1 -- ESlateVisibility
 local VISIBLE_NO_HIT_TEST = 4
@@ -45,6 +53,7 @@ local FALLBACK_BEACON_BRIGHTNESS = 0.55
 local NOISE_SCALE = 0.35
 local MATERIAL_RETRY_SECONDS = 3
 local HILL_HEIGHT_CM = 600 -- how far above or below still counts as on it
+local PILLAR = {} -- what `drawn` holds while only the beacon stands
 local COLOURS = {
     empty = { para = { 1, 0.8, 0.25 }, perp = { 1, 0.55, 0.08 } }, -- gold
     you = { para = { 0.45, 1, 0.9 }, perp = { 0.1, 0.8, 1 } }, -- cyan
@@ -54,9 +63,10 @@ local COLOURS = {
     Blue = { para = { 0.35, 0.6, 1 }, perp = { 0.1, 0.3, 1 } },
 }
 
---- The hills in a level file's text, in rotation order.
-function Hill.parse(text)
-    local list = type(text) == "string" and text:match('"koth_hills"%s*:%s*(%b[])') or nil
+--- The hills in a level file's text, in rotation order; or another list of
+--- [x, y, z, radius] under `key`.
+function Hill.parse(text, key)
+    local list = type(text) == "string" and text:match('"' .. (key or "koth_hills") .. '"%s*:%s*(%b[])') or nil
     local hills = {}
     if not list then return hills end
     local n = "([-%d.eE+]+)"
@@ -67,20 +77,17 @@ function Hill.parse(text)
     return hills
 end
 
---- The line for a player at `at` looking along `yaw` (degrees): the hill's
---- distance and bearing, in the words a player would use.
-function Hill.describe(hill, at, yaw)
-    local dx, dy, dz = hill.x - at.X, hill.y - at.Y, hill.z - at.Z
+--- Where `spot` lies from a player at `at` looking along `yaw` (degrees), in
+--- the words a player would use: whether they stand inside its circle, the
+--- metres to its edge, the way to turn, and " ABOVE", " BELOW" or "".
+function Hill.bearing(spot, at, yaw)
+    local dx, dy, dz = spot.x - at.X, spot.y - at.Y, spot.z - at.Z
     local flat = math.sqrt(dx * dx + dy * dy)
     local level = ""
     if dz > LEVEL_DIFFERENCE_CM then
         level = " ABOVE"
     elseif dz < -LEVEL_DIFFERENCE_CM then
         level = " BELOW"
-    end
-    if flat <= hill.r then
-        if level == "" then return "ON THE HILL" end
-        return "HILL" .. level
     end
     local turn = (math.deg(math.atan(dy, dx)) - yaw + 540) % 360 - 180
     local way
@@ -93,27 +100,47 @@ function Hill.describe(hill, at, yaw)
     else
         way = "RIGHT"
     end
-    return string.format("HILL %d M %s%s", math.floor((flat - hill.r) / CM_PER_METRE + 0.5), way, level)
+    return flat <= spot.r, math.floor((flat - spot.r) / CM_PER_METRE + 0.5), way, level
+end
+
+--- The line for a player at `at` looking along `yaw`: the hill's distance and
+--- bearing.
+function Hill.describe(hill, at, yaw)
+    local inside, metres, way, level = Hill.bearing(hill, at, yaw)
+    if inside then
+        if level == "" then return "ON THE HILL" end
+        return "HILL" .. level
+    end
+    return string.format("HILL %d M %s%s", metres, way, level)
+end
+
+--- Whether `at` is on `spot`: in its circle and near its height.
+function Hill.on(spot, at)
+    local dx, dy = at.X - spot.x, at.Y - spot.y
+    return dx * dx + dy * dy <= spot.r * spot.r and math.abs(at.Z - spot.z) <= HILL_HEIGHT_CM
 end
 
 --- Who has the hill: "empty", "contested", a team's name, or in free for all
---- "you" or "other". The script scores one player alone on the hill, and two
---- players contest it. `players` lists { at, team, me } for each one alive;
+--- "you" or "other". The script scores one player alone on the hill; two
+--- players contest it, or in a team game both teams, and teammates never
+--- contest each other. `players` lists { at, team, me } for each one alive;
 --- team is nil in free for all.
 function Hill.holder(hill, players)
     local on = {}
     for _, p in ipairs(players) do
-        local dx, dy = p.at.X - hill.x, p.at.Y - hill.y
-        if dx * dx + dy * dy <= hill.r * hill.r and math.abs(p.at.Z - hill.z) <= HILL_HEIGHT_CM then
-            on[#on + 1] = p
-        end
+        if Hill.on(hill, p.at) then on[#on + 1] = p end
     end
     if #on == 0 then return "empty" end
-    for i = 2, #on do
-        if not on[i].team or on[i].team ~= on[1].team then return "contested" end
+    if not Hill.CONTESTED_HILL_SCORES then
+        for i = 2, #on do
+            if not on[i].team or on[i].team ~= on[1].team then return "contested" end
+        end
     end
     if on[1].team then return on[1].team end
-    return on[1].me and "you" or "other"
+    for _, p in ipairs(on) do
+        if p.me then return "you" end
+    end
+    return "other"
 end
 
 --- Where a hill's wall panels stand: facing out, each a side of the polygon
@@ -197,18 +224,18 @@ local function plasma(world, master, name, brightness)
     return mid
 end
 
-local function materials(world)
+local function materials(world, name)
     local fieldMaster, beaconMaster = loadAsset(FIELD_MASTER), loadAsset(BEACON_MASTER)
     if fieldMaster and beaconMaster then
-        local field = instance(world, fieldMaster, "mjolnir_hill_field")
-        local beacon = instance(world, beaconMaster, "mjolnir_hill_beacon")
+        local field = instance(world, fieldMaster, name .. "_field")
+        local beacon = instance(world, beaconMaster, name .. "_beacon")
         if field and beacon then return field, beacon, true end
     end
     for _, path in ipairs(PLASMA_MASTERS) do
         local master = loadAsset(path)
         if master then
-            local field = plasma(world, master, "mjolnir_hill_field", FALLBACK_WALL_BRIGHTNESS)
-            local beacon = plasma(world, master, "mjolnir_hill_beacon", FALLBACK_BEACON_BRIGHTNESS)
+            local field = plasma(world, master, name .. "_field", FALLBACK_WALL_BRIGHTNESS)
+            local beacon = plasma(world, master, name .. "_beacon", FALLBACK_BEACON_BRIGHTNESS)
             if field and beacon then return field, beacon, false end
         end
     end
@@ -257,20 +284,10 @@ local function build(pc)
     return w, t
 end
 
---- One match's marker. `read` gives a map's level file text.
-function Hill.new(read)
-    local self = { hills = {}, live = 1, next = 0, parts = {} }
-
-    function self.start(code)
-        self.hills = Hill.parse(read(code))
-        self.live, self.next = 1, 0
-        self.drawn, self.retryAt, self.noWall = nil, nil, nil
-        return #self.hills
-    end
-
-    function self.moved(place)
-        if type(place) == "number" and self.hills[place + 1] then self.live = place + 1 end
-    end
+--- The world's drawing and the HUD's line for one marker. `name` names its
+--- material instances.
+function Hill.field(name)
+    local self = { parts = {} }
 
     --- Hide, never remove: RemoveFromParent hung the game once.
     function self.hideLine()
@@ -293,43 +310,50 @@ function Hill.new(read)
         end)
     end
 
-    --- Stand the wall round the live hill. Actors are kept and moved: the map
-    --- change that frees them also ends this object's match, and a new hill
-    --- only re-places them.
-    local function draw(world, now)
-        if self.retryAt and now < self.retryAt then return end
-        if not (self.mid and self.mid:IsValid() and self.beaconMid and self.beaconMid:IsValid()) then
-            self.mid, self.beaconMid, self.holographic = materials(world)
-            self.drawn = nil
-            self.colours, self.bright, self.state = nil, nil, nil
-            if not (self.mid and self.beaconMid) then
-                self.hide()
-                self.noWall = true
-                self.retryAt = now + MATERIAL_RETRY_SECONDS
-                return
-            end
-        end
-        if self.drawn == self.live and
+    --- Forget what is drawn: a new match places everything again.
+    function self.reset()
+        self.drawn, self.retryAt, self.noWall = nil, nil, nil
+    end
+
+    local function noDrawing(now)
+        self.hide()
+        self.noWall = true
+        self.retryAt = now + MATERIAL_RETRY_SECONDS
+    end
+
+    --- The materials, made again if the map change took them. False while
+    --- neither pair can load.
+    local function ready(world, now)
+        if self.retryAt and now < self.retryAt then return false end
+        if self.mid and self.mid:IsValid() and self.beaconMid and self.beaconMid:IsValid() then return true end
+        self.mid, self.beaconMid, self.holographic = materials(world, name)
+        self.drawn = nil
+        self.colours, self.bright, self.state = nil, nil, nil
+        if self.mid and self.beaconMid then return true end
+        noDrawing(now)
+        return false
+    end
+
+    --- Stand the wall round `spot`, whose identity is `key`. Actors are kept and
+    --- moved: the map change that frees them also ends this object's match, and
+    --- a new spot only re-places them.
+    function self.draw(world, now, key, spot)
+        if not ready(world, now) then return end
+        if self.drawn == key and
            (not self.holographic or (self.anchor and self.anchor:IsValid())) then return end
-        local hill = self.hills[self.live]
         local plane = loadAsset(PLANE)
         local cylinder = loadAsset(CYLINDER)
-        if not (plane and cylinder) then
-            self.hide()
-            self.noWall = true
-            self.retryAt = now + MATERIAL_RETRY_SECONDS
-            return
-        end
+        if not (plane and cylinder) then return noDrawing(now) end
         self.noWall, self.retryAt = nil, nil
         if self.holographic then
             for _, mid in ipairs({ self.mid, self.beaconMid }) do
-                vector(mid, "FieldCenter", hill.x, hill.y, hill.z, hill.r)
+                vector(mid, "FieldCenter", spot.x, spot.y, spot.z, spot.r)
                 vector(mid, "FieldProfile", WALL_CM, WALL_SINK_CM, BEACON_CM, 0)
             end
         end
-        local panels = Hill.panels(hill)
+        local panels = Hill.panels(spot)
         local ground = {}
-        for i, panel in ipairs(panels) do ground[i] = groundAt(world, panel.cx, panel.cy, hill.z) end
+        for i, panel in ipairs(panels) do ground[i] = groundAt(world, panel.cx, panel.cy, spot.z) end
         ground = Hill.smooth(Hill.smooth(ground))
         for i, panel in ipairs(panels) do
             local actor = self.parts[i]
@@ -353,7 +377,7 @@ function Hill.new(read)
             self.beacon = spawnPart(world, cylinder, self.beaconMid)
         end
         self.beacon.StaticMeshComponent:SetMaterial(0, self.beaconMid)
-        self.beacon:K2_SetActorLocation({ X = hill.x, Y = hill.y, Z = hill.z + BEACON_CM / 2 }, false, {}, false)
+        self.beacon:K2_SetActorLocation({ X = spot.x, Y = spot.y, Z = spot.z + BEACON_CM / 2 }, false, {}, false)
         self.beacon:SetActorScale3D({ X = BEACON_RADIUS_CM / 50, Y = BEACON_RADIUS_CM / 50, Z = BEACON_CM / 100 })
         showPart(self.beacon, true)
         if self.holographic then
@@ -362,7 +386,7 @@ function Hill.new(read)
             end
             self.anchor.StaticMeshComponent:SetMaterial(0, self.beaconMid)
             self.anchor:K2_SetActorLocation({
-                X = hill.x, Y = hill.y, Z = groundAt(world, hill.x, hill.y, hill.z) + 5,
+                X = spot.x, Y = spot.y, Z = groundAt(world, spot.x, spot.y, spot.z) + 5,
             }, false, {}, false)
             self.anchor:K2_SetActorRotation({ Pitch = 0, Yaw = 0, Roll = 0 }, false)
             self.anchor:SetActorScale3D({ X = 2, Y = 2, Z = 1 })
@@ -372,7 +396,101 @@ function Hill.new(read)
             -- fallback would expose the whole square.
             showPart(self.anchor, false)
         end
-        self.drawn = self.live
+        self.drawn = key
+    end
+
+    --- The beacon alone, standing on `at` (a moving spot: X, Y, Z), no wall.
+    function self.pillar(world, now, at)
+        if not ready(world, now) then return end
+        if not (self.beacon and self.beacon:IsValid()) then
+            local cylinder = loadAsset(CYLINDER)
+            if not cylinder then return noDrawing(now) end
+            self.beacon = spawnPart(world, cylinder, self.beaconMid)
+            self.drawn = nil
+        end
+        self.noWall, self.retryAt = nil, nil
+        if self.drawn ~= PILLAR then
+            self.beacon.StaticMeshComponent:SetMaterial(0, self.beaconMid)
+            self.beacon:SetActorScale3D({ X = BEACON_RADIUS_CM / 50, Y = BEACON_RADIUS_CM / 50, Z = BEACON_CM / 100 })
+            if self.holographic then vector(self.beaconMid, "FieldProfile", WALL_CM, WALL_SINK_CM, BEACON_CM, 0) end
+            showPart(self.beacon, true)
+            self.drawn = PILLAR
+        end
+        -- The shader measures its braid and foot from the centre.
+        if self.holographic then vector(self.beaconMid, "FieldCenter", at.X, at.Y, at.Z, BEACON_RADIUS_CM) end
+        self.beacon:K2_SetActorLocation({ X = at.X, Y = at.Y, Z = at.Z + BEACON_CM / 2 }, false, {}, false)
+    end
+
+    --- Colour it for `holder` (as Hill.holder gives; "you", "empty" ...).
+    function self.paint(holder, now)
+        if not (self.mid and self.mid:IsValid() and self.beaconMid and self.beaconMid:IsValid()) then return end
+        local colours = COLOURS[holder] or COLOURS.empty
+        if colours ~= self.colours then
+            self.colours = colours
+            tint(self.mid, colours, self.holographic)
+            tint(self.beaconMid, colours, self.holographic)
+        end
+        if self.holographic then
+            if holder ~= self.state then
+                self.state = holder
+                local contested = holder == "contested" and 1 or 0
+                vector(self.mid, "FieldState", contested, 1, 0, 0)
+                vector(self.beaconMid, "FieldState", contested, 1, 0, 0)
+            end
+        else
+            -- Older packs have no material-time pulse. Sample a slow,
+            -- bounded sine instead of switching between bright flashes.
+            local bright = holder == "contested" and (1 + 0.2 * math.sin(now * 2 * math.pi * 0.75)) or 1
+            if bright ~= self.bright then
+                self.bright = bright
+                vector(self.mid, "PlasmaBrightness", FALLBACK_WALL_BRIGHTNESS * bright, 0, 0, 0)
+                vector(self.beaconMid, "PlasmaBrightness", FALLBACK_BEACON_BRIGHTNESS * bright, 0, 0, 0)
+            end
+        end
+    end
+
+    --- The line's widget, made the first time and again if it went.
+    function self.ensureLine(pc)
+        if not (self.widget and self.widget:IsValid() and self.text and self.text:IsValid()) then
+            self.widget, self.text = build(pc)
+            self.line = nil
+        end
+    end
+
+    --- Show `line` under the score.
+    function self.say(line)
+        if line ~= self.line then
+            self.line = line
+            self.text:SetText(FText(line))
+        end
+        self.widget:SetVisibility(VISIBLE_NO_HIT_TEST)
+    end
+
+    --- The controller's world, or nil once everything is hidden for want of one.
+    function self.worldOf(pc)
+        if not (pc and pc:IsValid()) then return self.hide() end
+        local world = pc:GetWorld()
+        if not (world and world:IsValid()) then return self.hide() end
+        return world
+    end
+
+    return self
+end
+
+--- One match's marker. `read` gives a map's level file text.
+function Hill.new(read)
+    local self = Hill.field("mjolnir_hill")
+    self.hills, self.live, self.next = {}, 1, 0
+
+    function self.start(code)
+        self.hills = Hill.parse(read(code))
+        self.live, self.next = 1, 0
+        self.reset()
+        return #self.hills
+    end
+
+    function self.moved(place)
+        if type(place) == "number" and self.hills[place + 1] then self.live = place + 1 end
     end
 
     function self.tick(now, pc, hidden, players)
@@ -380,49 +498,18 @@ function Hill.new(read)
         self.next = now + EVERY
         if hidden then return self.hide() end
         pcall(function()
-            if not (pc and pc:IsValid()) then return self.hide() end
-            local world = pc:GetWorld()
-            if not (world and world:IsValid()) then return self.hide() end
-            if not (self.widget and self.widget:IsValid() and self.text and self.text:IsValid()) then
-                self.widget, self.text = build(pc)
-            end
-            draw(world, now)
+            local world = self.worldOf(pc)
+            if not world then return end
+            self.ensureLine(pc)
             local hill = self.hills[self.live]
+            self.draw(world, now, self.live, hill)
             local holder = Hill.holder(hill, players and players() or {})
-            if self.mid and self.mid:IsValid() and self.beaconMid and self.beaconMid:IsValid() then
-                local colours = COLOURS[holder] or COLOURS.empty
-                if colours ~= self.colours then
-                    self.colours = colours
-                    tint(self.mid, colours, self.holographic)
-                    tint(self.beaconMid, colours, self.holographic)
-                end
-                if self.holographic then
-                    if holder ~= self.state then
-                        self.state = holder
-                        local contested = holder == "contested" and 1 or 0
-                        vector(self.mid, "FieldState", contested, 1, 0, 0)
-                        vector(self.beaconMid, "FieldState", contested, 1, 0, 0)
-                    end
-                else
-                    -- Older packs have no material-time pulse. Sample a slow,
-                    -- bounded sine instead of switching between bright flashes.
-                    local bright = holder == "contested" and (1 + 0.2 * math.sin(now * 2 * math.pi * 0.75)) or 1
-                    if bright ~= self.bright then
-                        self.bright = bright
-                        vector(self.mid, "PlasmaBrightness", FALLBACK_WALL_BRIGHTNESS * bright, 0, 0, 0)
-                        vector(self.beaconMid, "PlasmaBrightness", FALLBACK_BEACON_BRIGHTNESS * bright, 0, 0, 0)
-                    end
-                end
-            end
+            self.paint(holder, now)
             local pawn = pc.Pawn
             if not (pawn and pawn:IsValid()) then return self.hideLine() end
             local line = Hill.describe(hill, pawn:K2_GetActorLocation(), pc:GetControlRotation().Yaw)
             if line == "ON THE HILL" and holder == "contested" then line = "HILL CONTESTED" end
-            if line ~= self.line then
-                self.line = line
-                self.text:SetText(FText(line))
-            end
-            self.widget:SetVisibility(VISIBLE_NO_HIT_TEST)
+            self.say(line)
         end)
     end
 

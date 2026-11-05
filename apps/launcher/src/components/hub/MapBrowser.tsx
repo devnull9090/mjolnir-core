@@ -12,6 +12,7 @@ import {
   ActionButton,
   ErrorNote,
   GAME_TYPE_NAMES,
+  MAP_MODES,
   SearchIcon,
   Spinner,
   useHub,
@@ -40,7 +41,7 @@ const SORTS: { key: Sort; label: string }[] = [
   { key: "title", label: "A–Z" },
 ];
 
-const MODES = ["all", ...Object.keys(GAME_TYPE_NAMES)];
+const MODES = ["all", ...MAP_MODES];
 const SIZES: Size[] = ["any", "small", "medium", "large"];
 const PLAYERS = [0, 2, 4, 8, 12, 16];
 

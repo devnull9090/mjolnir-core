@@ -195,6 +195,32 @@ function VariantSettings.forMode(settings, mode)
     return out
 end
 
+--- The insertion point slot of every game type (MJOLNIRLobby's modes.lua).
+VariantSettings.VARIANT_SLOTS = { slayer = 0, ctf = 1, team_slayer = 2,
+    koth = 3, crazy_king = 3, team_koth = 3, oddball = 4, team_oddball = 4, juggernaut = 4,
+    forge = 5, race = 6, team_race = 6, rally = 6, team_rally = 6 }
+
+--- The exact variant out of match_variant.txt's `text` ("CODE<TAB>id") for a
+--- travel to map `code` at insertion point `slot`, or nil for the slot's
+--- engine, and a line to log when that is worth saying. The file is never
+--- cleared, so it is taken only for this map and only where it agrees with the
+--- slot: a host that changed game type since it was written wins. An id this
+--- table lacks comes from a newer host and is taken on its file alone.
+--- `installed(id)`: whether variants\<id>.mglo is on this PC.
+function VariantSettings.exactVariant(text, code, slot, installed)
+    local forCode, id = tostring(text or ""):match("^([%w_]+)\t([%w_]+)")
+    if not (id and code) or string.upper(forCode) ~= string.upper(code) then return nil end
+    local family = VariantSettings.VARIANT_SLOTS[id]
+    if slot and family and family ~= slot then
+        return nil, "match_variant.txt says " .. id .. ", but the travel's slot is " .. slot .. "; the slot wins"
+    end
+    if id ~= "forge" and not installed(id) then
+        return nil, "the host's game type " .. id .. " has no variants\\" .. id .. ".mglo on this PC, so this PC "
+            .. "cannot follow the match: update MJOLNIR in the launcher. Falling back to the slot's game type"
+    end
+    return id
+end
+
 --- `settings` as one line, keys sorted so equal settings give equal text.
 function VariantSettings.format(settings)
     local keys = {}

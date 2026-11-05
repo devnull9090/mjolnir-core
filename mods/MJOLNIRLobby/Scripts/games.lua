@@ -169,9 +169,6 @@ end
 --- start goes through. While a world is held (native\jip_held.txt) the
 --- native half needs the world's package path; it does the rest from here,
 --- once a second on the game thread.
--- The insertion point each game type starts at (MJOLNIRLobby main.lua MODES,
--- MJOLNIRLevelLoader GAME_TYPE_SLOTS).
-local GAME_TYPE_SLOT = { slayer = 0, ctf = 1, team_slayer = 2, koth = 3, oddball = 4, forge = 5 }
 -- The game type of the listed game being joined, and the level loader switch
 -- still owed for a match joined under way: { code, url, tries }.
 local joiningGameType
@@ -182,7 +179,9 @@ local jipJoinedUrl
 --- running.txt for MJOLNIRHud), as the host's travel would, before the
 --- native half builds this side's game: MJOLNIRLevelLoader\join_switch.txt,
 --- which the loader reads within half a second. Written again every ten
---- seconds until the loader's running.txt names the map.
+--- seconds until the loader's running.txt names the map. The URL's slot names
+--- only the engine, so the listing's exact variant goes in match_variant.txt
+--- first (modes.lua).
 local function levelSwitchTick()
     if not pendingSwitch then return end
     local loaderDir = nativeDir .. "..\\..\\MJOLNIRLevelLoader\\"
@@ -198,6 +197,7 @@ local function levelSwitchTick()
         return
     end
     if pendingSwitch.tries % 10 == 0 then
+        Host.modes.follow(loaderDir:sub(1, -2), pendingSwitch.code, joiningGameType, log)
         local f = io.open(loaderDir .. "join_switch.txt", "wb")
         if f then
             f:write(pendingSwitch.url, "\n")
@@ -280,7 +280,7 @@ local function jipTick()
             -- /Game/Levels/Halo1/Solo/ICE/ICE?Name=Player?SeamlessTravel?ScenarioName=ICE?InsertionPointIndex=0
             local code = path:match("([^/]+)$")
             local url = path .. "?Name=Player?SeamlessTravel?ScenarioName=" .. code
-                .. "?InsertionPointIndex=" .. tostring(GAME_TYPE_SLOT[joiningGameType or ""] or 0)
+                .. "?InsertionPointIndex=" .. tostring(Host.modes.slot(joiningGameType) or 0)
             if not (pendingSwitch and pendingSwitch.url == url) and jipJoinedUrl ~= url then
                 jipJoinedUrl = url
                 pendingSwitch = { code = string.upper(code), url = url, tries = 0 }
@@ -676,6 +676,7 @@ function Games.init(deps)
     noteListing(nil)
     Host.version = deps.version or ""
     Host.info = deps.info
+    Host.modes = deps.modes
     keepLobby(false)
     local function loop()
         local okPresence, errPresence = pcall(presenceTick)

@@ -410,7 +410,8 @@ and the loader's comments beside each are the reference.
   install writes), `vehicle_sets` (CE's vehicle sets, from which the loader picks the labels a
   game type requires), `ctf` (Capture the Flag's look: the flag mesh, its materials, the
   stands), `health_pack` (the CE health pack's look), `koth_hills` (King's hills in rotation order, for
-  the HUD's hill line: x, y, z and radius in cm, from `tools/level/ce_objectives.py`) and
+  the HUD's hill line: x, y, z and radius in cm, from `tools/level/ce_objectives.py`), `race_flags`
+  (Race's checkpoints by rank, in the same form) and
   `foliage` (the game's grass, tufts and stones, from a file beside the level).
 - Written by `tools/level/upgrade_ce_map.py` for a remastered map, and unknown to
   `level validate` and `level bake`: `landscape` (an Unreal Landscape for the ground), `flux`
@@ -466,8 +467,20 @@ Inert points, carried so game-mode work (see
 change. An authored level names them, following the MapKit convention (`flag_red`, `hill_1`,
 ...); a converted CE map lists its netgame flags as `{ "type", "team", "pos", "yaw" }`
 (`ctf_flag`, `hill`, `oddball`, ..., from `defs/level/ce-tag-map.json`).
-`tools/level/ce_objectives.py` turns `hill` and `oddball` markers into labelled objects and the
-map's `koth` and `oddball` modes; the bake and the game read nothing else from them.
+`tools/level/ce_objectives.py` turns `hill`, `oddball` and `race_track` markers into labelled
+objects (`koth_hill`, `oddball_spawn`, `race_flag`) and the map's `koth`, `oddball` and `race`
+modes; the bake and the game read nothing else from them.
+
+A CE hill keeps CE's first 12 flags in marker order, which is tag order, and a one-flag hill is
+CE's 2 by 2 wu square. A Halo 2 hill keeps every corner. Race flags take spawn order 0 to n-1 from
+their sorted team index, and share one radius: 6 m, less where two flags in a row, the closing leg
+included, are closer than two radii, and never under 2.5 m.
+
+`modes` lists engines only: `slayer`, `ctf`, `koth`, `oddball`, `race`. The lobby derives the
+rest (Team Slayer, Crazy King, Rally and so on), which keeps a hub manifest within its 8.
+
+`tools/level/add_objectives.py` does this for a published map: it rebakes the pack's scenario and
+writes the next release.
 
 ## File placement and flow
 

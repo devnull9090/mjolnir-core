@@ -52,7 +52,7 @@ pub const STAND_LABEL: &str = "ctf_flag_return";
 pub const FLAG_LABEL: &str = "ctf_flag";
 
 /// Waypoint icon: a flag.
-const ICON_FLAG: u8 = 7;
+const ICON_FLAG: u8 = 6;
 /// Weapon pickup priority: walk over it.
 const PICKUP_AUTOMATIC: u8 = 2;
 /// Create-object flags: never garbage-collect the flag.
@@ -95,8 +95,8 @@ pub struct Ctf {
     /// blue type.
     pub flag_type: u16,
     /// The blue flag's index (entry 20), made on the blue team's stand.
-    /// `None` writes the script from before the blue flag tag, byte for
-    /// byte: one type for both teams. The variant names every type it
+    /// `None` writes the script from before the blue flag tag, the waypoint
+    /// icon apart: one type for both teams. The variant names every type it
     /// creates, and the simulation wipes the whole script when the
     /// installed list lacks one (`0x409c40` -> `0x40a310`), so a blue type
     /// needs a CE runtime pack with `pakchunk990-MJOLNIRFLAGB_P` and its
@@ -551,7 +551,8 @@ mod tests {
         let sum = bytes
             .iter()
             .fold(0u32, |h, &b| h.wrapping_mul(31).wrapping_add(b as u32));
-        assert_eq!((bytes.len(), sum), (1700, 0xcdee_fd5d));
+        // 0xcdee_fd5d before the flag's waypoint icon was corrected to 6.
+        assert_eq!((bytes.len(), sum), (1700, 0xe795_8d7e));
     }
 
     /// The two-type stand logic as `megalo dump` lists it: the object

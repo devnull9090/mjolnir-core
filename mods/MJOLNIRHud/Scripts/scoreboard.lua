@@ -2,12 +2,37 @@
 -- simulation, never guessed from player order or alternating player indices.
 local Board = {}
 
+-- One row per variant id. `family` is what the variants of an engine share
+-- (the hill, the ball, the flags); `snapshot` is the incident that carries a
+-- player's absolute score, for the stat `objectiveScore`
+-- (crates/blam-megalo/src/objectives.rs); `suicidePenalty` says the script takes
+-- a point for a suicide; `rally` is one live flag for everyone.
+local function timed(title, family, snapshot, teams)
+    return { title = title, toWin = 120, unit = "seconds", stat = "objectiveScore", family = family,
+        snapshot = snapshot, teams = teams }
+end
+local function flags(title, toWin, unit, teams, rally)
+    return { title = title, toWin = toWin, unit = unit, stat = "objectiveScore", family = "race",
+        snapshot = "final_lap", teams = teams, rally = rally }
+end
+
 Board.modes = {
-    slayer = { title = "SLAYER", toWin = 25, unit = "kills", stat = "kills" },
-    team_slayer = { title = "TEAM SLAYER", toWin = 50, unit = "kills", stat = "kills", teams = true },
-    ctf = { title = "CAPTURE THE FLAG", toWin = 3, unit = "captures", stat = "captures", teams = true },
-    oddball = { title = "ODDBALL", toWin = 120, unit = "seconds", stat = "objectiveScore" },
-    koth = { title = "KING OF THE HILL", toWin = 120, unit = "seconds", stat = "objectiveScore" },
+    slayer = { title = "SLAYER", toWin = 25, unit = "kills", stat = "kills", family = "slayer", suicidePenalty = true },
+    team_slayer = { title = "TEAM SLAYER", toWin = 50, unit = "kills", stat = "kills", teams = true,
+        family = "slayer", suicidePenalty = true },
+    ctf = { title = "CAPTURE THE FLAG", toWin = 3, unit = "captures", stat = "captures", teams = true, family = "ctf" },
+    oddball = timed("ODDBALL", "oddball", "ball_taken"),
+    team_oddball = timed("TEAM ODDBALL", "oddball", "ball_taken", true),
+    juggernaut = { title = "JUGGERNAUT", toWin = 15, unit = "points", stat = "objectiveScore", family = "juggernaut",
+        snapshot = "ball_taken" },
+    koth = timed("KING OF THE HILL", "king", "hill_controlled"),
+    crazy_king = timed("CRAZY KING", "king", "hill_controlled"),
+    team_koth = timed("TEAM KING", "king", "hill_controlled", true),
+    race = flags("RACE", 3, "laps"),
+    team_race = flags("TEAM RACE", 6, "laps", true),
+    rally = flags("RALLY", 15, "flags", nil, true),
+    team_rally = flags("TEAM RALLY", 15, "flags", true, true),
+    forge = { title = "FORGE", toWin = 25, unit = "kills", stat = "kills", family = "forge" },
 }
 
 function Board.team(value)
@@ -20,6 +45,17 @@ function Board.score(player, mode)
 end
 
 function Board.totals(match)
+    local mode = Board.modes[match.variant]
+    if mode and mode.teams and mode.stat == "objectiveScore" then
+        -- A team's score is the sum of its players', as the simulation adds it
+        -- up. Those who left are still in the list, with what they earned.
+        local totals = { Red = 0, Blue = 0 }
+        for _, player in pairs(match.players) do
+            local team = Board.team(player.team)
+            if team then totals[team] = totals[team] + (player.objectiveScore or 0) end
+        end
+        return totals
+    end
     if match.variant ~= "team_slayer" then
         return { Red = match.teams[0] or 0, Blue = match.teams[1] or 0 }
     end

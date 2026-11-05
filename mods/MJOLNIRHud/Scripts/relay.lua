@@ -33,6 +33,9 @@ local CARRIED = {
     -- The hill line's place in the rotation: nobody is its player, so a
     -- client's own incidents may not bring it (Scripts/hill.lua).
     hill_moved = true,
+    -- Race's next flag and lap scores, and who the Juggernaut is. Each names
+    -- its player or nobody, and the host hears them all (Scripts/race.lua).
+    checkpoint_reached = true, final_lap = true, new_juggernaut = true,
     -- Who is alive on the scoreboard (#249): a client hears only its own spawns.
     player_spawn = true,
 }
@@ -42,6 +45,9 @@ function Relay.carried(name)
     if type(name) ~= "string" then return false end
     return CARRIED[name] or name:match("^multikill_x%d+$") ~= nil or name:match("^%d+_in_a_row$") ~= nil
 end
+
+--- Incidents whose value tells two apart: a score, or a rank.
+local BY_VALUE = { ball_taken = true, hill_controlled = true, checkpoint_reached = true, final_lap = true }
 
 local function int(v)
     v = tonumber(v)
@@ -88,9 +94,7 @@ end
 --- when not. `recent` is the match's own table.
 function Relay.seen(recent, inc)
     local key = inc.name .. "|" .. tostring(inc.cause) .. "|" .. tostring(inc.effect)
-    if inc.name == "ball_taken" or inc.name == "hill_controlled" then
-        key = key .. "|" .. tostring(inc.value)
-    end
+    if BY_VALUE[inc.name] then key = key .. "|" .. tostring(inc.value) end
     local source = inc.source or (inc.relayed and "feed" or "own")
     local list = recent[key] or {}
     recent[key] = list
