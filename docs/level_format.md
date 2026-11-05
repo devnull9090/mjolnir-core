@@ -70,6 +70,7 @@ map). Author around your own origin in Blender; move the whole level by editing 
       "equipment": true,             // remove the mission's own equipment placements
       "scripts": true                // stub the mission's HSC scripts
     },
+    "player_representations": [ { "third person unit": "bipd:..." } ], // this map's players: every row, as `--set` values
     "player_starts": [               // >= 2 for co-op
       { "pos": [0, 0, 0],    "yaw": 0 },
       { "pos": [4000, 0, 0], "yaw": 180 }
