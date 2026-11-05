@@ -60,9 +60,10 @@ variant at `GG+0x15f0` and `o = v+4` (variant-format offsets are o-relative);
 
 ## Summary
 
-1. **Five game types run:** free-for-all Slayer, Team Slayer, CTF, and since
-   2026-11-04 free-for-all King and Oddball (section 3.4). This summary was
-   written when only Slayer and CTF did; the rest of it stands.
+1. **CE's Standard game types are built, except Assault** (section 3.6):
+   Slayer, Team Slayer, CTF, Oddball, Team Oddball, Juggernaut, King, Crazy
+   King, Team King, Race, Team Race, Rally and Team Rally. This summary was
+   written when only Slayer and CTF ran; the rest of it stands.
 2. **The engine is all there.** It is Reach's game-engine layer, and every
    Reach mode is data for it. Read statically, a MJOLNIR match runs with the
    options' mode byte 3 (multiplayer) and 60 ticks a second, and the fireteam
@@ -154,7 +155,7 @@ Lua, Rust, Python and the hub. Verified (repository audit, 2026-10-21).
 player, if they died a kill death this tick (killer-type bit 2: the death
 record observer, slot 62 at sim `0x3fea10`, writes death type 2 for a kill, 1
 for a suicide, 3 for a betrayal and 4 for a quit; verified), fetch the killer and, unless it is the player, add 1 to the killer's score; for
-each player, end the round at the score to win. The CLI adds the time-limit
+each player, end the round at the score to win. A suicide takes a point from the player, as in CE. The CLI adds the time-limit
 trigger and health packs. The released file is 3,907 bytes: 12 conditions, 19
 actions, 7 triggers. Verified.
 
@@ -678,7 +679,7 @@ maps counted, 46 offer both, with 4 to 14 hills. Nightfall has one stray
   level file lists `koth_hills`, and `mods/MJOLNIRHud/Scripts/hill.lua` draws one
   line under the score: "HILL 12 M LEFT ABOVE", "ON THE HILL". The HUD's relay
   carries `hill_moved` to clients, untested on two PCs; a player joining mid-match
-  shows hill 1 until the next move. There is still no boundary in the world.
+  shows hill 1 until the next spawn, when `checkpoint_reached` resends the live hill. MJOLNIRHud draws the boundary in the world.
 - **Oddball's ball** is the flag tag (type 18) drawn as the skull, always made at
   the first spawn the label loop reaches: other spawns are unused. There is no
   marker for a loose or carried ball, so a player finds it by eye.
@@ -735,28 +736,75 @@ rebaked: the placements are in the scenario. `add_bots.py` is the pattern for
 rebaking hub packs. `upgrade_ce_map.py`'s install stage refuses a level whose
 `modes` name a variant not installed, so it needs the new variants first.
 
-### 3.5 Race: assessment, not built
+### 3.5 Race
 
-Twenty-one converted maps carry `RaceTrack` markers, numbered by team index, and
-ten carry `RaceVehicle` markers. The doc's "no mongoose" is not the blocker it
-looked like: CE's Race never used one. It is a checkpoint run on foot or in
-whatever the map places, and those vehicles already exist.
+CE's Race runs on foot or in whatever the map places, so the missing mongoose
+never mattered. Twenty-one converted maps carry `RaceTrack` markers, numbered by
+team index; `ce_objectives.py` places each as a `race_flag` marker on the eighth
+team, with spawn order its sorted rank, because some maps skip an index (DRL,
+ICE, LNG). The boundary cylinder is the flag's radius: 6 m, or half the closest
+pair of consecutive flags, never under 2.5 m. `race_flags` in the level file
+lists them in rank order for the HUD.
 
-What it takes, cheapest first:
+Each player's next flag is a player number. Each advance and each spawn raises
+`checkpoint_reached` (102) with that player as the cause and the next rank as
+the value, which ended the old blocker: the number never has to reach Unreal
+through B4. `Scripts/race.lua` draws that flag, and if the incident does not
+arrive it follows the player's own position instead. `lap_complete` stays with
+the health packs; a lap's score rides on `final_lap` (105).
 
-1. Place checkpoints as `ce_objectives.py` does hills: label `race_flag`, a
-   cylinder each, owner team `eighth party`, spawn order the team index.
-2. A `Variant::race`: a player number for the next checkpoint, `Object In
-   Boundary` against the checkpoint of that order, a lap at the last one, score
-   per lap. The typed builder needs the player number operand; the rest it has.
-3. **The blocker: every player has their own next checkpoint.** It lives in a
-   per-player Megalo number, and B4 keeps it from Unreal. The hill line works
-   because the hill is one fact shared by all, sent by incident. Race would need
-   a personal incident per checkpoint, or a native reader of `G+0x344`.
+`race_vehicle` markers and CE's Race-only starts are not placed. Racers spawn on
+normal starts and use the vehicles the map's set gives; CE instead deletes every
+vehicle and places a warthog per player at the start line.
 
-The script and placements are about the size of King. The per-player marker is
-the real work, and without it a racer cannot see where to go, so it should wait
-for B4. `lap_complete` is already borrowed by the health packs.
+### 3.6 CE's Standard game types
+
+CE's PC menu has twelve game types. MJOLNIR's six menu tiles are CE's engines,
+and clicking a chosen tile steps through its variants
+(`mods/MJOLNIRLobby/Scripts/modes.lua` is the one table). Each variant is a
+`.mglo` of its own. A level's `modes` lists only the engines (slayer, ctf, koth,
+oddball, race) and the lobby derives the rest. The host's exact id reaches
+clients in the `lobby` and `starting` messages and joiners through the listing;
+each writes it to `MJOLNIRLevelLoader\match_variant.txt`, which the loader
+prefers over the slot. The slot stays as the engine's fallback, and Race takes
+slot 6.
+
+| Variant | Id | Rule | Limit |
+|---|---|---|---|
+| Slayer | `slayer` | a kill +1, a suicide -1 | 25 |
+| Team Slayer | `team_slayer` | as Slayer, a betrayal -1 | 50 |
+| CTF | `ctf` | | 3 |
+| Oddball | `oddball` | 1 a second while holding the ball | 120 |
+| Team Oddball | `team_oddball` | as Oddball, teams sum | 120 |
+| Juggernaut | `juggernaut` | first killer takes the slot; killing it passes it; +1 for killing it, for its kills and for a kill while nobody is it | 15 |
+| King | `koth` | fixed hill, the hill of spawn order 0 | 120 |
+| Crazy King | `crazy_king` | the hill moves to a random other one every 60 s | 120 |
+| Team King | `team_koth` | moves; teammates never contest | 120 |
+| Race | `race` | a lap is every flag in order, then the first | 3 |
+| Team Race | `team_race` | as Race, teams sum | 6 |
+| Rally | `rally` | one live flag; whoever touches it scores and it moves | 15 |
+| Team Rally | `team_rally` | as Rally, teams sum | 15 |
+
+Where these differ from CE (`game_engine_*.c`, Xbox 2342; PC retail unconfirmed):
+
+- **Contested hills.** CE keeps scoring: "contested" only picks a sound. Ours
+  stop, as Reach does. `CONTESTED_HILL_SCORES` in `objectives.rs` and
+  `Hill.CONTESTED_HILL_SCORES` in `hill.lua` flip it together.
+- **Team Race** cannot use CE's minimum team score, so a team sums to 6.
+- **Juggernaut** has no extra damage: three readers refuse a variant with script
+  traits (`Variant::read`, Hud `variant.lua`, loader `variant_settings.lua`).
+- **Oddball** speed and traits are missing for the same reason.
+- **Race vehicles**, section 3.5.
+
+Assault is the Standard game type not built: it needs side swap (B8) and a slot
+of its own. CE's Classic presets (Rockets, Snipers, Phantoms, Reverse Tag,
+Stalker and the rest) need weapon sets, traits or lives.
+
+Every new form needs the registry DLL from the same release, and the launcher's
+hub validator links `blam-megalo` too. Each map needs `add_objectives.py` and a
+hub release before it offers King, Oddball or Race.
+
+TESTRESULTS
 
 ---
 
