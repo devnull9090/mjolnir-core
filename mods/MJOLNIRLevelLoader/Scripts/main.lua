@@ -2037,6 +2037,9 @@ end
 --- player_spawn), so CE's announcement plays at the local player's first
 --- spawn, by game type.
 local START_EVENTS = {
+    -- No line yet: events.json has no row, so it starts in silence rather
+    -- than announce the wrong game.
+    { "juggernaut", "juggernaut_game_start" },
     { "slayer", "slayer_start" },
     { "koth", "koth_game_start" },
     { "king", "koth_game_start" },
@@ -2044,6 +2047,7 @@ local START_EVENTS = {
     { "ball", "ball_game_start" },
     { "ctf", "ctf_game_start" },
     { "race", "race_game_start" },
+    { "rally", "race_game_start" },
 }
 local START_EVENT_SET = {}
 for _, e in ipairs(START_EVENTS) do START_EVENT_SET[e[2]] = true end
@@ -5747,9 +5751,12 @@ end
 --- insertion point per slot (`level bake`, single_bsp), MJOLNIRLobby starts a
 --- game type at its slot's insertion point, and the host's travel carries
 --- the index to every fireteam client (`?InsertionPointIndex=1` is CTF), the
---- one choice of the host's that reaches them. Keep in step with
---- MJOLNIRLobby's GAME_TYPE_SLOTS.
-local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball", [5] = "forge" }
+--- one choice of the host's that the travel itself carries. A slot names an
+--- engine only: match_variant.txt names the exact variant, and this is the
+--- fallback (VariantSettings.exactVariant). Keep in step with MJOLNIRLobby's
+--- modes.lua.
+local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] = "koth", [4] = "oddball", [5] = "forge",
+    [6] = "race" }
 
 local function loadMegaloSwitch()
     if not package or not package.loadlib then return end
@@ -5819,9 +5826,9 @@ local function loadMegaloSwitch()
             switched.code = nil
             return
         end
-        -- The game type: the host's choice from the multiplayer menu; a
-        -- client has only the map's default (the host's choice does not
-        -- travel yet).
+        -- The game type: the host's choice from the multiplayer menu, which a
+        -- client has from match_variant.txt or the travel's slot; else the
+        -- map's default.
         local chosen = pending or level.variant
         switched.code, switched.at = code, os.clock()
         if chosen == "forge" then
@@ -5938,10 +5945,15 @@ local function loadMegaloSwitch()
         -- this map; anything else (a client, or a travel back to the
         -- frontend, which names no scenario) decides here.
         if code and switched.code == code and os.clock() - switched.at < 60 then return end
-        -- The game type travels as the insertion point index: the lobby
-        -- starts game type N at insertion point N (GAME_TYPE_SLOTS).
+        -- The engine travels as the insertion point index: the lobby starts
+        -- a game type at its slot's insertion point (GAME_TYPE_SLOTS). The
+        -- exact variant is in match_variant.txt, from the host's messages or
+        -- the listing, when it is for this map and agrees with the slot.
         local slot = tonumber(target:match("[?&]InsertionPointIndex=(%d+)") or "")
-        switchFor(code, slot and GAME_TYPE_SLOTS[slot], how)
+        local exact, note = VariantSettings.exactVariant(readFile(MOD_DIR .. "\\match_variant.txt"), code, slot,
+            function(id) return readFile(MOD_DIR .. "\\variants\\" .. id .. ".mglo") ~= nil end)
+        if note then Log("multiplayer switch: " .. note) end
+        switchFor(code, exact or (slot and GAME_TYPE_SLOTS[slot]), how)
     end
     local clientHooked = pcall(function()
         RegisterHook("/Script/Engine.PlayerController:ClientTravelInternal", function(_, url)

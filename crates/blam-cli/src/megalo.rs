@@ -48,10 +48,11 @@ pub enum MegaloCommand {
 pub enum Mode {
     /// No rules: players spawn, nothing scores.
     Empty,
-    /// Free-for-all Slayer: a kill scores 1; the round ends at the score to win.
+    /// Free-for-all Slayer: a kill scores 1, a suicide costs 1; the round
+    /// ends at the score to win.
     Slayer,
     /// Team Slayer, Red against Blue: a kill of an enemy scores 1, a kill of
-    /// a teammate costs 1, and a team wins at the score to win.
+    /// a teammate or a suicide costs 1, and a team wins at the score to win.
     TeamSlayer,
     /// Interpreter smoke test: every player scores 1 every tick.
     Tick,
@@ -60,15 +61,36 @@ pub enum Mode {
     Ctf,
     /// Free-for-all Oddball: hold the neutral skull to score seconds.
     Oddball,
-    /// Free-for-all moving hill: uncontested control scores seconds.
+    /// Team Oddball: Oddball, the carrier's seconds counting for their team.
+    TeamOddball,
+    /// Juggernaut, CE's rule: kill it to become it; it scores for its kills,
+    /// and killing it scores.
+    Juggernaut,
+    /// King: one fixed hill all game; uncontested control scores seconds.
     Koth,
+    /// Crazy King: King, the hill moving to a random other one.
+    CrazyKing,
+    /// Team King: the hill moves, Red against Blue.
+    TeamKoth,
+    /// Race: touch the flags in order; a lap scores 1.
+    Race,
+    /// Team Race: laps add up across the team.
+    TeamRace,
+    /// Rally: touch the one live flag; it scores 1 and moves.
+    Rally,
+    /// Team Rally: flags add up across the team.
+    TeamRally,
 }
 
 #[derive(Args)]
 pub struct WriteArgs {
     #[arg(long, value_enum, default_value = "slayer")]
     pub mode: Mode,
-    /// Score to win (default 25; 50 for Team Slayer; 3 captures for CTF).
+    /// Score to win (default 25; 50 for Team Slayer; 3 captures for CTF; 120
+    /// seconds for Oddball and King; 15 for Juggernaut, Rally and Team Rally;
+    /// 3 laps for Race). Team Race defaults to 6: CE's is 3 laps of each
+    /// team's slowest player, and a team's score here is only ever its
+    /// players' sum.
     #[arg(long)]
     pub score: Option<u16>,
     /// Rounds in a game (1..=31). An end of round before the last resets
@@ -96,7 +118,7 @@ pub struct WriteArgs {
     /// `pakchunk990-MJOLNIRFLAGB_P`: the simulation drops a variant whose
     /// object types the installed list lacks, rules and all. With
     /// `--tick-rate 30` as well (the old default) it writes the ctf.mglo
-    /// released before, byte for byte.
+    /// released before, but for the flag's corrected waypoint icon.
     #[arg(long)]
     pub single_flag: bool,
     /// CTF: seconds a dropped flag lies before it resets.
@@ -126,10 +148,7 @@ pub struct WriteArgs {
     /// docs/game_modes.md, 1.2); at 30 both lasted half as long as asked.
     #[arg(long, default_value_t = 60)]
     pub tick_rate: u16,
-    /// KOTH: number of authored koth_hill_N markers (1..=8).
-    #[arg(long, default_value_t = 3)]
-    pub hills: u8,
-    /// KOTH: seconds before moving to the next hill.
+    /// Crazy King and Team King: seconds before the hill moves.
     #[arg(long, default_value_t = 60)]
     pub hill_seconds: u16,
     /// A Megalo label the map's "hide unless megalo required" objects must
@@ -259,13 +278,21 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 w.tick_rate > 0 && w.tick_rate <= 32767,
                 "--tick-rate must be 1..32767"
             );
-            anyhow::ensure!((1..=8).contains(&w.hills), "--hills must be 1..8");
             if matches!(w.mode, Mode::Ctf) && !w.single_flag && w.blue_flag_type == w.flag_type {
                 anyhow::bail!(
                     "--blue-flag-type is --flag-type ({}): one type for both teams is --single-flag",
                     w.flag_type
                 );
             }
+            let reset_ticks = || {
+                i16::try_from(u32::from(w.reset_seconds) * u32::from(w.tick_rate))
+                    .context("oddball reset exceeds 32767 ticks")
+            };
+            let hill_ticks = || {
+                i16::try_from(u32::from(w.hill_seconds) * u32::from(w.tick_rate))
+                    .context("hill duration exceeds 32767 ticks")
+            };
+            let tick_rate = w.tick_rate as i16;
             let v = match w.mode {
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),
                 Mode::Slayer => Variant::slayer(w.score.unwrap_or(25)),
@@ -274,17 +301,27 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 Mode::Oddball => Variant::oddball(
                     w.score.unwrap_or(120),
                     w.flag_type,
-                    w.tick_rate as i16,
-                    i16::try_from(u32::from(w.reset_seconds) * u32::from(w.tick_rate))
-                        .context("oddball reset exceeds 32767 ticks")?,
+                    tick_rate,
+                    reset_ticks()?,
                 ),
-                Mode::Koth => Variant::koth(
+                Mode::TeamOddball => Variant::team_oddball(
                     w.score.unwrap_or(120),
-                    w.tick_rate as i16,
-                    i16::try_from(u32::from(w.hill_seconds) * u32::from(w.tick_rate))
-                        .context("hill duration exceeds 32767 ticks")?,
-                    w.hills,
+                    w.flag_type,
+                    tick_rate,
+                    reset_ticks()?,
                 ),
+                Mode::Juggernaut => Variant::juggernaut(w.score.unwrap_or(15)),
+                Mode::Koth => Variant::koth(w.score.unwrap_or(120), tick_rate),
+                Mode::CrazyKing => {
+                    Variant::crazy_king(w.score.unwrap_or(120), tick_rate, hill_ticks()?)
+                }
+                Mode::TeamKoth => {
+                    Variant::team_koth(w.score.unwrap_or(120), tick_rate, hill_ticks()?)
+                }
+                Mode::Race => Variant::race(w.score.unwrap_or(3)),
+                Mode::TeamRace => Variant::team_race(w.score.unwrap_or(6)),
+                Mode::Rally => Variant::rally(w.score.unwrap_or(15)),
+                Mode::TeamRally => Variant::team_rally(w.score.unwrap_or(15)),
                 Mode::Ctf => Variant::ctf(blam_megalo::ctf::Ctf {
                     flag_type: w.flag_type,
                     blue_flag_type: (!w.single_flag).then_some(w.blue_flag_type),
@@ -298,10 +335,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 rounds: w.rounds,
                 ..v
             };
-            if matches!(
-                w.mode,
-                Mode::Slayer | Mode::TeamSlayer | Mode::Ctf | Mode::Oddball | Mode::Koth
-            ) {
+            if !matches!(w.mode, Mode::Empty | Mode::Tick) {
                 v = v.with_time_limit();
             }
             w.base.apply(&mut v.base)?;

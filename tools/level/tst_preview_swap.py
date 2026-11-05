@@ -176,7 +176,7 @@ def plan(game, state_path, stage, spec_path, surfaces_path, build_start):
     registration = read_json(auxiliary(stage, 'TST.registration.json'))
     if registration.get('code') != CODE or registration.get('world') != '/Game/Levels/Halo1/Solo/TST/TST.TST':
         raise ValueError('Staged registration does not identify the TST world')
-    if set(level.get('modes', [])) != {'slayer', 'team_slayer', 'ctf'}:
+    if set(level.get('modes', [])) != {'slayer', 'ctf'}:
         raise ValueError('Staged level is not the supported-mode TST beta configuration')
     pairs = []
     for name, (destination, expected) in container_destinations.items():

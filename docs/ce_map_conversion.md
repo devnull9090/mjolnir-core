@@ -832,7 +832,8 @@ variant the loader ships carries CE's health packs as Megalo script
 `mjolnir megalo write`):
 
 - Each CE health pack becomes a spot, invisible scenery labelled
-  `ce_health_pack` (`objects\multi\powerups\health_pack_spot`).
+  `ce_health_pack` (`objects\multi\powerups\health_pack_spot`), owned by the
+  eighth team: neutral scenery with a multiplayer block takes respawns.
 - Each tick, a spot with no pack whose countdown has run out creates one: the
   equipment `objects\multi\powerups\health_pack`, multiplayer object type list
   entry 19, which nobody can pick up.
@@ -854,6 +855,13 @@ variant the loader ships carries CE's health packs as Megalo script
 
 The actions are Reach's (54/55 get shields/health, 64/65 modify, 66 get
 distance), at the same numbers in CU4's decoder.
+
+## King and Oddball
+
+`tools/level/ce_objectives.py` places CE's `HillFlag` polygons and
+`OddballSpawn` flags as labelled markers and adds `koth` and `oddball` to the
+map's `modes` when it has them. [game_modes.md](game_modes.md), section 3.4,
+has the rules, the tests and what shipping them takes.
 
 ## Playing it
 

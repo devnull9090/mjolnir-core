@@ -39,6 +39,29 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.44.0",
+      "tag": "mods-v0.44.0",
+      "title": "King of the Hill and Oddball rules",
+      "date": "2026-11-04",
+      "summary": "The rules and HUD for King of the Hill and Oddball on converted maps. A map offers them once its next release adds the markers.",
+      "body": "### Added\n\n- **King of the Hill and Oddball rules** (MJOLNIRLevelLoader 0.10.0). The\n  loader ships both game types. The lobby offers one only on a map that lists\n  it, and maps start listing them with their next releases.\n- **The hill in the world** (MJOLNIRHud 0.15.0). A wall of plasma stands round the\n  live hill, with a beacon you can see across the map. It is gold when empty,\n  cyan when you hold it, orange-red when another player does, and flashing violet\n  when it is contested.\n- **Hill line** (MJOLNIRHud 0.15.0). In King of the Hill, a line under the score\n  says how far the hill is and which way: \"HILL 12 M LEFT ABOVE\" or \"ON THE\n  HILL\". Hosts relay each move of the hill to fireteam clients.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "King of the Hill and Oddball rules (MJOLNIRLevelLoader 0.10.0). The loader ships both game types. The lobby offers one only on a map that lists it, and maps start listing them with their next releases.",
+            "The hill in the world (MJOLNIRHud 0.15.0). A wall of plasma stands round the live hill, with a beacon you can see across the map. It is gold when empty, cyan when you hold it, orange-red when another player does, and flashing violet when it is contested.",
+            "Hill line (MJOLNIRHud 0.15.0). In King of the Hill, a line under the score says how far the hill is and which way: \"HILL 12 M LEFT ABOVE\" or \"ON THE HILL\". Hosts relay each move of the hill to fireteam clients."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.44.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.44.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.44.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.7.0",

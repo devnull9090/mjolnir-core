@@ -188,7 +188,10 @@ local function encode(match, scoreboard, localPlayer, how, at)
                 '"name":' .. str((p.name or ("Player " .. tostring(index + 1))):sub(1, 64)),
                 '"team":' .. ((Rec.teams and team) and str(string.lower(team)) or "null"),
                 '"score":' .. int(scoreboard.score(p, match.mode)),
-                '"kills":' .. int(p.kills),
+                -- Not p.kills: that is Slayer's running score, which a suicide or
+                -- a betrayal takes below 0. The hub refuses a report with kills
+                -- under 0, and the whole match with it; `score` above may be negative.
+                '"kills":' .. int(p.rawKills),
                 '"deaths":' .. int(p.deaths),
                 '"suicides":' .. int(p.suicides),
                 '"captures":' .. int(p.captures),
@@ -199,7 +202,9 @@ local function encode(match, scoreboard, localPlayer, how, at)
     local teamScores = "null"
     if Rec.teams then
         local totals = scoreboard.totals(match)
-        teamScores = string.format('{"red":%s,"blue":%s}', int(totals.Red), int(totals.Blue))
+        -- Suicides and betrayals can leave a team below 0; the hub takes 0 up.
+        teamScores = string.format('{"red":%s,"blue":%s}',
+            int(math.max(0, totals.Red)), int(math.max(0, totals.Blue)))
     end
     return "{" .. table.concat({
         '"host_match_id":' .. str(Rec.id),

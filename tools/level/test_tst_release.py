@@ -24,7 +24,7 @@ class TstReleaseTests(unittest.TestCase):
         runtime.apply(self.level, self.placements)
         self.assertIn("oddball", self.level["modes"])
         runtime.apply(self.level, self.placements, release_beta=True)
-        self.assertEqual(self.level["modes"], ["slayer", "team_slayer", "ctf"])
+        self.assertEqual(self.level["modes"], ["slayer", "ctf"])
         self.assertFalse(any(o["set"].get("multiplayer data.megalo label", "").startswith(
             ("oddball_", "koth_")) for o in self.level["blam"]["objects"]))
         snapshot = copy.deepcopy(self.level)

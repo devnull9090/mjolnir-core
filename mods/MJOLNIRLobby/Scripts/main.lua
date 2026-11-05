@@ -61,31 +61,8 @@ local SCENARIOS = "/Game/Blueprints/Campaign/DT_Scenarios.DT_Scenarios"
 local CAMPAIGN_MODE = 0      -- E_CampaignMode: the campaign's scenario list and save slot
 local DIFFICULTY_NORMAL = 1
 
--- The game types, in menu order. A mode is offered for a map when the map
--- lists it and its variant file is installed, and the container it `needs`
--- is. `slot` is the insertion point a game of this type starts at: the
--- host's travel carries the index to every fireteam client, whose loader
--- reads the game type from it (keep in step with MJOLNIRLevelLoader's
--- GAME_TYPE_SLOTS). CTF's blue flag is a tag of its own in the CE runtime
--- pack, and on a PC without it the simulation wipes a CTF script that names
--- it: a match with no flags (docs/game_modes.md 2.2).
-local MODES = {
-    { id = "slayer", slot = 0, name = "SLAYER", description = "Free for all. Every kill scores a point; the first to the score limit wins." },
-    { id = "team_slayer", slot = 2, name = "TEAM SLAYER", teams = true, description = "Red against Blue. Kills score for your team." },
-    { id = "koth", slot = 3, name = "KING OF THE HILL", description = "Hold the hill to score. The hill moves." },
-    { id = "oddball", slot = 4, name = "ODDBALL", description = "Hold the skull to score." },
-    { id = "ctf", slot = 1, name = "CAPTURE THE FLAG", teams = true, description = "Take the enemy flag to your base.",
-        needs = "pakchunk990-MJOLNIRFLAGB_P" },
-    -- Forge has no variant file: MJOLNIRLevelLoader starts the map under the
-    -- sandbox engine, and MJOLNIRForge binds the editor's keys. It is offered
-    -- on every map once MJOLNIRForge's native half and the CE runtime's
-    -- monitor fix are installed. Its own slot, 5, tells fireteam clients to
-    -- start the sandbox engine too (before 2026-11-01 it shared Slayer's 0,
-    -- and Forge was host only).
-    { id = "forge", slot = 5, name = "FORGE", forge = true,
-        description = "Turn into the Monitor and grab, move, duplicate and delete the map's objects.",
-        needs = "pakchunk990-MJOLNIRFORGEMON_P" },
-}
+-- The game types: a list of variants with the tile helpers on it (modes.lua).
+local MODES = dofile(MOD_DIR .. "\\Scripts\\modes.lua")
 
 local function readFile(path)
     local f = io.open(path, "rb")
@@ -147,6 +124,18 @@ do
 -- MJOLNIRLevelLoader's teams.lua (Teams.containerInstalled), tested in
 -- tools/tests/test_teams.lua.
 local mounted = {}
+-- Whether each variant file is here. The vote's screen asks several times a
+-- second, for every game type of every option; a file can arrive with a live
+-- map install, so the answers last a few seconds.
+local variantFiles, variantsAt = {}, -100
+
+local function variantInstalled(id)
+    if os.clock() - variantsAt > 5 then variantFiles, variantsAt = {}, os.clock() end
+    if variantFiles[id] == nil then
+        variantFiles[id] = fileExists(LOADER_DIR .. "\\variants\\" .. id .. ".mglo")
+    end
+    return variantFiles[id]
+end
 
 local function hubMounts(stem)
     local appdata = os.getenv("APPDATA")
@@ -191,16 +180,14 @@ end
 modesFor = function(map)
     local listed = {}
     for _, m in ipairs(type(map.modes) == "table" and map.modes or { "slayer" }) do listed[m] = true end
-    -- Team Slayer needs nothing a map has to place: it runs wherever Slayer
-    -- does, and the released maps' lists predate it.
-    if listed.slayer then listed.team_slayer = true end
+    MODES.derive(listed)
     local out = {}
     for _, mode in ipairs(MODES) do
         local installed
         if mode.forge then
             installed = fileExists(MODS_DIR .. "\\MJOLNIRForge\\native\\mjolnir_forge.dll")
         else
-            installed = listed[mode.id] and fileExists(LOADER_DIR .. "\\variants\\" .. mode.id .. ".mglo")
+            installed = listed[mode.id] and variantInstalled(mode.id)
         end
         if installed and offered(mode) then
             out[#out + 1] = mode
@@ -304,6 +291,9 @@ local function startGame(map, mode)
         f:write(mode.id)
         f:close()
     end
+    -- The same id where a client keeps it: a host's load that outlasts the
+    -- loader's guard reaches its own travel, whose slot names only the engine.
+    MODES.writeChoice(LOADER_DIR, map.code, mode.id)
     -- The host's game settings, which the loader patches into the variant;
     -- the fireteam got the same line with the lobby (broadcastLobby).
     writeVariantSettings(Settings.variantLine())
@@ -317,8 +307,10 @@ local function startGame(map, mode)
         tf:write(mode.teams and "1" or "0")
         tf:close()
     end
-    -- A guest without the map leaves rather than hold everyone's start.
-    pcall(Net.toClients, "starting", map.code, (MapLive.release(map.code) or {}).id or "")
+    -- A guest without the map leaves rather than hold everyone's start. The
+    -- third field is the exact game type: every start says it, a post-game
+    -- vote's too, whose winner no lobby message carries.
+    pcall(Net.toClients, "starting", map.code, (MapLive.release(map.code) or {}).id or "", mode.id)
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
     Games.changed()
@@ -783,6 +775,7 @@ Net.on("where", function(f)
 end)
 Net.on("starting", function(f)
     if Net.isHost() or not f[1] then return end
+    MODES.follow(LOADER_DIR, f[1], f[3], log)
     local have = false
     for _, map in ipairs(installedMaps()) do
         if map.code == f[1] then have = true end
@@ -1260,7 +1253,11 @@ end
 function Pick.caption(mode)
     setText(Select.ModeName, mode and mode.name or "")
     setText(Select.ModeDescription, mode and mode.description or "No game type is installed for this map.")
-    setText(Select.ModeFormat, Pick.format(mode))
+    local more = false
+    for _, tile in ipairs(mode and Pick.map and MODES.engines(modesFor(Pick.map)) or {}) do
+        more = more or (#tile.variants > 1 and MODES.position(tile, mode.id) ~= nil)
+    end
+    setText(Select.ModeFormat, Pick.format(mode) .. (more and "  /  CLICK AGAIN: NEXT VARIANT" or ""))
 end
 
 local function drawLobby()
@@ -1337,7 +1334,7 @@ local function drawLobby()
         setShown(Lobby.RulesBox, #rules > 0)
     end
     setShown(Lobby.FindGames, hasFindGames())
-    local status = host and Games.status() or ""
+    local status = host and Games.status() or MODES.missingNote()
     -- A fireteam client that cannot play the host's map yet: what START
     -- (DOWNLOAD MAP or UPDATE MAP) does about it.
     if fetch then
@@ -1394,13 +1391,16 @@ local function showDetails(map)
     Live.showCover(Select, map.code)
     setText(Select.MapMeta, Live.metaLine(map.code))
     local modes = modesFor(map)
+    local tiles = MODES.engines(modes)
     local picked = Pick.map and Pick.map.code == map.code and Pick.mode or nil
     for i = 0, MODE_BUTTONS - 1 do
-        local mode, button = modes[i + 1], Select["Mode" .. i]
-        setShown(button, mode ~= nil)
-        if mode then
+        local tile, button = tiles[i + 1], Select["Mode" .. i]
+        setShown(button, tile ~= nil)
+        if tile then
+            local mode = MODES.shown(tile, picked)
             local label = Select["Mode" .. i .. "Label"]
-            setText(label, mode.name)
+            -- These tiles have one line: the variant, where there is a choice.
+            setText(label, #tile.variants > 1 and mode.name or tile.name)
             local chosen = picked == mode
             pcall(function() button:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND) end)
             pcall(function() label:SetColorAndOpacity({ SpecifiedColor = chosen and ACCENT or WHITE, ColorUseRule = 0 }) end)
@@ -1515,7 +1515,7 @@ Pick.gameType = dofile(MOD_DIR .. "\\Scripts\\gametype.lua").new({
     valid = UI.valid, alive = alive, loadClass = loadClass, pushScreen = pushScreen,
     sameWidget = function(a, b) return UI.addressOf(a) == UI.addressOf(b) end,
     current = function() return Game.map, Game.mode end,
-    modesFor = modesFor, isHost = Net.isHost, titleOf = titleOf,
+    modesFor = modesFor, isHost = Net.isHost, titleOf = titleOf, modes = MODES,
     showCover = Live.showCover,
     commit = function(mode)
         Game.mode = mode
@@ -2636,13 +2636,14 @@ local function onScreenEvent(isLobby, event, source)
             -- Leaving a row: the chosen map's details again.
             showDetails(Pick.map)
         elseif verb == "mode" and Pick.map then
-            local mode = modesFor(Pick.map)[i]
-            if mode then
-                Pick.mode = mode
+            local tile = MODES.engines(modesFor(Pick.map))[i]
+            if tile then
+                Pick.mode = MODES.step(tile, Pick.mode)
                 showDetails(Pick.map)
             end
         elseif verb == "modehover" and Pick.map then
-            Pick.caption(modesFor(Pick.map)[i])
+            local tile = MODES.engines(modesFor(Pick.map))[i]
+            Pick.caption(tile and MODES.shown(tile, Pick.mode))
         elseif verb == "modeunhover" and Pick.map then
             Pick.caption(Pick.mode)
         end
@@ -3098,7 +3099,7 @@ local function drawResults()
         summary = summary .. "   /   " .. table.concat(totals, "  -  ")
     end
     setText(s.Summary, summary)
-    setText(s.ScoreH, r.variant == "ctf" and "CAPTURES" or "SCORE")
+    setText(s.ScoreH, (MODES.byId(r.variant) or {}).scoreHeading or "SCORE")
     local rows = {}
     if #r.teams > 0 then
         local groups = {}
@@ -3765,6 +3766,8 @@ Net.on("lobby", function(f)
         end
     end
     Game.map, Game.mode = map, mode
+    -- The exact game type, for the loader (the slot names only the engine).
+    MODES.follow(LOADER_DIR, f[1], f[2], log)
     writeVariantSettings(f[3] or "")
     clientRules = f[3] or ""
     if Post and alive(Post.screen) then return end
@@ -4506,6 +4509,7 @@ local function initialize()
         net = Net,
         log = log,
         version = LOBBY_VERSION,
+        modes = MODES,
         world = function()
             local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
             return ok and tostring(address) or nil

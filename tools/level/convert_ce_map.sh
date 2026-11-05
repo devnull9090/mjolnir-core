@@ -65,6 +65,18 @@ install="${4:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 mjolnir="${MJOLNIR:-$repo/target/release/mjolnir}"
+
+# Every game type a level can offer, with the release's defaults; SCORE is
+# Slayer's. --vehicle-label-pool also writes each variant's layout.json, the
+# one MJOLNIRLevelLoader needs to add the map's vehicle filters.
+write_variants() {
+  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$1/slayer.mglo"
+  local mode
+  for mode in team-slayer ctf koth crazy-king team-koth oddball team-oddball juggernaut \
+              race team-race rally team-rally; do
+    "$mjolnir" megalo write --mode "$mode" --vehicle-label-pool --out "$1/${mode//-/_}.mglo"
+  done
+}
 examples="${MJOLNIR_EXAMPLES:-$repo/target/release/examples}"
 # For sections no CE shader texture covers: shipped, world-projected (the
 # terrain is normalised into the donor and scaled back up ~440x at spawn, so a
@@ -454,13 +466,13 @@ if [ "$install" = "--install" ]; then
     mkdir -p "$loader/textures"
     cp -r "$out/textures/$name" "$loader/textures/$name"
   fi
-  # The game mode the level names ("variant": "slayer"); MJOLNIRLevelLoader
-  # hands it to the simulation's variant loader when the map starts.
+  # The game modes a level can name; MJOLNIRLevelLoader hands one to the
+  # simulation's variant loader when the map starts.
   variants="$HCE_PAKS/../../Binaries/Win64/ue4ss/Mods/MJOLNIRLevelLoader/variants"
   mkdir -p "$variants"
-  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$variants/slayer.mglo"
+  write_variants "$variants"
 else
   MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$out"
-  "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$out/slayer.mglo"
+  write_variants "$out"
 fi
 echo "done: $out"

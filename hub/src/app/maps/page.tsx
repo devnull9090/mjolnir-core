@@ -18,7 +18,7 @@ import {
 import { listMaps } from "@/lib/api/maps";
 import { GAME_TYPE_NAMES, MAP_GAME_NAMES, MAP_SIZES } from "@/kit/types";
 import type { MapGame, MapListing, MapSize, MapSort } from "@/kit/types";
-import { GAME_MODES, modeLabel } from "@/lib/filters";
+import { MAP_FILTER_MODES, modeLabel } from "@/lib/filters";
 import { marketingMetadata } from "@/lib/marketing";
 
 export const metadata = marketingMetadata(
@@ -152,7 +152,7 @@ export default async function MapsPage({
 }) {
   const params = await searchParams;
   const q = params.q?.trim().slice(0, 80) || undefined;
-  const mode = GAME_MODES.find((m) => m === params.mode) ?? "all";
+  const mode = MAP_FILTER_MODES.find((m) => m === params.mode) ?? "all";
   const show = SHOWS.find((s) => s.key === params.show)?.key ?? "all";
   const game = GAMES.find((g) => g === params.game) ?? "any";
   const size = SIZES.find((s) => s === params.size) ?? "any";
@@ -247,7 +247,7 @@ export default async function MapsPage({
         </div>
         <FilterChips
           label="Game type"
-          options={GAME_MODES.map((m) => ({ label: modeLabel(m), href: qs({ mode: m }), active: m === mode }))}
+          options={MAP_FILTER_MODES.map((m) => ({ label: modeLabel(m), href: qs({ mode: m }), active: m === mode }))}
         />
         <div className="flex flex-col gap-3 border-t border-border pt-3 xl:flex-row xl:flex-wrap xl:items-center xl:gap-x-6">
           <FilterChips

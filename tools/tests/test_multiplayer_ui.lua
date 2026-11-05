@@ -254,7 +254,8 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
 end
 
 -- Timed objectives display simulation totals, ignoring duplicate/older snapshots.
-for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled" }) do
+for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled", crazy_king = "hill_controlled",
+    juggernaut = "ball_taken", race = "final_lap", rally = "final_lap" }) do
     local timed = runHUD(mode)
     timed.incident(event, 1, -1, 7)
     eq(timed.feed.ScoreLeftValue.text, "7", mode .. " score")
@@ -264,6 +265,78 @@ for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled" }) d
     timed.incident(event, 1, -1, 8)
     eq(timed.feed.ScoreLeftValue.text, "8", mode .. " next second")
 end
+
+-- A family reads only its own snapshot: a health pack's or a stray incident
+-- is not a score.
+local wrong = runHUD("race")
+wrong.incident("hill_controlled", 1, -1, 7)
+wrong.incident("ball_taken", 1, -1, 7)
+wrong.incident("lap_complete", 1, -1, 7)
+eq(wrong.feed.ScoreLeftValue.text, "0", "another family's snapshot")
+eq(wrong.board.ScoreH.text, "LAPS", "Race's board counts laps")
+eq(runHUD("rally").board.ScoreH.text, "FLAGS", "Rally's counts flags")
+
+-- Every variant has a row; its teams and limit are the variant's.
+for id, want in pairs({ slayer = { "SLAYER", 25 }, team_slayer = { "TEAM SLAYER", 50, true }, ctf = { "CAPTURE THE FLAG", 3, true },
+    oddball = { "ODDBALL", 120 }, team_oddball = { "TEAM ODDBALL", 120, true }, juggernaut = { "JUGGERNAUT", 15 },
+    koth = { "KING OF THE HILL", 120 }, crazy_king = { "CRAZY KING", 120 }, team_koth = { "TEAM KING", 120, true },
+    race = { "RACE", 3 }, team_race = { "TEAM RACE", 6, true }, rally = { "RALLY", 15 }, team_rally = { "TEAM RALLY", 15, true },
+    forge = { "FORGE", 25 } }) do
+    local row = model.modes[id]
+    eq(row.title, want[1], id .. " title"); eq(row.toWin, want[2], id .. " limit"); eq(row.teams, want[3], id .. " teams")
+end
+
+-- Team objectives: a team's score is its players' sum, leavers included.
+for mode, event in pairs({ team_koth = "hill_controlled", team_oddball = "ball_taken", team_race = "final_lap",
+    team_rally = "final_lap" }) do
+    local team = runHUD(mode)
+    team.teams[0] = "Red"; team.teams[1] = "Blue"; team.teams[2] = "Red"
+    for i = 0, 2 do team.incident("player_spawn", i, -1, 0) end
+    team.incident(event, 0, -1, 4)
+    team.incident(event, 2, -1, 3)
+    team.incident(event, 1, -1, 5)
+    eq(team.feed.ScoreLeftLabel.text, "RED", mode)
+    eq(team.feed.ScoreLeftValue.text, "7", mode .. " red sum")
+    eq(team.feed.ScoreRightValue.text, "5", mode .. " blue sum")
+    team.incident("player_quit", 2, -1, 0)
+    eq(team.feed.ScoreLeftValue.text, "7", mode .. " a leaver's score stays")
+    team.incident("round_over", -1, -1, 0)
+    assert(team.written():find("RED TEAM WINS", 1, true), mode .. " post game winner")
+    assert(team.written():find(model.modes[mode].title, 1, true), mode .. " post game title")
+    assert(team.written():find("team\tRed\t7", 1, true), mode .. " post game total")
+end
+
+-- Slayer's script takes a point for a suicide, and says nothing of it.
+local selfish = runHUD("slayer")
+selfish.incident("Kill", 1, 2, 0)
+selfish.incident("Kill", 1, 2, 0)
+selfish.incident("suicide", -1, 1, 0)
+eq(selfish.feed.ScoreLeftValue.text, "1", "suicide costs a Slayer point")
+local selfishTeam = runHUD("team_slayer")
+selfishTeam.teams[1] = "Blue"; selfishTeam.teams[2] = "Red"
+selfishTeam.incident("player_spawn", 1, -1, 0); selfishTeam.incident("player_spawn", 2, -1, 0)
+selfishTeam.incident("Kill", 1, 2, 0)
+selfishTeam.incident("Kill", 1, 2, 0)
+selfishTeam.incident("suicide", -1, 1, 0)
+eq(selfishTeam.feed.ScoreRightValue.text, "1", "and the team's")
+local oddSelf = runHUD("oddball")
+oddSelf.incident("ball_taken", 1, -1, 7)
+oddSelf.incident("suicide", -1, 1, 0)
+eq(oddSelf.feed.ScoreLeftValue.text, "7", "not elsewhere")
+
+-- The Juggernaut's name reaches the feed once, however often it is resent.
+local jugg = runHUD("juggernaut")
+local function juggLines()
+    local n = 0
+    for _, w in pairs(jugg.feed) do
+        if type(w) == "table" and rawget(w, "text") == "is the Juggernaut" then n = n + 1 end
+    end
+    return n
+end
+jugg.incident("new_juggernaut", 2, -1, 1)
+eq(juggLines(), 1, "the new Juggernaut")
+jugg.incident("new_juggernaut", 2, -1, 1)
+eq(juggLines(), 1, "a resend")
 
 local ctf = runHUD("ctf")
 eq(ctf.board.Name0.text, "RED TEAM  /  0")
@@ -474,7 +547,7 @@ print("Multiplayer UI: hub avatars in the feed")
 -- to every remote player, one message per drain.
 local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
 -- Keep spawn-state updates and objective ownership when merging game-mode work.
-for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled" }) do
+for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled", "hill_moved" }) do
     local events = Relay.decode(Relay.encode({ { name = name, cause = 2, effect = -1, value = 1 } }), 7)
     assert(events and #events == 1, "missing relayed event: " .. name)
     eq(events[1].name, name); eq(events[1].cause, 2); eq(events[1].value, 1)
@@ -486,6 +559,16 @@ local back = Relay.decode(wire, 7)
 eq(#back, 2); eq(back[1].name, "kill"); eq(back[1].damage, "SniperRifle"); eq(back[1].modifier, 1)
 eq(back[2].damage, nil); eq(back[2].relayed, true)
 eq(Relay.decode("MJOLNIR|clock|30.0", 7), nil)
+-- The objectives' own incidents cross, with their values.
+for _, name in ipairs({ "checkpoint_reached", "final_lap", "new_juggernaut" }) do
+    local moved = Relay.decode(Relay.encode({ { name = name, cause = -1, effect = -1, value = 3 } }), 7)
+    eq(moved[1].name, name); eq(moved[1].cause, -1); eq(moved[1].value, 3)
+end
+eq(Relay.carried("lap_complete"), false, "health packs stay on their machine")
+local ranks = {}
+eq(Relay.seen(ranks, { name = "checkpoint_reached", cause = 1, effect = -1, value = 1, at = 1 }), false)
+eq(Relay.seen(ranks, { name = "checkpoint_reached", cause = 1, effect = -1, value = 2, at = 1.5, relayed = true }), false)
+eq(Relay.seen(ranks, { name = "checkpoint_reached", cause = 1, effect = -1, value = 1, at = 1.6, relayed = true }), true)
 -- One incident from two sources is taken once; two from one source are two.
 local recent = {}
 eq(Relay.seen(recent, { name = "kill", cause = 2, effect = 0, at = 10 }), false)

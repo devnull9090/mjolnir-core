@@ -706,8 +706,24 @@ export const GAME_TYPE_NAMES: Record<string, string> = {
   team_slayer: "Team Slayer",
   ctf: "Capture the Flag",
   koth: "King of the Hill",
+  crazy_king: "Crazy King",
+  team_koth: "Team King",
   oddball: "Oddball",
+  team_oddball: "Team Oddball",
+  juggernaut: "Juggernaut",
+  race: "Race",
+  team_race: "Team Race",
+  rally: "Rally",
+  team_rally: "Team Rally",
+  forge: "Forge",
 };
+
+/**
+ * The game types a map lists: engines only. The lobby derives Team Slayer,
+ * Team King and the other variants from these, so a map filter can only
+ * ever match one of them.
+ */
+export const MAP_MODES = ["slayer", "ctf", "koth", "oddball", "race"] as const;
 
 /** Display names for a map's size. */
 export const MAP_SIZES: Record<MapSize, string> = {

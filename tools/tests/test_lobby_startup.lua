@@ -27,8 +27,12 @@ local setup = widget(true, true)
 local helpers = setmetatable({ IsValid = function() return true end,
     GetCampaignSetup = function(_, _, _, out) calls[#calls+1] = "setup"; out.CampaignSetup = setup end,
 }, { __index = function(_, key) return function() calls[#calls+1] = key end end })
+-- The real game types, with the one write that reaches the disk kept here.
+local Modes = dofile("mods/MJOLNIRLobby/Scripts/modes.lua")
+Modes.writeChoice = function(_, code, id) writes.match_variant = code .. " " .. id end
 local modules = {
     ui = UI,
+    modes = Modes,
     presence = { init = function() end },
     class_lifetime = { new = function() return function() end end },
     gametype = { new = function() return {} end },

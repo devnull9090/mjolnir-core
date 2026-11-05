@@ -5,7 +5,9 @@ to 5 are designs and test plans. **Update 2026-10-22:** the two colour fixes
 of section 2 and the CLI's 60-tick default are built on branch
 `work/reach-game-mode-support-2eca91` (each fix's *Built* paragraph says
 where) and untested in game. None of it ships before the user has tested it
-in game.
+in game. **Update 2026-11-04:** King and Oddball are built on converted CE
+maps and were hosted and scored on PC 1 on Prisoner (section 3.4). Nothing is
+released.
 **Binaries:** `HaloSimulation_tag_release.dll` ("sim", image base
 0x180000000) and `HaloCampaignEvolved.exe` ("exe", image base 0x140000000),
 CU4 (build lock in [`build_lock.md`](build_lock.md)). Every address is an RVA
@@ -58,9 +60,10 @@ variant at `GG+0x15f0` and `o = v+4` (variant-format offsets are o-relative);
 
 ## Summary
 
-1. **Two game types run: free-for-all Slayer and CTF.** MJOLNIR's encoder
-   writes both. Team Slayer, KOTH and Oddball exist only as names in menu and
-   HUD tables.
+1. **CE's Standard game types are built, except Assault** (section 3.6):
+   Slayer, Team Slayer, CTF, Oddball, Team Oddball, Juggernaut, King, Crazy
+   King, Team King, Race, Team Race, Rally and Team Rally. This summary was
+   written when only Slayer and CTF ran; the rest of it stands.
 2. **The engine is all there.** It is Reach's game-engine layer, and every
    Reach mode is data for it. Read statically, a MJOLNIR match runs with the
    options' mode byte 3 (multiplayer) and 60 ticks a second, and the fireteam
@@ -109,8 +112,8 @@ variant at `GG+0x15f0` and `o = v+4` (variant-format offsets are o-relative);
 | Step | Where | What | Status |
 |---|---|---|---|
 | Encode | `crates/blam-megalo` (`variant.rs`, `script.rs`, `ctf.rs`, `powerups.rs`); `mjolnir megalo write --mode empty\|slayer\|tick\|ctf` (`crates/blam-cli/src/megalo.rs:40-50`, `211-250`) | builds the bitstream; Slayer and CTF get a time-limit trigger, and every mode but empty and tick gets CE health packs unless `--no-health-packs` | Verified |
-| Release | `.github/workflows/release-mods.yml:109-110` | writes `variants/slayer.mglo` and `variants/ctf.mglo` with `--vehicle-label-pool`; zipped into the signed MJOLNIRLevelLoader | Verified |
-| A map's modes | `tools/level/gen_ce_level.py:1331` | `["slayer"]`, plus `"ctf"` when the CE scenario has flags | Verified |
+| Release | `.github/workflows/release-mods.yml` | writes `slayer`, `team_slayer`, `ctf`, `koth` and `oddball` `.mglo` files in `variants/` with `--vehicle-label-pool`; zipped into the signed MJOLNIRLevelLoader | Verified |
+| A map's modes | `tools/level/gen_ce_level.py` | `["slayer"]`, plus `"ctf"` when the CE scenario has flags, plus `"koth"` and `"oddball"` from its markers (section 3.4) | Verified |
 | Menu | `mods/MJOLNIRLobby/Scripts/main.lua:61-67` (`MODES`), `118-128` (`modesFor`) | five names (slayer, team_slayer, koth, oddball, ctf); a mode is offered only if the map lists it and `variants/<id>.mglo` exists, so only Slayer and CTF appear | Verified |
 | Host's choice to its loader | Lobby `main.lua:181-186` writes `pending_variant.txt`; `mods/MJOLNIRLevelLoader/Scripts/main.lua:6031-6043` reads it once in the `SetAndBeginCampaign` hook | | Verified |
 | Host's choice to clients | the travel URL's insertion point index; loader `GAME_TYPE_SLOTS` (`main.lua:5919`: 0 slayer, 1 ctf, 2 team_slayer, 3 koth, 4 oddball, 5 forge); FIND GAMES joins through `mods/MJOLNIRLobby/Scripts/games.lua:169, 221` | an id missing from the table falls back to the level's own variant (slayer) on clients | Verified |
@@ -152,7 +155,7 @@ Lua, Rust, Python and the hub. Verified (repository audit, 2026-10-21).
 player, if they died a kill death this tick (killer-type bit 2: the death
 record observer, slot 62 at sim `0x3fea10`, writes death type 2 for a kill, 1
 for a suicide, 3 for a betrayal and 4 for a quit; verified), fetch the killer and, unless it is the player, add 1 to the killer's score; for
-each player, end the round at the score to win. The CLI adds the time-limit
+each player, end the round at the score to win. A suicide takes a point from the player, as in CE. The CLI adds the time-limit
 trigger and health packs. The released file is 3,907 bytes: 12 conditions, 19
 actions, 7 triggers. Verified.
 
@@ -566,7 +569,7 @@ values. MJOLNIR writes its own scripts. Bungie's are a reference for behaviour.
 | B4 | Megalo HUD | widgets (`G+0x2a4`), objective text and icon, progress meters and waypoint icons never reach the snapshot; Unreal's navpoints come only from the HaloScript `chud_track` list (`[TLS+0x428]+0xcd0`) | read them natively and draw with UMG from Lua; or mirror waypoints into the HaloScript list (sim `0x473960`, per player), which shows a label and priority but no icon (inferred feasibility) | every objective mode |
 | B5 | Boundaries | the snapshot has no shape; whether the sim's own boundary drawing (slot 29 -> `0x66b900`/`0x66ba00`) reaches the screen is unknown, probably not (inferred) | a zone actor drawn from the object's shape (`MP+0x00..+0x10`) | KOTH, Territories, Infection havens, Headhunter, Stockpile, Assault |
 | B6 | Object type list | 20 entries: 18 weapons, MJOLNIR's flag (18) and health pack (19) | list entries and tags (section 3.2) | all but Slayer and Infection |
-| B7 | Map placements | converted maps carry flag stands, CTF spawn labels and vehicle labels; CE's `OddballSpawn`, `HillFlag` and `RaceTrack` markers are kept in the level file (`defs/level/ce-tag-map.json:56-66`, `gen_ce_level.py:1290-1294`) but not placed as labelled objects | placements with label, owner team, spawn order and shape; a CE hill polygon fitted to one shape (inferred) | Oddball, KOTH, Race; Headhunter, Territories, Stockpile, Assault need authoring |
+| B7 | Map placements | converted maps carry flag stands, CTF spawn labels and vehicle labels. Since 2026-11-04 `tools/level/ce_objectives.py` places CE's `HillFlag` polygons and `OddballSpawn` flags as labelled objects (section 3.4); `RaceTrack` markers stay in the level file only | Race's checkpoints, the same way | Race; Headhunter, Territories, Stockpile, Assault need authoring |
 | B8 | Rounds | MJOLNIR ends a match at the first `round_over`; designator switching acts only from round index 1 | let the sim play the variant's rounds | one-flag CTF, one-bomb Assault, any side swap |
 | B9 | Announcer | 3 of 339 sounds ship | `events.json` lines by incident name, as for CTF | all |
 | B10 | Out of bounds | always false on converted maps | kill (MP type 26) or safe (25) volume objects with shapes in levels | CTF, Assault, Oddball, Headhunter resets |
@@ -620,19 +623,200 @@ section 3.1.
 | 3 | Juggernaut | `juggernaut` | gravity hammer 30 (tag exists), fire emitter 141 (drop) | forced white and black colours; Juggernaut waypoint | script teams under a free-for-all header work in the sim; Unreal sees the slot index | B3, B4, B6, B12 | Low-medium |
 | 4 | Infection (Safe Havens) | `infection`, `inf_spawn`, `inf_haven` (1) with shapes | none; zombie trait weapon -> CU4 energy sword, ability none | forced zombie colour (essential); haven boundary; widget | as Juggernaut | B3, B4, B5, B7, B12 | Medium |
 | 5 | Headhunter | `headhunter`, `hh_drop_point` (1) with shapes | skull 5 | carrier skull-count waypoint; drop-point boundaries; widget; kill-feed text | skull pickup by walking untested | B4, B5, B6, B7 | Medium |
-| 6 | Oddball (Team, Hot Potato) | `oddball`, `oddball_ball` (1), from CE `OddballSpawn` markers | skull 5, bomb 4, anti zone 151; flag stand and capture plate only tested | ball waypoint following the carrier; ball colour follows the carrier's team | the ball's team changes during play | B2 (native), B4, B6, B7, B10 | Medium |
-| 7 | KOTH (Crazy King) | `koth`, `koth_hill` (1) with map-authored shape, from CE `HillFlag` polygons | anti zone 151 | hill boundary in the holder's colour (essential); crown waypoint | the hill's team changes during play | B2 (native), B4, B5, B6, B7 | Medium |
+| 6 | Oddball (Team, Hot Potato). Free-for-all built, section 3.4 | `oddball`, `oddball_ball` (1), from CE `OddballSpawn` markers | skull 5, bomb 4, anti zone 151; flag stand and capture plate only tested | ball waypoint following the carrier; ball colour follows the carrier's team | the ball's team changes during play | B2 (native), B4, B6, B7, B10 | Medium |
+| 7 | KOTH (Crazy King). Free-for-all built, section 3.4 | `koth`, `koth_hill` (1) with map-authored shape, from CE `HillFlag` polygons | anti zone 151 | hill boundary in the holder's colour (essential); crown waypoint | the hill's team changes during play | B2 (native), B4, B5, B6, B7 | Medium |
 | 8 | Escalation (Gun Game) | Slayer's | 18 weapon types: 7 remap, 9 need entries (tags exist), golf club absent | weapon-tier widgets | `Add Weapon To Biped` untested | B4, B6 | Medium |
 | 9 | CTF variants (One Flag, Neutral, Multi-team) | have `ctf_flag_return` with teams; neutral needs a placed flag; multi-team 3-4 stands; optional `ctf_res_zone`, `ctf_res_zone_away` | flag 3, hill marker 6 | colours for 3-4 teams (`EBlamMultiplayerTeam` has 8); attack and defend markers; return progress bar | side swap per round | B2, B4, B6, B8 | Medium-high |
 | 10 | Territories (Land Grab, 3-Plot) | `territories`, `terr_object` (1) with spawn order | flag 3 per territory, anti zone 151 | boundaries; letter waypoints (icons absent); progress bars; territory flag colour that changes on capture | placements authored per map | B2 (native), B4, B5, B6, B7 | High |
 | 11 | Stockpile | `stockpile`, `stp_flag` (1), `stp_goal` (1) | flag 3, respawn zone 60 | flag and goal markers; goal boundary; flag colour that changes in a goal | respawn zones honoured | B2 (native), B4, B5, B6, B7 | High |
 | 12 | Assault (One Bomb, Neutral, Grifball) | `assault`, `as_bomb` (1), `as_goal` (1), authored (CE has no bomb data) | bomb 4 (needs an Unreal actor), hill marker 6, anti zone 151; Grifball adds hammer 30 | three widgets; arm and defuse progress bars; bomb colour that changes when planted; goal boundary | attach to the goal; detonation effect; side swap | B2 (native), B4, B5, B6, B7, B8 | High |
-| 13 | Race and Rally | `race`, `race_spawn`, `race_flag` (1) in order, from CE `RaceTrack` markers | warthog, ghost, banshee (tags exist), mongoose (none), landmine (none, optional) | per-player waypoints with text and distance; speed widgets from the `local` trigger | `Force Player Into Vehicle` untested; the `local` trigger is what clients run | B4, B6, B7 | High |
+| 13 | Race and Rally. Assessed, section 3.5 | `race`, `race_spawn`, `race_flag` (1) in order, from CE `RaceTrack` markers | warthog, ghost, banshee (tags exist), mongoose (none, and CE's Race never needed it), landmine (none, optional) | per-player waypoints with text and distance; speed widgets from the `local` trigger | `Force Player Into Vehicle` untested; the `local` trigger is what clients run | B4, B6, B7 | High |
 | - | Invasion, Invasion Slayer, HaloBall | map devices, cinematic interpolators, cores, Elite tiers, Reach-only props | - | - | - | - | Not realistic |
 
 Two colour channels decide whether team modes read correctly in Unreal: the
 owner team of objects (B2) and the forced colour or script team of players
 (B3). Both are exact in the sim and absent from the host today.
+
+### 3.4 King and Oddball on converted CE maps
+
+Built 2026-11-04. The mode list comes from each map's own markers: a map offers
+`koth` when it has a `HillFlag` polygon and `oddball` when it has an
+`OddballSpawn` (`tools/level/ce_objectives.py`, called by `gen_ce_level.py`;
+run on a level file, it upgrades a map already converted). Of the 48 converted
+maps counted, 46 offer both, with 4 to 14 hills. Nightfall has one stray
+`HillFlag` and no ball spawn, and TST authors its own (`prepare_runtime.py`).
+
+- **A hill is a polygon.** Its corners are the `HillFlag`s sharing a team index,
+  and that index is the hill's number. The simulation's boundaries are simple
+  shapes, so each hill is a cylinder of the polygon's area around its centroid,
+  from its lowest corner to 1.5 world units over its highest. A player in a
+  sharp corner of a long polygon is outside the cylinder. Fitted radii run from
+  1.9 m to 78 m, median 6.4 m (Coldsnap's hills are the wide ones).
+- **One `koth.mglo` serves every map.** A label per hill would pass the
+  simulation's 16 filters, so every hill has the label `koth_hill` and the
+  script reads its place in the rotation from `object.spawn_sequence` (Number
+  kind 6, new in the typed builder), counting the hills as it walks the label.
+  `--hills` is gone.
+- **Markers are owned by a team nobody plays.** The spawn search `0x2f84e0`
+  takes any scenery with a multiplayer block whose owner team is the player's
+  or neutral. It has no type test: MP type 15 only marks a valid first spawn in
+  `0x2f77a0`. Neutral markers took 5 of 13 respawns on Prisoner. With owner team
+  `eighth party` (7), 0 of 23 landed on one, and the label loop and the boundary
+  test do not look at the team. **Health pack spots had the same bug** on every
+  released map: 17 of 23 respawns cycled through three of them. They take the
+  same team now. On a rebaked Prisoner, 0 of 24 respawns in Slayer and 0 of 24
+  in CTF landed on a spot, the five packs appear, and a pack is consumed when
+  a hurt player stands on it (`lap_complete`, health 100%) and returns after
+  30 s. CTF's flag stands took none of those 24 either, for the red team; a
+  blue player was not tried. Stands keep their team, which the script reads.
+- **The staging guard has to know the operand.** `mjolnir_map_registry.dll`
+  links `blam-megalo`'s reader and refused the first `koth.mglo` ("failed
+  variant validation"), and the default variant ran with the HUD still reading
+  "to win 120". **So `koth.mglo` needs a registry DLL built from this code, in
+  the same mods release.** Check `map_registry.log` before reading any result.
+- **Telling where the hill is.** No waypoint or boundary reaches Unreal (B4,
+  B5). The variant raises `hill_moved` with the hill's place as its value, the
+  level file lists `koth_hills`, and `mods/MJOLNIRHud/Scripts/hill.lua` draws one
+  line under the score: "HILL 12 M LEFT ABOVE", "ON THE HILL". The HUD's relay
+  carries `hill_moved` to clients, untested on two PCs; a player joining mid-match
+  shows hill 1 until the next spawn, when `checkpoint_reached` resends the live hill. MJOLNIRHud draws the boundary in the world.
+- **Oddball's ball** is the flag tag (type 18) drawn as the skull, always made at
+  the first spawn the label loop reaches: other spawns are unused. There is no
+  marker for a loose or carried ball, so a player finds it by eye.
+
+Tested on PC 1, Prisoner, private, bots off, 2026-11-04 (the table says what was
+seen):
+
+| Check | Result |
+|---|---|
+| King: staged, not wiped | `mjolnir.mglo installed`; `hill_moved` value 1 after 60 s |
+| King: scoring | 60 points in the 60 s standing on hill 3, read from the sim at the end of the window, and none before it; HUD in step at 27. Scored again on the final build |
+| King: rotation by spawn order | hill 3 went live at minute 3, as ordered; markers read orders 0 to 5 from the sim |
+| Oddball: pick up and score | skull in hand, 1 a second; sim and HUD agree |
+| Oddball: round end | `round_over` at 120 |
+| Oddball: abandoned ball | carrier killed; score stopped at 16; 30 s later a new ball at its spawn |
+| Spawns | 0 of 23 on a hill or ball marker; 0 of 48 on a health spot (Slayer, CTF) |
+| Hill line | drawn under the score bar |
+| Hill wall | drawn in a real match on Prisoner, seen in the player's own view from across the map; followed the hill when it moved |
+| Hill colours | every colour drawn on Blood Gulch with stand-in players; `Hill.holder` unit tested |
+
+MJOLNIRHud draws the live hill (`Scripts/hill.lua`): terrain-following plane
+panels round the scoring circle, a slender beacon and broken rings at its foot.
+The dedicated `M_KOTH_Field` and `M_KOTH_Beacon` masters (chunk 966) use separate
+dynamic instances, crisp rails and sparse animated plasma. Older installs fall
+back to independent instances of `M_CE_Plasma` at reduced brightness. Each game
+draws its own from `koth_hills` and `hill_moved`, so nothing replicates. Without
+either master pair the hill keeps its direction line and retries later.
+Stock `BasicShapes` has no open cylinder, and its lid roofed the hill; panels
+keep the field open. See [KOTH visuals](koth_visuals.md) for building the new
+material container and the limits of the live visual checks.
+
+| Who is on the hill | Colour |
+|---|---|
+| Nobody | gold |
+| You alone | cyan |
+| Another player alone | orange-red |
+| Two or more | violet, smoothly pulsing; the line reads HILL CONTESTED |
+| One team, in a team game | that team's colour |
+
+The rules count players, so two players contest a hill even on one team, and AI
+bots neither hold nor contest one: they are not players to the script. King has
+no team variant yet, so the team colours wait for one. The HUD works the colour
+out from the players' pawns, within 6 m of the hill's height, not from the
+simulation's boundary, so a hill with a floor just above it can show the wrong
+colour.
+
+Not tested: two PCs, a contested hill (needs a second player), the hill's
+colour with a real player on it, `hill_moved` reaching a client, Slayer and CTF
+on a map with the new markers, and the lobby menu by hand (`mjolnir_auto` hosted
+both modes).
+
+Shipping needs a mods release (DLL, both variants, HUD) and then each map
+rebaked: the placements are in the scenario. `add_bots.py` is the pattern for
+rebaking hub packs. `upgrade_ce_map.py`'s install stage refuses a level whose
+`modes` name a variant not installed, so it needs the new variants first.
+
+### 3.5 Race
+
+CE's Race runs on foot or in whatever the map places, so the missing mongoose
+never mattered. Twenty-one converted maps carry `RaceTrack` markers, numbered by
+team index; `ce_objectives.py` places each as a `race_flag` marker on the eighth
+team, with spawn order its sorted rank, because some maps skip an index (DRL,
+ICE, LNG). The boundary cylinder is the flag's radius: 6 m, or half the closest
+pair of consecutive flags, never under 2.5 m. `race_flags` in the level file
+lists them in rank order for the HUD.
+
+Each player's next flag is a player number. Each advance and each spawn raises
+`checkpoint_reached` (102) with that player as the cause and the next rank as
+the value, which ended the old blocker: the number never has to reach Unreal
+through B4. `Scripts/race.lua` draws that flag, and if the incident does not
+arrive it follows the player's own position instead. `lap_complete` stays with
+the health packs; a lap's score rides on `final_lap` (105).
+
+`race_vehicle` markers and CE's Race-only starts are not placed. Racers spawn on
+normal starts and use the vehicles the map's set gives; CE instead deletes every
+vehicle and places a warthog per player at the start line.
+
+### 3.6 CE's Standard game types
+
+CE's PC menu has twelve game types. MJOLNIR's six menu tiles are CE's engines,
+and clicking a chosen tile steps through its variants
+(`mods/MJOLNIRLobby/Scripts/modes.lua` is the one table). Each variant is a
+`.mglo` of its own. A level's `modes` lists only the engines (slayer, ctf, koth,
+oddball, race) and the lobby derives the rest. The host's exact id reaches
+clients in the `lobby` and `starting` messages and joiners through the listing;
+each writes it to `MJOLNIRLevelLoader\match_variant.txt`, which the loader
+prefers over the slot. The slot stays as the engine's fallback, and Race takes
+slot 6.
+
+| Variant | Id | Rule | Limit |
+|---|---|---|---|
+| Slayer | `slayer` | a kill +1, a suicide -1 | 25 |
+| Team Slayer | `team_slayer` | as Slayer, a betrayal -1 | 50 |
+| CTF | `ctf` | | 3 |
+| Oddball | `oddball` | 1 a second while holding the ball | 120 |
+| Team Oddball | `team_oddball` | as Oddball, teams sum | 120 |
+| Juggernaut | `juggernaut` | first killer takes the slot; killing it passes it; +1 for killing it, for its kills and for a kill while nobody is it | 15 |
+| King | `koth` | fixed hill, the hill of spawn order 0 | 120 |
+| Crazy King | `crazy_king` | the hill moves every 60 s, in a shuffled order | 120 |
+| Team King | `team_koth` | moves; teammates never contest | 120 |
+| Race | `race` | a lap is every flag in order, then the first | 3 |
+| Team Race | `team_race` | as Race, teams sum | 6 |
+| Rally | `rally` | one live flag; whoever touches it scores and it moves on, in a shuffled order | 15 |
+| Team Rally | `team_rally` | as Rally, teams sum | 15 |
+
+Where these differ from CE (`game_engine_*.c`, Xbox 2342; PC retail unconfirmed):
+
+- **Contested hills.** CE keeps scoring: "contested" only picks a sound. Ours
+  stop, as Reach does, by the user's choice (2026-11-04). `CONTESTED_HILL_SCORES` in `objectives.rs` and
+  `Hill.CONTESTED_HILL_SCORES` in `hill.lua` flip it together.
+- **Team Race** cannot use CE's minimum team score, so a team sums to 6.
+- **Juggernaut** has no extra damage: three readers refuse a variant with script
+  traits (`Variant::read`, Hud `variant.lua`, loader `variant_settings.lua`).
+- **Oddball** speed and traits are missing for the same reason.
+- **Race vehicles**, section 3.5.
+
+Assault is the Standard game type not built: it needs side swap (B8) and a slot
+of its own. CE's Classic presets (Rockets, Snipers, Phantoms, Reverse Tag,
+Stalker and the rest) need weapon sets, traits or lives.
+
+Every new form needs the registry DLL from the same release, and the launcher's
+hub validator links `blam-megalo` too. Each map needs `add_objectives.py` and a
+hub release before it offers King, Oddball or Race.
+
+Tested on PC 1, 2026-11-04, on the rebaked Blood Gulch and Prisoner, private, one player with bots:
+
+| Check | Result |
+|---|---|
+| Hosted and running | Race (PRS), Rally (PRS), Crazy King (PRS, BGL), Team King (BGL), Team Race (BGL), Juggernaut (BGL), Team Oddball (PRS), CTF (BGL); every file passed the registry DLL and the id reached the loader |
+| Game type screen | six engine tiles; clicking a tile steps its variants; SELECT shows Juggernaut in the lobby |
+| Race | `checkpoint_reached` reaches Unreal; walking through a flag moved the marker on (flag 3 to flag 4 of 9) |
+| Hill movement | Team King moved at 60 s on Blood Gulch |
+| Team HUD | RED / YOU against BLUE in Team King and Team Race |
+
+The sim's random pick (`Get Random Object With Label`, action 96) worked on Prisoner and never fired on Blood Gulch, so moving hills and rally flags walk by spawn order instead: the step grows each move, so the order looks random and a hill never repeats. The cause is unknown; Blood Gulch is the map with vehicle filters added. Crazy King's walk was seen moving on Blood Gulch only as Team King, which shares its code.
+
+Not tested: a full lap or a Race win, touching a Rally flag, any team score, a contested hill, passing the Juggernaut or its beacon (bots are not players to the script, so all of these need two PCs), a suicide in Slayer, Slayer and plain King on this build, and any vehicle in a race.
 
 ---
 
