@@ -1,0 +1,15 @@
+[package]
+name = "blam-jmad"
+description = "Read and write model_animation_graph tags: resource members, frame codecs, and graphs with any node count"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+blam-tag = { path = "../blam-tag" }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -241,15 +241,18 @@ fn write_children_edited(children: &[Value<'_>], edits: &Edits<'_>) -> Vec<u8> {
                     }
                 }
             }
+            // A resource's body is a leaf section like any other: an animation
+            // graph rewrites its frames through this.
             Value::Resource {
                 kind,
                 version,
                 body,
             } => {
+                let content = swap(body);
                 out.extend_from_slice(&[b'c', *kind, b'g', b't']);
                 out.extend_from_slice(&version.to_le_bytes());
-                out.extend_from_slice(&(body.len() as u32).to_le_bytes());
-                out.extend_from_slice(body);
+                out.extend_from_slice(&(content.len() as u32).to_le_bytes());
+                out.extend_from_slice(&content);
             }
         }
     }
@@ -304,8 +307,9 @@ fn write_children(children: &[Value<'_>], sub: Option<&Substitution<'_>>) -> Vec
                         Value::Struct { children } => {
                             out.extend_from_slice(&write_children(children, sub))
                         }
-                        other => out
-                            .extend_from_slice(&write_children(std::slice::from_ref(other), sub)),
+                        other => {
+                            out.extend_from_slice(&write_children(std::slice::from_ref(other), sub))
+                        }
                     }
                 }
             }

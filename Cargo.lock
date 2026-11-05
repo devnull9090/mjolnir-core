@@ -196,6 +196,7 @@ dependencies = [
  "blam-cache",
  "blam-defs",
  "blam-hsc",
+ "blam-jmad",
  "blam-live",
  "blam-megalo",
  "blam-pack",
@@ -224,6 +225,16 @@ dependencies = [
 
 [[package]]
 name = "blam-hsc"
+version = "0.1.0"
+dependencies = [
+ "blam-tag",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "blam-jmad"
 version = "0.1.0"
 dependencies = [
  "blam-tag",
