@@ -5,8 +5,8 @@
 -- the hills in rotation order (`koth_hills`: x, y, z and radius, Unreal cm,
 -- tools/level/ce_objectives.py), the variant says which one is live
 -- (`hill_moved`, value = its place in the rotation), and this draws one line
--- under the score, how far and which way, and the hill itself: a wall of CE's
--- plasma round the scoring cylinder and a beacon above it. Each game draws its
+-- under the score, how far and which way, and the hill itself: a holographic
+-- boundary round the scoring cylinder and a beacon above it. Each game draws its
 -- own, so it needs no replication, and the sim never sees these actors.
 
 local Hill = {}
@@ -17,8 +17,10 @@ local EVERY = 0.2 -- seconds between updates
 local CM_PER_METRE = 100
 local LEVEL_DIFFERENCE_CM = 300
 
--- M_CE_Plasma is in the CE runtime's trial masters (chunk 983). Without it the
--- hill has only its line.
+local FIELD_MASTER = "/Game/MJOLNIR/KOTH/M_KOTH_Field.M_KOTH_Field"
+local BEACON_MASTER = "/Game/MJOLNIR/KOTH/M_KOTH_Beacon.M_KOTH_Beacon"
+-- Older runtime packs have only CE plasma. Keep a quieter version as a
+-- fallback; when neither pair can load the hill still has its HUD line.
 local PLASMA_MASTERS = {
     "/Game/MJOLNIR/CETrial/M_CE_Plasma.M_CE_Plasma",
     "/Game/MJOLNIR/CE/M_CE_Plasma.M_CE_Plasma",
@@ -31,16 +33,17 @@ local MOVABLE = 2 -- EComponentMobility
 local NO_COLLISION = 0 -- ECollisionEnabled
 local PANEL_CM = 150
 local MIN_PANELS, MAX_PANELS = 16, 64
-local WALL_CM = 300
-local WALL_SINK_CM = 80 -- below the ground, so a slope shows no gap
+local WALL_CM = 170
+local WALL_SINK_CM = 35 -- below the ground, so a slope shows no gap
 local LOWEST_CM = 250 -- a panel past a roof's edge stays near the roof
 local TRACE_STARTS_CM = { 350, 1500 } -- the second for ground above the first
 local TRACE_DEPTH_CM = 2500
-local BEACON_RADIUS_CM = 60
+local BEACON_RADIUS_CM = 55
 local BEACON_CM = 7000
-local BRIGHTNESS = 0.9
+local FALLBACK_WALL_BRIGHTNESS = 0.42
+local FALLBACK_BEACON_BRIGHTNESS = 0.55
 local NOISE_SCALE = 0.35
-local CONTESTED_FLASH = 2 -- brightness on every other update
+local MATERIAL_RETRY_SECONDS = 3
 local HILL_HEIGHT_CM = 600 -- how far above or below still counts as on it
 local COLOURS = {
     empty = { para = { 1, 0.8, 0.25 }, perp = { 1, 0.55, 0.08 } }, -- gold
@@ -171,29 +174,50 @@ local function loadAsset(path)
     if ok and asset and asset:IsValid() then return asset end
 end
 
-local function plasma(world)
+local function vector(mid, name, r, g, b, a)
+    mid:SetVectorParameterValue(FName(name), { R = r, G = g, B = b, A = a })
+end
+
+local function instance(world, master, name)
     local library = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local ok, mid = pcall(function()
+        return library:CreateDynamicMaterialInstance(world, master, FName(name), 0)
+    end)
+    if ok and mid and mid:IsValid() then return mid end
+end
+
+local function plasma(world, master, name, brightness)
+    local mid = instance(world, master, name)
+    if not mid then return end
+    vector(mid, "PlasmaBrightness", brightness, 0, 0, 0)
+    vector(mid, "PlasmaNoiseA", NOISE_SCALE, 4, 0, 0)
+    vector(mid, "PlasmaNoiseB", NOISE_SCALE * 0.7, -6, 0, 0)
+    vector(mid, "PlasmaNoiseADir", 0.2, 0.1, 1, 0)
+    vector(mid, "PlasmaNoiseBDir", -0.1, 0.2, 1, 0)
+    return mid
+end
+
+local function materials(world)
+    local fieldMaster, beaconMaster = loadAsset(FIELD_MASTER), loadAsset(BEACON_MASTER)
+    if fieldMaster and beaconMaster then
+        local field = instance(world, fieldMaster, "mjolnir_hill_field")
+        local beacon = instance(world, beaconMaster, "mjolnir_hill_beacon")
+        if field and beacon then return field, beacon, true end
+    end
     for _, path in ipairs(PLASMA_MASTERS) do
         local master = loadAsset(path)
         if master then
-            local mid = library:CreateDynamicMaterialInstance(world, master, FName("mjolnir_hill"), 0)
-            local function set(name, r, g, b, a)
-                mid:SetVectorParameterValue(FName(name), { R = r, G = g, B = b, A = a })
-            end
-            set("PlasmaBrightness", BRIGHTNESS, 0, 0, 0)
-            set("PlasmaNoiseA", NOISE_SCALE, 4, 0, 0)
-            set("PlasmaNoiseB", NOISE_SCALE * 0.7, -6, 0, 0)
-            set("PlasmaNoiseADir", 0.2, 0.1, 1, 0)
-            set("PlasmaNoiseBDir", -0.1, 0.2, 1, 0)
-            return mid
+            local field = plasma(world, master, "mjolnir_hill_field", FALLBACK_WALL_BRIGHTNESS)
+            local beacon = plasma(world, master, "mjolnir_hill_beacon", FALLBACK_BEACON_BRIGHTNESS)
+            if field and beacon then return field, beacon, false end
         end
     end
 end
 
-local function tint(mid, colours)
+local function tint(mid, colours, holographic)
     local para, perp = colours.para, colours.perp
-    mid:SetVectorParameterValue(FName("PlasmaParallel"), { R = para[1], G = para[2], B = para[3], A = 1 })
-    mid:SetVectorParameterValue(FName("PlasmaPerpendicular"), { R = perp[1], G = perp[2], B = perp[3], A = 1 })
+    vector(mid, holographic and "AccentColor" or "PlasmaParallel", para[1], para[2], para[3], 1)
+    vector(mid, holographic and "FieldColor" or "PlasmaPerpendicular", perp[1], perp[2], perp[3], 1)
 end
 
 --- A panel's rotation: facing out, its bottom edge rising `rise` cm over its
@@ -240,6 +264,7 @@ function Hill.new(read)
     function self.start(code)
         self.hills = Hill.parse(read(code))
         self.live, self.next = 1, 0
+        self.drawn, self.retryAt, self.noWall = nil, nil, nil
         return #self.hills
     end
 
@@ -264,30 +289,43 @@ function Hill.new(read)
         pcall(function()
             for _, actor in pairs(self.parts) do showPart(actor, false) end
             showPart(self.beacon, false)
+            showPart(self.anchor, false)
         end)
     end
 
     --- Stand the wall round the live hill. Actors are kept and moved: the map
     --- change that frees them also ends this object's match, and a new hill
     --- only re-places them.
-    local function draw(pc)
-        local world = pc:GetWorld()
-        if not (self.mid and self.mid:IsValid()) then
-            self.mid = plasma(world)
+    local function draw(world, now)
+        if self.retryAt and now < self.retryAt then return end
+        if not (self.mid and self.mid:IsValid() and self.beaconMid and self.beaconMid:IsValid()) then
+            self.mid, self.beaconMid, self.holographic = materials(world)
             self.drawn = nil
-            self.colours, self.bright = nil, nil
-            if not self.mid then
+            self.colours, self.bright, self.state = nil, nil, nil
+            if not (self.mid and self.beaconMid) then
+                self.hide()
                 self.noWall = true
+                self.retryAt = now + MATERIAL_RETRY_SECONDS
                 return
             end
         end
-        if self.drawn == self.live then return end
+        if self.drawn == self.live and
+           (not self.holographic or (self.anchor and self.anchor:IsValid())) then return end
         local hill = self.hills[self.live]
         local plane = loadAsset(PLANE)
         local cylinder = loadAsset(CYLINDER)
         if not (plane and cylinder) then
+            self.hide()
             self.noWall = true
+            self.retryAt = now + MATERIAL_RETRY_SECONDS
             return
+        end
+        self.noWall, self.retryAt = nil, nil
+        if self.holographic then
+            for _, mid in ipairs({ self.mid, self.beaconMid }) do
+                vector(mid, "FieldCenter", hill.x, hill.y, hill.z, hill.r)
+                vector(mid, "FieldProfile", WALL_CM, WALL_SINK_CM, BEACON_CM, 0)
+            end
         end
         local panels = Hill.panels(hill)
         local ground = {}
@@ -299,6 +337,8 @@ function Hill.new(read)
                 actor = spawnPart(world, plane, self.mid)
                 self.parts[i] = actor
             end
+            -- A pooled actor can outlive its MID. Rebind on every placement.
+            actor.StaticMeshComponent:SetMaterial(0, self.mid)
             local from, to = ground[i], ground[i % #panels + 1]
             local base = (from + to) / 2 - WALL_SINK_CM
             actor:K2_SetActorLocation({ X = panel.x, Y = panel.y, Z = base + WALL_CM / 2 }, false, {}, false)
@@ -310,11 +350,28 @@ function Hill.new(read)
         end
         for i = #panels + 1, #self.parts do showPart(self.parts[i], false) end
         if not (self.beacon and self.beacon:IsValid()) then
-            self.beacon = spawnPart(world, cylinder, self.mid)
+            self.beacon = spawnPart(world, cylinder, self.beaconMid)
         end
+        self.beacon.StaticMeshComponent:SetMaterial(0, self.beaconMid)
         self.beacon:K2_SetActorLocation({ X = hill.x, Y = hill.y, Z = hill.z + BEACON_CM / 2 }, false, {}, false)
         self.beacon:SetActorScale3D({ X = BEACON_RADIUS_CM / 50, Y = BEACON_RADIUS_CM / 50, Z = BEACON_CM / 100 })
         showPart(self.beacon, true)
+        if self.holographic then
+            if not (self.anchor and self.anchor:IsValid()) then
+                self.anchor = spawnPart(world, plane, self.beaconMid)
+            end
+            self.anchor.StaticMeshComponent:SetMaterial(0, self.beaconMid)
+            self.anchor:K2_SetActorLocation({
+                X = hill.x, Y = hill.y, Z = groundAt(world, hill.x, hill.y, hill.z) + 5,
+            }, false, {}, false)
+            self.anchor:K2_SetActorRotation({ Pitch = 0, Yaw = 0, Roll = 0 }, false)
+            self.anchor:SetActorScale3D({ X = 2, Y = 2, Z = 1 })
+            showPart(self.anchor, true)
+        else
+            -- The dedicated shader masks this plane into broken rings. CE's
+            -- fallback would expose the whole square.
+            showPart(self.anchor, false)
+        end
         self.drawn = self.live
     end
 
@@ -323,24 +380,38 @@ function Hill.new(read)
         self.next = now + EVERY
         if hidden then return self.hide() end
         pcall(function()
+            if not (pc and pc:IsValid()) then return self.hide() end
+            local world = pc:GetWorld()
+            if not (world and world:IsValid()) then return self.hide() end
             if not (self.widget and self.widget:IsValid() and self.text and self.text:IsValid()) then
                 self.widget, self.text = build(pc)
             end
-            if not self.noWall then draw(pc) end
+            draw(world, now)
             local hill = self.hills[self.live]
             local holder = Hill.holder(hill, players and players() or {})
-            if self.mid and self.mid:IsValid() then
+            if self.mid and self.mid:IsValid() and self.beaconMid and self.beaconMid:IsValid() then
                 local colours = COLOURS[holder] or COLOURS.empty
                 if colours ~= self.colours then
                     self.colours = colours
-                    tint(self.mid, colours)
+                    tint(self.mid, colours, self.holographic)
+                    tint(self.beaconMid, colours, self.holographic)
                 end
-                local bright = BRIGHTNESS
-                self.flash = holder == "contested" and not self.flash
-                if self.flash then bright = CONTESTED_FLASH end
-                if bright ~= self.bright then
-                    self.bright = bright
-                    self.mid:SetVectorParameterValue(FName("PlasmaBrightness"), { R = bright, G = 0, B = 0, A = 0 })
+                if self.holographic then
+                    if holder ~= self.state then
+                        self.state = holder
+                        local contested = holder == "contested" and 1 or 0
+                        vector(self.mid, "FieldState", contested, 1, 0, 0)
+                        vector(self.beaconMid, "FieldState", contested, 1, 0, 0)
+                    end
+                else
+                    -- Older packs have no material-time pulse. Sample a slow,
+                    -- bounded sine instead of switching between bright flashes.
+                    local bright = holder == "contested" and (1 + 0.2 * math.sin(now * 2 * math.pi * 0.75)) or 1
+                    if bright ~= self.bright then
+                        self.bright = bright
+                        vector(self.mid, "PlasmaBrightness", FALLBACK_WALL_BRIGHTNESS * bright, 0, 0, 0)
+                        vector(self.beaconMid, "PlasmaBrightness", FALLBACK_BEACON_BRIGHTNESS * bright, 0, 0, 0)
+                    end
                 end
             end
             local pawn = pc.Pawn

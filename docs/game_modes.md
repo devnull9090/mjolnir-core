@@ -699,19 +699,23 @@ seen):
 | Hill wall | drawn in a real match on Prisoner, seen in the player's own view from across the map; followed the hill when it moved |
 | Hill colours | every colour drawn on Blood Gulch with stand-in players; `Hill.holder` unit tested |
 
-MJOLNIRHud draws the live hill (`Scripts/hill.lua`): a ring of plane panels
-round the scoring circle and a beacon at its centre, all one instance of
-`M_CE_Plasma`, the master CE's plasma shaders use (chunk 983, so no cook). Each
-game draws its own from `koth_hills` and `hill_moved`, so nothing replicates,
-and traces lay the panels along the ground. Without the master the hill has only
-its line. Stock `BasicShapes` has no open cylinder, and its lid roofed the hill.
+MJOLNIRHud draws the live hill (`Scripts/hill.lua`): terrain-following plane
+panels round the scoring circle, a slender beacon and broken rings at its foot.
+The dedicated `M_KOTH_Field` and `M_KOTH_Beacon` masters (chunk 966) use separate
+dynamic instances, crisp rails and sparse animated plasma. Older installs fall
+back to independent instances of `M_CE_Plasma` at reduced brightness. Each game
+draws its own from `koth_hills` and `hill_moved`, so nothing replicates. Without
+either master pair the hill keeps its direction line and retries later.
+Stock `BasicShapes` has no open cylinder, and its lid roofed the hill; panels
+keep the field open. See [KOTH visuals](koth_visuals.md) for building the new
+material container and the limits of the live visual checks.
 
 | Who is on the hill | Colour |
 |---|---|
 | Nobody | gold |
 | You alone | cyan |
 | Another player alone | orange-red |
-| Two or more | violet, flashing; the line reads HILL CONTESTED |
+| Two or more | violet, smoothly pulsing; the line reads HILL CONTESTED |
 | One team, in a team game | that team's colour |
 
 The rules count players, so two players contest a hill even on one team, and AI
