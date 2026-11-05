@@ -45,6 +45,11 @@ jobs:
       - name: Test a CE map's device helpers
         run: lua5.4 tools/tests/test_devices.lua
 
+      - name: Test a converted vehicle's sound helpers
+        run: |
+          lua5.4 tools/tests/test_vehicle_sounds.lua
+          lua5.4 tools/tests/test_vehicle_sounds_runtime.lua
+
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 

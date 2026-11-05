@@ -440,6 +440,33 @@ pub fn set(
     Ok(new)
 }
 
+/// Resize the array at `path`: truncated, or grown by copies of its last
+/// element. Growing an empty array is refused, having nothing to copy.
+pub fn resize(
+    usmap: &Usmap,
+    class: &str,
+    names: &[String],
+    block: &mut Block,
+    path: &str,
+    len: usize,
+) -> Result<(), String> {
+    let segments = parse_path(path)?;
+    let (value, _) = locate(usmap, class, names, block, &segments, true)?;
+    match value {
+        Val::Array(items) => {
+            if len > items.len() {
+                let last = items.last().cloned().ok_or("cannot grow an empty array")?;
+                items.resize(len, last);
+            } else {
+                items.truncate(len);
+            }
+            Ok(())
+        }
+        Val::Zeroed if len == 0 => Ok(()),
+        other => Err(format!("{path} is not an array: {other:?}")),
+    }
+}
+
 fn intern_name(names: &mut NameBatch, text: &str) -> Name {
     Name {
         index: names.intern(text),
