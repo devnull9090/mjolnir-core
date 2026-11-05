@@ -409,8 +409,9 @@ and the loader's comments beside each are the reference.
   with), `modes` (the game types the multiplayer menu offers, listed in the `maps.json` an
   install writes), `vehicle_sets` (CE's vehicle sets, from which the loader picks the labels a
   game type requires), `ctf` (Capture the Flag's look: the flag mesh, its materials, the
-  stands), `health_pack` (the CE health pack's look) and `foliage` (the game's grass, tufts and
-  stones, from a file beside the level).
+  stands), `health_pack` (the CE health pack's look), `koth_hills` (King's hills in rotation order, for
+  the HUD's hill line: x, y, z and radius in cm, from `tools/level/ce_objectives.py`) and
+  `foliage` (the game's grass, tufts and stones, from a file beside the level).
 - Written by `tools/level/upgrade_ce_map.py` for a remastered map, and unknown to
   `level validate` and `level bake`: `landscape` (an Unreal Landscape for the ground), `flux`
   (Fluid Flux over rivers and the sea), `decals` (the game's decal materials), `lights` (CE's
@@ -464,7 +465,9 @@ Inert points, carried so game-mode work (see
 [multiplayer_ctf_plan.md](multiplayer_ctf_plan.md)) can consume them later without a format
 change. An authored level names them, following the MapKit convention (`flag_red`, `hill_1`,
 ...); a converted CE map lists its netgame flags as `{ "type", "team", "pos", "yaw" }`
-(`ctf_flag`, `hill`, `oddball`, ..., from `defs/level/ce-tag-map.json`). Nothing reads them yet.
+(`ctf_flag`, `hill`, `oddball`, ..., from `defs/level/ce-tag-map.json`).
+`tools/level/ce_objectives.py` turns `hill` and `oddball` markers into labelled objects and the
+map's `koth` and `oddball` modes; the bake and the game read nothing else from them.
 
 ## File placement and flow
 

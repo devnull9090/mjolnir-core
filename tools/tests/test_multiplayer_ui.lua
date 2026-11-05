@@ -474,7 +474,7 @@ print("Multiplayer UI: hub avatars in the feed")
 -- to every remote player, one message per drain.
 local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
 -- Keep spawn-state updates and objective ownership when merging game-mode work.
-for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled" }) do
+for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled", "hill_moved" }) do
     local events = Relay.decode(Relay.encode({ { name = name, cause = 2, effect = -1, value = 1 } }), 7)
     assert(events and #events == 1, "missing relayed event: " .. name)
     eq(events[1].name, name); eq(events[1].cause, 2); eq(events[1].value, 1)

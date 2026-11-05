@@ -485,8 +485,12 @@ deleted are skipped. VERIFIED. So:
 | random bias | slot 105 | re-rolls `MP+0x28` each tick from `multiplayer_globals` | VERIFIED |
 | respawn object | actions 60 and 61 → `0x1974d0` | a team's or player's primary respawn object | VERIFIED |
 
-A player spawns only at scenery of MP type 15; the scenario's starting
-locations are not used ([megalo_engine.md](megalo_engine.md)). Team spawns
+A first spawn needs MP type 15 with the initial bit, but a respawn does not:
+`0x2f84e0` has no type test, so any scenery with a multiplayer block and a
+matching or neutral owner team is a candidate (read 2026-11-04, and seen on
+Prisoner: players spawn on neutral hill markers and health pack spots). The
+scenario's starting locations are not used
+([megalo_engine.md](megalo_engine.md)). Team spawns
 need each point's owner team to be the team's designator. Respawn zones work
 when a scenery object of MP type 16 with a shape exists (placed or created
 by a script). Danger zones (type 20) pass the type test but not the iterator
