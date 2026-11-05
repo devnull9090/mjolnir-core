@@ -62,6 +62,7 @@ the only artifact the smoke test has to run.
 ```
 /usr/bin/mjolnir                              (or <brew prefix>/bin/mjolnir)
 /usr/share/mjolnir/defs/hce/scripting.json
+/usr/share/mjolnir/defs/hce/console.json
 /usr/share/doc/mjolnir/LICENSE
 ```
 

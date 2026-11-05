@@ -164,9 +164,9 @@ jobs:
           fi
           "$bin" --help > /dev/null
 
-      # `defs/hce/scripting.json` is the recovered function table `mjolnir
-      # compile` needs, and it is a repository file — so it travels in the
-      # archive, and the binary looks for it next to itself. LICENSE ships
+      # `defs/hce/scripting.json` and `console.json` are the recovered function
+      # tables `mjolnir compile` needs, and they are repository files — so they
+      # travel in the archive, and the binary looks for it next to itself. LICENSE ships
       # because MIT requires the notice to travel with the binary, not only
       # with the source.
       - name: Stage the archive
@@ -176,7 +176,7 @@ jobs:
           stage="mjolnir-${{ needs.gate.outputs.version }}-${{ matrix.name }}"
           mkdir -p "$stage/defs/hce"
           cp "target/${{ matrix.target }}/release/${{ matrix.exe }}" "$stage/"
-          cp defs/hce/scripting.json "$stage/defs/hce/"
+          cp defs/hce/scripting.json defs/hce/console.json "$stage/defs/hce/"
           cp LICENSE "$stage/"
           echo "stage=$stage" >> "$GITHUB_ENV"
 
@@ -244,7 +244,7 @@ jobs:
           tar -xzf "artifacts/mjolnir-$VER-linux-x64.tar.gz" -C "$RUNNER_TEMP"
           src="$RUNNER_TEMP/mjolnir-$VER-linux-x64"
           install -m 0755 "$src/mjolnir" "$root/usr/bin/mjolnir"
-          install -m 0644 "$src/defs/hce/scripting.json" "$root/usr/share/mjolnir/defs/hce/"
+          install -m 0644 "$src/defs/hce/scripting.json" "$src/defs/hce/console.json" "$root/usr/share/mjolnir/defs/hce/"
           install -m 0644 "$src/LICENSE" "$root/usr/share/doc/mjolnir/LICENSE"
 
           for type in deb rpm; do
@@ -517,7 +517,7 @@ jobs:
 
             def install
               bin.install "mjolnir"
-              (share/"mjolnir/defs/hce").install "defs/hce/scripting.json"
+              (share/"mjolnir/defs/hce").install "defs/hce/scripting.json", "defs/hce/console.json"
               (share/"doc/mjolnir").install "LICENSE"
             end
 
