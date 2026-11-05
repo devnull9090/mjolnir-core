@@ -14,6 +14,7 @@ pub mod ctf;
 pub mod dump;
 pub mod objectives;
 pub mod powerups;
+pub mod race;
 pub mod raw;
 pub(crate) mod script;
 pub mod variant;

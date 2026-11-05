@@ -1,12 +1,31 @@
 /**
- * The query-string filters the games and match pages share: which game
+ * The query-string filters the games, match and map pages share: which game
  * types there are, how a map code is checked, and how a filtered URL is
  * built so every link keeps the other filters.
  */
-import { GAME_TYPE_NAMES } from "@/kit/types";
+import { GAME_TYPE_NAMES, MAP_MODES } from "@/kit/types";
 
-export const GAME_MODES = ["all", "slayer", "ctf", "team_slayer", "koth", "oddball"] as const;
+export const GAME_MODES = [
+  "all",
+  "slayer",
+  "team_slayer",
+  "ctf",
+  "koth",
+  "crazy_king",
+  "team_koth",
+  "oddball",
+  "team_oddball",
+  "juggernaut",
+  "race",
+  "team_race",
+  "rally",
+  "team_rally",
+  "forge",
+] as const;
 export type GameMode = (typeof GAME_MODES)[number];
+
+/** The map page's choices: games carry variant ids, maps list engines. */
+export const MAP_FILTER_MODES = ["all", ...MAP_MODES] as const;
 
 export function parseMode(v: string | undefined): GameMode {
   return GAME_MODES.find((m) => m === v) ?? "all";

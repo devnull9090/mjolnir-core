@@ -249,6 +249,11 @@ pub struct LevelFile {
     /// marker reads; opaque to the bake.
     #[serde(default)]
     pub koth_hills: Option<serde_json::Value>,
+    /// Race's checkpoints by rank, x, y, z and radius in Unreal cm
+    /// (tools/level/ce_objectives.py), which MJOLNIRHud's checkpoint marker
+    /// reads; opaque to the bake.
+    #[serde(default)]
+    pub race_flags: Option<serde_json::Value>,
     /// The game's grass, tufts and stones on the map's ground
     /// (tools/level/scatter_foliage.py), which the loader spawns; opaque to
     /// the bake.

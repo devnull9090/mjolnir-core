@@ -52,6 +52,17 @@ fn mjolnir_variants_round_trip() {
             "slayer+health",
             Variant::slayer(25).with_health_packs(health).unwrap(),
         ),
+        ("team_slayer", Variant::team_slayer(50)),
+        ("oddball", Variant::oddball(120, 18, 60, 1800)),
+        ("team_oddball", Variant::team_oddball(120, 18, 60, 1800)),
+        ("juggernaut", Variant::juggernaut(15)),
+        ("koth", Variant::koth(120, 60)),
+        ("crazy_king", Variant::crazy_king(120, 60, 3600)),
+        ("team_koth", Variant::team_koth(120, 60, 3600)),
+        ("race", Variant::race(3)),
+        ("team_race", Variant::team_race(6)),
+        ("rally", Variant::rally(15)),
+        ("team_rally", Variant::team_rally(15)),
     ];
     for (name, v) in variants {
         let bytes = v.write().unwrap();

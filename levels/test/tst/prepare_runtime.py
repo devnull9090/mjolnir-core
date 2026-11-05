@@ -65,7 +65,8 @@ def apply(level, placements, *, release_beta=False):
         marker(markers["oddball"]["position_m"], "oddball_spawn")
         for index, position in enumerate(markers["king"]["positions_m"]):
             marker(position, "koth_hill", 2, index)
-    level["modes"] = ["slayer", "team_slayer", "ctf"]
+    # Engines only: the lobby derives Team Slayer, Team King and the rest.
+    level["modes"] = ["slayer", "ctf"]
     if not release_beta:
         level["modes"] += ["oddball", "koth"]
     level["title"] = "TST Proving Ground"
@@ -86,8 +87,9 @@ def main():
     level = apply(json.loads(args.level.read_text()), placements, release_beta=args.release_beta)
     if not args.release_beta:
         args.rules_out.mkdir(parents=True, exist_ok=True)
-    for mode in (() if args.release_beta else ("oddball", "koth")):
-        subprocess.run([str(args.cli), "megalo", "write", "--mode", mode,
+    variants = ("oddball", "team_oddball", "juggernaut", "koth", "crazy_king", "team_koth")
+    for mode in (() if args.release_beta else variants):
+        subprocess.run([str(args.cli), "megalo", "write", "--mode", mode.replace("_", "-"),
             "--vehicle-label-pool", "--tick-rate", "60",
             "--out", str(args.rules_out / f"{mode}.mglo")], check=True)
     args.level.write_text(json.dumps(level, indent=2) + "\n")

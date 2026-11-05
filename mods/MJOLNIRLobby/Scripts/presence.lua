@@ -2,7 +2,9 @@
 -- MJOLNIRHud publishes a fresh, session-bound snapshot of its own Lua state.
 local Presence = {}
 local MODES = { slayer = "Slayer", team_slayer = "Team Slayer", ctf = "Capture the Flag",
-    koth = "King of the Hill", oddball = "Oddball", forge = "Forge" }
+    koth = "King", crazy_king = "Crazy King", team_koth = "Team King",
+    oddball = "Oddball", team_oddball = "Team Oddball", juggernaut = "Juggernaut",
+    race = "Race", team_race = "Team Race", rally = "Rally", team_rally = "Team Rally", forge = "Forge" }
 local context, nativeDir, hudFile, session, Json, log, nativeUpdate
 
 local function text(value, limit)

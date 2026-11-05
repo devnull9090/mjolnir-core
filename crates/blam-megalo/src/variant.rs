@@ -50,6 +50,9 @@ pub const MAX_ACTIONS: usize = (0xf860 - 0x930c) / 0x14;
 pub const MAX_TRIGGERS: usize = (0xf860 - 0x63fc) / 0x0c;
 /// Object filters the simulation holds.
 pub const MAX_FILTERS: usize = 16;
+/// `player.number[]` slots each player holds (the player scope's store at
+/// `o+0xe3b4`, and the eight the operand's `u3` index can name).
+pub const MAX_PLAYER_NUMBERS: u8 = 8;
 
 /// A player reference (`u5`, HaloSimulation `0x441380`).
 pub mod player {
@@ -101,6 +104,8 @@ pub mod team {
 pub enum Number {
     /// Kind 0.
     Constant(i16),
+    /// Kind 1: `player.number[index]`, which a player keeps through deaths.
+    PlayerNumber { player: u8, index: u8 },
     /// Kind 2: `object.number[index]`.
     ObjectNumber { object: u8, index: u8 },
     /// Kind 4: `global.number[index]`.
@@ -267,8 +272,8 @@ pub enum Action {
     DeleteObject(Object),
     /// Type 4.
     SetWaypointVisibility { object: Object, who: PlayerSet },
-    /// Type 5: an icon index (7 flag, 6 bomb, 8 skull; 11 territory is not
-    /// modelled).
+    /// Type 5: an icon index (5 bomb, 6 flag, 7 skull, 8 crown; 11 territory
+    /// is not modelled).
     SetWaypointIcon { object: Object, icon: u8 },
     /// Type 9: `a op= b`.
     ModifyVariable { a: Var, b: Var, op: Op },
@@ -305,6 +310,13 @@ pub enum Action {
     /// Type 66: the distance between two objects, in feet (a world unit is
     /// ten).
     GetDistance { a: Object, b: Object, out: Number },
+    /// Type 96 (`0x41f350`): a random object of the label, never `exclude`,
+    /// into `out`; none when the label has no other object.
+    GetRandomObject {
+        exclude: Object,
+        out: Object,
+        label: u8,
+    },
     /// Type 75 (`0x41df50`): raise an incident, an index into the incident
     /// definitions in `globals\incident_properties` order (game_incident's
     /// first: `flag_grabbed` is 110). With a value it is type 76, and the
@@ -366,6 +378,8 @@ pub struct Variables {
     pub global_players: u8,
     /// `global.object[]` (0..=16).
     pub global_objects: u8,
+    /// `player.number[]` on every player (0..=8).
+    pub player_numbers: u8,
     /// `object.number[]` on every object with multiplayer properties (0..=8).
     pub object_numbers: u8,
     /// `object.object[]` (0..=4).
@@ -580,14 +594,16 @@ impl Variant {
         }
     }
 
-    /// Free-for-all Slayer: a kill scores 1 for the killer, and the round
-    /// ends when a player reaches the score to win.
+    /// Free-for-all Slayer: a kill scores 1 for the killer, a suicide costs
+    /// the player 1, as in CE, and the round ends when a player reaches the
+    /// score to win.
     ///
     /// Every tick, for each player: if the player died this tick by another
     /// player's hand (death type "kill"), look the killer up into
     /// `global.player[0]` and, unless that is the player themselves, add one
     /// to the killer's score. Then, for each player, end the round if their
-    /// score has reached the score to win.
+    /// score has reached the score to win; and last, take a point from a
+    /// player who died by their own hand.
     pub fn slayer(score_to_win: u16) -> Variant {
         let current = Player(player::CURRENT);
         let killer = Player(player::global(0));
@@ -662,11 +678,41 @@ impl Variant {
             },
             ..Variant::empty(score_to_win)
         }
+        .with_suicide_penalty()
+    }
+
+    /// Take a point from a player who kills themselves (death type 1, from
+    /// the same record the kill trigger reads). Guardian deaths are another
+    /// type and cost nothing.
+    fn with_suicide_penalty(mut self) -> Variant {
+        self.triggers.push(Trigger {
+            kind: TriggerKind::EachPlayer,
+            attribute: ATTR_NORMAL,
+            first_condition: self.conditions.len() as u16,
+            condition_count: 1,
+            first_action: self.actions.len() as u16,
+            action_count: 1,
+        });
+        self.conditions.push(Condition {
+            kind: ConditionKind::KillerTypeIs {
+                player: Player(player::CURRENT),
+                flags: DEATH_SUICIDE,
+            },
+            negate: false,
+            or_sequence: 0,
+            action_offset: 0,
+        });
+        self.actions.push(Action::ModifyScore {
+            target: ScoreTarget::Player(Player(player::CURRENT)),
+            op: Op::Subtract,
+            value: Number::Constant(1),
+        });
+        self
     }
 
     /// Team Slayer: Slayer with teams on. A kill of an enemy scores 1 for
-    /// the killer and a kill of a teammate costs the killer 1; a team's
-    /// score is its players' sum (team scoring 0, sim `0x2b0180`), and the
+    /// the killer, a kill of a teammate costs the killer 1 and a suicide
+    /// costs the player 1; a team's score is its players' sum (team scoring 0, sim `0x2b0180`), and the
     /// engine ends the round when a team reaches the score to win (sim
     /// `0x2b1170`, reason 5), so the script has no end trigger.
     ///
@@ -724,7 +770,7 @@ impl Variant {
             first_action: 2,
             action_count: 2,
         });
-        v
+        v.with_suicide_penalty()
     }
 
     /// A smoke test for the interpreter: every tick, every player scores one,
@@ -767,6 +813,11 @@ impl Variant {
     }
 }
 
+/// Every death type: guardians, suicide, kill, betrayal, quit.
+pub const DEATH_ANY: u8 = 0b1_1111;
+/// Death-type bit for a player's own hand (type 1, written by sim slot 62
+/// `0x3fea10`).
+pub const DEATH_SUICIDE: u8 = 1 << 1;
 /// Death-type bit for a kill by another player (Reach's numbering, which the
 /// decoder's condition 3 tests against the death record; guardians 0,
 /// suicide 1, kill 2, betrayal 3, quit 4). Inferred, not yet seen live.
@@ -1007,6 +1058,11 @@ fn write_number(w: &mut BitWriter, n: &Number) -> Result<(), Error> {
             put(w, 0, 6)?;
             w.write_signed(*c as i64, 16)
         }
+        Number::PlayerNumber { player, index } => {
+            put(w, 1, 6)?;
+            put(w, *player as u64, 5)?;
+            put(w, *index as u64, 3)
+        }
         Number::ObjectNumber { object, index } => {
             put(w, 2, 6)?;
             put(w, *object as u64, 5)?;
@@ -1230,6 +1286,16 @@ fn write_action(w: &mut BitWriter, a: &Action) -> Result<(), Error> {
             write_object(w, *to)?;
             write_number(w, out)
         }
+        Action::GetRandomObject {
+            exclude,
+            out,
+            label,
+        } => {
+            put(w, 96, 7)?;
+            write_object(w, *exclude)?;
+            write_object(w, *out)?;
+            put_opt(w, Some(u64::from(*label)), 4)
+        }
         Action::SendIncident {
             incident,
             cause,
@@ -1303,6 +1369,7 @@ impl Variant {
             (v.global_numbers, 12, 4),
             (v.global_players, 8, 4),
             (v.global_objects, 16, 5),
+            (v.player_numbers, MAX_PLAYER_NUMBERS, 4),
             (v.object_numbers, 8, 4),
             (v.object_objects, 4, 3),
         ] {
@@ -1372,8 +1439,10 @@ impl Variant {
         zeros(&mut w, &[4, 4])?;
         write_handles(&mut w, v.global_players, 4)?;
         write_handles(&mut w, v.global_objects, 5)?;
-        zeros(&mut w, &[4, 3, 3, 3, 3])?; // player scope
-                                          // object scope
+        // player scope: numbers, timers, teams, players, objects
+        write_numbers(&mut w, v.player_numbers, 4)?;
+        zeros(&mut w, &[3, 3, 3, 3])?;
+        // object scope
         write_numbers(&mut w, v.object_numbers, 4)?;
         zeros(&mut w, &[3, 2, 3])?;
         write_handles(&mut w, v.object_objects, 3)?;
@@ -1646,6 +1715,10 @@ fn read_team(r: &mut BitReader) -> Result<Team, Error> {
 fn read_number(r: &mut BitReader) -> Result<Number, Error> {
     Ok(match get(r, 6)? {
         0 => Number::Constant(r.read_signed(16)? as i16),
+        1 => Number::PlayerNumber {
+            player: get(r, 5)? as u8,
+            index: get(r, 3)? as u8,
+        },
         2 => Number::ObjectNumber {
             object: get(r, 5)? as u8,
             index: get(r, 3)? as u8,
@@ -1879,6 +1952,18 @@ fn read_action(r: &mut BitReader) -> Result<Action, Error> {
                 out: read_number(r)?,
             }
         }
+        96 => {
+            let exclude = read_object(r)?;
+            let out = read_object(r)?;
+            match get_opt(r, 4)? {
+                Some(label) => Action::GetRandomObject {
+                    exclude,
+                    out,
+                    label: label as u8,
+                },
+                None => return Err(Error::Unsupported("a random object with no label".into())),
+            }
+        }
         ty @ (75 | 76) => {
             let incident = get_minus_one(r, 10)?;
             let cause = read_subject(r)?;
@@ -2034,8 +2119,13 @@ impl Variant {
         expect_none(&mut r, 4, "global teams")?;
         let global_players = read_handles(&mut r, 4)?;
         let global_objects = read_handles(&mut r, 5)?;
+        let player_numbers = read_numbers(&mut r, 4)?;
+        if player_numbers > MAX_PLAYER_NUMBERS {
+            return Err(Error::Unsupported(format!(
+                "{player_numbers} player numbers; the simulation holds at most {MAX_PLAYER_NUMBERS}"
+            )));
+        }
         for (bits, what) in [
-            (4, "player numbers"),
             (3, "player timers"),
             (3, "player teams"),
             (3, "player players"),
@@ -2126,6 +2216,7 @@ impl Variant {
                 global_numbers,
                 global_players,
                 global_objects,
+                player_numbers,
                 object_numbers,
                 object_objects,
             },
@@ -2204,12 +2295,13 @@ pub(crate) mod tests {
     }
 
     /// Team Slayer: teams on, the kill trigger kept, Slayer's per-player end
-    /// trigger replaced by a betrayal trigger that takes the point back.
+    /// trigger replaced by a betrayal trigger that takes the point back, and
+    /// Slayer's suicide trigger last.
     #[test]
     fn team_slayer_reads_back_exactly() {
         let v = Variant::team_slayer(50);
         assert!(v.teams);
-        assert_eq!(v.triggers.len(), 2);
+        assert_eq!(v.triggers.len(), 3);
         assert!(matches!(
             v.conditions[2].kind,
             ConditionKind::KillerTypeIs {
@@ -2240,11 +2332,36 @@ pub(crate) mod tests {
         assert_eq!((bytes.len(), sum), SLAYER_FINGERPRINT);
     }
 
-    /// Length and a rolling hash of the installed `slayer.mglo`
-    /// (`megalo write --mode slayer --score 25`) from before the operand
-    /// support grew, with the map options' item flags set ([`MAP_FLAGS`];
-    /// 0xa685_d97e before).
-    const SLAYER_FINGERPRINT: (usize, u32) = (1131, 0xa122_35a1);
+    /// A suicide costs a point in both Slayers: the trigger is the last one,
+    /// and the one thing added to the script proven in game.
+    #[test]
+    fn suicide_costs_the_player_a_point() {
+        for v in [Variant::slayer(25), Variant::team_slayer(50)] {
+            let t = v.triggers.last().unwrap();
+            assert_eq!(t.kind, TriggerKind::EachPlayer);
+            assert!(matches!(
+                v.conditions[t.first_condition as usize].kind,
+                ConditionKind::KillerTypeIs {
+                    flags: DEATH_SUICIDE,
+                    ..
+                }
+            ));
+            assert_eq!(
+                v.actions[t.first_action as usize],
+                Action::ModifyScore {
+                    target: ScoreTarget::Player(Player(player::CURRENT)),
+                    op: Op::Subtract,
+                    value: Number::Constant(1),
+                }
+            );
+            check_ranges(&v);
+        }
+    }
+
+    /// Length and a rolling hash of `Variant::slayer(25)`: the bytes proven
+    /// in game, with the map options' item flags set ([`MAP_FLAGS`]) and,
+    /// since 2026-11-04, the suicide trigger ((1131, 0xa122_35a1) before it).
+    const SLAYER_FINGERPRINT: (usize, u32) = (1146, 0xccef_9750);
 
     #[test]
     fn base_options_read_back_exactly() {
@@ -2306,6 +2423,9 @@ pub(crate) mod tests {
         vec![
             ("slayer", Variant::slayer(25).with_time_limit()),
             ("ctf", ctf.with_time_limit()),
+            ("team_koth", Variant::team_koth(120, 60, 3600).with_time_limit()),
+            ("juggernaut", Variant::juggernaut(15).with_time_limit()),
+            ("race", Variant::race(3).with_time_limit()),
         ]
     }
 
@@ -2382,6 +2502,61 @@ pub(crate) mod tests {
             let bytes = v.write().unwrap();
             assert_eq!(Variant::read(&bytes).unwrap(), v);
         }
+    }
+
+    #[test]
+    fn player_numbers_and_random_objects_read_back_exactly() {
+        let mut v = Variant::empty(5);
+        v.vars.player_numbers = MAX_PLAYER_NUMBERS;
+        v.vars.global_objects = 2;
+        v.actions = vec![
+            Action::ModifyVariable {
+                a: Var::Number(Number::PlayerNumber {
+                    player: player::CURRENT,
+                    index: 7,
+                }),
+                b: Var::Number(Number::PlayerNumber {
+                    player: player::global(1),
+                    index: 0,
+                }),
+                op: Op::Set,
+            },
+            Action::GetRandomObject {
+                exclude: Object::Ref(object::global(0)),
+                out: Object::Ref(object::global(1)),
+                label: 15,
+            },
+        ];
+        let bytes = v.write().unwrap();
+        assert_eq!(Variant::read(&bytes).unwrap(), v);
+        // The grammar's own codec reads the same stream.
+        crate::raw::round_trip(&bytes, 0, &[]).unwrap();
+    }
+
+    /// The decoder trusts the stream's counts, so a ninth player number has
+    /// to stop at the validator rather than overrun the player scope's store.
+    #[test]
+    fn too_many_player_numbers_are_refused() {
+        let mut v = Variant::empty(5);
+        v.vars.player_numbers = MAX_PLAYER_NUMBERS + 1;
+        assert!(v.write().is_err());
+
+        // The writer will not make one, so turn a count of 8 into 9: the
+        // count's top bit is where counts of 8 and 1 first differ.
+        v.vars.player_numbers = 8;
+        let mut bytes = v.write().unwrap();
+        v.vars.player_numbers = 1;
+        let other = v.write().unwrap();
+        let top = (0..bytes.len() * 8)
+            .find(|&i| (bytes[i / 8] ^ other[i / 8]) >> (7 - i % 8) & 1 != 0)
+            .unwrap();
+        let low = top + 3;
+        bytes[low / 8] |= 1 << (7 - low % 8);
+        let err = Variant::validate(&bytes).unwrap_err();
+        assert!(
+            matches!(err, Error::Unsupported(ref m) if m.contains("player numbers")),
+            "{err:?}"
+        );
     }
 
     #[test]

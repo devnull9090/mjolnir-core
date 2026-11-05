@@ -1,10 +1,17 @@
 -- A game type choice is a draft until SELECT. CommonUI's Back/Escape can
 -- deactivate the screen at any time without changing the hosted game.
+--
+-- Each tile is an engine (modes.lua). The cooked screen has six tiles and no
+-- other button, so a click on the chosen tile steps through its variants, and
+-- the tile's format line names the one it stands for.
 local M = {}
 local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRGameTypeSelect.WBP_MJOLNIRGameTypeSelect_C"
 local ICON_ROOT = "/Game/MJOLNIR/UI/ModeIcons/T_MJMode_"
+-- Only these six textures are cooked. Race borrows the flag until it has its own.
 local ICONS = { slayer = "Slayer", team_slayer = "TeamSlayer", ctf = "Ctf",
-    oddball = "Oddball", koth = "Koth", forge = "Forge" }
+    oddball = "Oddball", team_oddball = "Oddball", juggernaut = "Slayer",
+    koth = "Koth", crazy_king = "Koth", team_koth = "Koth",
+    race = "Ctf", team_race = "Ctf", rally = "Ctf", team_rally = "Ctf", forge = "Forge" }
 local NORMAL = { R = 1, G = 1, B = 1, A = 1 }
 local CHOSEN = { R = 2.0, G = 2.8, B = 3.0, A = 1 }
 local WHITE = { R = 0.88, G = 0.95, B = 1, A = 1 }
@@ -18,8 +25,9 @@ local function format(mode)
 end
 
 function M.new(deps)
+    local Modes = deps.modes
     local self = { class = CLASS }
-    local screen, mapCode, selected, hovered, modes, currentId
+    local screen, mapCode, selected, hovered, modes, tiles, currentId
     local available, textures = nil, {}
 
     function self.available()
@@ -60,15 +68,23 @@ function M.new(deps)
         icon(screen.ModeIcon, mode)
     end
 
+    --- The tile's line under its name: the variant it stands for, when it has
+    --- more than one.
+    local function tileLine(tile, mode)
+        if #tile.variants < 2 then return format(mode) end
+        return string.format("%s  /  VARIANT %d OF %d", mode.name, Modes.position(tile, mode.id), #tile.variants)
+    end
+
     local function draw()
         for i = 0, 5 do
-            local mode, button = modes[i + 1], screen["Mode" .. i]
-            pcall(function() button:SetVisibility(mode and 0 or 1) end)
-            if mode then
+            local tile, button = tiles[i + 1], screen["Mode" .. i]
+            pcall(function() button:SetVisibility(tile and 0 or 1) end)
+            if tile then
+                local mode = Modes.shown(tile, selected)
                 local chosen = selected and selected.id == mode.id
-                text(screen["Mode" .. i .. "Label"], mode.name)
-                text(screen["Mode" .. i .. "Format"], format(mode))
-                text(screen["Mode" .. i .. "Current"], currentId == mode.id and "CURRENT" or "")
+                text(screen["Mode" .. i .. "Label"], tile.name)
+                text(screen["Mode" .. i .. "Format"], tileLine(tile, mode))
+                text(screen["Mode" .. i .. "Current"], Modes.position(tile, currentId) and "CURRENT" or "")
                 icon(screen["Mode" .. i .. "Icon"], mode)
                 pcall(function()
                     button:SetBackgroundColor(chosen and CHOSEN or NORMAL)
@@ -76,9 +92,10 @@ function M.new(deps)
                 end)
             end
         end
-        text(screen.ListCount, string.format("%d GAME TYPE%s AVAILABLE", #modes, #modes == 1 and "" or "S"))
+        text(screen.ListCount, string.format("%d GAME TYPE%s AVAILABLE", #tiles, #tiles == 1 and "" or "S"))
         pcall(function() screen.Select:SetIsEnabled(selected ~= nil and deps.isHost()) end)
-        text(screen.Status, "Choose a game type, then SELECT to apply it. BACK keeps your current game type.")
+        text(screen.Status, "Choose a game type, click it again for its variants, then SELECT. "
+            .. "BACK keeps your current game type.")
         preview(hovered or selected)
     end
 
@@ -100,11 +117,15 @@ function M.new(deps)
         end
         mapCode, currentId, hovered = map.code, mode and mode.id, nil
         modes, selected = deps.modesFor(map), nil
-        local focus = 0
-        for i, candidate in ipairs(modes) do
-            if candidate.id == currentId then selected, focus = candidate, i - 1 end
+        tiles = Modes.engines(modes)
+        for _, candidate in ipairs(modes) do
+            if candidate.id == currentId then selected = candidate end
         end
-        selected = selected or modes[1]
+        selected = selected or (tiles[1] and tiles[1].variants[1])
+        local focus = 0
+        for i, tile in ipairs(tiles) do
+            if selected and Modes.position(tile, selected.id) then focus = i - 1 end
+        end
         text(screen.MapTitle, deps.titleOf(map))
         deps.showCover(screen, map.code)
         draw()
@@ -123,9 +144,10 @@ function M.new(deps)
             return
         end
         local verb, index = event:match("^(%a+):(%d+)$")
-        local mode = index and modes[tonumber(index) + 1]
-        if verb == "mode" and mode then
-            selected, hovered = mode, nil
+        local tile = index and tiles[tonumber(index) + 1]
+        local mode = tile and Modes.shown(tile, selected)
+        if verb == "mode" and tile then
+            selected, hovered = Modes.step(tile, selected), nil
             draw()
         elseif verb == "hover" and mode then
             hovered = mode

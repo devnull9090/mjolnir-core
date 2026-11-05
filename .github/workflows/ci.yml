@@ -24,12 +24,16 @@ jobs:
           lua5.4 tools/tests/test_multiplayer_ui.lua
           lua5.4 tools/tests/test_lobby_startup.lua
           lua5.4 tools/tests/test_hill_marker.lua
+          lua5.4 tools/tests/test_match_report.lua
 
       - name: Test UI class retention across map travel
         run: lua5.4 tools/tests/test_ui_class_lifetime.lua
 
       - name: Test the game type picker
         run: lua5.4 tools/tests/test_gametype_picker.lua
+
+      - name: Test the game variants against every table keyed by them
+        run: lua5.4 tools/tests/test_game_variants.lua
 
       - name: Test Discord presence and public-session joins
         run: lua5.4 tools/tests/test_discord_presence.lua

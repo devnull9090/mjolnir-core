@@ -36,8 +36,9 @@ local Teams = {}
 -- Plain helpers (tools/tests/test_teams.lua)
 --------------------------------------------------------------------------------
 
---- The game types played by teams (MJOLNIRLobby's MODES with `teams`).
-Teams.TEAM_GAMES = { ctf = true, team_slayer = true }
+--- The game types played by teams (MJOLNIRLobby's modes.lua with `teams`).
+Teams.TEAM_GAMES = { ctf = true, team_slayer = true, team_koth = true, team_oddball = true,
+    team_race = true, team_rally = true }
 
 --- A flag lying within this of its own team's stand is at home, and is drawn
 --- exactly on the stand: the flag object settles a little off it and turned

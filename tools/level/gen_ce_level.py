@@ -30,7 +30,7 @@ import re
 import struct
 import sys
 
-from ce_objectives import MARKER_TEAM, hill_list, objective_objects
+from ce_objectives import MARKER_TEAM, hill_flags_for, hill_list, objective_objects, race_list
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TAG_MAP = os.path.join(ROOT, "defs", "level", "ce-tag-map.json")
@@ -1556,7 +1556,8 @@ def main():
             markers.append({"type": kind, "team": f["team"], "pos": to_ue(f["pos"]), "yaw": yaw_ue(f["facing"])})
         else:
             dropped[f"netgame flag {f['type']}"] += 1
-    objectives, objective_modes = objective_objects(markers)
+    objectives, objective_modes = objective_objects(
+        markers, hill_flags_for("halo2" if source == "halo2_mcc" else "halo1"))
 
     # Halo 2's turning parts as the simulation's own machines (h2_machines.py),
     # at the parts' places and full rotation (Zanzibar's flywheels are
@@ -1614,7 +1615,9 @@ def main():
         "variant": "slayer",
         # The game types the multiplayer menu (MJOLNIRLobby) offers for the
         # map; each needs its variants/<mode>.mglo installed. CTF needs a
-        # flag for each team, King a HillFlag polygon, Oddball a ball spawn.
+        # flag for each team, King a HillFlag polygon, Oddball a ball spawn,
+        # Race its track. Only engines go here: the lobby derives the rest
+        # (Team King, Rally, ...) from these.
         "modes": ["slayer"] + (["ctf"] if ctf else []) + objective_modes,
         # The terrain's materials output CE's own colours; the level's
         # post-process volume keeps everything between them and the screen
@@ -1662,6 +1665,8 @@ def main():
     }
     if "koth" in objective_modes:
         level["koth_hills"] = hill_list(objectives)
+    if "race" in objective_modes:
+        level["race_flags"] = race_list(objectives)
     if ctf:
         # The stands need no mesh of their own: CE's own flag base scenery
         # sits at each flag and comes in with the map's scenery.

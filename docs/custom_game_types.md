@@ -137,7 +137,7 @@ struct by sim `0x25d0`). VERIFIED.
 
 | Field | Rule | Written by | Hub check |
 |---|---|---|---|
-| `id` | `^[a-z_]{1,24}$`, the regex lobbies and map modes already use (`hub/src/lib/api/lobby.ts:36`, `hub/src/lib/api/manifest.ts:31`). Unique across the hub; one listing owns an id for good, as a map owns its code. Reserved: `slayer`, `team_slayer`, `ctf`, `koth`, `oddball`, `empty`, `tick`. | author | unique, not reserved |
+| `id` | `^[a-z_]{1,24}$`, the regex lobbies and map modes already use (`hub/src/lib/api/lobby.ts:36`, `hub/src/lib/api/manifest.ts:31`). Unique across the hub; one listing owns an id for good, as a map owns its code. Reserved: `slayer`, `team_slayer`, `ctf`, `koth`, `crazy_king`, `team_koth`, `oddball`, `team_oddball`, `juggernaut`, `race`, `team_race`, `rally`, `team_rally`, `forge`, `empty`, `tick`. | author | unique, not reserved |
 | `title`, `description` | 1 to 40 and up to 300 characters (proposed). The compiler also writes them into the variant's own name and description tables, which today always say "MJOLNIR". | author | length |
 | `teams` | `"ffa"` or `2` | derived from the variant: teams flag (`o+0x2b8` bit 0) and enabled teams | agrees with the decode; 3 to 8 teams refused until [Phase 4](#phase-4-presentation) |
 | `players` | `min`, `max` in 1 to 16 | author | range |
