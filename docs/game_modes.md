@@ -788,7 +788,7 @@ slot 6.
 Where these differ from CE (`game_engine_*.c`, Xbox 2342; PC retail unconfirmed):
 
 - **Contested hills.** CE keeps scoring: "contested" only picks a sound. Ours
-  stop, as Reach does. `CONTESTED_HILL_SCORES` in `objectives.rs` and
+  stop, as Reach does, by the user's choice (2026-11-04). `CONTESTED_HILL_SCORES` in `objectives.rs` and
   `Hill.CONTESTED_HILL_SCORES` in `hill.lua` flip it together.
 - **Team Race** cannot use CE's minimum team score, so a team sums to 6.
 - **Juggernaut** has no extra damage: three readers refuse a variant with script
