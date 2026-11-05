@@ -28,6 +28,29 @@ def vehicle():
     return flat
 
 
+class Fighter(unittest.TestCase):
+    FLAT = {f"{physics.FIGHTER}.maximum forward speed": "5", f"{physics.FIGHTER}.speed acceleration": "15",
+            f"{physics.FIGHTER}.speed deceleration": "25", f"{physics.FIGHTER}.turning control.turn rate": "9.424778"}
+    NUMBERS = {"vehicle": {"forward_speed": 4.0, "acceleration": 0.32, "deceleration": 0.36, "turn_rate": 0.2},
+               "baseline": {"forward_speed": 0.22, "acceleration": 0.008, "deceleration": 0.016, "turn_rate": 0.13}}
+
+    def values(self, forward=None):
+        sets = physics.fighter_sets(self.FLAT, self.NUMBERS, forward)
+        return {s.split("=")[0].rsplit(".", 1)[-1]: float(s.split("=")[1]) for s in sets}
+
+    def test_each_number_is_the_shipped_one_times_ce_over_ce(self):
+        got = self.values()
+        self.assertAlmostEqual(got["maximum forward speed"], 90.909, 3)
+        self.assertAlmostEqual(got["speed acceleration"], 600, 3)
+        self.assertAlmostEqual(got["speed deceleration"], 562.5, 3)
+        self.assertAlmostEqual(got["turn rate"], 14.4997, 3)
+
+    def test_a_clamp_moves_top_speed_alone(self):
+        got = self.values(35)
+        self.assertEqual(got["maximum forward speed"], 35)
+        self.assertAlmostEqual(got["speed acceleration"], 600, 3)
+
+
 class Flatten(unittest.TestCase):
     def test_paths_cross_structs_and_blocks(self):
         tree = [{"kind": "field", "name": "mass", "value": "3300"},

@@ -17,7 +17,43 @@ the game closed. One vehicle per code, and never a map's own code:
 `convert_ce_map.sh` uses the same `985` and `986` container names, so a vehicle
 built under `YOY` would replace the map's textures and terrain.
 
-A level then places it with `tag` ([level_format.md](level_format.md)).
+A level then places it with `tag` ([level_format.md](level_format.md)). A test
+map's `level bake --install-test` registers only the maps in the loader's
+`registry/`, so hub maps such as Yoyorast drop out of `pakchunk996-MJOLNIRREG_P`
+and `maps.json`. Run `mjolnir level register` after it, with the game closed: it
+rebuilds both from every installed map.
+
+## Donors
+
+`--donor` names a profile in `tools/level/data/donors/`, default `warthog`: the
+actor, its tags, the rig's export, the bone parts ride, the seats and the handling
+type. `ce_vehicle_numbers.py --baseline-map` reads the baseline from another map
+when the vehicle's own lacks it, as Coldsnap lacks every stock vehicle.
+
+Coldsnap's `jet2_v2` is the first build on `banshee`, on the test map `JTT`. It
+draws, boards and flies, but launches itself on boarding (the Banshee's cruising
+throttle) and its pilot sits low:
+
+    python tools/level/ce_vehicle_numbers.py coldsnap.map "" vehicles/jet2/jet2_v2 <out> \
+        --baseline vehicles/banshee/banshee_mp --baseline-map bloodgulch.map
+    python tools/level/ce_vehicle.py <manifest.json> <out dir> --numbers <out>/numbers.json --donor banshee \
+        --code JET --name jet --label Jet --variant jet_35=35 --variant jet_91=ce
+
+- **Fit.** There are no wheels to fit to. The hull is centred on the Banshee's
+  physics box and stood on its floor, 52 cm below the origin, and every part rides
+  `Hull_M`, 136 cm up. The jet is 1.68 times the Banshee's length, but the rig stays
+  at 1 (`--rig-scale`): nothing in the simulation depends on it, and a rider is
+  drawn at the rig's scale. The Banshee's effects stay at its own size for now.
+- **Damage.** The hull region's five permutations each hold every part, and the
+  other regions are empty.
+- **Pilot.** The Banshee's seat is `invisible`, so the clones clear that bit. The
+  `banshee_d` marker takes CE's `driver`. The two boarding seats stay: `--resize`
+  reaches root blocks only.
+- **Numbers.** Shipped value times CE jet over CE `banshee_mp`: acceleration 600,
+  deceleration 562.5, turn rate 14.5, top speed 90.9 (`ce`) against the 35 clamp.
+- **Stock parts.** Collision and physics stay the Banshee's (`"chassis": "stock"`),
+  so boarding means aiming where the Banshee would be. `vehicle_mute` does not
+  apply: the Banshee's graph has no `SoundVariant_EngineLoop` statement.
 
 ## How it works
 
@@ -152,8 +188,7 @@ lights floating.
 - Weapons: the same route should hold (first-person actors use the same
   component), but no weapon has been tried.
 - Tooling: a `tag` placement is not checked against installed containers, so a
-  wrong path bakes and fails in game. `ce_vehicle.py` holds the Warthog's
-  measured bone positions in code. Duplicate plan regions and `material` or `node`
+  wrong path bakes and fails in game. Duplicate plan regions and `material` or `node`
   indices are not validated. `ce_vehicle_lights.py` assumes four headlights and two
   taillights. `ce_vehicle.py` and `ce_vehicle_name.py` look up the `997` stub and
   raise if no map is installed. The latest fixes to `ce_vehicle.py`,

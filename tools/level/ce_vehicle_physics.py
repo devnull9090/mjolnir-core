@@ -21,6 +21,7 @@ import math
 import re
 
 JEEP = "physics types.type-human_jeep[0]"
+FIGHTER = "physics types.type-alien_fighter[0]"
 HAVOK = "havok vehicle physics"
 # Who gets on where, and the shipped hud_messages line for each of the
 # Warthog's seats: driver, passenger, the two boardings, the back seat.
@@ -35,7 +36,7 @@ def flatten(fields, prefix=""):
             out[name] = f["value"].strip(chr(34))
         elif f["kind"] == "block":
             for i, element in enumerate(f.get("children", [])):
-                out.update(flatten(element["children"], f"{name}[{i}]."))
+                out.update(flatten(element.get("children", []), f"{name}[{i}]."))
         elif "children" in f:
             out.update(flatten(f["children"], name + "."))
     return out
@@ -97,6 +98,17 @@ def shape_box(flat):
         h = vec(flat[f"boxes[{i}].half extents"])
         lo = [min(lo[k], c[k] - h[k]) for k in range(3)]
         hi = [max(hi[k], c[k] + h[k]) for k in range(3)]
+    return lo, hi
+
+
+def polyhedra_box(flat):
+    """The box round every polyhedron, in object space: a flyer's bodies."""
+    lo, hi = [math.inf] * 3, [-math.inf] * 3
+    for i in range(count(flat, "polyhedra")):
+        centre = vec(flat[f"polyhedra[{i}].aabb center"])
+        half = vec(flat[f"polyhedra[{i}].aabb half extents"])
+        lo = [min(lo[k], centre[k] - half[k]) for k in range(3)]
+        hi = [max(hi[k], centre[k] + half[k]) for k in range(3)]
     return lo, hi
 
 
@@ -221,6 +233,25 @@ def vehicle_sets(flat, ce, radius):
     # No seat strings: the game draws <MISSING STRING TABLE ENTRY> for names
     # its Unreal string table lacks, mongoose_enter_driver among them.
     return sets
+
+
+def fighter_sets(flat, ce, forward=None):
+    """An alien_fighter's edits. Each is the shipped value times CE vehicle over
+    CE baseline. `forward`, in wu/s, replaces the ratio for top speed alone."""
+    v, b = ce["vehicle"], ce["baseline"]
+
+    def scaled(path, key):
+        return float(flat[path]) * v[key] / b[key]
+
+    speed = f"{FIGHTER}.maximum forward speed"
+    accel = f"{FIGHTER}.speed acceleration"
+    decel = f"{FIGHTER}.speed deceleration"
+    rate = f"{FIGHTER}.turning control.turn rate"
+    top = forward if forward is not None else scaled(speed, "forward_speed")
+    return [f"{speed}={top:.6f}",
+            f"{accel}={scaled(accel, 'acceleration'):.6f}",
+            f"{decel}={scaled(decel, 'deceleration'):.6f}",
+            f"{rate}={scaled(rate, 'turn_rate'):.6f}"]
 
 
 def pathfinding_sets(flat, scale):

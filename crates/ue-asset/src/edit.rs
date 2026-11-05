@@ -659,7 +659,10 @@ mod tests {
         assert!(resized(Some(ints(&[])), 1).0.unwrap_err().contains("empty"));
         assert!(resized(Some(Val::Zeroed), 1).0.is_err());
         assert!(resized(None, 1).0.is_err());
-        assert!(resized(Some(Val::Int(3)), 1).0.unwrap_err().contains("not an array"));
+        assert!(resized(Some(Val::Int(3)), 1)
+            .0
+            .unwrap_err()
+            .contains("not an array"));
         let mut block = Block { values: Vec::new() };
         assert!(resize(&with_array(), "Thing", &[], &mut block, "Other", 0).is_err());
     }

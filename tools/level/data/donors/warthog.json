@@ -1,0 +1,95 @@
+{
+ "_comment": "Facts about one shipped chassis, for ce_vehicle.py. Wheel bones are in the actor's space, cm, measured in game.",
+ "actor": "BP_WarthogVehicleActor",
+ "actor_package": "BP_WarthogVehicleActor",
+ "tag": "human/warthog/warthog",
+ "vehicle": "warthog/warthog-vehicle",
+ "leader": 126,
+ "hide": [
+  127
+ ],
+ "root_node": 2,
+ "chassis_bone": "b_chassis",
+ "chassis_cm": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "hull_regions": [
+  "hull"
+ ],
+ "wheels": {
+  "bones": {
+   "lf": [
+    204.8,
+    -123.9
+   ],
+   "rf": [
+    203.3,
+    126.2
+   ],
+   "lb": [
+    -188.1,
+    -129.3
+   ],
+   "rb": [
+    -189.6,
+    126.8
+   ]
+  },
+  "bone_z": 72.0,
+  "ground_z": -9.0,
+  "regions": {
+   "lf": "wheel_front_left",
+   "rf": "wheel_front_right",
+   "lb": "wheel_back_left",
+   "rb": "wheel_back_right"
+  },
+  "markers": {
+   "lf": "vh_wheel_front_left",
+   "rf": "vh_wheel_front_right",
+   "lb": "vh_wheel_back_left",
+   "rb": "vh_wheel_back_right"
+  },
+  "yaw": [
+   0.0,
+   0.0,
+   0.70710678,
+   0.70710678
+  ]
+ },
+ "seats": [
+  {
+   "marker": "driver",
+   "ce": [
+    "driver"
+   ],
+   "offset": "driver"
+  },
+  {
+   "marker": "passenger",
+   "ce": [
+    "gunner",
+    "passenger"
+   ],
+   "offset": "passenger"
+  }
+ ],
+ "enter": {
+  "driver_enter": [
+   -0.1,
+   0.34,
+   0.36
+  ],
+  "passenger_enter": [
+   -0.1,
+   -0.34,
+   0.36
+  ]
+ },
+ "model_variant": "none",
+ "mute": true,
+ "chassis": "ce",
+ "physics": "jeep",
+ "baseline": "vehicles\\warthog\\mp_warthog"
+}

@@ -463,6 +463,17 @@ fn decode_value(
                 decode_block(usmap, name, c)?;
                 Val::Native(c.b[start..c.at].to_vec())
             }
+            // An alias-method sampler: two counted arrays of four-byte values
+            // and the total weight, kept raw.
+            "SkeletalMeshSamplingLODBuiltData" => {
+                let start = c.at;
+                for _ in 0..2 {
+                    let count = c.u32()? as usize;
+                    c.bytes(count.checked_mul(4).ok_or(Error::Eof(c.at))?)?;
+                }
+                c.bytes(4)?;
+                Val::Native(c.b[start..c.at].to_vec())
+            }
             // The container's custom serializer: a name array, kept raw.
             "GameplayTagContainer" => {
                 let start = c.at;
@@ -638,7 +649,9 @@ fn encode_value(
         (T::Double, Val::Double(f)) => out.extend_from_slice(&f.to_bits().to_le_bytes()),
         (T::Enum(inner, _), v) => encode_value(usmap, class, prop, inner, v, out)?,
         (T::Str, Val::Str(s)) => put_fstring(out, s),
-        (T::Text, Val::Text(bytes)) | (T::LazyObject, Val::Native(bytes)) => out.extend_from_slice(bytes),
+        (T::Text, Val::Text(bytes)) | (T::LazyObject, Val::Native(bytes)) => {
+            out.extend_from_slice(bytes)
+        }
         (T::Name, Val::Name(n)) => put_name(out, *n),
         (T::Object | T::Interface | T::WeakObject, Val::Object(i)) => {
             out.extend_from_slice(&i.to_le_bytes())
@@ -677,7 +690,12 @@ fn encode_value(
             }
         }
         (T::Struct(name), Val::Native(bytes))
-            if matches!(name.as_str(), "MaterialOverrideNanite" | "GameplayTagContainer") =>
+            if matches!(
+                name.as_str(),
+                "MaterialOverrideNanite"
+                    | "GameplayTagContainer"
+                    | "SkeletalMeshSamplingLODBuiltData"
+            ) =>
         {
             out.extend_from_slice(bytes);
         }
@@ -945,9 +963,16 @@ mod tests {
             .and_then(|v| v.parse().ok())
             .unwrap_or(400);
         // class -> (exact, mismatched, unsupported)
-        let mut by_class: std::collections::BTreeMap<String, (usize, usize, usize)> = Default::default();
+        let mut by_class: std::collections::BTreeMap<String, (usize, usize, usize)> =
+            Default::default();
         let mut first_by_class: std::collections::BTreeMap<String, String> = Default::default();
-        let hex = |b: &[u8]| b.iter().take(40).map(|x| format!("{x:02x}")).collect::<Vec<_>>().join(" ");
+        let hex = |b: &[u8]| {
+            b.iter()
+                .take(40)
+                .map(|x| format!("{x:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
         let mut first_problem: Option<String> = None;
         for prefix in ["MI_", "DA_", "BP_"] {
             let mut seen = 0usize;
@@ -957,14 +982,18 @@ mod tests {
                 for rel in names {
                     let full = c.full_path(rel);
                     let leaf = full.rsplit('/').next().unwrap_or("");
-                    if !leaf.starts_with(prefix) || !full.ends_with(".uasset") || full.contains("/Tags/") {
+                    if !leaf.starts_with(prefix)
+                        || !full.ends_with(".uasset")
+                        || full.contains("/Tags/")
+                    {
                         continue;
                     }
                     if seen >= limit {
                         break 'containers;
                     }
                     seen += 1;
-                    let data = ue_iostore::read_chunk(c, &c.chunks[c.files[rel]], None, &[]).unwrap();
+                    let data =
+                        ue_iostore::read_chunk(c, &c.chunks[c.files[rel]], None, &[]).unwrap();
                     let Ok(pkg) = crate::package::ZenPackage::parse(&data) else {
                         continue;
                     };
@@ -972,34 +1001,50 @@ mod tests {
                         let Some(class) = scripts.leaf(crate::zen::ObjectIndex(e.class)) else {
                             continue;
                         };
-                        let Some(bytes) = pkg.export_bytes(ei) else { continue };
+                        let Some(bytes) = pkg.export_bytes(ei) else {
+                            continue;
+                        };
                         let entry = by_class.entry(class.to_string()).or_default();
                         match decode_prefix(&u, class, bytes) {
                             Ok((block, used)) => match block.encode(&u, class) {
                                 Ok(back) if back == bytes[..used] => entry.0 += 1,
                                 Ok(back) => {
                                     entry.1 += 1;
-                                    let at = back.iter().zip(&bytes[..used]).position(|(a, b)| a != b).unwrap_or(back.len().min(used));
+                                    let at = back
+                                        .iter()
+                                        .zip(&bytes[..used])
+                                        .position(|(a, b)| a != b)
+                                        .unwrap_or(back.len().min(used));
                                     let msg = format!(
                                         "{leaf} [{ei}] {class}: re-encoded bytes differ at {at} of {used} (got {})
     was {}
     now {}",
                                         back.len(), hex(bytes), hex(&back)
                                     );
-                                    first_by_class.entry(class.to_string()).or_insert_with(|| msg.clone());
+                                    first_by_class
+                                        .entry(class.to_string())
+                                        .or_insert_with(|| msg.clone());
                                     first_problem.get_or_insert(msg);
                                 }
                                 Err(err) => {
                                     entry.2 += 1;
-                                    first_by_class.entry(class.to_string()).or_insert_with(|| format!("{leaf} [{ei}]: encode: {err}"));
-                                    first_problem.get_or_insert_with(|| format!("{leaf} [{ei}] {class}: encode: {err}"));
+                                    first_by_class
+                                        .entry(class.to_string())
+                                        .or_insert_with(|| format!("{leaf} [{ei}]: encode: {err}"));
+                                    first_problem.get_or_insert_with(|| {
+                                        format!("{leaf} [{ei}] {class}: encode: {err}")
+                                    });
                                 }
                             },
                             Err(err) => {
                                 entry.2 += 1;
-                                first_by_class.entry(class.to_string()).or_insert_with(|| format!("{leaf} [{ei}]: {err}"));
+                                first_by_class
+                                    .entry(class.to_string())
+                                    .or_insert_with(|| format!("{leaf} [{ei}]: {err}"));
                                 if class == "MaterialInstanceConstant" {
-                                    first_problem.get_or_insert_with(|| format!("{leaf} [{ei}] {class}: {err}"));
+                                    first_problem.get_or_insert_with(|| {
+                                        format!("{leaf} [{ei}] {class}: {err}")
+                                    });
                                 }
                             }
                         }
@@ -1024,9 +1069,15 @@ mod tests {
             eprintln!("first problem: {p}");
         }
         assert_eq!(mismatched, 0, "a decoded block re-encoded differently");
-        let mic = by_class.get("MaterialInstanceConstant").copied().unwrap_or_default();
+        let mic = by_class
+            .get("MaterialInstanceConstant")
+            .copied()
+            .unwrap_or_default();
         assert!(mic.0 > 0 && mic.2 == 0, "material instances: {mic:?}");
-        assert!(exact * 10 >= (exact + unsupported) * 9, "under 90% of blocks are modelled");
+        assert!(
+            exact * 10 >= (exact + unsupported) * 9,
+            "under 90% of blocks are modelled"
+        );
     }
 
     #[test]
