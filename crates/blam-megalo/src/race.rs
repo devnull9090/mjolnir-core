@@ -22,7 +22,9 @@
 //! flag differs, so the script tells the HUD by incident: see [`incident`].
 //! The health packs have `lap_complete`, so these scripts never raise it.
 
-use crate::objectives::{add, alive, call, end_at_score, number, score_point, score_snapshot};
+use crate::objectives::{
+    add, alive, call, count_places, end_at_score, number, score_point, score_snapshot, walk,
+};
 use crate::script::{compare, constant, eq, obj, set, Builder, Item};
 use crate::variant::{
     object, player, Action, Compare, ConditionKind, Number, Object, Op, Player, Subject,
@@ -214,12 +216,15 @@ impl Variant {
     fn rally_game(score: u16, teams: bool) -> Self {
         const HEALTH: u8 = 0;
         const LIVING: u8 = 1;
+        const ORDER: u8 = 2;
+        const COUNT: u8 = 3;
+        const STEP: u8 = 4;
         const SPAWNED: u8 = 0;
         let mut b = Builder::new(Variant {
             teams,
             vars: Variables {
-                global_numbers: 2,
-                global_objects: 2,
+                global_numbers: 5,
+                global_objects: 1,
                 player_numbers: 1,
                 ..Variables::default()
             },
@@ -227,45 +232,34 @@ impl Variant {
         });
         let label = b.label(FLAG_LABEL);
         let live = object::global(0);
-        let next = object::global(1);
         let none = obj(object::NONE);
         let tell = || {
             Item::Do(Action::SendIncident {
                 incident: incident::CHECKPOINT,
                 cause: Subject::None,
                 effect: Subject::None,
-                value: Some(Number::SpawnSequence(live)),
+                value: Some(Number::GlobalNumber(ORDER)),
             })
         };
 
-        // A flag to start, and after that any flag but the live one.
+        // The first flag, and after that a walk that never stays put.
+        let counted = count_places(COUNT);
+        let count = b.sub(TriggerKind::Do, counted);
+        let found = b.sub(
+            TriggerKind::Do,
+            vec![
+                eq(Var::Number(Number::SpawnSequence(object::CURRENT)), number(ORDER)),
+                set(obj(live), obj(object::CURRENT)),
+            ],
+        );
         b.trigger(
-            TriggerKind::Do,
+            TriggerKind::EachObjectWithLabel(label),
             ATTR_NORMAL,
-            vec![
-                eq(obj(live), none.clone()),
-                Item::Do(Action::GetRandomObject {
-                    exclude: Object::Ref(object::NONE),
-                    out: Object::Ref(live),
-                    label,
-                }),
-                compare(obj(live), none.clone(), Compare::NotEqual),
-                tell(),
-            ],
+            vec![call(count), call(found)],
         );
-        let moved = b.sub(
-            TriggerKind::Do,
-            vec![
-                Item::Do(Action::GetRandomObject {
-                    exclude: Object::Ref(live),
-                    out: Object::Ref(next),
-                    label,
-                }),
-                compare(obj(next), none.clone(), Compare::NotEqual),
-                set(obj(live), obj(next)),
-                tell(),
-            ],
-        );
+        let mut moved = walk(&mut b, ORDER, COUNT, STEP);
+        moved.push(tell());
+        let moved = b.sub(TriggerKind::Do, moved);
         let mut touch = vec![compare(obj(live), none.clone(), Compare::NotEqual)];
         touch.extend(touching(live, HEALTH));
         touch.extend([
@@ -377,7 +371,7 @@ mod tests {
                 a,
                 Action::SendIncident {
                     cause: Subject::None,
-                    value: Some(Number::SpawnSequence(_)),
+                    value: Some(Number::GlobalNumber(_)),
                     ..
                 }
             ));

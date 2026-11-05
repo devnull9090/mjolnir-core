@@ -47,6 +47,51 @@ pub(crate) fn add(i: u8, delta: i16) -> Item {
 pub(crate) fn call(trigger: u16) -> Item {
     Item::Do(Action::CallTrigger(trigger))
 }
+
+/// Items that move `order` to another place of `count`, by a step that grows
+/// each time, so the walk looks random and never stays put. The sim's own
+/// random pick (action 96) found nothing on Blood Gulch while it worked on
+/// Prisoner: with vehicle filters added, on 2026-11-04.
+pub(crate) fn walk(b: &mut Builder, order: u8, count: u8, step: u8) -> Vec<Item> {
+    let step_wrap = b.sub(
+        TriggerKind::Do,
+        vec![
+            compare(number(step), number(count), Compare::GreaterOrEqual),
+            set(number(step), constant(1)),
+        ],
+    );
+    let order_wrap = b.sub(
+        TriggerKind::Do,
+        vec![
+            compare(number(order), number(count), Compare::GreaterOrEqual),
+            Item::Do(Action::ModifyVariable {
+                a: number(order),
+                b: number(count),
+                op: Op::Subtract,
+            }),
+        ],
+    );
+    vec![
+        add(step, 1),
+        call(step_wrap),
+        Item::Do(Action::ModifyVariable {
+            a: number(order),
+            b: number(step),
+            op: Op::Add,
+        }),
+        call(order_wrap),
+    ]
+}
+
+/// Items for a walk of a label: keep `count` one past the highest spawn order.
+pub(crate) fn count_places(count: u8) -> Vec<Item> {
+    let order = Var::Number(Number::SpawnSequence(object::CURRENT));
+    vec![
+        compare(order.clone(), number(count), Compare::GreaterOrEqual),
+        set(number(count), order),
+        add(count, 1),
+    ]
+}
 pub(crate) fn plr(p: u8) -> Var {
     Var::Player(Player(p))
 }
@@ -301,14 +346,17 @@ impl Variant {
         const HELD: u8 = 3;
         const HEALTH: u8 = 4;
         const LIVING: u8 = 5;
+        // On a moving hill: how many hills, and the walk's step.
+        const COUNT: u8 = 6;
+        const STEP: u8 = 7;
         // Player number, on a moving hill: 1 while alive.
         const SPAWNED: u8 = 0;
         let moves = k.move_ticks.is_some();
         let mut b = Builder::new(Variant {
             teams: k.teams,
             vars: Variables {
-                global_numbers: if moves { 6 } else { 5 },
-                global_objects: if moves { 2 } else { 1 },
+                global_numbers: if moves { 8 } else { 5 },
+                global_objects: 1,
                 global_players: if k.teams { 2 } else { 1 },
                 player_numbers: if moves { 1 } else { 0 },
                 ..Variables::default()
@@ -317,7 +365,6 @@ impl Variant {
         });
         let label = b.label(HILL_LABEL);
         let hill = object::global(0);
-        let next = object::global(1);
         let none = plr(player::NONE);
         let mut on_hill = alive(player::CURRENT, HEALTH);
         on_hill.push(Item::If(ConditionKind::InBoundary {
@@ -395,27 +442,21 @@ impl Variant {
         let idle = b.sub(TriggerKind::Do, vec![idles, set(number(HELD), constant(0))]);
 
         if let Some(ticks) = k.move_ticks {
-            // The value is the new hill's spawn order, for the HUD. With one
-            // hill there is no other to pick, and it stays.
-            let pick = b.sub(
-                TriggerKind::Do,
-                vec![
-                    Item::Do(Action::GetRandomObject {
-                        exclude: Object::Ref(hill),
-                        out: Object::Ref(next),
-                        label,
-                    }),
-                    compare(obj(next), obj(object::NONE), Compare::NotEqual),
-                    set(number(ORDER), Var::Number(Number::SpawnSequence(next))),
-                    set(number(HELD), constant(0)),
-                    Item::Do(Action::SendIncident {
-                        incident: incident::HILL_MOVED,
-                        cause: Subject::None,
-                        effect: Subject::None,
-                        value: Some(Number::GlobalNumber(ORDER)),
-                    }),
-                ],
-            );
+            // The value is the new hill's spawn order, for the HUD.
+            let counted = count_places(COUNT);
+            let count = b.sub(TriggerKind::Do, counted);
+            b.trigger(TriggerKind::EachObjectWithLabel(label), ATTR_NORMAL, vec![call(count)]);
+            let mut moved = walk(&mut b, ORDER, COUNT, STEP);
+            moved.extend([
+                set(number(HELD), constant(0)),
+                Item::Do(Action::SendIncident {
+                    incident: incident::HILL_MOVED,
+                    cause: Subject::None,
+                    effect: Subject::None,
+                    value: Some(Number::GlobalNumber(ORDER)),
+                }),
+            ]);
+            let pick = b.sub(TriggerKind::Do, moved);
             let rotate = b.sub(
                 TriggerKind::Do,
                 vec![
@@ -626,7 +667,7 @@ impl Variant {
 mod tests {
     use super::*;
     use crate::powerups::HealthPacks;
-    use crate::variant::{Condition, Filter};
+    use crate::variant::Condition;
 
     fn timed_variants() -> Vec<(&'static str, Variant)> {
         vec![
@@ -699,14 +740,10 @@ mod tests {
         let v = Variant::koth(120, 60);
         assert!(raised(&v, incident::HILL_MOVED).is_empty());
         assert!(raised(&v, race::incident::CHECKPOINT).is_empty());
-        assert!(!v
-            .actions
-            .iter()
-            .any(|a| matches!(a, Action::GetRandomObject { .. })));
     }
 
     #[test]
-    fn a_moving_hill_excludes_the_live_one() {
+    fn a_moving_hill_walks_by_spawn_order() {
         for v in [
             Variant::crazy_king(120, 60, 3600),
             Variant::team_koth(120, 60, 3600),
@@ -722,25 +759,10 @@ mod tests {
                     ..
                 }
             ));
-            let label = v
+            assert!(!v
                 .actions
                 .iter()
-                .find_map(|a| match a {
-                    Action::GetRandomObject {
-                        exclude: Object::Ref(hill),
-                        label,
-                        ..
-                    } if *hill == object::global(0) => Some(*label),
-                    _ => None,
-                })
-                .expect("a random hill, not the live one");
-            assert_eq!(
-                v.filters[label as usize],
-                Filter {
-                    label: 0,
-                    team: None
-                }
-            );
+                .any(|a| matches!(a, Action::GetRandomObject { .. })));
         }
     }
 
