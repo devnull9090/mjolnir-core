@@ -4,21 +4,21 @@ class Mjolnir < Formula
   desc "Inspect and edit the Blam tag data inside an installed copy of Halo Campaign Evolved"
   homepage "https://mjolnircore.com"
   license "MIT"
-  version "0.6.0"
+  version "0.8.0"
 
   on_macos do
-    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.6.0/mjolnir-0.6.0-macos-universal.tar.gz"
-    sha256 "5d9bd4103284045d1b94b90e6db5ae7e1c3657074f72ced8ec84f633ecdbab34"
+    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.8.0/mjolnir-0.8.0-macos-universal.tar.gz"
+    sha256 "7835bf0a5895e17934a2f670b0c3a775c3d0a48235e65fd4aeb72c5cae6ef6b9"
   end
 
   on_linux do
-    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.6.0/mjolnir-0.6.0-linux-x64.tar.gz"
-    sha256 "31c6b93bc98e24ef6ef2af166cf4d714bd6e2b420fa155389c139bd44824ae02"
+    url "https://github.com/devnull9090/mjolnir-core/releases/download/cli-v0.8.0/mjolnir-0.8.0-linux-x64.tar.gz"
+    sha256 "f949bdfa01e2b3eac9bb5f2b7d8142edef83256491ec288502a72d01f81ccd59"
   end
 
   def install
     bin.install "mjolnir"
-    (share/"mjolnir/defs/hce").install "defs/hce/scripting.json"
+    (share/"mjolnir/defs/hce").install "defs/hce/scripting.json", "defs/hce/console.json"
     (share/"doc/mjolnir").install "LICENSE"
   end
 
