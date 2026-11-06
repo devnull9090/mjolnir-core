@@ -34,6 +34,7 @@ interface Release {
   status: string;
   chunk_count: number;
   findings: { level: string; code: string; message: string }[];
+  review_reason?: string | null;
   sha256: string | null;
   file_size: number | null;
 }
@@ -44,6 +45,8 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
   const [mod, setMod] = useState<Mod | null | undefined>(undefined);
   const [media, setMedia] = useState<Media[]>([]);
   const [releases, setReleases] = useState<Release[]>([]);
+  /** Why the hub wouldn't list this mod's releases: signed out, or not yours. */
+  const [denied, setDenied] = useState<401 | 403 | null>(null);
   const [version, setVersion] = useState("1.0.0");
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,17 +61,23 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
   );
 
   const loadReleases = useCallback(async () => {
-    // The public list shows published releases; pending/rejected ones are
-    // fetched per-id from sessionStorage so a mid-flow refresh survives.
-    const pub = await fetch(`/api/v1/mods/${slug}/releases`)
-      .then((r) => (r.ok ? r.json() : { releases: [] }))
-      .then((d) => d.releases.map((r: { id: string }) => r.id));
-    const mine: string[] = JSON.parse(sessionStorage.getItem(`releases:${slug}`) ?? "[]");
-    const ids = [...new Set([...pub, ...mine])];
-    const full = await Promise.all(
-      ids.map((id) => fetch(`/api/v1/releases/${id}`).then((r) => (r.ok ? r.json() : null))),
-    );
-    setReleases(full.filter(Boolean));
+    const res = await fetch(`/api/v1/mods/${slug}/releases/all`).catch(() => null);
+    if (res?.ok) {
+      const body: { releases: Release[] } = await res.json();
+      // A decided release's last scan still says it's waiting for a moderator.
+      setReleases(
+        body.releases.map((r) =>
+          r.status === "pending"
+            ? r
+            : { ...r, findings: r.findings.filter((f) => f.code !== "awaiting_review") },
+        ),
+      );
+      setDenied(null);
+      return;
+    }
+    setReleases([]);
+    if (res?.status === 401 || res?.status === 403) setDenied(res.status);
+    else setBanner("Could not load this mod's releases.");
   }, [slug]);
 
   // All state updates land asynchronously from fetch resolutions; the rule's
@@ -106,8 +115,6 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
     });
     const body = await res.json().catch(() => ({}));
     if (res.ok) {
-      const mine: string[] = JSON.parse(sessionStorage.getItem(`releases:${slug}`) ?? "[]");
-      sessionStorage.setItem(`releases:${slug}`, JSON.stringify([...mine, body.id]));
       await loadReleases();
     } else {
       setBanner(body.message ?? body.error ?? "Could not create release");
@@ -239,30 +246,52 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
         <section>
           <h2 className="text-sm font-bold uppercase text-text-dim mb-3">Releases</h2>
 
-          <div className="flex items-center gap-2 mb-4">
-            <input
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              pattern="\d+\.\d+\.\d+.*"
-              className="w-28 px-3 py-2 text-sm font-mono rounded-lg bg-background border border-border text-foreground focus:border-gold/60 focus:outline-none"
-              placeholder="1.0.0"
-            />
-            <button
-              onClick={createRelease}
-              disabled={busy}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-gold text-background hover:brightness-110 disabled:opacity-40 transition-all"
-            >
-              <PackagePlus className="w-4 h-4" />
-              New release
-            </button>
-          </div>
+          {denied === 401 && (
+            <p className="text-sm text-text-muted">
+              <a href={`/api/v1/auth/discord?next=/mods/${slug}/manage`} className="text-gold hover:underline">
+                Sign in
+              </a>{" "}
+              to see this mod&apos;s releases.
+            </p>
+          )}
+          {denied === 403 && (
+            <p className="text-sm text-text-muted">
+              Only this mod&apos;s owner, authors and moderators can see its releases here.
+            </p>
+          )}
+
+          {denied === null && (
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                pattern="\d+\.\d+\.\d+.*"
+                className="w-28 px-3 py-2 text-sm font-mono rounded-lg bg-background border border-border text-foreground focus:border-gold/60 focus:outline-none"
+                placeholder="1.0.0"
+              />
+              <button
+                onClick={createRelease}
+                disabled={busy}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-gold text-background hover:brightness-110 disabled:opacity-40 transition-all"
+              >
+                <PackagePlus className="w-4 h-4" />
+                New release
+              </button>
+            </div>
+          )}
 
           <div className="space-y-3">
             {releases.map((r) => (
               <div key={r.id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-mono text-sm text-foreground">v{r.version}</span>
-                  <StatusChip status={r.status} />
+                  <StatusChip
+                    status={
+                      r.status === "pending" && r.findings.some((f) => f.code === "awaiting_review")
+                        ? "awaiting review"
+                        : r.status
+                    }
+                  />
                 </div>
 
                 {(r.status === "pending" || r.status === "rejected") && (
@@ -284,6 +313,12 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
                         : "Drop the .mjolnir archive here, or browse"
                     }
                   />
+                )}
+
+                {r.status === "rejected" && r.review_reason && (
+                  <p className="mt-2 text-xs text-red-300 whitespace-pre-wrap">
+                    Rejected by a moderator: {r.review_reason}
+                  </p>
                 )}
 
                 {r.status === "published" && (

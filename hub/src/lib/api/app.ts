@@ -12,7 +12,7 @@ import { cors } from "hono/cors";
 
 import type { ApiEnv } from "./bindings";
 import { authenticate, loginCallback, loginRedirect, logout } from "./auth";
-import { registerPublishRoutes } from "./publish";
+import { canSeeUnpublished, registerPublishRoutes } from "./publish";
 import { registerCommunityRoutes } from "./community";
 import { registerAccountRoutes } from "./account";
 import { registerDeviceRoutes } from "./device";
@@ -370,11 +370,12 @@ app.openapi(
       .first();
     if (!row) return c.json({ error: "not_found" }, 404);
     if (row.status !== "published") {
-      // Drafts are visible to their owner (and moderators) only, so the
-      // manage flow can run before the first release publishes the mod —
+      // Drafts are visible to their owner, authors and moderators only, so
+      // the manage flow can run before the first release publishes the mod —
       // from a browser session or from the owner's own API key.
       const user = (await authenticate(c))?.user;
-      if (!user || (row.owner_id !== user.id && user.role === "user")) {
+      const mod = { id: row.id as string, owner_id: row.owner_id as string };
+      if (!user || !(await canSeeUnpublished(c, mod, user))) {
         return c.json({ error: "not_found" }, 404);
       }
     }

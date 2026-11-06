@@ -127,6 +127,8 @@ export interface ReleaseStatusDetail {
   file_size: number | null;
   chunk_count: number;
   findings: ScanFinding[];
+  /** Why a moderator rejected it, until it is next scanned. */
+  review_reason?: string | null;
   created_at: string;
   /** Account that created this release; null predates attribution. */
   published_by?: string | null;
@@ -660,10 +662,18 @@ export interface QueuedRelease {
   reason: string | null;
   mod_slug: string;
   mod_name: string;
+  /** `draft` until its first release is approved; the mod's page 404s until then. */
+  mod_status: "draft" | "published" | "hidden" | "removed";
   version: string;
   map_code: string | null;
   map_title: string | null;
   file_size: number | null;
+  /** The scanned archive; pass it to `decideRelease` to pin a decision to it. */
+  sha256: string | null;
+  /** The `.bnk` members the scan saw. Null: the scan predates the record, so unknown. */
+  banks: string[] | null;
+  /** What the latest scan reported. */
+  findings: ScanFinding[];
   uploader: string;
   created_at: string;
 }

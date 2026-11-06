@@ -603,6 +603,13 @@
               "$ref": "#/components/schemas/ScanFinding"
             }
           },
+          "review_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why a moderator rejected this release, until it is next scanned."
+          },
           "created_at": {
             "type": "string"
           },
@@ -641,6 +648,7 @@
           "file_size",
           "chunk_count",
           "findings",
+          "review_reason",
           "created_at",
           "published_by",
           "published_by_username",
@@ -670,6 +678,20 @@
           "level",
           "code",
           "message"
+        ]
+      },
+      "ReleaseStatusList": {
+        "type": "object",
+        "properties": {
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReleaseStatus"
+            }
+          }
+        },
+        "required": [
+          "releases"
         ]
       },
       "ReleaseChanges": {
@@ -2069,6 +2091,16 @@
           "mod_name": {
             "type": "string"
           },
+          "mod_status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "hidden",
+              "removed"
+            ],
+            "description": "`draft` until its first release is approved; the mod's page 404s until then."
+          },
           "version": {
             "type": "string"
           },
@@ -2076,7 +2108,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "What the release carries, which may not be the listing's yet; the listing's if it carries no map."
           },
           "map_title": {
             "type": [
@@ -2089,6 +2122,30 @@
               "number",
               "null"
             ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scanned archive; send it back with a decision to pin it to this archive."
+          },
+          "banks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The `.bnk` members the scan saw, empty for none. Null when the scan predates the record, which says nothing about whether it has any."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanFinding"
+            },
+            "description": "What the release's latest scan reported."
           },
           "uploader": {
             "type": "string"
@@ -2103,10 +2160,14 @@
           "reason",
           "mod_slug",
           "mod_name",
+          "mod_status",
           "version",
           "map_code",
           "map_title",
           "file_size",
+          "sha256",
+          "banks",
+          "findings",
           "uploader",
           "created_at"
         ]
@@ -2124,6 +2185,10 @@
           "reason": {
             "type": "string",
             "maxLength": 500
+          },
+          "sha256": {
+            "type": "string",
+            "description": "The archive this decision is about, from the queue. Refused with 409 if the author has replaced it since."
           }
         },
         "required": [
@@ -6981,6 +7046,67 @@
         }
       }
     },
+    "/api/v1/mods/{slug}/releases/all": {
+      "get": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Every release of a mod, whatever its status, newest first",
+        "description": "For the mod's owner, its authors and moderators: what `GET /mods/{slug}/releases` leaves out, with each release's scan findings and `review_reason`. An API key needs `mods:write`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The releases.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseStatusList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not this mod's, or a key without `mods:write`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/releases/{id}/changes": {
       "get": {
         "tags": [
@@ -8766,7 +8892,7 @@
         "tags": [
           "moderation"
         ],
-        "summary": "The release review queue: community maps awaiting a moderator",
+        "summary": "The release review queue: maps and banks awaiting a moderator",
         "parameters": [
           {
             "schema": {
@@ -8834,7 +8960,7 @@
           "moderation"
         ],
         "summary": "Approve or reject a release awaiting review (moderators)",
-        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author sees on the release.",
+        "description": "Approval publishes the release, and its mod with it if this is the mod's first, and writes the map it carries to the listing. Rejection marks it rejected with the reason, which the author reads as `review_reason` on `GET /mods/{slug}/releases/all`, and leaves the listing as it was.",
         "parameters": [
           {
             "schema": {
@@ -8895,6 +9021,16 @@
           },
           "404": {
             "description": "No such pending review.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The archive has changed since the queue was read, or another map has the release's code.",
             "content": {
               "application/json": {
                 "schema": {
