@@ -46,9 +46,10 @@ Object.assign(env, {
 });
 
 const author = await account("author");
+const rival = await account("rival");
 const player = await account("player");
 const moderator = await account("mod", "moderator");
-sqlite.prepare(`UPDATE api_keys SET scopes = 'mods:write' WHERE user_id IN ('author', 'mod')`).run();
+sqlite.prepare(`UPDATE api_keys SET scopes = 'mods:write' WHERE user_id IN ('author', 'rival', 'mod')`).run();
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 
@@ -83,8 +84,11 @@ function toc(): Uint8Array {
 }
 
 /** A pack: a map when `code` is given, plain content otherwise. */
-function archive(version: string, opts: { code?: string; banks?: number[] } = {}): Uint8Array {
-  const { code, banks = [] } = opts;
+function archive(
+  version: string,
+  opts: { code?: string; banks?: number[]; title?: string; modes?: string[] } = {},
+): Uint8Array {
+  const { code, banks = [], title = `Map ${code}`, modes = ["slayer"] } = opts;
   const container = code ? `pakchunk987-MJOLNIR-${code}_P` : "pakchunk988-MJOLNIR-CONTENT_P";
   const members: Record<string, Uint8Array> = {
     "mjolnir.json": json({
@@ -93,7 +97,7 @@ function archive(version: string, opts: { code?: string; banks?: number[] } = {}
       version,
       type: code ? "map" : "content",
       summary: "Test",
-      ...(code ? { map: { code, title: `Map ${code}`, modes: ["slayer"] } } : {}),
+      ...(code ? { map: { code, title, modes } } : {}),
     }),
     [`content/${container}.utoc`]: toc(),
     [`content/${container}.ucas`]: new Uint8Array([1]),
@@ -129,19 +133,25 @@ async function download(id: string): Promise<Uint8Array | null> {
   return res.status === 200 ? new Uint8Array(await res.arrayBuffer()) : null;
 }
 
-/** A new mod's first release, uploaded and scanned. */
-async function publish(slug: string, version: string, bytes: Uint8Array, key = author) {
+/** Another release of a mod, uploaded and scanned. */
+async function release(slug: string, version: string, bytes: Uint8Array, key = author) {
   sqlite.exec(`DELETE FROM rate_counters`); // the publish budget, not what's under test
-  const created = await call("POST", "/mods", key, { slug, name: `Mod ${slug}` });
+  const created = await call("POST", `/mods/${slug}/releases`, key, { version });
   assert.equal(created.status, 201, JSON.stringify(created.body));
-  const release = await call("POST", `/mods/${slug}/releases`, key, { version });
-  assert.equal(release.status, 201, JSON.stringify(release.body));
-  const id = release.body.id as string;
+  const id = created.body.id as string;
   const put = await upload(id, bytes, key);
   assert.equal(put.status, 200, await put.text());
   const done = await call("POST", `/releases/${id}/complete`, key);
   assert.equal(done.status, 200, JSON.stringify(done.body));
-  return { id, status: done.body.status as string };
+  return { id, status: done.body.status as string, findings: done.body.findings as { code: string }[] };
+}
+
+/** A new mod's first release, uploaded and scanned. */
+async function publish(slug: string, version: string, bytes: Uint8Array, key = author) {
+  sqlite.exec(`DELETE FROM rate_counters`);
+  const created = await call("POST", "/mods", key, { slug, name: `Mod ${slug}` });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  return release(slug, version, bytes, key);
 }
 
 interface Queued {
@@ -169,6 +179,25 @@ async function queue(state = "pending"): Promise<Queued[]> {
 const queued = async (id: string) => (await queue()).find((r) => r.release_id === id);
 const statusOf = (table: string, id: string) =>
   sqlite.prepare(`SELECT status FROM ${table} WHERE id = ?1`).all(id)[0].status;
+const decide = (id: string, action: "approve" | "reject", reason?: string) =>
+  call("POST", `/moderation/releases/${id}`, moderator, { action, reason });
+
+/** A map as the public route shows it, or null if it isn't listed. */
+async function listed(code: string) {
+  const r = await call("GET", `/maps/${code}`, null);
+  return r.status === 200 ? r.body : null;
+}
+
+/** The listing's row, public or not. A draft mod's would still reach lobbies and matches by code. */
+const listingRow = (code: string) =>
+  sqlite.prepare(`SELECT mod_id FROM map_listings WHERE code = ?1`).all(code)[0];
+
+/** A published map, for an update to land on. */
+async function live(slug: string, code: string) {
+  const { id } = await publish(slug, "1.0.0", archive("1.0.0", { code }));
+  assert.equal((await decide(id, "approve")).status, 200);
+  return (await listed(code))!;
+}
 
 test("a map with banks waits, and the queue says what it carries", async () => {
   const { id, status } = await publish("banked", "1.0.0", archive("1.0.0", { code: "BNK", banks: [99, 100] }));
@@ -410,4 +439,223 @@ test("a decision is about the archive the moderator read", async () => {
     (await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve", sha256: current })).status,
     200,
   );
+});
+
+test("a held update leaves the public listing as it is", async () => {
+  const before = await live("held-update", "HUP");
+  assert.equal(before.title, "Map HUP");
+
+  const held = archive("1.1.0", { code: "HUP", title: "Renamed", modes: ["slayer", "ctf"] });
+  const { status } = await release("held-update", "1.1.0", held);
+  assert.equal(status, "pending");
+  assert.deepEqual(await listed("HUP"), before);
+});
+
+test("a held update's new code stays off the listing too", async () => {
+  const before = await live("held-code", "HC1");
+  const { status } = await release("held-code", "1.1.0", archive("1.1.0", { code: "HC2" }));
+  assert.equal(status, "pending");
+  assert.deepEqual(await listed("HC1"), before);
+  assert.equal(await listed("HC2"), null);
+});
+
+test("the queue shows the held code and title, not the listing's", async () => {
+  await live("shown", "SHW");
+  const { id } = await release("shown", "1.1.0", archive("1.1.0", { code: "SH2", title: "New name" }));
+  const row = await queued(id);
+  assert.equal(row?.map_code, "SH2");
+  assert.equal(row?.map_title, "New name");
+});
+
+test("approval applies the held map block", async () => {
+  await live("applied", "APL");
+  sqlite.prepare(`UPDATE map_listings SET size = 'large' WHERE code = 'APL'`).run();
+  const { id } = await release(
+    "applied",
+    "1.1.0",
+    archive("1.1.0", { code: "AP2", title: "Approved name", modes: ["slayer", "ctf"] }),
+  );
+  assert.equal((await decide(id, "approve")).status, 200);
+
+  assert.equal(await listed("APL"), null);
+  const now = await listed("AP2");
+  assert.equal(now?.title, "Approved name");
+  assert.deepEqual(now?.modes, ["slayer", "ctf"]);
+  assert.equal((now?.release as { id: string }).id, id);
+  // A field the release left out keeps what the listing said.
+  assert.equal(now?.size, "large");
+  // What was approved stays readable once the listing could move on.
+  const decided = (await queue("approved")).find((x) => x.release_id === id);
+  assert.equal(decided?.map_code, "AP2");
+  assert.equal(decided?.map_title, "Approved name");
+});
+
+test("rejection leaves the listing as it was", async () => {
+  const before = await live("refused-update", "RFU");
+  const { id } = await release(
+    "refused-update",
+    "1.1.0",
+    archive("1.1.0", { code: "RF2", title: "Refused name", modes: ["ctf"] }),
+  );
+  assert.equal((await decide(id, "reject", "No.")).status, 200);
+  assert.deepEqual(await listed("RFU"), before);
+  assert.equal(listingRow("RF2"), undefined);
+  // The record of what was refused is the release's, not the listing's.
+  const decided = (await queue("rejected")).find((x) => x.release_id === id);
+  assert.equal(decided?.map_title, "Refused name");
+});
+
+test("a held first release has no listing until it's approved", async () => {
+  const { id } = await publish("no-listing", "1.0.0", archive("1.0.0", { code: "NLS", title: "Waiting" }));
+  assert.equal(listingRow("NLS"), undefined);
+  assert.equal((await queued(id))?.map_title, "Waiting");
+
+  assert.equal((await decide(id, "approve")).status, 200);
+  assert.equal((await listed("NLS"))?.title, "Waiting");
+});
+
+test("a release that skips the queue lists at once", async () => {
+  const own = await publish("listed-now", "1.0.0", archive("1.0.0", { code: "LSN" }), moderator);
+  assert.equal(own.status, "published");
+  assert.equal((await listed("LSN"))?.title, "Map LSN");
+
+  const update = await release("listed-now", "1.1.0", archive("1.1.0", { code: "LSN", title: "Moved on" }), moderator);
+  assert.equal(update.status, "published");
+  assert.equal((await listed("LSN"))?.title, "Moved on");
+});
+
+test("a rescan that stops holding the release lists it", async () => {
+  const { id } = await publish("listed-late", "1.0.0", archive("1.0.0", { code: "LSL" }));
+  assert.equal(listingRow("LSL"), undefined);
+  sqlite.prepare(`UPDATE users SET trust_level = 2 WHERE id = 'author'`).run();
+  const done = await call("POST", `/releases/${id}/complete`, author);
+  sqlite.prepare(`UPDATE users SET trust_level = 0 WHERE id = 'author'`).run();
+  assert.equal(done.body.status, "published");
+  assert.equal((await listed("LSL"))?.title, "Map LSL");
+});
+
+test("a held release with no map block leaves the listing alone", async () => {
+  const before = await live("banks-only", "BKO");
+  const { id } = await release("banks-only", "1.1.0", archive("1.1.0", { banks: [110] }));
+  // The mod is still that map, which is what the moderator wants to know.
+  assert.equal((await queued(id))?.map_code, "BKO");
+  assert.equal((await decide(id, "approve")).status, 200);
+  const { release: newest, ...rest } = (await listed("BKO"))!;
+  const { release: oldest, ...earlier } = before;
+  assert.deepEqual(rest, earlier);
+  assert.notDeepEqual(newest, oldest);
+});
+
+test("a release held before the hub kept its map block still reads and decides", async () => {
+  const before = await live("older-hold", "OLD");
+  const { id } = await release("older-hold", "1.1.0", archive("1.1.0", { code: "OLD", title: "Not kept" }));
+  sqlite.prepare(`UPDATE mod_releases SET map_json = NULL WHERE id = ?1`).run(id);
+
+  assert.equal((await queued(id))?.map_code, "OLD");
+  assert.equal((await queued(id))?.map_title, "Map OLD");
+  assert.equal((await decide(id, "approve")).status, 200);
+  assert.equal((await listed("OLD"))?.title, before.title);
+});
+
+test("approving an older release doesn't take the listing back", async () => {
+  await live("out-of-order", "OOO");
+  const older = await release("out-of-order", "1.1.0", archive("1.1.0", { code: "OOO", title: "Older" }));
+  const newer = await release("out-of-order", "1.2.0", archive("1.2.0", { code: "OOO", title: "Newer" }));
+  // Both after 1.0.0, a minute apart, since a test runs inside one second.
+  sqlite.prepare(`UPDATE mod_releases SET created_at = datetime('now', '+1 minute') WHERE id = ?1`).run(older.id);
+  sqlite.prepare(`UPDATE mod_releases SET created_at = datetime('now', '+2 minutes') WHERE id = ?1`).run(newer.id);
+
+  assert.equal((await decide(newer.id, "approve")).status, 200);
+  assert.equal((await decide(older.id, "approve")).status, 200);
+  assert.equal(statusOf("mod_releases", older.id), "published");
+  const now = await listed("OOO");
+  assert.equal(now?.title, "Newer");
+  assert.equal((now?.release as { id: string }).id, newer.id);
+});
+
+test("a held first release holds its code against other authors", async () => {
+  const { id } = await publish("first-claim", "1.0.0", archive("1.0.0", { code: "CLM" }));
+  assert.equal((await queued(id))?.map_code, "CLM");
+
+  const second = await publish("second-claim", "1.0.0", archive("1.0.0", { code: "CLM" }), rival);
+  assert.equal(second.status, "rejected");
+  assert.ok(second.findings.some((f) => f.code === "map_code_taken"), JSON.stringify(second.findings));
+  assert.equal(await queued(second.id), undefined);
+  assert.equal(listingRow("CLM"), undefined);
+
+  // Not even an author who'd skip the queue.
+  const trusted = await publish("third-claim", "1.0.0", archive("1.0.0", { code: "CLM" }), moderator);
+  assert.equal(trusted.status, "rejected");
+  assert.equal(listingRow("CLM"), undefined);
+});
+
+test("a held update holds the code it's moving to", async () => {
+  await live("moving", "MV1");
+  await release("moving", "1.1.0", archive("1.1.0", { code: "MV2" }));
+  const other = await publish("wants-mv2", "1.0.0", archive("1.0.0", { code: "MV2" }), rival);
+  assert.equal(other.status, "rejected");
+  assert.ok(other.findings.some((f) => f.code === "map_code_taken"), JSON.stringify(other.findings));
+});
+
+test("an author's own releases share a held code", async () => {
+  const first = await publish("own-code", "1.0.0", archive("1.0.0", { code: "OWN" }));
+  const second = await release("own-code", "1.1.0", archive("1.1.0", { code: "OWN" }));
+  assert.equal(second.status, "pending");
+  assert.ok(await queued(first.id));
+  assert.ok(await queued(second.id));
+
+  // Rejecting one leaves the other holding it.
+  assert.equal((await decide(first.id, "reject", "Older.")).status, 200);
+  const other = await publish("wants-own", "1.0.0", archive("1.0.0", { code: "OWN" }), rival);
+  assert.equal(other.status, "rejected");
+});
+
+test("rejection frees a held code", async () => {
+  const { id } = await publish("gives-up", "1.0.0", archive("1.0.0", { code: "FRE" }));
+  assert.equal((await decide(id, "reject", "No.")).status, 200);
+
+  const next = await publish("takes-over", "1.0.0", archive("1.0.0", { code: "FRE" }), rival);
+  assert.equal(next.status, "pending", JSON.stringify(next.findings));
+  assert.equal((await queued(next.id))?.map_code, "FRE");
+});
+
+test("a release out of the queue holds nothing a moderator can't see", async () => {
+  const { id } = await publish("left-queue", "1.0.0", archive("1.0.0", { code: "LFT" }));
+  // A new archive with no /complete: nothing in the queue answers for the code.
+  assert.equal((await upload(id, archive("1.0.0", { code: "LFT", banks: [111] }))).status, 200);
+  assert.equal(await queued(id), undefined);
+
+  const next = await publish("took-it", "1.0.0", archive("1.0.0", { code: "LFT" }), rival);
+  assert.equal(next.status, "pending", JSON.stringify(next.findings));
+
+  // And the code is gone when the first one comes back.
+  const back = await call("POST", `/releases/${id}/complete`, author);
+  assert.equal(back.body.status, "rejected", JSON.stringify(back.body));
+});
+
+test("a code two scans claimed at once goes to the first approval", async () => {
+  const first = await publish("same-instant-a", "1.0.0", archive("1.0.0", { code: "SIA" }));
+  const second = await publish("same-instant-b", "1.0.0", archive("1.0.0", { code: "SIB" }), rival);
+  // What two /complete calls in the same instant leave: each read before the
+  // other wrote, so neither saw a claim.
+  sqlite
+    .prepare(`UPDATE mod_releases SET map_json = json_set(map_json, '$.code', 'SIA') WHERE id = ?1`)
+    .run(second.id);
+
+  assert.equal((await decide(first.id, "approve")).status, 200);
+  const refused = await decide(second.id, "approve");
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.equal(refused.body.error, "map_code_taken");
+  // The page shows this as it comes, so it has to read as a sentence.
+  assert.match(refused.body.message as string, /SIA/);
+
+  // Nothing of the refused approval stuck, and a moderator can still reject it.
+  assert.equal(statusOf("mod_releases", second.id), "pending");
+  assert.equal(sqlite.prepare(`SELECT status FROM mods WHERE slug = 'same-instant-b'`).all()[0].status, "draft");
+  assert.equal(listingRow("SIA")?.mod_id, sqlite.prepare(`SELECT id FROM mods WHERE slug = 'same-instant-a'`).all()[0].id);
+  assert.equal(
+    sqlite.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'release_approve' AND subject_id = ?1`).all(second.id)[0].n,
+    0,
+  );
+  assert.equal((await decide(second.id, "reject", "Code taken.")).status, 200);
 });

@@ -86,3 +86,4 @@ export const ManifestSchema = z
   .openapi("MjolnirManifest");
 
 export type Manifest = z.infer<typeof ManifestSchema>;
+export type MapBlock = NonNullable<Manifest["map"]>;

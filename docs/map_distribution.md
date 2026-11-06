@@ -103,7 +103,8 @@ The manifest's map block:
 ```
 
 - `code` is the three-character scenario codename. It is unique across the
-  hub, which rejects a second map claiming a code someone else's map holds.
+  hub, which rejects a second map claiming a code someone else's map holds,
+  whether that map is listed or [waiting for review](#players-maps).
 - `modes` lists the game types the multiplayer menu offers. Each one must be
   a variant the loader ships (`slayer`, `ctf`, ...).
 - `size`, `players`, `vehicles`, `origin` and `game` are optional catalog metadata,
@@ -171,8 +172,8 @@ launcher, not the hub.
 
 1. Release the launcher that takes banks, and let players update to it.
 2. Deploy the hub with the scan (`ts-5`). Until then the hub refuses `.bnk` as a forbidden
-   kind. Apply migration 0025 first: `/complete` writes `banks_json`, so without it every
-   publish fails.
+   kind. Apply migrations 0025 and 0026 first: `/complete` writes `banks_json` and
+   `map_json`, so without them every publish fails.
 3. Publish maps with banks, and approve the ones waiting for review.
 
 Step 2 lets authors upload banks, so moderators leave those releases pending until step
@@ -349,6 +350,21 @@ A review is of one archive. Uploading a new one takes the release out of the
 queue until `/complete` scans it, and the page sends the hash of the archive it
 showed, so a decision on a replaced archive is refused.
 
+A held release changes nothing players see. Its map block waits on the release
+(`mod_releases.map_json`, migration 0026) and reaches the listing on approval;
+a rejection leaves the listing as it was. The listing follows the newest
+published release, so one approved after a newer one publishes without taking
+the listing back.
+
+A release in the queue holds its code against other mods, as a listing does:
+the scan refuses a second map claiming it, whoever the author is, until a
+moderator decides. Rejection frees the code. Only the queue holds one, so a
+release a new archive took out of it holds nothing until `/complete` scans it,
+and an abandoned upload can't keep a code where no moderator can see it. Two
+scans in the same instant can't see each other, so both can reach the queue.
+Then the first approval takes the code and the other is refused with a 409,
+which is a moderator's cue to reject it.
+
 ## On the hub
 
 A map is a `content` mod. `mods.type` is a trust tier and stays `content`;
@@ -361,7 +377,7 @@ official classic, and the catalog metadata (migration 0017). `GET
   - requires the `map` block, and only a map archive may carry one;
   - requires `map/level.json` and `map/registration.json`, as valid JSON;
   - warns about containers not named for the map (`-<CODE>_P`);
-  - rejects a `code` another mod already holds (`map_code_taken`).
+  - rejects a `code` another mod's listing or held release has (`map_code_taken`).
 - The archive limits are those of any content release. One request
   (`PUT /releases/{id}/archive`) takes up to 90 MiB, under Cloudflare's
   100 MB request body. A bigger archive, up to 400 MiB, goes up in parts:
@@ -370,9 +386,10 @@ official classic, and the catalog metadata (migration 0017). `GET
   `POST /releases/{id}/complete` then scans the stored archive from R2 as a
   stream. A remastered map with its foliage runs past one request
   (Timberland 2.1.0 is 117 MiB).
-- A passing map release writes its `map_listings` row; a held one
-  ([review](#players-maps)) writes it too, but the listing stays out of
-  the catalog until the mod is published.
+- A map release writes its `map_listings` row when it publishes: at the scan,
+  or on approval if it was held ([review](#players-maps)). A first release
+  that's held has no row yet, because lobbies, matches and leaderboards read
+  titles from the listing by code.
 - `deps` are recorded in `release_deps`.
 
 ### The catalog
