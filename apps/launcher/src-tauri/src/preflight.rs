@@ -109,10 +109,6 @@ fn plural(n: usize, word: &str) -> String {
     format!("{n} {word}{}", if n == 1 { "" } else { "s" })
 }
 
-/// How many hub mods are asked about at once: a request or two each, so a
-/// few in flight keep a long map list quick without hammering the hub.
-const HUB_CHECKS_AT_ONCE: usize = 4;
-
 const LAUNCHER_NAME: &str = "MJOLNIR Launcher";
 const CORE_NAME: &str = "MJOLNIR core (UE4SS)";
 const CODE_NAME: &str = "Code mods (the signed set)";
@@ -232,7 +228,7 @@ fn check_hub(
     let next = AtomicUsize::new(0);
     let failed = AtomicUsize::new(0);
     std::thread::scope(|s| {
-        for _ in 0..HUB_CHECKS_AT_ONCE {
+        for _ in 0..crate::hub::HUB_CHECKS_AT_ONCE {
             s.spawn(|| loop {
                 let Some(inst) = hub_mods.get(next.fetch_add(1, Ordering::Relaxed)) else {
                     break;

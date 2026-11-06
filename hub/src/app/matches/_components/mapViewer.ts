@@ -130,10 +130,12 @@ export class MapViewer {
     this.killerAt = withKiller.map((k) => toWorld(k.from!));
     this.killerLabel = withKiller.map((k) => k.label);
     this.killerT = withKiller.map((k) => k.t_ms);
-    this.lineT = this.killerT;
-    this.victimAt = [...kills.map((k) => toWorld(k.to)), ...deaths.map((d) => toWorld(d.at))];
-    this.victimLabel = [...kills.map((k) => k.label), ...deaths.map((d) => d.label)];
-    this.victimT = [...kills.map((k) => k.t_ms), ...deaths.map((d) => d.t_ms)];
+    const joined = withKiller.filter((k) => !k.alone);
+    this.lineT = joined.map((k) => k.t_ms);
+    const struck = kills.filter((k) => !k.alone);
+    this.victimAt = [...struck.map((k) => toWorld(k.to)), ...deaths.map((d) => toWorld(d.at))];
+    this.victimLabel = [...struck.map((k) => k.label), ...deaths.map((d) => d.label)];
+    this.victimT = [...struck.map((k) => k.t_ms), ...deaths.map((d) => d.t_ms)];
 
     const dots = (color: THREE.Color, count: number) => {
       const mesh = new THREE.InstancedMesh(
@@ -153,7 +155,7 @@ export class MapViewer {
     this.killers = dots(KILLER, this.killerAt.length);
     this.victims = dots(VICTIM, this.victimAt.length);
 
-    const segments = withKiller.flatMap((k) => [toWorld(k.from!), toWorld(k.to)]);
+    const segments = joined.flatMap((k) => [toWorld(k.from!), toWorld(k.to)]);
     const lineGeometry = new THREE.BufferGeometry().setFromPoints(segments);
     lineGeometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(segments.length * 3), 3));
     this.lines = new THREE.LineSegments(

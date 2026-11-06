@@ -440,7 +440,8 @@ local function showToast(text, color)
 end
 
 -- What the DLL says it did -> the toast's words and colour.
-function Hud.notice(last, name)
+function Hud.notice(last, name, keys)
+    keys = keys or {}
     -- A pack binding refusal includes the recovery action. Do not replace
     -- it with the generic "no palette entry" message below.
     if last:match("^%a+ failed:") then return string.upper(last), GOLD end
@@ -458,6 +459,16 @@ function Hud.notice(last, name)
     if saved then return "LAYOUT SAVED  " .. saved .. " OBJECTS", GREEN end
     local reloaded = last:match("^loaded layout %S+, (%d+) objects$")
     if reloaded then return "LAYOUT LOADED  " .. reloaded .. " OBJECTS", GREEN end
+    local restored = last:match("^restored layout %S+, (%d+) objects$")
+    if restored then return "SAVED LAYOUT RESTORED  " .. restored .. " OBJECTS", GREEN end
+    if last == "press again: saved layout goes to history" or last == "press again: map's own layout" then
+        local key = Hud.keyLabel(keys.revert or "F2")
+        local cost = last:find("history", 1, true) and "YOUR SAVE GOES TO HISTORY" or "UNSAVED OBJECTS ARE LOST"
+        return "PRESS " .. key .. " AGAIN FOR THE MAP'S OWN LAYOUT  " .. cost, GOLD
+    end
+    if last == "reverted: saved layout moved to history" then
+        return "THE MAP'S OWN LAYOUT  " .. Hud.keyLabel(keys.load or "F6") .. " BRINGS YOUR SAVE BACK", ACCENT
+    end
     if last == "reverted to the map's own layout" then return "THE MAP'S OWN LAYOUT", ACCENT end
     local team = last:match("^team (%a+)$")
     if team then return "TEAM  " .. string.upper(team), ACCENT end
@@ -661,7 +672,7 @@ function Hud.render(s, keys, mapTitle, palette, choice)
         local first = toast.id == nil
         toast.id = s.last_id
         if not first and s.last and s.last ~= "" then
-            local text, color = Hud.notice(s.last, lastTarget or "Object")
+            local text, color = Hud.notice(s.last, lastTarget or "Object", keys)
             showToast(text, color)
         end
     end

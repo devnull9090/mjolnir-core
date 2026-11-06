@@ -8,8 +8,8 @@
 //! model every other override here uses). The block goes through the
 //! lossless encoder in `ue_asset::props`, so every byte the cook wrote and
 //! this command did not touch comes back as it was — including the class's
-//! native tail after the properties. Object references cannot be retargeted:
-//! that needs import-map surgery this foundation does not do.
+//! native tail after the properties. `set` cannot retarget an object
+//! reference; `clone` repoints a whole imported package, keeping its leaf name.
 
 use std::path::PathBuf;
 
@@ -46,6 +46,15 @@ pub enum UeCommand {
     /// Re-encode a cooked container's packages from stock UE 5.5's property
     /// layout into the game's, and write the changed ones as an override.
     Retarget(RetargetArgs),
+    /// Print matching property rows of every export of a class across the
+    /// packages matching a substring: which material instances expose a
+    /// `Detail` parameter, which data assets carry a field.
+    Scan(ScanArgs),
+    /// Copy a shipped package under a path of our own, optionally repointing
+    /// the packages it imports and setting properties, and write it as a
+    /// brand-new package in an addition container. Nothing shipped changes:
+    /// a material instance of our own can sit on textures of our own.
+    Clone(CloneArgs),
 }
 
 #[derive(Args)]
@@ -206,6 +215,64 @@ pub struct RoundtripArgs {
     pub limit: usize,
 }
 
+#[derive(Args)]
+pub struct ScanArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// Packages whose path contains this (case-insensitive); empty for all.
+    #[arg(long, default_value = "")]
+    pub package: String,
+    /// Only exports of this script class (e.g. `MaterialInstanceConstant`).
+    #[arg(long)]
+    pub class: String,
+    /// Only rows whose path or value contains this (case-insensitive).
+    #[arg(long)]
+    pub filter: Option<String>,
+    /// Stop after this many matching packages; 0 for no limit.
+    #[arg(long, default_value_t = 0)]
+    pub limit: usize,
+    /// Only the package name and the number of matching rows.
+    #[arg(long)]
+    pub count: bool,
+}
+
+#[derive(Args)]
+pub struct CloneArgs {
+    #[command(flatten)]
+    pub src: Source,
+    /// The shipped package to copy, as `/Game/...` or a substring.
+    #[arg(long)]
+    pub package: String,
+    /// The new package path (`/Game/MJOLNIR/BGL/MI_Ground`). Its leaf names
+    /// the main export, as the donor's leaf named the donor's.
+    #[arg(long = "as", value_name = "PATH")]
+    pub new_name: String,
+    /// Repoint an imported package: `OLD=NEW`, both full package paths. The
+    /// object names inside must match (the import map refers to objects by
+    /// name hash), so a texture clone keeps the texture's leaf name.
+    #[arg(long = "reimport", value_name = "OLD=NEW")]
+    pub reimports: Vec<String>,
+    /// Which export to edit with `--field`; the first with a script class
+    /// when omitted.
+    #[arg(long)]
+    pub export: Option<usize>,
+    /// A property path to set, paired with `--value`; repeatable.
+    #[arg(long)]
+    pub field: Vec<String>,
+    #[arg(long)]
+    pub value: Vec<String>,
+    /// Directory to write the container into.
+    #[arg(long, default_value = ".")]
+    pub out_dir: PathBuf,
+    /// Container name (`_P` is added when missing).
+    #[arg(long, default_value = "pakchunk995-MJOLNIRASSET_P")]
+    pub name: String,
+    /// Add to a container written by an earlier `clone` with the same name
+    /// instead of replacing it: the packages already there are kept.
+    #[arg(long)]
+    pub append: bool,
+}
+
 pub fn run(a: UeArgs) -> Result<()> {
     match a.command {
         UeCommand::Get(a) => get(a),
@@ -215,6 +282,8 @@ pub fn run(a: UeArgs) -> Result<()> {
         UeCommand::MenuButton(a) => menu_button(a),
         UeCommand::Disasm(a) => disasm(a),
         UeCommand::Retarget(a) => retarget(a),
+        UeCommand::Scan(a) => scan(a),
+        UeCommand::Clone(a) => clone(a),
     }
 }
 
@@ -851,5 +920,281 @@ fn roundtrip(a: RoundtripArgs) -> Result<()> {
     if let Some(f) = first {
         println!("first problem: {f}");
     }
+    Ok(())
+}
+
+fn scan(a: ScanArgs) -> Result<()> {
+    let containers = ue_iostore::load_all(&a.src.paks)?;
+    let oodle = a.src.oodle_roots();
+    let usmap = crate::mesh::usmap()?;
+    let scripts = crate::mesh::script_objects(&containers, &oodle)?;
+    let want = a.package.to_ascii_lowercase();
+    let filter = a.filter.as_ref().map(|f| f.to_ascii_lowercase());
+    let mut seen = std::collections::HashSet::new();
+    let mut hits = 0usize;
+    'outer: for c in &containers {
+        let mut names: Vec<&String> = c.files.keys().collect();
+        names.sort();
+        for rel in names {
+            let full = c.full_path(rel);
+            if !(full.ends_with(".uasset") || full.ends_with(".umap"))
+                || !full.to_ascii_lowercase().contains(&want)
+            {
+                continue;
+            }
+            let Some(name) = ue_asset::level::package_name_of(&full) else {
+                continue;
+            };
+            // Overrides shadow: the first container to name a package wins.
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            let Ok(data) = ue_iostore::read_chunk(c, &c.chunks[c.files[rel]], None, &oodle)
+            else {
+                continue;
+            };
+            let Ok(pkg) = ue_asset::package::ZenPackage::parse(&data) else {
+                continue;
+            };
+            let mut printed_name = false;
+            for i in 0..pkg.export_map.len() {
+                let Some(class) = ue_asset::edit::export_class(&pkg, &scripts, i) else {
+                    continue;
+                };
+                if class != a.class {
+                    continue;
+                }
+                let Ok(edit) = ue_asset::edit::open_export(&pkg, &usmap, &scripts, i) else {
+                    continue;
+                };
+                let rows = ue_asset::edit::describe(&usmap, &edit.class, &pkg.names.names, &edit.block);
+                let matching: Vec<_> = rows
+                    .iter()
+                    .filter(|r| match &filter {
+                        Some(f) => {
+                            r.path.to_ascii_lowercase().contains(f)
+                                || r.value.to_ascii_lowercase().contains(f)
+                        }
+                        None => true,
+                    })
+                    .collect();
+                if matching.is_empty() {
+                    continue;
+                }
+                if !printed_name {
+                    printed_name = true;
+                    hits += 1;
+                    if a.count {
+                        println!("{name} [{i}]: {} row(s)", matching.len());
+                    } else {
+                        println!("{name} [{i}]");
+                    }
+                }
+                if !a.count {
+                    for r in matching {
+                        println!("  {} = {}   ({})", r.path, r.value, r.ty);
+                    }
+                }
+            }
+            if a.limit != 0 && hits >= a.limit {
+                break 'outer;
+            }
+        }
+    }
+    println!("{hits} package(s) matched");
+    Ok(())
+}
+
+/// Packages an addition container already carries, read back so another
+/// `clone --append` can keep them.
+fn existing_packages(
+    utoc: &std::path::Path,
+    oodle: &[PathBuf],
+) -> Result<Vec<blam_pack::NewPackage>> {
+    if !utoc.is_file() {
+        return Ok(Vec::new());
+    }
+    let c = ue_iostore::load_container(utoc)?;
+    let mut out = Vec::new();
+    let mut names: Vec<&String> = c.files.keys().collect();
+    names.sort();
+    for rel in names {
+        let full = c.full_path(rel);
+        if !(full.ends_with(".uasset") || full.ends_with(".umap")) {
+            continue;
+        }
+        let Some(name) = ue_asset::level::package_name_of(&full) else {
+            continue;
+        };
+        let uasset = ue_iostore::read_chunk(&c, &c.chunks[c.files[rel]], None, oodle)?;
+        let id = ue_iostore::city::package_id(&name);
+        let ubulk = match c
+            .chunks
+            .iter()
+            .find(|ch| ch.chunk_id == id && ch.chunk_type == 2)
+        {
+            Some(ch) => ue_iostore::read_chunk(&c, ch, None, oodle)?,
+            None => Vec::new(),
+        };
+        // The store entry's import list is the package's own imported
+        // package names, as it was when the package was cloned.
+        let imported_package_ids = ue_asset::package::ZenPackage::parse(&uasset)
+            .map(|z| {
+                z.imported_package_names
+                    .names
+                    .iter()
+                    .map(|n| ue_iostore::city::package_id(n))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(blam_pack::NewPackage {
+            package_name: name.clone(),
+            uasset,
+            ubulk,
+            imported_package_ids,
+            uasset_meta: Vec::new(),
+            ubulk_meta: Vec::new(),
+        });
+    }
+    Ok(out)
+}
+
+fn clone(a: CloneArgs) -> Result<()> {
+    let (containers, oodle, _ci, _chunk, name, _data, mut pkg, usmap, _scripts, mut edit) =
+        open(&a.src, &a.package, a.export)?;
+    if a.field.len() != a.value.len() {
+        bail!("{} --field but {} --value", a.field.len(), a.value.len());
+    }
+    if !a.new_name.starts_with('/') || a.new_name.ends_with('/') {
+        bail!("--as wants a package path like /Game/MJOLNIR/BGL/MI_Ground");
+    }
+    println!("{name} -> {}", a.new_name);
+
+    // The bulk payload rides along unchanged (a texture's mips).
+    let source_id = ue_iostore::city::package_id(&name);
+    let mut ubulk = Vec::new();
+    for c in &containers {
+        if let Some(ch) = c
+            .chunks
+            .iter()
+            .find(|ch| ch.chunk_id == source_id && ch.chunk_type == 2)
+        {
+            ubulk = ue_iostore::read_chunk(c, ch, None, &oodle)?;
+            break;
+        }
+    }
+
+    for line in pkg
+        .rename_package(&a.new_name)
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+    {
+        println!("  {line}");
+    }
+    for r in &a.reimports {
+        let Some((old, new)) = r.split_once('=') else {
+            bail!("--reimport wants OLD=NEW, got {r:?}");
+        };
+        let old_leaf = old.rsplit('/').next().unwrap_or(old);
+        let new_leaf = new.rsplit('/').next().unwrap_or(new);
+        if old_leaf != new_leaf {
+            bail!(
+                "--reimport {old} -> {new}: the leaf must stay ({old_leaf} vs {new_leaf}), the import map refers to the object by its name hash"
+            );
+        }
+        let names = &mut pkg.imported_package_names;
+        let Some(i) = names.names.iter().position(|n| n == old) else {
+            bail!("{name} does not import {old}");
+        };
+        names.names[i] = new.to_string();
+        names.hashes[i] = ue_asset::package::name_hash(new);
+        println!("  import {old} -> {new}");
+    }
+    for (field, value) in a.field.iter().zip(&a.value) {
+        let new = ue_asset::edit::set(
+            &usmap,
+            &edit.class,
+            &mut pkg.names,
+            &mut edit.block,
+            field,
+            value,
+        )
+        .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+        println!(
+            "  {field} = {}",
+            ue_asset::edit::value_text(&pkg.names.names, None, &new)
+        );
+    }
+    if !a.field.is_empty() {
+        ue_asset::edit::write_export(&mut pkg, &usmap, &edit)
+            .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+    }
+    let uasset = pkg.write();
+    let back = ue_asset::package::ZenPackage::parse(&uasset)?;
+    if back.name() != a.new_name {
+        bail!("the rewritten package reads back as {}", back.name());
+    }
+    let imported: Vec<u64> = back
+        .imported_package_names
+        .names
+        .iter()
+        .map(|n| ue_iostore::city::package_id(n))
+        .collect();
+    println!(
+        "  {} bytes, {} bytes of bulk data, {} imported package(s)",
+        uasset.len(),
+        ubulk.len(),
+        imported.len()
+    );
+
+    let mut container = a.name.clone();
+    if !container.ends_with("_P") {
+        container.push_str("_P");
+    }
+    let utoc = a.out_dir.join(format!("{container}.utoc"));
+    let ucas = a.out_dir.join(format!("{container}.ucas"));
+    let mut packages = if a.append {
+        existing_packages(&utoc, &oodle)?
+    } else {
+        Vec::new()
+    };
+    packages.retain(|p| p.package_name != a.new_name);
+    let kept = packages.len();
+    packages.push(blam_pack::NewPackage {
+        package_name: a.new_name.clone(),
+        uasset,
+        ubulk,
+        imported_package_ids: imported,
+        uasset_meta: Vec::new(),
+        ubulk_meta: Vec::new(),
+    });
+    let template = containers
+        .iter()
+        .find(|c| {
+            c.utoc_path
+                .file_name()
+                .map(|n| n.to_string_lossy().starts_with("pakchunk0-"))
+                .unwrap_or(false)
+        })
+        .context("no pakchunk0 to use as a TOC template")?;
+    let built = blam_pack::build_addition(template, &oodle, &container, &packages)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    std::fs::create_dir_all(&a.out_dir)?;
+    std::fs::write(&utoc, &built.utoc)?;
+    std::fs::write(&ucas, &built.ucas)?;
+    blam_pack::verify_written(&utoc, &oodle, &built.expect).map_err(|e| anyhow::anyhow!(e))?;
+    std::fs::write(
+        a.out_dir.join(format!("{container}.pak")),
+        ue_iostore::pak::stub_for(&container),
+    )?;
+    println!(
+        "  wrote {} ({} package(s){})",
+        utoc.display(),
+        packages.len(),
+        if kept > 0 {
+            format!(", {kept} kept from the earlier container")
+        } else {
+            String::new()
+        }
+    );
     Ok(())
 }

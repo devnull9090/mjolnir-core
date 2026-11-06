@@ -106,6 +106,45 @@ int main(void) {
         }
         old_bytes_survive(&fs);
     }
+
+    // F6 brings a retired pair back, the sidecar first.
+    fake_fs back = {{EMPTY, EMPTY, EMPTY, EMPTY, OLD_MAP, OLD_SIDE}, 0, 0};
+    forge_file_ops back_ops = ops_for(&back);
+    CHECK(forge_unretire_pair(&back_ops, names[MAP], names[SIDE], names[HISTORY_MAP], names[HISTORY_SIDE]) == FORGE_FILES_OK);
+    CHECK(back.files[MAP] == OLD_MAP && back.files[SIDE] == OLD_SIDE);
+    CHECK(back.files[HISTORY_MAP] == EMPTY && back.files[HISTORY_SIDE] == EMPTY);
+    // A save from before sidecars comes back alone.
+    back = (fake_fs){{EMPTY, EMPTY, EMPTY, EMPTY, OLD_MAP, EMPTY}, 0, 0};
+    back_ops = ops_for(&back);
+    CHECK(forge_unretire_pair(&back_ops, names[MAP], names[SIDE], names[HISTORY_MAP], names[HISTORY_SIDE]) == FORGE_FILES_OK);
+    CHECK(back.files[MAP] == OLD_MAP && back.files[SIDE] == EMPTY);
+    // A sidecar with no layout is nothing to restore.
+    back = (fake_fs){{EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, OLD_SIDE}, 0, 0};
+    back_ops = ops_for(&back);
+    CHECK(forge_unretire_pair(&back_ops, names[MAP], names[SIDE], names[HISTORY_MAP], names[HISTORY_SIDE]) == FORGE_FILES_FAILED);
+    CHECK(back.op == 0 && back.files[HISTORY_SIDE] == OLD_SIDE);
+    // An active file is never replaced, whichever half of the pair it is.
+    for (int active = MAP; active <= SIDE; active++) {
+        back = (fake_fs){{EMPTY, EMPTY, EMPTY, EMPTY, OLD_MAP, OLD_SIDE}, 0, 0};
+        back.files[active] = NEW_MAP;
+        back_ops = ops_for(&back);
+        CHECK(forge_unretire_pair(&back_ops, names[MAP], names[SIDE], names[HISTORY_MAP], names[HISTORY_SIDE]) == FORGE_FILES_FAILED);
+        CHECK(back.op == 0);
+        old_bytes_survive(&back);
+    }
+    // A failed move leaves history as it was, or reports recovery with every byte kept.
+    for (unsigned op = 1; op <= 2; op++) {
+        back = (fake_fs){{EMPTY, EMPTY, EMPTY, EMPTY, OLD_MAP, OLD_SIDE}, 1u << op, 0};
+        back_ops = ops_for(&back);
+        CHECK(forge_unretire_pair(&back_ops, names[MAP], names[SIDE], names[HISTORY_MAP], names[HISTORY_SIDE]) == FORGE_FILES_FAILED);
+        CHECK(back.files[HISTORY_MAP] == OLD_MAP && back.files[HISTORY_SIDE] == OLD_SIDE);
+        CHECK(back.files[MAP] == EMPTY && back.files[SIDE] == EMPTY);
+    }
+    back = (fake_fs){{EMPTY, EMPTY, EMPTY, EMPTY, OLD_MAP, OLD_SIDE}, (1u << 2) | (1u << 3), 0};
+    back_ops = ops_for(&back);
+    CHECK(forge_unretire_pair(&back_ops, names[MAP], names[SIDE], names[HISTORY_MAP], names[HISTORY_SIDE]) == FORGE_FILES_RECOVERY);
+    CHECK(back.files[MAP] == EMPTY); // never expose mismatched active data
+    old_bytes_survive(&back);
     printf("Forge layout transactions: %d checks passed\n", checks);
     return 0;
 }

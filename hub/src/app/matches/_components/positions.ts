@@ -5,7 +5,15 @@ import { duration, eventLine } from "./format";
 export type Point = [number, number, number];
 
 /** A kill: the killer's position (none for a suicide or no report) and the victim's. */
-export type KillMark = { seq: number; t_ms: number; from: Point | null; to: Point; label: string };
+export type KillMark = {
+  seq: number;
+  t_ms: number;
+  from: Point | null;
+  to: Point;
+  label: string;
+  /** Draw only the killer's dot: a career plot, too many kills for a line each. */
+  alone?: boolean;
+};
 /** A death no kill accounts for: falls, suicides, the guardians. */
 export type DeathMark = { seq: number; t_ms: number; at: Point; label: string };
 

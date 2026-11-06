@@ -86,8 +86,8 @@ Without it, a plain text panel shows the same things.
 | **Left / Right** | Previous / next palette category |
 | **Up / Down** | Previous / next object in the category |
 | **F5** | Save this map's layout |
-| **F6** | Load the saved layout, replacing the objects on the map now |
-| **F2** | Go back to the map's own layout (the saved one is kept in `layouts\history`) |
+| **F6** | Load the saved layout, replacing the objects on the map now. With no saved layout, the newest one in `layouts\history` comes back |
+| **F2**, twice | Go back to the map's own layout (the saved one is kept in `layouts\history`). The first press asks; press again within 4 seconds |
 | **K** | Team of the target: neutral, red, blue |
 | **L** | Megalo label of the target (the map's labels in turn, then none) |
 | **J** | Respawn time of the target: 0, 5, 10, 15, 30, 45, 60, 90, 120, 180 s |
@@ -277,7 +277,9 @@ F5 saves what is on the map now, everything Forge can move, as a layout:
 **A map with a saved layout starts every game with it**: FORGE, Slayer, CTF
 or any other game type on that map. Saving again replaces it; the one before
 moves to `layouts\history` with the time in its name. To play the map as it
-shipped, press F2 in a FORGE game (or move the file out of `layouts`).
+shipped, press F2 twice in a FORGE game (or move the file out of `layouts`).
+Objects you have not saved are gone after that, but the saved layout is not:
+F6 brings it back from `layouts\history` until you save again.
 
 F6 puts the saved layout back on the spot, undoing everything since the last
 save. Objects you are holding are dropped first.
