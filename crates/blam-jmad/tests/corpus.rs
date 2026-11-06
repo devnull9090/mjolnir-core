@@ -534,7 +534,7 @@ fn a_child_keeps_its_animations_unchanged() {
             .map(|i| own[i].name.clone())
             .to_vec();
         for whole_groups in [false, true] {
-            let made = match blam_jmad::child(&file, r"objectsparent", &names, whole_groups) {
+            let made = match blam_jmad::child(&file, r"objectsparent", &names, &[], whole_groups) {
                 Ok(made) => made,
                 Err(blam_jmad::Error::Unsupported(why)) => {
                     eprintln!("{}: {why}", p.display());
@@ -557,6 +557,45 @@ fn a_child_keeps_its_animations_unchanged() {
     eprintln!("{built} children built");
 }
 
+/// The seats under labels of their own: the donors' labels go from the child,
+/// and what their rows and overlay groups play comes with it.
+#[test]
+fn a_spartan_child_takes_modes_under_new_labels() {
+    let Some(file) = tag("spartans.model_animation_graph") else {
+        return;
+    };
+    let names = ["ghost_d:idle", "ghost_d:grip", "warthog_p:rifle:idle"].map(String::from);
+    let modes = [("ghost_d", "mongoose_d"), ("warthog_p", "mongoose_p")]
+        .map(|(a, b)| (a.to_string(), b.to_string()));
+    let made = blam_jmad::child(&file, r"objectsparent", &names, &modes, false).unwrap();
+    assert_eq!(made.rows.len(), 107);
+    for row in [
+        "mongoose_d:idle (actions)",
+        "mongoose_d:grip (overlay animations)",
+        "mongoose_p:rifle:idle (actions)",
+    ] {
+        assert!(made.rows.iter().any(|r| r == row), "{row}");
+    }
+    assert!(made.rows.iter().all(|r| r.starts_with("mongoose_")));
+    assert_eq!(made.left_to_parent, ["truck_p:rifle:idle (actions)"]);
+    assert!(made.cleared.is_empty());
+    assert_eq!((made.overlay_groups, made.blend_screens), (16, 28));
+    let g = Graph::read(&made.file).unwrap();
+    assert_eq!(g.animations.len(), 80);
+    assert_eq!(g.write_resources(&made.file).unwrap(), made.file);
+}
+
+/// A mode with an IK set is refused, not carried without it.
+#[test]
+fn a_renamed_mode_with_an_ik_set_is_refused() {
+    let Some(file) = tag("spartans.model_animation_graph") else {
+        return;
+    };
+    let modes = [("combat".to_string(), "x".to_string())];
+    let made = blam_jmad::child(&file, r"objectsparent", &[], &modes, false);
+    assert!(matches!(made, Err(blam_jmad::Error::Unsupported(_))));
+}
+
 /// The Spartan's seats: three rows, and the truck's idle, which shares the
 /// Warthog's, stays with the parent.
 #[test]
@@ -565,7 +604,7 @@ fn a_spartan_child_holds_only_the_named_rows() {
         return;
     };
     let names = ["ghost_d:idle", "ghost_d:grip", "warthog_p:rifle:idle"].map(String::from);
-    let made = blam_jmad::child(&file, r"objectsparent", &names, false).unwrap();
+    let made = blam_jmad::child(&file, r"objectsparent", &names, &[], false).unwrap();
     assert_eq!(
         made.rows,
         [

@@ -9,6 +9,10 @@
 `--out` is a spec for `mjolnir jmad rewrite`. `--limbs` is each IK proxy, on the
 node it rides, and `--bones` is the vehicle's manifest for those nodes.
 
+The spec edits the Spartan's own animations, by their names in its pool. `SEATS`
+says which modes play them on this vehicle: `mjolnir jmad child --mode` copies each
+under the seat's label, so a real Ghost or Warthog on the map keeps its pose.
+
 `--ce` is a JSON file, with quaternions as CE stores them:
 
     {"vehicle": {"markers": {name: {"node", "position", "forward", "left", "up"}}},
@@ -78,6 +82,10 @@ LEGS = (("hip_l", "knee_l", "ankle_l", "bip01 l thigh", "bip01 l calf", "bip01 l
 HEAD = ("head_m", "bip01 head")
 FEET = (("ankle_l", "bip01 l foot"), ("ankle_r", "bip01 r foot"))
 
+# A vehicle's seats in order: the label each seat gives, and the Spartan mode
+# whose rows that label plays.
+SEATS = (("mongoose_d", "ghost_d"), ("mongoose_p", "warthog_p"))
+
 # What a mode's proxy groups hold on to: the joint they end.
 MODE_PROXIES = {
     "ghost_d": {"spartan_hand_left": "wrist_l", "spartan_hand_right": "wrist_r",
@@ -85,6 +93,16 @@ MODE_PROXIES = {
     "warthog_p": {"chief_p_ik_left_arm": "wrist_l", "chief_p_ik_left_leg": "ankle_l",
                   "chief_p_ik_right_leg": "ankle_r"},
 }
+
+
+def seat_sets(seats=SEATS):
+    """The vehicle tag's seat labels, as `new-tag` sets."""
+    return [f"unit.seats[{i}].label={label}" for i, (label, _) in enumerate(seats)]
+
+
+def child_modes(seats=SEATS):
+    """The seats as `mjolnir jmad child` arguments."""
+    return [arg for label, donor in seats for arg in ("--mode", f"{donor}={label}")]
 
 
 def frame(rotation=None, position=(0.0, 0.0, 0.0)):
