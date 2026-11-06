@@ -66,9 +66,17 @@ probe stays at 100% after a `(-35.4, 151.17, 50)` move of a shipped
 definition. On the Halo data the probe reads 98.3% both before and after
 translation, so that residual is the data or the probe, not the move.
 `examples/probe_residual.rs` narrows it to 14 of 5,098 surfaces (flat floors
-among them), with no 2D subtree shared between references and no dependence
-on the reference's negation bit — a property of those Halo trees, worth a
-look only if holes show up in play.
+among them), with no 2D subtree shared between references. Scored in each
+reference's own frame (below) that is 12 surfaces, and clipped to the 2D cell
+above each node it is none: the rest is outlines that reach past their cell,
+not bad trees.
+
+**Update 2026-11-06:** a reference with the plane's sign bit reads its tree in
+the swapped projection, the same as `projection_axes` of the negated normal
+(`pack16::reference_axes`). On shipped `BSP_01_1_Start` definition 5 the
+unsigned frame agrees with 230 of 320 vertex checks and the signed frame with
+236 of 236. `translate` used the unsigned frame until then; see "2D trees and
+the reference's sign" at the end.
 
 ## Placing Bloodgulch
 
@@ -692,3 +700,60 @@ game with their scenery linked (2026-10-12; on Death Island against a B30
 rock's hull too). `level collision` links a staging's scenery whenever
 it lists any, so every conversion since 2026-10-03 has it, Yoyorast Island's
 and Coldsnap's of 2026-10-10 included.
+
+## 2D trees and the reference's sign (2026-11-06)
+
+`translate` and the fan split both worked in the plane's unsigned frame, so
+anything under a negated reference came out wrong. Every converted map has
+some, and two steps reached them:
+
+- `translate` runs on every conversion, not only under `--delta`: the shell
+  keeps the map's coordinates, but definition 0 is moved by minus its instance's
+  position. Split lines under a negated reference moved along the swapped axes.
+- The fan split built one chain of diagonals, in the unsigned frame, for every
+  reference to a polygon. A negated reference then landed on the wrong piece of
+  its own polygon, the polygon test failed, and a ray went through. CE's
+  two-sided polygons are always reached this way from one side.
+
+Now the frame comes from the reference (`pack16::node_frames`), and the fan
+split builds a chain per sign the polygon is reached under
+(`split::fan_chain`). A polygon reached under both signs costs a second chain,
+so a map's 2D nodes can grow; of the 50 maps below only two scenery pieces on
+SFN do (1,260 nodes). Nothing else in the tag moves, the breakable bit below
+aside: surfaces, planes, edges, vertices, the tree and both MOPPs are as they
+were, so nothing about standing on a map changes. What changes is which
+surface a line test finds.
+
+Run over the newest staging of 50 maps with `level collision --own-bsp`, in
+the shell and definition 0 of the finished tag (a check takes a surface's
+centroid down each reference that reaches it; a ray crosses each surface's
+centroid in both directions, by `raytest::tree_game`):
+
+| | before | after |
+|---|---|---|
+| shell: checks that land off the polygon, of 558,285 | 17,539 | 0 |
+| definition 0: the same | 43,901 | 2 |
+| shell: rays that newly hit, of 894,466 | | 3,667 |
+| definition 0: the same | | 7,842 |
+| rays that stopped hitting | | 0 |
+
+Scenery pieces with 2D trees of their own go from 1,887 to 16. The two left in
+definition 0 (Containment) and the 16 (one piece of SFN, eight polygons under
+each sign) sit under plain references too and were there before.
+
+The fan split leaves a map's route alone: every map stays in the 16-bit tables,
+the largest at 27,905 of 32,767 2D nodes (District), and takes the same
+triangles or quads and the same scenery placement as before.
+
+`pack16` no longer carries the breakable bit. It writes no breakable set, so
+the bit named nothing, and the game never ships it that way: of the 34,189,419
+surfaces in the 122 shipped BSPs, 8,968 have the bit and all of them name a set
+(B40's `BSP_01_1_Start` has none, A15's `BSP_Cryo` 392).
+Ten of the 50 maps had it without one (BVR, CSN, DST, HDL, IVT, PRS, TBS, TRF,
+TRM, ZAN; 4,230 surfaces). What the simulation did with such a surface has not
+been measured in game. Surfaces that really break would need a breakable set
+written for them.
+
+`validate::two_sided_leaves_unflagged` lists leaves that reach a two-sided
+surface without leaf flag bit 0, which a ray would never look in. It is in the
+`validate` example; conversions do not run it.

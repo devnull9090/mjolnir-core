@@ -24,7 +24,8 @@
 //! as the 16-bit sign, surfaces move it into the `plane negated` flag.
 //!
 //! Surface flags share their first four bits with CE (two sided, invisible,
-//! climbable, breakable); the rest (invalid, conveyor, slip, plane negated,
+//! climbable, breakable), though breakable is not carried: no breakable set is
+//! written for it to name. The rest (invalid, conveyor, slip, plane negated,
 //! pathfinding only) are Meteorite-only and stay clear.
 
 use crate::ce::{Collision, Surface};
@@ -170,8 +171,11 @@ fn surface16(s: &Surface, materials: &dyn MaterialMap) -> [u8; 14] {
     b[4..6].copy_from_slice(&materials.meteorite_index(s.material).to_le_bytes());
     b[6..8].copy_from_slice(&(-1i16).to_le_bytes());
     b[8..10].copy_from_slice(&(-1i16).to_le_bytes());
-    // CE bits 0..3 line up with Meteorite's first four flag options.
-    let mut flags = (s.flags & 0x0f) as u16;
+    // CE bits 0..3 line up with Meteorite's first four flag options, but the
+    // breakable bit (3) is dropped: the set and index above are written as -1,
+    // and of the 122 shipped BSPs' 34,189,419 surfaces all 8,968 with the bit
+    // name a set.
+    let mut flags = (s.flags & 0x07) as u16;
     if negated {
         flags |= PLANE_NEGATED;
     }
@@ -188,7 +192,14 @@ fn surface16(s: &Surface, materials: &dyn MaterialMap) -> [u8; 14] {
 /// component is positive and swapped when it is negative. Scored 100% of
 /// vertex checks on three definitions and 99.5% on the world shell; every
 /// other candidate sat near chance.
+///
+/// This is the frame of a *plain* reference. A 2D reference whose plane index
+/// carries the sign bit swaps the pair: use [`reference_axes`] for anything
+/// that walks a 2D tree from its reference.
 pub fn projection_axes(n: [f32; 3]) -> (usize, usize) {
+    // `max_by` returns the LAST of equal maxima, so a tie between |x|, |y| and
+    // |z| drops z before y before x: the engine's own z > y > x tie-break.
+    // Do not replace this with a loop that keeps the first maximum.
     let a = (0..3)
         .max_by(|&i, &j| n[i].abs().partial_cmp(&n[j].abs()).unwrap())
         .unwrap();
@@ -200,12 +211,49 @@ pub fn projection_axes(n: [f32; 3]) -> (usize, usize) {
     }
 }
 
-/// The 3D plane each 2D node belongs to, found by walking down from every
-/// 2D reference. A node unreachable from any reference maps to `None`.
-pub fn node_planes(c: &Collision) -> Vec<Option<usize>> {
+/// The projection a 2D tree is built in, given the reference that reaches it.
+///
+/// A negated reference (sign bit set: the leaf sits on the back of the plane)
+/// sees the plane from the other side, which flips the orientation of the
+/// projected axes: the same as [`projection_axes`] of the negated normal. On
+/// shipped definitions (`examples/probe_residual.rs`, `BSP_01_1_Start` def 5)
+/// the unsigned frame puts 90 of 320 vertex checks on the wrong side and this
+/// one none.
+pub fn reference_axes(n: [f32; 3], negated: bool) -> (usize, usize) {
+    let (u, v) = projection_axes(n);
+    if negated {
+        (v, u)
+    } else {
+        (u, v)
+    }
+}
+
+/// The 3D plane a 2D node's split lines live in, and whether the reference
+/// that reaches the node is negated. Together they fix the node's projection
+/// ([`NodeFrame::axes`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeFrame {
+    pub plane: usize,
+    pub negated: bool,
+}
+
+impl NodeFrame {
+    pub fn axes(&self, c: &Collision) -> (usize, usize) {
+        reference_axes(c.planes[self.plane].n, self.negated)
+    }
+}
+
+/// The frame of each 2D node, found by walking down from every 2D reference.
+/// A node unreachable from any reference maps to `None`. The first reference
+/// to reach a node wins; the CE Blood Gulch shell and every shipped
+/// `BSP_01_1_Start` definition have no 2D subtree reached under both signs.
+pub fn node_frames(c: &Collision) -> Vec<Option<NodeFrame>> {
     let mut owner = vec![None; c.bsp2d_nodes.len()];
     for r in &c.bsp2d_references {
-        let plane = (r.plane as u32 & 0x7fff) as usize;
+        let frame = NodeFrame {
+            plane: (r.plane as u32 & 0x7fff) as usize,
+            negated: (r.plane as u32) & 0x8000_0000 != 0,
+        };
         let mut stack = vec![r.node];
         while let Some(child) = stack.pop() {
             if child == -1 || (child as u32) & 0x8000_0000 != 0 {
@@ -215,7 +263,7 @@ pub fn node_planes(c: &Collision) -> Vec<Option<usize>> {
             if i >= owner.len() || owner[i].is_some() {
                 continue;
             }
-            owner[i] = Some(plane);
+            owner[i] = Some(frame);
             stack.push(c.bsp2d_nodes[i].left);
             stack.push(c.bsp2d_nodes[i].right);
         }
@@ -223,13 +271,24 @@ pub fn node_planes(c: &Collision) -> Vec<Option<usize>> {
     owner
 }
 
+/// The 3D plane each 2D node belongs to (without the reference's sign; see
+/// [`node_frames`] for the projection).
+pub fn node_planes(c: &Collision) -> Vec<Option<usize>> {
+    node_frames(c)
+        .into_iter()
+        .map(|f| f.map(|f| f.plane))
+        .collect()
+}
+
 /// Translate the whole BSP by `delta` (world units) without touching its
 /// topology: vertices move, a plane `n·x = d` becomes `n·x = d + n·t`, and
 /// each 2D split line `i·u + j·v = d` — which lives in the projection of its
-/// parent 3D plane — becomes `d + i·t[u] + j·t[v]`. An earlier version left
-/// the 2D lines alone, which put every surface on the wrong side of its
-/// splits after any sideways move; that is why transplanted shells and
-/// definitions let the pawn through.
+/// parent 3D plane, as its reference sees it — becomes `d + i·t[u] + j·t[v]`.
+/// An earlier version left the 2D lines alone, which put every surface on the
+/// wrong side of its splits after any sideways move; that is why transplanted
+/// shells and definitions let the pawn through. A later one ignored the
+/// reference's sign and so moved lines under negated references along the
+/// swapped axes.
 pub fn translate(c: &mut Collision, delta: [f32; 3]) {
     for v in &mut c.vertices {
         for a in 0..3 {
@@ -239,10 +298,11 @@ pub fn translate(c: &mut Collision, delta: [f32; 3]) {
     for p in &mut c.planes {
         p.d += p.n[0] * delta[0] + p.n[1] * delta[1] + p.n[2] * delta[2];
     }
-    let owners = node_planes(c);
-    for (i, node) in c.bsp2d_nodes.iter_mut().enumerate() {
-        let Some(plane) = owners[i] else { continue };
-        let (u, v) = projection_axes(c.planes[plane].n);
+    let frames = node_frames(c);
+    for (i, frame) in frames.iter().enumerate() {
+        let Some(frame) = frame else { continue };
+        let (u, v) = frame.axes(c);
+        let node = &mut c.bsp2d_nodes[i];
         node.plane[2] += node.plane[0] * delta[u] + node.plane[1] * delta[v];
     }
 }
@@ -379,6 +439,30 @@ mod tests {
         }
     }
 
+    /// One horizontal plane, one 2D split under it, reached by a reference
+    /// that is plain or negated.
+    fn one_split(negated: bool) -> Collision {
+        use crate::ce::{Bsp2dNode, Bsp2dReference, Plane};
+        Collision {
+            planes: vec![Plane {
+                n: [0.0, 0.0, 1.0],
+                d: 0.0,
+            }],
+            bsp2d_references: vec![Bsp2dReference {
+                plane: if negated { 0x8000_0000u32 as i32 } else { 0 },
+                node: 0,
+            }],
+            bsp2d_nodes: vec![Bsp2dNode {
+                // i·u + j·v = d with (i, j) = (1, 0): the first projected axis
+                // is 0.
+                plane: [1.0, 0.0, 0.0],
+                left: 0x8000_0000u32 as i32,
+                right: 0x8000_0001u32 as i32,
+            }],
+            ..Default::default()
+        }
+    }
+
     fn sides(c: &Collision) -> Vec<bool> {
         let n = &c.bsp2d_nodes[0];
         let (u, v) = projection_axes(c.planes[0].n);
@@ -427,6 +511,45 @@ mod tests {
     }
 
     #[test]
+    fn a_negated_reference_swaps_the_projection() {
+        assert_eq!(reference_axes([0.0, 0.0, 1.0], false), (0, 1));
+        assert_eq!(reference_axes([0.0, 0.0, 1.0], true), (1, 0));
+        assert_eq!(
+            reference_axes([0.0, 0.0, 1.0], true),
+            projection_axes([0.0, 0.0, -1.0])
+        );
+        let frames = node_frames(&one_split(true));
+        assert_eq!(
+            frames,
+            vec![Some(NodeFrame {
+                plane: 0,
+                negated: true
+            })]
+        );
+    }
+
+    #[test]
+    fn translate_moves_a_split_along_its_references_axes() {
+        // Plain: u = x, so the line x = 0 moves to x = 5.
+        let mut c = one_split(false);
+        translate(&mut c, [5.0, 7.0, 0.0]);
+        assert_eq!(c.bsp2d_nodes[0].plane[2], 5.0);
+        // Negated: u = y, so the same coefficients describe y = 0, which moves
+        // to y = 7. Before the reference sign was folded in this gave 5.
+        let mut c = one_split(true);
+        translate(&mut c, [5.0, 7.0, 0.0]);
+        assert_eq!(c.bsp2d_nodes[0].plane[2], 7.0);
+    }
+
+    #[test]
+    fn ties_drop_z_then_y() {
+        // |x| = |y| = |z|: z is dropped. |x| = |y| > |z|: y is dropped.
+        assert_eq!(projection_axes([1.0, 1.0, 1.0]), (0, 1));
+        assert_eq!(projection_axes([1.0, 1.0, 0.5]), (2, 0));
+        assert_eq!(projection_axes([1.0, 0.5, 1.0]), (0, 1));
+    }
+
+    #[test]
     fn node_packing_matches_chasm_old() {
         // node 0 of Chasm_old: plane 15, back none, front node 1.
         let c = Collision {
@@ -470,6 +593,11 @@ mod tests {
         };
         let b = surface16(&s, &|m| m);
         assert_eq!(u16::from_le_bytes([b[0], b[1]]), 5);
+        assert_eq!(u16::from_le_bytes([b[10], b[11]]), 0x81);
+
+        // Two-sided and breakable: the breakable bit has no set to name, so it
+        // is not carried.
+        let b = surface16(&Surface { flags: 0x9, ..s }, &|m| m);
         assert_eq!(u16::from_le_bytes([b[10], b[11]]), 0x81);
     }
 
