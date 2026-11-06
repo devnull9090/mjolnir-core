@@ -187,7 +187,16 @@ moves them. CE's markers can sit behind the body (outer headlights 10 cm, tail l
 The sim leaves those bones at their bind pose. Socket fields are read-only to editor
 Python, which is why they are bones.
 
-Not covered: two-PC play. At top speed wheel rate implies a radius of 0.197 wu against 0.174
+**9. Two PCs: passed for the driver.** On Roadworks, a map with its own world, the
+joiner spawned as the map's cloned Spartan and drew the host's native Mongoose. Read
+on the joiner while the host drove: engine state, tires spinning and turned 32
+degrees, handlebars 18.6, and the rider on CE's pose (pelvis within 0.3 cm of the
+host's reading, wrists on the bars through the turn, ankles exact).
+A joiner cannot enter a map that borrows a canvas world, with or without a map's own
+player: the host puts it in the game, its session leaves, and it returns to the menu.
+So test a vehicle on a map with its own world.
+
+Not covered: a joiner in the driver or passenger seat. At top speed wheel rate implies a radius of 0.197 wu against 0.174
 for the model, so `wheel circumferance` needs a steady-state check. Whether the
 25.6 degrees is CE's limit is unchecked. The prompt needs E held, not tapped.
 
