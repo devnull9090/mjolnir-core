@@ -275,6 +275,13 @@ pub struct BlamSection {
     pub clear: Clear,
     #[serde(default)]
     pub player_starts: Vec<PlayerStart>,
+    /// Who players are on this map: replaces the globals' `player
+    /// representation` rows, so give every row the game has, in its order.
+    /// Each row is `field name: value` as `--set` takes them, for example
+    /// `"third person unit": "bipd:objects\\mjolnir\\x\\rider"`. Sets the
+    /// scenario's `override globals` flag.
+    #[serde(default)]
+    pub player_representations: Vec<BTreeMap<String, String>>,
     /// Cutscene flags at these points: the canvas's own first flags, moved
     /// (cloned past the canvas's count). A flag with no `name` keeps the
     /// canvas's name, a `string id` it already has. For `player_teleport` /
@@ -599,6 +606,11 @@ pub struct TriggerVolume {
 pub struct TypedPlacement {
     #[serde(rename = "type")]
     pub kind: String,
+    /// A tag of the level's own, by path, in place of the one `type` names
+    /// in the palette map: a custom vehicle or weapon built with `new-tag`.
+    /// `type` then only labels it.
+    #[serde(default)]
+    pub tag: Option<String>,
     pub pos: [f64; 3],
     #[serde(default)]
     pub yaw: f64,
@@ -864,17 +876,17 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     }
     let map = palette_map()?;
     for v in &level.blam.vehicles {
-        if !map.vehicles.contains_key(&v.kind) {
+        if v.tag.is_none() && !map.vehicles.contains_key(&v.kind) {
             bail!("unknown vehicle type {:?}", v.kind);
         }
     }
     for w in &level.blam.weapons {
-        if !map.weapons.contains_key(&w.kind) {
+        if w.tag.is_none() && !map.weapons.contains_key(&w.kind) {
             bail!("unknown weapon type {:?}", w.kind);
         }
     }
     for e in &level.blam.equipment {
-        if !map.equipment.contains_key(&e.kind) {
+        if e.tag.is_none() && !map.equipment.contains_key(&e.kind) {
             bail!("unknown equipment type {:?}", e.kind);
         }
     }
@@ -1235,6 +1247,9 @@ struct Baker {
     group_index: std::collections::BTreeMap<String, usize>,
 }
 
+/// The scenario flag that makes its override blocks replace the globals'.
+const OVERRIDE_GLOBALS: u32 = 0x10;
+
 impl Baker {
     /// Append one default element to the block at `path`, returning its index.
     fn add_element(&mut self, path: &str) -> Result<usize> {
@@ -1313,6 +1328,34 @@ impl Baker {
             apply_set(&mut self.file, "sandbox budget", &budget.to_string())?;
             println!("  mapvar  sandbox budget {budget}");
         }
+        Ok(())
+    }
+
+    /// The map's own `override player representations`.
+    fn player_representations(&mut self, rows: &[BTreeMap<String, String>]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        for row in rows {
+            let i = self.add_element("override player representations")?;
+            for (field, value) in row {
+                let path = format!("override player representations[{i}].{field}");
+                apply_set(&mut self.file, &path, value)
+                    .with_context(|| format!("{path} = {value}"))?;
+            }
+        }
+        println!("  players {} representation row(s)", rows.len());
+        Ok(())
+    }
+
+    /// Set after `blam.set`, which can name the same flags word.
+    fn override_globals(&mut self) -> Result<()> {
+        let flags = read_value(&self.file, "flags")?.display();
+        let now = flags
+            .rsplit_once("(0x")
+            .and_then(|(_, h)| u32::from_str_radix(h.trim_end_matches(')'), 16).ok())
+            .with_context(|| format!("flags reads as {flags}"))?;
+        apply_set(&mut self.file, "flags", &format!("{:#x}", now | OVERRIDE_GLOBALS))?;
         Ok(())
     }
 
@@ -1912,8 +1955,10 @@ impl Baker {
         let mut indices = Vec::new();
         let mut appended = 0usize;
         for item in items {
-            let tag_path = map
-                .get(&item.kind)
+            let tag_path = item
+                .tag
+                .as_ref()
+                .or_else(|| map.get(&item.kind))
                 .with_context(|| format!("unknown type {:?}", item.kind))?;
             let idx = match palette_index(&self.file, palette, tag_path)? {
                 Some(i) => i,
@@ -2795,6 +2840,7 @@ fn bake(a: BakeArgs) -> Result<()> {
     baker.object_names(&level.blam.object_names, &level.blam.clear)?;
     baker.device_groups(&level.blam.device_groups, &level.blam.clear)?;
     baker.player_starts(&level.blam.player_starts)?;
+    baker.player_representations(&level.blam.player_representations)?;
     baker.cutscene_flags(&level.blam.cutscene_flags)?;
     baker.trigger_volumes(&level.blam.trigger_volumes)?;
     baker.typed(
@@ -2848,7 +2894,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         ] {
             let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
             for item in items {
-                if let Some(path) = table.get(&item.kind) {
+                if let Some(path) = item.tag.as_ref().or_else(|| table.get(&item.kind)) {
                     let variant = item
                         .set
                         .get("permutation data.variant name")
@@ -2923,6 +2969,9 @@ fn bake(a: BakeArgs) -> Result<()> {
         apply_set(&mut baker.file, path, value)
             .with_context(|| format!("blam.set {path:?} = {value:?}"))?;
         println!("  set     {path} = {value}");
+    }
+    if !level.blam.player_representations.is_empty() {
+        baker.override_globals()?;
     }
     for wb in &level.blam.world_bounds {
         for (axis, name) in ["x", "y", "z"].iter().enumerate() {

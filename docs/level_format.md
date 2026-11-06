@@ -70,6 +70,7 @@ map). Author around your own origin in Blender; move the whole level by editing 
       "equipment": true,             // remove the mission's own equipment placements
       "scripts": true                // stub the mission's HSC scripts
     },
+    "player_representations": [ { "third person unit": "bipd:..." } ], // this map's players: every row, as `--set` values
     "player_starts": [               // >= 2 for co-op
       { "pos": [0, 0, 0],    "yaw": 0 },
       { "pos": [4000, 0, 0], "yaw": 180 }
@@ -187,6 +188,8 @@ placement and one palette entry of that kind to clone from. The palette map reco
 the 13 canvases already carries (B40: warthog, ghost, scorpion, banshee, wraith, shade, pelican).
 The added object's assets may still not be streamed for that map; treat cross-map placements as
 experimental.
+
+A placement can also name a tag of its own with `tag`, a path built with `mjolnir new-tag`; `type` then only labels it. The tag's container must be installed beside the map. A clone of the Warthog placed this way loads, boards and drives, also when bound to a cloned Blueprint.
 
 ### `blam.objects` — the structures lane
 

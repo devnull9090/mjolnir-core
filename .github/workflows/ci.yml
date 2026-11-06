@@ -50,6 +50,11 @@ jobs:
       - name: Test a CE map's device helpers
         run: lua5.4 tools/tests/test_devices.lua
 
+      - name: Test a converted vehicle's sound helpers
+        run: |
+          lua5.4 tools/tests/test_vehicle_sounds.lua
+          lua5.4 tools/tests/test_vehicle_sounds_runtime.lua
+
       - name: Test the FIRETEAM panel past four players
         run: lua5.4 tools/tests/test_squadpanel.lua
 
@@ -200,6 +205,8 @@ jobs:
         run: python -m unittest discover -s tools/weekly -p test_weekly_update.py
       - name: CE script translator tests
         run: python -m unittest discover -s tools/ce_scripts -p test_ce_translate.py
+      - name: Custom vehicle physics tests
+        run: python -m unittest discover -s tools/level -p test_ce_vehicle_physics.py
 
       - name: Check Forge packs and maps for colliding and z-fighting pieces
         run: python -m unittest discover -s tools/forge -p test_check_overlaps.py

@@ -297,6 +297,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+        "tag": { "type": "string", "description": "A tag of the level's own, by path, in place of the one `type` names: a custom vehicle or weapon built with `new-tag`. `type` then only labels it." },
         "pos": { "$ref": "#/$defs/vec3" },
         "yaw": { "$ref": "#/$defs/degrees" },
         "set": {

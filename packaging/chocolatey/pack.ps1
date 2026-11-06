@@ -56,6 +56,7 @@ Copy-Item (Join-Path $root "LICENSE") (Join-Path $tools "LICENSE.txt")
 $defs = Join-Path $tools "defs\hce"
 New-Item -ItemType Directory -Path $defs -Force | Out-Null
 Copy-Item (Join-Path $root "defs\hce\scripting.json") $defs
+Copy-Item (Join-Path $root "defs\hce\console.json") $defs
 
 # Required for any package that embeds a binary: it tells a moderator, and
 # anyone else, how to confirm the .exe in this package is the one the release

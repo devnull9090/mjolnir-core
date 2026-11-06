@@ -19,6 +19,7 @@ mod extract;
 mod forge;
 mod hsc;
 mod index;
+mod jmad;
 mod level;
 mod level_collision;
 mod level_lightmaps;
@@ -160,6 +161,9 @@ enum Command {
     Poke(PokeArgs),
     /// Read the running game's own tag table and string-id registry.
     Live(live::LiveArgs),
+    /// Read, verify and rewrite animation graphs on disk: frames, codecs and
+    /// skeletons of any size (docs/jmad_format.md).
+    Jmad(jmad::JmadArgs),
     /// Put a brand-new tag package in front of the game, cloned from a donor.
     NewTag(newtag::NewTagArgs),
     /// Re-serialize every shipped tag wrapper and count the derivation rules that hold.
@@ -580,6 +584,7 @@ fn main() -> Result<()> {
         Command::TagFile(a) => tag_file(a),
         Command::Poke(a) => poke(a),
         Command::Live(a) => live::run(a),
+        Command::Jmad(a) => jmad::run(a),
         Command::NewTag(a) => newtag::run(a),
         Command::ZenRoundtrip(a) => zenrt::run(a),
         Command::Script(a) => script(a),
@@ -2676,10 +2681,7 @@ fn walk_difference(
         }
     };
 
-    if ea.kind() != eb.kind()
-        || ea.opcode != eb.opcode
-        || ea.value_type != eb.value_type
-    {
+    if ea.kind() != eb.kind() || ea.opcode != eb.opcode || ea.value_type != eb.value_type {
         return Some(format!(
             "`{what}`: {:?}/{:#x}/{} became {:?}/{:#x}/{}",
             ea.kind(),
@@ -2757,7 +2759,10 @@ fn compile(a: CompileArgs) -> Result<()> {
                 .with_context(|| format!("cannot read {}", path.display()))?;
             let blocks = serde_json::from_str(&text)
                 .with_context(|| format!("cannot parse {}", path.display()))?;
-            Some(blam_hsc::read::ScenarioNames::new(blocks, Default::default()))
+            Some(blam_hsc::read::ScenarioNames::new(
+                blocks,
+                Default::default(),
+            ))
         }
         None => None,
     };

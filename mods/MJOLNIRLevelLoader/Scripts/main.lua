@@ -1727,6 +1727,7 @@ local VOLUME_SLIDERS = {
     ambient = "VolumeSFXAmbient",
     music = "VolumeMusicGameplay",
     announcer = "VolumeVODialog",
+    gameplay = "VolumeSFXGameplay",
 }
 
 local UserSettings = nil
@@ -5137,6 +5138,8 @@ local function watch()
     every(500, "lifts", function() if Teams.Lifts then Teams.Lifts.tick() end end)
     -- A CE map's gates and shields ride their machines (devices.lua).
     every(250, "devices", function() if Teams.Devices then Teams.Devices.tick() end end)
+    -- A converted vehicle's own sounds (vehicle_sounds.lua).
+    every(100, "vehicle sounds", function() if Teams.VehicleSounds then Teams.VehicleSounds.tick() end end)
     -- Health packs: new pack actors are reported as they are made
     -- (watchHealthPacks); the first ones can come before the watch does, so
     -- the pass that arms it sweeps for them too, once: a FindAllOf is a
@@ -5998,6 +6001,11 @@ local function initialize()
     Teams.Lifts.init({ Log = Log, getWorld = getWorld, Current = Current, Script = Teams.Script, PackLifts = Teams.PackLifts })
     Teams.Devices = dofile(MOD_DIR .. "\\Scripts\\devices.lua")
     Teams.Devices.init({ Log = Log, Current = Current })
+    Teams.VehicleSounds = dofile(MOD_DIR .. "\\Scripts\\vehicle_sounds.lua")
+    Teams.VehicleSounds.init({
+        Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh, gameVolume = gameVolume,
+        getWorld = getWorld, readFile = readFile, decode = Json.decode,
+    })
     Teams.init({
         Log = Log, findObject = findObject, resolveMesh = resolveMesh, applyMaterials = applyMaterials,
         hideAllBut = hideAllBut, getPawn = getPawn, getWorld = getWorld, track = track, liveIn = liveIn,
