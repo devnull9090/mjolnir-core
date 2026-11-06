@@ -173,6 +173,28 @@ fn containers(dir: &Path, code: &str) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
+/// Whether a container's `.pak` carries Wwise banks (tools/level/ce_vehicle_audio.py)
+/// rather than being an empty stub. A `.pak` can hold any game file, so anything
+/// but `WwiseAudio/<id>.bnk` stops the pack.
+fn carries_banks(pak: &Path) -> Result<bool> {
+    let archive = ue_iostore::pak::load_pak(pak)
+        .with_context(|| format!("reading {}", pak.display()))?;
+    for rel in archive.files.keys() {
+        let full = archive.full_path(rel);
+        if !is_bank_path(&full) {
+            bail!("{}: {full} is not a bank", pak.display());
+        }
+    }
+    Ok(!archive.files.is_empty())
+}
+
+/// `../../../Meteorite/Content/WwiseAudio/<id>.bnk`, the id a decimal number.
+fn is_bank_path(path: &str) -> bool {
+    path.strip_prefix("../../../Meteorite/Content/WwiseAudio/")
+        .and_then(|name| name.strip_suffix(".bnk"))
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()))
+}
+
 /// The game a conversion's staging says it comes from (`staging/manifest.json`
 /// `game`: `halo2` for `mjolnir cache stage`), if it says.
 fn staged_game(dir: &Path) -> Option<String> {
@@ -347,6 +369,13 @@ fn pack(a: PackArgs) -> Result<()> {
         for path in [utoc.clone(), utoc.with_extension("ucas")] {
             let file = path.file_name().unwrap().to_string_lossy().to_string();
             members.push((format!("content/{file}"), std::fs::read(&path)?));
+        }
+        // A vehicle's bank rides in the `.pak` beside its container. The empty
+        // stubs stay behind: the launcher writes those.
+        let pak = utoc.with_extension("pak");
+        if pak.is_file() && carries_banks(&pak)? {
+            let file = pak.file_name().unwrap().to_string_lossy().to_string();
+            members.push((format!("content/{file}"), std::fs::read(&pak)?));
         }
     }
     // A remastered map's data beside its level file (the loader reads them
@@ -539,4 +568,34 @@ pub(crate) fn write_archive(
         println!("unsigned: the hub refuses unsigned uploads; pass --sign to sign with this machine's device key");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_numbered_bank_in_wwise_audio_is_a_bank() {
+        assert!(is_bank_path("../../../Meteorite/Content/WwiseAudio/241312720.bnk"));
+        for other in [
+            "../../../Meteorite/Content/WwiseAudio/name.bnk",
+            "../../../Meteorite/Content/WwiseAudio/.bnk",
+            "../../../Meteorite/Content/WwiseAudio/241312720.wem",
+            "../../../Meteorite/Content/WwiseAudio/sub/241312720.bnk",
+            "../../../Meteorite/Content/Movies/241312720.bnk",
+            "../../../Meteorite/Binaries/Win64/241312720.bnk",
+        ] {
+            assert!(!is_bank_path(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn a_stub_carries_no_banks() {
+        let dir = std::env::temp_dir().join(format!("mjolnir-stub-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pak = dir.join("pakchunk996-MJOLNIRBANK-RWC_P.pak");
+        std::fs::write(&pak, ue_iostore::pak::stub_for("pakchunk996-MJOLNIRBANK-RWC_P")).unwrap();
+        assert!(!carries_banks(&pak).unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
