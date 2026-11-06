@@ -19,6 +19,8 @@ export function MatchMap({
   time,
   fresh,
   fallback,
+  legend = ["killer", "death"],
+  wide = false,
 }: {
   code: string;
   kills: KillMark[];
@@ -27,6 +29,10 @@ export function MatchMap({
   time: number | null;
   fresh: number;
   fallback: ReactNode;
+  /** What the gold and the red dots mean. */
+  legend?: [string, string];
+  /** Fill the column instead of stopping at the match page's width. */
+  wide?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [viewer, setViewer] = useState<MapViewer | null>(null);
@@ -105,7 +111,7 @@ export function MatchMap({
       </div>
       <div
         ref={box}
-        className="relative aspect-square w-full max-w-xl overflow-hidden rounded-xl border border-border bg-surface"
+        className={`relative aspect-square w-full overflow-hidden rounded-xl border border-border bg-surface ${wide ? "" : "max-w-xl"}`}
         role="img"
         aria-label={`Kill and death positions on the map, ${mode === "top" ? "top-down" : "in 3D"}`}
       >
@@ -125,11 +131,11 @@ export function MatchMap({
         )}
       </div>
       <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
-        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-gold" /> killer</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> death</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-gold" /> {legend[0]}</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> {legend[1]}</span>
         <span>
           {mode === "top" ? "Drag to pan, scroll to zoom" : "Drag to orbit, right-drag to pan, scroll to zoom"}; hover a
-          dot for the kill.
+          dot for what happened.
         </span>
       </figcaption>
     </figure>
