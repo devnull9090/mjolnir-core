@@ -237,8 +237,11 @@ pub fn fan_split_into(c: &mut Collision, max: usize, piece: usize) -> (usize, us
             let axes = reference_axes(normal, negated);
             roots[negated as usize] = Some(fan_chain(c, v, &ks, &pieces, axes));
         }
-        let root_for =
-            |negated: bool| roots[negated as usize].or(roots[!negated as usize]).unwrap();
+        let root_for = |negated: bool| {
+            roots[negated as usize]
+                .or(roots[!negated as usize])
+                .unwrap()
+        };
         for r in &mut c.bsp2d_references {
             if r.node == target {
                 r.node = root_for((r.plane as u32) & SURFACE_FLAG != 0);
