@@ -9,6 +9,11 @@
 //! sound and effect references, node masks, functions, gaits. What the parent
 //! supplies goes: overlay groups, blend screens, IK sets and chains, and every
 //! other row. See `docs/jmad_format.md`.
+//!
+//! A graph can also take a mode of its parent's under a new label, so a seat
+//! gets a pose of its own and the mode it came from stays as the parent has it.
+//! A row cannot point into the parent, and the game finds a row's overlay group
+//! by its labels, so the new mode brings its animations and overlay groups with it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,11 +35,9 @@ const INHERITED_LISTS: [&str; 2] = ["death and damage", "transitions"];
 /// translate. A kept class must have them empty.
 const UNTRANSLATED: [&str; 2] = ["ranged actions", "sync actions groups"];
 /// Blocks the parent supplies, or the load rebuilds.
-const EMPTIED: [&str; 12] = [
+const EMPTIED: [&str; 10] = [
     "definitions.blend screens",
-    "definitions.NEW blend screens",
     "definitions.NEW function overlays",
-    "definitions.overlay groups",
     "definitions.ik data",
     "definitions.ik sets",
     "definitions.ik chains",
@@ -44,6 +47,10 @@ const EMPTIED: [&str; 12] = [
     "run time data.new inheritance list",
     "run time data.weapon list",
 ];
+/// What a row's overlay group holds, and what those hold. Without a renamed
+/// mode these go too.
+const OVERLAY_GROUPS: &str = "definitions.overlay groups";
+const BLEND_SCREENS: &str = "definitions.NEW blend screens";
 const PARENT_GRAPH: &str = "definitions.parent animation graph";
 const INHERITANCE_FLAGS: &str = "definitions.inheritance flags";
 const PRIVATE_FLAGS: &str = "definitions.private flags";
@@ -96,8 +103,19 @@ fn element_at(at: &[usize]) -> String {
     format!("{}[{last}]", block_at(above))
 }
 
-/// Every row of the graph that plays one of its own animations.
-fn rows_of(file: &[u8]) -> Result<Vec<Row>, Error> {
+/// What the mode tree holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Tree {
+    /// Each mode's label.
+    modes: Vec<String>,
+    /// Every set, by index.
+    sets: Vec<[usize; 4]>,
+    /// Every row that plays one of the graph's own animations.
+    rows: Vec<Row>,
+}
+
+/// Read the mode tree.
+fn tree_of(file: &[u8]) -> Result<Tree, Error> {
     let tag = TagFile::parse(file, None).map_err(tree_err)?;
     let layout = tag.layout().map_err(tree_err)?;
     let root = tag.read_data(&layout).map_err(tree_err)?;
@@ -106,10 +124,11 @@ fn rows_of(file: &[u8]) -> Result<Vec<Row>, Error> {
             .map(|f| f.block)
             .map_err(tree_err)
     };
-    let mut rows = Vec::new();
+    let mut tree = Tree::default();
     let modes = block(&block_at(&[]))?;
     for m in 0..modes.count as usize {
         let mode = string_of(modes.children.get(m));
+        tree.modes.push(mode.clone());
         let classes = block(&block_at(&[m]))?;
         for c in 0..classes.count as usize {
             let class = string_of(classes.children.get(c));
@@ -119,6 +138,7 @@ fn rows_of(file: &[u8]) -> Result<Vec<Row>, Error> {
                 let sets = block(&block_at(&[m, c, t]))?;
                 for s in 0..sets.count as usize {
                     let at = [m, c, t, s];
+                    tree.sets.push(at);
                     let levels = [
                         mode.clone(),
                         class.clone(),
@@ -136,7 +156,7 @@ fn rows_of(file: &[u8]) -> Result<Vec<Row>, Error> {
                             if i16_at(e, ENTRY_GRAPH) != -1 {
                                 continue;
                             }
-                            rows.push(Row {
+                            tree.rows.push(Row {
                                 at,
                                 list,
                                 row,
@@ -149,7 +169,7 @@ fn rows_of(file: &[u8]) -> Result<Vec<Row>, Error> {
             }
         }
     }
-    Ok(rows)
+    Ok(tree)
 }
 
 /// The rows to keep for these animations (pool index and name), and those
@@ -181,6 +201,159 @@ fn pick_rows(rows: &[Row], animations: &[(usize, &str)]) -> Result<(Vec<Row>, Ve
     Ok((kept, left))
 }
 
+/// The modes to rename, by index, from `DONOR`, `NEW` pairs.
+fn renamed_modes(
+    tree: &Tree,
+    modes: &[(String, String)],
+) -> Result<BTreeMap<usize, String>, Error> {
+    let mut out = BTreeMap::new();
+    for (i, (donor, label)) in modes.iter().enumerate() {
+        let m = tree
+            .modes
+            .iter()
+            .position(|l| l == donor)
+            .ok_or_else(|| Error::Format(format!("no mode labelled {donor}")))?;
+        if donor == label || modes[..i].iter().any(|(d, l)| d == donor || l == label) {
+            return Err(Error::Format(format!(
+                "{donor}={label} repeats a mode or a label"
+            )));
+        }
+        if !tree.rows.iter().any(|r| r.at[0] == m) {
+            return Err(Error::Unsupported(format!("{donor} plays nothing")));
+        }
+        out.insert(m, label.clone());
+    }
+    Ok(out)
+}
+
+/// The rows of a graph with renamed modes: every row of those modes, under its
+/// new label, whatever `kept` and `left` said of it, and the rest as they were.
+fn with_renamed(
+    tree: &Tree,
+    renamed: &BTreeMap<usize, String>,
+    kept: Vec<Row>,
+    left: Vec<Row>,
+) -> Result<(Vec<Row>, Vec<Row>), Error> {
+    let outside = |r: &Row| !renamed.contains_key(&r.at[0]);
+    let mut rows: Vec<Row> = kept.into_iter().filter(outside).collect();
+    for r in &rows {
+        if renamed.values().any(|l| *l == tree.modes[r.at[0]]) {
+            return Err(Error::Unsupported(format!(
+                "{} would make a second mode of that label",
+                r.name
+            )));
+        }
+    }
+    rows.extend(tree.rows.iter().filter(|r| !outside(r)).cloned());
+    rows.sort_by_key(|r| (r.at, r.list, r.row));
+    Ok((rows, left.into_iter().filter(outside).collect()))
+}
+
+/// A row's name once its mode has its new label.
+fn renamed_row(tree: &Tree, renamed: &BTreeMap<usize, String>, row: &Row) -> Row {
+    let mut out = row.clone();
+    if let Some(label) = renamed.get(&row.at[0]) {
+        let rest = row.name.strip_prefix(&tree.modes[row.at[0]]);
+        out.name = match rest {
+            Some(rest) => format!("{label}{rest}"),
+            None => format!("{label}:{}", row.name),
+        };
+    }
+    out
+}
+
+/// What the rows of a renamed mode need beyond their animations. The game finds
+/// a row's overlay group by the labels it stands at, in the graph and then up
+/// the parent chain, so under a new label the parent's group is out of reach.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Overlays {
+    /// The group each element or row names, by its path before the cut.
+    named: BTreeMap<String, usize>,
+    /// Each group's blend screens, in order.
+    groups: BTreeMap<usize, Vec<usize>>,
+    /// Each blend screen's animation.
+    screens: BTreeMap<usize, Option<usize>>,
+}
+
+impl Overlays {
+    fn read(file: &[u8], rows: &[&Row]) -> Result<Overlays, Error> {
+        let tag = TagFile::parse(file, None).map_err(tree_err)?;
+        let layout = tag.layout().map_err(tree_err)?;
+        let root = tag.read_data(&layout).map_err(tree_err)?;
+        let index = |path: &str| -> Result<i64, Error> {
+            let target = resolve(&layout, file, &root, path).map_err(tree_err)?;
+            as_index(&target.current, path)
+        };
+        let mut out = Overlays::default();
+        for r in rows {
+            let mut paths: Vec<String> = (1..=r.at.len()).map(|d| element_at(&r.at[..d])).collect();
+            paths.push(row_path(&r.at, r.list, r.row));
+            for path in paths {
+                if index(&format!("{path}.ik set"))? >= 0 {
+                    return Err(Error::Unsupported(format!(
+                        "{path} has an ik set, which a renamed mode does not carry"
+                    )));
+                }
+                if let Ok(group) = usize::try_from(index(&format!("{path}.overlay group"))?) {
+                    out.named.insert(path, group);
+                    out.groups.entry(group).or_default();
+                }
+            }
+        }
+        let block = |path: &str| {
+            find_block(&layout, file, &root, path)
+                .map(|f| f.block)
+                .map_err(tree_err)
+        };
+        for (&group, screens) in &mut out.groups {
+            let at = format!("{OVERLAY_GROUPS}[{group}]");
+            if block(&format!("{at}.function overlays"))?.count != 0 {
+                return Err(Error::Unsupported(format!(
+                    "{at} has function overlays, which a renamed mode does not carry"
+                )));
+            }
+            for i in 0..block(&format!("{at}.blend screens"))?.count as usize {
+                let path = format!("{at}.blend screens[{i}].blend screen");
+                let screen = usize::try_from(index(&path)?)
+                    .map_err(|_| Error::Unsupported(format!("{path} names no blend screen")))?;
+                screens.push(screen);
+            }
+        }
+        let used: BTreeSet<usize> = out.groups.values().flatten().copied().collect();
+        for screen in used {
+            let at = format!("{BLEND_SCREENS}[{screen}].animation");
+            let graph = resolve(&layout, file, &root, &format!("{at}.graph index"))
+                .map_err(tree_err)?
+                .current;
+            if graph != Scalar::Int(-1) {
+                return Err(Error::Unsupported(format!(
+                    "{at} points into another graph"
+                )));
+            }
+            let animation = usize::try_from(index(&format!("{at}.animation"))?).ok();
+            out.screens.insert(screen, animation);
+        }
+        Ok(out)
+    }
+
+    fn group_set(&self) -> BTreeSet<usize> {
+        self.groups.keys().copied().collect()
+    }
+
+    fn screen_set(&self) -> BTreeSet<usize> {
+        self.screens.keys().copied().collect()
+    }
+
+    /// `path` before the cut, as an overlay group field after it.
+    fn group_field(&self, path: &str) -> Scalar {
+        let index = self
+            .named
+            .get(path)
+            .map_or(-1, |g| rank(&self.group_set(), *g) as i64);
+        Scalar::BlockIndex(index)
+    }
+}
+
 /// The elements kept at each level: for every kept prefix of `at`, the indices
 /// below it.
 fn kept_levels(rows: &[Row]) -> BTreeMap<Vec<usize>, BTreeSet<usize>> {
@@ -204,6 +377,11 @@ fn rank(kept: &BTreeSet<usize>, value: usize) -> usize {
 /// Where `at` lands once only the kept elements remain.
 fn renumbered(levels: &BTreeMap<Vec<usize>, BTreeSet<usize>>, at: &[usize; 4]) -> [usize; 4] {
     std::array::from_fn(|depth| rank(&levels[&at[..depth]], at[depth]))
+}
+
+/// The path of a row.
+fn row_path(at: &[usize; 4], list: usize, row: usize) -> String {
+    format!("{}.{}[{row}]", element_at(at), LISTS[list])
 }
 
 fn as_index(target: &Scalar, path: &str) -> Result<i64, Error> {
@@ -258,6 +436,9 @@ pub struct Child {
     pub left_to_parent: Vec<String>,
     /// References from a kept animation to something that did not stay.
     pub cleared: Vec<String>,
+    /// Overlay groups and blend screens it has of its own, for renamed modes.
+    pub overlay_groups: usize,
+    pub blend_screens: usize,
 }
 
 fn described(rows: &[Row]) -> Vec<String> {
@@ -267,7 +448,11 @@ fn described(rows: &[Row]) -> Vec<String> {
 }
 
 /// Cut `file` down to a child of the graph at `parent` that holds only the
-/// animations named.
+/// animations named, and the modes of `modes`, `(donor, new label)`, whole and
+/// under their new labels.
+///
+/// An animation named that a renamed mode plays stays in that mode: the donor's
+/// label goes from the child, and the parent's rows stand for it there.
 ///
 /// Each kept resource group keeps only the members those animations use,
 /// unless `whole_groups` is set, when it keeps them all.
@@ -275,9 +460,12 @@ pub fn child(
     file: &[u8],
     parent: &str,
     names: &[String],
+    modes: &[(String, String)],
     whole_groups: bool,
 ) -> Result<Child, Error> {
     let graph = Graph::read(file)?;
+    let tree = tree_of(file)?;
+    let renamed = renamed_modes(&tree, modes)?;
 
     let mut pool = BTreeSet::new();
     for name in names {
@@ -286,22 +474,40 @@ pub fn child(
             .iter()
             .position(|a| a.name == *name)
             .ok_or_else(|| Error::Format(format!("no animation named {name}")))?;
-        if graph.animations[i].data.is_none() {
-            return Err(Error::Unsupported(format!(
-                "{name} points into another graph"
-            )));
-        }
         pool.insert(i);
     }
-    if pool.is_empty() {
+    if pool.is_empty() && renamed.is_empty() {
         return Err(Error::Format("no animations named".into()));
     }
     let wanted: Vec<(usize, &str)> = pool
         .iter()
         .map(|&i| (i, graph.animations[i].name.as_str()))
         .collect();
-    let (kept, left) = pick_rows(&rows_of(file)?, &wanted)?;
+    let (kept, left) = pick_rows(&tree.rows, &wanted)?;
+    let (kept, left) = with_renamed(&tree, &renamed, kept, left)?;
     let levels = kept_levels(&kept);
+
+    let carried: Vec<&Row> = kept
+        .iter()
+        .filter(|r| renamed.contains_key(&r.at[0]))
+        .collect();
+    let overlays = Overlays::read(file, &carried)?;
+    let (kept_groups, kept_screens) = (overlays.group_set(), overlays.screen_set());
+    pool.extend(carried.iter().map(|r| r.animation));
+    pool.extend(overlays.screens.values().flatten());
+    for &i in &pool {
+        let animation = graph.animations.get(i).ok_or_else(|| {
+            Error::Format(format!(
+                "a row plays animation {i}, past the end of the pool"
+            ))
+        })?;
+        if animation.data.is_none() {
+            return Err(Error::Unsupported(format!(
+                "{} points into another graph",
+                animation.name
+            )));
+        }
+    }
 
     {
         let tag = TagFile::parse(file, None).map_err(tree_err)?;
@@ -335,6 +541,18 @@ pub fn child(
                 }
             }
         }
+        // The merge goes by label, so these would not reach the new label.
+        for at in tree.sets.iter().filter(|at| renamed.contains_key(&at[0])) {
+            for list in INHERITED_LISTS {
+                let path = format!("{}.{list}", element_at(at));
+                let found = find_block(&layout, file, &root, &path).map_err(tree_err)?;
+                if found.block.count != 0 {
+                    return Err(Error::Unsupported(format!(
+                        "{path} holds rows a renamed mode does not carry"
+                    )));
+                }
+            }
+        }
     }
 
     // The members each kept group holds on, by old group.
@@ -356,6 +574,14 @@ pub fn child(
     let mut cut = vec![
         (ANIMATIONS.to_string(), pool.iter().copied().collect()),
         (GROUPS.to_string(), members.keys().copied().collect()),
+        (
+            OVERLAY_GROUPS.to_string(),
+            kept_groups.iter().copied().collect(),
+        ),
+        (
+            BLEND_SCREENS.to_string(),
+            kept_screens.iter().copied().collect(),
+        ),
     ];
     cut.extend(EMPTIED.iter().map(|p| (p.to_string(), Vec::new())));
     let mut out = select_step(file, &cut, "cutting the pool")?;
@@ -404,21 +630,39 @@ pub fn child(
         let at = renumbered(&levels, &r.at);
         let new_pool = rank(&pool, r.animation) as i64;
         let in_list = rank(&sets[&r.at][r.list], r.row);
-        let row = format!("{}.{}[{in_list}]", element_at(&at), LISTS[r.list]);
+        let row = row_path(&at, r.list, in_list);
         edits.insert(
             format!("{row}.animation.animation"),
             Scalar::BlockIndex(new_pool),
         );
         for depth in 1..=at.len() {
-            for field in ["overlay group", "ik set"] {
-                edits.insert(
-                    format!("{}.{field}", element_at(&at[..depth])),
-                    none.clone(),
-                );
-            }
+            let path = element_at(&at[..depth]);
+            edits.insert(
+                format!("{path}.overlay group"),
+                overlays.group_field(&element_at(&r.at[..depth])),
+            );
+            edits.insert(format!("{path}.ik set"), none.clone());
         }
-        for field in ["overlay group", "ik set"] {
-            edits.insert(format!("{row}.{field}"), none.clone());
+        edits.insert(
+            format!("{row}.overlay group"),
+            overlays.group_field(&row_path(&r.at, r.list, r.row)),
+        );
+        edits.insert(format!("{row}.ik set"), none.clone());
+    }
+    for (new, screens) in overlays.groups.values().enumerate() {
+        for (i, screen) in screens.iter().enumerate() {
+            edits.insert(
+                format!("{OVERLAY_GROUPS}[{new}].blend screens[{i}].blend screen"),
+                Scalar::BlockIndex(rank(&kept_screens, *screen) as i64),
+            );
+        }
+    }
+    for (new, animation) in overlays.screens.values().enumerate() {
+        if let Some(animation) = animation {
+            edits.insert(
+                format!("{BLEND_SCREENS}[{new}].animation.animation"),
+                Scalar::BlockIndex(rank(&pool, *animation) as i64),
+            );
         }
     }
 
@@ -488,11 +732,30 @@ pub fn child(
     };
     check_walk(&out, "setting the parent")?;
 
+    for (m, label) in &renamed {
+        let path = format!("{}.label", element_at(&[rank(&levels[&Vec::new()], *m)]));
+        let tag = TagFile::parse(&out, None).map_err(tree_err)?;
+        let layout = tag.layout().map_err(tree_err)?;
+        let root = tag.read_data(&layout).map_err(tree_err)?;
+        let text = Scalar::Text(label.clone());
+        let written = set_text(&layout, &out, &root, &path, &text)
+            .map_err(tree_err)?
+            .0;
+        out = written;
+        check_walk(&out, "renaming a mode")?;
+    }
+
+    let shown: Vec<Row> = kept
+        .iter()
+        .map(|r| renamed_row(&tree, &renamed, r))
+        .collect();
     Ok(Child {
         file: out,
-        rows: described(&kept),
+        rows: described(&shown),
         left_to_parent: described(&left),
         cleared,
+        overlay_groups: kept_groups.len(),
+        blend_screens: kept_screens.len(),
     })
 }
 
@@ -557,6 +820,89 @@ mod tests {
     #[test]
     fn an_animation_no_row_plays_is_refused() {
         assert!(pick_rows(&[], &[(5, "ghost_d:idle")]).is_err());
+    }
+
+    fn seats() -> Tree {
+        Tree {
+            modes: ["ghost_d", "truck_p", "warthog_p"]
+                .map(String::from)
+                .to_vec(),
+            sets: vec![[0, 0, 0, 0], [1, 0, 0, 0], [2, 0, 0, 0], [2, 1, 0, 0]],
+            rows: vec![
+                row([0, 0, 0, 0], 0, 0, 742, "ghost_d:enter"),
+                row([0, 0, 0, 0], 0, 1, 747, "ghost_d:idle"),
+                row([1, 0, 0, 0], 0, 0, 869, "truck_p:rifle:idle"),
+                row([2, 0, 0, 0], 0, 0, 839, "warthog_p:enter"),
+                row([2, 1, 0, 0], 0, 0, 869, "warthog_p:rifle:idle"),
+            ],
+        }
+    }
+
+    fn renames(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_renamed_mode_comes_whole_and_its_named_row_with_it() {
+        let tree = seats();
+        let modes = renames(&[("warthog_p", "mongoose_p")]);
+        let renamed = renamed_modes(&tree, &modes).unwrap();
+        let (kept, left) = pick_rows(&tree.rows, &[(869, "warthog_p:rifle:idle")]).unwrap();
+        let (kept, left) = with_renamed(&tree, &renamed, kept, left).unwrap();
+        assert_eq!(kept, tree.rows[3..]);
+        assert_eq!(left, [tree.rows[2].clone()]);
+        let shown = renamed_row(&tree, &renamed, &kept[1]);
+        assert_eq!(shown.name, "mongoose_p:rifle:idle");
+    }
+
+    #[test]
+    fn an_animation_outside_a_renamed_mode_keeps_its_own_row() {
+        let tree = seats();
+        let renamed = renamed_modes(&tree, &renames(&[("ghost_d", "mongoose_d")])).unwrap();
+        let (kept, left) = pick_rows(&tree.rows, &[(839, "warthog_p:enter")]).unwrap();
+        let (kept, _) = with_renamed(&tree, &renamed, kept, left).unwrap();
+        assert_eq!(kept.len(), 3);
+        assert_eq!(kept[2], tree.rows[3]);
+        let shown = renamed_row(&tree, &renamed, &kept[2]);
+        assert_eq!(shown.name, "warthog_p:enter");
+    }
+
+    #[test]
+    fn a_kept_row_cannot_stand_at_a_new_label() {
+        let tree = seats();
+        let renamed = renamed_modes(&tree, &renames(&[("ghost_d", "truck_p")])).unwrap();
+        let (kept, left) = pick_rows(&tree.rows, &[(869, "truck_p:rifle:idle")]).unwrap();
+        assert!(with_renamed(&tree, &renamed, kept, left).is_err());
+    }
+
+    #[test]
+    fn a_rename_needs_a_mode_that_plays_and_one_label_each() {
+        let mut tree = seats();
+        for bad in [
+            &[("alert", "x")][..],
+            &[("ghost_d", "ghost_d")],
+            &[("ghost_d", "x"), ("warthog_p", "x")],
+            &[("ghost_d", "x"), ("ghost_d", "y")],
+        ] {
+            assert!(renamed_modes(&tree, &renames(bad)).is_err(), "{bad:?}");
+        }
+        tree.rows.retain(|r| r.at[0] != 0);
+        assert!(renamed_modes(&tree, &renames(&[("ghost_d", "x")])).is_err());
+    }
+
+    #[test]
+    fn an_overlay_group_field_follows_the_group() {
+        let overlays = Overlays {
+            named: BTreeMap::from([("a".to_string(), 164), ("b".to_string(), 108)]),
+            groups: BTreeMap::from([(108, vec![263]), (164, vec![234])]),
+            screens: BTreeMap::from([(234, Some(739)), (263, None)]),
+        };
+        assert_eq!(overlays.group_field("a"), Scalar::BlockIndex(1));
+        assert_eq!(overlays.group_field("b"), Scalar::BlockIndex(0));
+        assert_eq!(overlays.group_field("c"), Scalar::BlockIndex(-1));
     }
 
     #[test]

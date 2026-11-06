@@ -2937,6 +2937,50 @@ fn check_mglo(path: &str, data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Write a mod's zip under `mods_dir`, returning each shipped file's hash. The
+/// zip roots at "<ModName>/…" and only that subtree is taken. Every member is
+/// read and checked before the first is written, so a refusal leaves the
+/// installed mod as it was.
+fn extract_mod(
+    bytes: Vec<u8>,
+    id: &str,
+    mods_dir: &Path,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut members: Vec<(String, Option<Vec<u8>>)> = Vec::new();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
+        let name = file.name().to_string();
+        if !name.starts_with(&format!("{id}/")) || name.contains("..") {
+            continue;
+        }
+        if file.is_dir() {
+            members.push((name, None));
+            continue;
+        }
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+        check_mglo(&name, &data)?;
+        members.push((name, Some(data)));
+    }
+
+    let mut shipped = std::collections::BTreeMap::new();
+    for (name, data) in members {
+        let dest = mods_dir.join(&name);
+        let Some(data) = data else {
+            fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            continue;
+        };
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&dest, &data).map_err(|e| e.to_string())?;
+        shipped.insert(name[id.len() + 1..].to_string(), sha256_hex(&data));
+        crate::transfer::wrote(data.len() as u64);
+    }
+    Ok(shipped)
+}
+
 fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
     let id = &entry.id;
     let resp = http()?.get(&entry.url).send().map_err(|e| e.to_string())?;
@@ -2953,30 +2997,7 @@ fn install_entry(entry: &CodeModEntry, mods_dir: &Path) -> Result<(), String> {
         ));
     }
 
-    // The zip roots at "<ModName>/…"; extract only that subtree.
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
-    let mut shipped = std::collections::BTreeMap::new();
-    for i in 0..zip.len() {
-        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
-        let name = file.name().to_string();
-        if !name.starts_with(&format!("{id}/")) || name.contains("..") {
-            continue;
-        }
-        let dest = mods_dir.join(&name);
-        if file.is_dir() {
-            fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-            continue;
-        }
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).map_err(|e| e.to_string())?;
-        check_mglo(&name, &data)?;
-        fs::write(&dest, &data).map_err(|e| e.to_string())?;
-        shipped.insert(name[id.len() + 1..].to_string(), sha256_hex(&data));
-        crate::transfer::wrote(data.len() as u64);
-    }
+    let shipped = extract_mod(bytes, id, mods_dir)?;
 
     // Register with UE4SS if mods.txt does not know it yet.
     let mods_txt = mods_dir.join("mods.txt");
@@ -3275,6 +3296,56 @@ pub fn write_pending_join(lobby_dir: &Path, lobby: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mod_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = Vec::new();
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+        for (name, data) in files {
+            w.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            w.write_all(data).unwrap();
+        }
+        w.finish().unwrap();
+        buf
+    }
+
+    /// A variant refused late in the zip must not leave the files before it
+    /// overwritten: the mod would be half updated and its version unsaved.
+    #[test]
+    fn a_refused_variant_writes_nothing_of_the_mod() {
+        let root = std::env::temp_dir().join(format!("mjolnir-refused-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let main = root.join("MJOLNIRLevelLoader/Scripts/main.lua");
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, "old").unwrap();
+
+        let bytes = mod_zip(&[
+            ("MJOLNIRLevelLoader/Scripts/main.lua", b"new"),
+            ("MJOLNIRLevelLoader/variants/bad.mglo", b"not a variant"),
+        ]);
+        let err = extract_mod(bytes, "MJOLNIRLevelLoader", &root).unwrap_err();
+        assert!(err.contains("not a safe variant"), "{err}");
+        assert_eq!(fs::read_to_string(&main).unwrap(), "old");
+        assert!(!root.join("MJOLNIRLevelLoader/variants").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The validator built into this launcher takes script traits, the reason
+    /// a launcher release must lead a mods release that ships them.
+    #[test]
+    fn a_variant_with_script_traits_installs() {
+        let root = std::env::temp_dir().join(format!("mjolnir-traits-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let variant = blam_megalo::Variant::stalker(10).write().unwrap();
+        let bytes = mod_zip(&[("MJOLNIRLevelLoader/variants/stalker.mglo", &variant)]);
+        let shipped = extract_mod(bytes, "MJOLNIRLevelLoader", &root).unwrap();
+        assert!(shipped.contains_key("variants/stalker.mglo"));
+        assert_eq!(
+            fs::read(root.join("MJOLNIRLevelLoader/variants/stalker.mglo")).unwrap(),
+            variant
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_quick_check_reads_a_file_only_when_its_stamp_moved() {

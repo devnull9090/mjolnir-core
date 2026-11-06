@@ -711,6 +711,8 @@ export const GAME_TYPE_NAMES: Record<string, string> = {
   oddball: "Oddball",
   team_oddball: "Team Oddball",
   juggernaut: "Juggernaut",
+  stalker: "Stalker",
+  reverse_tag: "Reverse Tag",
   race: "Race",
   team_race: "Team Race",
   rally: "Rally",

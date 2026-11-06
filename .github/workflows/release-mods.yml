@@ -125,6 +125,8 @@ jobs:
           ./target/release/mjolnir megalo write --mode oddball --vehicle-label-pool --out variants/oddball.mglo
           ./target/release/mjolnir megalo write --mode team-oddball --vehicle-label-pool --out variants/team_oddball.mglo
           ./target/release/mjolnir megalo write --mode juggernaut --vehicle-label-pool --out variants/juggernaut.mglo
+          ./target/release/mjolnir megalo write --mode stalker --vehicle-label-pool --out variants/stalker.mglo
+          ./target/release/mjolnir megalo write --mode reverse-tag --vehicle-label-pool --out variants/reverse_tag.mglo
           ./target/release/mjolnir megalo write --mode race --vehicle-label-pool --out variants/race.mglo
           ./target/release/mjolnir megalo write --mode team-race --vehicle-label-pool --out variants/team_race.mglo
           ./target/release/mjolnir megalo write --mode rally --vehicle-label-pool --out variants/rally.mglo
@@ -203,6 +205,8 @@ jobs:
                       mods/MJOLNIRLevelLoader/variants/oddball.mglo mods/MJOLNIRLevelLoader/variants/oddball.layout.json \
                       mods/MJOLNIRLevelLoader/variants/team_oddball.mglo mods/MJOLNIRLevelLoader/variants/team_oddball.layout.json \
                       mods/MJOLNIRLevelLoader/variants/juggernaut.mglo mods/MJOLNIRLevelLoader/variants/juggernaut.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/stalker.mglo mods/MJOLNIRLevelLoader/variants/stalker.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/reverse_tag.mglo mods/MJOLNIRLevelLoader/variants/reverse_tag.layout.json \
                       mods/MJOLNIRLevelLoader/variants/race.mglo mods/MJOLNIRLevelLoader/variants/race.layout.json \
                       mods/MJOLNIRLevelLoader/variants/team_race.mglo mods/MJOLNIRLevelLoader/variants/team_race.layout.json \
                       mods/MJOLNIRLevelLoader/variants/rally.mglo mods/MJOLNIRLevelLoader/variants/rally.layout.json \

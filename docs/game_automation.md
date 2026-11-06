@@ -73,7 +73,7 @@ already running will not see it until it restarts.
 | `game_lua` | Evaluate Lua on the game thread, return what it printed |
 | `game_travel` | `open` a level — see the hazard below |
 | `game_screenshot` | Photograph the window |
-| `game_input` | Keyboard and mouse: key, hold, mouse button, relative `move`, absolute `click`, `wait` steps |
+| `game_input` | Drive the player from inside the game: key, hold, mouse button, `move` look, `release`, `wait` steps. `method: "sendinput"` goes through the desktop instead, for menus, and adds absolute `click` |
 | `game_log` | Tail `UE4SS.log` |
 
 `game_lua` is the one that matters. Tag values, ammo, pawn state and loaded assets are all
@@ -116,7 +116,7 @@ Run on 2026-07-27, in this order, all of it without touching the keyboard:
 
 1. `game_launch` → Steam → title screen, bridge answering in about 90 seconds.
 2. `game_screenshot` → the title screen, captured by `PrintWindow` **without stealing focus**.
-3. `game_input` Enter, Enter → through login and into mission A30 from the resume slot.
+3. `game_input` (`sendinput`) Enter, Enter → through login and into mission A30 from the resume slot.
 4. `game_lua` → 37,409 loaded objects enumerated, pawn and world named.
 5. `game_console` → `stat fps`, dispatched via the Kismet fallback, visible in the next capture.
 6. `game_input` → fire and reload, and the HUD reflected it.
@@ -143,7 +143,7 @@ rendering failure in the game. It cost the custom-world investigation a document
 spawned geometry does not render" dead end that was never real. **When a capture is meant to
 show the world rather than the interface, pass `foreground: true`** and accept the focus steal.
 `CopyFromScreen` needs the window genuinely frontmost; if the frame comes back showing desktop
-or another window, send any `game_input` step first to raise it, then capture.
+or another window, send any `game_input` step with `method: "sendinput"` first to raise it, then capture.
 
 Screenshots are for looking at the world. For anything countable, `game_lua` is exact.
 
@@ -201,7 +201,7 @@ Verified: `EXCEPTION_ACCESS_VIOLATION` reading `0x1c`, a couple of minutes into 
 `open` skips the setup the campaign flow performs. `game_travel` refuses from the frontend
 unless forced, but the 2026-08-02 resize experiment hit the identical crash travelling
 `open a30` from *inside* mission A15, so treat solo-to-solo travel as unsafe too. Start
-missions through the menus with `game_input`: the resume slot is two Enters from launch, and
+missions through the menus with `game_input` (`sendinput`): the resume slot is two Enters from launch, and
 mission select is Campaign → New Game → difficulty → mission → two Enters through the skulls
 screen (Enter is "start" there — Space toggles the hovered skull, so keep the cursor off
 Bandana). That was CU2. **On CU4 the frontend menu's items ignore Enter and take only the
@@ -224,11 +224,23 @@ rather than block on it. A capture script still running after 20 s is killed, an
 script 20 s past its own waits and holds. A bridge call returns as soon as the game process is
 gone, rather than waiting out its timeout.
 
-**`game_input` steals focus, and needs an unlocked machine.** The game reads RawInput, which only
-sees what the OS input queue actually delivered, so posted messages do not work and the window has
-to be in front. Windows also refuses `SetForegroundWindow` to a process that does not already own
-the foreground, so the tool taps Alt and attaches to the foreground window's input queue to get
-around it, retrying as the window settles.
+**`game_input` drives the player from inside the game by default.** The simulation reads each
+frame's keys, mouse look and buttons through one virtual method in the exe, and that method empties
+them unless the local player's viewport has focus. `native/test_input` hooks its vtable slot and adds
+test input after that check: no OS input, no focus change, and the game can sit in the background.
+It is for tests only. Nothing loads the DLL until `game_input` runs, and neither CI nor a release
+builds it. Run `native/test_input/build.ps1`, then `scripts/install-bridge.ps1` with the game closed.
+If the DLL is missing the tool fails; it never falls back to SendInput by itself. The reply counts
+the simulation's reads during the call: zero means no simulation is running, or the hook is not on
+the object it reads. This route reaches the player only: menus are Unreal widgets and never see it.
+It was built from reading the exe, with an offline test against the exe on disk. Its first run in
+the game is still to come, and that the focus check is the viewport's is inferred, not measured.
+
+**`method: "sendinput"` steals focus, and needs an unlocked machine.** It is for menus and other
+screens that need the real cursor. Posted messages do not work and the window has to be in front.
+Windows also refuses `SetForegroundWindow` to a process that does not already own the foreground, so
+the tool taps Alt and attaches to the foreground window's input queue to get around it, retrying as
+the window settles.
 
 None of that helps if the workstation is **locked, on a screensaver, or a disconnected Remote
 Desktop session**: the interactive desktop is switched away, `GetForegroundWindow` returns 0, and
@@ -239,13 +251,14 @@ it alive. Expect to hit this on any run longer than the timeout.
 working throughout, because `PrintWindow` does not need focus — so a locked machine looks like
 "I can see the game but cannot touch it".
 
-**Player movement through `game_input` is unverified on CU4.** The fire-and-reload run above was
-CU2. A CU4 session on 2026-09-11 recorded `game_input` as driving menus only and left player
-movement to be tried by hand, but its explanation (gameplay reads GameInput, which never sees
-injected keys) was overturned on 2026-10-17, when Blam turned out to take its keys from the game
-viewport. Whether injected keys move the player is open. Do not judge it by `mj.pawn()`: that is
-the UE pawn, whose location stays constant, so it cannot show whether the player moved. A player
-who does not move under `game_input` says nothing about the map; check at a real keyboard.
+**Whether SendInput moves the player is disputed.** A CU4 session on 2026-09-11 recorded it as
+driving menus only. On 2026-11-04 real presses reached a player in a match
+(`docs/re/ce_map_scripts.md`). What feeds the game's keyboard handler is still open, so a player who
+does not move under `sendinput` says nothing about the map.
+
+**Do not judge player movement by `mj.pawn()`.** That is the UE pawn, whose location stays constant,
+so it cannot show whether the player moved. Read the `BP_SpartansBipedActor_C` actor or the camera
+instead.
 
 ~~There is no reflection-driven substitute yet.~~ **Superseded 2026-08-02:** there is one.
 `BlamCampaignFlowGameSubsystem:SetAndBeginCampaign(Campaign, ScenarioName, Options)` starts a
@@ -260,7 +273,7 @@ game's own hidden debug menu (`WBP_MainMenu:OnToggleDebugMenu`) drives the same 
 accepted and the world loads, but the Blam session never comes up and the mission never starts
 ([`multiplayer_investigation_notes.md`](multiplayer_investigation_notes.md)); `mjolnir level
 bake` prints the same warning. So the frontend hazard stands for cold starts: start campaign
-missions through the game's own menu with `game_input` clicks. Multiplayer maps start from
+missions through the game's own menu with `game_input` (`sendinput`) clicks. Multiplayer maps start from
 MJOLNIRLobby (see "Matches and a second PC" below).
 
 **Ammo is not in UE reflection.** Neither the pawn, the first-person weapon actor, nor any HUD

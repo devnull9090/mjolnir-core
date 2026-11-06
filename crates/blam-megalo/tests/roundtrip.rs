@@ -56,6 +56,9 @@ fn mjolnir_variants_round_trip() {
         ("oddball", Variant::oddball(120, 18, 60, 1800)),
         ("team_oddball", Variant::team_oddball(120, 18, 60, 1800)),
         ("juggernaut", Variant::juggernaut(15)),
+        ("stalker", Variant::stalker(10)),
+        ("reverse_tag", Variant::reverse_tag(120, 60)),
+        ("trait_test", Variant::trait_test(25)),
         ("koth", Variant::koth(120, 60)),
         ("crazy_king", Variant::crazy_king(120, 60, 3600)),
         ("team_koth", Variant::team_koth(120, 60, 3600)),
@@ -73,6 +76,36 @@ fn mjolnir_variants_round_trip() {
             rt.trailing_bits
         );
     }
+}
+
+/// The listing shows each set's values by the grammar's names, and names the
+/// set an action applies.
+#[test]
+fn script_traits_dump_by_name() {
+    let dumped = |v: Variant| {
+        let tree = raw::decode(&v.write().unwrap()).unwrap();
+        blam_megalo::dump::dump(&tree, &[]).unwrap()
+    };
+    let text = dumped(Variant::stalker(10));
+    for line in [
+        "name = 0 \"Stalker\"",
+        "traits: movement_speed=120%, active_camo=good (others unchanged)",
+        "traits: damage_resistance=200% (others unchanged)",
+        "Apply Player Traits: player: global.player[0], traits: 0 \"Stalker\"",
+        "Apply Player Traits: player: current_player, traits: 1 \"Hunter\"",
+    ] {
+        assert!(text.contains(line), "no {line} in\n{text}");
+    }
+    let text = dumped(Variant::juggernaut(15));
+    assert!(text.contains(
+        "traits: damage_multiplier=150%, melee_damage_multiplier=150% (others unchanged)"
+    ));
+    let text = dumped(Variant::reverse_tag(120, 60));
+    assert!(text.contains("traits: movement_speed=75% (others unchanged)"));
+    let text = dumped(Variant::trait_test(25));
+    assert!(text.contains(
+        "traits: damage_multiplier=150%, melee_damage_multiplier=150%, movement_speed=150%, active_camo=good (others unchanged)"
+    ));
 }
 
 fn mglo_files(dir: &Path, out: &mut Vec<PathBuf>) {

@@ -10,6 +10,7 @@ local ICON_ROOT = "/Game/MJOLNIR/UI/ModeIcons/T_MJMode_"
 -- Only these six textures are cooked. Race borrows the flag until it has its own.
 local ICONS = { slayer = "Slayer", team_slayer = "TeamSlayer", ctf = "Ctf",
     oddball = "Oddball", team_oddball = "Oddball", juggernaut = "Slayer",
+    stalker = "Slayer", reverse_tag = "Slayer",
     koth = "Koth", crazy_king = "Koth", team_koth = "Koth",
     race = "Ctf", team_race = "Ctf", rally = "Ctf", team_rally = "Ctf", forge = "Forge" }
 local NORMAL = { R = 1, G = 1, B = 1, A = 1 }

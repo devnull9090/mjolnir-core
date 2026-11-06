@@ -526,7 +526,7 @@ end
 HANDLERS.hill_moved = markerIncident
 HANDLERS.checkpoint_reached = markerIncident
 HANDLERS.new_juggernaut = function(inc)
-    if markerIncident(inc) then eventLine(inc.cause, "Medal", FEED.medal, "is the Juggernaut", FEED.medal) end
+    if markerIncident(inc) then eventLine(inc.cause, "Medal", FEED.medal, Match.mode.holder.feed, FEED.medal) end
 end
 
 HANDLERS.player_spawn = function(inc)

@@ -53,7 +53,7 @@ function Markers.new(deps)
             match.race = deps.Race.new(deps.Hill, deps.readLevel, match.mode.rally)
             deps.log("race marker: " .. match.race.start(match.code) .. " flag(s)")
         elseif family == "juggernaut" and not match.juggernaut then
-            match.juggernaut = deps.Juggernaut.new(deps.Hill)
+            match.juggernaut = deps.Juggernaut.new(deps.Hill, match.mode.holder)
         end
     end
 

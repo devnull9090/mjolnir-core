@@ -38,6 +38,10 @@ local Modes = {
         description = "Red against Blue. Time with the skull scores for your team." },
     { id = "juggernaut", engine = "oddball", slot = 4, name = "JUGGERNAUT",
         description = "The first kill makes you the Juggernaut. Kill the Juggernaut to take over; only the Juggernaut's kills and kills on the Juggernaut score." },
+    { id = "stalker", engine = "oddball", slot = 4, name = "STALKER",
+        description = "The first kill makes you the Stalker: invisible and fast, while everyone else takes half damage. Kill the Stalker to take over; only the Stalker's kills and kills on the Stalker score." },
+    { id = "reverse_tag", engine = "oddball", slot = 4, name = "REVERSE TAG",
+        description = "The first kill makes you it. Whoever is it moves slowly and scores a point a second; kill them to take over." },
     { id = "koth", engine = "koth", slot = 3, name = "KING",
         description = "Hold the hill to score. The hill stays where it is." },
     { id = "crazy_king", engine = "koth", slot = 3, name = "CRAZY KING",
@@ -72,10 +76,10 @@ local ENGINE_NAMES = { slayer = "SLAYER", ctf = "CAPTURE THE FLAG", oddball = "O
 Modes.CHOICE_FILE = "match_variant.txt"
 
 -- What a listed engine brings with it. None of these needs anything a map has
--- to place beyond its engine's own (Juggernaut only spawns), and the released
--- maps' lists predate them.
+-- to place beyond its engine's own (Juggernaut, Stalker and Reverse Tag only
+-- spawn), and the released maps' lists predate them.
 local DERIVED = {
-    slayer = { "team_slayer", "juggernaut" },
+    slayer = { "team_slayer", "juggernaut", "stalker", "reverse_tag" },
     koth = { "crazy_king", "team_koth" },
     oddball = { "team_oddball" },
     race = { "team_race", "rally", "team_rally" },
@@ -106,8 +110,8 @@ function Modes.derive(listed)
 end
 
 --- `list` (offered rows) as tiles, in menu order: { id, name, variants }. A
---- tile holding one variant that is not its engine's namesake (Juggernaut
---- where only Slayer is listed) goes by the variant's name.
+--- tile without its engine's namesake (Juggernaut and its kin where only Slayer
+--- is listed) goes by its first variant's name.
 function Modes.engines(list)
     local byEngine, tiles = {}, {}
     for _, mode in ipairs(list or {}) do
@@ -120,8 +124,7 @@ function Modes.engines(list)
         variants[#variants + 1] = mode
     end
     for _, tile in ipairs(tiles) do
-        local only = #tile.variants == 1 and tile.variants[1]
-        if only and only.id ~= tile.id then tile.name = only.name end
+        if not Modes.position(tile, tile.id) then tile.name = tile.variants[1].name end
     end
     return tiles
 end

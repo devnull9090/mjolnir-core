@@ -255,7 +255,8 @@ end
 
 -- Timed objectives display simulation totals, ignoring duplicate/older snapshots.
 for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled", crazy_king = "hill_controlled",
-    juggernaut = "ball_taken", race = "final_lap", rally = "final_lap" }) do
+    juggernaut = "ball_taken", stalker = "ball_taken", reverse_tag = "ball_taken", race = "final_lap",
+    rally = "final_lap" }) do
     local timed = runHUD(mode)
     timed.incident(event, 1, -1, 7)
     eq(timed.feed.ScoreLeftValue.text, "7", mode .. " score")
@@ -279,6 +280,7 @@ eq(runHUD("rally").board.ScoreH.text, "FLAGS", "Rally's counts flags")
 -- Every variant has a row; its teams and limit are the variant's.
 for id, want in pairs({ slayer = { "SLAYER", 25 }, team_slayer = { "TEAM SLAYER", 50, true }, ctf = { "CAPTURE THE FLAG", 3, true },
     oddball = { "ODDBALL", 120 }, team_oddball = { "TEAM ODDBALL", 120, true }, juggernaut = { "JUGGERNAUT", 15 },
+    stalker = { "STALKER", 10 }, reverse_tag = { "REVERSE TAG", 120 },
     koth = { "KING OF THE HILL", 120 }, crazy_king = { "CRAZY KING", 120 }, team_koth = { "TEAM KING", 120, true },
     race = { "RACE", 3 }, team_race = { "TEAM RACE", 6, true }, rally = { "RALLY", 15 }, team_rally = { "TEAM RALLY", 15, true },
     forge = { "FORGE", 25 } }) do
@@ -325,18 +327,21 @@ oddSelf.incident("suicide", -1, 1, 0)
 eq(oddSelf.feed.ScoreLeftValue.text, "7", "not elsewhere")
 
 -- The Juggernaut's name reaches the feed once, however often it is resent.
-local jugg = runHUD("juggernaut")
-local function juggLines()
-    local n = 0
-    for _, w in pairs(jugg.feed) do
-        if type(w) == "table" and rawget(w, "text") == "is the Juggernaut" then n = n + 1 end
+-- Each of the family says it in its own words.
+for mode, line in pairs({ juggernaut = "is the Juggernaut", stalker = "is the Stalker", reverse_tag = "is it" }) do
+    local jugg = runHUD(mode)
+    local function juggLines()
+        local n = 0
+        for _, w in pairs(jugg.feed) do
+            if type(w) == "table" and rawget(w, "text") == line then n = n + 1 end
+        end
+        return n
     end
-    return n
+    jugg.incident("new_juggernaut", 2, -1, 1)
+    eq(juggLines(), 1, mode .. ": the new holder")
+    jugg.incident("new_juggernaut", 2, -1, 1)
+    eq(juggLines(), 1, mode .. ": a resend")
 end
-jugg.incident("new_juggernaut", 2, -1, 1)
-eq(juggLines(), 1, "the new Juggernaut")
-jugg.incident("new_juggernaut", 2, -1, 1)
-eq(juggLines(), 1, "a resend")
 
 local ctf = runHUD("ctf")
 eq(ctf.board.Name0.text, "RED TEAM  /  0")
