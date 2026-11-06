@@ -315,6 +315,16 @@ def engine_bank(banks, stem, table, pcm_of):
     `table` is the sound's row in ce_vehicle_sounds.py's table, and `pcm_of(range)`
     gives a range's mono 48 kHz bytes and seconds. Returns the bank, its ids and
     what went in, for the build's report."""
+    return _loop_bank(banks, stem, table, pcm_of, True)
+
+
+def horn_bank(banks, stem, table, pcm_of):
+    """The bank for a horn: its one loop, with nothing to follow. The Blueprint
+    starts and stops it. Takes what engine_bank takes."""
+    return _loop_bank(banks, stem, table, pcm_of, False)
+
+
+def _loop_bank(banks, stem, table, pcm_of, follows_engine):
     small, hog = objects(banks[SMALL_BANK]), objects(banks[HOG_BANK])
     template = media(banks[PCM_BANK], PCM_MEDIA)
     ranges, pitch, gain = table["ranges"], table["pitch"], table["gain"]
@@ -345,13 +355,16 @@ def engine_bank(banks, stem, table, pcm_of):
         pcm, seconds = pcm_of(r)
         blob = wem(template, pcm)
         blobs[ids[f"media_{name}"]] = blob
-        records, points, shares = range_curves(r, i, len(ranges), pitch, ids)
         body = sound(sound_template, ids["mixer"], ids[f"media_{name}"], len(blob), True, volume)
-        sounds.append(obj(2, ids[f"sound_{name}"], with_rtpc(body, records)))
+        report[name] = {"seconds": round(seconds, 3)}
+        if follows_engine:
+            records, points, shares = range_curves(r, i, len(ranges), pitch, ids)
+            body = with_rtpc(body, records)
+            report[name].update(pitch_cents=[round(y, 1) for _, y in points[::5]],
+                                volume_gain_minus_one=[(round(x, 3), round(y, 3)) for x, y in shares])
+        sounds.append(obj(2, ids[f"sound_{name}"], body))
         plays.append(obj(3, ids[f"act_play_{name}"], play(ids[f"sound_{name}"])))
         stops.append(obj(3, ids[f"act_stop_{name}"], stop(ids[f"sound_{name}"])))
-        report[name] = {"seconds": round(seconds, 3), "pitch_cents": [round(y, 1) for _, y in points[::5]],
-                        "volume_gain_minus_one": [(round(x, 3), round(y, 3)) for x, y in shares]}
 
     hirc = [obj(14, ATTENUATION, small[ATTENUATION][1]), *sounds,
             obj(7, ids["mixer"], children(hog[HOG_MIXER][1], [ids[f"sound_{r['name']}"] for r in ranges])),
@@ -426,7 +439,7 @@ def write_pak(files, seed):
     return bytes(data) + index + bytes(path_hash) + bytes(full) + footer
 
 
-def bank_pak(container, bank_id, bank):
-    """The .pak beside a container that carries its bank, seeded from the
-    container's name as the shipped ones are."""
-    return write_pak([(BANK_DIR, f"{bank_id}.bnk", bank)], fnv1(container))
+def bank_pak(container, banks):
+    """The .pak beside a container that carries its banks ({id: bytes}), seeded
+    from the container's name as the shipped ones are."""
+    return write_pak([(BANK_DIR, f"{i}.bnk", b) for i, b in sorted(banks.items())], fnv1(container))

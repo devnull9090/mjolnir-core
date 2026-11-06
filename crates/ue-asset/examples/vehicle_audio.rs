@@ -66,7 +66,11 @@ fn event(
     let mut z = ZenPackage::parse(template).unwrap();
     assert_eq!(z.write(), template, "template round trip");
     rename(&mut z, path);
-    set_name(&mut z, &format!("{TEMPLATE_BANK}.bnk"), &format!("{bank}.bnk"));
+    set_name(
+        &mut z,
+        &format!("{TEMPLATE_BANK}.bnk"),
+        &format!("{bank}.bnk"),
+    );
     set_name(&mut z, TEMPLATE_BANK_NAME, bank_name);
     let mut e = z.export_bytes(0).unwrap().to_vec();
     replace_u32(&mut e, TEMPLATE_EVENT, id, 2);
@@ -123,11 +127,25 @@ fn main() {
     let mut list = vec![
         (
             play_path.clone(),
-            event(&stop_event, &play_path, bank_name, bank, play, (0.0, 0.0, 1, 8000.0)),
+            event(
+                &stop_event,
+                &play_path,
+                bank_name,
+                bank,
+                play,
+                (0.0, 0.0, 1, 8000.0),
+            ),
         ),
         (
             stop_path.clone(),
-            event(&stop_event, &stop_path, bank_name, bank, stop, (0.0, 0.0, 0, 0.0)),
+            event(
+                &stop_event,
+                &stop_path,
+                bank_name,
+                bank,
+                stop,
+                (0.0, 0.0, 0, 0.0),
+            ),
         ),
     ];
     let mut z = ZenPackage::parse(&sound).unwrap();

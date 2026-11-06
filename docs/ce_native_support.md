@@ -49,7 +49,7 @@ Mongoose (V), so CE's locals stay verbatim.
 | Static handlebars, suspension | jmad blocks above |
 | Ghost pose, measured IK | CE antr modes, `ik points` (674 maps at most) |
 | Lua lights | `ligh` if it draws, else `effe` bound to a BP |
-| Lua sounds | `lsnd` with a real AkAudioEvent |
+| Lua sounds | A Wwise bank per vehicle, played by its Blueprints (result 13) |
 | Donor weapons | Real weap and proj |
 | Banshee handling | Clear slide, boost, tricks, cruising throttle |
 | Ratio numbers | Tag rules; `wheel circumferance` 1, CE's value (effect untested) |
@@ -228,10 +228,31 @@ Blueprint's `Audio_EngineTick`, which sets `RTPC_veh_speed` from
 moved on an idle-only bank, and the user confirmed it by ear. From Lua,
 `AkGameplayStatics:PostEventAtLocation` is silent for every sound, and
 `HaloAudioBlueprintFunctionLibrary:PlaySoundAtPosition` works. The game mutes when
-unfocused, which looks like a silent bank. Not read: the four-sample engine blend, or
-the range of the engine fraction. These are spike scripts in
-`tools/level/native_mongoose/sound/`, not yet part of a map build, and
-`vehicle_sounds.json` is still what a published map uses.
+unfocused, which looks like a silent bank. The spike's scripts stay in
+`tools/level/native_mongoose/sound/`. Result 13 is the build.
+
+**13. Engine and horn from a build: passed by ear.** `tools/level/ce_vehicle_audio.py`
+writes a vehicle's banks, events, sounds, Blueprints and tags from
+`ce_vehicle_sounds.py`'s table and the game's own files, with nothing extracted by
+hand. Ids and package paths carry the map's code. On Roadworks, with no
+`vehicle_sounds.json` row for the vehicle, the user heard all four engine samples
+through the throttle and the Mongoose's own horn, and called both right. The engine
+fraction read 0.60 at 9 m/s and 0.85 at 28 m/s, so the high samples are reached.
+
+The horn is the driver's weapon. Its `lsnd` attachment names events with no bank behind
+them, as the Warthog's engine `lsnd` does: `BP_WarthogHornWeaponActor` is what plays it,
+from `Audio_Horn_Start` and `Audio_Horn_End`. So a vehicle gets its own clone of that
+Blueprint and of the weapon tag. In play, both Mongooses carried `mongoose_horn` and the
+three Warthogs the stock horn. Its trigger is fire, where CE's is crouch.
+
+Measure sound by ear. `meter.ps1` read 0.0000 for all of this while the user heard it,
+so a silent reading says nothing about a Blueprint's sound. It does read
+`PlaySoundAtPosition`, but that call plays whatever position it is given (a sound
+"1 km away" read 0.13), and its loop kept playing after `StopTrackedSound`.
+
+Reaching players needs more than this. `mjolnir map pack` carries a bank's `.pak`, and
+refuses one holding anything but `WwiseAudio/<id>.bnk`. The hub refuses the extension
+and the launcher writes a stub in its place, and both have to change first.
 
 Not covered: a joiner in the driver or passenger seat. At top speed wheel rate implies a radius of 0.197 wu against 0.174
 for the model, so `wheel circumferance` needs a steady-state check. Whether the
@@ -242,7 +263,8 @@ for the model, so `wheel circumferance` needs a steady-state check. Whether the
 - Handling: CE's solver is not this one.
 - Lights are the Warthog's look on CE's places, until a `ligh` tag draws. The sim
   creates a light datum (0x1805a0fc0), but no tags ship (V).
-- Sounds stay Lua in published maps until the bank route in result 12 joins the map build.
+- Sounds stay Lua in published maps until the hub and launcher take banks (result 13).
+- The start and stop clips in a vehicle's sound table aren't in its banks yet.
 
 ## Open questions
 
