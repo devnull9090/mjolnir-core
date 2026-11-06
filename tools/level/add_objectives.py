@@ -108,7 +108,7 @@ def one(pack, a, bots):
     z.extractall(unpacked)
     names = z.namelist()
     known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json",
-             "map/bots.json"}
+             "map/bots.json", "map/vehicle_sounds.json"}
     with open(os.path.join(unpacked, "map", "level.json"), encoding="utf-8") as stream:
         shipped_level = json.load(stream)
     water = flux_members(z, shipped_level)
@@ -119,7 +119,7 @@ def one(pack, a, bots):
             continue
         sys.exit(f"{code}: {n} in the pack is not one this script repacks")
 
-    level = ce_objectives.apply(copy.deepcopy(shipped_level))
+    level = ce_objectives.apply(copy.deepcopy(shipped_level), race=not a.no_race)
     if level == shipped_level:
         print(f"== {code}: already has its objectives", flush=True)
         return None
@@ -136,9 +136,10 @@ def one(pack, a, bots):
     # race_flags with them.
     has_bots = "map/bots.json" in names
     bake_level = {k: copy.deepcopy(v) for k, v in level.items() if k in BAKE_KEYS}
-    if "bots" in bake_level["blam"]:
-        sys.exit(f"{code}: the shipped level has blam.bots, which the bake would take over the defaults")
-    if has_bots:
+    # A level that names its own bots keeps them; the bake must then give the
+    # starts the map already ships.
+    own_bots = "bots" in bake_level["blam"]
+    if has_bots and not own_bots:
         bake_level["blam"]["bots"] = bots
     blam = bake_level["blam"]
     index = blam.get("single_bsp")
@@ -146,6 +147,14 @@ def one(pack, a, bots):
         index = (blam.get("active_bsps") or [None])[0]
     if index is None:
         sys.exit(f"{code}: the level names no BSP (single_bsp / active_bsps)")
+    # A level's own script compiles beside its level; the pack carries only the
+    # compiled result, so the source comes from this repository.
+    script = blam.get("script")
+    if script:
+        source = os.path.join(REPO, "tools", "level", "data", script)
+        if not os.path.exists(source):
+            sys.exit(f"{code}: blam.script {script} is not in tools/level/data")
+        shutil.copyfile(source, os.path.join(w, script))
     bake_file = os.path.join(w, f"{code.lower()}.level.json")
     with open(bake_file, "w", encoding="utf-8") as stream:
         json.dump(bake_level, stream, indent=1)
@@ -188,6 +197,8 @@ def one(pack, a, bots):
         if not os.path.exists(bots_file):
             sys.exit(f"{code}: the bake wrote no {code}.bots.json")
         if sha(bots_file) != sha(os.path.join(unpacked, "map", "bots.json")):
+            if own_bots:
+                sys.exit(f"{code}: the level's own bots gave other starts than the shipped bots.json")
             print(f"  note: the bots' starts changed; the new {code}.bots.json goes in the pack", flush=True)
 
     # Only the scenario may differ.
@@ -232,6 +243,8 @@ def one(pack, a, bots):
     shutil.copyfile(os.path.join(unpacked, "map", "registration.json"), os.path.join(stage, f"{code}.registration.json"))
     if has_bots:
         shutil.copyfile(bots_file, os.path.join(stage, f"{code}.bots.json"))
+    if "map/vehicle_sounds.json" in names:
+        shutil.copyfile(os.path.join(unpacked, "map", "vehicle_sounds.json"), os.path.join(stage, "vehicle_sounds.json"))
     if foliage:
         shutil.copyfile(os.path.join(unpacked, "map", foliage), os.path.join(stage, foliage))
     if os.path.isdir(os.path.join(unpacked, "map", "decals")):
@@ -286,6 +299,7 @@ def main():
     ap.add_argument("--paks", default=os.environ.get("HCE_PAKS"))
     ap.add_argument("--sign", action="store_true", help="sign with this machine's device key")
     ap.add_argument("--bake-only", action="store_true", help="rebake and check, pack nothing")
+    ap.add_argument("--no-race", action="store_true", help="leave the map's race track out")
     a = ap.parse_args()
     a.packs = [os.path.abspath(p) for p in a.packs]
     a.work, a.out = os.path.abspath(a.work), os.path.abspath(a.out)
