@@ -67,6 +67,14 @@ report for the blog post; the console shows `--show` differences per tag.
 File-level context (binaries, containers, third-party DLLs) comes from
 `game_snapshot.py diff <old> <new>`, which needs no materialisation at all.
 
+An update can add Wwise banks. Regenerate the list the hub and launcher refuse, then run
+`pnpm sync` in `hub/` and ship both:
+
+```bash
+cargo run -p ue-iostore --example pak_banks -- \
+    "C:\...\Halo Campaign Evolved\Meteorite\Content\Paks" defs/hce/shipped_banks.json
+```
+
 ## 3. Publish — `blog/` and the update report
 
 A game-update post is written into `blog/` (see [`blog/README.md`](../blog/README.md) for the

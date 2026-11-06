@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { zipSync } from "fflate";
 
+import { checkBank, MAX_BANK_BYTES } from "../src/lib/api/banks";
+import { needsReview } from "../src/lib/api/publish";
 import { scanArchive, scanArchiveStream } from "../src/lib/api/scan";
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
@@ -41,6 +43,148 @@ function rejects(members: Record<string, Uint8Array>, code: string) {
   assert.equal(scan.verdict, "fail", JSON.stringify(scan.findings));
   assert.ok(scan.findings.some((f) => f.code === code), JSON.stringify(scan.findings));
 }
+
+/** ue_iostore::bank::sample: one media file and one HIRC record. */
+function bank(id: number): Uint8Array {
+  const words = (...values: number[]) => new Uint8Array(new Uint32Array(values).buffer);
+  const section = (tag: string, ...body: Uint8Array[]) => {
+    const size = body.reduce((n, part) => n + part.length, 0);
+    return [new TextEncoder().encode(tag), words(size), ...body];
+  };
+  const parts = [
+    ...section("BKHD", words(150, id), new Uint8Array(32)),
+    ...section("DIDX", words(7, 0, 5)),
+    ...section("DATA", new TextEncoder().encode("media")),
+    ...section("HIRC", words(1), new Uint8Array([2]), words(8, 11), new TextEncoder().encode("body")),
+  ];
+  const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
+
+const CONTAINER = "pakchunk987-MJOLNIR-TST_P";
+const WARTHOG = 833622567;
+
+function withBanks(banks: Record<string, Uint8Array>) {
+  return { ...fixture(false), ...banks };
+}
+
+test("the bank fixture is the launcher's", () => {
+  // crates/ue-iostore/src/bank.rs asserts the same hash of its sample.
+  assert.equal(createHash("sha1").update(bank(99)).digest("hex"), "b76d27ed276b91306dc5ebb6fd2b80e847f57d79");
+});
+
+test("a pack with real banks passes and says so", () => {
+  const name = `content/${CONTAINER}/99.bnk`;
+  const scan = scanArchive(zipSync(withBanks({ [name]: bank(99), [`content/${CONTAINER}/100.bnk`]: bank(100) })));
+  assert.equal(scan.verdict, "pass", JSON.stringify(scan.findings));
+  assert.equal(scan.banks.length, 2);
+  assert.ok(scan.hashes[name]);
+});
+
+test("a pack with no banks reports none", () => {
+  assert.deepEqual(scanArchive(zipSync(fixture(false))).banks, []);
+});
+
+test("a .pak stays forbidden, whatever it holds", () => {
+  rejects(withBanks({ [`content/${CONTAINER}.pak`]: bank(99) }), "forbidden_file");
+  rejects(withBanks({ [`content/${CONTAINER}/99.pak`]: bank(99) }), "forbidden_file");
+});
+
+test("a bank goes in one place only", () => {
+  for (const path of ["content/99.bnk", "map/99.bnk", "99.bnk", `content/${CONTAINER}/x/99.bnk`,
+    `content/${CONTAINER}/name.bnk`, `content/${CONTAINER}/099.bnk`, `content/${CONTAINER}/99.BNK`,
+    `content/${CONTAINER}/99999999999.bnk`, "content/a.b/99.bnk"]) {
+    rejects(withBanks({ [path]: bank(99) }), "forbidden_file");
+  }
+});
+
+test("a bank needs a container in the archive", () => {
+  rejects(withBanks({ "content/other/99.bnk": bank(99) }), "bank_no_container");
+});
+
+test("a shipped bank is refused", () => {
+  rejects(withBanks({ [`content/${CONTAINER}/${WARTHOG}.bnk`]: bank(WARTHOG) }), "shipped_bank");
+});
+
+test("the name and the header must agree", () => {
+  rejects(withBanks({ [`content/${CONTAINER}/98.bnk`]: bank(99) }), "bad_bank");
+});
+
+test("what is not a bank is refused, empty included", () => {
+  const name = `content/${CONTAINER}/99.bnk`;
+  for (const body of [new TextEncoder().encode("BKHD lies"), new Uint8Array(0)]) {
+    rejects(withBanks({ [name]: body }), "bad_bank");
+  }
+});
+
+test("a bank's sections are held to their bounds", () => {
+  const at = (b: Uint8Array, tag: string) => Buffer.from(b).indexOf(tag);
+  const write = (b: Uint8Array, offset: number, value: number) =>
+    new DataView(b.buffer).setUint32(offset, value, true);
+
+  assert.equal(checkBank(99, bank(99)), null);
+  let b = bank(99);
+  write(b, at(b, "HIRC") + 4, 0xffffffff);
+  assert.match(checkBank(99, b) ?? "", /past the end/);
+  b = bank(99);
+  write(b, at(b, "DIDX") + 16, 6);
+  assert.match(checkBank(99, b) ?? "", /past DATA/);
+  b = bank(99);
+  write(b, at(b, "HIRC") + 8 + 4 + 1, 999);
+  assert.match(checkBank(99, b) ?? "", /HIRC/);
+  b = bank(99);
+  write(b, 8, 149);
+  assert.match(checkBank(99, b) ?? "", /version 150/);
+
+  const twice = (tail: Uint8Array) => {
+    const out = new Uint8Array(bank(99).length + tail.length);
+    out.set(bank(99));
+    out.set(tail, bank(99).length);
+    return out;
+  };
+  assert.match(checkBank(99, twice(new TextEncoder().encode("FXPR\0\0\0\0"))) ?? "", /kind/);
+  const whole = bank(99);
+  assert.match(checkBank(99, twice(whole.subarray(at(whole, "HIRC")))) ?? "", /second/);
+});
+
+test("too many banks, and banks past the caps, stop the scan", () => {
+  const many: Record<string, Uint8Array> = {};
+  for (let id = 1000; id < 1033; id++) many[`content/${CONTAINER}/${id}.bnk`] = bank(id);
+  rejects(withBanks(many), "too_many_banks");
+
+  const big = new Uint8Array(MAX_BANK_BYTES + 1);
+  const scan = scanArchive(zipSync(withBanks({ [`content/${CONTAINER}/99.bnk`]: big })));
+  assert.equal(scan.verdict, "fail");
+  assert.match(JSON.stringify(scan.findings), /bank size limit/);
+
+  const full: Record<string, Uint8Array> = {};
+  for (let id = 1; id <= 4; id++) full[`content/${CONTAINER}/${id}.bnk`] = new Uint8Array(MAX_BANK_BYTES - 1);
+  const all = scanArchive(zipSync(withBanks(full)));
+  assert.equal(all.verdict, "fail");
+  assert.match(JSON.stringify(all.findings), /bank size limit/);
+});
+
+test("a new author's banks wait for a moderator, whatever the release's type", () => {
+  const author = { role: "user", trust_level: 0 };
+  const map = { map: true, banks: 0 };
+  const mapWithBanks = { map: true, banks: 2 };
+  const contentWithBanks = { map: false, banks: 1 };
+  const plainContent = { map: false, banks: 0 };
+  for (const carries of [map, mapWithBanks, contentWithBanks]) {
+    assert.equal(needsReview(carries, author), true);
+    assert.equal(needsReview(carries, { role: "user" }), true);
+    assert.equal(needsReview(carries, { role: "user", trust_level: 1 }), true);
+    assert.equal(needsReview(carries, { role: "user", trust_level: 2 }), false);
+    assert.equal(needsReview(carries, { role: "moderator" }), false);
+    assert.equal(needsReview(carries, { role: "admin" }), false);
+  }
+  assert.equal(needsReview(plainContent, author), false);
+});
 
 test("maps without baked water retain their existing acceptance", () => {
   assert.equal(scanArchive(zipSync(fixture(false))).verdict, "pass");

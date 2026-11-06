@@ -194,10 +194,7 @@ pub struct InstallProgress {
 
 /// Get the path to the settings JSON file
 fn settings_path() -> PathBuf {
-    let mut dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    dir.push("com.devnull9090.mjolnir-launcher");
-    dir.push("launcher_settings.json");
-    dir
+    hub::config_dir().join("launcher_settings.json")
 }
 
 /// Get the path to the cached manifest

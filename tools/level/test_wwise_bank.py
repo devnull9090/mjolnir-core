@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """wwise_bank.py on made-up records. Shipped banks stay out of the repository, so
 what a real template gives is checked by the build, not here."""
+import hashlib
 import struct
 import unittest
 
@@ -105,6 +106,12 @@ class Pak(unittest.TestCase):
         self.assertIn(b"6.bnk\0", pak)
         self.assertIn(b"first bank", pak)
         self.assertIn(b"Meteorite/Content/WwiseAudio/", pak)
+
+    def test_a_pak_matches_the_launchers_bytes(self):
+        # crates/ue-iostore/src/bank.rs asserts the same hash: the launcher writes
+        # these for a hub install, so the two writers have to stay together.
+        pak = W.bank_pak("pakchunk996-MJOLNIRBANK-RWC_P", {6: b"second bank", 5: b"first"})
+        self.assertEqual(hashlib.sha1(pak).hexdigest(), "b7db7dc0eb5e7cd546a76ab228cc2670bc9e16a3")
 
     def test_the_same_container_gives_the_same_bytes(self):
         banks = {5: b"bank"}

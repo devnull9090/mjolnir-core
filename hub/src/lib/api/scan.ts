@@ -17,6 +17,14 @@ import type { DeclaredChanges } from "./changes";
 import { DeclaredChangesSchema, MAX_CHANGES_BYTES } from "./changes";
 import type { Manifest } from "./manifest";
 import { ManifestSchema } from "./manifest";
+import {
+  bankMember,
+  checkBank,
+  isShippedBank,
+  MAX_ALL_BANKS_BYTES,
+  MAX_BANK_BYTES,
+  MAX_BANKS,
+} from "./banks";
 import { chunkIdToHex, parseTocChunkIds } from "./iostore";
 import { forgePackageId, requiredForgePackages } from "./forge-content";
 import { Sha256 } from "./sha256";
@@ -33,7 +41,7 @@ export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
 const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
 
-export const SCANNER_VERSION = "ts-4";
+export const SCANNER_VERSION = "ts-5";
 
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
@@ -101,7 +109,9 @@ export interface ScanResult {
   /** Deduped raw 12-byte chunk IDs across every container in the archive. */
   chunkIds: Uint8Array[];
   containerCount: number;
-  /** The members the scan reads (`.json`, `.utoc`), unzipped, so later steps
+  /** The Wwise banks the archive carries, by member name. */
+  banks: string[];
+  /** The members the scan reads (`.json`, `.utoc`, `.bnk`), unzipped, so later steps
    *  (signature verification) never unzip a second time. Empty when the zip
    *  did not open. */
   files: Record<string, Uint8Array>;
@@ -113,7 +123,8 @@ export interface ScanResult {
 /** Members read whole; everything else (container data, images) is hashed
  *  as it streams out and dropped: held whole beside the archive, a
  *  remastered map's containers went past the Worker's 128 MB. */
-const READ_WHOLE = /\.(json|utoc)$/i;
+const READ_WHOLE = /\.(json|utoc|bnk)$/i;
+const BANK = /\.bnk$/i;
 
 /** How much of the archive is handed to the unzip at a time (unpack). */
 const PUSH_SLICE = 256 * 1024;
@@ -132,9 +143,11 @@ function unpacker() {
   const out: Unpacked = { files: {}, hashes: {}, sizes: {} };
   const open = new Set<string>();
   let unpacked = 0;
+  let banks = 0;
   let failure: unknown = null;
   const unzip = new Unzip((file) => {
     const keep = READ_WHOLE.test(file.name);
+    const bank = BANK.test(file.name);
     const parts: Uint8Array[] = [];
     const hash = new Sha256();
     let size = 0;
@@ -149,6 +162,13 @@ function unpacker() {
       unpacked += chunk.length;
       if (unpacked > MAX_UNPACKED_BYTES) {
         failure = new Error("unpacked size limit exceeded");
+        file.terminate();
+        return;
+      }
+      // Banks are held whole, so their caps stop the read, not the check after it.
+      if (bank) banks += chunk.length;
+      if (bank && (size > MAX_BANK_BYTES || banks > MAX_ALL_BANKS_BYTES)) {
+        failure = new Error("bank size limit exceeded");
         file.terminate();
         return;
       }
@@ -264,6 +284,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
       changes: null,
       chunkIds: [],
       containerCount: 0,
+      banks: [],
       files: {},
       hashes: {},
       sizes: {},
@@ -338,6 +359,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
   for (const [name, size] of Object.entries(sizes)) {
     if (name.endsWith("/") || size === 0) continue; // directory entries
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    if (ext === "bnk") continue; // read below
     // A map's own data beside its level file: a remastered map's foliage
     // placements (foliage.bin, read by the level loader, never run).
     const mapData = ext === "bin" && name.startsWith("map/");
@@ -351,6 +373,24 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
       }
       utocs.push(name);
     }
+  }
+
+  // Banks. Not behind the size-zero skip above: an empty bank is not a bank.
+  const banks = Object.keys(sizes).filter((name) => BANK.test(name));
+  for (const name of banks) {
+    const member = bankMember(name);
+    if (!member) {
+      err("forbidden_file", `A bank goes at content/<container>/<id>.bnk: ${name}`);
+      continue;
+    }
+    if (!(`content/${member.container}.utoc` in sizes)) {
+      err("bank_no_container", `${name} has no container ${member.container}.`);
+    }
+    const problem = checkBank(member.id, files[name] ?? new Uint8Array());
+    if (problem) err(isShippedBank(member.id) ? "shipped_bank" : "bad_bank", `${name}: ${problem}.`);
+  }
+  if (banks.length > MAX_BANKS) {
+    err("too_many_banks", `${banks.length} banks; the cap is ${MAX_BANKS}.`);
   }
 
   // Containers → chunk identity.
@@ -432,6 +472,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
     changes,
     chunkIds: [...seen.values()],
     containerCount: utocs.length,
+    banks,
     files,
     hashes,
     sizes,

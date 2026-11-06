@@ -250,9 +250,12 @@ so a silent reading says nothing about a Blueprint's sound. It does read
 `PlaySoundAtPosition`, but that call plays whatever position it is given (a sound
 "1 km away" read 0.13), and its loop kept playing after `StopTrackedSound`.
 
-Reaching players needs more than this. `mjolnir map pack` carries a bank's `.pak`, and
-refuses one holding anything but `WwiseAudio/<id>.bnk`. The hub refuses the extension
-and the launcher writes a stub in its place, and both have to change first.
+An archive carries the banks bare and the launcher builds the `.pak`
+([map_distribution.md](map_distribution.md#a-vehicles-banks)). Under the launcher's own
+name, `pakchunk901-MJOLNIRHUB-roadworks-circuit-0_P`, its `.pak` mounted in the game:
+`BlueprintPathsLibrary:FileExists` read true for both banks, and false with a stub of
+that name in its place. The engine's file layer found them. That run wasn't checked by
+ear, since the game mutes when unfocused, so nobody has heard a hub-installed bank yet.
 
 Not covered: a joiner in the driver or passenger seat. At top speed wheel rate implies a radius of 0.197 wu against 0.174
 for the model, so `wheel circumferance` needs a steady-state check. Whether the
@@ -263,7 +266,8 @@ for the model, so `wheel circumferance` needs a steady-state check. Whether the
 - Handling: CE's solver is not this one.
 - Lights are the Warthog's look on CE's places, until a `ligh` tag draws. The sim
   creates a light datum (0x1805a0fc0), but no tags ship (V).
-- Sounds stay Lua in published maps until the hub and launcher take banks (result 13).
+- Sounds stay Lua in published maps until a launcher that takes banks reaches players
+  ([release order](map_distribution.md#a-vehicles-banks)).
 - The start and stop clips in a vehicle's sound table aren't in its banks yet.
 
 ## Open questions

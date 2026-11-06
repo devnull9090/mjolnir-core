@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * The moderator's desk: gallery submissions awaiting review, players
- * reported from multiplayer and their matchmaking bans, and the report
- * queue. Every button here is a moderator-only API call — the
+ * The moderator's desk: gallery submissions awaiting review, releases held
+ * for a moderator, players reported from multiplayer and their matchmaking
+ * bans, and the report queue. Every button here is a moderator-only API call — the
  * server enforces the role; this page just refuses to render for anyone
  * else so nobody stares at a wall of 403s.
  *
@@ -24,13 +24,15 @@ import { useHub } from "../components/HubKit";
 import type { AdminUser, HiddenMod, QueuedMedia, Report } from "@mjolnir/hub-kit";
 import { formatBytes } from "@mjolnir/hub-kit";
 import { PlayerReports } from "./PlayerReports";
+import { Releases } from "./Releases";
 import { Crashes } from "./Crashes";
 import { Benches } from "./Benches";
 
-type Tab = "gallery" | "players" | "hidden" | "reports" | "users" | "crashes" | "benchmarks";
+type Tab = "gallery" | "releases" | "players" | "hidden" | "reports" | "users" | "crashes" | "benchmarks";
 
 const TABS: { key: Tab; label: string; admin?: boolean }[] = [
   { key: "gallery", label: "Gallery" },
+  { key: "releases", label: "Releases" },
   { key: "players", label: "Players" },
   { key: "hidden", label: "Hidden mods" },
   { key: "reports", label: "Reports" },
@@ -42,6 +44,7 @@ const TABS: { key: Tab; label: string; admin?: boolean }[] = [
 export default function ModerationPage() {
   const { client, user, ready, signIn } = useHub();
   const [queue, setQueue] = useState<QueuedMedia[] | null>(null);
+  const [heldReleases, setHeldReleases] = useState<number | null>(null);
   const [reports, setReports] = useState<Report[] | null>(null);
   const [hidden, setHidden] = useState<HiddenMod[] | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -77,6 +80,10 @@ export default function ModerationPage() {
     client
       .listModerationMedia("pending")
       .then(setQueue)
+      .catch((e) => setBanner(e instanceof Error ? e.message : String(e)));
+    client
+      .listReleaseReviews("pending")
+      .then((r) => setHeldReleases(r.length))
       .catch((e) => setBanner(e instanceof Error ? e.message : String(e)));
     client
       .listReports("open")
@@ -184,7 +191,7 @@ export default function ModerationPage() {
             <nav role="tablist" className="mb-8 flex flex-wrap gap-x-1 border-b border-border">
               {tabs.map((t, i) => {
                 const count =
-                  t.key === "gallery" ? queue?.length : t.key === "hidden" ? hidden?.length : t.key === "reports" ? reports?.length : undefined;
+                  t.key === "gallery" ? queue?.length : t.key === "releases" ? heldReleases : t.key === "hidden" ? hidden?.length : t.key === "reports" ? reports?.length : undefined;
                 return (
                   <button
                     key={t.key}
@@ -279,6 +286,11 @@ export default function ModerationPage() {
                 </div>
               )}
             </section>
+            )}
+
+            {/* ── Releases held for a moderator ── */}
+            {active === "releases" && (
+              <Releases client={client} onError={setBanner} onPending={setHeldReleases} />
             )}
 
             {/* ── Player reports and matchmaking bans ── */}

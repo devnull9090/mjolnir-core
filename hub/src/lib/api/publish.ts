@@ -17,7 +17,7 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
-import { authenticate, requireScoped } from "./auth";
+import { authenticate, hasScope, requireScoped } from "./auth";
 import {
   ConflictCheckRequestSchema,
   ConflictCheckResponseSchema,
@@ -28,6 +28,7 @@ import {
   ReleaseChangesSchema,
   ReleaseCreateSchema,
   ReleaseSchema,
+  ReleaseStatusListSchema,
   ReleaseStatusSchema,
   modFromRow,
   releaseFromRow,
@@ -47,6 +48,7 @@ const MAX_PART_BYTES = 64 * 1024 * 1024;
 import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
 import { compareForgeVersions, ForgePackSchema, forgeUpdateIssues, sameForgeLine } from "./forge";
+import type { MapBlock } from "./manifest";
 
 type Ctx = Context<ApiEnv>;
 
@@ -75,8 +77,130 @@ async function ownedRelease(c: Ctx, releaseId: string) {
   return { user, release: row };
 }
 
-/** Trust level from which a map release publishes without review. */
+/** Claims a release for a new archive, before its bytes change. A review is of
+ *  one archive, so a new one starts it over: the release rejoins the queue when
+ *  /complete scans it. A 409 if the release left pending or rejected since the
+ *  caller looked. */
+async function openForArchive(c: Ctx, id: string) {
+  const [release] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE mod_releases SET status = 'pending', sha256 = NULL
+       WHERE id = ?1 AND status IN ('pending', 'rejected')`,
+    ).bind(id),
+    c.env.DB.prepare(`DELETE FROM release_reviews WHERE release_id = ?1 AND state = 'pending'`).bind(id),
+  ]);
+  if (!release.meta.changes) {
+    throw new HTTPException(409, {
+      res: c.json({ error: "immutable", message: "Release is no longer open for upload." }, 409),
+    });
+  }
+}
+
+/** Who may see a mod before the public does: its owner, its authors and staff.
+ *  A contributor is credited on a mod, not one of the people it belongs to. */
+export async function canSeeUnpublished(
+  c: Ctx,
+  mod: { id: string; owner_id: string },
+  user: { id: string; role: string },
+): Promise<boolean> {
+  if (mod.owner_id === user.id || user.role !== "user") return true;
+  const author = await c.env.DB.prepare(
+    `SELECT 1 FROM mod_authors WHERE mod_id = ?1 AND user_id = ?2 AND role IN ('owner', 'author')`,
+  )
+    .bind(mod.id, user.id)
+    .first();
+  return author !== null;
+}
+
+/** One query for what `releaseStatusFromRow` reads, so a release says the same
+ *  thing alone and in a list. Add the WHERE. */
+const RELEASE_STATUS_SELECT = `
+  SELECT r.*,
+         u.display_name AS publisher_display_name,
+         u.discord_username AS publisher_discord_username,
+         k.fingerprint AS signer_fingerprint,
+         k.revoked_at AS signer_key_revoked_at,
+         (SELECT s.findings FROM release_scans s WHERE s.release_id = r.id
+          ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1) AS findings,
+         (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count,
+         (SELECT rv.reason FROM release_reviews rv
+          WHERE rv.release_id = r.id AND rv.state = 'rejected') AS review_reason
+  FROM mod_releases r
+  LEFT JOIN users u ON u.id = r.published_by
+  LEFT JOIN user_keys k ON k.id = r.signing_key_id`;
+
+function releaseStatusFromRow(r: Record<string, unknown>): z.infer<typeof ReleaseStatusSchema> {
+  return {
+    id: r.id as string,
+    mod_id: r.mod_id as string,
+    version: r.version as string,
+    status: r.status as "pending" | "scanning" | "published" | "rejected" | "yanked",
+    sha256: (r.sha256 as string) ?? null,
+    signature: (r.signature as string) ?? null,
+    file_size: (r.file_size as number) ?? null,
+    chunk_count: (r.chunk_count as number) ?? 0,
+    findings: r.findings ? JSON.parse(r.findings as string) : [],
+    review_reason: (r.review_reason as string) ?? null,
+    created_at: r.created_at as string,
+    published_by: (r.published_by as string) ?? null,
+    published_by_username:
+      ((r.publisher_display_name as string) ?? (r.publisher_discord_username as string)) || null,
+    signer_fingerprint: (r.signer_fingerprint as string) ?? null,
+    signer_key_revoked: Boolean(r.signer_key_revoked_at),
+  };
+}
+
+/** Trust level from which a release publishes without review. */
 export const MAP_REVIEW_TRUST_LEVEL = 2;
+
+/** Whether a passing release waits for a moderator: a map, which is the first
+ *  content an upload adds rather than overrides, or anything with banks, which
+ *  go to Wwise's own parser in every player's game. Moderators and trusted
+ *  authors skip the queue. */
+export function needsReview(
+  carries: { map: boolean; banks: number },
+  user: { role: string; trust_level?: number },
+): boolean {
+  if (!carries.map && carries.banks === 0) return false;
+  return user.role === "user" && (user.trust_level ?? 0) < MAP_REVIEW_TRUST_LEVEL;
+}
+
+/** Writes a release's map block to its mod's listing, for the moment it
+ *  publishes: the listing is public, so a held release never touches it.
+ *
+ *  Catalog metadata is optional in the manifest, so a release that leaves a
+ *  field out keeps what the listing says (an earlier release's, or a
+ *  moderator's). A moderator's `classic` origin is never overwritten by an
+ *  author's. */
+export function mapListingUpsert(db: ApiEnv["Bindings"]["DB"], modId: string, map: MapBlock) {
+  return db
+    .prepare(
+      `INSERT INTO map_listings (mod_id, code, title, modes, size, players_min, players_max,
+                                 vehicles, origin, game)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+       ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
+         size = COALESCE(excluded.size, size),
+         players_min = COALESCE(excluded.players_min, players_min),
+         players_max = COALESCE(excluded.players_max, players_max),
+         vehicles = COALESCE(excluded.vehicles, vehicles),
+         game = COALESCE(excluded.game, game),
+         origin = CASE WHEN origin = 'classic' THEN origin
+                       ELSE COALESCE(excluded.origin, origin) END,
+         updated_at = datetime('now')`,
+    )
+    .bind(
+      modId,
+      map.code,
+      map.title,
+      JSON.stringify(map.modes),
+      map.size ?? null,
+      map.players?.min ?? null,
+      map.players?.max ?? null,
+      map.vehicles === undefined ? null : map.vehicles ? 1 : 0,
+      map.origin ?? null,
+      map.game ?? null,
+    );
+}
 
 export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
   // ── Create mod ──────────────────────────────────────────────────────
@@ -277,6 +401,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
 
       const key = `releases/${id}.mjolnir`;
       const hash = await sha256Hex(bytes);
+      // The body can take minutes to arrive, so the status read above is old.
+      await openForArchive(c, id);
       await c.env.MODS_BUCKET.put(key, bytes as unknown as ArrayBuffer);
       await c.env.DB.prepare(
         `UPDATE mod_releases
@@ -449,6 +575,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       const { id, upload_id } = c.req.valid("param");
       const { parts } = c.req.valid("json");
       await uploadableRelease(c, id);
+      await openForArchive(c, id);
       const key = `releases/${id}.mjolnir`;
       const upload = c.env.MODS_BUCKET.resumeMultipartUpload(key, upload_id);
       const obj = await upload.complete(parts.map((p) => ({ partNumber: p.part, etag: p.etag })));
@@ -626,13 +753,23 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       }
 
       // A map claims its codename: the game's map registry keys by it, so
-      // one listing owns a code for good (docs/map_distribution.md).
+      // one listing owns a code for good (docs/map_distribution.md). A held
+      // release has no listing to do that, so one in the queue holds its code
+      // the same way until a moderator decides. Only one in the queue: a
+      // release out of it could hold a code where no moderator can free it.
       const map = scan.manifest?.type === "map" ? (scan.manifest.map ?? null) : null;
       if (map) {
-        const holder = await c.env.DB.prepare(`SELECT mod_id FROM map_listings WHERE code = ?1`)
-          .bind(map.code)
+        const holder = await c.env.DB.prepare(
+          `SELECT mod_id FROM map_listings WHERE code = ?1 AND mod_id <> ?2
+           UNION ALL
+           SELECT r.mod_id FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
+           WHERE rv.state = 'pending' AND r.status = 'pending' AND r.mod_id <> ?2
+             AND json_extract(r.map_json, '$.code') = ?1
+           LIMIT 1`,
+        )
+          .bind(map.code, release.mod_id as string)
           .first<{ mod_id: string }>();
-        if (holder && holder.mod_id !== release.mod_id) {
+        if (holder) {
           scan.findings.push({
             level: "error",
             code: "map_code_taken",
@@ -644,19 +781,14 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       // Findings accumulated after the scan feed the verdict too.
       scan.verdict = scan.findings.some((f) => f.level === "error") ? "fail" : "pass";
 
-      // A community map waits for a moderator: it is the first content an
-      // upload adds rather than overrides, so a person looks before players
-      // download it. Moderators and trusted authors skip the queue.
       const held =
-        map !== null &&
         scan.verdict === "pass" &&
-        user.role === "user" &&
-        ((user.trust_level as number | undefined) ?? 0) < MAP_REVIEW_TRUST_LEVEL;
+        needsReview({ map: map !== null, banks: scan.banks.length }, user);
       if (held) {
         scan.findings.push({
           level: "warning",
           code: "awaiting_review",
-          message: "Map releases from new authors wait for a moderator before they are listed.",
+          message: "Maps and vehicle banks from new authors wait for a moderator before they are listed.",
         });
       }
       const finalStatus = scan.verdict === "pass" ? (held ? "pending" : "published") : "rejected";
@@ -676,7 +808,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(
           `UPDATE mod_releases
            SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6,
-               forge_pack_json = ?7
+               forge_pack_json = ?7, banks_json = ?8, map_json = ?9
            WHERE id = ?1`,
         ).bind(
           id,
@@ -686,6 +818,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           streamed.sha256,
           streamed.size,
           scan.verdict === "pass" && forgePack ? JSON.stringify(forgePack) : null,
+          JSON.stringify(scan.banks),
+          scan.verdict === "pass" && map ? JSON.stringify(map) : null,
         ),
         c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
@@ -703,38 +837,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           );
         }
       }
-      if (map && scan.verdict === "pass") {
-        // Catalog metadata is optional in the manifest, so a release that
-        // leaves a field out keeps what the listing says (an earlier
-        // release's, or a moderator's). A moderator's `classic` origin is
-        // never overwritten by an author's.
-        statements.push(
-          c.env.DB.prepare(
-            `INSERT INTO map_listings (mod_id, code, title, modes, size, players_min, players_max,
-                                       vehicles, origin, game)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
-               size = COALESCE(excluded.size, size),
-               players_min = COALESCE(excluded.players_min, players_min),
-               players_max = COALESCE(excluded.players_max, players_max),
-               vehicles = COALESCE(excluded.vehicles, vehicles),
-               game = COALESCE(excluded.game, game),
-               origin = CASE WHEN origin = 'classic' THEN origin
-                             ELSE COALESCE(excluded.origin, origin) END,
-               updated_at = datetime('now')`,
-          ).bind(
-            release.mod_id as string,
-            map.code,
-            map.title,
-            JSON.stringify(map.modes),
-            map.size ?? null,
-            map.players?.min ?? null,
-            map.players?.max ?? null,
-            map.vehicles === undefined ? null : map.vehicles ? 1 : 0,
-            map.origin ?? null,
-            map.game ?? null,
-          ),
-        );
+      if (map && finalStatus === "published") {
+        statements.push(mapListingUpsert(c.env.DB, release.mod_id as string, map));
       }
       if (held) {
         statements.push(
@@ -744,6 +848,10 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
                reviewed_by = NULL, reviewed_at = NULL`,
           ).bind(id),
         );
+      } else {
+        // Refused this time, or published by an author trusted since: either
+        // way there is nothing left for a moderator to decide.
+        statements.push(c.env.DB.prepare(`DELETE FROM release_reviews WHERE release_id = ?1`).bind(id));
       }
       if (signingKeyId) {
         statements.push(
@@ -789,6 +897,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           file_size: (release.file_size as number) ?? null,
           chunk_count: scan.verdict === "pass" ? scan.chunkIds.length : 0,
           findings: scan.findings,
+          review_reason: null,
           created_at: release.created_at as string,
           published_by: (release.published_by as string) ?? user.id,
           published_by_username: user.display_name ?? user.discord_username,
@@ -819,55 +928,59 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      const release = await c.env.DB.prepare(
-        `SELECT r.*,
-                u.display_name AS publisher_display_name,
-                u.discord_username AS publisher_discord_username,
-                k.fingerprint AS signer_fingerprint,
-                k.revoked_at AS signer_key_revoked_at
-         FROM mod_releases r
-         LEFT JOIN users u ON u.id = r.published_by
-         LEFT JOIN user_keys k ON k.id = r.signing_key_id
-         WHERE r.id = ?1`,
-      )
+      const release = await c.env.DB.prepare(`${RELEASE_STATUS_SELECT} WHERE r.id = ?1`)
         .bind(id)
         .first<Record<string, unknown>>();
       if (!release) return c.json({ error: "not_found" }, 404);
+      return c.json(releaseStatusFromRow(release), 200);
+    },
+  );
 
-      const [scan, chunks] = await Promise.all([
-        c.env.DB.prepare(
-          `SELECT findings FROM release_scans WHERE release_id = ?1
-           ORDER BY created_at DESC LIMIT 1`,
-        )
-          .bind(id)
-          .first<{ findings: string }>(),
-        c.env.DB.prepare(`SELECT COUNT(*) AS n FROM release_chunks WHERE release_id = ?1`)
-          .bind(id)
-          .first<{ n: number }>(),
-      ]);
+  // ── Every release of a mod ──────────────────────────────────────────
 
-      return c.json(
-        {
-          id,
-          mod_id: release.mod_id as string,
-          version: release.version as string,
-          status: release.status as "pending" | "scanning" | "published" | "rejected" | "yanked",
-          sha256: (release.sha256 as string) ?? null,
-          signature: (release.signature as string) ?? null,
-          file_size: (release.file_size as number) ?? null,
-          chunk_count: chunks?.n ?? 0,
-          findings: scan ? JSON.parse(scan.findings) : [],
-          created_at: release.created_at as string,
-          published_by: (release.published_by as string) ?? null,
-          published_by_username:
-            ((release.publisher_display_name as string) ??
-              (release.publisher_discord_username as string)) ||
-            null,
-          signer_fingerprint: (release.signer_fingerprint as string) ?? null,
-          signer_key_revoked: Boolean(release.signer_key_revoked_at),
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/mods/{slug}/releases/all",
+      tags: ["publish"],
+      summary: "Every release of a mod, whatever its status, newest first",
+      description:
+        "For the mod's owner, its authors and moderators: what `GET /mods/{slug}/releases` " +
+        "leaves out, with each release's scan findings and `review_reason`. An API key " +
+        "needs `mods:write`.",
+      request: { params: z.object({ slug: z.string() }) },
+      responses: {
+        200: {
+          description: "The releases.",
+          content: { "application/json": { schema: ReleaseStatusListSchema } },
         },
-        200,
-      );
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Not this mod's, or a key without `mods:write`.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such mod.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      // Not requireScoped: that spends the publish budget, and this is a read
+      // the manage page makes on every load.
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      if (!hasScope(auth, "mods:write")) {
+        return c.json({ error: "insufficient_scope", message: "Needs mods:write." }, 403);
+      }
+      const { slug } = c.req.valid("param");
+      const mod = await c.env.DB.prepare(`SELECT id, owner_id FROM mods WHERE slug = ?1`)
+        .bind(slug)
+        .first<{ id: string; owner_id: string }>();
+      if (!mod) return c.json({ error: "not_found" }, 404);
+      if (!(await canSeeUnpublished(c, mod, auth.user))) {
+        return c.json({ error: "forbidden" }, 403);
+      }
+      const rows = await c.env.DB.prepare(
+        `${RELEASE_STATUS_SELECT} WHERE r.mod_id = ?1 ORDER BY r.created_at DESC, r.rowid DESC`,
+      )
+        .bind(mod.id)
+        .all<Record<string, unknown>>();
+      return c.json({ releases: rows.results.map(releaseStatusFromRow) }, 200);
     },
   );
 

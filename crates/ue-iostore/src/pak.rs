@@ -505,6 +505,108 @@ pub fn write_stub(path_hash_seed: u64) -> Vec<u8> {
     out
 }
 
+fn push_fstring(out: &mut Vec<u8>, s: &str) {
+    out.extend_from_slice(&(s.len() as i32 + 1).to_le_bytes());
+    out.extend_from_slice(s.as_bytes());
+    out.push(0);
+}
+
+/// `FPakFile`'s path hash: FNV-64 of the lower-case path's UTF-16, from the seed.
+fn path_hash(path: &str, seed: u64) -> u64 {
+    let mut h = 0xCBF2_9CE4_8422_2325u64.wrapping_add(seed);
+    for unit in path.to_lowercase().encode_utf16() {
+        for byte in unit.to_le_bytes() {
+            h ^= byte as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01B3);
+        }
+    }
+    h
+}
+
+/// A version-11 archive holding `files` in `dir`, nothing compressed, in the
+/// shape of the shipped ones: mount `../../../`, the directory's ancestors in
+/// the full directory index, encoded entries, a path hash index. `dir` ends in a
+/// slash and has at least two levels. The seed lives in the primary index and
+/// the reader takes it from there, so the archive's own name plays no part.
+pub fn write_files(dir: &str, files: &[(String, &[u8])], seed: u64) -> Vec<u8> {
+    const MOUNT: &str = "../../../";
+    let (mut data, mut encoded, mut locations) = (Vec::new(), Vec::new(), Vec::new());
+    for (name, body) in files {
+        let offset = data.len() as u32;
+        let size = body.len() as u64;
+        // FPakEntry, inline: offset 0, size, uncompressed, method, hash, flags, block size.
+        push_u64(&mut data, 0);
+        push_u64(&mut data, size);
+        push_u64(&mut data, size);
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&sha1_of(body));
+        data.push(0);
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(body);
+        let location = encoded.len() as i32;
+        // Encoded: offset and sizes are 32 bits, stored as they stand.
+        encoded.extend_from_slice(&0xE000_0000u32.to_le_bytes());
+        encoded.extend_from_slice(&offset.to_le_bytes());
+        encoded.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        locations.push((name, location));
+    }
+
+    let mut hashes = (locations.len() as u32).to_le_bytes().to_vec();
+    for (name, location) in &locations {
+        push_u64(&mut hashes, path_hash(&format!("{dir}{name}"), seed));
+        hashes.extend_from_slice(&location.to_le_bytes());
+    }
+    hashes.extend_from_slice(&0u32.to_le_bytes()); // pruned directory index: empty, as shipped
+
+    let parts: Vec<&str> = dir.trim_matches('/').split('/').collect();
+    let mut full = ((parts.len() + 1) as u32).to_le_bytes().to_vec();
+    push_fstring(&mut full, "/");
+    full.extend_from_slice(&0u32.to_le_bytes());
+    for i in 1..parts.len() {
+        push_fstring(&mut full, &format!("{}/", parts[..i].join("/")));
+        full.extend_from_slice(&0u32.to_le_bytes());
+    }
+    push_fstring(&mut full, dir);
+    full.extend_from_slice(&(locations.len() as u32).to_le_bytes());
+    for (name, location) in &locations {
+        push_fstring(&mut full, name);
+        full.extend_from_slice(&location.to_le_bytes());
+    }
+
+    let index_size = 4 + MOUNT.len() + 1 + 4 + 8 + (4 + 8 + 8 + 20) * 2 + 4 + encoded.len() + 4;
+    let index_at = data.len() as u64;
+    let hashes_at = index_at + index_size as u64;
+    let full_at = hashes_at + hashes.len() as u64;
+    let mut index = Vec::with_capacity(index_size);
+    push_fstring(&mut index, MOUNT);
+    index.extend_from_slice(&(locations.len() as i32).to_le_bytes());
+    push_u64(&mut index, seed);
+    for (at, body) in [(hashes_at, &hashes), (full_at, &full)] {
+        index.extend_from_slice(&1u32.to_le_bytes());
+        push_u64(&mut index, at);
+        push_u64(&mut index, body.len() as u64);
+        index.extend_from_slice(&sha1_of(body));
+    }
+    index.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+    index.extend_from_slice(&encoded);
+    index.extend_from_slice(&0i32.to_le_bytes());
+    debug_assert_eq!(index.len(), index_size);
+
+    let mut out = data;
+    out.extend_from_slice(&index);
+    out.extend_from_slice(&hashes);
+    out.extend_from_slice(&full);
+    out.extend_from_slice(&[0u8; 16]);
+    out.push(0);
+    out.extend_from_slice(&PAK_MAGIC.to_le_bytes());
+    out.extend_from_slice(&PAK_VERSION.to_le_bytes());
+    push_u64(&mut out, index_at);
+    push_u64(&mut out, index_size as u64);
+    out.extend_from_slice(&sha1_of(&index));
+    out.extend_from_slice(&[0u8; 32 * MAX_METHODS]);
+    out
+}
+
 /// The stub for a container, seeded from its name so a rebuild reproduces the
 /// same bytes. The shipped stubs carry 32-bit seeds; this does too.
 pub fn stub_for(container_name: &str) -> Vec<u8> {

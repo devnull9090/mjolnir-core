@@ -53,6 +53,8 @@ content/
   pakchunk985-MJOLNIRCOOK-<CODE>_P.ucas   ambient sounds
   pakchunk<N>-MJOLNIRLAND-<CODE>_P.utoc   a remastered map's landscape world; it has a
   pakchunk<N>-MJOLNIRLAND-<CODE>_P.ucas   shader library, so it keeps its chunk number
+  pakchunk996-MJOLNIRBANK-<CODE>_P/<id>.bnk   a vehicle's Wwise banks (below), beside
+                                              that container's .utoc and .ucas
 map/
   level.json                  the level file the loader reads
   registration.json           the bake's registration record (below)
@@ -101,7 +103,8 @@ The manifest's map block:
 ```
 
 - `code` is the three-character scenario codename. It is unique across the
-  hub, which rejects a second map claiming a code someone else's map holds.
+  hub, which rejects a second map claiming a code someone else's map holds,
+  whether that map is listed or [waiting for review](#players-maps).
 - `modes` lists the game types the multiplayer menu offers. Each one must be
   a variant the loader ships (`slayer`, `ctf`, ...).
 - `size`, `players`, `vehicles`, `origin` and `game` are optional catalog metadata,
@@ -120,6 +123,62 @@ The manifest's map block:
 A map pack carries no `.mglo`. Game types are code-reviewed scripts the
 loader ships, so a map can only name them. Custom game types per map are
 [Phase 6](#phases).
+
+### A vehicle's banks
+
+A vehicle built by `tools/level/ce_vehicle_audio.py` plays through Wwise banks. A
+`.pak` can hold any file in the game, so an archive never carries one. `map pack`
+takes the banks out of the `.pak` the build left beside the container and writes
+them as bare members, `content/<container>/<id>.bnk`. The launcher builds the `.pak`
+itself under its own mount name, so a bank can only land at
+`Meteorite/Content/WwiseAudio/<id>.bnk`.
+
+The hub's scan (`hub/src/lib/api/banks.ts`) and the launcher
+(`crates/ue-iostore/src/bank.rs`) apply the same rules, and `map pack` holds each bank
+to them as it writes the archive:
+
+- A member sits at exactly `content/<container>/<id>.bnk`. The container is a plain
+  name with its `.utoc` in the same archive, and the id is written as a plain number.
+- The id is not in `defs/hce/shipped_banks.json`. A map pack must not change the sound
+  of a stock vehicle on every other map.
+- The bank is version 150 and its header's id is the one in its name. `BKHD` comes
+  first, the sections are only `BKHD`, `DIDX`, `DATA` and `HIRC`, each once, and every
+  section, media entry and `HIRC` record stays in bounds.
+- A bank is at most 16 MiB, and a release at most 32 banks and 48 MiB of them. The scan
+  holds them in memory.
+
+These rules keep a member to being a bank. They don't prove Wwise reads one safely:
+the record bodies go to Wwise's own parser, in every player's game. So anyone may
+publish banks, but a new author's wait for a moderator, whatever the release's type
+([review](#players-maps)).
+
+Nothing checks two packs for the same id. Ids hash from names carrying the map's code,
+so only a copied id collides, and then one map's bank shadows the other's.
+
+**Installing.** The launcher keeps a release's banks at
+`<release>/banks/<container>/<id>.bnk` in its cache and records each one's hash beside
+the containers', so verify and repair cover them. Every write to Paks builds the `.pak`
+again from the cache, so an update, a reorder or a repair keeps the banks, and uninstall
+removes it with the rest of the triple. A bank gone from the cache counts as a damaged
+install: it never turns into a silent stub.
+
+**Older launchers.** Launcher 0.22.0 and older skip a `.bnk` under `content/`, as they
+skip any member that isn't a container, and write a stub `.pak`. The map installs and
+plays, and the vehicle has no engine or horn. Nothing warns the player: the hub has no
+gate on launcher version, and `launcher_features.txt` is the game asking about the
+launcher, not the hub.
+
+**Release order.**
+
+1. Release the launcher that takes banks, and let players update to it.
+2. Deploy the hub with the scan (`ts-5`). Until then the hub refuses `.bnk` as a forbidden
+   kind. Apply migrations 0025 and 0026 first: `/complete` writes `banks_json` and
+   `map_json`, so without them every publish fails.
+3. Publish maps with banks, and approve the ones waiting for review.
+
+Step 2 lets authors upload banks, so moderators leave those releases pending until step
+1 is done. The other way round, players on an older launcher get a silent vehicle with
+no error.
 
 ### The CE runtime pack
 
@@ -169,7 +228,7 @@ writes the one-type script for a list without entry 20
 
 | What | Where |
 |---|---|
-| Map and runtime containers | `Meteorite/Content/Paks`, named by the launcher (`pakchunk{9xx}-MJOLNIRHUB-<slug>-<n>_P`), with stub `.pak` siblings |
+| Map and runtime containers | `Meteorite/Content/Paks`, named by the launcher (`pakchunk{9xx}-MJOLNIRHUB-<slug>-<n>_P`), with `.pak` siblings: a stub, or a vehicle's [banks](#a-vehicles-banks) |
 | Map data (`map/`) | `Binaries/<Win64\|WinGDK>/ue4ss/MJOLNIRMaps/<CODE>/` |
 | The map list | `ue4ss/MJOLNIRMaps/maps.json`, generated |
 | The registration container | `Paks/pakchunk996-MJOLNIRREG_P.{utoc,ucas,pak}`, generated |
@@ -276,11 +335,37 @@ Players publish the same way. Until the Rust cook lands, they need the
 Unreal Editor and the MJOLNIRMaterials project, which in practice means us.
 
 **Review.** A map release from a new author does not go live on a passing
-scan. The release stays `pending` with a row in `release_reviews` until a
-moderator approves it (`/moderation/releases`), because a map carries
-game-derived bytes and names game types the loader will run. Moderators and
-authors at trust level 2 or higher skip the queue. Content releases keep
-auto-publishing.
+scan, and neither does any release carrying [banks](#a-vehicles-banks). The
+release stays `pending` with a row in `release_reviews` until a moderator
+approves it (`/moderation/releases`), because a map carries game-derived bytes
+and names game types the loader will run, and a bank goes to Wwise's own parser.
+Moderators and authors at trust level 2 or higher skip the queue. Content
+releases without banks keep auto-publishing.
+
+Moderators work the queue in the Releases tab of `/moderation`, which shows
+each release's banks and scan findings. A rejection needs a reason, and the
+author reads it on the mod's manage page, `/mods/{slug}/manage`, which lists
+every release of the mod whatever its status (`GET
+/mods/{slug}/releases/all`), wherever it was published from.
+
+A review is of one archive. Uploading a new one takes the release out of the
+queue until `/complete` scans it, and the page sends the hash of the archive it
+showed, so a decision on a replaced archive is refused.
+
+A held release changes nothing players see. Its map block waits on the release
+(`mod_releases.map_json`, migration 0026) and reaches the listing on approval;
+a rejection leaves the listing as it was. The listing follows the newest
+published release, so one approved after a newer one publishes without taking
+the listing back.
+
+A release in the queue holds its code against other mods, as a listing does:
+the scan refuses a second map claiming it, whoever the author is, until a
+moderator decides. Rejection frees the code. Only the queue holds one, so a
+release a new archive took out of it holds nothing until `/complete` scans it,
+and an abandoned upload can't keep a code where no moderator can see it. Two
+scans in the same instant can't see each other, so both can reach the queue.
+Then the first approval takes the code and the other is refused with a 409,
+which is a moderator's cue to reject it.
 
 ## On the hub
 
@@ -294,7 +379,7 @@ official classic, and the catalog metadata (migration 0017). `GET
   - requires the `map` block, and only a map archive may carry one;
   - requires `map/level.json` and `map/registration.json`, as valid JSON;
   - warns about containers not named for the map (`-<CODE>_P`);
-  - rejects a `code` another mod already holds (`map_code_taken`).
+  - rejects a `code` another mod's listing or held release has (`map_code_taken`).
 - The archive limits are those of any content release. One request
   (`PUT /releases/{id}/archive`) takes up to 90 MiB, under Cloudflare's
   100 MB request body. A bigger archive, up to 400 MiB, goes up in parts:
@@ -303,9 +388,10 @@ official classic, and the catalog metadata (migration 0017). `GET
   `POST /releases/{id}/complete` then scans the stored archive from R2 as a
   stream. A remastered map with its foliage runs past one request
   (Timberland 2.1.0 is 117 MiB).
-- A passing map release writes its `map_listings` row; a held one
-  ([review](#players-maps)) writes it too, but the listing stays out of
-  the catalog until the mod is published.
+- A map release writes its `map_listings` row when it publishes: at the scan,
+  or on approval if it was held ([review](#players-maps)). A first release
+  that's held has no row yet, because lobbies, matches and leaderboards read
+  titles from the listing by code.
 - `deps` are recorded in `release_deps`.
 
 ### The catalog

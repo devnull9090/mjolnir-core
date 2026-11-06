@@ -305,6 +305,9 @@ export const ReleaseStatusSchema = z
       description: "IoStore chunks this release claims, once scanned.",
     }),
     findings: z.array(FindingSchema),
+    review_reason: z.string().nullable().openapi({
+      description: "Why a moderator rejected this release, until it is next scanned.",
+    }),
     created_at: z.string(),
     published_by: z.string().nullable().openapi({
       description: "Account that created this release; null for releases predating attribution.",
@@ -318,6 +321,10 @@ export const ReleaseStatusSchema = z
     }),
   })
   .openapi("ReleaseStatus");
+
+export const ReleaseStatusListSchema = z
+  .object({ releases: z.array(ReleaseStatusSchema) })
+  .openapi("ReleaseStatusList");
 
 export const ReleaseChangesSchema = z
   .object({

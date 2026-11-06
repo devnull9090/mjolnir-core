@@ -35,8 +35,9 @@ semver = "1"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 sha2 = "0.10"
 mjolnir-sign = { path = "../../../crates/mjolnir-sign" }
-# Writes the stub `.pak` beside each installed container (`pak::stub_for`);
-# the reader side is unused here.
+# Writes the `.pak` beside each installed container, a stub (`pak::stub_for`) or
+# a map's banks (`bank::bank_pak`), and holds those banks to the hub's rules
+# (`bank::check`). Only tests read a `.pak` back.
 ue-iostore = { path = "../../../crates/ue-iostore" }
 # Builds the map registration container from the player's own game files
 # (src/maps.rs); the same code as `mjolnir level register`.

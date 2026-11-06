@@ -14,6 +14,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+pub mod bank;
 pub mod city;
 pub mod container_header;
 pub mod oodle;
