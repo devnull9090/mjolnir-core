@@ -177,8 +177,8 @@ fn containers(dir: &Path, code: &str) -> Result<Vec<PathBuf>> {
 /// rather than being an empty stub. A `.pak` can hold any game file, so anything
 /// but `WwiseAudio/<id>.bnk` stops the pack.
 fn carries_banks(pak: &Path) -> Result<bool> {
-    let archive = ue_iostore::pak::load_pak(pak)
-        .with_context(|| format!("reading {}", pak.display()))?;
+    let archive =
+        ue_iostore::pak::load_pak(pak).with_context(|| format!("reading {}", pak.display()))?;
     for rel in archive.files.keys() {
         let full = archive.full_path(rel);
         if !is_bank_path(&full) {
@@ -576,7 +576,9 @@ mod tests {
 
     #[test]
     fn only_a_numbered_bank_in_wwise_audio_is_a_bank() {
-        assert!(is_bank_path("../../../Meteorite/Content/WwiseAudio/241312720.bnk"));
+        assert!(is_bank_path(
+            "../../../Meteorite/Content/WwiseAudio/241312720.bnk"
+        ));
         for other in [
             "../../../Meteorite/Content/WwiseAudio/name.bnk",
             "../../../Meteorite/Content/WwiseAudio/.bnk",
@@ -594,7 +596,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mjolnir-stub-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let pak = dir.join("pakchunk996-MJOLNIRBANK-RWC_P.pak");
-        std::fs::write(&pak, ue_iostore::pak::stub_for("pakchunk996-MJOLNIRBANK-RWC_P")).unwrap();
+        std::fs::write(
+            &pak,
+            ue_iostore::pak::stub_for("pakchunk996-MJOLNIRBANK-RWC_P"),
+        )
+        .unwrap();
         assert!(!carries_banks(&pak).unwrap());
         std::fs::remove_dir_all(&dir).unwrap();
     }
