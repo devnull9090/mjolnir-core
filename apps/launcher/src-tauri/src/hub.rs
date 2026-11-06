@@ -37,6 +37,9 @@ use sha2::{Digest, Sha256};
 
 use crate::forge_packs::{self, Dependency, ForgePack};
 
+/// Where a release's cache keeps banks, by container: `banks/<container>/<id>.bnk`.
+const BANKS_DIR: &str = "banks";
+
 /// The hub API. Override with MJOLNIR_HUB_URL for local development.
 pub(crate) fn hub_api() -> String {
     std::env::var("MJOLNIR_HUB_URL").unwrap_or_else(|_| "https://mjolnircore.com/api/v1".into())
@@ -300,6 +303,26 @@ impl Mount {
     fn in_paks(&self, paks: &Path, ext: &str) -> PathBuf {
         paks.join(format!("{}.{ext}", self.base))
     }
+
+    /// The `.pak` this container goes in with under `base`: its banks when it
+    /// has any, or the empty stub every container needs to be discovered.
+    fn pak(&self, base: &str) -> Result<Vec<u8>, String> {
+        let dir = self.cache.join(BANKS_DIR).join(&self.container);
+        let mut banks = Vec::new();
+        if dir.is_dir() {
+            for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                let path = entry.map_err(|e| e.to_string())?.path();
+                let id = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse().ok());
+                let id = id.ok_or_else(|| format!("{} is not a bank", path.display()))?;
+                banks.push((id, fs::read(&path).map_err(|e| e.to_string())?));
+            }
+        }
+        Ok(if banks.is_empty() {
+            ue_iostore::pak::stub_for(base)
+        } else {
+            ue_iostore::bank::bank_pak(base, &banks)
+        })
+    }
 }
 
 /// Every container the active profile mounts, in load order.
@@ -386,9 +409,9 @@ fn materialize(state: &HubState) -> Result<(), String> {
                 .map_err(|e| format!("{}: {e}", m.slug))?;
             crate::transfer::wrote(copied);
         }
-        // A container without a `.pak` sibling is never discovered, so an
-        // empty one rides along.
-        fs::write(m.in_paks(&paks, "pak"), ue_iostore::pak::stub_for(&m.base))
+        // A container without a `.pak` sibling is never discovered, so one
+        // rides along, empty unless the container has banks.
+        fs::write(m.in_paks(&paks, "pak"), m.pak(&m.base)?)
             .map_err(|e| format!("{}: {e}", m.slug))?;
     }
 
@@ -409,7 +432,13 @@ fn containers_cached(inst: &InstalledHubMod) -> bool {
     let containers = inst.containers.iter().all(|c| {
         dir.join(format!("{c}.utoc")).is_file() && dir.join(format!("{c}.ucas")).is_file()
     });
-    containers && (inst.map_code.is_none() || dir.join("map").is_dir())
+    // A missing bank would otherwise leave a silent stub, with nothing to say so.
+    let banks = inst
+        .container_hashes
+        .keys()
+        .filter(|f| f.starts_with(BANKS_DIR))
+        .all(|f| dir.join(f).is_file());
+    containers && banks && (inst.map_code.is_none() || dir.join("map").is_dir())
 }
 
 /// The files a map's level file names beside itself: its foliage
@@ -1195,6 +1224,7 @@ fn install_one_as(
         let mut data = Vec::new();
         file.read_to_end(&mut data).map_err(|e| e.to_string())?;
         check_mglo(&path, &data)?;
+        check_bank(&path, &data)?;
         if path == mjolnir_sign::SIGNATURE_MEMBER {
             envelope = Some(data);
         } else {
@@ -1301,6 +1331,8 @@ fn install_one_as(
             .map_err(|e| format!("{name} needs the multiplayer mods: {e}"))?;
     }
 
+    check_bank_containers(&members)?;
+
     // Unpack the containers into this release's cache.
     let release_cache = cache_dir().join(&release.id);
     let _ = fs::remove_dir_all(&release_cache);
@@ -1310,6 +1342,17 @@ fn install_one_as(
     let mut container_hashes = std::collections::BTreeMap::new();
     for (path, data) in &members {
         if !path.starts_with("content/") {
+            continue;
+        }
+        if let Some((container, id)) = ue_iostore::bank::member(path) {
+            let rel = format!("{BANKS_DIR}/{container}/{id}.bnk");
+            let target = release_cache.join(&rel);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&target, data).map_err(|e| e.to_string())?;
+            container_hashes.insert(rel, sha256_hex(data));
+            crate::transfer::wrote(data.len() as u64);
             continue;
         }
         let base = path.rsplit('/').next().unwrap_or("").to_string();
@@ -1601,7 +1644,8 @@ pub fn install_live(
             for ext in ["ucas", "utoc"] {
                 fs::copy(m.cached(ext), paks.join(format!("{base}.{ext}")))?;
             }
-            fs::write(paks.join(format!("{base}.pak")), ue_iostore::pak::stub_for(base))
+            let pak = m.pak(base).map_err(std::io::Error::other)?;
+            fs::write(paks.join(format!("{base}.pak")), pak)
         };
         // Its usual name, unless the game holds the old release there open.
         if write(&m.base).is_ok() {
@@ -2970,6 +3014,46 @@ fn code_mods_dir() -> Result<PathBuf, String> {
 /// variant in distributed content would overrun it; it is validated here
 /// against the simulation's own grammar and store bounds before it ever reaches
 /// disk (docs/re/variant_network_safety.md).
+/// Refuse a `.bnk` that isn't one of ours: it must be where a bank goes, be a
+/// bank, and not be a bank the game ships. The archive never carries a `.pak`:
+/// the launcher builds that, so a bank can land nowhere but the game's bank folder.
+fn check_bank(path: &str, data: &[u8]) -> Result<(), String> {
+    let is = |ext: &str| std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
+    if is("pak") {
+        return Err(format!("Refusing to install: {path}; an archive never carries a .pak"));
+    }
+    if !is("bnk") {
+        return Ok(());
+    }
+    let (_, id) = ue_iostore::bank::member(path)
+        .ok_or_else(|| format!("Refusing to install: {path} is not where a bank goes"))?;
+    ue_iostore::bank::check(id, data).map_err(|e| format!("Refusing to install {path}: {e}"))
+}
+
+/// Every bank has to belong to a container in the same archive, or it would be
+/// left out of every `.pak` and its vehicle silent.
+fn check_bank_containers(members: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let (mut banks, mut bytes) = (0, 0);
+    for (path, data) in members {
+        let Some((container, _)) = ue_iostore::bank::member(path) else {
+            continue;
+        };
+        banks += 1;
+        bytes += data.len();
+        let utoc = format!("content/{container}.utoc");
+        if !members.iter().any(|(p, _)| *p == utoc) {
+            return Err(format!("Refusing to install: {path} has no container {container}"));
+        }
+    }
+    if banks > ue_iostore::bank::MAX_BANKS {
+        return Err(format!("Refusing to install: {banks} banks; the cap is {}", ue_iostore::bank::MAX_BANKS));
+    }
+    if bytes > ue_iostore::bank::MAX_ALL_BANKS_BYTES {
+        return Err(format!("Refusing to install: {bytes} bytes of banks; the cap is {}", ue_iostore::bank::MAX_ALL_BANKS_BYTES));
+    }
+    Ok(())
+}
+
 fn check_mglo(path: &str, data: &[u8]) -> Result<(), String> {
     let is_mglo = std::path::Path::new(path)
         .extension()
@@ -3931,49 +4015,12 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// Run the real HTTP/archive/cache path in a subprocess so environment
-    /// overrides cannot redirect another parallel test or touch user state.
-    #[test]
-    fn forge_dependencies_download_matching_releases_from_a_local_hub() {
-        let root = std::env::temp_dir().join(format!("mjolnir-forge-download-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "hub::tests::forge_dependency_install_child", "--ignored", "--nocapture"])
-            .env("MJOLNIR_TEST_CONFIG_DIR", &root)
-            .env("NO_PROXY", "127.0.0.1,localhost")
-            .output().unwrap();
-        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    #[ignore = "subprocess fixture; run forge_dependencies_download_matching_releases_from_a_local_hub"]
-    fn forge_dependency_install_child() {
+    /// A hub on a local port that answers `routes`, and points this process at it.
+    /// Set the flag and join the thread to stop it.
+    fn local_hub(routes: std::collections::BTreeMap<String, Vec<u8>>)
+        -> (std::sync::Arc<std::sync::atomic::AtomicBool>, std::thread::JoinHandle<()>) {
         use std::io::Write;
         use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-        assert!(std::env::var_os("MJOLNIR_TEST_CONFIG_DIR").is_some(), "must run in isolated fixture");
-        let make_archive = |manifest: serde_json::Value| {
-            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-            for (name, bytes) in [("mjolnir.json", manifest.to_string().into_bytes()),
-                ("content/test.utoc", b"fixture index".to_vec()), ("content/test.ucas", b"fixture data".to_vec())] {
-                zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
-                zip.write_all(&bytes).unwrap();
-            }
-            zip.finish().unwrap().into_inner()
-        };
-        let pack = forge_test_state().installed.remove(0).forge_pack.unwrap();
-        let pack_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Alloy","version":"1.0.0","type":"content","forge_pack":pack}));
-        let arena_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Arena","version":"1.0.0","type":"content","deps":[{"slug":"alloy","range":"1.0.0"}]}));
-        let bad_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Bad arena","version":"1.0.0","type":"content","deps":[{"slug":"alloy","range":"2.0.0"}]}));
-        let mut routes = std::collections::BTreeMap::<String, Vec<u8>>::new();
-        for (slug, archive) in [("alloy", pack_archive), ("arena", arena_archive), ("bad-arena", bad_archive)] {
-            routes.insert(format!("/mods/{slug}"), serde_json::json!({"name":slug,"type":"content"}).to_string().into_bytes());
-            let mut releases = vec![serde_json::json!({"id":format!("{slug}-1"),"version":"1.0.0","channel":"stable"})];
-            if slug == "alloy" { releases.push(serde_json::json!({"id":"alloy-2","version":"2.0.0","channel":"stable"})) }
-            routes.insert(format!("/mods/{slug}/releases"), serde_json::json!({"releases":releases}).to_string().into_bytes());
-            routes.insert(format!("/releases/{slug}-1"), serde_json::json!({"status":"published","sha256":sha256_hex(&archive)}).to_string().into_bytes());
-            routes.insert(format!("/releases/{slug}-1/download"), archive);
-        }
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         std::env::set_var("MJOLNIR_HUB_URL", format!("http://{}", listener.local_addr().unwrap()));
@@ -4005,6 +4052,53 @@ mod tests {
                 socket.write_all(body).unwrap();
             }
         });
+        (stop, server)
+    }
+
+    /// Run the real HTTP/archive/cache path in a subprocess so environment
+    /// overrides cannot redirect another parallel test or touch user state.
+    #[test]
+    fn forge_dependencies_download_matching_releases_from_a_local_hub() {
+        let root = std::env::temp_dir().join(format!("mjolnir-forge-download-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "hub::tests::forge_dependency_install_child", "--ignored", "--nocapture"])
+            .env("MJOLNIR_TEST_CONFIG_DIR", &root)
+            .env("NO_PROXY", "127.0.0.1,localhost")
+            .output().unwrap();
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; run forge_dependencies_download_matching_releases_from_a_local_hub"]
+    fn forge_dependency_install_child() {
+        use std::io::Write;
+        use std::sync::atomic::Ordering;
+        assert!(std::env::var_os("MJOLNIR_TEST_CONFIG_DIR").is_some(), "must run in isolated fixture");
+        let make_archive = |manifest: serde_json::Value| {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (name, bytes) in [("mjolnir.json", manifest.to_string().into_bytes()),
+                ("content/test.utoc", b"fixture index".to_vec()), ("content/test.ucas", b"fixture data".to_vec())] {
+                zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            zip.finish().unwrap().into_inner()
+        };
+        let pack = forge_test_state().installed.remove(0).forge_pack.unwrap();
+        let pack_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Alloy","version":"1.0.0","type":"content","forge_pack":pack}));
+        let arena_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Arena","version":"1.0.0","type":"content","deps":[{"slug":"alloy","range":"1.0.0"}]}));
+        let bad_archive = make_archive(serde_json::json!({"schema_version":1,"name":"Bad arena","version":"1.0.0","type":"content","deps":[{"slug":"alloy","range":"2.0.0"}]}));
+        let mut routes = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        for (slug, archive) in [("alloy", pack_archive), ("arena", arena_archive), ("bad-arena", bad_archive)] {
+            routes.insert(format!("/mods/{slug}"), serde_json::json!({"name":slug,"type":"content"}).to_string().into_bytes());
+            let mut releases = vec![serde_json::json!({"id":format!("{slug}-1"),"version":"1.0.0","channel":"stable"})];
+            if slug == "alloy" { releases.push(serde_json::json!({"id":"alloy-2","version":"2.0.0","channel":"stable"})) }
+            routes.insert(format!("/mods/{slug}/releases"), serde_json::json!({"releases":releases}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1"), serde_json::json!({"status":"published","sha256":sha256_hex(&archive)}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1/download"), archive);
+        }
+        let (stop, server) = local_hub(routes);
         let live = Live { progress: &|_, _| {}, size: None };
         let result = install_one_as("arena", Some("arena-1".into()), 0, Some(&live), &[], &mut BTreeSet::new());
         let state = load_state();
@@ -4017,6 +4111,160 @@ mod tests {
         assert!(err.contains("restart the game"), "{err}");
         assert!(!load_state().installed.iter().any(|m| m.slug == "bad-arena"));
         assert_eq!(load_state().installed.iter().find(|m| m.slug == "alloy").unwrap().version, "1.0.0");
+        stop.store(true, Ordering::Relaxed);
+        server.join().unwrap();
+    }
+
+    /// A map pack's banks, through the real HTTP, archive and cache path: in a
+    /// subprocess, as above.
+    #[test]
+    fn banks_install_from_a_local_hub() {
+        let root = std::env::temp_dir().join(format!("mjolnir-bank-install-{}", std::process::id()));
+        let game = root.join("game");
+        fs::create_dir_all(game.join("Meteorite/Content/Paks")).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "hub::tests::bank_install_child", "--ignored", "--nocapture"])
+            .env("MJOLNIR_TEST_CONFIG_DIR", &root)
+            .env(crate::GAME_DIR_ENV, &game)
+            .env("NO_PROXY", "127.0.0.1,localhost")
+            .output().unwrap();
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; run banks_install_from_a_local_hub"]
+    fn bank_install_child() {
+        use std::io::Write;
+        use std::sync::atomic::Ordering;
+        use ue_iostore::bank::sample;
+        assert!(std::env::var_os("MJOLNIR_TEST_CONFIG_DIR").is_some(), "must run in isolated fixture");
+        let game = PathBuf::from(std::env::var_os(crate::GAME_DIR_ENV).expect("must run in a fake game folder"));
+        let paks = paks_dir().unwrap();
+        assert!(paks.starts_with(&game), "{} is not the fake game folder", paks.display());
+        let release = |slug: &str, version: &str, extra: &[(&str, Vec<u8>)]| {
+            let manifest = serde_json::json!({"schema_version":1,"name":slug,"version":version,"type":"content"});
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            let mut members = vec![("mjolnir.json", manifest.to_string().into_bytes()),
+                ("content/test.utoc", b"fixture index".to_vec()), ("content/test.ucas", b"fixture data".to_vec())];
+            members.extend(extra.iter().cloned());
+            for (name, bytes) in members {
+                zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            zip.finish().unwrap().into_inner()
+        };
+        let archive = |slug: &str, extra: &[(&str, Vec<u8>)]| release(slug, "1.0.0", extra);
+        let shipped = 833622567; // the Warthog's
+        let cases = [
+            ("banks", archive("banks", &[("content/test/99.bnk", sample(99)), ("content/test/100.bnk", sample(100))])),
+            ("plain", archive("plain", &[])),
+            ("shipped", archive("shipped", &[("content/test/833622567.bnk", sample(shipped))])),
+            ("wrong-id", archive("wrong-id", &[("content/test/99.bnk", sample(98))])),
+            ("not-a-bank", archive("not-a-bank", &[("content/test/99.bnk", b"BKHD lies".to_vec())])),
+            ("nowhere", archive("nowhere", &[("content/5.bnk", sample(5))])),
+            ("no-container", archive("no-container", &[("content/other/99.bnk", sample(99))])),
+            ("a-pak", archive("a-pak", &[("content/test.pak", ue_iostore::pak::stub_for("test"))])),
+        ];
+        let mut routes = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        for (slug, archive) in cases {
+            routes.insert(format!("/mods/{slug}"), serde_json::json!({"name":slug,"type":"content"}).to_string().into_bytes());
+            routes.insert(format!("/mods/{slug}/releases"), serde_json::json!({"releases":[{"id":format!("{slug}-1"),"version":"1.0.0","channel":"stable"}]}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1"), serde_json::json!({"status":"published","sha256":sha256_hex(&archive)}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1/download"), archive);
+        }
+        let update = release("banks", "1.1.0", &[("content/test/101.bnk", sample(101))]);
+        routes.insert("/releases/banks-2".into(), serde_json::json!({"status":"published","sha256":sha256_hex(&update)}).to_string().into_bytes());
+        routes.insert("/releases/banks-2/download".into(), update);
+        routes.insert("/mods/banks/releases".into(), serde_json::json!({"releases":[
+            {"id":"banks-1","version":"1.0.0","channel":"stable"},
+            {"id":"banks-2","version":"1.1.0","channel":"stable"}]}).to_string().into_bytes());
+        let (stop, server) = local_hub(routes);
+        let install = |slug: &str| super::install(slug.into(), Some(format!("{slug}-1")));
+
+        let state = install("banks").unwrap();
+        // The .pak in the game folder, under the launcher's own name, holding the banks.
+        let in_game = |state: &HubState| {
+            let plan = mounts(state).unwrap();
+            let m = plan.iter().find(|m| m.slug == "banks").unwrap();
+            assert!(m.base.starts_with("pakchunk9") && m.base.ends_with("-MJOLNIRHUB-banks-0_P"), "{}", m.base);
+            let pak = ue_iostore::pak::load_pak(&m.in_paks(&paks, "pak")).unwrap();
+            let mut ids: Vec<u32> = Vec::new();
+            for (rel, entry) in &pak.files {
+                let path = pak.full_path(rel);
+                let name = path.strip_prefix("../../../Meteorite/Content/WwiseAudio/").unwrap_or_else(|| panic!("{path}"));
+                ids.push(name.trim_end_matches(".bnk").parse().unwrap());
+                assert_eq!(ue_iostore::pak::read_file(&pak, entry, None, &[]).unwrap(), sample(*ids.last().unwrap()));
+            }
+            ids.sort();
+            ids
+        };
+        assert_eq!(in_game(&state), [99, 100]);
+
+        // Repair: whatever became of the file, the next write brings the banks back.
+        let plan = mounts(&state).unwrap();
+        let file = plan.iter().find(|m| m.slug == "banks").unwrap().in_paks(&paks, "pak");
+        fs::write(&file, b"").unwrap();
+        materialize(&state).unwrap();
+        assert_eq!(in_game(&state), [99, 100]);
+
+        // Update: the new release's banks replace the old ones.
+        let state = super::install("banks".into(), Some("banks-2".into())).unwrap();
+        assert_eq!(in_game(&state), [101]);
+
+        // Uninstall: nothing of it stays in the game folder.
+        uninstall("banks".into()).unwrap();
+        let left = |slug: &str| fs::read_dir(&paks).unwrap().filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(&format!("-{MARKER}-{slug}-"))).collect::<Vec<_>>();
+        assert_eq!(left("banks"), Vec::<String>::new());
+
+        install("banks").unwrap();
+        install("plain").unwrap();
+        let state = load_state();
+        let inst = state.installed.iter().find(|m| m.slug == "banks").unwrap();
+        assert!(inst.container_hashes.contains_key("banks/test/99.bnk"));
+        assert!(cache_complete(inst));
+        assert!(verify_one(inst).ok);
+
+        // The .pak the game mounts, under a name of the launcher's own.
+        let mount = |slug: &str| Mount {
+            slug: slug.into(),
+            cache: cache_dir().join(format!("{slug}-1")),
+            container: "test".into(),
+            base: format!("pakchunk900-{MARKER}-{slug}-0_P"),
+        };
+        let m = mount("banks");
+        let dir = cache_dir().join("pak-check");
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(format!("{}.pak", m.base));
+        fs::write(&file, m.pak(&m.base).unwrap()).unwrap();
+        let pak = ue_iostore::pak::load_pak(&file).unwrap();
+        assert_eq!(pak.files.len(), 2);
+        for (rel, entry) in &pak.files {
+            let path = pak.full_path(rel);
+            assert!(path.starts_with("../../../Meteorite/Content/WwiseAudio/"), "{path}");
+            let id = path.rsplit('/').next().unwrap().trim_end_matches(".bnk").parse().unwrap();
+            assert_eq!(ue_iostore::pak::read_file(&pak, entry, None, &[]).unwrap(), sample(id));
+        }
+        // A container with no banks keeps the stub it always had.
+        let plain = mount("plain");
+        assert_eq!(plain.pak(&plain.base).unwrap(), ue_iostore::pak::stub_for(&plain.base));
+
+        // A bank gone from the cache shows up, and doesn't turn into a silent stub.
+        fs::remove_file(cache_dir().join("banks-1/banks/test/99.bnk")).unwrap();
+        assert!(!cache_complete(inst));
+        assert!(!verify_one(inst).ok);
+
+        for (slug, why) in [("shipped", "ships"), ("wrong-id", "header's id"), ("not-a-bank", "refusing"),
+                ("nowhere", "where a bank goes"), ("no-container", "no container"),
+                ("a-pak", "never carries a .pak")] {
+            let err = install(slug).unwrap_err();
+            assert!(err.to_lowercase().contains(why), "{slug}: {err}");
+            assert!(!load_state().installed.iter().any(|m| m.slug == slug), "{slug} was recorded");
+            assert!(!cache_dir().join(format!("{slug}-1")).exists(), "{slug} reached the cache");
+            assert_eq!(left(slug), Vec::<String>::new(), "{slug} reached the game folder");
+        }
         stop.store(true, Ordering::Relaxed);
         server.join().unwrap();
     }

@@ -44,6 +44,7 @@ import {
  *  memory and under Cloudflare's 100 MB request body. */
 const MIN_PART_BYTES = 5 * 1024 * 1024;
 const MAX_PART_BYTES = 64 * 1024 * 1024;
+import { mayPublishBanks } from "./banks";
 import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
 import { compareForgeVersions, ForgePackSchema, forgeUpdateIssues, sameForgeLine } from "./forge";
@@ -541,6 +542,15 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           level: "error",
           code: "version_mismatch",
           message: `mjolnir.json says ${scan.manifest.version}, release is ${release.version}.`,
+        });
+      }
+      // A bank is read by Wwise's own parser, which the scan can't answer for,
+      // so who may ship one is a switch (wrangler.jsonc).
+      if (scan.banks.length > 0 && !mayPublishBanks(c.env.BANK_UPLOADS, user, MAP_REVIEW_TRUST_LEVEL)) {
+        scan.findings.push({
+          level: "error",
+          code: "banks_not_allowed",
+          message: "This hub doesn't take vehicle banks from this account yet; publish the map without them.",
         });
       }
       const forgePack = scan.manifest?.forge_pack ?? null;

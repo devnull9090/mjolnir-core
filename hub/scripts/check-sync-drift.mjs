@@ -29,6 +29,7 @@ const OUTPUTS = [
   "src/generated/console-index.json",
   "src/generated/changelog.json",
   "src/generated/blog.json",
+  "src/generated/shipped-banks.json",
   "public/tag-search.json",
   "public/console-search.json",
   "public/docs-images",

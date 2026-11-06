@@ -20,6 +20,9 @@ export interface HubBindings {
   /** When "1"/"true", the `unsigned` finding becomes an error — the rollout
    *  switch for requiring author signatures on new uploads. */
   REQUIRE_SIGNED_UPLOADS?: string;
+  /** Who may publish a release that carries Wwise banks: "anyone", "trusted"
+   *  (authors past the map queue, and staff) or "staff". See `mayPublishBanks`. */
+  BANK_UPLOADS?: string;
   /** Discord snowflake of the account the OAuth callback seats as admin. */
   SUPER_ADMIN_DISCORD_ID?: string;
 }

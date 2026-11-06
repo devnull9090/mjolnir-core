@@ -173,26 +173,38 @@ fn containers(dir: &Path, code: &str) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// Whether a container's `.pak` carries Wwise banks (tools/level/ce_vehicle_audio.py)
-/// rather than being an empty stub. A `.pak` can hold any game file, so anything
-/// but `WwiseAudio/<id>.bnk` stops the pack.
-fn carries_banks(pak: &Path) -> Result<bool> {
+/// The Wwise banks in a container's `.pak` (tools/level/ce_vehicle_audio.py), by
+/// id; none in an empty stub. A `.pak` can hold any game file, so anything but
+/// `WwiseAudio/<id>.bnk`, or a bank the hub and launcher would refuse, stops the
+/// pack here.
+fn banks_in(pak: &Path) -> Result<Vec<(u32, Vec<u8>)>> {
     let archive =
         ue_iostore::pak::load_pak(pak).with_context(|| format!("reading {}", pak.display()))?;
-    for rel in archive.files.keys() {
+    let mut banks = Vec::new();
+    for (rel, entry) in &archive.files {
         let full = archive.full_path(rel);
-        if !is_bank_path(&full) {
+        let Some(id) = bank_id(&full) else {
             bail!("{}: {full} is not a bank", pak.display());
-        }
+        };
+        let bytes = ue_iostore::pak::read_file(&archive, entry, None, &[])
+            .with_context(|| format!("reading {full}"))?;
+        ue_iostore::bank::check(id, &bytes)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", pak.display()))?;
+        banks.push((id, bytes));
     }
-    Ok(!archive.files.is_empty())
+    Ok(banks)
 }
 
-/// `../../../Meteorite/Content/WwiseAudio/<id>.bnk`, the id a decimal number.
-fn is_bank_path(path: &str) -> bool {
-    path.strip_prefix("../../../Meteorite/Content/WwiseAudio/")
-        .and_then(|name| name.strip_suffix(".bnk"))
-        .is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()))
+/// The id in `../../../Meteorite/Content/WwiseAudio/<id>.bnk`.
+fn bank_id(path: &str) -> Option<u32> {
+    let id = path
+        .strip_prefix("../../../")?
+        .strip_prefix(ue_iostore::bank::BANK_DIR)?
+        .strip_suffix(".bnk")?;
+    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    id.parse().ok()
 }
 
 /// The game a conversion's staging says it comes from (`staging/manifest.json`
@@ -370,12 +382,15 @@ fn pack(a: PackArgs) -> Result<()> {
             let file = path.file_name().unwrap().to_string_lossy().to_string();
             members.push((format!("content/{file}"), std::fs::read(&path)?));
         }
-        // A vehicle's bank rides in the `.pak` beside its container. The empty
-        // stubs stay behind: the launcher writes those.
+        // A vehicle's banks ride in the `.pak` beside its container here, and
+        // leave it to travel as bare `.bnk` members: an archive never holds a
+        // `.pak`, which could hold any game file. The launcher builds one.
         let pak = utoc.with_extension("pak");
-        if pak.is_file() && carries_banks(&pak)? {
-            let file = pak.file_name().unwrap().to_string_lossy().to_string();
-            members.push((format!("content/{file}"), std::fs::read(&pak)?));
+        if pak.is_file() {
+            let stem = utoc.file_stem().unwrap().to_string_lossy().to_string();
+            for (id, bytes) in banks_in(&pak)? {
+                members.push((format!("content/{stem}/{id}.bnk"), bytes));
+            }
         }
     }
     // A remastered map's data beside its level file (the loader reads them
@@ -576,9 +591,10 @@ mod tests {
 
     #[test]
     fn only_a_numbered_bank_in_wwise_audio_is_a_bank() {
-        assert!(is_bank_path(
-            "../../../Meteorite/Content/WwiseAudio/241312720.bnk"
-        ));
+        assert_eq!(
+            bank_id("../../../Meteorite/Content/WwiseAudio/241312720.bnk"),
+            Some(241312720)
+        );
         for other in [
             "../../../Meteorite/Content/WwiseAudio/name.bnk",
             "../../../Meteorite/Content/WwiseAudio/.bnk",
@@ -587,21 +603,44 @@ mod tests {
             "../../../Meteorite/Content/Movies/241312720.bnk",
             "../../../Meteorite/Binaries/Win64/241312720.bnk",
         ] {
-            assert!(!is_bank_path(other), "{other}");
+            assert_eq!(bank_id(other), None, "{other}");
         }
+    }
+
+    fn in_a_pak(name: &str, bytes: &[u8]) -> Result<Vec<(u32, Vec<u8>)>> {
+        let dir = std::env::temp_dir().join(format!("mjolnir-pak-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pak = dir.join("test.pak");
+        std::fs::write(&pak, bytes).unwrap();
+        let found = banks_in(&pak);
+        std::fs::remove_dir_all(&dir).unwrap();
+        found
     }
 
     #[test]
     fn a_stub_carries_no_banks() {
-        let dir = std::env::temp_dir().join(format!("mjolnir-stub-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let pak = dir.join("pakchunk996-MJOLNIRBANK-RWC_P.pak");
-        std::fs::write(
-            &pak,
-            ue_iostore::pak::stub_for("pakchunk996-MJOLNIRBANK-RWC_P"),
-        )
-        .unwrap();
-        assert!(!carries_banks(&pak).unwrap());
-        std::fs::remove_dir_all(&dir).unwrap();
+        let stub = ue_iostore::pak::stub_for("pakchunk996-MJOLNIRBANK-RWC_P");
+        assert!(in_a_pak("stub", &stub).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_banks_pak_gives_up_its_banks() {
+        let bank = ue_iostore::bank::sample(99);
+        let pak = ue_iostore::bank::bank_pak("c", &[(99, bank.clone())]);
+        assert_eq!(in_a_pak("bank", &pak).unwrap(), [(99, bank)]);
+    }
+
+    #[test]
+    fn anything_else_in_a_pak_stops_the_pack() {
+        let file = [("Replaced.uasset".to_string(), &b"not a bank"[..])];
+        let pak = ue_iostore::pak::write_files("Meteorite/Content/Sneaky/", &file, 1);
+        assert!(in_a_pak("other", &pak).unwrap_err().to_string().contains("not a bank"));
+    }
+
+    #[test]
+    fn a_shipped_bank_stops_the_pack() {
+        let id = 833622567;
+        let pak = ue_iostore::bank::bank_pak("c", &[(id, ue_iostore::bank::sample(id))]);
+        assert!(in_a_pak("shipped", &pak).unwrap_err().to_string().contains("ships"));
     }
 }
