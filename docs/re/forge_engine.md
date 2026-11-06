@@ -577,8 +577,11 @@ or -1, and the file's name ties it to its map anyway.
   sequence: `0x32f710`, `0x32bdb0`, `0x32f6a0`, `0x4d1b70` per entry,
   `0x32e300`. A held object is released through request 4 first and the
   load waits a tick.
-- **Revert** (F2): the same with `0x32cc00` for the copy; the file moves to
-  history.
+  With no `<CODE>.mvar`, the newest `<CODE>-*.mvar` in history moves back
+  first, which undoes a revert.
+- **Revert** (F2, a second press 0.3 to 4 s after the first, with no other
+  command between them): the same with `0x32cc00` for the copy; the file moves
+  to history.
 - **At game start, any engine:** the `call` at `0x2ace53` is pointed (rel32)
   at a 12-byte `mov rax, imm64; jmp rax` stub in a page allocated within 2 GB
   of the DLL, which calls `layout_new_map`: build from the scenario, then

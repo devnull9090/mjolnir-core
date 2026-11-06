@@ -51,7 +51,7 @@ aiming at or holding; the palette appears on the right.
 | Change target physics | **F3** |
 | Change position grid / rotation increment | **F4 / F10** |
 | Save / reload this map's saved layout | **F5 / F6** |
-| Restore the map's authored layout | **F2** |
+| Restore the map's authored layout | **F2** twice |
 
 Start with **F4: 0.5 m** and **F10: 90°**. These suit the rectangular kit.
 The position grid aligns an object's origin when it is placed or dropped;
@@ -219,8 +219,8 @@ automatically dock them or provide checkpoints and lap timing.
 
 **F5** saves one layout for the current map. **F6** replaces the current
 objects with that saved layout, so use it to check that your build restores
-correctly. **F2** returns to the map's authored layout and preserves the old
-save in history.
+correctly. **F2**, pressed twice, returns to the map's authored layout and
+preserves the old save in history; **F6** then brings that save back.
 
 A saved layout also applies when you host that map as Slayer or another game
 type. Return through the lobby and try the mode you intend people to play:

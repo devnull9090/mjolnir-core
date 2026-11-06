@@ -38,6 +38,22 @@ static int forge_retire_pair(const forge_file_ops *ops, const char *map, const c
     return FORGE_FILES_OK;
 }
 
+// Bring a retired pair back as the active one. It never replaces an active
+// file, and a save from before .packs existed comes back alone.
+static int forge_unretire_pair(const forge_file_ops *ops, const char *map, const char *side,
+                               const char *history_map, const char *history_side) {
+    int have_map = ops->exists(ops->context, history_map), have_side = ops->exists(ops->context, history_side);
+    if (have_map != 1 || have_side < 0) return FORGE_FILES_FAILED;
+    if (ops->exists(ops->context, map) != 0 || ops->exists(ops->context, side) != 0) return FORGE_FILES_FAILED;
+    // The .mvar becomes visible only after its matching sidecar is in place.
+    if (have_side && !ops->move(ops->context, history_side, side)) return FORGE_FILES_FAILED;
+    if (!ops->move(ops->context, history_map, map)) {
+        if (have_side && !ops->move(ops->context, side, history_side)) return FORGE_FILES_RECOVERY;
+        return FORGE_FILES_FAILED;
+    }
+    return FORGE_FILES_OK;
+}
+
 static int forge_publish_pair(const forge_file_ops *ops, const char *map, const char *side,
                               const char *staged_map, const char *staged_side,
                               const char *history_map, const char *history_side) {

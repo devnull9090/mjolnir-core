@@ -61,6 +61,7 @@
 #include <string.h>
 #include "pack_bindings.h"
 #include "layout_files.h"
+#include "layout_revert.h"
 #include "layout_blf.h"
 #include "layout_bounds.h"
 #include "utility_properties.h"
@@ -182,6 +183,7 @@ enum {
     CMD_PHYSICS = 1 << 21,
     CMD_GRID = 1 << 22,
     CMD_ROTATION_SNAP = 1 << 23,
+    CMD_REVERT_CONFIRMED = 1 << 24, // never a key: the second press, waiting out a drop
 };
 
 #define DISTANCE_STEP 0.5f
@@ -652,6 +654,7 @@ static uint8_t g_bits[MV_BITS_BYTES];
 static uint8_t g_file[MV_BITS_BYTES + 0x100];
 static int g_layout_pack_marker;
 static LONG g_deferred;              // commands to run again next tick (a load waits for a drop)
+static forge_confirm g_revert_confirm; // simulation thread only
 
 static void layout_note(const char *fmt, ...) {
     char text[sizeof g_layout];
@@ -743,6 +746,28 @@ static int layout_retire(const char *code) {
     if (!layout_history_paths(code, to, side_to)) return FORGE_FILES_FAILED;
     unsigned old;
     return forge_retire_pair(&g_layout_files, from, side, to, side_to, &old);
+}
+
+// The newest save of `code` in history, as a path and its sidecar's path.
+static int layout_history_newest(const char *code, char *map, char *side) {
+    char pattern[MAX_PATH], name[MAX_PATH] = "";
+    int n = snprintf(pattern, MAX_PATH, "%shistory\\%s-*.mvar", g_layouts_dir, code);
+    if (n < 0 || n >= MAX_PATH) return 0;
+    WIN32_FIND_DATAA found;
+    HANDLE find = FindFirstFileA(pattern, &found);
+    if (find == INVALID_HANDLE_VALUE) return 0;
+    forge_history_stamp best = {0, 0}, stamp;
+    do {
+        if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        if (forge_history_parse(found.cFileName, code, &stamp) && forge_history_newer(&stamp, &best)) {
+            best = stamp;
+            strncpy_s(name, sizeof name, found.cFileName, _TRUNCATE);
+        }
+    } while (FindNextFileA(find, &found));
+    FindClose(find);
+    if (!name[0]) return 0;
+    n = snprintf(map, MAX_PATH, "%shistory\\%s", g_layouts_dir, name);
+    return n >= 0 && n < MAX_PATH && layout_suffix(side, map, ".packs");
 }
 
 static int pack_for_tag(const char *tag, forge_pack_binding *out) {
@@ -1169,26 +1194,56 @@ static void layout_load(uint8_t *tls) {
         return;
     }
     int got = layout_read(code, why, sizeof why);
+    int restored = 0;
     if (got == 0) {
-        note("no saved layout for %s", code);
-        return;
+        // No active layout: undo F2 with the newest save in history. Once back
+        // it is the map's layout even if it refuses here: a layout that needs
+        // packs names them, and the launcher pins them on the next start.
+        char path[MAX_PATH], side[MAX_PATH], history[MAX_PATH], history_side[MAX_PATH];
+        layout_path(path, code);
+        if (!layout_history_newest(code, history, history_side) || !layout_suffix(side, path, ".packs")) {
+            note("no saved layout for %s", code);
+            return;
+        }
+        int back = forge_unretire_pair(&g_layout_files, path, side, history, history_side);
+        if (back != FORGE_FILES_OK) {
+            note(back == FORGE_FILES_RECOVERY
+                ? "load failed: recover the layout and .packs from history"
+                : "load failed: cannot restore the layout from history");
+            return;
+        }
+        restored = 1;
+        got = layout_read(code, why, sizeof why);
     }
-    if (got < 0) {
-        note("load failed: %s", why);
+    if (got <= 0) {
+        note("load failed: %s", got < 0 ? why : "the restored layout is missing");
         return;
     }
     mv_replace(tls, mv, 0);
-    note("loaded layout %s, %d objects", code, mv_objects(mv));
-    layout_note("%s: loaded in Forge, %d objects", code, mv_objects(mv));
+    note("%s layout %s, %d objects", restored ? "restored" : "loaded", code, mv_objects(mv));
+    layout_note("%s: %s in Forge, %d objects", code, restored ? "restored from history" : "loaded", mv_objects(mv));
+}
+
+// The first press of the revert key only says what the second would do.
+static void revert_ask(void) {
+    char code[64], path[MAX_PATH];
+    int saved = 0;
+    if (running_code(code, sizeof code)) {
+        layout_path(path, code);
+        saved = layout_file_exists(NULL, path) == 1;
+    }
+    note(saved ? "press again: saved layout goes to history" : "press again: map's own layout");
 }
 
 static void layout_revert(uint8_t *tls) {
-    char code[64];
+    char code[64], path[MAX_PATH];
     uint8_t *mv = (uint8_t *)g_mv_live();
     if (!mv || !running_code(code, sizeof code)) {
         note("nothing to revert here");
         return;
     }
+    layout_path(path, code);
+    int saved = layout_file_exists(NULL, path) == 1;
     int retired = layout_retire(code);
     if (retired != FORGE_FILES_OK) {
         note(retired == FORGE_FILES_RECOVERY
@@ -1197,8 +1252,8 @@ static void layout_revert(uint8_t *tls) {
         return;
     }
     mv_replace(tls, mv, 1);
-    note("reverted to the map's own layout");
-    layout_note("%s: the map's own layout (saved one moved to history)", code);
+    note(saved ? "reverted: saved layout moved to history" : "reverted to the map's own layout");
+    layout_note("%s: the map's own layout%s", code, saved ? " (saved one moved to history)" : "");
 }
 
 // New-map's call that builds the live variant from the scenario lands here:
@@ -1650,6 +1705,9 @@ static float entry_yaw(const uint8_t *e) {
 // ---- The simulation-thread side ---------------------------------------------------
 
 static void act(uint8_t *tls, int player, LONG commands) {
+    // The second press must follow the first: anything between them was
+    // another thought, and F2 after it asks again.
+    if (commands & ~(CMD_REVERT | CMD_REVERT_CONFIRMED)) g_revert_confirm.armed = 0;
     uint8_t *g = *(uint8_t **)(tls + TLS_ENGINE_GLOBALS);
     uint8_t *state = g + G_EDITOR_STATE + (size_t)player * EDITOR_STRIDE;
     uint32_t held = *(uint32_t *)(state + EDITOR_HELD);
@@ -1706,7 +1764,13 @@ static void act(uint8_t *tls, int player, LONG commands) {
     // Layouts work as the Monitor or the Spartan. Replacing the objects
     // waits a tick for a held one to be dropped the engine's way.
     if (commands & CMD_SAVE) layout_save();
-    if (commands & (CMD_LOAD | CMD_REVERT)) {
+    if (commands & CMD_REVERT) {
+        int press = forge_confirm_press(&g_revert_confirm, GetTickCount64());
+        commands &= ~CMD_REVERT;
+        if (press == FORGE_CONFIRM_ASK) revert_ask();
+        if (press == FORGE_CONFIRM_DONE) commands |= CMD_REVERT_CONFIRMED;
+    }
+    if (commands & (CMD_LOAD | CMD_REVERT_CONFIRMED)) {
         static int waited;
         if (held != 0xffffffffu && waited < 30) {
             if (waited++ == 0) {
@@ -1714,17 +1778,17 @@ static void act(uint8_t *tls, int player, LONG commands) {
                 memcpy(release, &held, 4);
                 send(player, REQ_RELEASE, release, sizeof release);
             }
-            InterlockedOr(&g_deferred, commands & (CMD_LOAD | CMD_REVERT));
+            InterlockedOr(&g_deferred, commands & (CMD_LOAD | CMD_REVERT_CONFIRMED));
         } else if (held != 0xffffffffu) {
             waited = 0;
             note("drop what you hold first");
-        } else if ((waited = 0), commands & CMD_REVERT) {
+        } else if ((waited = 0), commands & CMD_REVERT_CONFIRMED) {
             layout_revert(tls);
         } else {
             layout_load(tls);
         }
     }
-    commands &= ~(CMD_SAVE | CMD_LOAD | CMD_REVERT);
+    commands &= ~(CMD_SAVE | CMD_LOAD | CMD_REVERT_CONFIRMED);
     if (!commands) return;
 
     if (commands & CMD_TOGGLE) {

@@ -132,8 +132,8 @@ the target's physics mode. Live checks cover weapons, a Wide floor and a
 spawn marker; see the [validation record](../docs/forge_pack_validation.md)
 for their results and limits.
 
-Press **F5** to save, **F6** to reload the saved layout, or **F2** to restore the
-map's authored starting layout. Saved layouts also apply when the map is
+Press **F5** to save, **F6** to reload the saved layout, or **F2** twice to restore
+the map's authored starting layout. Saved layouts also apply when the map is
 played outside Forge. Keep both `<MAP>.mvar` and `<MAP>.mvar.packs` together
 when copying a save; the second file records its pack releases and palette
 bindings. The launcher resolves missing saved-layout packs before launch.
