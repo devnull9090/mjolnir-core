@@ -15,8 +15,8 @@ use crate::Error;
 const NODES: &str = "definitions.skeleton nodes";
 const EXTRA: &str = "additional node data";
 const USAGE: &str = "definitions.node usage";
-const ANIMATIONS: &str = "definitions.animations";
-const GROUPS: &str = "tag resource groups";
+pub(crate) const ANIMATIONS: &str = "definitions.animations";
+pub(crate) const GROUPS: &str = "tag resource groups";
 
 /// Bytes of a `skeleton nodes` element, and where its links sit.
 const NODE_SIZE: usize = 40;
@@ -76,7 +76,7 @@ pub struct Graph {
     pub groups: Vec<Option<Group>>,
 }
 
-fn tree_err<E: std::fmt::Display>(e: E) -> Error {
+pub(crate) fn tree_err<E: std::fmt::Display>(e: E) -> Error {
     Error::Tag(e.to_string())
 }
 
@@ -88,7 +88,7 @@ fn stored_index(v: Option<usize>) -> i16 {
     v.map_or(-1, |i| i as i16)
 }
 
-fn string_of(children: Option<&Vec<Value<'_>>>) -> String {
+pub(crate) fn string_of(children: Option<&Vec<Value<'_>>>) -> String {
     let text = children.and_then(|c| {
         c.iter().find_map(|v| match v {
             Value::StringId(b) => Some(*b),
@@ -106,7 +106,7 @@ fn offset_in(file: &[u8], part: &[u8]) -> usize {
     part.as_ptr() as usize - file.as_ptr() as usize
 }
 
-fn expect_size(block: &Block<'_>, size: usize, what: &str) -> Result<(), Error> {
+pub(crate) fn expect_size(block: &Block<'_>, size: usize, what: &str) -> Result<(), Error> {
     if block.element_size as usize != size {
         return Err(Error::Format(format!(
             "{what} elements are {} bytes, not {size}",

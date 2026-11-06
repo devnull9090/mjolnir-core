@@ -196,6 +196,16 @@ A joiner cannot enter a map that borrows a canvas world, with or without a map's
 player: the host puts it in the game, its session leaves, and it returns to the menu.
 So test a vehicle on a map with its own world.
 
+**10. A small graph over the stock one: passed.** `mjolnir jmad child` keeps only the
+animations a map changes and names the stock Spartan graph as its parent. The sim
+rebuilds the rest at load: the child holds 3 animations and 3 resource groups in
+526,650 bytes, and reads 50 modes in memory. A map carries 0.5 MB instead of 111 MB,
+and the graph no longer costs memory twice. A row a child keeps merges with the
+parent's, so `ghost_d` keeps its enter and exit. The driver's pose matches the full
+clone's to within 0.3 cm, and it holds through driving, getting out, walking and
+firing. A cut Warthog mode also played correctly through a parent. Not read yet: a
+child on two PCs, or the passenger's pose.
+
 Not covered: a joiner in the driver or passenger seat. At top speed wheel rate implies a radius of 0.197 wu against 0.174
 for the model, so `wheel circumferance` needs a steady-state check. Whether the
 25.6 degrees is CE's limit is unchecked. The prompt needs E held, not tapped.

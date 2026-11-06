@@ -212,6 +212,55 @@ whole graph. `node list checksum`, `frame_ID1`, `frame_ID2`,
 `animation_checksum` and `production checksum` are carried from the donor, and
 new nodes get zero. The load does not compare the node list checksum.
 
+## A graph that inherits
+
+```
+mjolnir jmad child full.jmad --parent 'objects\characters\spartans\spartans' \
+    --animation ghost_d:idle --animation ghost_d:grip --out child.jmad
+```
+
+The load rebuilds inheritance: it merges the parent's rows into a graph by label
+at every level (mode, weapon class, weapon type, set, actions, overlay animations,
+death and damage, transitions, vehicle suspension, function overlays), and a row
+the graph has itself wins. Overlay groups and IK sets are found at run time, by
+walking up the parent chain from a row that has none. A graph with a parent that
+changes a few animations therefore need only hold those animations. Cutting
+`content.modes` from a graph with a parent is proven in game, and so is a cut mode
+playing; a child built by this command has not run yet, and neither has a child
+row replacing a parent row that has an overlay group.
+
+`jmad child` writes that graph from a full one:
+
+- `animations` holds the animations named, in pool order. Their frames, events and
+  `ik chain events` are unchanged. `parent animation` and `next animation` follow
+  an animation that stayed, and otherwise clear, as `blend screen` does; the command
+  lists what it cleared.
+- Each kept animation keeps the row it is named for, by labels with `any` left out:
+  `warthog_p`, `rifle`, `any`, `any`, `idle` is `warthog_p:rifle:idle`. A row that
+  plays the same animation under another name is listed and left to the parent, so
+  it plays the parent's frames. An animation named for no row keeps every row that
+  plays it. An animation no action or overlay row plays is refused, as is a kept
+  weapon class with `ranged actions` or `sync actions groups`, whose rows hold
+  indices this does not translate.
+- Above those rows, only the elements on the way to them stay. `overlay group` and
+  `ik set` go to none at all five levels. Each kept mode, class and set keeps the
+  lists the merge does not fill in (`mode ik`, `foot defaults`, `weapon ik`,
+  `velocity boundaries`).
+- `tag resource groups` holds only the groups in use, renumbered, and each only the
+  members in use. A group's member count is in three places, which agree on all
+  178 shipped graphs (measured): its `reference_count`, the first word of its `tgdt`,
+  and its member block. The other two words of `tgdt` are carried. `--whole-groups`
+  keeps every member of a group in use, for a test that rules the cut out.
+- Emptied: `blend screens`, `NEW blend screens`, `NEW function overlays`,
+  `overlay groups`, `ik data`, `ik sets`, `ik chains`, `vehicle suspension`,
+  `function overlays` and the run time lists. Unchanged: the skeleton and everything
+  else the kept rows and animations index, including `gaits`, `gait groups`, sound
+  and effect references, `node masks` and `functions`.
+- `inheritance flags` is 0, and a graph whose private flags have 0x40 set is refused,
+  since the load does not compile it.
+
+On the Spartan, three animations take the graph from 111,037,420 bytes to 526,650.
+
 ## Checks
 
 `mjolnir jmad roundtrip` decodes every member, requires each file back byte

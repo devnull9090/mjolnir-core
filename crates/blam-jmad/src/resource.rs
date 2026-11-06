@@ -3,6 +3,8 @@
 //! The body is three nested sections around the members' records and blobs.
 //! Rebuilding it from its parts reproduces the bytes it came from.
 
+use std::collections::BTreeSet;
+
 use blam_tag::section::{read_at, Section};
 use blam_tag::write::raw_section;
 
@@ -66,6 +68,23 @@ impl Group {
             lead: lead.content.to_vec(),
             members,
         })
+    }
+
+    /// Keep only these members, and say so in the lead.
+    pub fn keep(&mut self, members: &BTreeSet<usize>) -> Result<(), Error> {
+        if self.lead.len() < 4 {
+            return Err(Error::Format("group lead too short".into()));
+        }
+        let mut at = 0;
+        self.members.retain(|_| {
+            at += 1;
+            members.contains(&(at - 1))
+        });
+        if self.members.len() != members.len() {
+            return Err(Error::Format("a kept member is not in its group".into()));
+        }
+        self.lead[..4].copy_from_slice(&(self.members.len() as u32).to_le_bytes());
+        Ok(())
     }
 
     /// The section body, ready to go back in the tag.

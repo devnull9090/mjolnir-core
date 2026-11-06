@@ -486,3 +486,100 @@ fn the_spartan_keeps_its_chains_through_an_edit() {
     plan.edits[0].frames = data.frames as usize + 1;
     assert!(rewrite(&file, &plan).is_err());
 }
+
+fn reference_counts(file: &[u8]) -> Vec<i64> {
+    let tag = blam_tag::TagFile::parse(file, None).unwrap();
+    let layout = tag.layout().unwrap();
+    let root = tag.read_data(&layout).unwrap();
+    let groups = blam_tag::blockedit::find_block(&layout, file, &root, "tag resource groups")
+        .unwrap()
+        .block
+        .count;
+    (0..groups)
+        .map(|i| {
+            let path = format!("tag resource groups[{i}].reference_count");
+            match blam_tag::patch::resolve(&layout, file, &root, &path).unwrap().current {
+                blam_tag::Scalar::Int(v) => v,
+                other => panic!("{path} is {}", other.display()),
+            }
+        })
+        .collect()
+}
+
+/// A group's reference count, the count in its lead and its members agree.
+fn check_groups(file: &[u8], g: &Graph) {
+    let counts = reference_counts(file);
+    assert_eq!(counts.len(), g.groups.len());
+    for (group, count) in g.groups.iter().flatten().zip(counts) {
+        assert_eq!(group.members.len() as i64, count);
+        let lead = u32::from_le_bytes(group.lead[..4].try_into().unwrap());
+        assert_eq!(group.members.len() as u32, lead);
+    }
+}
+
+/// Cut every graph down to three of its animations: each comes through
+/// untouched, and the groups stay consistent.
+#[test]
+fn a_child_keeps_its_animations_unchanged() {
+    let mut built = 0;
+    for p in corpus() {
+        let file = std::fs::read(&p).unwrap();
+        let full = Graph::read(&file).unwrap();
+        check_groups(&file, &full);
+        let own: Vec<_> = full.animations.iter().filter(|a| a.data.is_some()).collect();
+        if own.is_empty() {
+            continue;
+        }
+        let names: Vec<String> = [0, own.len() / 2, own.len() - 1]
+            .map(|i| own[i].name.clone())
+            .to_vec();
+        for whole_groups in [false, true] {
+            let made = match blam_jmad::child(&file, r"objectsparent", &names, whole_groups) {
+                Ok(made) => made,
+                Err(blam_jmad::Error::Unsupported(why)) => {
+                    eprintln!("{}: {why}", p.display());
+                    continue;
+                }
+                Err(e) => panic!("{}: {e}", p.display()),
+            };
+            built += 1;
+            let g = Graph::read(&made.file).unwrap();
+            assert!(g.write_resources(&made.file).unwrap() == made.file);
+            check_groups(&made.file, &g);
+            assert_eq!(g.nodes, full.nodes);
+            for a in &g.animations {
+                let was = full.animations.iter().find(|b| b.name == a.name).unwrap();
+                let member = g.member(a.data.as_ref().unwrap()).unwrap();
+                assert!(member == full.member(was.data.as_ref().unwrap()).unwrap());
+            }
+        }
+    }
+    eprintln!("{built} children built");
+}
+
+/// The Spartan's seats: three rows, and the truck's idle, which shares the
+/// Warthog's, stays with the parent.
+#[test]
+fn a_spartan_child_holds_only_the_named_rows() {
+    let Some(file) = tag("spartans.model_animation_graph") else {
+        return;
+    };
+    let names = ["ghost_d:idle", "ghost_d:grip", "warthog_p:rifle:idle"].map(String::from);
+    let made = blam_jmad::child(&file, r"objectsparent", &names, false).unwrap();
+    assert_eq!(
+        made.rows,
+        [
+            "ghost_d:idle (actions)",
+            "ghost_d:grip (overlay animations)",
+            "warthog_p:rifle:idle (actions)"
+        ]
+    );
+    assert_eq!(made.left_to_parent, ["truck_p:rifle:idle (actions)"]);
+    assert!(made.cleared.is_empty());
+    let g = Graph::read(&made.file).unwrap();
+    assert_eq!(g.animations.len(), 3);
+    assert_eq!(g.groups.len(), 3);
+    for m in g.groups.iter().flatten().flat_map(|group| &group.members) {
+        assert_eq!(m.nodes, 122);
+    }
+}

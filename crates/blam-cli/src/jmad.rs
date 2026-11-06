@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use blam_jmad::clip::Channel;
 use blam_jmad::member::{set_bits, Member, SEGMENTS};
-use blam_jmad::{rewrite, Clip, Graph, Skeleton, Spec};
+use blam_jmad::{child, rewrite, Clip, Graph, Skeleton, Spec};
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -48,6 +48,26 @@ enum JmadCommand {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Cut a graph down to the animations named, over a parent that supplies
+    /// the rest (docs/jmad_format.md). The output is a payload for
+    /// `new-tag --payload`.
+    Child {
+        /// The full `.model_animation_graph` file.
+        file: PathBuf,
+        /// The parent graph's tag path.
+        #[arg(long)]
+        parent: String,
+        /// An animation to keep. Repeatable.
+        #[arg(long = "animation", required = true)]
+        animations: Vec<String>,
+        /// Keep every member of a resource group in use, not only the kept
+        /// animations' own.
+        #[arg(long)]
+        whole_groups: bool,
+        /// Where to write the payload.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Write a graph's skeleton and the decoded frames of named animations as
     /// JSON, for tools that pose against it.
     Frames {
@@ -74,6 +94,13 @@ pub fn run(a: JmadArgs) -> Result<()> {
         JmadCommand::Info { file, nodes } => info(&file, nodes),
         JmadCommand::Roundtrip { path } => roundtrip(&path),
         JmadCommand::Rewrite { file, spec, out } => rewrite_file(&file, &spec, &out),
+        JmadCommand::Child {
+            file,
+            parent,
+            animations,
+            whole_groups,
+            out,
+        } => child_file(&file, &parent, &animations, whole_groups, &out),
         JmadCommand::Frames {
             file,
             animations,
@@ -220,6 +247,58 @@ fn roundtrip(path: &Path) -> Result<()> {
         bail!("{} failures", failed.len());
     }
     println!("every file came back byte for byte");
+    Ok(())
+}
+
+fn child_file(
+    file: &Path,
+    parent: &str,
+    names: &[String],
+    whole_groups: bool,
+    out: &Path,
+) -> Result<()> {
+    let bytes = read(file)?;
+    let made = child(&bytes, parent, names, whole_groups)?;
+
+    // Accept only what our own reader gets back, with each member untouched.
+    let full = Graph::read(&bytes)?;
+    let g = Graph::read(&made.file).context("the child does not read back")?;
+    if g.write_resources(&made.file)? != made.file {
+        bail!("the child is not stable through the reader");
+    }
+    for name in names {
+        let member = |graph: &'_ Graph| -> Option<Member> {
+            let a = graph.animations.iter().find(|a| a.name == *name)?;
+            graph.member(a.data.as_ref()?).cloned()
+        };
+        let (a, b) = (member(&full), member(&g));
+        if a.is_none() || a != b {
+            bail!("{name} did not come through unchanged");
+        }
+    }
+    std::fs::write(out, &made.file).with_context(|| format!("cannot write {}", out.display()))?;
+    println!(
+        "{} animations -> {}, {} resource groups -> {}",
+        full.animations.len(),
+        g.animations.len(),
+        full.groups.len(),
+        g.groups.len()
+    );
+    for row in &made.rows {
+        println!("  row  {row}");
+    }
+    for row in &made.left_to_parent {
+        println!("  left to the parent, which plays its own frames: {row}");
+    }
+    for what in &made.cleared {
+        println!("  cleared {what}");
+    }
+    println!(
+        "  payload {} bytes, from {} -> {}",
+        made.file.len(),
+        bytes.len(),
+        out.display()
+    );
     Ok(())
 }
 

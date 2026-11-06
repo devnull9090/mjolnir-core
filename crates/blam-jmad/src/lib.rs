@@ -6,10 +6,12 @@
 //! - [`resource`]: a `tag resource groups` body.
 //! - [`clip`]: an animation as poses, and the encoder to and from members.
 //! - [`graph`]: the tag as a whole, and [`graph::rewrite`].
+//! - [`mod@child`]: a graph cut down to a few animations over a parent.
 //! - [`spec`]: the JSON form of a rewrite.
 //!
 //! The format as far as it is established is in `docs/jmad_format.md`.
 
+pub mod child;
 pub mod clip;
 pub mod codec;
 pub mod graph;
@@ -17,6 +19,7 @@ pub mod member;
 pub mod resource;
 pub mod spec;
 
+pub use child::{child, Child};
 pub use clip::{Channel, Clip, Pose, Skeleton, Track};
 pub use graph::{rewrite, Graph, NodeSpec, Rewrite};
 pub use member::Member;
