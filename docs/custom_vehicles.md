@@ -163,6 +163,32 @@ bytes ship. `map pack` carries `vehicle_sounds.json` into `map/`. Without
 MJOLNIRLevelLoader 0.10.0 and the CE runtime such a map drives silent, with its
 lights floating.
 
+## Sounds from a bank
+
+`tools/level/ce_vehicle_audio.py` is the native route, for a Warthog clone. It plays
+through the game's own audio, so a vehicle built this way needs no
+`vehicle_sounds.json` row and the sliders work:
+
+```
+python tools/level/ce_vehicle_audio.py <ce_vehicle_sounds.py's out dir> <out dir> \
+    --class BP_VHTMongoose_C --code RWC --name Mongoose \
+    --actor <folder>/<actor container> \
+    --vehi <folder>/<vehicle tag's container> --vehi-tag <vehicle tag path>
+```
+
+- **Engine.** Its pitch ranges become looping sounds in one bank, with Pitch and Volume
+  curves on `RTPC_VEH_Speed`. The Blueprint keeps its engine loop, pointed at that
+  sound, and its `Audio_EngineTick` sets the RTPC. The Banshee's graph has no
+  `SoundVariant_EngineLoop`, so a Banshee clone gets no engine this way.
+- **Horn.** With `--vehi`, a clone of the Warthog's horn weapon and its Blueprint. Hold
+  fire, as in a Warthog. CE's horn runs on crouch.
+- **Containers.** `pakchunk996-MJOLNIRBANK-<CODE>_P` holds the banks in its `.pak`, so a
+  map's `map pack` picks it up by name. `pakchunk996-MJOLNIRVWEAP-<CODE>_P` holds the
+  weapon.
+
+Published maps can't use this yet: the hub and launcher don't take a `.pak`
+(docs/ce_native_support.md, result 13).
+
 ## Not done
 
 - The vehicle data asset keeps the Warthog's HUD icons. Kill feed text is not traced.

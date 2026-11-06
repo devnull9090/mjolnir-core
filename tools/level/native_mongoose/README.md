@@ -19,7 +19,7 @@ content.
 
 ## Sound spike
 
-`sound/` built result 12 in `docs/ce_native_support.md`: a Wwise bank of our own, with events and tags that play it. Like the rest of this folder it is experiment code.
+`sound/` built result 12 in `docs/ce_native_support.md`: a Wwise bank of our own, with events and tags that play it. Like the rest of this folder it is experiment code. The engine and horn have moved on to `tools/level/ce_vehicle_audio.py` and `wwise_bank.py`, which take nothing by hand: use those.
 
 It reads from `$MJ_NATIVE_WORK/sound`, which you fill by hand: `x/` holds packages and banks extracted from the game, and `ce/` holds decoded CE sounds. `actor/w` under `MJ_NATIVE_WORK` holds the native actor container for the engine's third step. Build the tools with `cargo build --release` in `sound/tool`, and the repository's `mjolnir` and `ue-asset` examples in release.
 
@@ -30,4 +30,4 @@ It reads from `$MJ_NATIVE_WORK/sound`, which you fill by hand: `x/` holds packag
 | `build_horn.py`, `build_engine.py` | Build every test container into `out/` |
 | `tool/` | Clone shipped event, sound and actor packages under new names |
 | `lua/` | Run through the game bridge: load, post, loop, stop, and read the engine values |
-| `meter.ps1` | The game's output level, from Windows. The game must have focus |
+| `meter.ps1` | The game's output level, from Windows. The game must have focus. It reads 0 for a Blueprint's engine and horn, so listen instead |
