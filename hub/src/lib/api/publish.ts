@@ -48,6 +48,7 @@ const MAX_PART_BYTES = 64 * 1024 * 1024;
 import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
 import { compareForgeVersions, ForgePackSchema, forgeUpdateIssues, sameForgeLine } from "./forge";
+import type { MapBlock } from "./manifest";
 
 type Ctx = Context<ApiEnv>;
 
@@ -162,6 +163,43 @@ export function needsReview(
 ): boolean {
   if (!carries.map && carries.banks === 0) return false;
   return user.role === "user" && (user.trust_level ?? 0) < MAP_REVIEW_TRUST_LEVEL;
+}
+
+/** Writes a release's map block to its mod's listing, for the moment it
+ *  publishes: the listing is public, so a held release never touches it.
+ *
+ *  Catalog metadata is optional in the manifest, so a release that leaves a
+ *  field out keeps what the listing says (an earlier release's, or a
+ *  moderator's). A moderator's `classic` origin is never overwritten by an
+ *  author's. */
+export function mapListingUpsert(db: ApiEnv["Bindings"]["DB"], modId: string, map: MapBlock) {
+  return db
+    .prepare(
+      `INSERT INTO map_listings (mod_id, code, title, modes, size, players_min, players_max,
+                                 vehicles, origin, game)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+       ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
+         size = COALESCE(excluded.size, size),
+         players_min = COALESCE(excluded.players_min, players_min),
+         players_max = COALESCE(excluded.players_max, players_max),
+         vehicles = COALESCE(excluded.vehicles, vehicles),
+         game = COALESCE(excluded.game, game),
+         origin = CASE WHEN origin = 'classic' THEN origin
+                       ELSE COALESCE(excluded.origin, origin) END,
+         updated_at = datetime('now')`,
+    )
+    .bind(
+      modId,
+      map.code,
+      map.title,
+      JSON.stringify(map.modes),
+      map.size ?? null,
+      map.players?.min ?? null,
+      map.players?.max ?? null,
+      map.vehicles === undefined ? null : map.vehicles ? 1 : 0,
+      map.origin ?? null,
+      map.game ?? null,
+    );
 }
 
 export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
@@ -715,13 +753,23 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       }
 
       // A map claims its codename: the game's map registry keys by it, so
-      // one listing owns a code for good (docs/map_distribution.md).
+      // one listing owns a code for good (docs/map_distribution.md). A held
+      // release has no listing to do that, so one in the queue holds its code
+      // the same way until a moderator decides. Only one in the queue: a
+      // release out of it could hold a code where no moderator can free it.
       const map = scan.manifest?.type === "map" ? (scan.manifest.map ?? null) : null;
       if (map) {
-        const holder = await c.env.DB.prepare(`SELECT mod_id FROM map_listings WHERE code = ?1`)
-          .bind(map.code)
+        const holder = await c.env.DB.prepare(
+          `SELECT mod_id FROM map_listings WHERE code = ?1 AND mod_id <> ?2
+           UNION ALL
+           SELECT r.mod_id FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
+           WHERE rv.state = 'pending' AND r.status = 'pending' AND r.mod_id <> ?2
+             AND json_extract(r.map_json, '$.code') = ?1
+           LIMIT 1`,
+        )
+          .bind(map.code, release.mod_id as string)
           .first<{ mod_id: string }>();
-        if (holder && holder.mod_id !== release.mod_id) {
+        if (holder) {
           scan.findings.push({
             level: "error",
             code: "map_code_taken",
@@ -760,7 +808,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(
           `UPDATE mod_releases
            SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6,
-               forge_pack_json = ?7, banks_json = ?8
+               forge_pack_json = ?7, banks_json = ?8, map_json = ?9
            WHERE id = ?1`,
         ).bind(
           id,
@@ -771,6 +819,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           streamed.size,
           scan.verdict === "pass" && forgePack ? JSON.stringify(forgePack) : null,
           JSON.stringify(scan.banks),
+          scan.verdict === "pass" && map ? JSON.stringify(map) : null,
         ),
         c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
@@ -788,38 +837,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           );
         }
       }
-      if (map && scan.verdict === "pass") {
-        // Catalog metadata is optional in the manifest, so a release that
-        // leaves a field out keeps what the listing says (an earlier
-        // release's, or a moderator's). A moderator's `classic` origin is
-        // never overwritten by an author's.
-        statements.push(
-          c.env.DB.prepare(
-            `INSERT INTO map_listings (mod_id, code, title, modes, size, players_min, players_max,
-                                       vehicles, origin, game)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(mod_id) DO UPDATE SET code = ?2, title = ?3, modes = ?4,
-               size = COALESCE(excluded.size, size),
-               players_min = COALESCE(excluded.players_min, players_min),
-               players_max = COALESCE(excluded.players_max, players_max),
-               vehicles = COALESCE(excluded.vehicles, vehicles),
-               game = COALESCE(excluded.game, game),
-               origin = CASE WHEN origin = 'classic' THEN origin
-                             ELSE COALESCE(excluded.origin, origin) END,
-               updated_at = datetime('now')`,
-          ).bind(
-            release.mod_id as string,
-            map.code,
-            map.title,
-            JSON.stringify(map.modes),
-            map.size ?? null,
-            map.players?.min ?? null,
-            map.players?.max ?? null,
-            map.vehicles === undefined ? null : map.vehicles ? 1 : 0,
-            map.origin ?? null,
-            map.game ?? null,
-          ),
-        );
+      if (map && finalStatus === "published") {
+        statements.push(mapListingUpsert(c.env.DB, release.mod_id as string, map));
       }
       if (held) {
         statements.push(

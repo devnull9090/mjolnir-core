@@ -2108,7 +2108,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "What the release carries, which may not be the listing's yet; the listing's if it carries no map."
           },
           "map_title": {
             "type": [
@@ -8959,7 +8960,7 @@
           "moderation"
         ],
         "summary": "Approve or reject a release awaiting review (moderators)",
-        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author reads as `review_reason` on `GET /mods/{slug}/releases/all`.",
+        "description": "Approval publishes the release, and its mod with it if this is the mod's first, and writes the map it carries to the listing. Rejection marks it rejected with the reason, which the author reads as `review_reason` on `GET /mods/{slug}/releases/all`, and leaves the listing as it was.",
         "parameters": [
           {
             "schema": {
@@ -9029,7 +9030,7 @@
             }
           },
           "409": {
-            "description": "The archive has changed since the queue was read.",
+            "description": "The archive has changed since the queue was read, or another map has the release's code.",
             "content": {
               "application/json": {
                 "schema": {

@@ -13,6 +13,8 @@ import type { ApiEnv } from "./bindings";
 import { getTool } from "../tools";
 import { authenticate, rateLimit } from "./auth";
 import { requireModerator } from "./account";
+import type { MapBlock } from "./manifest";
+import { mapListingUpsert } from "./publish";
 import { ErrorSchema, FindingSchema } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
@@ -497,7 +499,9 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         description: "`draft` until its first release is approved; the mod's page 404s until then.",
       }),
       version: z.string(),
-      map_code: z.string().nullable(),
+      map_code: z.string().nullable().openapi({
+        description: "What the release carries, which may not be the listing's yet; the listing's if it carries no map.",
+      }),
       map_title: z.string().nullable(),
       file_size: z.number().nullable(),
       sha256: z.string().nullable().openapi({
@@ -539,10 +543,14 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
     async (c) => {
       await requireModerator(c);
       const { state } = c.req.valid("query");
+      // The release's own map block, since a first release has no listing yet
+      // and an update's may differ. The listing answers for one with no block,
+      // which is a release with no map or one scanned before the hub kept it.
       const rows = await c.env.DB.prepare(
         `SELECT rv.release_id, rv.state, rv.reason, rv.created_at, r.version, r.file_size,
                 r.sha256, r.banks_json, m.slug AS mod_slug, m.name AS mod_name, m.status AS mod_status,
-                ml.code AS map_code, ml.title AS map_title,
+                COALESCE(json_extract(r.map_json, '$.code'), ml.code) AS map_code,
+                COALESCE(json_extract(r.map_json, '$.title'), ml.title) AS map_title,
                 COALESCE(u.display_name, u.discord_username) AS uploader,
                 (SELECT s.findings FROM release_scans s WHERE s.release_id = r.id
                  ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1) AS findings
@@ -589,8 +597,9 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       summary: "Approve or reject a release awaiting review (moderators)",
       description:
         "Approval publishes the release, and its mod with it if this is the " +
-        "mod's first. Rejection marks it rejected with the reason, which the " +
-        "author reads as `review_reason` on `GET /mods/{slug}/releases/all`.",
+        "mod's first, and writes the map it carries to the listing. Rejection " +
+        "marks it rejected with the reason, which the author reads as " +
+        "`review_reason` on `GET /mods/{slug}/releases/all`, and leaves the listing as it was.",
       request: {
         params: z.object({ id: z.string() }),
         body: {
@@ -616,7 +625,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
         403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
         404: { description: "No such pending review.", content: { "application/json": { schema: ErrorSchema } } },
-        409: { description: "The archive has changed since the queue was read.", content: { "application/json": { schema: ErrorSchema } } },
+        409: { description: "The archive has changed since the queue was read, or another map has the release's code.", content: { "application/json": { schema: ErrorSchema } } },
       },
     }),
     async (c) => {
@@ -624,11 +633,15 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       const { id } = c.req.valid("param");
       const { action, reason, sha256 } = c.req.valid("json");
       const pending = await c.env.DB.prepare(
-        `SELECT r.mod_id, r.sha256 FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
+        `SELECT r.mod_id, r.sha256, r.map_json,
+                EXISTS (SELECT 1 FROM mod_releases n
+                        WHERE n.mod_id = r.mod_id AND n.status = 'published'
+                          AND n.created_at > r.created_at) AS superseded
+         FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
          WHERE rv.release_id = ?1 AND rv.state = 'pending' AND r.status = 'pending'`,
       )
         .bind(id)
-        .first<{ mod_id: string; sha256: string | null }>();
+        .first<{ mod_id: string; sha256: string | null; map_json: string | null; superseded: number }>();
       if (!pending) {
         return c.json({ error: "not_found", message: "This release is no longer waiting for review." }, 404);
       }
@@ -649,6 +662,11 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
           approve ? "published" : "rejected",
         ),
       ];
+      // The listing follows the newest published release, so one approved after
+      // a newer one publishes without taking the listing back. No block means
+      // no map, or a scan from before the hub kept it: nothing to apply.
+      const map =
+        approve && pending.map_json && !pending.superseded ? (JSON.parse(pending.map_json) as MapBlock) : null;
       if (approve) {
         statements.push(
           c.env.DB.prepare(
@@ -657,7 +675,23 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
           ).bind(pending.mod_id),
         );
       }
-      await c.env.DB.batch(statements);
+      if (map) statements.push(mapListingUpsert(c.env.DB, pending.mod_id, map));
+      try {
+        await c.env.DB.batch(statements);
+      } catch (e) {
+        // A held code stops a later scan, but two in the same instant can't see
+        // each other, and the listing's own constraint is what settles it.
+        if (map && String(e).includes("UNIQUE")) {
+          return c.json(
+            {
+              error: "map_code_taken",
+              message: `Another map has the code ${map.code} now. Reject this one so the author can pick another.`,
+            },
+            409,
+          );
+        }
+        throw e;
+      }
       await audit(c, auth.user.id, `release_${action}`, "release", id, reason);
       return c.json({ ok: true }, 200);
     },
