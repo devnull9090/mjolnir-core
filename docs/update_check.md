@@ -46,6 +46,42 @@ deleted) by the next launcher at startup (App.tsx):
 It is never a replay: what is out of date is checked afresh. A failed
 launcher install deletes the note, and a note older than an hour is ignored.
 
+## A mods release waits for the launcher
+
+Because the launcher updates first, a mods release only has to suit the launcher
+players are offered, but it does have to suit that one. A launcher compiles in
+its variant validator: `check_mglo` (apps/launcher/src-tauri/src/hub.rs) runs
+`Variant::validate` from the `crates/blam-megalo` it was built with, and refuses
+a mod holding a `.mglo` that validator cannot read. A mods tag built from newer
+Megalo code can therefore ship game types that launcher refuses, and the launch
+check has no way to launch out of date.
+
+`mods-v0.44.0` did this on 2026-11-05. Launcher 0.21.0 refused 8 of its 13 game
+types (`not modelled: number operand kind 1/6`), so players could start the game
+from Steam but not through the launcher.
+
+So `release-mods.yml` tries it first. Once `build-game-types` has written the
+game types, it checks out the released launcher's tag and runs that tag's own
+validator over every `variants/*.mglo`, through the `validate_mglo` example in
+`crates/blam-megalo`. A refusal fails the job, naming each file and the error,
+and the `release` job that signs and publishes never starts.
+
+- **Released means offered to players.** The check asks `/api/releases/latest`,
+  the endpoint the updater and `check_launcher` read, rather than taking the
+  newest `launcher-v*` tag. A tag exists from the moment it is pushed, and its
+  GitHub release goes public before the R2 upload that reaches players, so if
+  that upload failed GitHub would show a fix players cannot get. A stale answer
+  names the older launcher, so it can only hold a release back, and no answer
+  stops the release as well.
+- **When it fails, the launcher goes first.** Nothing was signed or published, so
+  the mods tag can stay. Tag the launcher, wait for `/api/releases/latest` to name
+  it (a minute or two after its release workflow finishes), then re-run the
+  mods workflow, which checks against whatever is released by then:
+
+  ```bash
+  gh run rerun <run id> --failed
+  ```
+
 ## The launch check
 
 Every Launch goes through `launch/PreflightProvider.tsx`. So does a

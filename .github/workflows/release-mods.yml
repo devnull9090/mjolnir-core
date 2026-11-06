@@ -136,6 +136,53 @@ jobs:
             echo "$(basename "$f") sha256 $(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
           done
 
+      # A launcher compiles in its variant validator and refuses a mod holding
+      # a .mglo it cannot read, so game types built from newer code than the
+      # launcher players have stop them at the launch check, with no way past
+      # it. mods-v0.44.0 did that with 8 of its 13 game types on launcher
+      # 0.21.0 (docs/update_check.md, "A mods release waits for the launcher").
+      #
+      # The launcher that counts is the one the updater is offering, so this
+      # asks the endpoint the updater reads rather than taking the newest tag:
+      # a tag exists from the moment it is pushed, and its GitHub release goes
+      # public before the R2 upload that actually reaches players. It answers
+      # 503 rather than guess, so an outage stops the release here too.
+      - name: Find the launcher players are offered
+        id: launcher
+        run: |
+          set -euo pipefail
+          version=$(curl -fsS --retry 3 --retry-all-errors --max-time 30 \
+            https://mjolnircore.com/api/releases/latest | jq -er .version)
+          echo "tag=launcher-v$version" >> "$GITHUB_OUTPUT"
+
+      # The whole tag, not just crates/blam-megalo: the crate inherits from the
+      # workspace root, and cargo loads that only with every member in place.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.launcher.outputs.tag }}
+          path: launcher-src
+
+      # That tag's validator and lockfile; only the small example that calls
+      # it comes from this commit. --release because that is how the launcher
+      # ships: a dev build's overflow checks could panic where it would not.
+      - name: Check that launcher accepts every game type
+        env:
+          LAUNCHER_TAG: ${{ steps.launcher.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cp crates/blam-megalo/examples/validate_mglo.rs launcher-src/crates/blam-megalo/examples/
+          cargo build -q --release --locked --manifest-path launcher-src/Cargo.toml \
+            -p blam-megalo --example validate_mglo
+          status=0
+          report=$(launcher-src/target/release/examples/validate_mglo variants/*.mglo) || status=$?
+          echo "$report"
+          echo "$LAUNCHER_TAG: $(tail -n 1 <<< "$report")" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 1 ]; then
+            sed -n "s/^refused /::error::$LAUNCHER_TAG refuses /p" <<< "$report"
+            echo "::error::Nothing was signed or published. The launcher has to be tagged first: tag it, wait for /api/releases/latest to name it, then re-run this workflow."
+          fi
+          exit "$status"
+
       - uses: actions/upload-artifact@v4
         with:
           name: game_types

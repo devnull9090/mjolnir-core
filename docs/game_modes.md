@@ -805,7 +805,9 @@ hub validator links `blam-megalo` too. Release order for script traits
 (`juggernaut`, `stalker`, `reverse_tag`): a `launcher-v*` built from this code
 goes first, then `mods-v*`. Launcher 0.21.0 and older refuse those variants, so
 a mods update stops part way and stays unsaved until the launcher moves on. A
-manifest field cannot help, because those launchers would not read it. Each map needs `add_objectives.py` and a
+manifest field cannot help, because those launchers would not read it, so
+`release-mods.yml` stops a mods tag the released launcher would refuse
+(update_check.md, "A mods release waits for the launcher"). Each map needs `add_objectives.py` and a
 hub release before it offers King, Oddball or Race.
 
 Tested on PC 1, 2026-11-04, on the rebaked Blood Gulch and Prisoner, private, one player with bots:
