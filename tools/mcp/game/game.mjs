@@ -12,7 +12,10 @@
 //   the bridge mod   in-process Lua and console commands, over files in
 //                    ue4ss/mjolnir-bridge (see mods/MJOLNIRBridge)
 //   capture.ps1      screenshots of the game window
-//   input.ps1        keyboard and mouse, for menus the console cannot reach
+//   the test input   keys, buttons and look for the player, from inside the
+//   DLL              game: no OS input, no focus change (see
+//                    native/test_input and in_game_input.mjs)
+//   input.ps1        SendInput, for the screens that need the real cursor
 //
 // Prefer the bridge. A value read by reflection is exact; a value read off a
 // screenshot is a guess about pixels.
@@ -26,6 +29,7 @@ import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { parseAck, toScript } from "./in_game_input.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -113,6 +117,7 @@ function paths() {
     modsTxt: path.join(ue4ss, "Mods", "mods.txt"),
     bridgeMod: path.join(ue4ss, "Mods", "MJOLNIRBridge", "Scripts", "main.lua"),
     bridge: path.join(ue4ss, "mjolnir-bridge"),
+    testInputDll: path.join(ue4ss, "Mods", "MJOLNIRBridge", "native", "mjolnir_test_input.dll"),
     ue4ssLog: path.join(ue4ss, "UE4SS.log"),
     saved,
     userSettings: path.join(saved, "Config", "Windows", "GameUserSettings.ini"),
@@ -579,7 +584,7 @@ define({
     "Load a level with `open`. Takes a short key (a30, b30, ...) or a full /Game/... package path. " +
     "WARNING: doing this from the frontend menu crashes the game — verified 2026-07-27, access violation " +
     "a couple of minutes into the load. `open` skips the mission setup the campaign flow performs, so use " +
-    "game_input to start a mission through the menus and keep this for level-to-level travel once in game.",
+    "game_input method:'sendinput' to start a mission through the menus and keep this for level-to-level travel once in game.",
   inputSchema: {
     type: "object",
     properties: {
@@ -597,7 +602,7 @@ define({
         content: [{
           type: "text",
           text: "refusing to `open` from the frontend menu: that crashed the game on 2026-07-27. " +
-            "Start a mission through the menus with game_input first. Pass force:true to try anyway.",
+            "Start a mission through the menus with game_input method:'sendinput' first. Pass force:true to try anyway.",
         }],
         isError: true,
       };
@@ -675,13 +680,91 @@ define({
   },
 });
 
+// The test input DLL's worker, started if it is not running. Returns an error
+// for the caller, or null. Never falls back to SendInput: that would take the
+// user's mouse and keyboard without being asked to.
+let testInputPid = null;
+let testInputCounts = { reads: 0, delivered: 0 };
+
+async function enableTestInput(pid) {
+  if (testInputPid === pid) return null;
+  const { bridge, testInputDll } = paths();
+  if (!fs.existsSync(testInputDll)) {
+    return `${testInputDll} is not installed. Run native/test_input/build.ps1, then scripts/install-bridge.ps1 ` +
+      "with the game closed. Or pass method:'sendinput', which takes the desktop's mouse, keyboard and focus.";
+  }
+  const status = path.join(bridge, "input_status.txt");
+  fs.rmSync(status, { force: true });
+  const dll = testInputDll.replaceAll("\\", "/");
+  const reply = await bridgeCall(
+    "lua",
+    `local enable, err = package.loadlib([[${dll}]], "mjolnir_test_input_enable")\n` +
+      `if not enable then error(err) end\nenable()`
+  );
+  if (!reply.ok) return `could not load the test input DLL: ${reply.body}`;
+  // A worker that was already running has no news; a new one scans the exe.
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(status)) {
+      const line = fs.readFileSync(status, "utf8").trim();
+      if (!line.startsWith("ok")) return `the test input DLL refused: ${line}`;
+      testInputPid = pid;
+      testInputCounts = { reads: 0, delivered: 0 };
+      return null;
+    }
+    await sleep(20);
+  }
+  return null; // a worker from before this server started has no news
+}
+
+async function inGameInput(steps, gapMs, pid) {
+  let script;
+  try {
+    script = toScript(steps, gapMs);
+  } catch (error) {
+    return { content: [{ type: "text", text: `input failed: ${error.message}` }], isError: true };
+  }
+  const refused = await enableTestInput(pid);
+  if (refused) return { content: [{ type: "text", text: `input failed: ${refused}` }], isError: true };
+
+  const { bridge } = paths();
+  const ackFile = path.join(bridge, "input_ack.txt");
+  const id = Date.now() % 1_000_000_000;
+  fs.rmSync(ackFile, { force: true });
+  const temporary = path.join(bridge, `input_cmd.${id}.tmp`);
+  fs.writeFileSync(temporary, [`id ${id}`, ...script.lines, ""].join("\n"));
+  fs.renameSync(temporary, path.join(bridge, "input_cmd.txt"));
+
+  const deadline = Date.now() + script.duration + 5_000;
+  while (Date.now() < deadline) {
+    const ack = fs.existsSync(ackFile) ? parseAck(fs.readFileSync(ackFile, "utf8"), id) : null;
+    if (ack) {
+      if (!ack.ok) return { content: [{ type: "text", text: `input failed: ${ack.error}` }], isError: true };
+      const reads = ack.reads - testInputCounts.reads;
+      const delivered = ack.delivered - testInputCounts.delivered;
+      testInputCounts = ack;
+      return text(`${script.done.join("\n")}\nsimulation reads this call: ${reads}, carrying our input: ${delivered}`);
+    }
+    await sleep(20);
+  }
+  return {
+    content: [{ type: "text", text: "input failed: the test input worker did not answer. Is the game still running?" }],
+    isError: true,
+  };
+}
+
 define({
   name: "game_input",
   description:
-    "Send keyboard and mouse input to the game window, for the menus the console cannot reach " +
-    "(player movement through it is unverified on CU4). Steals focus while it runs. Steps: " +
-    "{key:'Enter'}, {key:'W',hold:800}, {key:'Shift',down:true}, {mouse:'left',hold:60}, " +
-    "{move:[dx,dy]}, {click:[x,y]} (absolute, window client space: what the frontend menu needs), {wait:500}.",
+    "Drive the player: keys, mouse buttons and look reach the simulation from inside the game, with no OS " +
+    "input and no focus change, so the game can sit in the background and the desktop's mouse and keyboard " +
+    "are untouched. Reaches the player only, not menus. Needs mjolnir_test_input.dll in the bridge mod. " +
+    "Steps: {key:'E',hold:800}, {key:'Shift',down:true}, {key:'Shift',up:true}, {mouse:'left',hold:60}, " +
+    "{mouse:'left',down:true}, {move:[dx,dy]} (mouse counts), {release:true} (everything up), {wait:500}. " +
+    "The reply counts the simulation's reads during the call: zero means no simulation is running, or the " +
+    "hook is not on the object it reads. " +
+    "method:'sendinput' uses SendInput instead, for menus and other screens: it takes the desktop's mouse, " +
+    "keyboard and focus while it runs, and adds {click:[x,y]} (absolute, window client space).",
   inputSchema: {
     type: "object",
     properties: {
@@ -691,6 +774,11 @@ define({
         items: { type: "object" },
       },
       gap_ms: { type: "number", description: "Pause between steps, default 60." },
+      method: {
+        type: "string",
+        enum: ["game", "sendinput"],
+        description: "'game' (default) from inside the game; 'sendinput' through the desktop, stealing focus.",
+      },
     },
     required: ["steps"],
   },
@@ -699,6 +787,7 @@ define({
     if (!running) return { content: [{ type: "text", text: "the game is not running." }], isError: true };
     const hung = hungThreadError("input");
     if (hung) return hung;
+    if ((args.method ?? "game") === "game") return inGameInput(args.steps, args.gap_ms ?? 60, running.pid);
     const flags = ["-ProcessName", PROCESS_NAME, "-Steps", JSON.stringify(args.steps)];
     if (args.gap_ms !== undefined) flags.push("-GapMs", String(args.gap_ms));
     // The steps' own waits and holds, plus the gaps, plus room to focus.
