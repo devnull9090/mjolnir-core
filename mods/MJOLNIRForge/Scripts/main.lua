@@ -26,8 +26,10 @@
 --   Up / Down      the previous / next object in the category
 --   F5         save: this map's layout, to layouts\<MAP>.mvar (the old one
 --              goes to layouts\history)
---   F6         load: the saved layout, replacing the objects on the map now
---   F2         revert: the map's own layout (the saved one goes to history)
+--   F6         load: the saved layout, replacing the objects on the map now;
+--              with none saved, the newest one in history comes back
+--   F2         revert, on a second press: the map's own layout (the saved
+--              one goes to history)
 --   K / L      the target's team (neutral, red, blue) / Megalo label
 --   J / O      the target's respawn time / spawn order
 --   P          the target teleporter's channel (sender and receiver must match)
