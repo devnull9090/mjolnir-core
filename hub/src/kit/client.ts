@@ -455,7 +455,7 @@ export class HubClient {
     });
   }
 
-  /** Community releases (maps) awaiting review. Moderators only. */
+  /** Community releases (maps, and anything with banks) awaiting review. Moderators only. */
   async listReleaseReviews(state: QueuedRelease["state"] = "pending"): Promise<QueuedRelease[]> {
     const r = await this.call<{ releases: QueuedRelease[] }>({
       method: "GET",
@@ -465,11 +465,17 @@ export class HubClient {
     return r.releases;
   }
 
-  decideRelease(id: string, action: "approve" | "reject", reason?: string): Promise<{ ok: boolean }> {
+  /** `sha256` pins the decision to the archive read: the hub refuses it if that has since changed. */
+  decideRelease(
+    id: string,
+    action: "approve" | "reject",
+    reason?: string,
+    sha256?: string,
+  ): Promise<{ ok: boolean }> {
     return this.call({
       method: "POST",
       path: `/moderation/releases/${encodeURIComponent(id)}`,
-      body: { action, reason: reason || undefined },
+      body: { action, reason: reason || undefined, sha256: sha256 || undefined },
     });
   }
 

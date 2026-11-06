@@ -75,6 +75,25 @@ async function ownedRelease(c: Ctx, releaseId: string) {
   return { user, release: row };
 }
 
+/** Claims a release for a new archive, before its bytes change. A review is of
+ *  one archive, so a new one starts it over: the release rejoins the queue when
+ *  /complete scans it. A 409 if the release left pending or rejected since the
+ *  caller looked. */
+async function openForArchive(c: Ctx, id: string) {
+  const [release] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE mod_releases SET status = 'pending', sha256 = NULL
+       WHERE id = ?1 AND status IN ('pending', 'rejected')`,
+    ).bind(id),
+    c.env.DB.prepare(`DELETE FROM release_reviews WHERE release_id = ?1 AND state = 'pending'`).bind(id),
+  ]);
+  if (!release.meta.changes) {
+    throw new HTTPException(409, {
+      res: c.json({ error: "immutable", message: "Release is no longer open for upload." }, 409),
+    });
+  }
+}
+
 /** Trust level from which a release publishes without review. */
 export const MAP_REVIEW_TRUST_LEVEL = 2;
 
@@ -289,6 +308,8 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
 
       const key = `releases/${id}.mjolnir`;
       const hash = await sha256Hex(bytes);
+      // The body can take minutes to arrive, so the status read above is old.
+      await openForArchive(c, id);
       await c.env.MODS_BUCKET.put(key, bytes as unknown as ArrayBuffer);
       await c.env.DB.prepare(
         `UPDATE mod_releases
@@ -461,6 +482,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       const { id, upload_id } = c.req.valid("param");
       const { parts } = c.req.valid("json");
       await uploadableRelease(c, id);
+      await openForArchive(c, id);
       const key = `releases/${id}.mjolnir`;
       const upload = c.env.MODS_BUCKET.resumeMultipartUpload(key, upload_id);
       const obj = await upload.complete(parts.map((p) => ({ partNumber: p.part, etag: p.etag })));
@@ -752,6 +774,10 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
                reviewed_by = NULL, reviewed_at = NULL`,
           ).bind(id),
         );
+      } else {
+        // Refused this time, or published by an author trusted since: either
+        // way there is nothing left for a moderator to decide.
+        statements.push(c.env.DB.prepare(`DELETE FROM release_reviews WHERE release_id = ?1`).bind(id));
       }
       if (signingKeyId) {
         statements.push(

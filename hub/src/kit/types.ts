@@ -666,6 +666,8 @@ export interface QueuedRelease {
   map_code: string | null;
   map_title: string | null;
   file_size: number | null;
+  /** The scanned archive; pass it to `decideRelease` to pin a decision to it. */
+  sha256: string | null;
   /** The `.bnk` members the scan saw. Null: the scan predates the record, so unknown. */
   banks: string[] | null;
   /** What the latest scan reported. */

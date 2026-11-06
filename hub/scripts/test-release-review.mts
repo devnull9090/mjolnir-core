@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { zipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 
 import { app } from "../src/lib/api/app";
 import { hub } from "./hub-harness.mjs";
@@ -14,6 +14,8 @@ import { hub } from "./hub-harness.mjs";
 const { sqlite, env, account, call } = hub();
 
 const stored = new Map<string, Uint8Array>();
+/** What the next multipart upload completes to. */
+let multipartBytes: Uint8Array = new Uint8Array();
 Object.assign(env, {
   MODS_BUCKET: {
     async put(path: string, bytes: Uint8Array) {
@@ -31,6 +33,14 @@ Object.assign(env, {
             }),
           }
         : null;
+    },
+    resumeMultipartUpload(path: string) {
+      return {
+        async complete() {
+          stored.set(path, multipartBytes);
+          return { size: multipartBytes.length };
+        },
+      };
     },
   },
 });
@@ -102,7 +112,7 @@ async function upload(id: string, bytes: Uint8Array, key = author) {
     {
       method: "PUT",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/zip" },
-      body: bytes,
+      body: bytes as BodyInit,
     },
     env,
     { waitUntil() {}, passThroughOnException() {}, props: {} } as never,
@@ -143,6 +153,7 @@ interface Queued {
   map_code: string | null;
   map_title: string | null;
   file_size: number | null;
+  sha256: string | null;
   banks: string[] | null;
   findings: { level: string; code: string; message: string }[];
   uploader: string;
@@ -279,4 +290,116 @@ test("moderators and trusted authors skip the queue, banks and all", async () =>
   // Their banks are on record even so.
   const banks = sqlite.prepare(`SELECT banks_json FROM mod_releases WHERE id = ?1`).all(trusted.id)[0].banks_json;
   assert.equal(JSON.parse(banks as string).length, 1);
+});
+
+/** An archive the scan refuses. */
+function refused(version: string, code: string): Uint8Array {
+  const members = unzipSync(archive(version, { code }));
+  members["content/extra.exe"] = new Uint8Array([1]);
+  return zipSync(members);
+}
+
+test("a new archive starts a held release's review over", async () => {
+  const { id } = await publish("swapped", "1.0.0", archive("1.0.0", { code: "SWP" }));
+  assert.ok(await queued(id));
+
+  const bad = refused("1.0.0", "SWP");
+  assert.equal((await upload(id, bad)).status, 200);
+
+  assert.equal(await queued(id), undefined);
+  const approve = await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve" });
+  assert.equal(approve.status, 404, JSON.stringify(approve.body));
+  assert.equal(statusOf("mod_releases", id), "pending");
+  assert.equal(await download(id), null);
+
+  // The scan decides what happens next.
+  const done = await call("POST", `/releases/${id}/complete`, author);
+  assert.equal(done.body.status, "rejected", JSON.stringify(done.body));
+  assert.equal(await queued(id), undefined);
+});
+
+test("so does one uploaded in parts, the way a big map goes up", async () => {
+  const { id } = await publish("swapped-parts", "1.0.0", archive("1.0.0", { code: "SWM" }));
+  assert.ok(await queued(id));
+
+  multipartBytes = refused("1.0.0", "SWM");
+  const done = await call("POST", `/releases/${id}/archive/multipart/upload-1/complete`, author, {
+    parts: [{ part: 1, etag: "etag" }],
+  });
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+
+  assert.equal(await queued(id), undefined);
+  assert.equal((await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve" })).status, 404);
+  assert.equal(await download(id), null);
+});
+
+test("a published release's archive stays put", async () => {
+  const { id } = await publish("settled", "1.0.0", archive("1.0.0", { code: "SET" }));
+  await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve" });
+  assert.equal((await upload(id, refused("1.0.0", "SET"))).status, 409);
+  assert.equal(statusOf("mod_releases", id), "published");
+});
+
+test("a held release uploaded again comes back with its new scan", async () => {
+  const { id } = await publish("reuploaded", "1.0.0", archive("1.0.0", { code: "RUP" }));
+  assert.deepEqual((await queued(id))?.banks, []);
+
+  const fixed = archive("1.0.0", { code: "RUP", banks: [105] });
+  assert.equal((await upload(id, fixed)).status, 200);
+  assert.equal((await call("POST", `/releases/${id}/complete`, author)).body.status, "pending");
+
+  const row = await queued(id);
+  assert.equal(row?.banks?.length, 1);
+  assert.equal((await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve" })).status, 200);
+  assert.deepEqual(await download(id), fixed);
+});
+
+test("a rejected release uploaded again goes back through the queue", async () => {
+  const { id } = await publish("second-try", "1.0.0", archive("1.0.0", { code: "TRY" }));
+  await call("POST", `/moderation/releases/${id}`, moderator, { action: "reject", reason: "Fix the spawns." });
+
+  assert.equal((await upload(id, archive("1.0.0", { code: "TRY", banks: [106] }))).status, 200);
+  assert.equal((await call("POST", `/releases/${id}/complete`, author)).body.status, "pending");
+
+  const row = await queued(id);
+  assert.equal(row?.reason, null);
+  assert.equal(row?.banks?.length, 1);
+});
+
+test("a rescan that no longer holds the release leaves nothing to decide", async () => {
+  const { id } = await publish("promoted", "1.0.0", archive("1.0.0", { code: "PRM" }));
+  sqlite.prepare(`UPDATE users SET trust_level = 2 WHERE id = 'author'`).run();
+  const done = await call("POST", `/releases/${id}/complete`, author);
+  sqlite.prepare(`UPDATE users SET trust_level = 0 WHERE id = 'author'`).run();
+  assert.equal(done.body.status, "published");
+  assert.equal(await queued(id), undefined);
+  assert.equal(sqlite.prepare(`SELECT COUNT(*) AS n FROM release_reviews WHERE release_id = ?1`).all(id)[0].n, 0);
+});
+
+test("a review left behind by an older hub isn't offered", async () => {
+  const { id } = await publish("stale-row", "1.0.0", archive("1.0.0", { code: "STL" }));
+  sqlite.prepare(`UPDATE mod_releases SET status = 'rejected' WHERE id = ?1`).run(id);
+  assert.equal(await queued(id), undefined);
+});
+
+test("a decision is about the archive the moderator read", async () => {
+  const { id } = await publish("read-this", "1.0.0", archive("1.0.0", { code: "RDT" }));
+  const read = (await queued(id))?.sha256;
+  assert.match(read ?? "", /^[a-f0-9]{64}$/);
+
+  // Replaced and rescanned behind an open page: it's back in the queue, with
+  // different contents, under the same id.
+  assert.equal((await upload(id, archive("1.0.0", { code: "RDT", banks: [107] }))).status, 200);
+  assert.equal((await call("POST", `/releases/${id}/complete`, author)).body.status, "pending");
+
+  const stale = await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve", sha256: read });
+  assert.equal(stale.status, 409, JSON.stringify(stale.body));
+  assert.equal(statusOf("mod_releases", id), "pending");
+
+  const current = (await queued(id))?.sha256;
+  assert.notEqual(current, read);
+  assert.equal(
+    (await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve", sha256: current })).status,
+    200,
+  );
 });

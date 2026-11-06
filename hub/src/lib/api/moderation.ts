@@ -500,6 +500,9 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       map_code: z.string().nullable(),
       map_title: z.string().nullable(),
       file_size: z.number().nullable(),
+      sha256: z.string().nullable().openapi({
+        description: "The scanned archive; send it back with a decision to pin it to this archive.",
+      }),
       banks: z.array(z.string()).nullable().openapi({
         description:
           "The `.bnk` members the scan saw, empty for none. Null when the scan " +
@@ -538,7 +541,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       const { state } = c.req.valid("query");
       const rows = await c.env.DB.prepare(
         `SELECT rv.release_id, rv.state, rv.reason, rv.created_at, r.version, r.file_size,
-                r.banks_json, m.slug AS mod_slug, m.name AS mod_name, m.status AS mod_status,
+                r.sha256, r.banks_json, m.slug AS mod_slug, m.name AS mod_name, m.status AS mod_status,
                 ml.code AS map_code, ml.title AS map_title,
                 COALESCE(u.display_name, u.discord_username) AS uploader,
                 (SELECT s.findings FROM release_scans s WHERE s.release_id = r.id
@@ -548,7 +551,8 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
          JOIN mods m ON m.id = r.mod_id
          LEFT JOIN map_listings ml ON ml.mod_id = m.id
          JOIN users u ON u.id = COALESCE(r.published_by, m.owner_id)
-         WHERE rv.state = ?1 ORDER BY rv.created_at LIMIT 200`,
+         WHERE rv.state = ?1 AND (rv.state <> 'pending' OR r.status = 'pending')
+         ORDER BY rv.created_at LIMIT 200`,
       )
         .bind(state)
         .all();
@@ -565,6 +569,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
             map_code: (r.map_code as string) ?? null,
             map_title: (r.map_title as string) ?? null,
             file_size: (r.file_size as number) ?? null,
+            sha256: (r.sha256 as string) ?? null,
             banks: r.banks_json ? (JSON.parse(r.banks_json as string) as string[]) : null,
             findings: r.findings ? JSON.parse(r.findings as string) : [],
             uploader: r.uploader as string,
@@ -595,6 +600,11 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
                 .object({
                   action: z.enum(["approve", "reject"]),
                   reason: z.string().max(500).optional(),
+                  sha256: z.string().optional().openapi({
+                    description:
+                      "The archive this decision is about, from the queue. Refused with " +
+                      "409 if the author has replaced it since.",
+                  }),
                 })
                 .openapi("ReleaseDecision"),
             },
@@ -606,19 +616,26 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
         403: { description: "Moderators only.", content: { "application/json": { schema: ErrorSchema } } },
         404: { description: "No such pending review.", content: { "application/json": { schema: ErrorSchema } } },
+        409: { description: "The archive has changed since the queue was read.", content: { "application/json": { schema: ErrorSchema } } },
       },
     }),
     async (c) => {
       const auth = await requireModerator(c);
       const { id } = c.req.valid("param");
-      const { action, reason } = c.req.valid("json");
+      const { action, reason, sha256 } = c.req.valid("json");
       const pending = await c.env.DB.prepare(
-        `SELECT r.mod_id FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
+        `SELECT r.mod_id, r.sha256 FROM release_reviews rv JOIN mod_releases r ON r.id = rv.release_id
          WHERE rv.release_id = ?1 AND rv.state = 'pending' AND r.status = 'pending'`,
       )
         .bind(id)
-        .first<{ mod_id: string }>();
+        .first<{ mod_id: string; sha256: string | null }>();
       if (!pending) return c.json({ error: "not_found" }, 404);
+      if (sha256 && sha256 !== pending.sha256) {
+        return c.json(
+          { error: "changed", message: "The author replaced this archive. Read it again before deciding." },
+          409,
+        );
+      }
       const approve = action === "approve";
       const statements = [
         c.env.DB.prepare(
