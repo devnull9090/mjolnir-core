@@ -73,7 +73,7 @@ write_variants() {
   "$mjolnir" megalo write --mode slayer --score "${SCORE:-25}" --vehicle-label-pool --out "$1/slayer.mglo"
   local mode
   for mode in team-slayer ctf koth crazy-king team-koth oddball team-oddball juggernaut \
-              race team-race rally team-rally; do
+              stalker reverse-tag race team-race rally team-rally; do
     "$mjolnir" megalo write --mode "$mode" --vehicle-label-pool --out "$1/${mode//-/_}.mglo"
   done
 }

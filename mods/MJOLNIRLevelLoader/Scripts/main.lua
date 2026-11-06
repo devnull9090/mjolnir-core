@@ -2040,6 +2040,8 @@ local START_EVENTS = {
     -- No line yet: events.json has no row, so it starts in silence rather
     -- than announce the wrong game.
     { "juggernaut", "juggernaut_game_start" },
+    { "stalker", "juggernaut_game_start" },
+    { "reverse_tag", "juggernaut_game_start" },
     { "slayer", "slayer_start" },
     { "koth", "koth_game_start" },
     { "king", "koth_game_start" },

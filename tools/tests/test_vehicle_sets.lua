@@ -6,6 +6,7 @@
 -- `mjolnir megalo write --vehicle-label-pool` makes
 -- (tools/tests/fixtures/vehicle_sets).
 local VehicleSets = dofile("mods/MJOLNIRLevelLoader/Scripts/vehicle_sets.lua")
+local VariantSettings = dofile("mods/MJOLNIRLevelLoader/Scripts/variant_settings.lua")
 local Json = dofile("mods/MJOLNIRLevelLoader/Scripts/json.lua")
 
 local function eq(actual, expected, label)
@@ -83,15 +84,27 @@ local function readFilters(bytes, at)
     end
     return out, #bytes * 8 - pos
 end
-for _, mode in ipairs({ "slayer", "ctf" }) do
+-- Stalker is the one with script traits: the section sits before the filters.
+for _, mode in ipairs({ "slayer", "ctf", "stalker" }) do
     local bytes = read("tools/tests/fixtures/vehicle_sets/" .. mode .. ".mglo")
     local layout = Json.decode(read("tools/tests/fixtures/vehicle_sets/" .. mode .. ".layout.json"))
+    -- The layout's filters_at is where the variant's own filters really are,
+    -- and they end the stream.
+    local own, ownSpare = readFilters(bytes, layout.filters_at)
+    eq(#own, #layout.filters, mode .. " own filters at filters_at")
+    for i, filter in ipairs(layout.filters) do
+        eq(own[i].label, filter.label, mode .. " own filter " .. i .. " at filters_at")
+    end
+    assert(ownSpare >= 0 and ownSpare < 8, mode .. ": " .. ownSpare .. " bits after its own filters")
     local out, added, dropped = VehicleSets.apply(bytes, layout, filters)
     assert(out, mode .. ": " .. tostring(added))
     eq(added, 3, mode .. " filters added")
     eq(dropped, 0, mode .. " none dropped")
     local back, spare = readFilters(out, layout.filters_at)
     eq(#back, #layout.filters + 3, mode .. " filters read back")
+    for i, own in ipairs(layout.filters) do
+        eq(back[i].label, own.label, mode .. " own filter " .. i .. " stays")
+    end
     assert(spare >= 0 and spare < 8, mode .. ": " .. spare .. " bits after the filters")
     local last = back[#back]
     eq(last.label, layout.labels["ce_warthog_1"], mode .. " last filter's label")
@@ -100,6 +113,24 @@ for _, mode in ipairs({ "slayer", "ctf" }) do
     eq(out:sub(1, math.floor(layout.filters_at / 8)), bytes:sub(1, math.floor(layout.filters_at / 8)),
         mode .. " untouched before the filters")
 end
+
+-- Stalker's two trait sets take strings 0-3 for their names and descriptions,
+-- so every label sits four above Slayer's. A fixture without them fails here.
+local slayer = Json.decode(read("tools/tests/fixtures/vehicle_sets/slayer.layout.json"))
+local stalker = Json.decode(read("tools/tests/fixtures/vehicle_sets/stalker.layout.json"))
+eq(stalker.filters[1].label, slayer.filters[1].label + 4, "Stalker's own filter above the trait names")
+for label, index in pairs(slayer.labels) do
+    eq(stalker.labels[label], index + 4, label .. " above the trait names")
+end
+
+-- The loader's order on a host: settings first, then the vehicle filters.
+local hostSettings = VariantSettings.parse(read("tools/tests/fixtures/settings/settings.txt"))
+local patched = assert(VariantSettings.apply(read("tools/tests/fixtures/vehicle_sets/stalker.mglo"), hostSettings))
+local hosted = assert(VehicleSets.apply(patched, stalker, filters))
+local back = readFilters(hosted, stalker.filters_at)
+eq(#back, #stalker.filters + 3, "Stalker's filters after the host's settings")
+eq(back[#back].label, stalker.labels["ce_warthog_1"], "Stalker's last filter after the host's settings")
+eq(VariantSettings.get(hosted, "score"), 15, "the host's score survives the filters")
 
 -- The variant holds 16 filters: the highest ranks are left out.
 local many = {}
@@ -110,4 +141,4 @@ eq(added, 16 - #layout.filters, "CTF fills to 16")
 eq(dropped, 20 - added, "the rest left out")
 
 print("Vehicle sets: defaults, NONE, one-type and custom sets per game type, team constraints, "
-    .. "filters appended and read back, the 16-filter cap")
+    .. "filters appended and read back with and without script traits, the 16-filter cap")

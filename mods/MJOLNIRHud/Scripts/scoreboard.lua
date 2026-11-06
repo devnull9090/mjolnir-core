@@ -6,7 +6,10 @@ local Board = {}
 -- (the hill, the ball, the flags); `snapshot` is the incident that carries a
 -- player's absolute score, for the stat `objectiveScore`
 -- (crates/blam-megalo/src/objectives.rs); `suicidePenalty` says the script takes
--- a point for a suicide; `rally` is one live flag for everyone.
+-- a point for a suicide; `rally` is one live flag for everyone. The `juggernaut`
+-- family's `holder` says what the one who holds the role reads (`line`), what
+-- the feed says of them (`feed`), and `unseen` that nobody gets a beacon on
+-- them, because the mode hides them (Scripts/juggernaut.lua).
 local function timed(title, family, snapshot, teams)
     return { title = title, toWin = 120, unit = "seconds", stat = "objectiveScore", family = family,
         snapshot = snapshot, teams = teams }
@@ -24,7 +27,11 @@ Board.modes = {
     oddball = timed("ODDBALL", "oddball", "ball_taken"),
     team_oddball = timed("TEAM ODDBALL", "oddball", "ball_taken", true),
     juggernaut = { title = "JUGGERNAUT", toWin = 15, unit = "points", stat = "objectiveScore", family = "juggernaut",
-        snapshot = "ball_taken" },
+        snapshot = "ball_taken", holder = { line = "YOU ARE THE JUGGERNAUT", feed = "is the Juggernaut" } },
+    stalker = { title = "STALKER", toWin = 10, unit = "points", stat = "objectiveScore", family = "juggernaut",
+        snapshot = "ball_taken", holder = { line = "YOU ARE THE STALKER", feed = "is the Stalker", unseen = true } },
+    reverse_tag = { title = "REVERSE TAG", toWin = 120, unit = "seconds", stat = "objectiveScore", family = "juggernaut",
+        snapshot = "ball_taken", holder = { line = "YOU ARE IT", feed = "is it" } },
     koth = timed("KING OF THE HILL", "king", "hill_controlled"),
     crazy_king = timed("CRAZY KING", "king", "hill_controlled"),
     team_koth = timed("TEAM KING", "king", "hill_controlled", true),

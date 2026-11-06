@@ -6,8 +6,8 @@
 //! own, called with [`Action::CallTrigger`].
 
 use crate::variant::{
-    Action, Compare, Condition, ConditionKind, Number, Object, Op, Timer, Trigger, TriggerKind,
-    Var, Variant, ATTR_SUBROUTINE,
+    Action, Compare, Condition, ConditionKind, Number, Object, Op, ScriptTraits, Timer, Traits,
+    Trigger, TriggerKind, Var, Variant, ATTR_SUBROUTINE,
 };
 
 pub(crate) enum Item {
@@ -117,16 +117,35 @@ impl Builder {
         self.trigger(kind, ATTR_SUBROUTINE, items)
     }
 
-    /// Add a label to the string table and a filter for it; the filter index.
-    pub fn label(&mut self, name: &str) -> u8 {
+    /// A string's index in the table, adding it if it is new.
+    fn string(&mut self, text: &str) -> u8 {
         let v = &mut self.v;
-        let string = match v.strings.iter().position(|s| s == name) {
+        match v.strings.iter().position(|s| s == text) {
             Some(i) => i as u8,
             None => {
-                v.strings.push(name.to_string());
+                v.strings.push(text.to_string());
                 v.strings.len() as u8 - 1
             }
-        };
+        }
+    }
+
+    /// Add a set of script traits; its index, for
+    /// [`Action::ApplyPlayerTraits`].
+    pub fn script_traits(&mut self, name: &str, description: &str, traits: Traits) -> u8 {
+        let name = self.string(name);
+        let description = self.string(description);
+        self.v.script_traits.push(ScriptTraits {
+            name,
+            description,
+            traits,
+        });
+        self.v.script_traits.len() as u8 - 1
+    }
+
+    /// Add a label to the string table and a filter for it; the filter index.
+    pub fn label(&mut self, name: &str) -> u8 {
+        let string = self.string(name);
+        let v = &mut self.v;
         match v.filters.iter().position(|f| f.label == string) {
             Some(i) => i as u8,
             None => {

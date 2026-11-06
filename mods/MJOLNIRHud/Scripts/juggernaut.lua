@@ -1,15 +1,17 @@
--- MJOLNIR HUD: who the Juggernaut is.
+-- MJOLNIR HUD: who the Juggernaut is, or Reverse Tag's it, or the Stalker.
 --
 -- `new_juggernaut` names them (cause), or says the slot is free (no cause).
--- Everyone sees a plasma beacon on them, and they read "YOU ARE THE
--- JUGGERNAUT" under the score. Only their index is
+-- Everyone sees a plasma beacon on them, and they read their line ("YOU ARE
+-- THE JUGGERNAUT") under the score. The Stalker is invisible, so a beacon would
+-- undo the mode: they get the line and nobody gets a beacon. Only their index is
 -- kept: `players` is walked afresh from the game state each update, so no actor
 -- outlives the tick that read it (a stored biped crashes once it is freed).
 
 local Juggernaut = {}
 
---- One match's marker. Scripts/hill.lua gives the drawing.
-function Juggernaut.new(Hill)
+--- One match's marker. Scripts/hill.lua gives the drawing; `holder` is the
+--- mode's row (Scripts/scoreboard.lua): { line, unseen }.
+function Juggernaut.new(Hill, holder)
     local self = Hill.field("mjolnir_juggernaut")
 
     --- The new Juggernaut, nobody for no player. True when someone new took it.
@@ -32,10 +34,12 @@ function Juggernaut.new(Hill)
                 if p.index == self.it then at = p.at end
             end
             if not at then return self.hide() end
-            self.pillar(world, now, at)
-            self.paint(self.it == me and "you" or "other", now)
+            if not holder.unseen then
+                self.pillar(world, now, at)
+                self.paint(self.it == me and "you" or "other", now)
+            end
             if self.it == me then
-                self.say("YOU ARE THE JUGGERNAUT")
+                self.say(holder.line)
             else
                 self.hideLine()
             end

@@ -9,8 +9,8 @@ use crate::race::{self, on_each_spawn};
 use crate::script::{compare, constant, eq, obj, set, Builder, Item};
 use crate::variant::{
     object, player, team, Action, Compare, ConditionKind, Number, Object, Op, Player, PlayerSet,
-    ScoreTarget, Subject, Team, TriggerKind, Var, Variables, Variant, ATTR_NORMAL, DEATH_ANY,
-    DEATH_KILL,
+    ScoreTarget, Subject, Team, Traits, TriggerKind, Var, Variables, Variant, ATTR_NORMAL,
+    DEATH_ANY, DEATH_KILL,
 };
 
 /// Incident indices (`globals\incident_properties` order).
@@ -33,6 +33,96 @@ const ICON_CROWN: u8 = 8;
 /// earns the points. `true` is CE's own rule: everyone on the hill scores, at
 /// most one point a second per team, and a contest changes only the sounds.
 pub const CONTESTED_HILL_SCORES: bool = false;
+
+/// Trait values: a stored value indexes the simulation's table for its trait
+/// (variant.rs, [`TRAITS`](crate::variant::TRAITS)), so these are positions,
+/// not percentages.
+pub mod trait_value {
+    /// `damage` and `melee_damage`: x1.5 dealt, CE's extra damage. CE scales
+    /// every hit; the simulation splits melee off, so a set needs both. They
+    /// share one table.
+    pub const DAMAGE_150: u8 = 9;
+    /// `damage_resistance`: a factor that divides the damage taken (the last
+    /// entry, invulnerable, is 1000), so 200% is CE's x0.5 taken. 50% would
+    /// be double damage.
+    pub const RESISTANCE_200: u8 = 7;
+    /// `speed`: CE's slow carrier, x0.75.
+    pub const SPEED_75: u8 = 4;
+    /// `speed`: the table has no 125%, CE's fast carrier, only 120% and 130%.
+    /// This is the one Bungie's own speed boost uses.
+    pub const SPEED_120: u8 = 8;
+    pub const SPEED_150: u8 = 11;
+    /// `camo`: "good", the host's Invisible Players option, proven in game.
+    pub const CAMO_GOOD: u8 = 4;
+}
+
+/// A named trait set: name, description, and trait values by name.
+type TraitSet = (&'static str, &'static str, &'static [(&'static str, u8)]);
+
+const JUGGERNAUT_TRAITS: TraitSet = (
+    "Juggernaut",
+    "Half as much damage again.",
+    &[
+        ("damage", trait_value::DAMAGE_150),
+        ("melee_damage", trait_value::DAMAGE_150),
+    ],
+);
+const STALKER_TRAITS: TraitSet = (
+    "Stalker",
+    "Unseen and fast.",
+    &[
+        ("speed", trait_value::SPEED_120),
+        ("camo", trait_value::CAMO_GOOD),
+    ],
+);
+const HUNTER_TRAITS: TraitSet = (
+    "Hunter",
+    "Half damage taken.",
+    &[("damage_resistance", trait_value::RESISTANCE_200)],
+);
+const TAGGED_TRAITS: TraitSet = (
+    "It",
+    "Slow while it.",
+    &[("speed", trait_value::SPEED_75)],
+);
+const TRAIT_TEST_TRAITS: TraitSet = (
+    "Trait test",
+    "Fast, strong and unseen.",
+    &[
+        ("damage", trait_value::DAMAGE_150),
+        ("melee_damage", trait_value::DAMAGE_150),
+        ("speed", trait_value::SPEED_150),
+        ("camo", trait_value::CAMO_GOOD),
+    ],
+);
+
+/// A game of one player who is "it": Juggernaut and its relatives.
+#[derive(Debug, Clone, Copy)]
+struct ItGame {
+    score_to_win: u16,
+    /// "It" scores a point every this many ticks, and kills score nothing.
+    /// `None` is Juggernaut's points for kills.
+    ticks_per_point: Option<i16>,
+    /// Applied to "it" every tick.
+    it: Option<TraitSet>,
+    /// Applied to everyone else every tick, whether or not anybody is it.
+    others: Option<TraitSet>,
+}
+
+fn add_traits(b: &mut Builder, (name, description, values): TraitSet) -> u8 {
+    let mut traits = Traits::unchanged();
+    for &(field, value) in values {
+        traits.set(field, value).expect("a trait in the table");
+    }
+    b.script_traits(name, description, traits)
+}
+
+fn apply_traits(who: u8, traits: u8) -> Item {
+    Item::Do(Action::ApplyPlayerTraits {
+        player: Player(who),
+        traits,
+    })
+}
 
 pub(crate) fn number(i: u8) -> Var {
     Var::Number(Number::GlobalNumber(i))
@@ -515,27 +605,82 @@ impl Variant {
         b.v
     }
 
-    /// Juggernaut, CE's rule: no ball, no change of weapon or traits. The
-    /// first killer takes the free slot, and killing the Juggernaut takes it
-    /// from them. A point for killing the Juggernaut, for the Juggernaut's
-    /// own kills, and for any kill while nobody is it; other kills score
-    /// nothing. A killer already dead scores but does not take the slot. A
-    /// Juggernaut who dies any other way, or leaves, frees it. Every spawn
-    /// names them again, for a player who joined after the slot last changed.
+    /// Juggernaut, CE's rule: no ball and no change of weapon; the Juggernaut
+    /// deals extra damage, CE's Standard bank at normal speed. The first
+    /// killer takes the free slot, and killing the Juggernaut takes it from
+    /// them. A point for killing the Juggernaut, for the Juggernaut's own
+    /// kills, and for any kill while nobody is it; other kills score nothing.
+    /// A killer already dead scores but does not take the slot. A Juggernaut
+    /// who dies any other way, or leaves, frees it. Every spawn names them
+    /// again, for a player who joined after the slot last changed.
     pub fn juggernaut(score: u16) -> Self {
+        Self::it_game(ItGame {
+            score_to_win: score,
+            ticks_per_point: None,
+            it: Some(JUGGERNAUT_TRAITS),
+            others: None,
+        })
+    }
+
+    /// Stalker, CE's: Juggernaut's scoring, the Juggernaut invisible and
+    /// fast, everyone else resistant to damage.
+    pub fn stalker(score: u16) -> Self {
+        Self::it_game(ItGame {
+            score_to_win: score,
+            ticks_per_point: None,
+            it: Some(STALKER_TRAITS),
+            others: Some(HUNTER_TRAITS),
+        })
+    }
+
+    /// Reverse Tag, CE's: the slot passes as in Juggernaut, but kills score
+    /// nothing and "it" earns a point a second, slowed while it. Nobody is
+    /// it until the first kill.
+    pub fn reverse_tag(score: u16, tick_rate: i16) -> Self {
+        Self::it_game(ItGame {
+            score_to_win: score,
+            ticks_per_point: Some(tick_rate),
+            it: Some(TAGGED_TRAITS),
+            others: None,
+        })
+    }
+
+    /// Slayer that gives every living player a measurable set of traits, to
+    /// test them in game. Not a released mode.
+    pub fn trait_test(score: u16) -> Self {
+        const HEALTH: u8 = 0;
+        let slayer = Self::slayer(score);
+        let mut b = Builder::new(Variant {
+            vars: Variables {
+                global_numbers: 1,
+                ..slayer.vars
+            },
+            ..slayer
+        });
+        let traits = add_traits(&mut b, TRAIT_TEST_TRAITS);
+        let mut items = alive(player::CURRENT, HEALTH);
+        items.push(apply_traits(player::CURRENT, traits));
+        b.trigger(TriggerKind::EachPlayer, ATTR_NORMAL, items);
+        b.v
+    }
+
+    fn it_game(game: ItGame) -> Self {
         const HEALTH: u8 = 0;
         const SEEN: u8 = 1;
         const LIVING: u8 = 2;
+        // Ticks "it" has held the slot since the last point, in a game of
+        // time.
+        const HELD: u8 = 3;
         // Player number: 1 while alive.
         const SPAWNED: u8 = 0;
         let mut b = Builder::new(Variant {
             vars: Variables {
-                global_numbers: 3,
+                global_numbers: if game.ticks_per_point.is_some() { 4 } else { 3 },
                 global_players: 2,
                 player_numbers: 1,
                 ..Variables::default()
             },
-            ..Variant::empty(score)
+            ..Variant::empty(game.score_to_win)
         });
         let it = player::global(0);
         let killer = player::global(1);
@@ -548,50 +693,51 @@ impl Variant {
             value: Some(Number::Constant(0)),
         });
 
-        let award = b.sub(
-            TriggerKind::Do,
-            vec![
-                score_point(killer),
-                score_snapshot(incident::BALL_TAKEN, killer),
-            ],
-        );
+        // A game of time pays no points for kills.
+        let award = match game.ticks_per_point {
+            Some(_) => None,
+            None => Some(call(b.sub(
+                TriggerKind::Do,
+                vec![
+                    score_point(killer),
+                    score_snapshot(incident::BALL_TAKEN, killer),
+                ],
+            ))),
+        };
         let mut take = alive(killer, HEALTH);
-        take.extend([
-            set(plr(it), plr(killer)),
-            Item::Do(Action::SendIncident {
-                incident: incident::NEW_JUGGERNAUT,
-                cause: Subject::Player(Player(killer)),
-                effect: Subject::None,
-                value: Some(Number::Constant(1)),
-            }),
-        ]);
+        take.push(set(plr(it), plr(killer)));
+        if game.ticks_per_point.is_some() {
+            take.push(set(number(HELD), constant(0)));
+        }
+        take.push(Item::Do(Action::SendIncident {
+            incident: incident::NEW_JUGGERNAUT,
+            cause: Subject::Player(Player(killer)),
+            effect: Subject::None,
+            value: Some(Number::Constant(1)),
+        }));
         let take = b.sub(TriggerKind::Do, take);
         // In this order, so one kill matches one branch: only taking the
         // slot changes who is it, and that is after the test for the
         // Juggernaut's own kills.
-        let by_it = b.sub(TriggerKind::Do, vec![eq(plr(killer), plr(it)), call(award)]);
-        let of_it = b.sub(
-            TriggerKind::Do,
-            vec![eq(current.clone(), plr(it)), call(award), call(take)],
-        );
-        let slot_free = b.sub(
-            TriggerKind::Do,
-            vec![eq(plr(it), none.clone()), call(award), call(take)],
-        );
-        let kill = b.sub(
-            TriggerKind::Do,
-            vec![
-                Item::If(ConditionKind::KillerTypeIs {
-                    player: Player(player::CURRENT),
-                    flags: DEATH_KILL,
-                }),
-                compare(plr(killer), none.clone(), Compare::NotEqual),
-                compare(plr(killer), current.clone(), Compare::NotEqual),
-                call(by_it),
-                call(of_it),
-                call(slot_free),
-            ],
-        );
+        let mut kill = vec![
+            Item::If(ConditionKind::KillerTypeIs {
+                player: Player(player::CURRENT),
+                flags: DEATH_KILL,
+            }),
+            compare(plr(killer), none.clone(), Compare::NotEqual),
+            compare(plr(killer), current.clone(), Compare::NotEqual),
+        ];
+        if let Some(award) = &award {
+            let by_it = vec![eq(plr(killer), plr(it)), award.clone()];
+            kill.push(call(b.sub(TriggerKind::Do, by_it)));
+        }
+        for test in [eq(current.clone(), plr(it)), eq(plr(it), none.clone())] {
+            let mut branch = vec![test];
+            branch.extend(award.clone());
+            branch.push(call(take));
+            kill.push(call(b.sub(TriggerKind::Do, branch)));
+        }
+        let kill = b.sub(TriggerKind::Do, kill);
         let vacate = b.sub(
             TriggerKind::Do,
             vec![
@@ -629,7 +775,7 @@ impl Variant {
             ATTR_NORMAL,
             vec![set(number(SEEN), constant(0))],
         );
-        let mut seen = vec![eq(current, plr(it))];
+        let mut seen = vec![eq(current.clone(), plr(it))];
         seen.extend(alive(player::CURRENT, HEALTH));
         seen.push(set(number(SEEN), constant(1)));
         b.trigger(TriggerKind::EachPlayer, ATTR_NORMAL, seen);
@@ -643,6 +789,50 @@ impl Variant {
                 freed,
             ],
         );
+
+        // After the check above, so only a living "it" earns time or traits.
+        if let Some(ticks) = game.ticks_per_point {
+            let pay = b.sub(
+                TriggerKind::Do,
+                vec![
+                    compare(number(HELD), constant(ticks), Compare::GreaterOrEqual),
+                    score_point(it),
+                    score_snapshot(incident::BALL_TAKEN, it),
+                    set(number(HELD), constant(0)),
+                ],
+            );
+            b.trigger(
+                TriggerKind::Do,
+                ATTR_NORMAL,
+                vec![
+                    compare(plr(it), none.clone(), Compare::NotEqual),
+                    add(HELD, 1),
+                    call(pay),
+                ],
+            );
+        }
+        if let Some(set) = game.it {
+            let traits = add_traits(&mut b, set);
+            b.trigger(
+                TriggerKind::Do,
+                ATTR_NORMAL,
+                vec![
+                    compare(plr(it), none.clone(), Compare::NotEqual),
+                    apply_traits(it, traits),
+                ],
+            );
+        }
+        if let Some(set) = game.others {
+            let traits = add_traits(&mut b, set);
+            b.trigger(
+                TriggerKind::EachPlayer,
+                ATTR_NORMAL,
+                vec![
+                    compare(current, plr(it), Compare::NotEqual),
+                    apply_traits(player::CURRENT, traits),
+                ],
+            );
+        }
 
         // Nobody to name while the slot is free.
         let resend = b.sub(
@@ -677,7 +867,34 @@ mod tests {
             ("crazy_king", Variant::crazy_king(120, 60, 3600)),
             ("team_koth", Variant::team_koth(120, 60, 3600)),
             ("juggernaut", Variant::juggernaut(15)),
+            ("stalker", Variant::stalker(10)),
+            ("reverse_tag", Variant::reverse_tag(120, 60)),
         ]
+    }
+
+    /// Who each action applying traits names, with the set's changed values.
+    fn applied(v: &Variant) -> Vec<(u8, Vec<(&'static str, u8)>)> {
+        v.actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::ApplyPlayerTraits { player, traits } => Some((
+                    player.0,
+                    v.script_traits[*traits as usize].traits.changed(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The trigger holding the action at `index`.
+    fn trigger_of(v: &Variant, index: usize) -> &crate::variant::Trigger {
+        v.triggers
+            .iter()
+            .find(|t| {
+                (t.first_action as usize..(t.first_action + t.action_count) as usize)
+                    .contains(&index)
+            })
+            .unwrap()
     }
 
     /// Every action of a variant raising `incident`.
@@ -901,6 +1118,193 @@ mod tests {
         // The slot check and the spawn resend; `take` reads the killer.
         assert_eq!(reads(player::CURRENT), 2);
         assert_eq!(reads(player::global(1)), 1);
+    }
+
+    #[test]
+    fn juggernaut_deals_extra_damage_and_nobody_else_changes() {
+        let v = Variant::juggernaut(15);
+        assert_eq!(
+            applied(&v),
+            [(
+                player::global(0),
+                vec![
+                    ("damage", trait_value::DAMAGE_150),
+                    ("melee_damage", trait_value::DAMAGE_150)
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn oddball_changes_no_traits() {
+        for v in [
+            Variant::oddball(120, 18, 60, 1800),
+            Variant::team_oddball(120, 18, 60, 1800),
+        ] {
+            assert!(v.script_traits.is_empty());
+            assert!(applied(&v).is_empty());
+        }
+    }
+
+    #[test]
+    fn stalker_hides_the_juggernaut_and_toughens_the_rest() {
+        let v = Variant::stalker(10);
+        assert_eq!(
+            applied(&v),
+            [
+                (
+                    player::global(0),
+                    vec![
+                        ("speed", trait_value::SPEED_120),
+                        ("camo", trait_value::CAMO_GOOD)
+                    ]
+                ),
+                (
+                    player::CURRENT,
+                    vec![("damage_resistance", trait_value::RESISTANCE_200)]
+                ),
+            ]
+        );
+        // Scored as Juggernaut.
+        let scored = |v: &Variant| raised(v, incident::BALL_TAKEN).len();
+        assert_eq!(scored(&v), scored(&Variant::juggernaut(15)));
+    }
+
+    /// A set runs every tick, gated on someone holding the slot or on not
+    /// being the one who does.
+    #[test]
+    fn traits_are_applied_each_tick_from_normal_triggers() {
+        for v in [Variant::stalker(10), Variant::reverse_tag(120, 60)] {
+            for (i, a) in v.actions.iter().enumerate() {
+                if !matches!(a, Action::ApplyPlayerTraits { .. }) {
+                    continue;
+                }
+                let t = trigger_of(&v, i);
+                assert_eq!(t.attribute, ATTR_NORMAL);
+                assert_eq!(t.condition_count, 1);
+                let c = &v.conditions[t.first_condition as usize];
+                assert!(matches!(
+                    c.kind,
+                    ConditionKind::Compare {
+                        a: Var::Player(_),
+                        b: Var::Player(_),
+                        op: Compare::NotEqual,
+                    }
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn reverse_tag_pays_time_not_kills() {
+        let v = Variant::reverse_tag(120, 60);
+        assert_eq!(
+            applied(&v),
+            [(player::global(0), vec![("speed", trait_value::SPEED_75)])]
+        );
+        let it = player::global(0);
+        let paid: Vec<&Action> = v
+            .actions
+            .iter()
+            .filter(|a| matches!(a, Action::ModifyScore { .. }))
+            .collect();
+        assert_eq!(paid.len(), 1, "one payment, and no kill scores");
+        assert!(matches!(
+            paid[0],
+            Action::ModifyScore {
+                target: ScoreTarget::Player(Player(p)),
+                ..
+            } if *p == it
+        ));
+        let snapshots = raised(&v, incident::BALL_TAKEN);
+        assert_eq!(snapshots.len(), 1);
+        assert!(matches!(
+            snapshots[0],
+            Action::SendIncident {
+                value: Some(Number::PlayerScore(p)),
+                ..
+            } if *p == it
+        ));
+        assert!(v.conditions.iter().any(|c| matches!(
+            &c.kind,
+            ConditionKind::Compare {
+                a: Var::Number(Number::GlobalNumber(3)),
+                b: Var::Number(Number::Constant(60)),
+                op: Compare::GreaterOrEqual,
+            }
+        )));
+    }
+
+    /// The slot passes the same way, so the HUD's beacon reads the same
+    /// incidents.
+    #[test]
+    fn reverse_tag_names_who_is_it_as_juggernaut_does() {
+        let count = |v: &Variant| raised(v, incident::NEW_JUGGERNAUT).len();
+        assert_eq!(
+            count(&Variant::reverse_tag(120, 60)),
+            count(&Variant::juggernaut(15))
+        );
+    }
+
+    #[test]
+    fn a_new_it_starts_a_fresh_second() {
+        let v = Variant::reverse_tag(120, 60);
+        let (i, _) = v
+            .actions
+            .iter()
+            .enumerate()
+            .find(|(_, a)| {
+                matches!(
+                    a,
+                    Action::SendIncident {
+                        cause: Subject::Player(Player(p)),
+                        ..
+                    } if *p == player::global(1)
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            v.actions[i - 1],
+            Action::ModifyVariable {
+                a: number(3),
+                b: constant(0),
+                op: Op::Set
+            }
+        );
+    }
+
+    #[test]
+    fn trait_test_is_slayer_with_every_trait_to_measure() {
+        let v = Variant::trait_test(25);
+        crate::variant::tests::check_ranges(&v);
+        assert_eq!(Variant::read(&v.write().unwrap()).unwrap(), v);
+        assert_eq!(
+            applied(&v),
+            [(
+                player::CURRENT,
+                vec![
+                    ("damage", trait_value::DAMAGE_150),
+                    ("melee_damage", trait_value::DAMAGE_150),
+                    ("speed", trait_value::SPEED_150),
+                    ("camo", trait_value::CAMO_GOOD)
+                ]
+            )]
+        );
+        let slayer = Variant::slayer(25);
+        assert_eq!(v.actions[..slayer.actions.len()], slayer.actions[..]);
+    }
+
+    /// A set on the base traits' zeros would hand out weapon 0.
+    #[test]
+    fn script_traits_leave_weapons_and_abilities_alone() {
+        for (name, v) in timed_variants() {
+            for s in v.script_traits {
+                let unchanged = crate::variant::SIGNED_UNCHANGED;
+                assert_eq!(s.traits.values[12], unchanged, "{name} primary");
+                assert_eq!(s.traits.values[13], unchanged, "{name} secondary");
+                assert_eq!(s.traits.values[21], unchanged, "{name} ability");
+            }
+        }
     }
 
     #[test]
