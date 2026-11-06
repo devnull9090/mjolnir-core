@@ -44,7 +44,6 @@ import {
  *  memory and under Cloudflare's 100 MB request body. */
 const MIN_PART_BYTES = 5 * 1024 * 1024;
 const MAX_PART_BYTES = 64 * 1024 * 1024;
-import { mayPublishBanks } from "./banks";
 import { checkArchiveSignature } from "./signing";
 import { chunkIdToHex } from "./iostore";
 import { compareForgeVersions, ForgePackSchema, forgeUpdateIssues, sameForgeLine } from "./forge";
@@ -76,8 +75,20 @@ async function ownedRelease(c: Ctx, releaseId: string) {
   return { user, release: row };
 }
 
-/** Trust level from which a map release publishes without review. */
+/** Trust level from which a release publishes without review. */
 export const MAP_REVIEW_TRUST_LEVEL = 2;
+
+/** Whether a passing release waits for a moderator: a map, which is the first
+ *  content an upload adds rather than overrides, or anything with banks, which
+ *  go to Wwise's own parser in every player's game. Moderators and trusted
+ *  authors skip the queue. */
+export function needsReview(
+  carries: { map: boolean; banks: number },
+  user: { role: string; trust_level?: number },
+): boolean {
+  if (!carries.map && carries.banks === 0) return false;
+  return user.role === "user" && (user.trust_level ?? 0) < MAP_REVIEW_TRUST_LEVEL;
+}
 
 export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
   // ── Create mod ──────────────────────────────────────────────────────
@@ -544,15 +555,6 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           message: `mjolnir.json says ${scan.manifest.version}, release is ${release.version}.`,
         });
       }
-      // A bank is read by Wwise's own parser, which the scan can't answer for,
-      // so who may ship one is a switch (wrangler.jsonc).
-      if (scan.banks.length > 0 && !mayPublishBanks(c.env.BANK_UPLOADS, user, MAP_REVIEW_TRUST_LEVEL)) {
-        scan.findings.push({
-          level: "error",
-          code: "banks_not_allowed",
-          message: "This hub doesn't take vehicle banks from this account yet; publish the map without them.",
-        });
-      }
       const forgePack = scan.manifest?.forge_pack ?? null;
       if (forgePack && forgePack.id !== release.mod_slug) {
         scan.findings.push({
@@ -654,19 +656,14 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       // Findings accumulated after the scan feed the verdict too.
       scan.verdict = scan.findings.some((f) => f.level === "error") ? "fail" : "pass";
 
-      // A community map waits for a moderator: it is the first content an
-      // upload adds rather than overrides, so a person looks before players
-      // download it. Moderators and trusted authors skip the queue.
       const held =
-        map !== null &&
         scan.verdict === "pass" &&
-        user.role === "user" &&
-        ((user.trust_level as number | undefined) ?? 0) < MAP_REVIEW_TRUST_LEVEL;
+        needsReview({ map: map !== null, banks: scan.banks.length }, user);
       if (held) {
         scan.findings.push({
           level: "warning",
           code: "awaiting_review",
-          message: "Map releases from new authors wait for a moderator before they are listed.",
+          message: "Maps and vehicle banks from new authors wait for a moderator before they are listed.",
         });
       }
       const finalStatus = scan.verdict === "pass" ? (held ? "pending" : "published") : "rejected";

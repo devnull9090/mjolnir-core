@@ -147,10 +147,9 @@ to them as it writes the archive:
   holds them in memory.
 
 These rules keep a member to being a bank. They don't prove Wwise reads one safely:
-the record bodies go to Wwise's own parser, in every player's game. So `BANK_UPLOADS`
-in `hub/wrangler.jsonc` says who may publish one: `staff` (moderators and admins),
-`trusted` (also authors at trust level 2 or higher) or `anyone`. Anything else means
-`staff`. A refused upload fails with `banks_not_allowed`.
+the record bodies go to Wwise's own parser, in every player's game. So anyone may
+publish banks, but a new author's wait for a moderator, whatever the release's type
+([review](#players-maps)).
 
 Nothing checks two packs for the same id. Ids hash from names carrying the map's code,
 so only a copied id collides, and then one map's bank shadows the other's.
@@ -173,9 +172,11 @@ launcher, not the hub.
 1. Release the launcher that takes banks, and let players update to it.
 2. Deploy the hub with the scan (`ts-5`). Until then the hub refuses `.bnk` as a forbidden
    kind.
-3. Publish maps with banks.
+3. Publish maps with banks, and approve the ones waiting for review.
 
-The other way round, players on an older launcher get a silent vehicle with no error.
+Step 2 lets authors upload banks, so moderators leave those releases pending until step
+1 is done. The other way round, players on an older launcher get a silent vehicle with
+no error.
 
 ### The CE runtime pack
 
@@ -332,11 +333,12 @@ Players publish the same way. Until the Rust cook lands, they need the
 Unreal Editor and the MJOLNIRMaterials project, which in practice means us.
 
 **Review.** A map release from a new author does not go live on a passing
-scan. The release stays `pending` with a row in `release_reviews` until a
-moderator approves it (`/moderation/releases`), because a map carries
-game-derived bytes and names game types the loader will run. Moderators and
-authors at trust level 2 or higher skip the queue. Content releases keep
-auto-publishing.
+scan, and neither does any release carrying [banks](#a-vehicles-banks). The
+release stays `pending` with a row in `release_reviews` until a moderator
+approves it (`/moderation/releases`), because a map carries game-derived bytes
+and names game types the loader will run, and a bank goes to Wwise's own parser.
+Moderators and authors at trust level 2 or higher skip the queue. Content
+releases without banks keep auto-publishing.
 
 ## On the hub
 

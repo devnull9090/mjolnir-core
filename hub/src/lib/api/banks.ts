@@ -41,7 +41,8 @@ export function bankMember(path: string): { container: string; id: number } | nu
 /** Why `bank` isn't a bank of ours, or null: every section in bounds and of a
  *  known kind, the header's id `id`, every media entry inside DATA, every HIRC
  *  record inside HIRC. This keeps a member to being a bank; it is not a proof
- *  that Wwise will read one safely, which is why BANK_UPLOADS exists. */
+ *  that Wwise will read one safely, which is why a new author's banks wait for
+ *  a moderator (`needsReview`). */
 export function checkBank(id: number, bank: Uint8Array): string | null {
   if (isShippedBank(id)) return `bank ${id} is one the game ships`;
   const view = new DataView(bank.buffer, bank.byteOffset, bank.byteLength);
@@ -93,18 +94,4 @@ export function checkBank(id: number, bank: Uint8Array): string | null {
     if (at > hirc.end) return "a HIRC record runs past HIRC";
   }
   return at === hirc.end ? null : "HIRC has bytes past its records";
-}
-
-/** Whether an account may publish a release that carries banks, by the
- *  BANK_UPLOADS switch. Unset or misspelt means the narrowest: moderators and
- *  admins. "trusted" adds the authors who skip the map queue; "anyone" leaves it
- *  to the scan and the queue. */
-export function mayPublishBanks(
-  policy: string | undefined,
-  user: { role: string; trust_level?: number },
-  trustedLevel: number,
-): boolean {
-  if (policy === "anyone") return true;
-  if (user.role !== "user") return true;
-  return policy === "trusted" && (user.trust_level ?? 0) >= trustedLevel;
 }

@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { zipSync } from "fflate";
 
-import { checkBank, mayPublishBanks, MAX_BANK_BYTES } from "../src/lib/api/banks";
+import { checkBank, MAX_BANK_BYTES } from "../src/lib/api/banks";
+import { needsReview } from "../src/lib/api/publish";
 import { scanArchive, scanArchiveStream } from "../src/lib/api/scan";
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
@@ -168,21 +169,21 @@ test("too many banks, and banks past the caps, stop the scan", () => {
   assert.match(JSON.stringify(all.findings), /bank size limit/);
 });
 
-test("the upload switch narrows to staff unless it says otherwise", () => {
+test("a new author's banks wait for a moderator, whatever the release's type", () => {
   const author = { role: "user", trust_level: 0 };
-  const trusted = { role: "user", trust_level: 2 };
-  const moderator = { role: "moderator" };
-  const may = (policy: string | undefined, user: { role: string; trust_level?: number }) =>
-    mayPublishBanks(policy, user, 2);
-  for (const policy of [undefined, "", "staff", "Anyone"]) {
-    assert.equal(may(policy, author), false, String(policy));
-    assert.equal(may(policy, trusted), false, String(policy));
-    assert.equal(may(policy, moderator), true, String(policy));
+  const map = { map: true, banks: 0 };
+  const mapWithBanks = { map: true, banks: 2 };
+  const contentWithBanks = { map: false, banks: 1 };
+  const plainContent = { map: false, banks: 0 };
+  for (const carries of [map, mapWithBanks, contentWithBanks]) {
+    assert.equal(needsReview(carries, author), true);
+    assert.equal(needsReview(carries, { role: "user" }), true);
+    assert.equal(needsReview(carries, { role: "user", trust_level: 1 }), true);
+    assert.equal(needsReview(carries, { role: "user", trust_level: 2 }), false);
+    assert.equal(needsReview(carries, { role: "moderator" }), false);
+    assert.equal(needsReview(carries, { role: "admin" }), false);
   }
-  assert.equal(may("trusted", author), false);
-  assert.equal(may("trusted", trusted), true);
-  assert.equal(may("trusted", moderator), true);
-  assert.equal(may("anyone", author), true);
+  assert.equal(needsReview(plainContent, author), false);
 });
 
 test("maps without baked water retain their existing acceptance", () => {
