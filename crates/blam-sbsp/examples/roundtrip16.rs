@@ -123,7 +123,13 @@ fn main() {
 }
 
 /// Which two axes a 3D plane projects onto, for the 2D planes under it.
-fn axes(n: [f32; 3], variant: usize) -> (usize, usize) {
+/// Variants 0-3 look at the plane alone. Variant 4 is the engine's frame
+/// (`pack16::reference_axes`): variant 2, swapped when the reference that
+/// reaches the tree carries the sign bit.
+fn axes(n: [f32; 3], variant: usize, negated: bool) -> (usize, usize) {
+    if variant == 4 {
+        return blam_sbsp::pack16::reference_axes(n, negated);
+    }
     let a = (0..3)
         .max_by(|&i, &j| n[i].abs().partial_cmp(&n[j].abs()).unwrap())
         .unwrap();
@@ -173,7 +179,7 @@ fn projection_probe(c: &blam_sbsp::ce::Collision) {
         }
     }
 
-    for variant in 0..4 {
+    for variant in 0..5 {
         for right_is_positive in [true, false] {
             let mut good = 0usize;
             let mut badc = 0usize;
@@ -183,7 +189,8 @@ fn projection_probe(c: &blam_sbsp::ce::Collision) {
                 }
                 let plane_index = (r.plane as u32 & 0x7fff) as usize;
                 let Some(plane) = c.planes.get(plane_index) else { continue };
-                let (u, v) = axes(plane.n, variant);
+                let negated = (r.plane as u32) & 0x8000_0000 != 0;
+                let (u, v) = axes(plane.n, variant, negated);
                 let mut stack = vec![r.node];
                 while let Some(node_index) = stack.pop() {
                     if node_index == -1 || (node_index as u32) & 0x8000_0000 != 0 {

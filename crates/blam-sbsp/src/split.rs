@@ -9,7 +9,7 @@
 //! point in the old polygon still resolves to exactly one piece.
 
 use crate::ce::{Bsp2dNode, Bsp2dReference, Bsp3dNode, Collision, Edge, Leaf, Surface, Vertex};
-use crate::pack16::projection_axes;
+use crate::pack16::{node_frames, reference_axes};
 use crate::Error;
 
 const SURFACE_FLAG: u32 = 0x8000_0000;
@@ -61,6 +61,52 @@ fn set_next(edge: &mut Edge, owner: i32, next: i32, old_owner: i32) {
     }
 }
 
+/// Append the chain of 2D nodes that splits a fan's pieces along its
+/// diagonals, in the projection `(u, w)`, and return its root. `v` is the
+/// polygon, `ks` the fan steps and `pieces` the surfaces of
+/// [`fan_split_into`].
+fn fan_chain(
+    c: &mut Collision,
+    v: &[i32],
+    ks: &[usize],
+    pieces: &[i32],
+    (u, w): (usize, usize),
+) -> i32 {
+    let m = pieces.len();
+    let proj = |c: &Collision, vi: i32| -> [f32; 2] {
+        let p = c.vertices[vi as usize].point;
+        [p[u], p[w]]
+    };
+    let p0 = proj(c, v[0]);
+    // Build from the far end so each node's "rest" child already exists.
+    let mut rest: i32 = (SURFACE_FLAG | pieces[m - 1] as u32) as i32; // last piece
+    for j in (1..m).rev() {
+        let pk = proj(c, v[ks[j]]);
+        let dir = [pk[0] - p0[0], pk[1] - p0[1]];
+        let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt().max(1e-9);
+        let nrm = [dir[1] / len, -dir[0] / len];
+        let d = nrm[0] * p0[0] + nrm[1] * p0[1];
+        let near = (SURFACE_FLAG | pieces[j - 1] as u32) as i32;
+        // A vertex of piece j-1 off the diagonal.
+        let far_vertex = proj(c, v[ks[j] - 1]);
+        let side = nrm[0] * far_vertex[0] + nrm[1] * far_vertex[1] - d;
+        // Right child is the positive side of the line.
+        let (left, right) = if side > 0.0 {
+            (rest, near)
+        } else {
+            (near, rest)
+        };
+        let node = c.bsp2d_nodes.len() as i32;
+        c.bsp2d_nodes.push(Bsp2dNode {
+            plane: [nrm[0], nrm[1], d],
+            left,
+            right,
+        });
+        rest = node;
+    }
+    rest
+}
+
 /// Split every polygon with more than `max` vertices into triangles. Returns
 /// how many were split and how many 2D references/leaves were rewritten.
 pub fn fan_split(c: &mut Collision, max: usize) -> (usize, usize) {
@@ -90,6 +136,10 @@ pub fn fan_split_into(c: &mut Collision, max: usize, piece: usize) -> (usize, us
     let mut split_count = 0;
     let mut rewired = 0;
     let original_surfaces = c.surfaces.len();
+    // A split leaves every node that exists now under the reference it had,
+    // and the nodes it adds only name pieces of polygons already split, so
+    // these frames hold for the whole loop and only these nodes need rewiring.
+    let frames = node_frames(c);
 
     for s in 0..original_surfaces {
         let Some(lp) = walk(c, s) else { continue };
@@ -158,59 +208,51 @@ pub fn fan_split_into(c: &mut Collision, max: usize, piece: usize) -> (usize, us
             c.surfaces[p as usize].first_edge = opening;
         }
 
-        // The 2D side: a chain of split lines along the diagonals, in the
-        // parent plane's projection.
+        // The 2D side: a chain of split lines along the diagonals. A 2D tree
+        // is read in the frame of the reference that reaches it, and a
+        // negated reference swaps the projected axes, so the chain is built
+        // once per sign the polygon is reached under, and each reacher is
+        // pointed at the chain in its own frame.
         let plane_index = (template.plane as u32 & 0x7fff) as usize;
-        let (u, w) = projection_axes(c.planes[plane_index].n);
-        let proj = |vi: i32| -> [f32; 2] {
-            let p = c.vertices[vi as usize].point;
-            [p[u], p[w]]
-        };
-        let p0 = proj(v[0]);
-        // Build from the far end so each node's "rest" child already exists.
-        let mut rest: i32 = (SURFACE_FLAG | pieces[m - 1] as u32) as i32; // last piece
-        for j in (1..m).rev() {
-            let pk = proj(v[ks[j]]);
-            let dir = [pk[0] - p0[0], pk[1] - p0[1]];
-            let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt().max(1e-9);
-            let nrm = [dir[1] / len, -dir[0] / len];
-            let d = nrm[0] * p0[0] + nrm[1] * p0[1];
-            let near = (SURFACE_FLAG | pieces[j - 1] as u32) as i32;
-            // A vertex of piece j-1 off the diagonal.
-            let far_vertex = proj(v[ks[j] - 1]);
-            let side = nrm[0] * far_vertex[0] + nrm[1] * far_vertex[1] - d;
-            // Right child is the positive side of the line.
-            let (left, right) = if side > 0.0 {
-                (rest, near)
-            } else {
-                (near, rest)
-            };
-            let node = c.bsp2d_nodes.len() as i32;
-            c.bsp2d_nodes.push(Bsp2dNode {
-                plane: [nrm[0], nrm[1], d],
-                left,
-                right,
-            });
-            rest = node;
-        }
-        let root = rest;
+        let normal = c.planes[plane_index].n;
         let target = (SURFACE_FLAG | s as u32) as i32;
+        let mut signs: Vec<bool> = Vec::new();
+        for r in &c.bsp2d_references {
+            if r.node == target {
+                signs.push((r.plane as u32) & SURFACE_FLAG != 0);
+            }
+        }
+        for (i, node) in c.bsp2d_nodes[..frames.len()].iter().enumerate() {
+            if node.left == target || node.right == target {
+                signs.push(frames[i].is_some_and(|f| f.negated));
+            }
+        }
+        signs.sort_unstable();
+        signs.dedup();
+        if signs.is_empty() {
+            signs.push(false);
+        }
+        let mut roots = [None, None];
+        for &negated in &signs {
+            let axes = reference_axes(normal, negated);
+            roots[negated as usize] = Some(fan_chain(c, v, &ks, &pieces, axes));
+        }
+        let root_for =
+            |negated: bool| roots[negated as usize].or(roots[!negated as usize]).unwrap();
         for r in &mut c.bsp2d_references {
             if r.node == target {
-                r.node = root;
+                r.node = root_for((r.plane as u32) & SURFACE_FLAG != 0);
                 rewired += 1;
             }
         }
-        // 2D nodes that pointed at the old surface (only the nodes that
-        // existed before this split can).
-        let new_from = c.bsp2d_nodes.len() - (m - 1);
-        for node in c.bsp2d_nodes[..new_from].iter_mut() {
+        for (i, node) in c.bsp2d_nodes[..frames.len()].iter_mut().enumerate() {
+            let negated = frames[i].is_some_and(|f| f.negated);
             if node.left == target {
-                node.left = root;
+                node.left = root_for(negated);
                 rewired += 1;
             }
             if node.right == target {
-                node.right = root;
+                node.right = root_for(negated);
                 rewired += 1;
             }
         }
@@ -849,6 +891,86 @@ mod tests {
     #[test]
     fn an_octagon_fans_into_quads() {
         check_fan(4, 3);
+    }
+
+    /// Walk a 2D tree from `node` in the frame of a reference with this sign:
+    /// the right child is the positive side of a line.
+    fn resolve(c: &Collision, mut node: i32, negated: bool, p: [f32; 3]) -> usize {
+        let (u, w) = reference_axes(c.planes[0].n, negated);
+        while (node as u32) & SURFACE_FLAG == 0 {
+            let n = &c.bsp2d_nodes[node as usize];
+            let side = n.plane[0] * p[u] + n.plane[1] * p[w] - n.plane[2];
+            node = if side > 0.0 { n.right } else { n.left };
+        }
+        (node as u32 & !SURFACE_FLAG) as usize
+    }
+
+    /// Each piece's centroid, with the surface index of the piece.
+    fn centroids(c: &Collision) -> Vec<([f32; 3], usize)> {
+        (0..c.surfaces.len())
+            .map(|s| {
+                let lp = walk(c, s).expect("closed loop");
+                let mut m = [0.0f32; 3];
+                for &v in &lp.verts {
+                    for k in 0..3 {
+                        m[k] += c.vertices[v as usize].point[k] / lp.verts.len() as f32;
+                    }
+                }
+                (m, s)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_negated_reference_gets_a_chain_in_its_own_frame() {
+        for piece in [3, 4] {
+            let mut c = octagon();
+            c.bsp2d_references[0].plane = SURFACE_FLAG as i32;
+            assert_eq!(fan_split_into(&mut c, 4, piece), (1, 1));
+            let root = c.bsp2d_references[0].node;
+            for (p, s) in centroids(&c) {
+                assert_eq!(resolve(&c, root, true, p), s, "piece size {piece}, {p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_polygon_reached_under_both_signs_gets_a_chain_for_each() {
+        for (piece, pieces) in [(3, 6), (4, 3)] {
+            let mut c = octagon();
+            c.bsp2d_references.push(Bsp2dReference {
+                plane: SURFACE_FLAG as i32,
+                node: SURFACE_FLAG as i32,
+            });
+            assert_eq!(fan_split_into(&mut c, 4, piece), (1, 2));
+            assert_eq!(c.bsp2d_nodes.len(), 2 * (pieces - 1), "a chain per frame");
+            let (plain, negated) = (c.bsp2d_references[0].node, c.bsp2d_references[1].node);
+            assert_ne!(plain, negated);
+            for (p, s) in centroids(&c) {
+                assert_eq!(resolve(&c, plain, false, p), s, "plain, {p:?}");
+                assert_eq!(resolve(&c, negated, true, p), s, "negated, {p:?}");
+            }
+        }
+    }
+
+    /// A 2D node that names the polygon points at the chain in the frame of
+    /// the reference above it.
+    #[test]
+    fn a_node_under_a_negated_reference_gets_the_chain_in_its_frame() {
+        let mut c = octagon();
+        c.bsp2d_references[0] = Bsp2dReference {
+            plane: SURFACE_FLAG as i32,
+            node: 0,
+        };
+        c.bsp2d_nodes.push(Bsp2dNode {
+            plane: [1.0, 0.0, -100.0],
+            left: -1,
+            right: SURFACE_FLAG as i32,
+        });
+        assert_eq!(fan_split_into(&mut c, 4, 3), (1, 1));
+        for (p, s) in centroids(&c) {
+            assert_eq!(resolve(&c, 0, true, p), s, "{p:?}");
+        }
     }
 }
 
