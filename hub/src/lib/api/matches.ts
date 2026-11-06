@@ -32,7 +32,7 @@ import { requireModerator } from "./account";
 import { requireScoped } from "./auth";
 import { ErrorSchema, avatarUrl, mediaUrl } from "./schemas";
 
-type Db = ApiEnv["Bindings"]["DB"];
+export type Db = ApiEnv["Bindings"]["DB"];
 
 const MAP_CODE = z.string().regex(/^[A-Z0-9]{3}$/);
 const GAME_TYPE = z.string().regex(/^[a-z_]{1,24}$/);
@@ -361,9 +361,9 @@ function matchTimes(startedAt: number, durationMs: number): { started: string; e
 
 // ── Reads ─────────────────────────────────────────────────────────────
 
-type Row = Record<string, unknown>;
+export type Row = Record<string, unknown>;
 
-function linkedUser(r: Row, prefix = "u_"): z.infer<typeof LinkedUserSchema> | null {
+export function linkedUser(r: Row, prefix = "u_"): z.infer<typeof LinkedUserSchema> | null {
   if (!r[`${prefix}id`]) return null;
   return {
     id: r[`${prefix}id`] as string,

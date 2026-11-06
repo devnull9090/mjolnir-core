@@ -59,7 +59,7 @@ From the main menu, choose **Crossline → Team Slayer**, **Slayer**, or **Forge
 switches between Spartan and Monitor. **Left/Right** changes categories and
 **Up/Down** selects pieces; **Insert** places, **V** grabs/drops, **Page Up/Down**
 changes held distance, and **comma/period** turns. **F5** saves, **F6** reloads,
-and **F2** restores the authored layout. Development controls **F3**, **F4**
+and **F2** twice restores the authored layout. Development controls **F3**, **F4**
 and **F10** select physics, position grid and rotation snap. Use Phased for
 precise construction and check the final pose; native motion and collision
 can affect the final angle. See [Forge controls](../../docs/forge.md).

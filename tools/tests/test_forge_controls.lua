@@ -142,6 +142,15 @@ eq(Hud.gridName(nil), nil)
 eq(Hud.rotationName(nil), nil)
 eq(Hud.editSettings({}, keys), "")
 eq(Hud.notice("physics fixed", "Floor"), "PHYSICS  FIXED")
+eq(Hud.notice("press again: saved layout goes to history", "Floor", keys),
+    "PRESS F2 AGAIN FOR THE MAP'S OWN LAYOUT  YOUR SAVE GOES TO HISTORY")
+eq(Hud.notice("press again: map's own layout", "Floor", { revert = "PAGE_UP" }),
+    "PRESS PG UP AGAIN FOR THE MAP'S OWN LAYOUT  UNSAVED OBJECTS ARE LOST")
+eq(Hud.notice("reverted: saved layout moved to history", "Floor", keys), "THE MAP'S OWN LAYOUT  F6 BRINGS YOUR SAVE BACK")
+eq(Hud.notice("reverted to the map's own layout", "Floor", keys), "THE MAP'S OWN LAYOUT")
+eq(Hud.notice("restored layout BGL, 127 objects", "Floor", keys), "SAVED LAYOUT RESTORED  127 OBJECTS")
+eq(Hud.notice("load failed: cannot restore the layout from history", "Floor", keys),
+    "LOAD FAILED: CANNOT RESTORE THE LAYOUT FROM HISTORY")
 
 -- Load the real main.lua in isolation: commands dispatch once, support key
 -- overrides, respect match chat, and an old DLL still opens and handles V.

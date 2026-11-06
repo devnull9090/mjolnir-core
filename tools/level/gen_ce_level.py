@@ -78,8 +78,11 @@ VEHICLE_SETS = {"slayer": 1 << 0, "ctf": 1 << 1, "king": 1 << 2, "oddball": 1 <<
 VEHICLE_SET_TYPES = (("rwarthog", "rwarthog"), ("rocket", "rwarthog"), ("warthog", "warthog"),
                      ("scorpion", "scorpion"), ("ghost", "ghost"), ("banshee", "banshee"),
                      ("turret", "turret"))
+# A custom map's aircraft (human_plane: Coldsnap's fighter-bombers, the
+# community Pelicans) spawn as Banshees, so they count as Banshees.
 CE_VEHICLE_TYPE_SETS = {"human_jeep": "warthog", "human_tank": "scorpion", "alien_scout": "ghost",
-                        "alien_fighter": "banshee", "alien_turret": "turret", "human_turret": "turret"}
+                        "alien_fighter": "banshee", "human_plane": "banshee", "alien_turret": "turret",
+                        "human_turret": "turret", "turret": "turret"}
 CE_TEAMS = {0: "red", 1: "blue"}
 CE_OWNER_TEAMS = {"red": "defender", "blue": "attacker"}   # scenario owner team 0 and 1
 VEHICLE_SET_RANKS = 10   # crates/blam-cli megalo.rs: labels in the variants' pool

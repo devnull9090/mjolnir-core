@@ -58,6 +58,18 @@ menu name. Three things differ from the stock maps:
 Sounds a custom map keeps inside the `.map` (not in `sounds.map`) are not
 extracted.
 
+**Archiving halomaps.org.** [`tools/halomaps/halomaps.py`](../tools/halomaps/README.md)
+mirrors the site's multiplayer sections (the listings, each map's page,
+screenshots and file), keeps a JSON record per map with everything the site
+shows plus what `tools/halomaps/cemap.py` reads from the `.map` itself (type,
+build, BSP count, protection, the tags no stock map carries), and converts
+the best-rated unconverted map through this command (`convert --next`, with
+`--pack` for the map pack). Its `report` lists the custom weapons, vehicles,
+scenery and bipeds across the archive and what every conversion dropped, so
+the edge cases are worked in order of how many maps they touch. The
+exporter's resources and reference maps come from `HALO2UE_RESOURCES` and
+`HALO2UE_REFERENCE_MAPS` when the map is kept away from the stock folder.
+
 ## What the command does
 
 | Step | Tool | Result |
@@ -1050,9 +1062,11 @@ on 2026-10-19.
 - **One BSP per map.** A map's second BSP is not converted (Coldsnap's is a
   copy of its first).
 - **The canvas palette.** A type B40's palette lacks gets an entry of its
-  own at the bake (the shotgun, and the fuel rod as Reach's `flak_cannon`),
-  and health packs are Megalo script ("Health packs"). Only the
-  flamethrower, which the game does not ship, is dropped.
+  own at the bake (the shotgun, the battle rifle, the SMG, and the fuel rod as
+  Reach's `flak_cannon`), and health packs are Megalo script ("Health packs").
+  What the game doesn't ship is dropped: the flamethrower, and custom weapons
+  `defs/level/ce-tag-map.json` doesn't map (see
+  [ce_custom_content.md](ce_custom_content.md)).
 - **No rocket Warthog.** Rocket hogs spawn as chaingun hogs until the rocket
   turret's tag wrapper points at an actor Blueprint (the chaingun turret's,
   via `ue-asset` tagwrap, or a rewritten mesh with CE's rocket pod).

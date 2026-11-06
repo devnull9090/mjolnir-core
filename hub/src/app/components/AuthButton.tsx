@@ -19,7 +19,7 @@ export function AuthButton() {
     return (
       <button
         onClick={signIn}
-        className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-[#5865F2]/60 text-[#8b95f6] hover:bg-[#5865F2]/10 transition-colors cursor-pointer"
+        className="whitespace-nowrap px-3 py-1.5 text-sm font-semibold rounded-lg border border-[#5865F2]/60 text-[#8b95f6] hover:bg-[#5865F2]/10 transition-colors cursor-pointer"
       >
         Sign in
       </button>

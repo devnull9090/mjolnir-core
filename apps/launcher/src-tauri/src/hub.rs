@@ -29,6 +29,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
@@ -227,11 +228,18 @@ fn paks_dir() -> Result<PathBuf, String> {
     Ok(paks)
 }
 
+/// The one client for the hub. Clones share its connection pool, so a run of
+/// requests pays for one TLS handshake rather than one each.
 fn http() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
+    let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .build()
-        .map_err(|e| format!("HTTP client error: {e}"))
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
@@ -1755,17 +1763,53 @@ pub struct UpdateInfo {
 /// What the hub has that is newer than what is installed, and the installed
 /// maps whose files are missing, offered as the same release again.
 ///
-/// One request per installed mod, which is fine at the scale a profile
-/// reaches, and it keeps the answer honest — the hub decides what "newest"
-/// means for a mod, not a cached listing.
+/// One request per installed mod keeps the answer honest — the hub decides
+/// what "newest" means for a mod, not a cached listing — so they go out
+/// [`HUB_CHECKS_AT_ONCE`] at a time rather than one after another.
 pub fn check_updates() -> Result<Vec<UpdateInfo>, String> {
     // One unreachable or deleted mod must not hide every other update; it
     // is skipped and the rest reported.
-    Ok(load_state()
-        .installed
-        .iter()
-        .filter_map(|inst| check_update_one(inst).ok().flatten())
-        .collect())
+    Ok(check_each(&load_state().installed, |inst| {
+        check_update_one(inst).ok().flatten()
+    }))
+}
+
+/// How many hub mods are asked about at once: a request or two each, so a
+/// few in flight keep a long map list quick without hammering the hub.
+pub(crate) const HUB_CHECKS_AT_ONCE: usize = 4;
+
+/// `check` over every mod, [`HUB_CHECKS_AT_ONCE`] at a time. The answers come
+/// back in the order of `mods`, whichever finished first.
+fn check_each<T: Send>(
+    mods: &[InstalledHubMod],
+    check: impl Fn(&InstalledHubMod) -> Option<T> + Sync,
+) -> Vec<T> {
+    let next = AtomicUsize::new(0);
+    let mut found: Vec<(usize, T)> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..HUB_CHECKS_AT_ONCE.min(mods.len()))
+            .map(|_| {
+                s.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(inst) = mods.get(i) else {
+                            break;
+                        };
+                        if let Some(answer) = check(inst) {
+                            out.push((i, answer));
+                        }
+                    }
+                    out
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap_or_default())
+            .collect()
+    });
+    found.sort_by_key(|(i, _)| *i);
+    found.into_iter().map(|(_, answer)| answer).collect()
 }
 
 /// Every installed hub mod, as the state file records it.
@@ -4024,6 +4068,51 @@ mod tests {
             channel: channel.into(),
             signature: None,
         }
+    }
+
+    fn installed(slug: &str) -> InstalledHubMod {
+        serde_json::from_value(serde_json::json!({
+            "slug": slug,
+            "name": slug,
+            "release_id": "r",
+            "version": "1.0.0",
+            "sha256": "",
+            "containers": [],
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn check_each_keeps_the_mods_order_and_skips_the_ones_with_no_answer() {
+        let mods: Vec<_> = (0..9).map(|i| installed(&i.to_string())).collect();
+        // The first mods take the longest, so they finish last.
+        let answers = check_each(&mods, |m| {
+            let i: u64 = m.slug.parse().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis((9 - i) * 5));
+            (i != 4).then_some(i)
+        });
+        assert_eq!(answers, vec![0, 1, 2, 3, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn check_each_keeps_to_the_limit() {
+        let mods: Vec<_> = (0..12).map(|i| installed(&i.to_string())).collect();
+        let running = AtomicUsize::new(0);
+        let most = AtomicUsize::new(0);
+        let answers = check_each(&mods, |_| {
+            let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+            most.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            running.fetch_sub(1, Ordering::SeqCst);
+            Some(())
+        });
+        assert_eq!(answers.len(), 12);
+        assert!(most.into_inner() <= HUB_CHECKS_AT_ONCE);
+    }
+
+    #[test]
+    fn check_each_of_nothing_is_nothing() {
+        assert!(check_each(&[], |_| Some(())).is_empty());
     }
 
     #[test]

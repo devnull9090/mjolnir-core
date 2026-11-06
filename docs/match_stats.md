@@ -115,8 +115,47 @@ private game's log is read only by moderators from the report queue.
 Pages: `/matches` (filters by game type and map, player search),
 `/matches/<id>` (scoreboard by team, the timeline, and the kill and death
 positions over the map, per player with `?p=<index>`), `/players/<name>`
-(totals, most-used weapons, matches), and a Multiplayer section on
-`/users/<id>`.
+(the combat record below), and the same record on `/users/<id>`.
+
+### The combat record
+
+`players/_components/PlayerRecordView.tsx` draws a career from the match
+tables (`lib/api/player-record.ts`), read on each view; no rollup table yet.
+
+- The **career signature** (`CareerRing.tsx`): every match the player fought
+  in as a spoke around a ring, oldest at the top and clockwise, kills reaching
+  out and deaths reaching in, wins gold. Matches with no kill or death are left
+  off it, and it keeps the newest 200.
+- **Form**: career K/D match by match, and personal bests.
+- **Battlegrounds**: where the player stood for each kill and died, over the
+  map (`?map=<CODE>`, the newest 600 marks). It defaults to their busiest map.
+- **Arsenal**: kills by weapon and class. The class with 40% of 15 or more
+  kills names the player's style; otherwise "All-rounder".
+- **Rivals**: who they traded the most kills with, one row a person, by
+  account when the seat is linked and by name when it is not.
+- **Medal case**: only the incidents in `MEDAL_TYPES`. A kill raises a run of
+  sibling incidents (`sniper_kill`, `precision_comm`, ...), so a new medal has
+  to be added to that list and to `MEDALS` in `players/_components/record.ts`.
+
+Win rate counts finished matches only: an abandoned match has no outcome. A
+name page links a hub profile only when every linked seat under that name is
+the same account.
+
+### Leaderboards
+
+`/leaderboards` ranks hub accounts by kills, K/D, wins, win rate, headshots and
+best match, all time or over 30 or 7 days (`lib/api/leaderboards.ts`). Two
+rules decide what counts, both about trust:
+
+- Only a linked seat places. Anyone can play under any name, so a name on a
+  board would be a way to wear someone else's record.
+- Only a match with two linked seats counts. A report is its host's word, and a
+  host alone, or alone with AI bots, could otherwise fill a board.
+
+So a board can read lower than the career total on a profile, and the page says
+so. K/D needs 20 kills over 3 matches, and win rate 3 finished matches, to place. Banned
+accounts never show. Two colluding accounts can still report what they like:
+weighing host trust is what real ranking still has to add.
 
 ### The map under the positions
 

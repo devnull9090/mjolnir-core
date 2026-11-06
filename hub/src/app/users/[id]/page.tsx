@@ -14,8 +14,10 @@ import { ModCard } from "../../components/HubKit";
 import { EmptyState, PageShell, SectionHeading } from "../../components/ui";
 import { getUserProfile } from "@/lib/api/queries";
 import { listMatches, playerTotals } from "@/lib/api/matches";
-import { MatchGrid } from "../../matches/_components/MatchCard";
+import { playerMapMarks, playerRecord } from "@/lib/api/player-record";
+import { parseMapCode } from "@/lib/filters";
 import { PlayerTotalsStrip } from "../../matches/_components/MatchTable";
+import { PlayerRecordView } from "../../players/_components/PlayerRecordView";
 
 /**
  * A public profile: who someone is here, and what they have done.
@@ -77,10 +79,13 @@ export async function generateMetadata({
 
 export default async function UserProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ map?: string }>;
 }) {
   const { id } = await params;
+  const { map: rawMap } = await searchParams;
   const profile = await loadProfile(id);
   // Banned accounts read as absent, exactly as GET /api/v1/users/{id} does.
   if (!profile) notFound();
@@ -89,27 +94,41 @@ export default async function UserProfilePage({
   // Public matches whose seat this account claimed from its own game (or
   // hosted): docs/match_stats.md.
   const { env } = getCloudflareContext();
-  const [totals, { matches }] = await Promise.all([
-    playerTotals(env.DB as never, { user: user.id }),
-    listMatches(env.DB as never, { user: user.id, limit: 9 }),
+  const db = env.DB as never;
+  const [totals, record, { matches }] = await Promise.all([
+    playerTotals(db, { user: user.id }),
+    playerRecord(db, { user: user.id }),
+    listMatches(db, { user: user.id, limit: 9 }),
   ]);
+  const mapCode = parseMapCode(rawMap) ?? record.maps[0]?.code ?? null;
+  const marks = mapCode ? await playerMapMarks(db, { user: user.id }, mapCode) : [];
 
   return (
     <PageShell width="6xl">
       <ProfileSummary profile={profile} />
 
-      {(totals.matches > 0 || profile.stats.player_reports > 0) && (
-        <section aria-labelledby="multiplayer" className="mt-12">
-          <SectionHeading id="multiplayer">
-            Multiplayer · {totals.matches} public match{totals.matches === 1 ? "" : "es"}
-          </SectionHeading>
-          <PlayerTotalsStrip totals={totals} reports={profile.stats.player_reports} />
-          {matches.length > 0 && (
-            <div className="mt-6">
-              <MatchGrid matches={matches} />
-            </div>
-          )}
+      {totals.matches > 0 ? (
+        <section aria-label="Multiplayer" className="mt-12">
+          <PlayerRecordView
+            standalone={false}
+            name={name}
+            avatar={user}
+            totals={totals}
+            record={record}
+            marks={marks}
+            mapCode={mapCode}
+            mapHref={(code) => `/users/${user.id}?map=${code}`}
+            matches={matches}
+            reports={profile.stats.player_reports}
+          />
         </section>
+      ) : (
+        profile.stats.player_reports > 0 && (
+          <section aria-labelledby="multiplayer" className="mt-12">
+            <SectionHeading id="multiplayer">Multiplayer</SectionHeading>
+            <PlayerTotalsStrip totals={totals} reports={profile.stats.player_reports} />
+          </section>
+        )
       )}
 
       <section aria-labelledby="mods" className="mt-12">

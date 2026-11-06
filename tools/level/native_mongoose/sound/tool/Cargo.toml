@@ -1,0 +1,12 @@
+# Outside the workspace on purpose: spike tools, built only when rerunning the experiment.
+[package]
+name = "ce-sound-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ue-iostore = { path = "../../../../../crates/ue-iostore" }
+ue-asset = { path = "../../../../../crates/ue-asset" }
+
+[workspace]

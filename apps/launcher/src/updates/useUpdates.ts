@@ -10,7 +10,7 @@
  * Each item carries how to apply itself. That keeps the manager dumb: it
  * selects, orders and reports, and never learns what a modpack is.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import type { UpdateState } from "../components/UpdaterBanner";
@@ -107,14 +107,22 @@ export function useUpdates(
    */
   onApplied?: (completed: UpdateItem[]) => void,
 ): UpdatesState {
-  const [items, setItems] = useState<UpdateItem[]>([]);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [sourceItems, setSourceItems] = useState<UpdateItem[]>([]);
+  const [sourceWarnings, setSourceWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<Record<string, UpdateProgress>>({});
   const [run, setRun] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
 
+  // Only the newest sweep may publish: a slow one that started earlier must
+  // not land on top of a fresher answer.
+  const sweep = useRef(0);
+
+  // The network sources. The launcher's own update is not one of them: the
+  // updater checks it separately, and folding it in below keeps a change in
+  // its status from running this whole sweep again.
   const refresh = useCallback(async () => {
+    const id = ++sweep.current;
     setLoading(true);
     const found: UpdateItem[] = [];
     const failed: string[] = [];
@@ -205,29 +213,45 @@ export function useUpdates(
       failed.push("tool releases");
     }
 
-    if (updater.status === "available" && updater.version) {
-      found.push({
-        key: "launcher",
-        kind: "launcher",
-        name: "MJOLNIR Launcher",
-        from: null,
-        to: updater.version,
-        detail: "Installs and restarts the launcher.",
-        restarts: true,
-        apply: updater.handleInstall,
-      });
-    } else if (updater.checkError) {
-      failed.push("launcher releases");
-    }
-
-    setItems(found);
-    setWarnings(failed);
+    if (id !== sweep.current) return;
+    setSourceItems(found);
+    setSourceWarnings(failed);
     setLoading(false);
-  }, [updater.status, updater.version, updater.checkError, updater.handleInstall]);
+  }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const launcherVersion = updater.status === "available" ? updater.version : null;
+
+  const items = useMemo<UpdateItem[]>(
+    () =>
+      launcherVersion
+        ? [
+            ...sourceItems,
+            {
+              key: "launcher",
+              kind: "launcher",
+              name: "MJOLNIR Launcher",
+              from: null,
+              to: launcherVersion,
+              detail: "Installs and restarts the launcher.",
+              restarts: true,
+              apply: updater.handleInstall,
+            },
+          ]
+        : sourceItems,
+    [sourceItems, launcherVersion, updater.handleInstall],
+  );
+
+  const warnings = useMemo(
+    () =>
+      !launcherVersion && updater.checkError
+        ? [...sourceWarnings, "launcher releases"]
+        : sourceWarnings,
+    [sourceWarnings, launcherVersion, updater.checkError],
+  );
 
   const apply = useCallback(
     async (keys: string[]) => {
