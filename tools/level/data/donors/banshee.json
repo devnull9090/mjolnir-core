@@ -1,0 +1,38 @@
+{
+ "_comment": "Facts about one shipped chassis, for ce_vehicle.py. No wheels: the CE hull is placed on the donor's physics box, and the rig stays at rig_scale. Hull_M stands 0.44641 wu above the origin (skeleton node 4).",
+ "actor": "BP_BansheeVehicleActor",
+ "actor_package": "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_BansheeVehicleActor",
+ "tag": "covenant/banshee/banshee",
+ "vehicle": "covenant/banshee/banshee-vehicle",
+ "leader": "hull_GEN_VARIABLE",
+ "hide": [],
+ "chassis_bone": "Hull_M",
+ "chassis_cm": [
+  0.0,
+  0.0,
+  136.066
+ ],
+ "hull_regions": [
+  "hull"
+ ],
+ "wheels": null,
+ "rig_scale": 1.0,
+ "seats": [
+  {
+   "marker": "banshee_d",
+   "ce": [
+    "driver"
+   ],
+   "offset": "driver"
+  }
+ ],
+ "enter": {},
+ "clear_seat_flags": {
+  "0": 1
+ },
+ "model_variant": null,
+ "mute": false,
+ "chassis": "stock",
+ "physics": "alien_fighter",
+ "baseline": "vehicles\\banshee\\banshee_mp"
+}

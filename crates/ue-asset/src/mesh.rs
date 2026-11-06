@@ -814,7 +814,9 @@ fn read_skeletal_section(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Resu
         }
         eprintln!();
     }
-    let _strip = w.u16()?;
+    // The second strip byte's low bit drops the duplicated-vertex buffer: this
+    // game keeps it, a stock cook without the skin cache does not.
+    let strip = w.u16()?;
     let material_index = w.u16()? as i16 as i32;
     let base_index = w.u32()?;
     let num_triangles = w.u32()?;
@@ -845,7 +847,9 @@ fn read_skeletal_section(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Resu
     let _max_bone_influences = w.u32()?;
     let _cloth_asset_index = w.u16()?;
     w.skip(20)?; // FClothingSectionData: guid + asset lod index
-    read_duplicated_vertices(w)?;
+    if strip >> 8 & 1 == 0 {
+        read_duplicated_vertices(w)?;
+    }
     let _disabled = w.u32()?;
     if trace {
         eprintln!(

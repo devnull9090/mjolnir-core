@@ -101,6 +101,7 @@ in which container:
 | 984 | MJOLNIR's widgets (see [Widgets](#widgets)) | `Scripts/build_mjolnir_ui.py` |
 | 983 | the trial masters and the tessellated cliffs | `Scripts/build_ce_materials.py` (`MJ_CE_ROOT=/Game/MJOLNIR/CETrial`, `MJ_CE_CHUNK=983`), `build_ce_cliffs.py` |
 | 982 | the water masters | `Scripts/build_ce_water.py` |
+| 989 | copies of the CE masters with skeletal mesh usage, for a skinned vehicle's instances (`/Game/MJOLNIR/CESkinned`) | `Scripts/build_ce_skinned_masters.py` |
 | one per remastered map (`MJ_LANDSCAPE_CHUNK`; 979 is Death Island's) | the map's Landscape world, its bakes and its baked foliage | `Scripts/build_ce_landscape.py`, cooked with `cook.ps1 -Map`; `tools/level/bake_editor_world.sh` bakes the world into the map's own container and keeps this one for its shader library |
 
 ## Widgets

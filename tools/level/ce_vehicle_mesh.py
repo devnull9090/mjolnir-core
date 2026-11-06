@@ -207,7 +207,7 @@ def read_back(uasset, prims, half, item):
     pos = np.concatenate([p["pos"] for p in prims]).astype(np.float32)
     # mesh_rewrite's own arithmetic, in single precision.
     cm = (pos[:, [0, 2, 1]] * np.float32(100.0)).astype(np.float32)
-    fit = np.float32(50.0) / np.float32(half * 100)
+    fit = np.float32(50.0) / (np.float32(half) * np.float32(100.0))
     want = (cm * fit).astype("<f4")
     blob = open(uasset, "rb").read()
     at = blob.find(want.tobytes())
@@ -250,9 +250,12 @@ def main():
     sections = lit(prims, shaders, textures)
 
     # Each node's sections: opaque, then transparent.
-    leaves = []
+    leaves, seen = [], set()
     for k, j in enumerate(joints):
         node = re.sub(r"[^A-Za-z0-9_]", "_", g["nodes"][j]["name"].removeprefix("frame "))
+        if node in seen:  # CE allows two nodes one name; two packages can't.
+            node = f"{node}_{k}"
+        seen.add(node)
         for clear, suffix in ((False, ""), (True, "_t")):
             parts = []
             for p in sections:
@@ -342,7 +345,9 @@ def main():
         relative = worlds[j] if up is None else np.linalg.inv(worlds[up]) @ worlds[j]
         nodes.append({"index": k, "name": g["nodes"][j]["name"], "parent": index.get(up, -1), "rest_vehicle": rest(worlds[j]),
                       "rest_parent": rest(relative), "meshes": [m["soft_path"] for m in meshes if m["node_index"] == k]})
+    points = np.concatenate([p["pos"] for p in prims]) @ TO_UE.T * 100
     manifest = {"model": a.model, "container": container, "code": code, "triangles": total, "read_back_miss_cm": worst,
+                "bounds_cm": {"min": [float(v) for v in points.min(axis=0)], "max": [float(v) for v in points.max(axis=0)]},
                 "units": {"ue_cm": "(x, -y, z) * 304.8 of CE", "ce_wu": "CE world units"},
                 "scale_note": "mesh vertices are stored at 1/component_scale; origin is the node",
                 "materials_spec": os.path.basename(spec_path), "nodes": nodes, "meshes": meshes}

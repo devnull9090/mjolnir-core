@@ -43,7 +43,13 @@ sys.path.insert(0, HERE)
 from ce_material_spec import asset_name  # noqa: E402
 
 
-def instances(spec, name, code, overrides):
+def parent_of(material, masters):
+    """The master, moved to `masters` when a skinned mesh needs its copies."""
+    parent = material["parent"]
+    return f"{masters.rstrip('/')}/{parent.rsplit('/', 1)[1]}" if masters else parent
+
+
+def instances(spec, name, code, overrides, masters=None):
     folder = f"{spec['root']}/Vehicles"
     out = []
     for slot in spec["slots"]:
@@ -51,7 +57,7 @@ def instances(spec, name, code, overrides):
         leaf = asset_name(f"MI_{code}_{name}_", slot["name"])
         package = f"{folder}/{leaf}"
         out.append({"material": slot["name"], "slot": f"s_{slot['name']}", "package": package,
-                    "object": f"{package}.{leaf}", "parent": m["parent"], "textures": m.get("textures", {}),
+                    "object": f"{package}.{leaf}", "parent": parent_of(m, masters), "textures": m.get("textures", {}),
                     "scalars": m.get("scalars", {}), "vectors": m.get("vectors", {})})
     return {"folder": folder, "overrides": overrides, "instances": out}
 
@@ -120,6 +126,7 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--set", action="append", default=[], metavar="Param=value")
     ap.add_argument("--plan", action="store_true", help="write the instances file, run nothing")
+    ap.add_argument("--masters", help="the folder of masters that carry skeletal usage, for a skinned mesh's instances")
     ap.add_argument("--mjolnir", default=os.path.join(REPO, "target", "release", "mjolnir.exe"))
     ap.add_argument("--paks", default=os.environ.get("HCE_PAKS"), help="read only: the stub .pak comes from here")
     a = ap.parse_args()
@@ -127,7 +134,7 @@ def main():
     spec = json.load(open(a.spec, encoding="utf-8"))
     code = spec["root"].rsplit("/", 1)[1]
     overrides = {k: float(v) for k, v in (s.split("=", 1) for s in a.set)}
-    plan = instances(spec, a.name, code, overrides)
+    plan = instances(spec, a.name, code, overrides, a.masters)
     path = os.path.abspath(os.path.join(a.out, f"{a.name.lower()}.instances.json"))
     json.dump(plan, open(path, "w", encoding="utf-8"), indent=1)
     print(f"{len(plan['instances'])} instance(s) -> {path}")
