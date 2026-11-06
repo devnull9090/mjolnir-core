@@ -41,6 +41,125 @@
     {
       "product": "cli",
       "productName": "MJOLNIR CLI",
+      "version": "0.9.0",
+      "tag": "cli-v0.9.0",
+      "title": "Animation graphs, package scanning and new game types in the level tools",
+      "date": "2026-11-06",
+      "summary": "The CLI reads and writes animation graphs for any skeleton, scans and clones the game's packages, and writes Stalker, Reverse Tag and game types with traits.",
+      "body": "### Added\n\n- **Animation graphs.** `mjolnir jmad` reads a graph, rewrites it for another\n  skeleton, and proves a round trip byte for byte. `mjolnir jmad child` cuts a\n  graph down to the animations a map changes and names a parent for the rest, so\n  a rider's graph is about half a megabyte rather than 111.\n- **Scan the game's packages.** `mjolnir ue scan` prints the matching properties\n  of every export of a class across the packages you name, for questions like\n  which material instances expose a parameter.\n- **Clone a package.** `mjolnir ue clone` copies a shipped package under a path of\n  your own into an addition container. It can set properties, repoint an import\n  and add to an earlier container. Nobody has yet loaded a cloned package in the\n  game.\n- **Script traits.** `mjolnir megalo write` writes game types that change a\n  player's traits from a script, and adds `--mode stalker` and\n  `--mode reverse-tag`. The Juggernaut gets its extra damage and melee.\n\n### Fixed\n\n- **Line tests on rebaked maps.** Collision built with `mjolnir level collision`\n  now keeps the shipped game's frame for its 2D trees, which corrects the line\n  tests on rebaked maps. Published maps keep their old tables until they are\n  rebaked.\n\n### Known issues\n\n- **A game type with traits needs the launcher and mods from this release.**\n  Launcher 0.21.0 and older refuse it, and an older map registry falls back to the\n  default game type.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Animation graphs. mjolnir jmad reads a graph, rewrites it for another skeleton, and proves a round trip byte for byte. mjolnir jmad child cuts a graph down to the animations a map changes and names a parent for the rest, so a rider's graph is about half a megabyte rather than 111.",
+            "Scan the game's packages. mjolnir ue scan prints the matching properties of every export of a class across the packages you name, for questions like which material instances expose a parameter.",
+            "Clone a package. mjolnir ue clone copies a shipped package under a path of your own into an addition container. It can set properties, repoint an import and add to an earlier container. Nobody has yet loaded a cloned package in the game.",
+            "Script traits. mjolnir megalo write writes game types that change a player's traits from a script, and adds --mode stalker and --mode reverse-tag. The Juggernaut gets its extra damage and melee."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Line tests on rebaked maps. Collision built with mjolnir level collision now keeps the shipped game's frame for its 2D trees, which corrects the line tests on rebaked maps. Published maps keep their old tables until they are rebaked."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "A game type with traits needs the launcher and mods from this release. Launcher 0.21.0 and older refuse it, and an older map registry falls back to the default game type."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.9.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.9.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.9.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.22.0",
+      "tag": "launcher-v0.22.0",
+      "title": "Launching works again after the mods 0.44.0 update",
+      "date": "2026-11-06",
+      "summary": "Fixes launches that stopped with \"Try again\" after mods 0.44.0. This update installs itself, then finishes the update it could not complete before.",
+      "body": "### Added\n\n- **Game types that change a player.** The launcher now accepts game types whose\n  scripts change how a player moves, hits or looks, which Stalker, Reverse Tag and\n  the Juggernaut's extra damage in MJOLNIR mods 0.45.0 need.\n\n### Changed\n\n- **Update checks are quicker on a long map list.** The launcher asks about four\n  mods at a time and keeps one connection to the hub, rather than asking about\n  each mod in turn over a new connection.\n- **The map browser's game type filter** lists the game types maps can offer.\n\n### Fixed\n\n- **The launcher could not finish updating MJOLNIRLevelLoader to 0.10.0.** Launcher\n  0.21.0 did not recognise the new game types in mods 0.44.0 and refused them, so\n  the update failed part way through, the launch stopped, and Try again failed\n  the same way. Starting the game from Steam still worked. This launcher accepts\n  them, and it finishes that update for you.\n- **A refused mod is left as it was.** The launcher now checks every file in a mod\n  before it writes any of them. Before, a file it refused part way through left\n  the mod half-installed, which is what happened above.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Game types that change a player. The launcher now accepts game types whose scripts change how a player moves, hits or looks, which Stalker, Reverse Tag and the Juggernaut's extra damage in MJOLNIR mods 0.45.0 need."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Update checks are quicker on a long map list. The launcher asks about four mods at a time and keeps one connection to the hub, rather than asking about each mod in turn over a new connection.",
+            "The map browser's game type filter lists the game types maps can offer."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "The launcher could not finish updating MJOLNIRLevelLoader to 0.10.0. Launcher 0.21.0 did not recognise the new game types in mods 0.44.0 and refused them, so the update failed part way through, the launch stopped, and Try again failed the same way. Starting the game from Steam still worked. This launcher accepts them, and it finishes that update for you.",
+            "A refused mod is left as it was. The launcher now checks every file in a mod before it writes any of them. Before, a file it refused part way through left the mod half-installed, which is what happened above."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.22.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.22.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.22.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.45.0",
+      "tag": "mods-v0.45.0",
+      "title": "Stalker, Reverse Tag and a marker that shows you the way",
+      "date": "2026-11-06",
+      "summary": "Hosts get Stalker, Reverse Tag and a clearer game type screen, a marker points the way to your objective, and Forge's F2 can no longer lose a saved map.",
+      "body": "### Added\n\n- **Stalker** (MJOLNIRLobby 0.21.0, MJOLNIRHud 0.16.0, MJOLNIRLevelLoader 0.11.0).\n  The first kill makes you the Stalker: invisible and fast, while everyone else\n  takes half damage. Kill the Stalker to take over. It's offered on every map that\n  has Slayer.\n- **Reverse Tag** (MJOLNIRLobby 0.21.0, MJOLNIRHud 0.16.0, MJOLNIRLevelLoader\n  0.11.0). The first kill makes you it. Whoever is it moves slowly and scores a\n  point a second, until someone kills them and takes over. It's offered on every\n  map that has Slayer.\n- **A marker on the screen** (MJOLNIRHud 0.16.0). A badge sits over the hill, the\n  next flag or the Juggernaut, with the distance under it. When the spot is out of\n  view, the badge moves to the edge of the screen and points the way to turn. It\n  takes the object's colours, pulses when a hill is contested, and fades over your\n  crosshair. The Stalker never gets one.\n\n### Changed\n\n- **The game type screen** (MJOLNIRLobby 0.21.0). Game types are now seven\n  families that name their variants, and the chosen family's variants are buttons\n  on the right, so Team King takes two clicks rather than three clicks on one tile.\n  SELECT names what you chose.\n- **Map select** (MJOLNIRLobby 0.21.0). The same families are tabs, and the chosen\n  tab opens a tray with its description and variant buttons. The screens' new\n  layout needs CE runtime 1.18.0, which the launcher installs with this release.\n- **The Juggernaut hits harder** (MJOLNIRLevelLoader 0.11.0). The Juggernaut now\n  has its extra damage and melee, half as much again as everyone else.\n- **Less text under the score** (MJOLNIRHud 0.16.0). The line now says only what\n  the marker can't: ON THE HILL, HILL CONTESTED, LAP 1 OF 3 / FLAG 1 OF 9. If a\n  marker can't be made, the old line with the distance comes back.\n- **Forge's \"SOLO HOST\" label** (MJOLNIRLobby 0.21.0) now reads SANDBOX.\n\n### Fixed\n\n- **F2 in Forge no longer loses your save without saying so** (MJOLNIRForge\n  0.4.2). One press used to move your saved layout to history, with nothing on\n  screen, and F6 then reported no saved layout. F2 now takes two presses, 0.3 to 4\n  seconds apart with no other Forge command between them. The first says what will\n  happen, and the second says where the save went.\n- **F6 brings a reverted save back** (MJOLNIRForge 0.4.2). With no active save, F6\n  restores the map's newest one from history, even after a restart. Objects you\n  placed after your last save are still lost by a revert.\n\n### Known issues\n\n- **King, Oddball and Race are not on any published map yet.** Their hills, balls\n  and flags are placed in the map, so a map offers them only once it has been\n  republished with them. They will arrive in map updates.\n- **Stalker, Reverse Tag and the Juggernaut's extra damage have only been hosted on\n  one PC.** Passing the role between players needs a second player on another PC,\n  and that is untested. So is the Juggernaut's marker.\n- **The marker's contested and team colours are untested in a real match.** A\n  second player is needed for those too.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Stalker (MJOLNIRLobby 0.21.0, MJOLNIRHud 0.16.0, MJOLNIRLevelLoader 0.11.0). The first kill makes you the Stalker: invisible and fast, while everyone else takes half damage. Kill the Stalker to take over. It's offered on every map that has Slayer.",
+            "Reverse Tag (MJOLNIRLobby 0.21.0, MJOLNIRHud 0.16.0, MJOLNIRLevelLoader 0.11.0). The first kill makes you it. Whoever is it moves slowly and scores a point a second, until someone kills them and takes over. It's offered on every map that has Slayer.",
+            "A marker on the screen (MJOLNIRHud 0.16.0). A badge sits over the hill, the next flag or the Juggernaut, with the distance under it. When the spot is out of view, the badge moves to the edge of the screen and points the way to turn. It takes the object's colours, pulses when a hill is contested, and fades over your crosshair. The Stalker never gets one."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The game type screen (MJOLNIRLobby 0.21.0). Game types are now seven families that name their variants, and the chosen family's variants are buttons on the right, so Team King takes two clicks rather than three clicks on one tile. SELECT names what you chose.",
+            "Map select (MJOLNIRLobby 0.21.0). The same families are tabs, and the chosen tab opens a tray with its description and variant buttons. The screens' new layout needs CE runtime 1.18.0, which the launcher installs with this release.",
+            "The Juggernaut hits harder (MJOLNIRLevelLoader 0.11.0). The Juggernaut now has its extra damage and melee, half as much again as everyone else.",
+            "Less text under the score (MJOLNIRHud 0.16.0). The line now says only what the marker can't: ON THE HILL, HILL CONTESTED, LAP 1 OF 3 / FLAG 1 OF 9. If a marker can't be made, the old line with the distance comes back.",
+            "Forge's \"SOLO HOST\" label (MJOLNIRLobby 0.21.0) now reads SANDBOX."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "F2 in Forge no longer loses your save without saying so (MJOLNIRForge 0.4.2). One press used to move your saved layout to history, with nothing on screen, and F6 then reported no saved layout. F2 now takes two presses, 0.3 to 4 seconds apart with no other Forge command between them. The first says what will happen, and the second says where the save went.",
+            "F6 brings a reverted save back (MJOLNIRForge 0.4.2). With no active save, F6 restores the map's newest one from history, even after a restart. Objects you placed after your last save are still lost by a revert."
+          ]
+        },
+        {
+          "heading": "Known issues",
+          "items": [
+            "King, Oddball and Race are not on any published map yet. Their hills, balls and flags are placed in the map, so a map offers them only once it has been republished with them. They will arrive in map updates.",
+            "Stalker, Reverse Tag and the Juggernaut's extra damage have only been hosted on one PC. Passing the role between players needs a second player on another PC, and that is untested. So is the Juggernaut's marker.",
+            "The marker's contested and team colours are untested in a real match. A second player is needed for those too."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.45.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.45.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.45.0"
+    },
+    {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
       "version": "0.8.0",
       "tag": "cli-v0.8.0",
       "title": "Custom vehicles, scripted devices and CE's game types in the level tools",
