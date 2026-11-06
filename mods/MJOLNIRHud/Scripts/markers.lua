@@ -5,9 +5,11 @@
 
 local Markers = {}
 
---- `deps`: Hill, Race, Juggernaut, Board (the modules), readLevel(map), log(text).
+--- `deps`: Hill, Race, Juggernaut, Board, Waypoint (the modules), readLevel(map),
+--- log(text).
 function Markers.new(deps)
     local self = {}
+    deps.Hill.Waypoint, deps.Hill.log = deps.Waypoint, deps.log
 
     --- Each player with a body: { index, at, team, me }. Players, not AI: the
     --- scripts walk players, so bots neither hold a hill nor contest one. Every
@@ -62,6 +64,13 @@ function Markers.new(deps)
         if match.hill then match.hill.tick(now, pc, hidden, playersOn(match, pc)) end
         if match.race then match.race.tick(now, pc, hidden, lapsDone(match, me), match.mode.toWin or 0) end
         if match.juggernaut then match.juggernaut.tick(now, pc, hidden, me, playersOn(match, pc)) end
+    end
+
+    --- Every frame, from any player controller: on a host that can be a
+    --- client's, and the marker is the local player's.
+    function self.frame(match, pc, now)
+        local marker = match.hill or match.race or match.juggernaut
+        if marker and pc:IsLocalController() then marker.frame(pc, now) end
     end
 
     function self.hide(match)

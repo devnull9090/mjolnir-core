@@ -138,6 +138,7 @@ end
 --- What the match marks in the world: the hill, the next flag, the Juggernaut.
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
+    Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
     Race = dofile(MOD_DIR .. "\\Scripts\\race.lua"),
     Juggernaut = dofile(MOD_DIR .. "\\Scripts\\juggernaut.lua"),
     Board = Scoreboard,
@@ -1492,6 +1493,8 @@ local function ensureFrameHook()
                 if FrameHook.hitchErrors == 10 then Log("hitch log off after repeated errors: " .. tostring(errH)) end
             end
         end
+        -- Before the gate below, which may pass only a client's controller on a host.
+        if Match then pcall(function() Markers.frame(Match, ctx:get(), t) end) end
         if t - FrameHook.last < 0.004 or FrameHook.errors >= 10 then return end
         FrameHook.last = t
         local okA, err = pcall(animate, t)

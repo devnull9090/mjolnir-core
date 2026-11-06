@@ -2,7 +2,7 @@
 
     python tools/ue/draw_gametype_icons.py [--sheet out/gametype-icons.png]
 
-Writes six 256px transparent PNGs to Art/GameTypeIcons. The UI builder imports
+Writes eight 256px transparent PNGs to Art/GameTypeIcons. The UI builder imports
 them as T_MJMode_<Name> into /Game/MJOLNIR/UI/ModeIcons. These are original
 geometric symbols in the same style as draw_hud_icons.py; no game art is copied.
 """
@@ -18,6 +18,7 @@ ICON = 256
 SCALE = 8
 SIZE = ICON * SCALE
 OUT = Path(__file__).resolve().parents[2] / "unreal/MJOLNIRMaterials/Art/GameTypeIcons"
+MARGIN = 15  # clear pixels round the largest glyph, of ICON
 
 
 def points(coords):
@@ -131,21 +132,59 @@ def forge(draw):
     poly(draw, [(.45, .86), (.55, .86), (.57, .92), (.43, .92)])
 
 
+def race(draw):
+    """A chequered flag on a leaning pole: Race is about the course, not a base."""
+    def at(col, row):
+        # The cloth leans with the pole and ripples a little along its length.
+        return (.17 + col * .125 + row * .02, .13 + row * .105 + .035 * ((col % 2) - .5) + col * .012)
+
+    line(draw, (.08, .10), (.21, .92), .055)
+    for row in range(4):
+        for col in range(5):
+            if (row + col) % 2 == 0:
+                poly(draw, [at(col, row), at(col + 1, row), at(col + 1, row + 1), at(col, row + 1)])
+    # The outline closes the cloth, so the empty squares read as squares.
+    line(draw, (.17, .115), (.795, .17), .018)
+    line(draw, (.25, .535), (.875, .59), .018)
+    line(draw, (.795, .17), (.875, .59), .018)
+
+
+def juggernaut(draw):
+    """One armoured figure with the marker above it: everyone hunts this player."""
+    helmet(draw, .5, .62, 1.18)
+    poly(draw, [(.33, .08), (.67, .08), (.5, .29)])
+    poly(draw, [(.43, .12), (.57, .12), (.5, .205)], 0)
+
+
 GLYPHS = {"Slayer": slayer, "TeamSlayer": team_slayer, "Ctf": ctf,
-          "Oddball": oddball, "Koth": koth, "Forge": forge}
+          "Oddball": oddball, "Koth": koth, "Forge": forge,
+          "Race": race, "Juggernaut": juggernaut}
+
+
+def centred(mask):
+    """The glyph in the middle of the canvas. Every screen draws these on a round
+    or diamond backing, where a glyph off the canvas's centre shows at once."""
+    glyph = mask.crop(mask.getbbox())
+    limit = (ICON - 2 * MARGIN) * SCALE
+    if max(glyph.size) > limit:
+        shrink = limit / max(glyph.size)
+        glyph = glyph.resize((round(glyph.width * shrink), round(glyph.height * shrink)), Image.Resampling.LANCZOS)
+    result = Image.new("L", (SIZE, SIZE), 0)
+    result.paste(glyph, ((SIZE - glyph.width) // 2, (SIZE - glyph.height) // 2))
+    return result
 
 
 def render(fn):
     mask = Image.new("L", (SIZE, SIZE), 0)
     fn(ImageDraw.Draw(mask))
-    mask = mask.resize((ICON, ICON), Image.Resampling.LANCZOS)
+    mask = centred(mask).resize((ICON, ICON), Image.Resampling.LANCZOS)
     result = Image.new("RGBA", (ICON, ICON), (255, 255, 255, 0))
     result.putalpha(mask)
     return result
 
 
 def preview(images, path):
-    sheet = Image.new("RGBA", (6 * 292, 380), (9, 24, 34, 255))
+    sheet = Image.new("RGBA", (len(images) * 292, 380), (9, 24, 34, 255))
     draw = ImageDraw.Draw(sheet)
     try:
         font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 20)

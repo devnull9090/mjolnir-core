@@ -14,6 +14,9 @@ import os
 from PIL import Image
 
 SIZE = 256   # the emblem is drawn 190 UI units square: 285 pixels at 4K
+SOLID = 24   # alpha from here up is the emblem. The source's faint outer pixels
+             # are not, and cropping to them left it 9 pixels off centre.
+FILL = 0.92  # of the square: the wing tips stay inside the hover circle
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 SOURCE = os.path.join(ROOT, "hub", "public", "logo-transparent.png")
 OUT = os.path.join(ROOT, "unreal", "MJOLNIRMaterials", "Art", "Brand", "Logo.png")
@@ -21,8 +24,8 @@ OUT = os.path.join(ROOT, "unreal", "MJOLNIRMaterials", "Art", "Brand", "Logo.png
 
 def main():
     logo = Image.open(SOURCE).convert("RGBA")
-    logo = logo.crop(logo.getchannel("A").getbbox())
-    side = max(logo.size)
+    logo = logo.crop(logo.getchannel("A").point(lambda a: 255 if a >= SOLID else 0).getbbox())
+    side = round(max(logo.size) / FILL)
     square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
     square.paste(logo, ((side - logo.width) // 2, (side - logo.height) // 2))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

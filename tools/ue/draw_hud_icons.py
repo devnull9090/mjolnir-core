@@ -239,10 +239,18 @@ GLYPHS = {
 }
 
 
+def centred(mask):
+    """The glyph in the middle of the canvas, so it sits level in a feed row."""
+    glyph = mask.crop(mask.getbbox())
+    result = canvas()
+    result.paste(glyph, ((S - glyph.width) // 2, (S - glyph.height) // 2))
+    return result
+
+
 def render(fn):
     mask = canvas()
     fn(ImageDraw.Draw(mask))
-    mask = mask.resize((ICON, ICON), Image.LANCZOS)
+    mask = centred(mask).resize((ICON, ICON), Image.LANCZOS)
     # A soft dark edge keeps the glyph legible over snow and sky alike.
     edge = mask.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.2))
     edge = edge.point(lambda v: int(v * 0.85))

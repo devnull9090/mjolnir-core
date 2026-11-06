@@ -20,7 +20,7 @@ local MODES = {
     { id = "forge", name = "FORGE", forge = true, description = "Build and edit the map." },
 }
 
-local function harness()
+local function harness(families)
     local h = {
         map = { code = "BGL", title = "Blood Gulch" }, mode = MODES[2], modes = MODES,
         host = true, hasClass = true, screens = {}, commits = {}, notes = {}, covers = {},
@@ -53,10 +53,18 @@ local function harness()
                                "ListCount", "Status", "Select", "Back", "MapImage", "MapImageNote" }) do
             s[key] = widget()
         end
-        for i = 0, 5 do
+        for i = 0, families and 6 or 5 do
             s["Mode" .. i] = widget()
             for _, suffix in ipairs({ "Label", "Format", "Icon", "Current" }) do
                 s["Mode" .. i .. suffix] = widget()
+            end
+        end
+        -- The UI container from before the variant buttons has none of these.
+        if families then
+            s.SelectLabel, s.VariantBlock = widget(), widget()
+            for i = 0, 4 do
+                s["Variant" .. i] = widget()
+                s["Variant" .. i .. "Label"], s["Variant" .. i .. "Line"] = widget(), widget()
             end
         end
         return s
@@ -234,7 +242,156 @@ h.event("mode:1")
 h.event("select")
 eq(h.commits[1].id, "crazy_king", "SELECT commits the variant")
 
+-- The family screen: every variant is named on the left and a button on the
+-- right, so nothing depends on clicking a row again. Rows are the real ones.
+local function offered(...)
+    local list = {}
+    for _, id in ipairs({ ... }) do list[#list + 1] = Modes.byId(id) end
+    return list
+end
+local EVERY = {}
+for _, mode in ipairs(Modes) do EVERY[#EVERY + 1] = mode end
+
+h = harness(true)
+h.modes, h.mode = EVERY, Modes.byId("slayer")
+s = h.open()
+eq(s.ListCount.text, #EVERY .. " GAME TYPES ON THIS MAP", "the count is what can be played")
+for i, name in ipairs({ "SLAYER", "CAPTURE THE FLAG", "ODDBALL", "JUGGERNAUT", "KING OF THE HILL", "RACE", "FORGE" }) do
+    eq(s["Mode" .. i - 1 .. "Label"].text, name, "family " .. i)
+    eq(s["Mode" .. i - 1].visibility, 0, "family " .. i .. " shown")
+end
+eq(s.Mode2Format.text, "ODDBALL  /  TEAM ODDBALL", "Oddball is only Oddball's own")
+eq(s.Mode3Format.text, "JUGGERNAUT  /  STALKER  /  REVERSE TAG", "the hunted modes have a family")
+eq(s.Mode4Format.text, "KING  /  CRAZY KING  /  TEAM KING", "a family names its variants")
+eq(s.Mode1Format.text, "RED TEAM  /  BLUE TEAM", "a family of one gives its format")
+eq(s.Mode0Current.text, "CURRENT", "the current family is marked")
+eq(s.VariantBlock.visibility, 0, "Slayer's variants show at once")
+eq(s.Variant0Label.text, "SLAYER", "first variant")
+eq(s.Variant0Line.text, "FREE FOR ALL  /  CURRENT", "the current variant is marked")
+eq(s.Variant1Label.text, "TEAM SLAYER", "second variant")
+eq(s.Variant1Line.text, "TEAMS", "and says it is teams")
+eq(s.Variant2.visibility, 1, "no third button")
+eq(s.SelectLabel.text, "SELECT SLAYER", "SELECT says what it will start")
+
+-- Team King in two clicks, and a repeat click on the family changes nothing.
+h.event("mode:4")
+eq(s.ModeTitle.text, "KING", "a family opens on its first variant")
+eq(s.Variant2Label.text, "TEAM KING", "its variants replace the buttons")
+eq(s.Variant3.visibility, 1, "and only as many as it has")
+h.event("mode:4")
+eq(s.ModeTitle.text, "KING", "a second click on the family does not step")
+h.event("variant:2")
+eq(s.ModeTitle.text, "TEAM KING", "a variant button chooses it")
+eq(s.SelectLabel.text, "SELECT TEAM KING", "and SELECT follows")
+eq(s.MatchFormat.text, "RED TEAM  /  BLUE TEAM", "and the format")
+eq(#h.commits, 0, "choosing is a draft")
+
+-- A hover previews and leaves both the choice and the buttons alone.
+h.event("vhover:1")
+eq(s.ModeTitle.text, "CRAZY KING", "hovering a variant previews it")
+eq(s.SelectLabel.text, "SELECT TEAM KING", "without choosing it")
+h.event("vunhover:1")
+eq(s.ModeTitle.text, "TEAM KING", "leaving returns to the choice")
+h.event("hover:3")
+eq(s.ModeTitle.text, "JUGGERNAUT", "hovering a family previews it")
+eq(s.Variant2Label.text, "TEAM KING", "and the buttons stay with the chosen family")
+h.event("unhover:3")
+eq(s.ModeTitle.text, "TEAM KING", "leaving the family returns too")
+
+-- A family comes back to the variant it was left on.
+h.event("mode:3")
+h.event("variant:1")
+eq(s.ModeTitle.text, "STALKER", "Stalker has a button under Juggernaut")
+h.event("mode:4")
+eq(s.ModeTitle.text, "TEAM KING", "a family left keeps its variant")
+h.event("mode:3")
+eq(s.ModeTitle.text, "STALKER", "both ways round")
+
+-- A family of one has no buttons, and a button index that is not there is dropped.
+h.event("mode:1")
+eq(s.ModeTitle.text, "CTF", "the single variant is chosen")
+eq(s.VariantBlock.visibility, 2, "no buttons, and the block keeps its space")
+eq(s.Variant0.visibility, 1, "its first button is gone too")
+h.event("variant:0")
+h.event("vhover:0")
+eq(s.ModeTitle.text, "CTF", "an event from a hidden button changes nothing")
+h.event("mode:4")
+h.event("variant:4")
+h.event("variant:99")
+eq(s.ModeTitle.text, "TEAM KING", "out-of-range variants are ignored")
+h.event("select")
+eq(h.commits[1].id, "team_koth", "SELECT commits the variant")
+
+-- A lobby already on a variant opens in its family with it chosen.
+h = harness(true)
+h.modes, h.mode = EVERY, Modes.byId("reverse_tag")
+s = h.open()
+eq(h.focus, s.Mode3, "the current family receives focus")
+eq(s.ModeTitle.text, "REVERSE TAG", "the current variant shows")
+eq(s.Variant2Line.text, "FREE FOR ALL  /  CURRENT", "and is marked")
+
+-- A map with less on offer: a family named by what it has, tiles closing up.
+h = harness(true)
+h.modes, h.mode = offered("slayer", "stalker", "reverse_tag"), Modes.byId("stalker")
+s = h.open()
+eq(s.Mode1Label.text, "STALKER", "a family without its namesake goes by its first variant")
+eq(s.Mode2.visibility, 1, "no third row")
+eq(s.Mode6.visibility, 1, "and no seventh")
+eq(s.ListCount.text, "3 GAME TYPES ON THIS MAP", "the count follows")
+
+-- Map select draws the same buttons: no second line, nothing marked current,
+-- and none at all for a map only hovered over.
+h = harness(true)
+h.modes, h.mode = EVERY, Modes.byId("slayer")
+s = h.open()
+local tiles = Modes.families(EVERY)
+eq(Modes.tileOf(tiles, "stalker").id, "juggernaut", "tileOf finds the family")
+eq(Modes.tileOf(tiles, "nothing"), nil, "and nothing for an id it lacks")
+eq(Modes.tileOf(tiles, "koth").short, "KING", "a long family name has a short one for a tab")
+eq(Modes.tileOf(tiles, "ctf").short, "CTF", "so has Capture the Flag")
+eq(Modes.tileOf(tiles, "slayer").short, nil, "a short name needs none")
+eq(Modes.families(offered("crazy_king", "team_koth"))[1].short, nil, "a family without its namesake drops it too")
+local select = {}
+for _, key in ipairs({ "VariantBlock", "Variant0", "Variant0Label", "Variant0Mark", "Variant1", "Variant1Label",
+                       "Variant1Mark", "Variant2", "Variant2Label", "Variant3", "Variant3Label", "Variant4",
+                       "Variant4Label" }) do
+    select[key] = {
+        SetVisibility = function(self, value) self.visibility = value end,
+        SetText = function(self, value) self.text = value end,
+        SetBackgroundColor = function(self, value) self.background = value end,
+        SetColorAndOpacity = function(self, value) self.color = value end,
+    }
+end
+h.picker.showVariants(select, Modes.tileOf(tiles, "team_race"), Modes.byId("team_race"))
+eq(select.VariantBlock.visibility, 0, "map select shows a family's variants")
+eq(select.Variant3Label.text, "TEAM RALLY", "all of them")
+eq(select.Variant4.visibility, 1, "and only those")
+assert(select.Variant1.background.R > 1 and select.Variant0.background.R == 1, "the chosen variant is lit")
+eq(select.Variant1Mark.visibility, 3, "and has the gold bar")
+eq(select.Variant0Mark.visibility, 2, "which the others do not")
+h.picker.showVariants(select, nil, nil)
+eq(select.VariantBlock.visibility, 2, "a map only hovered over has none")
+eq(select.Variant0.visibility, 1, "no buttons either")
+h.picker.showVariants(select, Modes.tileOf(tiles, "ctf"), Modes.byId("ctf"))
+eq(select.VariantBlock.visibility, 2, "a family of one has none")
+
+-- An older UI container keeps the engine tiles and the stepping.
+h = harness()
+h.modes, h.mode = EVERY, Modes.byId("slayer")
+s = h.open()
+eq(s.ListCount.text, "6 GAME TYPES AVAILABLE", "six engine tiles")
+eq(s.Mode2Label.text, "ODDBALL", "the Oddball tile")
+eq(s.Mode2Format.text, "ODDBALL  /  VARIANT 1 OF 5", "still holds what runs on its engine")
+h.event("mode:2")
+h.event("mode:2")
+eq(s.ModeTitle.text, "TEAM ODDBALL", "and a repeat click steps")
+
 -- Empty maps remain navigable, while old UI containers retain a working route.
+h = harness(true)
+h.modes = {}
+s = h.open()
+eq(s.VariantBlock.visibility, 2, "nothing to choose between")
+eq(s.ListCount.text, "0 GAME TYPES ON THIS MAP", "and the count says so")
 h = harness()
 h.modes = {}
 s = h.open()
@@ -261,4 +418,4 @@ h.map = nil
 h.open()
 eq(#h.screens, 0, "no map cannot open picker")
 
-print("Game type picker: six modes, previews, explicit selection, cancellation, stale events, host/map changes and compatibility passed")
+print("Game type picker: families, variant buttons, previews, explicit selection, cancellation, stale events, host/map changes and compatibility passed")

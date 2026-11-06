@@ -1,34 +1,47 @@
 -- A game type choice is a draft until SELECT. CommonUI's Back/Escape can
 -- deactivate the screen at any time without changing the hosted game.
 --
--- Each tile is an engine (modes.lua). The cooked screen has six tiles and no
--- other button, so a click on the chosen tile steps through its variants, and
--- the tile's format line names the one it stands for.
+-- The list on the left is game type families (modes.lua), each naming its
+-- variants, and the family that is chosen shows them as buttons on the right,
+-- so no choice hides behind a repeat click.
+--
+-- The UI container ships apart from this mod. One from before Variant0 has six
+-- tiles and no other button: there each tile is an engine, a click on the chosen
+-- tile steps through its variants, and its format line names the one it stands for.
 local M = {}
 local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRGameTypeSelect.WBP_MJOLNIRGameTypeSelect_C"
 local ICON_ROOT = "/Game/MJOLNIR/UI/ModeIcons/T_MJMode_"
--- Only these six textures are cooked. Race borrows the flag until it has its own.
 local ICONS = { slayer = "Slayer", team_slayer = "TeamSlayer", ctf = "Ctf",
-    oddball = "Oddball", team_oddball = "Oddball", juggernaut = "Slayer",
-    stalker = "Slayer", reverse_tag = "Slayer",
+    oddball = "Oddball", team_oddball = "Oddball", juggernaut = "Juggernaut",
+    stalker = "Juggernaut", reverse_tag = "Juggernaut",
     koth = "Koth", crazy_king = "Koth", team_koth = "Koth",
-    race = "Ctf", team_race = "Ctf", rally = "Ctf", team_rally = "Ctf", forge = "Forge" }
+    race = "Race", team_race = "Race", rally = "Race", team_rally = "Race", forge = "Forge" }
+-- What an older UI container, without these two textures, draws instead.
+local ICON_STAND_INS = { Juggernaut = "Slayer", Race = "Ctf" }
+local OLD_TILES, FAMILY_TILES, VARIANT_BUTTONS = 6, 7, 5
 local NORMAL = { R = 1, G = 1, B = 1, A = 1 }
 local CHOSEN = { R = 2.0, G = 2.8, B = 3.0, A = 1 }
 local WHITE = { R = 0.88, G = 0.95, B = 1, A = 1 }
 local CYAN = { R = 0.46, G = 0.79, B = 0.94, A = 1 }
+local GREY = { R = 0.46, G = 0.61, B = 0.70, A = 1 }
+local GOLD = { R = 1, G = 0.80, B = 0.35, A = 1 }
 local function text(w, value)
     pcall(function() w:SetText(FText(value or "")) end)
 end
 local function format(mode)
     if not mode then return "" end
-    return mode.forge and "SANDBOX  /  SOLO HOST" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+    return mode.forge and "SANDBOX" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+end
+local function names(tile)
+    local list = {}
+    for i, mode in ipairs(tile.variants) do list[i] = mode.name end
+    return table.concat(list, "  /  ")
 end
 
 function M.new(deps)
     local Modes = deps.modes
     local self = { class = CLASS }
-    local screen, mapCode, selected, hovered, modes, tiles, currentId
+    local screen, mapCode, selected, hovered, modes, tiles, currentId, split
     local available, textures = nil, {}
 
     function self.available()
@@ -40,9 +53,7 @@ function M.new(deps)
         return deps.alive(screen)
     end
 
-    local function icon(image, mode)
-        if not deps.valid(image) then return false end
-        local name = mode and ICONS[mode.id]
+    local function texture(name)
         if name and (textures[name] == nil or (textures[name] and not deps.valid(textures[name]))) then
             local ok, tex = pcall(function()
                 local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
@@ -51,7 +62,13 @@ function M.new(deps)
             end)
             textures[name] = ok and deps.valid(tex) and tex or false
         end
-        local tex = name and textures[name]
+        return name and textures[name]
+    end
+
+    local function icon(image, mode)
+        if not deps.valid(image) then return false end
+        local name = mode and ICONS[mode.id]
+        local tex = texture(name) or texture(ICON_STAND_INS[name])
         pcall(function()
             image:SetVisibility(tex and 3 or 2)
             if tex then image:SetBrushFromTexture(tex, false) end
@@ -69,15 +86,54 @@ function M.new(deps)
         icon(screen.ModeIcon, mode)
     end
 
-    --- The tile's line under its name: the variant it stands for, when it has
-    --- more than one.
+    --- The tile's line under its name: its variants, or on an older container
+    --- the one it stands for.
     local function tileLine(tile, mode)
         if #tile.variants < 2 then return format(mode) end
+        if split then return names(tile) end
         return string.format("%s  /  VARIANT %d OF %d", mode.name, Modes.position(tile, mode.id), #tile.variants)
     end
 
+    --- The tile `selected` belongs to, or nil.
+    local function chosenTile()
+        return selected and Modes.tileOf(tiles, selected.id) or nil
+    end
+
+    --- `tile`'s variants as `target`'s buttons, with `chosen` lit and the
+    --- `hostedId` marked. A family of one, or none, has nothing to
+    --- choose: the block is hidden, not collapsed, so what is below stays put.
+    --- Map select's buttons have a gold bar and no second line, this screen's
+    --- the other way round.
+    local function drawVariants(target, tile, chosen, hostedId)
+        local several = tile ~= nil and #tile.variants > 1
+        pcall(function() target.VariantBlock:SetVisibility(several and 0 or 2) end)
+        for i = 0, VARIANT_BUTTONS - 1 do
+            local mode = several and tile.variants[i + 1] or nil
+            local key = "Variant" .. i
+            pcall(function() target[key]:SetVisibility(mode and 0 or 1) end)
+            if mode then
+                local lit = chosen ~= nil and chosen.id == mode.id
+                local current = hostedId == mode.id
+                local line = mode.teams and "TEAMS" or "FREE FOR ALL"
+                pcall(function()
+                    target[key .. "Label"]:SetText(FText(mode.name))
+                    target[key]:SetBackgroundColor(lit and CHOSEN or NORMAL)
+                    target[key .. "Label"]:SetColorAndOpacity({ SpecifiedColor = lit and CYAN or WHITE, ColorUseRule = 0 })
+                end)
+                pcall(function() target[key .. "Mark"]:SetVisibility(lit and 3 or 2) end)
+                pcall(function()
+                    target[key .. "Line"]:SetText(FText(current and line .. "  /  CURRENT" or line))
+                    target[key .. "Line"]:SetColorAndOpacity({ SpecifiedColor = current and GOLD or GREY, ColorUseRule = 0 })
+                end)
+            end
+        end
+    end
+
+    -- Map select draws the same buttons.
+    self.showVariants = drawVariants
+
     local function draw()
-        for i = 0, 5 do
+        for i = 0, (split and FAMILY_TILES or OLD_TILES) - 1 do
             local tile, button = tiles[i + 1], screen["Mode" .. i]
             pcall(function() button:SetVisibility(tile and 0 or 1) end)
             if tile then
@@ -93,10 +149,15 @@ function M.new(deps)
                 end)
             end
         end
-        text(screen.ListCount, string.format("%d GAME TYPE%s AVAILABLE", #tiles, #tiles == 1 and "" or "S"))
+        local count = split and #modes or #tiles
+        text(screen.ListCount, string.format("%d GAME TYPE%s %s", count, count == 1 and "" or "S",
+            split and "ON THIS MAP" or "AVAILABLE"))
         pcall(function() screen.Select:SetIsEnabled(selected ~= nil and deps.isHost()) end)
-        text(screen.Status, "Choose a game type, click it again for its variants, then SELECT. "
+        text(screen.SelectLabel, selected and "SELECT " .. selected.name or "SELECT")
+        text(screen.Status, (split and "Pick a game type on the left and a variant on the right, then SELECT. "
+            or "Choose a game type, click it again for its variants, then SELECT. ")
             .. "BACK keeps your current game type.")
+        if split then drawVariants(screen, chosenTile(), selected, currentId) end
         preview(hovered or selected)
     end
 
@@ -118,7 +179,9 @@ function M.new(deps)
         end
         mapCode, currentId, hovered = map.code, mode and mode.id, nil
         modes, selected = deps.modesFor(map), nil
-        tiles = Modes.engines(modes)
+        local okSplit, hasVariants = pcall(function() return deps.valid(screen.Variant0) end)
+        split = okSplit and hasVariants == true
+        tiles = split and Modes.families(modes) or Modes.engines(modes)
         for _, candidate in ipairs(modes) do
             if candidate.id == currentId then selected = candidate end
         end
@@ -147,14 +210,20 @@ function M.new(deps)
         local verb, index = event:match("^(%a+):(%d+)$")
         local tile = index and tiles[tonumber(index) + 1]
         local mode = tile and Modes.shown(tile, selected)
+        -- A variant button's index is into the chosen family, not the list.
+        local family = split and chosenTile() or nil
+        local variant = index and family and #family.variants > 1 and family.variants[tonumber(index) + 1] or nil
         if verb == "mode" and tile then
-            selected, hovered = Modes.step(tile, selected), nil
+            selected, hovered = (split and Modes.open or Modes.step)(tile, selected), nil
             draw()
-        elseif verb == "hover" and mode then
-            hovered = mode
-            preview(mode)
-        elseif verb == "unhover" then
-            if hovered == mode then hovered = nil end
+        elseif verb == "variant" and variant then
+            selected, hovered = Modes.pick(family, variant), nil
+            draw()
+        elseif (verb == "hover" and mode) or (verb == "vhover" and variant) then
+            hovered = verb == "hover" and mode or variant
+            preview(hovered)
+        elseif verb == "unhover" or verb == "vunhover" then
+            if hovered == (verb == "unhover" and mode or variant) then hovered = nil end
             preview(hovered or selected)
         elseif event == "select" and selected then
             -- Availability can change while the picker is open. Resolve by

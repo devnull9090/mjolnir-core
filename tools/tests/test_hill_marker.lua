@@ -13,6 +13,10 @@ eq(#Hill.parse('{"modes": ["slayer"]}'), 0, "no hills")
 eq(#Hill.parse(nil), 0, "no file")
 
 local hill = { x = 0, y = 0, z = 0, r = 500 }
+eq(Hill.describe(hill, { X = -2500, Y = 0, Z = 0 }, 0, true), nil, "a marker on the screen says where it is")
+eq(Hill.describe(hill, { X = 100, Y = 0, Z = 10 }, 0, true), "ON THE HILL", "but not that you are on it")
+eq(Hill.describe(hill, { X = 100, Y = 0, Z = 900 }, 0, true), "HILL BELOW", "or under it")
+eq(Hill.markerSpot({ x = 1, y = 2, z = 3, r = 4 }).z, 353, "the marker stands above the wall")
 eq(Hill.describe(hill, { X = 100, Y = 0, Z = 10 }, 0), "ON THE HILL", "standing on it")
 eq(Hill.describe(hill, { X = 100, Y = 0, Z = 900 }, 0), "HILL BELOW", "over it")
 eq(Hill.describe(hill, { X = -2500, Y = 0, Z = 0 }, 0), "HILL 20 M AHEAD", "facing it")
@@ -247,6 +251,9 @@ Hill.CONTESTED_HILL_SCORES = false
 
 -- Race: the flag lines.
 local Race = dofile("mods/MJOLNIRHud/Scripts/race.lua")
+eq(Race.flagLine(2, 9, false, false, 42, "AHEAD", "", true), "FLAG 3 OF 9", "a marker takes the way out of the line")
+eq(Race.flagLine(2, 9, true, false, 42, "AHEAD", "", true), nil, "and Rally's line had nothing else")
+eq(Race.flagLine(2, 9, false, true, 0, "AHEAD", "", true), "FLAG 3 OF 9 HERE", "but not that you are there")
 eq(Race.flagLine(2, 9, false, false, 42, "AHEAD", ""), "FLAG 3 OF 9, 42 M AHEAD", "a flag ahead")
 eq(Race.flagLine(2, 9, false, true, 0, "AHEAD", ""), "FLAG 3 OF 9 HERE", "on the flag")
 eq(Race.flagLine(2, 9, false, true, 0, "AHEAD", " BELOW"), "FLAG 3 OF 9 BELOW", "over the flag")

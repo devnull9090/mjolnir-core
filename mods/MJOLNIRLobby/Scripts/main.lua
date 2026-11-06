@@ -422,7 +422,7 @@ local SETTINGS_CLASS = UI_ROOT .. "WBP_MJOLNIRGameSettings.WBP_MJOLNIRGameSettin
 local SETTINGS_PAGES = 5    -- page buttons in the cooked screen
 local SETTINGS_ROWS = 12    -- option rows in the cooked screen
 local MAP_BUTTONS = 80
-local MODE_BUTTONS = 6    -- game type tiles (an older UI container has five rows)
+local MODE_BUTTONS = 7    -- game type tiles (an older UI container has six, or five rows)
 local ROSTER_ROWS = 16
 local GAME_ROWS = 40
 local LAST_GAME = MOD_DIR .. "\\last_game.txt"
@@ -515,7 +515,7 @@ end
 --- A game type's match format, as its picker shows it.
 function Pick.format(mode)
     if not mode then return "" end
-    return mode.forge and "SANDBOX  /  SOLO HOST" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
+    return mode.forge and "SANDBOX" or (mode.teams and "RED TEAM  /  BLUE TEAM" or "FREE FOR ALL")
 end
 
 --- Whether `screen` has the widget `name` (an older UI container lacks the
@@ -1247,15 +1247,25 @@ function Pick.drawRules(rules)
     end
 end
 
+--- `map`'s game type tiles on the map select: families, or on a UI container
+--- from before the variant buttons, engines.
+function Pick.tiles(map)
+    local modes = modesFor(map)
+    return Pick.has(Select, "Variant0") and MODES.families(modes) or MODES.engines(modes)
+end
+
 --- The map select's game type caption, beside the tiles: what the hovered
 --- tile's mode is, else the chosen one's (an older UI container has only
 --- the description).
 function Pick.caption(mode)
     setText(Select.ModeName, mode and mode.name or "")
     setText(Select.ModeDescription, mode and mode.description or "No game type is installed for this map.")
+    -- Only an older UI container's tiles step: this one has variant buttons.
     local more = false
-    for _, tile in ipairs(mode and Pick.map and MODES.engines(modesFor(Pick.map)) or {}) do
-        more = more or (#tile.variants > 1 and MODES.position(tile, mode.id) ~= nil)
+    if not Pick.has(Select, "Variant0") then
+        for _, tile in ipairs(mode and Pick.map and Pick.tiles(Pick.map) or {}) do
+            more = more or (#tile.variants > 1 and MODES.position(tile, mode.id) ~= nil)
+        end
     end
     setText(Select.ModeFormat, Pick.format(mode) .. (more and "  /  CLICK AGAIN: NEXT VARIANT" or ""))
 end
@@ -1391,7 +1401,8 @@ local function showDetails(map)
     Live.showCover(Select, map.code)
     setText(Select.MapMeta, Live.metaLine(map.code))
     local modes = modesFor(map)
-    local tiles = MODES.engines(modes)
+    local tiles = Pick.tiles(map)
+    local split = Pick.has(Select, "Variant0")
     local picked = Pick.map and Pick.map.code == map.code and Pick.mode or nil
     for i = 0, MODE_BUTTONS - 1 do
         local tile, button = tiles[i + 1], Select["Mode" .. i]
@@ -1399,8 +1410,9 @@ local function showDetails(map)
         if tile then
             local mode = MODES.shown(tile, picked)
             local label = Select["Mode" .. i .. "Label"]
-            -- These tiles have one line: the variant, where there is a choice.
-            setText(label, #tile.variants > 1 and mode.name or tile.name)
+            -- One line on a tab. An older container's tiles stand for a variant,
+            -- where there is a choice.
+            setText(label, split and (tile.short or tile.name) or (#tile.variants > 1 and mode.name or tile.name))
             local chosen = picked == mode
             pcall(function() button:SetBackgroundColor(chosen and SELECTED_BACKGROUND or NORMAL_BACKGROUND) end)
             pcall(function() label:SetColorAndOpacity({ SpecifiedColor = chosen and ACCENT or WHITE, ColorUseRule = 0 }) end)
@@ -1410,6 +1422,8 @@ local function showDetails(map)
             pcall(function() Select["Mode" .. i .. "Mark"]:SetVisibility(chosen and 3 or 2) end)
         end
     end
+    -- A map only hovered over has no choice yet, so no variants to choose from.
+    if split then Pick.gameType.showVariants(Select, picked and MODES.tileOf(tiles, picked.id), picked) end
     Pick.caption(picked or modes[1])
 end
 
@@ -2636,15 +2650,25 @@ local function onScreenEvent(isLobby, event, source)
             -- Leaving a row: the chosen map's details again.
             showDetails(Pick.map)
         elseif verb == "mode" and Pick.map then
-            local tile = MODES.engines(modesFor(Pick.map))[i]
+            local tile = Pick.tiles(Pick.map)[i]
             if tile then
-                Pick.mode = MODES.step(tile, Pick.mode)
+                Pick.mode = (Pick.has(Select, "Variant0") and MODES.open or MODES.step)(tile, Pick.mode)
                 showDetails(Pick.map)
             end
         elseif verb == "modehover" and Pick.map then
-            local tile = MODES.engines(modesFor(Pick.map))[i]
+            local tile = Pick.tiles(Pick.map)[i]
             Pick.caption(tile and MODES.shown(tile, Pick.mode))
-        elseif verb == "modeunhover" and Pick.map then
+        elseif (verb == "variant" or verb == "vhover") and Pick.map and Pick.mode then
+            -- The index is into the chosen family, not the tiles.
+            local tile = MODES.tileOf(Pick.tiles(Pick.map), Pick.mode.id)
+            local mode = tile and #tile.variants > 1 and tile.variants[i] or nil
+            if mode and verb == "variant" then
+                Pick.mode = MODES.pick(tile, mode)
+                showDetails(Pick.map)
+            elseif mode then
+                Pick.caption(mode)
+            end
+        elseif (verb == "modeunhover" or verb == "vunhover") and Pick.map then
             Pick.caption(Pick.mode)
         end
         return
