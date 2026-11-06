@@ -219,6 +219,20 @@ driver stays on CE's pose (pelvis 0.8 cm, wrists and ankles 0.0 to 0.1). Not rea
 Mongoose passenger on `mongoose_p`, or this build on two PCs. A hub map reads
 `vehicle_sounds.json` from its own folder. See `docs/jmad_format.md`.
 
+**12. Vehicle sounds from a bank: passed for the horn and engine pitch.** A `.pak` of
+our own carrying a real `.bnk` mounts beside the game's banks, and new `AkAudioEvent`,
+`HaloAudioSound` and `snd!` packages play from it, so CE's horn played through a tag. An
+`lsnd` attachment only starts and stops its loop. Engine pitch comes from the
+Blueprint's `Audio_EngineTick`, which sets `RTPC_veh_speed` from
+`GetEngineAngularVelocityFraction`, so the Mongoose's Blueprint keeps that tick. Pitch
+moved on an idle-only bank, and the user confirmed it by ear. From Lua,
+`AkGameplayStatics:PostEventAtLocation` is silent for every sound, and
+`HaloAudioBlueprintFunctionLibrary:PlaySoundAtPosition` works. The game mutes when
+unfocused, which looks like a silent bank. Not read: the four-sample engine blend, or
+the range of the engine fraction. These are spike scripts in
+`tools/level/native_mongoose/sound/`, not yet part of a map build, and
+`vehicle_sounds.json` is still what a published map uses.
+
 Not covered: a joiner in the driver or passenger seat. At top speed wheel rate implies a radius of 0.197 wu against 0.174
 for the model, so `wheel circumferance` needs a steady-state check. Whether the
 25.6 degrees is CE's limit is unchecked. The prompt needs E held, not tapped.
@@ -228,7 +242,7 @@ for the model, so `wheel circumferance` needs a steady-state check. Whether the
 - Handling: CE's solver is not this one.
 - Lights are the Warthog's look on CE's places, until a `ligh` tag draws. The sim
   creates a light datum (0x1805a0fc0), but no tags ship (V).
-- Sounds stay Lua until a bank route exists.
+- Sounds stay Lua in published maps until the bank route in result 12 joins the map build.
 
 ## Open questions
 
