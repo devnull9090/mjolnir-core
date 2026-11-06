@@ -129,7 +129,14 @@ else
       ;;
     *)
       echo "== 1/6 staging $src"
-      "$exporter" --map "$src" --out "$staging"
+      # A map kept away from the resource maps (tools/halomaps archives each in
+      # its own folder): HALO2UE_RESOURCES names the folder with bitmaps.map,
+      # HALO2UE_REFERENCE_MAPS the unprotected maps a protected map's tag names
+      # come back from. Both default to the map's own folder.
+      exporter_args=()
+      [ -n "${HALO2UE_RESOURCES:-}" ] && exporter_args+=(--resources "$HALO2UE_RESOURCES")
+      [ -n "${HALO2UE_REFERENCE_MAPS:-}" ] && exporter_args+=(--reference-maps "$HALO2UE_REFERENCE_MAPS")
+      "$exporter" --map "$src" --out "$staging" "${exporter_args[@]}"
       ;;
   esac
 fi

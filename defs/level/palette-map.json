@@ -36,7 +36,10 @@
     "assault_rifle_ammo": "objects\\gear\\human\\military\\assault_rifle_ammo\\assault_rifle_ammo",
     "pistol_ammo": "objects\\gear\\human\\military\\pistol_ammo\\pistol_ammo",
     "sniper_rifle_ammo": "objects\\gear\\human\\military\\sniper_rifle_ammo\\sniper_rifle_ammo",
-    "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo"
+    "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo",
+    "battle_rifle_ammo": "objects\\gear\\human\\military\\battle_rifle_ammo\\battle_rifle_ammo",
+    "shotgun_ammo": "objects\\gear\\human\\military\\shotgun_ammo\\shotgun_ammo",
+    "needler_ammo": "objects\\gear\\human\\military\\needler_ammo\\needler_ammo"
   },
   "blocks": {
     "comment": "Forge building blocks every map's palette lists: group:path. Shipped tags with collision, physics, an Unreal Blueprint and a multiplayer object block (surveyed 2026-11-01, docs/forge_blocks.md); B40 loads both.",
