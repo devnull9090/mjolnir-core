@@ -96,7 +96,7 @@ const pc1 = {
     }, 60000, 250);
   },
   async input(steps) {
-    const r = await callTool("game_input", { steps });
+    const r = await callTool("game_input", { steps, method: "sendinput" });
     if (r.isError) throw new Error(r.content?.[0]?.text);
   },
   world() {

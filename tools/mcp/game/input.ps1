@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
-    Send keyboard and mouse input to the game window.
+    Send keyboard and mouse input to the game window through the desktop.
 
 .DESCRIPTION
-    Menus, and anything that is not exposed as a console command, still need
-    real input. Posted window messages do not work here: the game reads input
-    through RawInput/DirectInput, which only sees what the OS input queue
-    actually delivered. So this uses SendInput with hardware scan codes, which
-    means the window has to be in the foreground -- this steals focus for as
-    long as the sequence runs.
+    The fallback, for menus and other screens only: game_input reaches this with
+    method:'sendinput'. It takes the desktop's mouse, keyboard and focus for as
+    long as the sequence runs, so anything that drives the player belongs on the
+    default route instead (native/test_input, no OS input, no focus change).
+
+    Posted window messages do not work here: the game empties its input unless
+    the viewport has focus. So this uses SendInput with hardware scan codes,
+    which means the window has to be in the foreground.
 
     Steps are JSON, one object each:
 

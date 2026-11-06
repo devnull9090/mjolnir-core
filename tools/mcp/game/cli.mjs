@@ -15,7 +15,8 @@
 //   node tools/mcp/game/cli.mjs console "stat fps"
 //   node tools/mcp/game/cli.mjs travel a30
 //   node tools/mcp/game/cli.mjs shot out.png
-//   node tools/mcp/game/cli.mjs input '[{"key":"Enter"}]'
+//   node tools/mcp/game/cli.mjs input '[{"key":"W","hold":800}]'
+//   node tools/mcp/game/cli.mjs input '[{"key":"Enter"}]' sendinput
 //   node tools/mcp/game/cli.mjs log 40
 //
 // Anything not listed is passed straight through: `cli.mjs game_lua '{"code":"..."}'`.
@@ -32,7 +33,9 @@ const timeoutFlag = argv.findIndex((argument) => argument.startsWith("--timeout=
 const timeout = timeoutFlag >= 0 ? Number(argv.splice(timeoutFlag, 1)[0].split("=")[1]) : undefined;
 
 const [command, ...rest] = argv;
-const stdin = process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8");
+// Read only when asked for: an open stdin that never closes would otherwise hang
+// every command, and a backgrounded shell gives you exactly that.
+const readStdin = () => (process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8"));
 
 /** Map the friendly forms above onto a tool name and its arguments. */
 function resolve(name, args) {
@@ -40,12 +43,12 @@ function resolve(name, args) {
     case "status":  return ["game_status", {}];
     case "launch":  return ["game_launch", args[0] ? JSON.parse(args[0]) : {}];
     case "quit":    return ["game_quit", {}];
-    case "lua":     return ["game_lua", { code: args.join(" ") || stdin, timeout_ms: timeout }];
+    case "lua":     return ["game_lua", { code: args.join(" ") || readStdin(), timeout_ms: timeout }];
     case "console": return ["game_console", { command: args.join(" ") }];
     case "travel":  return ["game_travel", { map: args[0] }];
     case "shot":
     case "screenshot": return ["game_screenshot", {}];
-    case "input":   return ["game_input", { steps: JSON.parse(args[0]) }];
+    case "input":   return ["game_input", { steps: JSON.parse(args[0]), method: args[1] }];
     case "log":     return ["game_log", { lines: Number(args[0]) || 60, filter: args[1] }];
     default:        return [name, args[0] ? JSON.parse(args[0]) : {}];
   }
