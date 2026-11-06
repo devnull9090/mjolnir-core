@@ -17,7 +17,7 @@ import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import type { ApiEnv } from "./bindings";
-import { authenticate, requireScoped } from "./auth";
+import { authenticate, hasScope, requireScoped } from "./auth";
 import {
   ConflictCheckRequestSchema,
   ConflictCheckResponseSchema,
@@ -28,6 +28,7 @@ import {
   ReleaseChangesSchema,
   ReleaseCreateSchema,
   ReleaseSchema,
+  ReleaseStatusListSchema,
   ReleaseStatusSchema,
   modFromRow,
   releaseFromRow,
@@ -92,6 +93,60 @@ async function openForArchive(c: Ctx, id: string) {
       res: c.json({ error: "immutable", message: "Release is no longer open for upload." }, 409),
     });
   }
+}
+
+/** Who may see a mod before the public does: its owner, its authors and staff.
+ *  A contributor is credited on a mod, not one of the people it belongs to. */
+export async function canSeeUnpublished(
+  c: Ctx,
+  mod: { id: string; owner_id: string },
+  user: { id: string; role: string },
+): Promise<boolean> {
+  if (mod.owner_id === user.id || user.role !== "user") return true;
+  const author = await c.env.DB.prepare(
+    `SELECT 1 FROM mod_authors WHERE mod_id = ?1 AND user_id = ?2 AND role IN ('owner', 'author')`,
+  )
+    .bind(mod.id, user.id)
+    .first();
+  return author !== null;
+}
+
+/** One query for what `releaseStatusFromRow` reads, so a release says the same
+ *  thing alone and in a list. Add the WHERE. */
+const RELEASE_STATUS_SELECT = `
+  SELECT r.*,
+         u.display_name AS publisher_display_name,
+         u.discord_username AS publisher_discord_username,
+         k.fingerprint AS signer_fingerprint,
+         k.revoked_at AS signer_key_revoked_at,
+         (SELECT s.findings FROM release_scans s WHERE s.release_id = r.id
+          ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1) AS findings,
+         (SELECT COUNT(*) FROM release_chunks rc WHERE rc.release_id = r.id) AS chunk_count,
+         (SELECT rv.reason FROM release_reviews rv
+          WHERE rv.release_id = r.id AND rv.state = 'rejected') AS review_reason
+  FROM mod_releases r
+  LEFT JOIN users u ON u.id = r.published_by
+  LEFT JOIN user_keys k ON k.id = r.signing_key_id`;
+
+function releaseStatusFromRow(r: Record<string, unknown>): z.infer<typeof ReleaseStatusSchema> {
+  return {
+    id: r.id as string,
+    mod_id: r.mod_id as string,
+    version: r.version as string,
+    status: r.status as "pending" | "scanning" | "published" | "rejected" | "yanked",
+    sha256: (r.sha256 as string) ?? null,
+    signature: (r.signature as string) ?? null,
+    file_size: (r.file_size as number) ?? null,
+    chunk_count: (r.chunk_count as number) ?? 0,
+    findings: r.findings ? JSON.parse(r.findings as string) : [],
+    review_reason: (r.review_reason as string) ?? null,
+    created_at: r.created_at as string,
+    published_by: (r.published_by as string) ?? null,
+    published_by_username:
+      ((r.publisher_display_name as string) ?? (r.publisher_discord_username as string)) || null,
+    signer_fingerprint: (r.signer_fingerprint as string) ?? null,
+    signer_key_revoked: Boolean(r.signer_key_revoked_at),
+  };
 }
 
 /** Trust level from which a release publishes without review. */
@@ -854,59 +909,59 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const { id } = c.req.valid("param");
-      const release = await c.env.DB.prepare(
-        `SELECT r.*,
-                u.display_name AS publisher_display_name,
-                u.discord_username AS publisher_discord_username,
-                k.fingerprint AS signer_fingerprint,
-                k.revoked_at AS signer_key_revoked_at
-         FROM mod_releases r
-         LEFT JOIN users u ON u.id = r.published_by
-         LEFT JOIN user_keys k ON k.id = r.signing_key_id
-         WHERE r.id = ?1`,
-      )
+      const release = await c.env.DB.prepare(`${RELEASE_STATUS_SELECT} WHERE r.id = ?1`)
         .bind(id)
         .first<Record<string, unknown>>();
       if (!release) return c.json({ error: "not_found" }, 404);
+      return c.json(releaseStatusFromRow(release), 200);
+    },
+  );
 
-      const [scan, chunks, review] = await Promise.all([
-        c.env.DB.prepare(
-          `SELECT findings FROM release_scans WHERE release_id = ?1
-           ORDER BY created_at DESC LIMIT 1`,
-        )
-          .bind(id)
-          .first<{ findings: string }>(),
-        c.env.DB.prepare(`SELECT COUNT(*) AS n FROM release_chunks WHERE release_id = ?1`)
-          .bind(id)
-          .first<{ n: number }>(),
-        c.env.DB.prepare(`SELECT reason FROM release_reviews WHERE release_id = ?1 AND state = 'rejected'`)
-          .bind(id)
-          .first<{ reason: string | null }>(),
-      ]);
+  // ── Every release of a mod ──────────────────────────────────────────
 
-      return c.json(
-        {
-          id,
-          mod_id: release.mod_id as string,
-          version: release.version as string,
-          status: release.status as "pending" | "scanning" | "published" | "rejected" | "yanked",
-          sha256: (release.sha256 as string) ?? null,
-          signature: (release.signature as string) ?? null,
-          file_size: (release.file_size as number) ?? null,
-          chunk_count: chunks?.n ?? 0,
-          findings: scan ? JSON.parse(scan.findings) : [],
-          review_reason: review?.reason ?? null,
-          created_at: release.created_at as string,
-          published_by: (release.published_by as string) ?? null,
-          published_by_username:
-            ((release.publisher_display_name as string) ??
-              (release.publisher_discord_username as string)) ||
-            null,
-          signer_fingerprint: (release.signer_fingerprint as string) ?? null,
-          signer_key_revoked: Boolean(release.signer_key_revoked_at),
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/mods/{slug}/releases/all",
+      tags: ["publish"],
+      summary: "Every release of a mod, whatever its status, newest first",
+      description:
+        "For the mod's owner, its authors and moderators: what `GET /mods/{slug}/releases` " +
+        "leaves out, with each release's scan findings and `review_reason`. An API key " +
+        "needs `mods:write`.",
+      request: { params: z.object({ slug: z.string() }) },
+      responses: {
+        200: {
+          description: "The releases.",
+          content: { "application/json": { schema: ReleaseStatusListSchema } },
         },
-        200,
-      );
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Not this mod's, or a key without `mods:write`.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such mod.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      // Not requireScoped: that spends the publish budget, and this is a read
+      // the manage page makes on every load.
+      const auth = await authenticate(c);
+      if (!auth) return c.json({ error: "unauthenticated" }, 401);
+      if (!hasScope(auth, "mods:write")) {
+        return c.json({ error: "insufficient_scope", message: "Needs mods:write." }, 403);
+      }
+      const { slug } = c.req.valid("param");
+      const mod = await c.env.DB.prepare(`SELECT id, owner_id FROM mods WHERE slug = ?1`)
+        .bind(slug)
+        .first<{ id: string; owner_id: string }>();
+      if (!mod) return c.json({ error: "not_found" }, 404);
+      if (!(await canSeeUnpublished(c, mod, auth.user))) {
+        return c.json({ error: "forbidden" }, 403);
+      }
+      const rows = await c.env.DB.prepare(
+        `${RELEASE_STATUS_SELECT} WHERE r.mod_id = ?1 ORDER BY r.created_at DESC, r.rowid DESC`,
+      )
+        .bind(mod.id)
+        .all<Record<string, unknown>>();
+      return c.json({ releases: rows.results.map(releaseStatusFromRow) }, 200);
     },
   );
 

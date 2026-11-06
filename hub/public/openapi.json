@@ -680,6 +680,20 @@
           "message"
         ]
       },
+      "ReleaseStatusList": {
+        "type": "object",
+        "properties": {
+          "releases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReleaseStatus"
+            }
+          }
+        },
+        "required": [
+          "releases"
+        ]
+      },
       "ReleaseChanges": {
         "type": "object",
         "properties": {
@@ -7031,6 +7045,67 @@
         }
       }
     },
+    "/api/v1/mods/{slug}/releases/all": {
+      "get": {
+        "tags": [
+          "publish"
+        ],
+        "summary": "Every release of a mod, whatever its status, newest first",
+        "description": "For the mod's owner, its authors and moderators: what `GET /mods/{slug}/releases` leaves out, with each release's scan findings and `review_reason`. An API key needs `mods:write`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The releases.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseStatusList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not this mod's, or a key without `mods:write`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such mod.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/releases/{id}/changes": {
       "get": {
         "tags": [
@@ -8884,7 +8959,7 @@
           "moderation"
         ],
         "summary": "Approve or reject a release awaiting review (moderators)",
-        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author reads as `review_reason` on `GET /releases/{id}`.",
+        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author reads as `review_reason` on `GET /mods/{slug}/releases/all`.",
         "parameters": [
           {
             "schema": {

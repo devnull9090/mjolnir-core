@@ -343,7 +343,9 @@ releases without banks keep auto-publishing.
 
 Moderators work the queue in the Releases tab of `/moderation`, which shows
 each release's banks and scan findings. A rejection needs a reason, and the
-author reads it as `review_reason` on the release.
+author reads it on the mod's manage page, `/mods/{slug}/manage`, which lists
+every release of the mod whatever its status (`GET
+/mods/{slug}/releases/all`), wherever it was published from.
 
 A review is of one archive. Uploading a new one takes the release out of the
 queue until `/complete` scans it, and the page sends the hash of the archive it

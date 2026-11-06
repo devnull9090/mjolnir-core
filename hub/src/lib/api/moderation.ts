@@ -590,7 +590,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       description:
         "Approval publishes the release, and its mod with it if this is the " +
         "mod's first. Rejection marks it rejected with the reason, which the " +
-        "author reads as `review_reason` on `GET /releases/{id}`.",
+        "author reads as `review_reason` on `GET /mods/{slug}/releases/all`.",
       request: {
         params: z.object({ id: z.string() }),
         body: {
