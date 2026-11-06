@@ -257,6 +257,8 @@ test("approval publishes the release and its draft mod", async () => {
   const log = sqlite.prepare(`SELECT actor_id, detail FROM audit_log WHERE action = 'release_approve' AND subject_id = ?1`).all(id);
   assert.deepEqual(log.map((l) => ({ ...l })), [{ actor_id: "mod", detail: "Listened to it." }]);
   assert.deepEqual(await download(id), bytes);
+  // A note on an approval is the moderators' own.
+  assert.equal((await call("GET", `/releases/${id}`, author)).body.review_reason, null);
 });
 
 test("rejection keeps the mod a draft and records the reason", async () => {
@@ -268,12 +270,17 @@ test("rejection keeps the mod a draft and records the reason", async () => {
   assert.equal(await queued(id), undefined);
   assert.equal((await queue("rejected")).find((x) => x.release_id === id)?.reason, "Stolen map.");
   assert.equal(await download(id), null);
+  // The author reads it where they read the scan.
+  assert.equal((await call("GET", `/releases/${id}`, author)).body.review_reason, "Stolen map.");
 });
 
 test("a decided release can't be decided again", async () => {
   const { id } = await publish("decided", "1.0.0", archive("1.0.0", { code: "DCD" }));
   assert.equal((await call("POST", `/moderation/releases/${id}`, moderator, { action: "reject", reason: "No." })).status, 200);
-  assert.equal((await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve" })).status, 404);
+  const again = await call("POST", `/moderation/releases/${id}`, moderator, { action: "approve" });
+  assert.equal(again.status, 404);
+  // The page shows this as it comes, so it has to read as a sentence.
+  assert.match(again.body.message as string, /no longer waiting/);
   assert.equal(statusOf("mod_releases", id), "rejected");
 });
 
@@ -364,6 +371,7 @@ test("a rejected release uploaded again goes back through the queue", async () =
   const row = await queued(id);
   assert.equal(row?.reason, null);
   assert.equal(row?.banks?.length, 1);
+  assert.equal((await call("GET", `/releases/${id}`, author)).body.review_reason, null);
 });
 
 test("a rescan that no longer holds the release leaves nothing to decide", async () => {

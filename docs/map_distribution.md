@@ -171,7 +171,8 @@ launcher, not the hub.
 
 1. Release the launcher that takes banks, and let players update to it.
 2. Deploy the hub with the scan (`ts-5`). Until then the hub refuses `.bnk` as a forbidden
-   kind.
+   kind. Apply migration 0025 first: `/complete` writes `banks_json`, so without it every
+   publish fails.
 3. Publish maps with banks, and approve the ones waiting for review.
 
 Step 2 lets authors upload banks, so moderators leave those releases pending until step
@@ -339,6 +340,14 @@ approves it (`/moderation/releases`), because a map carries game-derived bytes
 and names game types the loader will run, and a bank goes to Wwise's own parser.
 Moderators and authors at trust level 2 or higher skip the queue. Content
 releases without banks keep auto-publishing.
+
+Moderators work the queue in the Releases tab of `/moderation`, which shows
+each release's banks and scan findings. A rejection needs a reason, and the
+author reads it as `review_reason` on the release.
+
+A review is of one archive. Uploading a new one takes the release out of the
+queue until `/complete` scans it, and the page sends the hash of the archive it
+showed, so a decision on a replaced archive is refused.
 
 ## On the hub
 

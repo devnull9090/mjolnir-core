@@ -823,6 +823,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           file_size: (release.file_size as number) ?? null,
           chunk_count: scan.verdict === "pass" ? scan.chunkIds.length : 0,
           findings: scan.findings,
+          review_reason: null,
           created_at: release.created_at as string,
           published_by: (release.published_by as string) ?? user.id,
           published_by_username: user.display_name ?? user.discord_username,
@@ -868,7 +869,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         .first<Record<string, unknown>>();
       if (!release) return c.json({ error: "not_found" }, 404);
 
-      const [scan, chunks] = await Promise.all([
+      const [scan, chunks, review] = await Promise.all([
         c.env.DB.prepare(
           `SELECT findings FROM release_scans WHERE release_id = ?1
            ORDER BY created_at DESC LIMIT 1`,
@@ -878,6 +879,9 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(`SELECT COUNT(*) AS n FROM release_chunks WHERE release_id = ?1`)
           .bind(id)
           .first<{ n: number }>(),
+        c.env.DB.prepare(`SELECT reason FROM release_reviews WHERE release_id = ?1 AND state = 'rejected'`)
+          .bind(id)
+          .first<{ reason: string | null }>(),
       ]);
 
       return c.json(
@@ -891,6 +895,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           file_size: (release.file_size as number) ?? null,
           chunk_count: chunks?.n ?? 0,
           findings: scan ? JSON.parse(scan.findings) : [],
+          review_reason: review?.reason ?? null,
           created_at: release.created_at as string,
           published_by: (release.published_by as string) ?? null,
           published_by_username:

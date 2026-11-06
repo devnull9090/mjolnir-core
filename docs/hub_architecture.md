@@ -379,6 +379,7 @@ multipart archive upload: 93 operations in all.
 | `GET` | `/v1/releases/{id}/changes` | declared change list + measured chunk count |
 | `GET` `POST` | `/v1/moderation/reports`, `/v1/moderation/reports/{id}` | moderators |
 | `GET` `POST` | `/v1/moderation/mods`, `/v1/moderation/mods/{slug}` | moderators — hidden-mod queue |
+| `GET` `POST` | `/v1/moderation/releases`, `/v1/moderation/releases/{id}` | moderators — held-release queue |
 | `POST` | `/v1/releases/{id}/yank` | moderators |
 | `GET` `POST` `DELETE` | `/v1/account/api-keys`, `/v1/account/signing-keys` | auth — and `/{id}` to revoke |
 | `GET` | `/v1/account/me` | auth |

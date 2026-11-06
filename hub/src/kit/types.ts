@@ -127,6 +127,8 @@ export interface ReleaseStatusDetail {
   file_size: number | null;
   chunk_count: number;
   findings: ScanFinding[];
+  /** Why a moderator rejected it, until it is next scanned. */
+  review_reason?: string | null;
   created_at: string;
   /** Account that created this release; null predates attribution. */
   published_by?: string | null;

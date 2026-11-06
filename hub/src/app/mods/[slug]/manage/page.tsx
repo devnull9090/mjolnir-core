@@ -34,6 +34,7 @@ interface Release {
   status: string;
   chunk_count: number;
   findings: { level: string; code: string; message: string }[];
+  review_reason?: string | null;
   sha256: string | null;
   file_size: number | null;
 }
@@ -284,6 +285,12 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
                         : "Drop the .mjolnir archive here, or browse"
                     }
                   />
+                )}
+
+                {r.status === "rejected" && r.review_reason && (
+                  <p className="mt-2 text-xs text-red-300 whitespace-pre-wrap">
+                    Rejected by a moderator: {r.review_reason}
+                  </p>
                 )}
 
                 {r.status === "published" && (

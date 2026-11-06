@@ -603,6 +603,13 @@
               "$ref": "#/components/schemas/ScanFinding"
             }
           },
+          "review_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why a moderator rejected this release, until it is next scanned."
+          },
           "created_at": {
             "type": "string"
           },
@@ -641,6 +648,7 @@
           "file_size",
           "chunk_count",
           "findings",
+          "review_reason",
           "created_at",
           "published_by",
           "published_by_username",
@@ -2069,6 +2077,16 @@
           "mod_name": {
             "type": "string"
           },
+          "mod_status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "hidden",
+              "removed"
+            ],
+            "description": "`draft` until its first release is approved; the mod's page 404s until then."
+          },
           "version": {
             "type": "string"
           },
@@ -2090,6 +2108,30 @@
               "null"
             ]
           },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scanned archive; send it back with a decision to pin it to this archive."
+          },
+          "banks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The `.bnk` members the scan saw, empty for none. Null when the scan predates the record, which says nothing about whether it has any."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanFinding"
+            },
+            "description": "What the release's latest scan reported."
+          },
           "uploader": {
             "type": "string"
           },
@@ -2103,10 +2145,14 @@
           "reason",
           "mod_slug",
           "mod_name",
+          "mod_status",
           "version",
           "map_code",
           "map_title",
           "file_size",
+          "sha256",
+          "banks",
+          "findings",
           "uploader",
           "created_at"
         ]
@@ -2124,6 +2170,10 @@
           "reason": {
             "type": "string",
             "maxLength": 500
+          },
+          "sha256": {
+            "type": "string",
+            "description": "The archive this decision is about, from the queue. Refused with 409 if the author has replaced it since."
           }
         },
         "required": [
@@ -8766,7 +8816,7 @@
         "tags": [
           "moderation"
         ],
-        "summary": "The release review queue: community maps awaiting a moderator",
+        "summary": "The release review queue: maps and banks awaiting a moderator",
         "parameters": [
           {
             "schema": {
@@ -8834,7 +8884,7 @@
           "moderation"
         ],
         "summary": "Approve or reject a release awaiting review (moderators)",
-        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author sees on the release.",
+        "description": "Approval publishes the release, and its mod with it if this is the mod's first. Rejection marks it rejected with the reason, which the author reads as `review_reason` on `GET /releases/{id}`.",
         "parameters": [
           {
             "schema": {
@@ -8895,6 +8945,16 @@
           },
           "404": {
             "description": "No such pending review.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The archive has changed since the queue was read.",
             "content": {
               "application/json": {
                 "schema": {

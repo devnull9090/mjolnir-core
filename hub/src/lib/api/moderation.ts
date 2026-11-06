@@ -590,7 +590,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       description:
         "Approval publishes the release, and its mod with it if this is the " +
         "mod's first. Rejection marks it rejected with the reason, which the " +
-        "author sees on the release.",
+        "author reads as `review_reason` on `GET /releases/{id}`.",
       request: {
         params: z.object({ id: z.string() }),
         body: {
@@ -629,7 +629,9 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       )
         .bind(id)
         .first<{ mod_id: string; sha256: string | null }>();
-      if (!pending) return c.json({ error: "not_found" }, 404);
+      if (!pending) {
+        return c.json({ error: "not_found", message: "This release is no longer waiting for review." }, 404);
+      }
       if (sha256 && sha256 !== pending.sha256) {
         return c.json(
           { error: "changed", message: "The author replaced this archive. Read it again before deciding." },
