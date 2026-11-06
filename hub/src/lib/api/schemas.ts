@@ -322,6 +322,10 @@ export const ReleaseStatusSchema = z
   })
   .openapi("ReleaseStatus");
 
+export const ReleaseStatusListSchema = z
+  .object({ releases: z.array(ReleaseStatusSchema) })
+  .openapi("ReleaseStatusList");
+
 export const ReleaseChangesSchema = z
   .object({
     release_id: z.string(),

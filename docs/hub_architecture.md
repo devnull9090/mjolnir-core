@@ -353,14 +353,15 @@ chat (`/v1/matches`, `/v1/matches/claims`, `/v1/matches/chat`, `/v1/players/{nam
 player identity and reports (`/v1/identity/tickets`, `/v1/players/reports`), benches
 (`/v1/benches`, `/v1/admin/benches`), view counters and tool galleries, the moderation queues for
 media, map releases, player reports, matchmaking bans and match chat, `/v1/admin/users`, and the
-multipart archive upload: 93 operations in all.
+multipart archive upload: 95 operations in all.
 
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/v1/health` | |
 | `GET` | `/v1/mods` | list, filter, search, cursor paginate |
 | `GET` | `/v1/mods/{slug}` | |
-| `GET` | `/v1/mods/{slug}/releases` | newest first |
+| `GET` | `/v1/mods/{slug}/releases` | published only, newest first |
+| `GET` | `/v1/mods/{slug}/releases/all` | auth — every status, with findings and `review_reason`; the mod's owner, its authors and moderators, and a key needs `mods:write` |
 | `GET` | `/v1/releases/{id}` | status and scan findings |
 | `GET` | `/v1/releases/{id}/download` | streams the archive from R2 (a signed code-mod artifact 302s to the artifact URL its signed manifest names), counts the download; attributes it when the caller has an identity |
 | `GET` | `/v1/users/{id}` | public profile: identity, activity totals, published mods |
