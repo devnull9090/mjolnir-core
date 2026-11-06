@@ -217,14 +217,19 @@ def hill_flags_for(game):
     return None if game == "halo2" else HILL_MAX_FLAGS
 
 
-def apply(level):
-    """Put a level's objective placements and modes in place. Idempotent."""
+def apply(level, race=True):
+    """Put a level's objective placements and modes in place. Idempotent.
+    `race` False leaves a track out, for a map whose track its vehicles can't
+    drive: Coldsnap's flies, with a 7 km closing leg."""
     objects = level["blam"]["objects"]
     objects[:] = [o for o in objects if o.get("set", {}).get(LABEL) not in (HILL_LABEL, BALL_LABEL, RACE_LABEL)]
     for o in objects:
         if o.get("set", {}).get(LABEL) == HEALTH_LABEL:
             o["set"]["multiplayer data.owner team"] = MARKER_TEAM
     added, modes = objective_objects(level.get("markers") or [], hill_flags_for(level.get("game")))
+    if not race:
+        added = [o for o in added if o["set"][LABEL] != RACE_LABEL]
+        modes = [m for m in modes if m != "race"]
     objects.extend(added)
     level["modes"] = [m for m in level.get("modes", ["slayer"]) if m not in ("koth", "oddball", "race")] + modes
     level.pop("koth_hills", None)

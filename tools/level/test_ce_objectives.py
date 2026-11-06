@@ -116,6 +116,16 @@ class Objectives(unittest.TestCase):
         co.apply(level)
         self.assertEqual(spot["set"]["multiplayer data.owner team"], co.MARKER_TEAM)
 
+    def test_apply_can_leave_the_track_out(self):
+        level = {"modes": ["slayer"], "blam": {"objects": []},
+                 "markers": [corner(0, 0), corner(900, 0), corner(0, 900), ball(0),
+                             track(0, 5000), track(1, 0, 1000)]}
+        co.apply(level, race=False)
+        self.assertEqual(level["modes"], ["slayer", "koth", "oddball"])
+        self.assertEqual(races(level["blam"]["objects"]), [])
+        self.assertNotIn("race_flags", level)
+        self.assertIn("koth_hills", level)
+
     def test_apply_keeps_other_objects_and_is_idempotent(self):
         level = {"modes": ["slayer", "ctf"], "blam": {"objects": [{"tag": "a", "set": {co.LABEL: "ctf_flag_return"}}]},
                  "markers": [corner(0, 0), corner(900, 0), corner(0, 900), ball(0),
