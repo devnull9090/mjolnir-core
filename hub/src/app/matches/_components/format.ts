@@ -36,6 +36,7 @@ export function when(sqlTime: string): string {
 /** "AssaultRifle" -> "Assault Rifle". */
 export function weaponName(weapon: string | null): string | null {
   if (!weapon) return null;
+  if (weapon === "Smg") return "SMG";
   return weapon.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 

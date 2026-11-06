@@ -105,7 +105,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "weekly",
       priority: 0.9,
     },
-    ...["maps", "games"].map((path) => ({
+    ...["maps", "games", "leaderboards"].map((path) => ({
       url: baseUrl + "/" + path,
       changeFrequency: "daily" as const,
       priority: 0.8,

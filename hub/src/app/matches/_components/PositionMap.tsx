@@ -17,11 +17,14 @@ export function PositionMap({
   deaths: allDeaths,
   time = null,
   fresh = 10000,
+  legend = ["killer", "death"],
 }: {
   kills: KillMark[];
   deaths: DeathMark[];
   time?: number | null;
   fresh?: number;
+  /** What the gold and the red dots mean. */
+  legend?: [string, string];
 }) {
   const kills = time === null ? allKills : allKills.filter((k) => k.t_ms <= time);
   const deaths = time === null ? allDeaths : allDeaths.filter((d) => d.t_ms <= time);
@@ -29,7 +32,7 @@ export function PositionMap({
   const freshness = (t: number) => (time === null ? 0 : Math.max(0, 1 - (time - t) / fresh));
   const opacity = (t: number) => (time === null ? 1 : 0.35 + 0.65 * freshness(t));
   const points: Point[] = [
-    ...allKills.flatMap((k) => (k.from ? [k.to, k.from] : [k.to])),
+    ...allKills.flatMap((k) => (k.alone ? [k.from ?? k.to] : k.from ? [k.to, k.from] : [k.to])),
     ...allDeaths.map((d) => d.at),
   ];
   if (points.length === 0) {
@@ -53,7 +56,7 @@ export function PositionMap({
         aria-label="Kill and death positions, top-down"
       >
         {kills.map((k) => {
-          if (!k.from) return null;
+          if (!k.from || k.alone) return null;
           const [x1, y1] = at(k.from);
           const [x2, y2] = at(k.to);
           return (
@@ -69,7 +72,7 @@ export function PositionMap({
             </circle>
           );
         })}
-        {[...kills.map((k) => ({ seq: k.seq, t_ms: k.t_ms, at: k.to, label: k.label })), ...deaths].map((d) => {
+        {[...kills.filter((k) => !k.alone).map((k) => ({ seq: k.seq, t_ms: k.t_ms, at: k.to, label: k.label })), ...deaths].map((d) => {
           const [x, y] = at(d.at);
           return (
             <circle key={`d${d.seq}`} cx={x} cy={y} r={4.5 * (1 + freshness(d.t_ms))} fill="#ef4444" fillOpacity={0.8 * opacity(d.t_ms)}>
@@ -79,9 +82,9 @@ export function PositionMap({
         })}
       </svg>
       <figcaption className="mt-2 flex gap-4 text-xs text-text-muted">
-        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-gold" /> killer</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> death</span>
-        <span>Top-down; hover a dot for the kill.</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-gold" /> {legend[0]}</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> {legend[1]}</span>
+        <span>Top-down; hover a dot for what happened.</span>
       </figcaption>
     </figure>
   );
