@@ -225,9 +225,8 @@ death and damage, transitions, vehicle suspension, function overlays), and a row
 the graph has itself wins. Overlay groups and IK sets are found at run time, by
 walking up the parent chain from a row that has none. A graph with a parent that
 changes a few animations therefore need only hold those animations. Cutting
-`content.modes` from a graph with a parent is proven in game, and so is a cut mode
-playing; a child built by this command has not run yet, and neither has a child
-row replacing a parent row that has an overlay group.
+`content.modes` from a graph with a parent is proven in game, and so are a cut mode
+playing and a child row replacing a parent row that has an overlay group.
 
 `jmad child` writes that graph from a full one:
 
@@ -260,6 +259,52 @@ row replacing a parent row that has an overlay group.
   since the load does not compile it.
 
 On the Spartan, three animations take the graph from 111,037,420 bytes to 526,650.
+
+### A mode under a new label
+
+```
+mjolnir jmad child full.jmad --parent 'objects\characters\spartans\spartans' \
+    --mode ghost_d=mongoose_d --mode warthog_p=mongoose_p \
+    --animation ghost_d:idle --animation ghost_d:grip --animation warthog_p:rifle:idle \
+    --out child.jmad
+```
+
+None of this has run in game yet: a child that owns overlay groups, a renamed mode
+merging the parent's rows, and the IK walk from a new label come from reading the load.
+
+Editing `ghost_d:idle` where it stands changes every Ghost on the map. `--mode
+DONOR=NEW` carries all of the donor's rows under `NEW` instead, and the donor's label
+leaves the child, so the parent's rows stand for it.
+
+- `--animation` still names what was edited. An animation a renamed mode plays stays
+  in that mode; one outside keeps its own row, as above. Every other row of the mode
+  plays the same pool entry it did, so a row that borrows an edited animation in the
+  mode plays the edit. The pool's names do not change: they are what `--animation`
+  matches, and the load matches them to the `imported events` tag for frame events.
+- A row cannot play the parent's pool, because the load discards rows with a graph
+  index. So the child's pool takes every animation the mode plays, with its members.
+- The game finds a row's overlay group by the labels the row stands at: in the graph,
+  then up the parent chain, then with `any` for each label in turn. It reads the group
+  from the graph it found it in. Under a new label the parent's group is out of reach,
+  so a kept mode keeps its `overlay group` fields, and the child keeps those groups, the
+  `NEW blend screens` they list and those screens' animations, renumbered. Their names
+  stay the donor's. A group's owner reads it as it would its own, so nothing here
+  depends on inheritance.
+- A row of the parent's at `NEW` merges in by label as ever, so the Spartan's
+  `mongoose_d:throw_grenade` joins the child's `mongoose_d`. Where both have a row, the
+  child's wins.
+- A renamed mode is refused if it has an `ik set` at any level, a group with function
+  overlays, a blend screen into another graph, rows in `death and damage` or
+  `transitions`, or a weapon class with `ranged actions` or `sync actions groups`.
+  None of these carry over yet. `ghost_d` and `warthog_p` have none of them: the only
+  IK set is on `alert`, `combat` and `crouch`, reached through the walk's last step,
+  mode `combat` with the row's other labels, which does not depend on the seat's label.
+- `ik chains` stay empty, since the load copies the parent's into a child with none,
+  and each animation's `ik chain events` index them as they did.
+
+`ghost_d` and `warthog_p` under new labels take the Spartan child to 9,524,299 bytes:
+80 animations, 43 resource groups, 16 overlay groups and 28 blend screens. `ghost_d`
+is 0.96 MB of that alone, and `warthog_p`, with six weapon classes, 8.6 MB.
 
 ## Checks
 

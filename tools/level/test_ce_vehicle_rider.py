@@ -112,6 +112,15 @@ def manifest():
     return {"bones": [row(0, "pedestal", [0, 0, 0]), row(1, "frame hull", [0.1, 0, 0.3]), row(6, "frame steering", [0.7, 0, 1.1])]}
 
 
+class Seats(unittest.TestCase):
+    def test_one_table_names_the_labels_and_the_modes(self):
+        self.assertEqual(rider.seat_sets(), ["unit.seats[0].label=mongoose_d", "unit.seats[1].label=mongoose_p"])
+        self.assertEqual(rider.child_modes(), ["--mode", "ghost_d=mongoose_d", "--mode", "warthog_p=mongoose_p"])
+
+    def test_every_seat_mode_has_its_proxies(self):
+        self.assertEqual({donor for _, donor in rider.SEATS}, set(rider.MODE_PROXIES))
+
+
 class Geometry(unittest.TestCase):
     def test_swing_takes_one_direction_to_another(self):
         a, b = np.array([1.0, 0, 0]), np.array([1.0, 1.0, 0])
