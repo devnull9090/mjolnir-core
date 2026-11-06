@@ -53,6 +53,10 @@ pub const MAX_FILTERS: usize = 16;
 /// `player.number[]` slots each player holds (the player scope's store at
 /// `o+0xe3b4`, and the eight the operand's `u3` index can name).
 pub const MAX_PLAYER_NUMBERS: u8 = 8;
+/// Script trait sets the variant object holds (`o+0x5dcc`, 0x30 bytes each).
+/// The stream's `u5` count can say 31 and the decoder does not check it: a
+/// longer list overwrites the user options after it.
+pub const MAX_SCRIPT_TRAITS: usize = 16;
 
 /// A player reference (`u5`, HaloSimulation `0x441380`).
 pub mod player {
@@ -277,6 +281,10 @@ pub enum Action {
     SetWaypointIcon { object: Object, icon: u8 },
     /// Type 9: `a op= b`.
     ModifyVariable { a: Var, b: Var, op: Op },
+    /// Type 11 (`0x39938d`): add a [`Variant::script_traits`] index to the
+    /// player's list for this tick. The list lasts one tick, so a script
+    /// applies a set from a normal trigger every tick it should hold.
+    ApplyPlayerTraits { player: Player, traits: u8 },
     /// Type 12: who may pick the object up.
     SetPickupPermissions { object: Object, who: PlayerSet },
     /// Type 19: the player holding the weapon, or none.
@@ -399,9 +407,13 @@ pub struct Filter {
 
 /// Player traits: Reach's five groups (defence, offence, movement,
 /// appearance, sensors), every field by name and width, in stream order.
-/// A value of 0 means "unchanged" everywhere; the other values index
-/// Reach's per-trait tables (ReachVariantTool's player traits), not yet
-/// verified one by one on CU4 (docs/host_game_settings.md).
+/// A value of 0 means "unchanged", but for the signed `primary_weapon`,
+/// `secondary_weapon` and `ability`, where it is entry 0 of a list and
+/// [`SIGNED_UNCHANGED`] means unchanged. The other values index Reach's
+/// per-trait tables (ReachVariantTool's player traits); the percentages of
+/// speed, damage and damage resistance are the simulation's own tables
+/// (HaloSimulation file offsets `0x84ace0`, `0x84adb8`, `0x84adf0`), the rest
+/// not yet verified one by one on CU4 (docs/host_game_settings.md).
 pub const TRAITS: [(&str, u32); 34] = [
     ("damage_resistance", 4),
     ("health", 3),
@@ -443,6 +455,11 @@ pub const TRAITS: [(&str, u32); 34] = [
 /// (the appearance group's first): a set bit, then the value, when present.
 const JUMP_HEIGHT_AFTER: usize = 26;
 
+/// -3 in a signed trait's 8 bits: unchanged.
+pub const SIGNED_UNCHANGED: u8 = 0xfd;
+/// The signed traits, whose 0 names something (see [`TRAITS`]).
+const SIGNED_TRAITS: [usize; 3] = [12, 13, 21];
+
 /// One set of player traits, values in [`TRAITS`] order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Traits {
@@ -460,6 +477,17 @@ impl Default for Traits {
 }
 
 impl Traits {
+    /// A set that changes nothing, the way Bungie's script traits write it.
+    /// [`Traits::default`] is the base traits' zeros, whose weapons read as
+    /// list entry 0: a script set on top of those would name a weapon.
+    pub fn unchanged() -> Self {
+        let mut t = Traits::default();
+        for i in SIGNED_TRAITS {
+            t.values[i] = SIGNED_UNCHANGED;
+        }
+        t
+    }
+
     /// Set a trait by its [`TRAITS`] name.
     pub fn set(&mut self, name: &str, value: u8) -> Result<(), Error> {
         let i = TRAITS
@@ -482,10 +510,23 @@ impl Traits {
         TRAITS
             .iter()
             .zip(self.values)
-            .filter(|&(_, v)| v != 0)
-            .map(|(&(n, _), v)| (n, v))
+            .enumerate()
+            .filter(|&(i, (_, v))| {
+                v != 0 && !(SIGNED_TRAITS.contains(&i) && v == SIGNED_UNCHANGED)
+            })
+            .map(|(_, (&(n, _), v))| (n, v))
             .collect()
     }
+}
+
+/// A named set of traits a script applies (`Action::ApplyPlayerTraits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptTraits {
+    /// Index into [`Variant::strings`].
+    pub name: u8,
+    /// Index into [`Variant::strings`].
+    pub description: u8,
+    pub traits: Traits,
 }
 
 /// The base variant options a host can change: what CE called its player,
@@ -560,6 +601,8 @@ pub struct Variant {
     /// Rounds in a game (1..=31, the misc options' u5 at `o+0x2bb`). The
     /// game ends after the last; an earlier `EndRound` resets the round.
     pub rounds: u8,
+    /// Trait sets the script applies, at most [`MAX_SCRIPT_TRAITS`].
+    pub script_traits: Vec<ScriptTraits>,
     pub conditions: Vec<Condition>,
     pub actions: Vec<Action>,
     pub triggers: Vec<Trigger>,
@@ -583,6 +626,7 @@ impl Variant {
             teams: false,
             initial_spawn_delay: 0,
             rounds: 1,
+            script_traits: Vec::new(),
             conditions: Vec::new(),
             actions: Vec::new(),
             triggers: Vec::new(),
@@ -1223,6 +1267,11 @@ fn write_action(w: &mut BitWriter, a: &Action) -> Result<(), Error> {
             write_var(w, b)?;
             put(w, *op as u64, 4)
         }
+        Action::ApplyPlayerTraits { player, traits } => {
+            put(w, 11, 7)?;
+            write_player(w, *player)?;
+            put(w, *traits as u64, 4)
+        }
         Action::SetPickupPermissions { object, who } => {
             put(w, 12, 7)?;
             write_object(w, *object)?;
@@ -1386,6 +1435,7 @@ impl Variant {
                 bits: 5,
             });
         }
+        self.check_script_traits()?;
         let mut w = BitWriter::new();
         put(&mut w, VERSION as u64, 32)?;
         put(&mut w, 0, 32)?;
@@ -1396,7 +1446,12 @@ impl Variant {
             self.initial_spawn_delay,
             self.rounds,
         )?;
-        put(&mut w, 0, 5)?; // player traits
+        put(&mut w, self.script_traits.len() as u64, 5)?;
+        for s in &self.script_traits {
+            put(&mut w, s.name as u64, 7)?;
+            put(&mut w, s.description as u64, 7)?;
+            write_traits(&mut w, &s.traits)?;
+        }
         put(&mut w, 0, 5)?; // user options
         write_strings(&mut w, &self.strings, 7, 15, 15)?; // main string table
         put(&mut w, 0, 7)?; // base name: none
@@ -1908,6 +1963,13 @@ fn read_action(r: &mut BitReader) -> Result<Action, Error> {
                 out: read_player(r)?,
             }
         }
+        11 => {
+            let player = read_player(r)?;
+            Action::ApplyPlayerTraits {
+                player,
+                traits: get(r, 4)? as u8,
+            }
+        }
         20 => Action::CallTrigger(get(r, 9)? as u16),
         21 => Action::EndRound,
         29 => {
@@ -2031,12 +2093,43 @@ fn expect_none(r: &mut BitReader, bits: u32, what: &str) -> Result<(), Error> {
 }
 
 impl Variant {
+    /// The trait sets fit the store, name strings that exist, and every
+    /// action names a set that exists.
+    fn check_script_traits(&self) -> Result<(), Error> {
+        let sets = self.script_traits.len();
+        if sets > MAX_SCRIPT_TRAITS {
+            return Err(Error::Unsupported(format!(
+                "{sets} script traits; the simulation holds at most {MAX_SCRIPT_TRAITS}"
+            )));
+        }
+        for s in &self.script_traits {
+            for string in [s.name, s.description] {
+                if string as usize >= self.strings.len() {
+                    return Err(Error::Unsupported(format!(
+                        "script traits name string {string} of {}",
+                        self.strings.len()
+                    )));
+                }
+            }
+        }
+        for a in &self.actions {
+            if let Action::ApplyPlayerTraits { traits, .. } = a {
+                if *traits as usize >= sets {
+                    return Err(Error::Unsupported(format!(
+                        "an action applies script traits {traits} of {sets}"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Read a variant the way the simulation's decoder does, and check every
     /// bit was accounted for.
     /// Check a staged `.mglo` byte stream is one the simulation can decode
     /// safely: the grammar [`Variant::read`] accepts (which already refuses
-    /// player traits, user options, compressed string tables and the variable
-    /// kinds this crate does not model), within the simulation's fixed store
+    /// user options, compressed string tables and the variable kinds this
+    /// crate does not model), within the simulation's fixed store
     /// capacities and buffer size. Returns `Err` for the malformed streams that
     /// would overrun the decoder — the guard a client runs before the
     /// simulation's file loader decodes distributed content
@@ -2049,6 +2142,7 @@ impl Variant {
             )));
         }
         let v = Variant::read(bytes)?;
+        v.check_script_traits()?;
         for (n, max, what) in [
             (v.conditions.len(), MAX_CONDITIONS, "conditions"),
             (v.actions.len(), MAX_ACTIONS, "actions"),
@@ -2072,8 +2166,25 @@ impl Variant {
         }
         r.read(32)?;
         let (base, teams, initial_spawn_delay, rounds) = read_base(&mut r)?;
-        if get(&mut r, 5)? != 0 || get(&mut r, 5)? != 0 {
-            return Err(Error::Unsupported("player traits or user options".into()));
+        let sets = get(&mut r, 5)? as usize;
+        if sets > MAX_SCRIPT_TRAITS {
+            return Err(Error::Unsupported(format!(
+                "{sets} script traits; the simulation holds at most {MAX_SCRIPT_TRAITS}"
+            )));
+        }
+        let mut script_traits = Vec::with_capacity(sets);
+        for _ in 0..sets {
+            let name = get(&mut r, 7)? as u8;
+            let description = get(&mut r, 7)? as u8;
+            let traits = read_traits(&mut r)?;
+            script_traits.push(ScriptTraits {
+                name,
+                description,
+                traits,
+            });
+        }
+        if get(&mut r, 5)? != 0 {
+            return Err(Error::Unsupported("user options".into()));
         }
         let strings = read_strings(&mut r, 7, 15, 15)?;
         r.read(7)?;
@@ -2204,6 +2315,7 @@ impl Variant {
             )));
         }
         Ok(Variant {
+            script_traits,
             score_to_win,
             base,
             teams,
@@ -2391,6 +2503,159 @@ pub(crate) mod tests {
         assert_eq!(Variant::read(&bytes).unwrap(), v);
     }
 
+    fn with_script_traits() -> Variant {
+        let mut v = Variant::slayer(10);
+        v.strings = vec!["speedy".into(), "goes fast".into()];
+        let mut traits = Traits::unchanged();
+        for (name, bits) in TRAITS {
+            // Each field at its widest value, so a width or order slip shows.
+            traits.set(name, ((1u32 << bits) - 1) as u8).unwrap();
+        }
+        traits.jump_height = Some(300);
+        for traits in [Traits::unchanged(), traits] {
+            v.script_traits.push(ScriptTraits {
+                name: 0,
+                description: 1,
+                traits,
+            });
+        }
+        v.actions.push(Action::ApplyPlayerTraits {
+            player: Player(player::global(0)),
+            traits: 1,
+        });
+        v
+    }
+
+    #[test]
+    fn script_traits_read_back_exactly() {
+        let v = with_script_traits();
+        let bytes = v.write().unwrap();
+        assert_eq!(Variant::read(&bytes).unwrap(), v);
+        Variant::validate(&bytes).unwrap();
+        crate::raw::round_trip(&bytes, 0, &[]).unwrap();
+    }
+
+    #[test]
+    fn the_stores_limit_on_script_traits_holds() {
+        let mut v = with_script_traits();
+        v.script_traits = vec![v.script_traits[0]; MAX_SCRIPT_TRAITS];
+        let bytes = v.write().unwrap();
+        assert_eq!(Variant::read(&bytes).unwrap(), v);
+        v.script_traits.push(v.script_traits[0]);
+        assert!(v.write().is_err());
+
+        // The same count in a stream some other writer made.
+        let at = stream_bits_before_traits(&v);
+        let mut bytes = Variant::slayer(10).write().unwrap();
+        set_bits(&mut bytes, at, 5, MAX_SCRIPT_TRAITS as u64 + 1);
+        let err = Variant::read(&bytes).unwrap_err().to_string();
+        assert!(err.contains("script traits"), "{err}");
+    }
+
+    /// Bits before the script traits' count.
+    fn stream_bits_before_traits(v: &Variant) -> usize {
+        let mut w = BitWriter::new();
+        put(&mut w, 0, 32).unwrap();
+        put(&mut w, 0, 32).unwrap();
+        write_base(&mut w, &v.base, v.teams, v.initial_spawn_delay, v.rounds).unwrap();
+        w.len()
+    }
+
+    fn set_bits(bytes: &mut [u8], at: usize, bits: usize, value: u64) {
+        for i in 0..bits {
+            let bit = (value >> (bits - 1 - i)) & 1 != 0;
+            let mask = 0x80u8 >> ((at + i) % 8);
+            if bit {
+                bytes[(at + i) / 8] |= mask;
+            } else {
+                bytes[(at + i) / 8] &= !mask;
+            }
+        }
+    }
+
+    #[test]
+    fn user_options_stay_refused() {
+        let v = Variant::slayer(10);
+        let mut bytes = v.write().unwrap();
+        set_bits(&mut bytes, stream_bits_before_traits(&v) + 5, 5, 1);
+        let err = Variant::read(&bytes).unwrap_err().to_string();
+        assert!(err.contains("user options"), "{err}");
+    }
+
+    #[test]
+    fn an_action_naming_a_missing_set_is_refused() {
+        let mut v = with_script_traits();
+        v.actions.push(Action::ApplyPlayerTraits {
+            player: Player(player::CURRENT),
+            traits: 2,
+        });
+        assert!(v.write().is_err());
+
+        // Written by someone else: the guard still catches it.
+        let good = with_script_traits();
+        let mut bytes = good.write().unwrap();
+        let at = find_apply(&good, &bytes);
+        set_bits(&mut bytes, at, 4, 2);
+        assert!(Variant::read(&bytes).is_ok(), "the stream still parses");
+        assert!(Variant::validate(&bytes).is_err());
+    }
+
+    /// The bit of the last action's traits index, by the raw codec.
+    fn find_apply(v: &Variant, bytes: &[u8]) -> usize {
+        let tree = crate::raw::decode(bytes).unwrap();
+        let actions = tree
+            .fields
+            .iter()
+            .find(|n| n.name == "actions")
+            .expect("the actions list");
+        assert_eq!(actions.value.items().len(), v.actions.len());
+        let last = actions.value.items().last().unwrap();
+        // The action's last field is its traits index, 4 bits at its end.
+        let node = last.last().unwrap();
+        node.at + node.len - 4
+    }
+
+    #[test]
+    fn a_set_naming_a_missing_string_is_refused() {
+        let mut v = with_script_traits();
+        v.script_traits[0].description = 2;
+        assert!(v.write().is_err());
+    }
+
+    #[test]
+    fn signed_traits_are_not_changes_when_unchanged() {
+        assert!(Traits::unchanged().changed().is_empty());
+        let mut t = Traits::unchanged();
+        t.set("primary_weapon", 0).unwrap();
+        assert_eq!(t.changed(), []);
+        t.set("primary_weapon", 12).unwrap();
+        assert_eq!(t.changed(), [("primary_weapon", 12)]);
+    }
+
+    /// The object filters' place moves with the script traits before it, and
+    /// the layout a loader patches from must say so.
+    #[test]
+    fn filters_at_follows_script_traits() {
+        let mut v = Variant::juggernaut(15);
+        v.strings.push("ce_warthog_1".into());
+        v.filters.push(Filter {
+            label: v.strings.len() as u8 - 1,
+            team: None,
+        });
+        let (bytes, at) = v.write_layout().unwrap();
+        let mut r = BitReader::new(&bytes);
+        r.seek(at).unwrap();
+        let (_, without_at) = Variant {
+            script_traits: Vec::new(),
+            actions: Vec::new(),
+            ..v.clone()
+        }
+        .write_layout()
+        .unwrap();
+        assert_ne!(at, without_at);
+        assert_eq!(r.read(5).unwrap(), 1, "the filter count sits at filters_at");
+    }
+
     #[test]
     fn a_trait_too_wide_for_its_field_is_refused() {
         let mut t = Traits::default();
@@ -2425,6 +2690,8 @@ pub(crate) mod tests {
             ("ctf", ctf.with_time_limit()),
             ("team_koth", Variant::team_koth(120, 60, 3600).with_time_limit()),
             ("juggernaut", Variant::juggernaut(15).with_time_limit()),
+            ("stalker", Variant::stalker(10).with_time_limit()),
+            ("reverse_tag", Variant::reverse_tag(120, 60).with_time_limit()),
             ("race", Variant::race(3).with_time_limit()),
         ]
     }
