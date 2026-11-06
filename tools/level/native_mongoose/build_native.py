@@ -31,6 +31,7 @@ sys.path.insert(0, REPO + "/tools/level")
 sys.path.insert(0, HERE + "/ref")
 import ce_vehicle_nodes as N  # noqa: E402
 import ce_vehicle_physics as P  # noqa: E402
+import ce_vehicle_rider as rider  # noqa: E402
 from fk import qm, qr, conj  # noqa: E402
 
 MJ = REPO + "/target/release/mjolnir.exe"
@@ -435,6 +436,7 @@ def physics_build(nd, a):
 def vehicle_build(ce, a, tag):
     v = values("m_vehicle")
     sets = [f"unit.object.model=hlmt:{tag}", "unit.seats[0].marker name=driver", "unit.seats[1].marker name=gunner"]
+    sets += rider.seat_sets()
     if a.names == "ce":
         sets += ["unit.seats[0].entry marker(s) name=driver enter", "unit.seats[1].entry marker(s) name=gunner enter"]
     radius = {}
@@ -460,7 +462,9 @@ def main():
     ap.add_argument("--bones", help="bones.json, with --root pedestal")
     ap.add_argument("--asset", help="the Blueprint the vehicle tag binds")
     ap.add_argument("--out", help="the containers' folder, kept as it is; default <dir>/out, emptied")
-    ap.add_argument("--only", action="append", help="build only this container: jmad, skel, coll, phmo, model, vehi")
+    ap.add_argument("--only", action="append", help="build only this container: jmad, skel, coll, phmo, model, vehi, riderjmad")
+    ap.add_argument("--rider-graph", help="the Spartan graph with the rider's edits, for the riderjmad container")
+    ap.add_argument("--rider-animation", action="append", default=[], help="an animation that graph edits")
     a = ap.parse_args()
     check_inverse_rule()
     ce = json.load(open(HERE + "/ce.json"))
@@ -479,7 +483,7 @@ def main():
     tag = B.join(["objects", "mjolnir", a.code.lower(), "mongoose"])
     stub = next(f for f in sorted(os.listdir(PAKS)) if f.startswith("pakchunk997-MJOLNIRMAP-") and f.endswith("_P.pak"))
 
-    def new(group, source, suffix, sets, extra=(), to=tag):
+    def new(group, source, suffix, sets, extra=(), to=tag, stub=stub):
         if a.only and suffix not in a.only:
             return
         path = os.path.join(work, suffix + ".sets.txt")
@@ -516,6 +520,14 @@ def main():
         [f"skeleton model=skel:{tag}", f"collision model=coll:{tag}", f"physics_model=phmo:{tag}", f"animation=jmad:{tag}"])
     new("vehicle", "mjolnir/vht/mongoose-vehicle", "vehi", vehicle_build(ce, a, tag),
         ("--asset-reference", a.asset) if a.asset else ())
+    if a.rider_graph:
+        # A child of the stock graph: the seats' modes under their own labels.
+        payload = os.path.join(work, "spartan_child.jmad")
+        names = [arg for name in a.rider_animation for arg in ("--animation", name)]
+        print(run(MJD, "jmad", "child", a.rider_graph, "--parent", B.join(["objects", "characters", "spartans", "spartans"]),
+                  *rider.child_modes(), *names, "--out", payload).strip())
+        new("model_animation_graph", "characters/Spartans/spartans", "riderjmad", [], ("--payload", payload),
+            to=B.join(["objects", "mjolnir", a.code.lower(), "spartan"]), stub="pakchunk115-Windows.pak")
     json.dump({"code": a.code, "tag": tag, "names": nd.names, "groups": [g["name"] for g in groups]}, open(os.path.join(work, "built.json"), "w"), indent=1)
     print("tag", tag, "containers in", out)
 

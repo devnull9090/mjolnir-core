@@ -57,9 +57,14 @@ enum JmadCommand {
         /// The parent graph's tag path.
         #[arg(long)]
         parent: String,
-        /// An animation to keep. Repeatable.
-        #[arg(long = "animation", required = true)]
+        /// An animation to keep: its row, or the row of the mode it moved
+        /// with. Repeatable.
+        #[arg(long = "animation", required_unless_present = "modes")]
         animations: Vec<String>,
+        /// A mode to carry whole under a new label, as DONOR=NEW, leaving the
+        /// donor's label to the parent. Repeatable.
+        #[arg(long = "mode", value_parser = mode_pair)]
+        modes: Vec<(String, String)>,
         /// Keep every member of a resource group in use, not only the kept
         /// animations' own.
         #[arg(long)]
@@ -98,9 +103,10 @@ pub fn run(a: JmadArgs) -> Result<()> {
             file,
             parent,
             animations,
+            modes,
             whole_groups,
             out,
-        } => child_file(&file, &parent, &animations, whole_groups, &out),
+        } => child_file(&file, &parent, &animations, &modes, whole_groups, &out),
         JmadCommand::Frames {
             file,
             animations,
@@ -250,15 +256,26 @@ fn roundtrip(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `DONOR=NEW`, for `--mode`.
+fn mode_pair(text: &str) -> Result<(String, String), String> {
+    match text.split_once('=') {
+        Some((donor, label)) if !donor.is_empty() && !label.is_empty() => {
+            Ok((donor.to_string(), label.to_string()))
+        }
+        _ => Err(format!("{text:?} is not DONOR=NEW")),
+    }
+}
+
 fn child_file(
     file: &Path,
     parent: &str,
     names: &[String],
+    modes: &[(String, String)],
     whole_groups: bool,
     out: &Path,
 ) -> Result<()> {
     let bytes = read(file)?;
-    let made = child(&bytes, parent, names, whole_groups)?;
+    let made = child(&bytes, parent, names, modes, whole_groups)?;
 
     // Accept only what our own reader gets back, with each member untouched.
     let full = Graph::read(&bytes)?;
@@ -266,7 +283,7 @@ fn child_file(
     if g.write_resources(&made.file)? != made.file {
         bail!("the child is not stable through the reader");
     }
-    for name in names {
+    for name in names.iter().chain(g.animations.iter().map(|a| &a.name)) {
         let member = |graph: &'_ Graph| -> Option<Member> {
             let a = graph.animations.iter().find(|a| a.name == *name)?;
             graph.member(a.data.as_ref()?).cloned()
@@ -292,6 +309,12 @@ fn child_file(
     }
     for what in &made.cleared {
         println!("  cleared {what}");
+    }
+    if made.overlay_groups != 0 {
+        println!(
+            "  own overlay groups {}, blend screens {}",
+            made.overlay_groups, made.blend_screens
+        );
     }
     println!(
         "  payload {} bytes, from {} -> {}",

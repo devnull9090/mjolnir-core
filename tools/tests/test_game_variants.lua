@@ -35,11 +35,16 @@ for _, mode in ipairs(Modes) do
     assert(mode.engine and mode.name and mode.description and mode.slot, mode.id .. ": incomplete row")
     assert(mode.slot <= 7, mode.id .. ": past the eight insertion point copies")
 end
-eq(#Modes, 14, "14 variants")
+eq(#Modes, 16, "16 variants")
 eq(Modes.byId("crazy_king").name, "CRAZY KING", "byId")
 eq(Modes.byId("nope"), nil, "unknown id")
 eq(Modes.slot("rally"), 6, "the Race family's slot")
 eq(Modes.slot("juggernaut"), 4, "Juggernaut's slot is the Oddball family's")
+eq(Modes.slot("stalker"), 4, "Stalker's too")
+eq(Modes.slot("reverse_tag"), 4, "Reverse Tag's too")
+eq(Modes.byId("stalker").name, "STALKER", "Stalker's menu name")
+eq(Modes.byId("reverse_tag").name, "REVERSE TAG", "Reverse Tag's menu name")
+eq(Modes.byId("trait_test"), nil, "the trait test is never in the lobby")
 eq(Modes.slot("nope"), nil, "an unknown id has no slot")
 
 -- Six tiles, in the menu's order, with every variant under its engine.
@@ -48,7 +53,7 @@ eq(#tiles, 6, "six tiles: the cooked screens have no more")
 eq(ids(tiles), "slayer ctf oddball koth race forge", "tile order")
 eq(ids(tiles[1].variants), "slayer team_slayer", "Slayer's variants")
 eq(ids(tiles[2].variants), "ctf", "CTF's variants")
-eq(ids(tiles[3].variants), "oddball team_oddball juggernaut", "Oddball's variants")
+eq(ids(tiles[3].variants), "oddball team_oddball juggernaut stalker reverse_tag", "Oddball's variants")
 eq(ids(tiles[4].variants), "koth crazy_king team_koth", "King's variants")
 eq(ids(tiles[5].variants), "race team_race rally team_rally", "Race's variants")
 eq(tiles[2].name, "CAPTURE THE FLAG", "a tile has its engine's name")
@@ -65,15 +70,18 @@ local function offered(...)
     end
     return out
 end
-eq(ids(offered("slayer")), "slayer team_slayer juggernaut", "Slayer brings Team Slayer and Juggernaut")
+eq(ids(offered("slayer")), "slayer team_slayer juggernaut stalker reverse_tag",
+    "Slayer brings Team Slayer, and Stalker and Reverse Tag wherever Juggernaut goes")
 eq(ids(offered("koth")), "koth crazy_king team_koth", "King brings its family")
 eq(ids(offered("oddball")), "oddball team_oddball", "Oddball brings Team Oddball")
 eq(ids(offered("race")), "race team_race rally team_rally", "Race brings its family")
 eq(ids(offered("ctf")), "ctf", "CTF brings nothing")
--- Juggernaut alone under the Oddball tile says what it is.
+-- On a Slayer-only map the Oddball tile holds the variants that only spawn.
 local slayerOnly = Modes.engines(offered("slayer"))
 eq(ids(slayerOnly), "slayer oddball", "tiles on a Slayer-only map")
-eq(slayerOnly[2].name, "JUGGERNAUT", "a lone variant names its tile")
+eq(ids(slayerOnly[2].variants), "juggernaut stalker reverse_tag", "the Oddball tile's variants there")
+eq(slayerOnly[2].name, "JUGGERNAUT", "a tile without its namesake goes by its first variant")
+eq(Modes.engines({ Modes.byId("oddball"), Modes.byId("juggernaut") })[1].name, "ODDBALL", "with it, the engine's name")
 
 -- A tile steps through its variants; another tile keeps what it showed.
 Modes.memory = {}
@@ -180,6 +188,7 @@ local probes = {
 }
 local SETS = { slayer = "slayer", team_slayer = "slayer", ctf = "ctf", koth = "king", crazy_king = "king",
     team_koth = "king", oddball = "oddball", team_oddball = "oddball", juggernaut = "oddball",
+    stalker = "oddball", reverse_tag = "oddball",
     race = "slayer", team_race = "slayer", rally = "slayer", team_rally = "slayer" }
 for _, mode in ipairs(Modes) do
     if not mode.forge then
@@ -200,6 +209,7 @@ local function startEvent(mode)
 end
 local EXPECTED = { slayer = "slayer_start", team_slayer = "slayer_start", ctf = "ctf_game_start",
     oddball = "ball_game_start", team_oddball = "ball_game_start", juggernaut = "juggernaut_game_start",
+    stalker = "juggernaut_game_start", reverse_tag = "juggernaut_game_start",
     koth = "koth_game_start", crazy_king = "koth_game_start", team_koth = "koth_game_start",
     race = "race_game_start", team_race = "race_game_start", rally = "race_game_start",
     team_rally = "race_game_start" }

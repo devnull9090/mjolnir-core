@@ -206,6 +206,19 @@ clone's to within 0.3 cm, and it holds through driving, getting out, walking and
 firing. A cut Warthog mode also played correctly through a parent. Not read yet: a
 child on two PCs, or the passenger's pose.
 
+**11. Seats of their own: passed for the driver.** Result 10's child overwrites
+`ghost_d` and `warthog_p`, so a real Ghost or Warthog passenger on the map would take
+the Mongoose's pose. `mjolnir jmad child --mode` now carries those modes under
+`mongoose_d` and `mongoose_p`, the seats' labels come from `SEATS` in
+`ce_vehicle_rider.py`, and the parent keeps the donors' rows. The child grows from
+0.5 MB to 9.5 MB, nearly all of it the passenger's other weapon classes. Offline, the
+edited frames match the full clone's and every pool entry is reachable. In game, on one
+map: a real Ghost's rider matches stock `ghost_d` (head 30.9, 65.7 cm from the pelvis
+against 31.2, 65.5), a Warthog passenger matches stock `warthog_p`, and the Mongoose
+driver stays on CE's pose (pelvis 0.8 cm, wrists and ankles 0.0 to 0.1). Not read: the
+Mongoose passenger on `mongoose_p`, or this build on two PCs. A hub map reads
+`vehicle_sounds.json` from its own folder. See `docs/jmad_format.md`.
+
 Not covered: a joiner in the driver or passenger seat. At top speed wheel rate implies a radius of 0.197 wu against 0.174
 for the model, so `wheel circumferance` needs a steady-state check. Whether the
 25.6 degrees is CE's limit is unchecked. The prompt needs E held, not tapped.

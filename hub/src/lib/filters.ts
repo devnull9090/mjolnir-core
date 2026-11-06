@@ -16,6 +16,8 @@ export const GAME_MODES = [
   "oddball",
   "team_oddball",
   "juggernaut",
+  "stalker",
+  "reverse_tag",
   "race",
   "team_race",
   "rally",

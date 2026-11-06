@@ -56,6 +56,9 @@ pub enum Mode {
     TeamSlayer,
     /// Interpreter smoke test: every player scores 1 every tick.
     Tick,
+    /// Trait test, not a released mode: Slayer with every living player at
+    /// 150% speed, 150% damage and in active camo, to measure them in game.
+    TraitTest,
     /// Capture the Flag (CE rules): flags on the map's `ctf_flag_return`
     /// stands; carry the enemy's to your own while yours is home.
     Ctf,
@@ -64,8 +67,14 @@ pub enum Mode {
     /// Team Oddball: Oddball, the carrier's seconds counting for their team.
     TeamOddball,
     /// Juggernaut, CE's rule: kill it to become it; it scores for its kills,
-    /// and killing it scores.
+    /// and killing it scores. The Juggernaut deals extra damage.
     Juggernaut,
+    /// Stalker: Juggernaut, the Juggernaut invisible and fast, everyone else
+    /// taking half damage.
+    Stalker,
+    /// Reverse Tag: passed like Juggernaut, but "it" scores a point a second,
+    /// slowed; kills score nothing.
+    ReverseTag,
     /// King: one fixed hill all game; uncontested control scores seconds.
     Koth,
     /// Crazy King: King, the hill moving to a random other one.
@@ -87,8 +96,9 @@ pub struct WriteArgs {
     #[arg(long, value_enum, default_value = "slayer")]
     pub mode: Mode,
     /// Score to win (default 25; 50 for Team Slayer; 3 captures for CTF; 120
-    /// seconds for Oddball and King; 15 for Juggernaut, Rally and Team Rally;
-    /// 3 laps for Race). Team Race defaults to 6: CE's is 3 laps of each
+    /// seconds for Oddball, King and Reverse Tag; 15 for Juggernaut, Rally and
+    /// Team Rally; 10 for Stalker; 3 laps for Race). Team Race defaults to 6:
+    /// CE's is 3 laps of each
     /// team's slowest player, and a team's score here is only ever its
     /// players' sum.
     #[arg(long)]
@@ -298,6 +308,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 Mode::Slayer => Variant::slayer(w.score.unwrap_or(25)),
                 Mode::TeamSlayer => Variant::team_slayer(w.score.unwrap_or(50)),
                 Mode::Tick => Variant::tick(w.score.unwrap_or(25)),
+                Mode::TraitTest => Variant::trait_test(w.score.unwrap_or(25)),
                 Mode::Oddball => Variant::oddball(
                     w.score.unwrap_or(120),
                     w.flag_type,
@@ -311,6 +322,8 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     reset_ticks()?,
                 ),
                 Mode::Juggernaut => Variant::juggernaut(w.score.unwrap_or(15)),
+                Mode::Stalker => Variant::stalker(w.score.unwrap_or(10)),
+                Mode::ReverseTag => Variant::reverse_tag(w.score.unwrap_or(120), tick_rate),
                 Mode::Koth => Variant::koth(w.score.unwrap_or(120), tick_rate),
                 Mode::CrazyKing => {
                     Variant::crazy_king(w.score.unwrap_or(120), tick_rate, hill_ticks()?)
@@ -335,7 +348,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 rounds: w.rounds,
                 ..v
             };
-            if !matches!(w.mode, Mode::Empty | Mode::Tick) {
+            if !matches!(w.mode, Mode::Empty | Mode::Tick | Mode::TraitTest) {
                 v = v.with_time_limit();
             }
             w.base.apply(&mut v.base)?;
@@ -343,7 +356,9 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 i16::try_from(u32::from(seconds) * u32::from(w.tick_rate))
                     .with_context(|| format!("{what} times --tick-rate is past 32767 ticks"))
             };
-            let v = if w.no_health_packs || matches!(w.mode, Mode::Empty | Mode::Tick) {
+            let v = if w.no_health_packs
+                || matches!(w.mode, Mode::Empty | Mode::Tick | Mode::TraitTest)
+            {
                 v
             } else {
                 v.with_health_packs(blam_megalo::powerups::HealthPacks {

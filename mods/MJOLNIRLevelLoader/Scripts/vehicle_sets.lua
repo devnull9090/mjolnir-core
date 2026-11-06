@@ -31,10 +31,10 @@ VehicleSets.TYPES = { "warthog", "ghost", "scorpion", "rwarthog", "banshee", "tu
 local PRESET_TYPE = { [2] = "warthog", [3] = "ghost", [4] = "scorpion", [5] = "rwarthog",
     [6] = "banshee", [7] = "turret" }
 -- A game type's bit in CE's spawn flags (default bits 0-3, allowed 8-11).
--- Juggernaut is CE's Oddball engine. Race has no bit in our data and takes
--- Slayer's set.
+-- Juggernaut, Stalker and Reverse Tag are CE's Oddball engine. Race has no bit
+-- in our data and takes Slayer's set.
 local MODE_BIT = { slayer = 0, team_slayer = 0, ctf = 1, king = 2, koth = 2, crazy_king = 2, team_koth = 2,
-    oddball = 3, team_oddball = 3, juggernaut = 3, race = 0, team_race = 0, rally = 0, team_rally = 0 }
+    oddball = 3, team_oddball = 3, juggernaut = 3, stalker = 3, reverse_tag = 3, race = 0, team_race = 0, rally = 0, team_rally = 0 }
 -- Owner team on the placements (gen_ce_level.py CE_OWNER_TEAMS): red 0, blue 1.
 local TEAM_INDEX = { red = 0, blue = 1 }
 
