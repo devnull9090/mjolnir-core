@@ -13,7 +13,7 @@ import type { ApiEnv } from "./bindings";
 import { getTool } from "../tools";
 import { authenticate, rateLimit } from "./auth";
 import { requireModerator } from "./account";
-import { ErrorSchema } from "./schemas";
+import { ErrorSchema, FindingSchema } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
 
@@ -484,7 +484,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
     },
   );
 
-  // ── Release review (community maps) ─────────────────────────────────
+  // ── Release review (community maps, and anything with banks) ────────
 
   const QueuedReleaseSchema = z
     .object({
@@ -493,10 +493,21 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       reason: z.string().nullable(),
       mod_slug: z.string(),
       mod_name: z.string(),
+      mod_status: z.enum(["draft", "published", "hidden", "removed"]).openapi({
+        description: "`draft` until its first release is approved; the mod's page 404s until then.",
+      }),
       version: z.string(),
       map_code: z.string().nullable(),
       map_title: z.string().nullable(),
       file_size: z.number().nullable(),
+      banks: z.array(z.string()).nullable().openapi({
+        description:
+          "The `.bnk` members the scan saw, empty for none. Null when the scan " +
+          "predates the record, which says nothing about whether it has any.",
+      }),
+      findings: z.array(FindingSchema).openapi({
+        description: "What the release's latest scan reported.",
+      }),
       uploader: z.string(),
       created_at: z.string(),
     })
@@ -507,7 +518,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       method: "get",
       path: "/moderation/releases",
       tags: ["moderation"],
-      summary: "The release review queue: community maps awaiting a moderator",
+      summary: "The release review queue: maps and banks awaiting a moderator",
       request: {
         query: z.object({
           state: z.enum(["pending", "approved", "rejected"]).default("pending"),
@@ -527,8 +538,11 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       const { state } = c.req.valid("query");
       const rows = await c.env.DB.prepare(
         `SELECT rv.release_id, rv.state, rv.reason, rv.created_at, r.version, r.file_size,
-                m.slug AS mod_slug, m.name AS mod_name, ml.code AS map_code, ml.title AS map_title,
-                COALESCE(u.display_name, u.discord_username) AS uploader
+                r.banks_json, m.slug AS mod_slug, m.name AS mod_name, m.status AS mod_status,
+                ml.code AS map_code, ml.title AS map_title,
+                COALESCE(u.display_name, u.discord_username) AS uploader,
+                (SELECT s.findings FROM release_scans s WHERE s.release_id = r.id
+                 ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1) AS findings
          FROM release_reviews rv
          JOIN mod_releases r ON r.id = rv.release_id
          JOIN mods m ON m.id = r.mod_id
@@ -546,10 +560,13 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
             reason: (r.reason as string) ?? null,
             mod_slug: r.mod_slug as string,
             mod_name: r.mod_name as string,
+            mod_status: r.mod_status as "draft" | "published" | "hidden" | "removed",
             version: r.version as string,
             map_code: (r.map_code as string) ?? null,
             map_title: (r.map_title as string) ?? null,
             file_size: (r.file_size as number) ?? null,
+            banks: r.banks_json ? (JSON.parse(r.banks_json as string) as string[]) : null,
+            findings: r.findings ? JSON.parse(r.findings as string) : [],
             uploader: r.uploader as string,
             created_at: r.created_at as string,
           })),

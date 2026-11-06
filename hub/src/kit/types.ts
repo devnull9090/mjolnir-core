@@ -660,10 +660,16 @@ export interface QueuedRelease {
   reason: string | null;
   mod_slug: string;
   mod_name: string;
+  /** `draft` until its first release is approved; the mod's page 404s until then. */
+  mod_status: "draft" | "published" | "hidden" | "removed";
   version: string;
   map_code: string | null;
   map_title: string | null;
   file_size: number | null;
+  /** The `.bnk` members the scan saw. Null: the scan predates the record, so unknown. */
+  banks: string[] | null;
+  /** What the latest scan reported. */
+  findings: ScanFinding[];
   uploader: string;
   created_at: string;
 }

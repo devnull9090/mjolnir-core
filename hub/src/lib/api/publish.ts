@@ -683,7 +683,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(
           `UPDATE mod_releases
            SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6,
-               forge_pack_json = ?7
+               forge_pack_json = ?7, banks_json = ?8
            WHERE id = ?1`,
         ).bind(
           id,
@@ -693,6 +693,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           streamed.sha256,
           streamed.size,
           scan.verdict === "pass" && forgePack ? JSON.stringify(forgePack) : null,
+          JSON.stringify(scan.banks),
         ),
         c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
