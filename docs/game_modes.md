@@ -787,7 +787,7 @@ slot 6.
 | Rally | `rally` | one live flag; whoever touches it scores and it moves on, in a shuffled order | 15 |
 | Team Rally | `team_rally` | as Rally, teams sum | 15 |
 
-Where these differ from CE (`game_engine_*.c`, Xbox 2342; PC retail unconfirmed):
+Where these differ from CE (PC retail unconfirmed):
 
 - **Contested hills.** CE keeps scoring: "contested" only picks a sound. Ours
   stop, as Reach does, by the user's choice (2026-11-04). `CONTESTED_HILL_SCORES` in `objectives.rs` and
