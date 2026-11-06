@@ -186,8 +186,9 @@ python tools/level/ce_vehicle_audio.py <ce_vehicle_sounds.py's out dir> <out dir
   map's `map pack` picks it up by name. `pakchunk996-MJOLNIRVWEAP-<CODE>_P` holds the
   weapon.
 
-Published maps can't use this yet: the hub and launcher don't take a `.pak`
-(docs/ce_native_support.md, result 13).
+That `.pak` is for a local install. `map pack` takes the banks out of it, the archive
+carries them bare and the launcher builds the `.pak` again
+([map_distribution.md](map_distribution.md#a-vehicles-banks), with the release order).
 
 ## Not done
 

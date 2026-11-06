@@ -158,6 +158,8 @@ design, threat model and rollout:
 | `changes.json`, when present, valid and ≤ 512 KiB | `bad_changes` (absent is the `no_changes` warning) |
 | A map archive carries `map/level.json` and `map/registration.json`, both valid JSON | `map_file_missing`, `bad_map_file` |
 | A map's `code` is not already held by another mod | `map_code_taken` |
+| A `.bnk` sits at `content/<container>/<id>.bnk` beside its container, is a real bank of that id, and isn't one the game ships; at most 32 banks ([rules](map_distribution.md#a-vehicles-banks)) | `forbidden_file`, `bank_no_container`, `bad_bank`, `shipped_bank`, `too_many_banks` |
+| The account may publish banks (`BANK_UPLOADS`) | `banks_not_allowed` |
 
 Warnings never fail a scan: `no_summary` (the manifest has no summary),
 `stray_container` (a `.utoc` outside `content/`), `empty_container`,

@@ -4269,6 +4269,90 @@ mod tests {
         server.join().unwrap();
     }
 
+    /// A `mjolnir map pack` archive through the real install into a fake game
+    /// folder, with its banks in the `.pak` that lands there, and any bad ones
+    /// refused. Ignored because it needs a built pack.
+    ///
+    /// MJOLNIR_TEST_CONFIG_DIR=<empty folder> MJOLNIR_GAME_DIR=<folder with Meteorite/Content/Paks> \
+    /// MJOLNIR_TEST_PACK=good.mjolnir MJOLNIR_TEST_SLUG=<its slug> MJOLNIR_TEST_BAD_PACKS="one.mjolnir;two.mjolnir" \
+    ///   cargo test pack_installs_into_a_game_folder -- --ignored --nocapture
+    #[test]
+    #[ignore = "needs a built pack (see doc comment)"]
+    fn pack_installs_into_a_game_folder() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::Ordering;
+        assert!(std::env::var_os("MJOLNIR_TEST_CONFIG_DIR").is_some(), "must run in isolated fixture");
+        let game = PathBuf::from(std::env::var_os(crate::GAME_DIR_ENV).expect("must run in a fake game folder"));
+        let paks = paks_dir().unwrap();
+        assert!(paks.starts_with(&game), "{} is not the fake game folder", paks.display());
+        let good = fs::read(std::env::var("MJOLNIR_TEST_PACK").expect("MJOLNIR_TEST_PACK")).unwrap();
+        let slug = std::env::var("MJOLNIR_TEST_SLUG").expect("MJOLNIR_TEST_SLUG");
+        let bad = std::env::var("MJOLNIR_TEST_BAD_PACKS").unwrap_or_default();
+        let bad: Vec<_> = bad.split(';').filter(|p| !p.is_empty()).map(|p| fs::read(p).unwrap()).collect();
+
+        let runtime = {
+            let manifest = serde_json::json!({"schema_version":1,"name":"Runtime","version":"1.18.0","type":"content"});
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (name, bytes) in [("mjolnir.json", manifest.to_string().into_bytes()),
+                    ("content/runtime.utoc", b"index".to_vec()), ("content/runtime.ucas", b"data".to_vec())] {
+                zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            zip.finish().unwrap().into_inner()
+        };
+        let mut routes = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        let mut serve = |slug: &str, kind: &str, version: &str, archive: Vec<u8>| {
+            routes.insert(format!("/mods/{slug}"), serde_json::json!({"name":slug,"type":kind}).to_string().into_bytes());
+            routes.insert(format!("/mods/{slug}/releases"), serde_json::json!({"releases":[{"id":format!("{slug}-1"),"version":version,"channel":"stable"}]}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1"), serde_json::json!({"status":"published","sha256":sha256_hex(&archive)}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1/download"), archive);
+        };
+        let version = {
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&good)).unwrap();
+            let mut text = String::new();
+            zip.by_name("mjolnir.json").unwrap().read_to_string(&mut text).unwrap();
+            serde_json::from_str::<serde_json::Value>(&text).unwrap()["version"].as_str().unwrap().to_string()
+        };
+        serve("mjolnir-ce-runtime", "content", "1.18.0", runtime);
+        serve(&slug, "map", &version, good.clone());
+        for (i, archive) in bad.iter().enumerate() {
+            serve(&format!("bad-{i}"), "map", &version, archive.clone());
+        }
+        let (stop, server) = local_hub(routes);
+
+        let state = install(slug.clone(), None).unwrap();
+        let plan = mounts(&state).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&good)).unwrap();
+        let mut banks = 0;
+        for m in plan.iter().filter(|m| m.slug == slug) {
+            let file = m.in_paks(&paks, "pak");
+            let pak = ue_iostore::pak::load_pak(&file).unwrap();
+            for (rel, entry) in &pak.files {
+                let path = pak.full_path(rel);
+                let name = path.strip_prefix("../../../Meteorite/Content/WwiseAudio/").unwrap_or_else(|| panic!("{path}"));
+                let mut member = Vec::new();
+                zip.by_name(&format!("content/{}/{name}", m.container)).unwrap().read_to_end(&mut member).unwrap();
+                assert_eq!(ue_iostore::pak::read_file(&pak, entry, None, &[]).unwrap(), member, "{path}");
+                eprintln!("{}: {path}, {} bytes", file.display(), member.len());
+                banks += 1;
+            }
+        }
+        assert!(banks > 0, "the pack carried no banks");
+        let inst = state.installed.iter().find(|m| m.slug == slug).unwrap();
+        assert!(cache_complete(inst));
+        assert!(verify_one(inst).ok);
+
+        for i in 0..bad.len() {
+            let slug = format!("bad-{i}");
+            let err = install(slug.clone(), None).unwrap_err();
+            eprintln!("{slug}: {err}");
+            assert!(!load_state().installed.iter().any(|m| m.slug == slug), "{slug} was recorded");
+            assert!(!cache_dir().join(format!("{slug}-1")).exists(), "{slug} reached the cache");
+        }
+        stop.store(true, Ordering::Relaxed);
+        server.join().unwrap();
+    }
+
     #[test]
     fn only_a_pakchunk_name_can_keep_its_number() {
         let nowhere = Path::new("does-not-exist.utoc");

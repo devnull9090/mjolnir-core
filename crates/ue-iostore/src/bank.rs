@@ -58,7 +58,10 @@ fn u32_at(b: &[u8], at: usize) -> Option<u32> {
 /// that Wwise will read one safely.
 pub fn check(id: u32, bank: &[u8]) -> Result<(), String> {
     if bank.len() > MAX_BANK_BYTES {
-        return Err(format!("bank {id} is {} bytes; the cap is {MAX_BANK_BYTES}", bank.len()));
+        return Err(format!(
+            "bank {id} is {} bytes; the cap is {MAX_BANK_BYTES}",
+            bank.len()
+        ));
     }
     if is_shipped(id) {
         return Err(format!("bank {id} is one the game ships"));
@@ -149,7 +152,9 @@ pub fn sample(id: u32) -> Vec<u8> {
 
 /// Wwise's id of a name, the seed the build step uses: 32-bit FNV-1 of its lower case.
 fn fnv1(name: &str) -> u32 {
-    name.to_lowercase().bytes().fold(2166136261u32, |h, c| h.wrapping_mul(16777619) ^ c as u32)
+    name.to_lowercase()
+        .bytes()
+        .fold(2166136261u32, |h, c| h.wrapping_mul(16777619) ^ c as u32)
 }
 
 /// The `.pak` beside `container` that carries its banks, sorted by id. It must
@@ -217,7 +222,10 @@ mod tests {
     #[test]
     fn the_sample_is_the_hubs_sample() {
         use sha1::{Digest, Sha1};
-        let hex: String = Sha1::digest(bank(99)).iter().map(|b| format!("{b:02x}")).collect();
+        let hex: String = Sha1::digest(bank(99))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         assert_eq!(hex, "b76d27ed276b91306dc5ebb6fd2b80e847f57d79");
     }
 
@@ -249,7 +257,10 @@ mod tests {
 
     #[test]
     fn a_member_names_its_container_and_id() {
-        assert_eq!(member("content/pakchunk996-MJOLNIRBANK-RWC_P/5.bnk"), Some(("pakchunk996-MJOLNIRBANK-RWC_P", 5)));
+        assert_eq!(
+            member("content/pakchunk996-MJOLNIRBANK-RWC_P/5.bnk"),
+            Some(("pakchunk996-MJOLNIRBANK-RWC_P", 5))
+        );
         for other in [
             "content/5.bnk",
             "content/x/name.bnk",

@@ -634,13 +634,19 @@ mod tests {
     fn anything_else_in_a_pak_stops_the_pack() {
         let file = [("Replaced.uasset".to_string(), &b"not a bank"[..])];
         let pak = ue_iostore::pak::write_files("Meteorite/Content/Sneaky/", &file, 1);
-        assert!(in_a_pak("other", &pak).unwrap_err().to_string().contains("not a bank"));
+        assert!(in_a_pak("other", &pak)
+            .unwrap_err()
+            .to_string()
+            .contains("not a bank"));
     }
 
     #[test]
     fn a_shipped_bank_stops_the_pack() {
         let id = 833622567;
         let pak = ue_iostore::bank::bank_pak("c", &[(id, ue_iostore::bank::sample(id))]);
-        assert!(in_a_pak("shipped", &pak).unwrap_err().to_string().contains("ships"));
+        assert!(in_a_pak("shipped", &pak)
+            .unwrap_err()
+            .to_string()
+            .contains("ships"));
     }
 }
