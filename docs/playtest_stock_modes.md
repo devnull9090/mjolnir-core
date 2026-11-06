@@ -26,7 +26,9 @@ If something fails, note the section and copy
 
 ## 1. Team King (Blood Gulch)
 
-Host: GAME TYPE, click KING OF THE HILL until it says Team King, SELECT.
+Host: GAME TYPE, KING OF THE HILL, TEAM KING, SELECT. On a UI pack from before the
+variant buttons, click KING OF THE HILL until it says Team King. Juggernaut,
+Stalker and Reverse Tag are then under ODDBALL, and Rally under RACE.
 
 - [ ] The players land on opposite teams, and the bar reads RED and BLUE on both PCs.
 - [ ] The wall and beacon stand on the same hill on both PCs.

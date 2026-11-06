@@ -4,15 +4,21 @@
 -- B5), so a match shows nothing where the hill stands. The level file lists
 -- the hills in rotation order (`koth_hills`: x, y, z and radius, Unreal cm,
 -- tools/level/ce_objectives.py), the variant says which one is live
--- (`hill_moved`, value = its place in the rotation), and this draws one line
--- under the score, how far and which way, and the hill itself: a holographic
--- boundary round the scoring cylinder and a beacon above it. Each game draws its
--- own, so it needs no replication, and the sim never sees these actors.
+-- (`hill_moved`, value = its place in the rotation), and this draws the hill
+-- itself, a holographic boundary round the scoring cylinder and a beacon above
+-- it, and a marker on the screen (Scripts/waypoint.lua) for the way there. A
+-- line under the score says what the marker cannot: ON THE HILL, HILL CONTESTED.
+-- If no marker can be made, the line gives the distance and bearing instead.
+-- Each game draws its own, so it needs no replication, and the sim never sees
+-- these actors.
 --
 -- Hill.field is that drawing on its own, for anything else that marks a spot in
 -- the world: Scripts/race.lua's flags and Scripts/juggernaut.lua's beacon.
 
 local Hill = {}
+
+--- Scripts/waypoint.lua, set by Scripts/markers.lua. Without it, lines only.
+Hill.Waypoint = nil
 
 --- The script's rule, CONTESTED_HILL_SCORES in crates/blam-megalo/src/objectives.rs:
 --- flip the two together. False: a contested hill scores nothing, and shows it.
@@ -53,6 +59,7 @@ local FALLBACK_BEACON_BRIGHTNESS = 0.55
 local NOISE_SCALE = 0.35
 local MATERIAL_RETRY_SECONDS = 3
 local HILL_HEIGHT_CM = 600 -- how far above or below still counts as on it
+local MARKER_HEIGHT_CM = 350 -- the screen marker's spot, above the ground the hill stands on
 local PILLAR = {} -- what `drawn` holds while only the beacon stands
 local COLOURS = {
     empty = { para = { 1, 0.8, 0.25 }, perp = { 1, 0.55, 0.08 } }, -- gold
@@ -104,14 +111,20 @@ function Hill.bearing(spot, at, yaw)
 end
 
 --- The line for a player at `at` looking along `yaw`: the hill's distance and
---- bearing.
-function Hill.describe(hill, at, yaw)
+--- bearing, or with a marker on the screen only what it cannot say, or nil.
+function Hill.describe(hill, at, yaw, marked)
     local inside, metres, way, level = Hill.bearing(hill, at, yaw)
     if inside then
         if level == "" then return "ON THE HILL" end
         return "HILL" .. level
     end
+    if marked then return nil end
     return string.format("HILL %d M %s%s", metres, way, level)
+end
+
+--- Where the screen marker for `spot` sits: above it, so it clears the wall.
+function Hill.markerSpot(spot)
+    return { x = spot.x, y = spot.y, z = spot.z + MARKER_HEIGHT_CM }
 end
 
 --- Whether `at` is on `spot`: in its circle and near its height.
@@ -296,12 +309,33 @@ function Hill.field(name)
         end
     end
 
+    --- Take the screen marker down.
+    function self.unmark()
+        if self.marker then self.marker.hide() end
+    end
+
+    --- Point the screen marker at `spot` (x, y, z) for `holder`, as `paint`
+    --- takes it, with `icon` and `words`. True while there is a marker; false
+    --- when it cannot be made, so the caller keeps the distance in its line.
+    function self.mark(pc, spot, holder, icon, words, now)
+        if not Hill.Waypoint then return false end
+        self.marker = self.marker or Hill.Waypoint.new(Hill.log)
+        local colours = COLOURS[holder] or COLOURS.empty
+        return self.marker.point(pc, spot, colours.para, icon, words, holder == "contested", now)
+    end
+
+    --- Every frame: keep the marker on its spot.
+    function self.frame(pc, now)
+        if self.marker then self.marker.frame(pc, now) end
+    end
+
     local function showPart(actor, shown)
         if actor and actor:IsValid() then actor:SetActorHiddenInGame(not shown) end
     end
 
     function self.hide()
         self.hideLine()
+        self.unmark()
         self.drawn = nil
         pcall(function()
             for _, actor in pairs(self.parts) do showPart(actor, false) end
@@ -506,10 +540,22 @@ function Hill.new(read)
             local holder = Hill.holder(hill, players and players() or {})
             self.paint(holder, now)
             local pawn = pc.Pawn
-            if not (pawn and pawn:IsValid()) then return self.hideLine() end
-            local line = Hill.describe(hill, pawn:K2_GetActorLocation(), pc:GetControlRotation().Yaw)
+            if not (pawn and pawn:IsValid()) then
+                self.unmark()
+                return self.hideLine()
+            end
+            local at, yaw = pawn:K2_GetActorLocation(), pc:GetControlRotation().Yaw
+            local inside, metres, _, level = Hill.bearing(hill, at, yaw)
+            local marked = true
+            if inside and level == "" then
+                self.unmark()
+            else
+                marked = self.mark(pc, Hill.markerSpot(hill), holder, "Koth",
+                    Hill.Waypoint and Hill.Waypoint.label(metres, level) or "", now)
+            end
+            local line = Hill.describe(hill, at, yaw, marked)
             if line == "ON THE HILL" and holder == "contested" then line = "HILL CONTESTED" end
-            self.say(line)
+            if line then self.say(line) else self.hideLine() end
         end)
     end
 

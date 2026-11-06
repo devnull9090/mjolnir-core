@@ -1,7 +1,10 @@
 -- MJOLNIR Lobby: the game types, one row per variant file.
 --
--- The menu shows six tiles, one per engine, and a tile steps
--- through the stock CE variants offered on the map. A row is offered when the
+-- The rows gather into tiles. The game type and map select screens show
+-- families (`Modes.families`) with every variant on show: a family is what a
+-- player thinks of the game as, so the engine a row happens to run on, Oddball
+-- under Juggernaut, stays out of sight. An older UI container has six tiles, one
+-- per engine, and a tile steps through its variants. A row is offered when the
 -- map lists its engine (or `Modes.derive` adds it), its variants\<id>.mglo is
 -- installed, and the container it `needs` is. A level's own modes list only
 -- engine ids (slayer, ctf, koth, oddball, race), so hub manifests stay
@@ -36,11 +39,11 @@ local Modes = {
         description = "Hold the skull to score." },
     { id = "team_oddball", engine = "oddball", slot = 4, name = "TEAM ODDBALL", teams = true,
         description = "Red against Blue. Time with the skull scores for your team." },
-    { id = "juggernaut", engine = "oddball", slot = 4, name = "JUGGERNAUT",
+    { id = "juggernaut", engine = "oddball", family = "juggernaut", slot = 4, name = "JUGGERNAUT",
         description = "The first kill makes you the Juggernaut. Kill the Juggernaut to take over; only the Juggernaut's kills and kills on the Juggernaut score." },
-    { id = "stalker", engine = "oddball", slot = 4, name = "STALKER",
+    { id = "stalker", engine = "oddball", family = "juggernaut", slot = 4, name = "STALKER",
         description = "The first kill makes you the Stalker: invisible and fast, while everyone else takes half damage. Kill the Stalker to take over; only the Stalker's kills and kills on the Stalker score." },
-    { id = "reverse_tag", engine = "oddball", slot = 4, name = "REVERSE TAG",
+    { id = "reverse_tag", engine = "oddball", family = "juggernaut", slot = 4, name = "REVERSE TAG",
         description = "The first kill makes you it. Whoever is it moves slowly and scores a point a second; kill them to take over." },
     { id = "koth", engine = "koth", slot = 3, name = "KING",
         description = "Hold the hill to score. The hill stays where it is." },
@@ -68,9 +71,12 @@ local Modes = {
 }
 
 -- The tiles' names. The rows above are in menu order, and a tile sits where its
--- engine's first offered row does. The cooked screens have six tiles.
-local ENGINE_NAMES = { slayer = "SLAYER", ctf = "CAPTURE THE FLAG", oddball = "ODDBALL",
-    koth = "KING OF THE HILL", race = "RACE", forge = "FORGE" }
+-- first offered row does.
+local TILE_NAMES = { slayer = "SLAYER", ctf = "CAPTURE THE FLAG", oddball = "ODDBALL",
+    juggernaut = "JUGGERNAUT", koth = "KING OF THE HILL", race = "RACE", forge = "FORGE" }
+
+-- A tile's name where it has one line to itself: map select's tabs.
+local TILE_SHORT_NAMES = { ctf = "CTF", koth = "KING" }
 
 --- The file in the level loader's folder that names the match's exact variant.
 Modes.CHOICE_FILE = "match_variant.txt"
@@ -109,30 +115,48 @@ function Modes.derive(listed)
     return listed
 end
 
---- `list` (offered rows) as tiles, in menu order: { id, name, variants }. A
---- tile without its engine's namesake (Juggernaut and its kin where only Slayer
---- is listed) goes by its first variant's name.
-function Modes.engines(list)
-    local byEngine, tiles = {}, {}
+--- `list` (offered rows) as tiles, in menu order: { id, name, short, variants }, one
+--- per `keyOf(mode)`. A tile without its namesake (Juggernaut and its kin where
+--- only Slayer is listed) goes by its first variant's name.
+local function tilesBy(list, keyOf)
+    local byKey, tiles = {}, {}
     for _, mode in ipairs(list or {}) do
-        local id = mode.engine or mode.id
-        if not byEngine[id] then
-            byEngine[id] = { id = id, name = ENGINE_NAMES[id] or mode.name, variants = {} }
-            tiles[#tiles + 1] = byEngine[id]
+        local id = keyOf(mode)
+        if not byKey[id] then
+            byKey[id] = { id = id, name = TILE_NAMES[id] or mode.name, short = TILE_SHORT_NAMES[id], variants = {} }
+            tiles[#tiles + 1] = byKey[id]
         end
-        local variants = byEngine[id].variants
+        local variants = byKey[id].variants
         variants[#variants + 1] = mode
     end
     for _, tile in ipairs(tiles) do
-        if not Modes.position(tile, tile.id) then tile.name = tile.variants[1].name end
+        if not Modes.position(tile, tile.id) then tile.name, tile.short = tile.variants[1].name, nil end
     end
     return tiles
+end
+
+--- One tile per engine: the six on an older UI container's screens.
+function Modes.engines(list)
+    return tilesBy(list, function(mode) return mode.engine or mode.id end)
+end
+
+--- One tile per family.
+function Modes.families(list)
+    return tilesBy(list, function(mode) return mode.family or mode.engine or mode.id end)
 end
 
 --- Where `id` sits in `tile`, or nil.
 function Modes.position(tile, id)
     for i, mode in ipairs(tile.variants) do
         if mode.id == id then return i end
+    end
+    return nil
+end
+
+--- The tile in `tiles` holding `id`, or nil.
+function Modes.tileOf(tiles, id)
+    for _, tile in ipairs(tiles) do
+        if Modes.position(tile, id) then return tile end
     end
     return nil
 end
@@ -155,6 +179,20 @@ end
 function Modes.step(tile, current)
     local at = current and Modes.position(tile, current.id)
     local mode = at and tile.variants[at % #tile.variants + 1] or Modes.shown(tile, current)
+    Modes.memory[tile.id] = mode.id
+    return mode
+end
+
+--- The choice after a click on `tile`'s own name, where its variants have
+--- buttons of their own: what the tile shows, so a second click changes nothing.
+function Modes.open(tile, current)
+    local mode = Modes.shown(tile, current)
+    Modes.memory[tile.id] = mode.id
+    return mode
+end
+
+--- The choice after a click on `mode`, one of `tile`'s variants.
+function Modes.pick(tile, mode)
     Modes.memory[tile.id] = mode.id
     return mode
 end

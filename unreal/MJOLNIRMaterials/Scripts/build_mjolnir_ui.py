@@ -545,7 +545,8 @@ LINE = (0.24, 0.49, 0.63, 0.45)
 RED = (1.0, 0.32, 0.28, 1.0)
 BLUE = (0.3, 0.65, 1.0, 1.0)
 MAP_BUTTONS = 80
-GAME_TYPE_BUTTONS = 6     # five competitive modes plus Forge
+GAME_TYPE_BUTTONS = 7     # the families in MJOLNIRLobby's modes.lua, Forge among them
+GAME_TYPE_VARIANTS = 5    # room for the largest family (Race has 4)
 ROSTER_ROWS = 16
 ROSTER_AVATAR = 32
 GAME_ROWS = 40
@@ -942,8 +943,13 @@ def build_lobby():
     finish_screen(bp, name)
 
 
-MODE_TILES = 6     # every game type: the five competitive modes and Forge
-MODE_TILE = 132    # a game type tile's side
+MODE_TILES = 7     # the families in MJOLNIRLobby's modes.lua, Forge among them
+MODE_TAB = 64      # a game type tab's height
+MODE_TAB_GAP = 2
+# A chosen tab: its button's tint under Lua's SELECTED_BACKGROUND. The tray under
+# the tabs has the same colour, so the chosen tab runs into it.
+MODE_TAB_TINT = (0.025, 0.06, 0.09, 0.42)
+MODE_TRAY = (0.075, 0.21, 0.315, 0.42)
 
 
 def build_map_select():
@@ -1071,58 +1077,97 @@ def build_map_select():
     text_style(meta, "", 18, GREY)
     wrapped(meta)
 
-    gap(rule(bp, "ModesRule", "DetailsStack"), top=30, bottom=22)
-    modes = widget(bp, unreal.HorizontalBox, "ModesRow", "DetailsStack")
-    tiles = widget(bp, unreal.VerticalBox, "ModesColumn", modes.get_name())
-    heading = widget(bp, unreal.TextBlock, "ModesHeading", tiles.get_name())
-    text_style(heading, "GAME TYPE", 20, ACCENT)
-    gap(heading, bottom=12)
-    widget(bp, unreal.HorizontalBox, "Modes", tiles.get_name())
+    # The game types are tabs across the panel, each an icon beside one line of
+    # text, over a tray of what the chosen one is and its variants. The tabs
+    # share the width, so a map with fewer of them still fills it.
+    gap(rule(bp, "ModesRule", "DetailsStack"), top=20, bottom=14)
+    widget(bp, unreal.VerticalBox, "ModesColumn", "DetailsStack")
+    widget(bp, unreal.HorizontalBox, "Modes", "ModesColumn")
     for i in range(MODE_TILES):
         key = f"Mode{i}"
         button = widget(bp, unreal.Button, key, "Modes")
-        flat_style(button, (0.025, 0.06, 0.09, 0.42), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95))
-        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12, 0))
+        flat_style(button, MODE_TAB_TINT, (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95))
+        fill(button, 1)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, MODE_TAB_GAP, 0))
         button.set_visibility(unreal.SlateVisibility.COLLAPSED)
-        size = sized(bp, key + "Size", key, width=MODE_TILE, height=MODE_TILE)
+        size = sized(bp, key + "Size", key, height=MODE_TAB)
         unpadded(size)
+        slot = size.get_editor_property("slot")
+        slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
         stack = widget(bp, unreal.VerticalBox, key + "Stack", size.get_name())
-        icon_size = sized(bp, key + "IconSize", stack.get_name(), width=60, height=60)
-        slot = icon_size.get_editor_property("slot")
-        slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
-        slot.set_padding(unreal.Margin(0, 16, 0, 0))
-        # Hidden, not collapsed: the label stays put while the texture loads.
-        image = widget(bp, unreal.Image, key + "Icon", icon_size.get_name())
-        image.set_visibility(unreal.SlateVisibility.HIDDEN)
-        label = widget(bp, unreal.TextBlock, key + "Label", stack.get_name())
-        text_style(label, "", 15, WHITE)
-        label.set_editor_property("justification", unreal.TextJustify.CENTER)
-        wrapped(label)
-        label.get_editor_property("slot").set_padding(unreal.Margin(6, 10, 6, 0))
-        fill(widget(bp, unreal.Spacer, key + "Space", stack.get_name()), 1)
         mark = sized(bp, key + "MarkSize", stack.get_name(), height=4)
         ink = widget(bp, unreal.Border, key + "Mark", mark.get_name())
         ink.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
         ink.set_visibility(unreal.SlateVisibility.HIDDEN)
+        row = widget(bp, unreal.HorizontalBox, key + "Row", stack.get_name())
+        fill(row, 1)
+        row.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+        icon_size = sized(bp, key + "IconSize", row.get_name(), width=38, height=38)
+        middle(icon_size)
+        icon_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
+        # Hidden, not collapsed: the label stays put while the texture loads.
+        image = widget(bp, unreal.Image, key + "Icon", icon_size.get_name())
+        image.set_visibility(unreal.SlateVisibility.HIDDEN)
+        label = widget(bp, unreal.TextBlock, key + "Label", row.get_name())
+        text_style(label, "", 16, WHITE)
+        middle(label)
         events += [(key, "OnClicked", f"mode:{i}"), (key, "OnHovered", f"modehover:{i}"),
                    (key, "OnUnhovered", f"modeunhover:{i}")]
-    caption = widget(bp, unreal.VerticalBox, "ModeCaption", modes.get_name())
-    fill(caption, 1)
-    # Level with the tiles, under the heading; two lines of description at
-    # most, so the row never reaches the actions.
-    caption.get_editor_property("slot").set_padding(unreal.Margin(24, 40, 0, 0))
-    mode_name = widget(bp, unreal.TextBlock, "ModeName", caption.get_name())
+
+    tray = widget(bp, unreal.Border, "ModeTray", "ModesColumn")
+    tray.set_editor_property("brush_color", unreal.LinearColor(*MODE_TRAY))
+    tray.set_editor_property("padding", unreal.Margin(20, 14, 20, 14))
+    widget(bp, unreal.VerticalBox, "ModeTrayStack", "ModeTray")
+    caption_size = sized(bp, "ModeCaptionSize", "ModeTrayStack", height=84)
+    caption = widget(bp, unreal.HorizontalBox, "ModeCaption", caption_size.get_name())
+    tag_size = sized(bp, "ModeTagSize", caption.get_name(), width=300)
+    middle(tag_size)
+    tag = widget(bp, unreal.VerticalBox, "ModeTag", tag_size.get_name())
+    mode_name = widget(bp, unreal.TextBlock, "ModeName", tag.get_name())
     text_style(mode_name, "", 26, WHITE)
-    about_mode = widget(bp, unreal.SizeBox, "ModeDescriptionSize", caption.get_name())
-    about_mode.set_max_desired_height(66)
-    about_mode.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
-    gap(about_mode, top=8)
-    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", about_mode.get_name())
-    text_style(mode_description, "", 20, GREY)
-    wrapped(mode_description)
-    mode_format = widget(bp, unreal.TextBlock, "ModeFormat", caption.get_name())
+    mode_format = widget(bp, unreal.TextBlock, "ModeFormat", tag.get_name())
     text_style(mode_format, "", 17, ACCENT)
-    gap(mode_format, top=8)
+    gap(mode_format, top=4)
+    # Three lines at most, the longest there is.
+    about_mode = widget(bp, unreal.SizeBox, "ModeDescriptionSize", caption.get_name())
+    about_mode.set_max_desired_height(84)
+    about_mode.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+    fill(about_mode, 1)
+    middle(about_mode)
+    mode_description = widget(bp, unreal.TextBlock, "ModeDescription", about_mode.get_name())
+    text_style(mode_description, "", 20, WHITE)
+    wrapped(mode_description)
+
+    # The chosen family's variants. Collapsed for an older MJOLNIRLobby, whose
+    # tabs step instead. A gold bar marks the chosen one, as on the tabs.
+    block_size = sized(bp, "VariantBlockSize", "ModeTrayStack", height=50)
+    gap(block_size, top=10)
+    block = widget(bp, unreal.HorizontalBox, "VariantBlock", block_size.get_name())
+    block.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for i in range(GAME_TYPE_VARIANTS):
+        key = f"Variant{i}"
+        button = widget(bp, unreal.Button, key, block.get_name())
+        flat_style(button, (0.012, 0.035, 0.055, 0.7), (0.12, 0.32, 0.43, 0.8), (0.20, 0.48, 0.60, 0.95))
+        fill(button, 1)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 8, 0))
+        button.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        chip = widget(bp, unreal.VerticalBox, key + "Words", key)
+        unpadded(chip)
+        slot = chip.get_editor_property("slot")
+        slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+        label = widget(bp, unreal.TextBlock, key + "Label", chip.get_name())
+        text_style(label, "", 18, WHITE)
+        label.set_editor_property("justification", unreal.TextJustify.CENTER)
+        fill(label, 1)
+        label.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+        mark = sized(bp, key + "MarkSize", chip.get_name(), height=3)
+        ink = widget(bp, unreal.Border, key + "Mark", mark.get_name())
+        ink.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
+        ink.set_visibility(unreal.SlateVisibility.HIDDEN)
+        events += [(key, "OnClicked", f"variant:{i}"), (key, "OnHovered", f"vhover:{i}"),
+                   (key, "OnUnhovered", f"vunhover:{i}")]
 
     fill(widget(bp, unreal.Spacer, "DetailsSpace", "DetailsStack"), 1)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "DetailsStack")
@@ -1143,11 +1188,16 @@ def build_map_select():
 
 
 def build_game_type_select(icons):
-    """The current map's available game types. Clicking a row makes a pending
-    choice; SELECT applies it and BACK leaves the lobby unchanged. Lua uses
-    modesFor(map) to fill the six rows, including Forge when installed.
-    Icons are assigned at runtime, so the widget remains usable without an
-    icon and the menu never depends on extracted assets from another game.
+    """The current map's available game types. The rows on the left are
+    families, each naming its variants; the chosen family's variants are
+    buttons on the right (VariantBlock, hidden when there is only one).
+    Clicking makes a pending choice; SELECT applies it and BACK leaves the
+    lobby unchanged. Icons are assigned at runtime, so the widget remains
+    usable without an icon and the menu never depends on extracted assets
+    from another game.
+
+    The last row and VariantBlock start collapsed: an older MJOLNIRLobby
+    fills six rows, steps through variants on the row and knows neither.
     """
     name = "WBP_MJOLNIRGameTypeSelect"
     bp = fresh_widget(name, unreal.CommonActivatableWidget)
@@ -1176,8 +1226,10 @@ def build_game_type_select(icons):
         key = f"Mode{i}"
         button = widget(bp, unreal.Button, key, "ModeList")
         flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
-                   (0.20, 0.48, 0.60, 0.95), padding=(22, 16, 22, 16))
-        gap(button, bottom=8)
+                   (0.20, 0.48, 0.60, 0.95), padding=(22, 10, 22, 10))
+        gap(button, bottom=6)
+        if i >= 6:
+            button.set_visibility(unreal.SlateVisibility.COLLAPSED)
         row_size = sized(bp, key + "Size", key, height=70)
         unpadded(row_size)
         row_size.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
@@ -1208,12 +1260,14 @@ def build_game_type_select(icons):
     place(details, (0.39, 0.265), (0.0, 0.0))
     sized(bp, "DetailsSize", "Details", width=1336, height=680)
     widget(bp, unreal.VerticalBox, "DetailsStack", "DetailsSize")
-    gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=34)
-    hero = widget(bp, unreal.HorizontalBox, "ModeHero", "DetailsStack")
-    emblem_size = sized(bp, "EmblemSize", hero.get_name(), width=300, height=300)
+    gap(rule(bp, "DetailsRule", "DetailsStack", ACCENT, 2), bottom=22)
+    hero_size = sized(bp, "HeroSize", "DetailsStack", height=290)
+    hero = widget(bp, unreal.HorizontalBox, "ModeHero", hero_size.get_name())
+    emblem_size = sized(bp, "EmblemSize", hero.get_name(), width=220, height=220)
     emblem_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 36, 0))
-    emblem = rounded(widget(bp, unreal.Border, "Emblem", emblem_size.get_name()), 150,
-                     (0.06, 0.16, 0.22, 0.60), padding=20)
+    middle(emblem_size)
+    emblem = rounded(widget(bp, unreal.Border, "Emblem", emblem_size.get_name()), 110,
+                     (0.06, 0.16, 0.22, 0.60), padding=16)
     icon = widget(bp, unreal.Image, "ModeIcon", emblem.get_name())
     icon.set_visibility(unreal.SlateVisibility.HIDDEN)
     words = widget(bp, unreal.VerticalBox, "ModeWords", hero.get_name())
@@ -1222,29 +1276,60 @@ def build_game_type_select(icons):
     kicker = widget(bp, unreal.TextBlock, "ModeKicker", words.get_name())
     text_style(kicker, "GAME TYPE", 18, ACCENT)
     title = widget(bp, unreal.TextBlock, "ModeTitle", words.get_name())
-    text_style(title, "", 50, WHITE)
+    text_style(title, "", 46, WHITE)
     wrapped(title)
-    gap(title, top=12, bottom=20)
+    gap(title, top=8, bottom=12)
     description = widget(bp, unreal.TextBlock, "ModeDescription", words.get_name())
-    text_style(description, "", 28, WHITE)
+    text_style(description, "", 25, WHITE)
     wrapped(description)
     format_line = widget(bp, unreal.TextBlock, "MatchFormat", words.get_name())
     text_style(format_line, "", 20, ACCENT)
-    gap(format_line, top=24)
+    gap(format_line, top=14)
     wrapped(format_line)
 
-    gap(rule(bp, "MapRule", "DetailsStack"), top=36, bottom=30)
+    # Every variant of the chosen family, side by side under what it does.
+    block_size = sized(bp, "VariantBlockSize", "DetailsStack", height=132)
+    gap(block_size, top=16)
+    block = widget(bp, unreal.VerticalBox, "VariantBlock", block_size.get_name())
+    block.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    kicker = widget(bp, unreal.TextBlock, "VariantKicker", block.get_name())
+    text_style(kicker, "CHOOSE A VARIANT", 18, ACCENT)
+    gap(kicker, bottom=10)
+    variants_size = sized(bp, "VariantsSize", block.get_name(), height=92)
+    variants = widget(bp, unreal.HorizontalBox, "Variants", variants_size.get_name())
+    for i in range(GAME_TYPE_VARIANTS):
+        key = f"Variant{i}"
+        button = widget(bp, unreal.Button, key, variants.get_name())
+        flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
+                   (0.20, 0.48, 0.60, 0.95), padding=(18, 12, 18, 12))
+        fill(button, 1)
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
+        button.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        chip = widget(bp, unreal.VerticalBox, key + "Words", key)
+        unpadded(chip)
+        chip.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        chip.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+        label = widget(bp, unreal.TextBlock, key + "Label", chip.get_name())
+        text_style(label, "", 23, WHITE)
+        label.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        line = widget(bp, unreal.TextBlock, key + "Line", chip.get_name())
+        text_style(line, "", 15, GREY)
+        gap(line, top=4)
+        events += [(key, "OnClicked", f"variant:{i}"), (key, "OnHovered", f"vhover:{i}"),
+                   (key, "OnUnhovered", f"vunhover:{i}")]
+
+    gap(rule(bp, "MapRule", "DetailsStack"), top=20, bottom=18)
     map_row = widget(bp, unreal.HorizontalBox, "MapRow", "DetailsStack")
-    shot = map_image(bp, "MapImage", map_row.get_name(), 320, 180)
+    shot = map_image(bp, "MapImage", map_row.get_name(), 256, 144)
     shot.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 28, 0))
     map_words = widget(bp, unreal.VerticalBox, "MapWords", map_row.get_name())
     fill(map_words, 1)
     middle(map_words)
     text_style(widget(bp, unreal.TextBlock, "MapKicker", map_words.get_name()), "CURRENT MAP", 18, ACCENT)
     map_title = widget(bp, unreal.TextBlock, "MapTitle", map_words.get_name())
-    text_style(map_title, "", 34, WHITE)
+    text_style(map_title, "", 32, WHITE)
     wrapped(map_title)
-    gap(map_title, top=12, bottom=14)
+    gap(map_title, top=8, bottom=8)
     hint = widget(bp, unreal.TextBlock, "MapHint", map_words.get_name())
     text_style(hint, "Game types shown are available for this map.", 21, GREY)
     wrapped(hint)

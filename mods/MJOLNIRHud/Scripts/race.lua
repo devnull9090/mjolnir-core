@@ -5,8 +5,9 @@
 -- radius, Unreal cm, tools/level/ce_objectives.py) and the variant says which
 -- one counts. `checkpoint_reached` with the local player as cause gives that
 -- player's next rank; Rally's, with no cause, gives the live flag for everyone.
--- This draws that flag as Scripts/hill.lua draws a hill, and one line under the
--- score: "LAP 1 OF 3 / FLAG 3 OF 9, 42 M AHEAD".
+-- This draws that flag as Scripts/hill.lua draws a hill, with a marker on the
+-- screen for the way there, and one line under the score: "LAP 1 OF 3 / FLAG 3
+-- OF 9". If no marker can be made, the line gives the way: ", 42 M AHEAD".
 --
 -- Whether an incident's value reaches a client is unproven for this one, so a
 -- Race that hears nothing a few seconds after the first spawn keeps its own
@@ -23,9 +24,12 @@ function Race.parse(Hill, text)
 end
 
 --- The words for flag `rank` (from 0) of `count`, from Hill.bearing's answers.
-function Race.flagLine(rank, count, rally, inside, metres, way, level)
+--- With a marker on the screen they leave the way to it, so Rally, whose only
+--- word is the way, has none: nil.
+function Race.flagLine(rank, count, rally, inside, metres, way, level, marked)
     local name = rally and "FLAG" or string.format("FLAG %d OF %d", rank + 1, count)
     if inside then return name .. (level == "" and " HERE" or level) end
+    if marked then return not rally and name or nil end
     return string.format("%s%s %d M %s%s", name, rally and "" or ",", metres, way, level)
 end
 
@@ -81,12 +85,23 @@ function Race.new(Hill, read, rally)
             if at then mirror(now, at) end
             local flag = self.flags[self.rank + 1]
             self.draw(world, now, self.rank, flag)
-            self.paint(self.rally and "empty" or "you", now)
-            if not at then return self.hideLine() end
-            local line = Race.flagLine(self.rank, #self.flags, self.rally,
-                Hill.bearing(flag, at, pc:GetControlRotation().Yaw))
+            local colour = self.rally and "empty" or "you"
+            self.paint(colour, now)
+            if not at then
+                self.unmark()
+                return self.hideLine()
+            end
+            local inside, metres, way, level = Hill.bearing(flag, at, pc:GetControlRotation().Yaw)
+            local marked = true
+            if inside and level == "" then
+                self.unmark()
+            else
+                marked = self.mark(pc, Hill.markerSpot(flag), colour, "Race",
+                    Hill.Waypoint and Hill.Waypoint.label(metres, level) or "", now)
+            end
+            local line = Race.flagLine(self.rank, #self.flags, self.rally, inside, metres, way, level, marked)
             if not self.rally then line = Race.lapLine(math.max(done, self.laps), limit) .. " / " .. line end
-            self.say(line)
+            if line then self.say(line) else self.hideLine() end
         end)
     end
 
