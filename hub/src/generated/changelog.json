@@ -41,6 +41,29 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.46.3",
+      "tag": "mods-v0.46.3",
+      "title": "Leaving means leaving",
+      "date": "2026-11-07",
+      "summary": "A host who quits goes to the lobby, not a new match; the vote offers only maps that are really installed; a joiner without the map is told why.",
+      "body": "### Fixed\n\nIn MJOLNIRLobby 0.23.0 and MJOLNIRLevelLoader 0.12.2.\n\n- **Quitting started another match.** A host who chose SAVE AND EXIT could land\n  on the post-game vote, and with nobody voting the next match started 20\n  seconds later. Leaving a match now takes the host to the lobby with no vote.\n  A match that ends on its own still votes and starts the winner as before.\n- **The vote could pick a map that wasn't there.** A map listed but not really\n  installed could win the vote, leaving the host on MISSION SELECT and everyone\n  else on STARTING THE NEXT GAME. Such a map is no longer listed or offered, and\n  if a chosen game can't start, everyone goes back to the lobby with the reason.\n- **A joiner without the map saw only CONNECTION LOST.** When the host starts a\n  map you don't have, or a different version of it, you still leave the\n  fireteam, but now you're told which map it was and get its download screen:\n  DOWNLOAD installs it without a restart, then you can join the host again. A\n  kick from the host now shows the host's reason too.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Quitting started another match. A host who chose SAVE AND EXIT could land on the post-game vote, and with nobody voting the next match started 20 seconds later. Leaving a match now takes the host to the lobby with no vote. A match that ends on its own still votes and starts the winner as before.",
+            "The vote could pick a map that wasn't there. A map listed but not really installed could win the vote, leaving the host on MISSION SELECT and everyone else on STARTING THE NEXT GAME. Such a map is no longer listed or offered, and if a chosen game can't start, everyone goes back to the lobby with the reason.",
+            "A joiner without the map saw only CONNECTION LOST. When the host starts a map you don't have, or a different version of it, you still leave the fireteam, but now you're told which map it was and get its download screen: DOWNLOAD installs it without a restart, then you can join the host again. A kick from the host now shows the host's reason too."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.3"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.46.2",
       "tag": "mods-v0.46.2",
       "title": "Everyone where they really are",
