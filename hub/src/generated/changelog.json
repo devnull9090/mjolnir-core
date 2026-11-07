@@ -39,6 +39,34 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.46.1",
+      "tag": "mods-v0.46.1",
+      "title": "Bots on the board, and a sea that repairs itself",
+      "date": "2026-11-07",
+      "summary": "Spartan bots stop multiplying unseen, a coast that loads with no sea takes its ground again by itself, and King's hill gets its glow with CE runtime 1.19.0.",
+      "body": "### Fixed\n\n- **Spartan bots missing from the board** (MJOLNIRHud 0.17.1). When a match's\n  bots started before anyone had spawned, as in Forge, the game could not see its\n  own Spartan bots. Each was placed four times and then given up on, so eight\n  bots became thirty-two, none of them on the board and none of them directed.\n  You now get the number you asked for, and they all show on the board.\n- **A map with no sea** (MJOLNIRLevelLoader 0.12.1). Yoyorast Island could load\n  with bare sand where the sea should be, the water stopping dead at a straight\n  line. A coast takes its picture of the ground once, as it loads, and if that\n  came out empty the sea had nothing to work from. The loader now checks the\n  result and takes it again, up to three times. `mjolnir_flux_recapture` does\n  the same from the console.\n\n### Changed\n\n- **King's hill glows.** The hill's energy field and beacon were finished but\n  never reached players, who got the plasma hill instead. They ship in CE\n  runtime 1.19.0, which the launcher installs. The hill keeps its plasma look\n  until then, and nothing else about King changes.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Spartan bots missing from the board (MJOLNIRHud 0.17.1). When a match's bots started before anyone had spawned, as in Forge, the game could not see its own Spartan bots. Each was placed four times and then given up on, so eight bots became thirty-two, none of them on the board and none of them directed. You now get the number you asked for, and they all show on the board.",
+            "A map with no sea (MJOLNIRLevelLoader 0.12.1). Yoyorast Island could load with bare sand where the sea should be, the water stopping dead at a straight line. A coast takes its picture of the ground once, as it loads, and if that came out empty the sea had nothing to work from. The loader now checks the result and takes it again, up to three times. mjolnirfluxrecapture does the same from the console."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "King's hill glows. The hill's energy field and beacon were finished but never reached players, who got the plasma hill instead. They ship in CE runtime 1.19.0, which the launcher installs. The hill keeps its plasma look until then, and nothing else about King changes."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.1"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.10.0",
