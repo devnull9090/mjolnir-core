@@ -20,6 +20,11 @@
 #   pakchunk984-MJOLNIRUI-Windows    the multiplayer screens and HUD widgets
 #                                    (Scripts/build_mjolnir_ui.py, same cook,
 #                                    chunk 984; docs/custom_ui.md)
+#   pakchunk966-MJOLNIRKOTH-Windows  King's hill: its field and beacon materials
+#                                    and their shader library
+#                                    (Scripts/build_koth_materials.py, same
+#                                    cook, chunk 966; docs/koth_visuals.md).
+#                                    MJOLNIRHud draws the plasma hill without it
 #   pakchunk990-MJOLNIRCTFMESH_P     the CE flag mesh (/Game/MJOLNIR/CTF)
 #   pakchunk990-MJOLNIRFLAG_P, -FLAGB_P, -STAND_P, -MOTL_P
 #                                    the red and blue CTF flags, their stand,
@@ -94,6 +99,7 @@ MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")
   MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Sounds/Events" run Scripts/build_ce_sounds.py
 run Scripts/build_mjolnir_ui.py
 run Scripts/build_h2_materials.py
+run Scripts/build_koth_materials.py
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")"
 staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
 for e in utoc ucas; do
@@ -101,6 +107,7 @@ for e in utoc ucas; do
   cp -f "$staged/pakchunk984-Windows.$e" "$out/pakchunk984-MJOLNIRUI-Windows.$e"
   cp -f "$staged/pakchunk981-Windows.$e" "$out/pakchunk981-MJOLNIRH2-Windows.$e"
   cp -f "$staged/pakchunk980-Windows.$e" "$out/pakchunk980-MJOLNIRFORGEUI-Windows.$e"
+  cp -f "$staged/pakchunk966-Windows.$e" "$out/pakchunk966-MJOLNIRKOTH-Windows.$e"
 done
 
 echo "== 4/5 the flag mesh"

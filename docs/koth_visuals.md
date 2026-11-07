@@ -28,6 +28,13 @@ and their chunk label. The classic `M_CE_Plasma` masters are unchanged. If the
 dedicated KOTH assets are unavailable, the runtime falls back to the existing
 CE plasma material; if neither is available, the direction line remains.
 
+The container ships in the CE runtime pack from 1.19.0
+(`tools/level/build_ce_runtime.sh`). The launcher names it
+`pakchunk966-MJOLNIRHUB-mjolnir-ce-runtime-<j>_P`: `hub::shader_chunk` keeps the
+966 because the container carries a shader library. The helper below is for
+trying a new build of the materials on one PC; take its container out of Paks
+again afterwards, or it hides whatever the hub is missing.
+
 ## Build locally
 
 Use UE 5.5 and this branch's `Meteorite` cook project. The fork-layout plugins,
