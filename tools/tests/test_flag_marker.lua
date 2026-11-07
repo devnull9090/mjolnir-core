@@ -37,6 +37,9 @@ Hill.field = function(name)
         end,
         unmark = function() marks[team] = nil end,
         frame = function() marks.framed = (marks.framed or 0) + 1 end,
+        ensureLine = function() end,
+        say = function(words) marks.line = words end,
+        hideLine = function() marks.line = nil end,
     }
 end
 
@@ -133,4 +136,56 @@ assert(marks.Red, "back with the next spawn")
 mark.frame(pc, clock)
 eq(marks.framed, 2, "every frame reaches both markers")
 
-print("Flag marker: teams from the variant, Assault's reused actor, both CTF flags, carried and unused flags, freed actors")
+eq(marks.line, nil, "plain CTF has no line")
+
+-- Assault's line.
+eq(FlagMark.clock(222), "3:42", "minutes and seconds")
+eq(FlagMark.clock(61.2), "1:02", "a part second counts")
+eq(FlagMark.clock(-3), "0:00", "never below nothing")
+eq(FlagMark.sideLine("Blue", "Red", 222), "ATTACK  /  SIDES SWAP IN 3:42", "the other team defends")
+eq(FlagMark.sideLine("Blue", "Blue", 222), "DEFEND  /  SIDES SWAP IN 3:42", "your team defends")
+eq(FlagMark.sideLine("Blue", nil, 60), "SIDES SWAP IN 1:00", "before your team is known")
+eq(FlagMark.sideLine("Blue", "Red", nil), "ATTACK", "before the clock is known")
+eq(FlagMark.sideLine("Blue", nil, nil), nil, "neither")
+
+local function assault(host)
+    marks = {}
+    clock = 1000
+    blue.variant, blue.place = "Blue", { X = 5000, Y = 0, Z = 0 }
+    return FlagMark.new(Hill, { seconds = 300, host = host })
+end
+local function at(mark, seconds, mine)
+    clock = 1000 + seconds
+    mark.tick(clock, pc, false, mine)
+end
+
+mark = assault(true)
+at(mark, 0, "Red")
+eq(marks.line, "ATTACK  /  SIDES SWAP IN 5:00", "the host counts from the first flag")
+at(mark, 100, "Red")
+eq(marks.line, "ATTACK  /  SIDES SWAP IN 3:20", "and down")
+-- A capture swaps early, and a full clock starts.
+blue.variant = "Default"
+at(mark, 120, "Red")
+eq(marks.line, "DEFEND  /  SIDES SWAP IN 5:00", "the flag changing team is a swap")
+-- Between two flags, nothing changes.
+blue.valid = false
+at(mark, 130, "Red")
+eq(marks.line, "DEFEND  /  SIDES SWAP IN 4:50", "the clock runs on while no flag is out")
+blue.valid = true
+notify(blue)
+at(mark, 140, "Red")
+eq(marks.line, "DEFEND  /  SIDES SWAP IN 4:40", "and the same team's flag is no swap")
+
+-- A player who joined late has no start to count from.
+mark = assault(false)
+at(mark, 0, "Blue")
+eq(marks.line, "DEFEND", "a joiner sees the role and no guess at the time")
+blue.variant = "Default"
+at(mark, 50, "Blue")
+eq(marks.line, "ATTACK  /  SIDES SWAP IN 5:00", "and the clock from the first swap")
+
+tick(mark, true)
+eq(marks.line, nil, "a hidden HUD hides the line")
+
+print("Flag marker: teams from the variant, Assault's reused actor, both CTF flags, carried and unused flags, freed actors, Assault's role and clock")

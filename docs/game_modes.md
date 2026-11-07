@@ -807,6 +807,12 @@ Where these differ from CE (PC retail unconfirmed):
 - **Flag markers** (`Scripts/flagmark.lua`) read the flag actors themselves, so CTF
   and Assault get a marker that follows a flag home, dropped or carried, in place
   of the waypoints that never reach Unreal (B4).
+- **Assault's line** under the score says ATTACK or DEFEND and counts to the next
+  swap, from the same module. The script's clock is a Megalo number that no
+  Unreal code can read, so the HUD keeps its own: a swap is the flag changing team,
+  and a side lasts `sideSeconds` in the mode's row (`Scripts/scoreboard.lua`), which
+  has to match `--side-seconds` in the variant. The host counts from the first
+  flag. A joiner has no such start, so sees only the role until the first swap.
 
 CE's other Classic presets (Rockets, Snipers, Phantoms and the rest) need weapon sets, traits or lives.
 

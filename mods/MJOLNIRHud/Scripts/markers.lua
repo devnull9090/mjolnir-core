@@ -57,7 +57,8 @@ function Markers.new(deps)
         elseif family == "juggernaut" and not match.juggernaut then
             match.juggernaut = deps.Juggernaut.new(deps.Hill, match.mode.holder)
         elseif family == "ctf" and not match.flags then
-            match.flags = deps.FlagMark.new(deps.Hill)
+            local seconds = match.mode.sideSeconds
+            match.flags = deps.FlagMark.new(deps.Hill, seconds and { seconds = seconds, host = match.host } or nil)
         end
     end
 
@@ -66,7 +67,10 @@ function Markers.new(deps)
         if match.hill then match.hill.tick(now, pc, hidden, playersOn(match, pc)) end
         if match.race then match.race.tick(now, pc, hidden, lapsDone(match, me), match.mode.toWin or 0) end
         if match.juggernaut then match.juggernaut.tick(now, pc, hidden, me, playersOn(match, pc)) end
-        if match.flags then match.flags.tick(now, pc, hidden) end
+        if match.flags then
+            local mine = match.players[me]
+            match.flags.tick(now, pc, hidden, mine and mine.team)
+        end
     end
 
     --- Every frame, from any player controller: on a host that can be a

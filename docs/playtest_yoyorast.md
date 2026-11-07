@@ -47,6 +47,9 @@ Flag. Blue defends first.
 - [ ] The flag's colour and the HUD agree with who is defending.
 - [ ] A marker shows the flag and how far it is. It stays on the flag when someone
       carries it, on every player's screen, and moves when the sides swap.
+- [ ] The line under the score says ATTACK or DEFEND, correctly for each player, and
+      counts down to the swap. Someone who joins late sees the countdown after the
+      first swap, not before.
 
 ## 4. Capture the Flag
 
