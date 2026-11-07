@@ -5,6 +5,7 @@ import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { getDocNotes, getGuides, slugify } from "@/lib/docs";
 import { CompareImage } from "./CompareImage";
+import { EventTime } from "./EventTime";
 import { ZoomableImages } from "./ZoomableImages";
 
 /**
@@ -72,23 +73,24 @@ function resolveHref(href: string, source?: string): { href: string; external: b
   return { href, external: false };
 }
 
+/** A link title that is an exact time, which makes the link an event's time (EventTime). */
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})$/;
+
 /** Links resolve against the Markdown's source directory, so one renderer per source. */
 function makeLink(source?: string): Components["a"] {
-  return function MarkdownLink({ children, href }: Kids & { href?: string }) {
+  return function MarkdownLink({ children, href, title }: Kids & { href?: string; title?: string }) {
     if (!href) return <>{children}</>;
     const resolved = resolveHref(href, source);
-    if (resolved.external) {
-      return (
-        <a href={resolved.href} target="_blank" rel="noreferrer" className={linkStyle}>
-          {children}
-        </a>
-      );
-    }
-    return (
+    const link = resolved.external ? (
+      <a href={resolved.href} target="_blank" rel="noreferrer" className={linkStyle}>
+        {children}
+      </a>
+    ) : (
       <Link href={resolved.href} className={linkStyle}>
         {children}
       </Link>
     );
+    return title && INSTANT.test(title) ? <EventTime at={title}>{link}</EventTime> : link;
   };
 }
 

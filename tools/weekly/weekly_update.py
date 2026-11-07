@@ -2,17 +2,20 @@
 
 The weekly post on mjolnircore.com/blog is written by a person or an agent, but
 its raw material should not be remembered: this script reads it from the
-repository, so nothing that shipped depends on someone recalling it. It uses no
-network beyond `gh`, and it decides nothing about what is worth telling players.
-The run book is `.claude/skills/weekly-update/SKILL.md`.
+repository, so nothing that shipped depends on someone recalling it. Beyond `gh`
+its only network use is reading the Saturday playtest's time from Discord, and it
+decides nothing about what is worth telling players. The run book is
+`.claude/skills/weekly-update/SKILL.md`.
 
 Usage:
     python tools/weekly/weekly_update.py gather [--since YYYY-MM-DD] [--out digest.md]
-    python tools/weekly/weekly_update.py check blog/YYYY-MM-DD-slug.md
+    python tools/weekly/weekly_update.py check blog/YYYY-MM-DD-slug.md [--no-playtest]
 
 `gather` starts from the newest post tagged `weekly-update` unless told
 otherwise, and from seven days ago if there is none. `check` fails on a dead
-site link, a missing image, a long summary, or a long X post.
+site link, a missing image, a long summary, a long X post, or a playtest section
+without its time, event link, stream link and test list. `--no-playtest` is for
+a week with no playtest.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -38,6 +42,19 @@ SUMMARY_MAX = 300
 X_MAX = 280
 X_URL_LENGTH = 23  # X counts every link as this many characters
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".svg", ".gif")
+
+# One recurring Discord event: after each playtest Discord moves its start to the
+# next one, so the link stays good from week to week.
+PLAYTEST_INVITE = "AQnRCHbmXq"
+PLAYTEST_EVENT = "1556902193548886056"
+PLAYTEST_LINK = f"https://discord.gg/{PLAYTEST_INVITE}?event={PLAYTEST_EVENT}"
+PLAYTEST_API = (
+    f"https://discord.com/api/v10/invites/{PLAYTEST_INVITE}"
+    f"?guild_scheduled_event_id={PLAYTEST_EVENT}"
+)
+PLAYTEST_ZONE = dt.timezone(dt.timedelta(hours=-7), "MST")  # Arizona: no daylight saving
+PLAYTEST_MAX_DAYS = 8  # from a post to the playtest it announces
+TWITCH_LINK = "https://www.twitch.tv/devnull9090"
 
 
 def run(*args: str) -> str:
@@ -123,8 +140,54 @@ def releases(since: str) -> list[dict]:
                 "date": date, "tag": tag, "product": product["name"], "title": title,
                 "summary": meta_value(text, "Summary") or "",
                 "url": f"/changelog/{product['id']}/{version}",
+                "known_issues": known_issues(text),
             })
     return found
+
+
+def known_issues(text: str) -> list[str]:
+    """The bold opening of each bullet under a changelog's `### Known issues`."""
+    section = re.search(r"^### Known issues\n(.*?)(?=^### |\Z)", text, re.MULTILINE | re.DOTALL)
+    if not section:
+        return []
+    bold = re.findall(r"^- \*\*(.+?)\*\*", section.group(1), re.MULTILINE | re.DOTALL)
+    return [" ".join(text.split()) for text in bold]
+
+
+def playtest_markdown(start: dt.datetime) -> str:
+    """A playtest's time as a link to its event, which the hub also shows in the
+    reader's own time zone: the link's title is what marks it as a time."""
+    local = start.astimezone(PLAYTEST_ZONE)
+    hour = local.hour % 12 or 12
+    minutes = f":{local.minute:02d}" if local.minute else ""
+    text = f"{local:%A, %B} {local.day}, {hour}{minutes} {local:%p} MST"
+    instant = start.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f'[{text}]({PLAYTEST_LINK} "{instant}")'
+
+
+def next_playtest() -> dict:
+    """The recurring event as Discord has it. Its invite endpoint needs no login,
+    but it refuses a client with no name of its own."""
+    request = urllib.request.Request(PLAYTEST_API, headers={"User-Agent": "mjolnir-weekly-update"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.load(response)["guild_scheduled_event"]
+
+
+def playtest_lines() -> list[str]:
+    try:
+        event = next_playtest()
+        start = dt.datetime.fromisoformat(event["scheduled_start_time"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return [
+            f"Could not read the event from Discord: {error}",
+            f"Open {PLAYTEST_LINK} and write the time by hand.",
+        ]
+    return [
+        f"- {event['name']}",
+        f"- Time, ready to paste: {playtest_markdown(start)}",
+        f"- Event: {PLAYTEST_LINK}",
+        f"- Stream: {TWITCH_LINK}",
+    ]
 
 
 def merged_prs(since: str) -> list[dict]:
@@ -152,6 +215,18 @@ def gather(since: str) -> str:
             lines.append(f"  - {rel['summary']}")
     if not tagged:
         lines.append("None.")
+
+    lines += ["", "## Saturday playtest", ""]
+    lines += playtest_lines()
+
+    lines += ["", "## Known issues in these releases", ""]
+    issues = [(rel, issue) for rel in tagged for issue in rel["known_issues"]]
+    lines += [f"- `{rel['tag']}`: {issue}" for rel, issue in issues] or ["None."]
+    lines += [
+        "",
+        "Whatever here still needs a second player belongs in the post's test list,",
+        "alongside the newest docs/playtest_*.md.",
+    ]
 
     lines += ["", "## Merged pull requests", ""]
     try:
@@ -201,7 +276,31 @@ def gather(since: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def check(post: Path) -> list[str]:
+def check_playtest(text: str, posted: dt.date) -> list[str]:
+    """What the post's playtest section lacks. Readers act on this part, so a wrong
+    or missing time matters more than anything else in the post."""
+    problems = []
+    if PLAYTEST_LINK not in text:
+        problems.append("no link to the Discord event")
+    if TWITCH_LINK not in text:
+        problems.append("no link to the Twitch stream")
+    if not re.search(r"^#{2,3} .*what to test", text, re.MULTILINE | re.IGNORECASE):
+        problems.append("no 'What to test' heading")
+    times = re.findall(rf'\]\({re.escape(PLAYTEST_LINK)} "([^"]+)"\)', text)
+    if not times:
+        problems.append("no playtest time: see the Saturday playtest lines in the digest")
+    for time in times:
+        try:
+            day = dt.datetime.fromisoformat(time).astimezone(PLAYTEST_ZONE).date()
+        except ValueError:
+            problems.append(f"playtest time is not an exact time: {time}")
+            continue
+        if not 0 <= (day - posted).days <= PLAYTEST_MAX_DAYS:
+            problems.append(f"playtest on {day} is not the one after a post dated {posted}")
+    return problems
+
+
+def check(post: Path, playtest: bool = True) -> list[str]:
     """Everything wrong with a finished draft. Empty means it can go to review."""
     problems = []
     text = post.read_text(encoding="utf-8")
@@ -217,6 +316,8 @@ def check(post: Path) -> list[str]:
         problems.append(f"summary is {len(summary)} characters, limit {SUMMARY_MAX}")
     if "weekly-update" not in (meta_value(text, "Tags") or ""):
         problems.append("missing the weekly-update tag")
+    if playtest:
+        problems += check_playtest(text, dt.date.fromisoformat(match.group(1)))
 
     pages = set(doc_urls(load_docs()).values())
     slugs = {m.group(2) for p in BLOG.glob("*.md") if (m := POST_NAME.match(p.name))}
@@ -256,10 +357,11 @@ def main() -> int:
     gather_cmd.add_argument("--out", type=Path, help="write here instead of stdout")
     check_cmd = commands.add_parser("check", help="check a finished draft")
     check_cmd.add_argument("post", type=Path)
+    check_cmd.add_argument("--no-playtest", action="store_true", help="a week with no playtest")
     args = parser.parse_args()
 
     if args.command == "check":
-        problems = check(args.post)
+        problems = check(args.post, playtest=not args.no_playtest)
         for problem in problems:
             print(f"{args.post.name}: {problem}", file=sys.stderr)
         print("ok" if not problems else f"{len(problems)} problem(s)")

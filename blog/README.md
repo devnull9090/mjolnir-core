@@ -48,6 +48,11 @@ ends `?before=<path>`, as in
 draws a before-and-after slider. Its sides read Classic and Remastered unless
 the path adds `&labels=First%20boot,Now`.
 
+A link whose title is an exact time, as in
+`[Saturday, November 7, 6 PM MST](https://discord.gg/x?event=1 "2026-11-08T01:00:00Z")`,
+also shows that moment in the reader's own time zone. Everywhere else it stays
+an ordinary link with the text you wrote.
+
 ## Game-update posts
 
 The recurring post here is "what did this game update change", produced by the
@@ -59,8 +64,10 @@ behind it does not ship.
 
 ## Weekly updates
 
-Once a week a community post rounds up what reached players: features, maps,
-Forge packs, fixes and new guides. `tools/weekly/weekly_update.py gather` lists
-everything since the last `weekly-update` post, `check` tests a finished draft,
-and the `weekly-update` skill is the run book. The matching X post sits in
-`blog/social/<slug>.x.txt`, which the build does not read.
+Every Friday a community post rounds up what reached players: features, maps,
+Forge packs, fixes and new guides. It leads with the next day's playtest: when
+it is, the Discord event, the Twitch stream, and what we need tested.
+`tools/weekly/weekly_update.py gather` lists everything since the last
+`weekly-update` post and reads the playtest's time from Discord, `check` tests a
+finished draft, and the `weekly-update` skill is the run book. The matching X
+post sits in `blog/social/<slug>.x.txt`, which the build does not read.
