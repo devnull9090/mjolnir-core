@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.46.4",
+      "tag": "mods-v0.46.4",
+      "title": "The reason stays on screen",
+      "date": "2026-11-07",
+      "summary": "A player the host starts without, or kicks from the post-game vote, now always sees why and the map's download screen.",
+      "body": "### Fixed\n\nIn MJOLNIRLobby 0.23.1.\n\n- **The reason could vanish.** When the host started a map you don't have, or\n  sent you back from the post-game vote, you left the fireteam and the game\n  loaded the main menu again. If that reload came late, the screen telling you\n  why, with the map's download, went with it, and you saw only the main menu.\n  It now waits for the fresh main menu before it appears.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The reason could vanish. When the host started a map you don't have, or sent you back from the post-game vote, you left the fireteam and the game loaded the main menu again. If that reload came late, the screen telling you why, with the map's download, went with it, and you saw only the main menu. It now waits for the fresh main menu before it appears."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.4",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.4.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.4"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.46.3",
       "tag": "mods-v0.46.3",
       "title": "Leaving means leaving",
