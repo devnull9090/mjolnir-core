@@ -33,7 +33,9 @@ import sys
 import zipfile
 
 import ce_objectives
+import ce_place_vehicles
 from add_bots import BAKE_KEYS, BOTS, CLI, EXTRACT, MACHINE, REPO, bump, container_dir, flux_members, packages, run, sha
+from ce_place_vehicles import ce_scenario
 
 RUNTIME = "mjolnir-ce-runtime"
 # What ce_objectives.apply writes at the top of a level file.
@@ -54,9 +56,21 @@ def _plain(item):
     return {**item, "set": {k: v for k, v in item.get("set", {}).items() if k != "multiplayer data.owner team"}}
 
 
-def level_changes(old, new):
+def unlabelled(level):
+    """A copy of a level with its vehicles' set labels taken out."""
+    level = copy.deepcopy(level)
+    for vehicle in level["blam"].get("vehicles", []):
+        vehicle.get("set", {}).pop(ce_objectives.LABEL, None)
+    for row in level.get("vehicle_sets") or []:
+        row.pop("label", None)
+    return level
+
+
+def level_changes(old, new, labels=False):
     """What differs between two level files, as messages; empty if only what
-    ce_objectives.py may write does."""
+    ce_objectives.py may write does, and with `labels` the vehicle labels."""
+    if labels:
+        old, new = unlabelled(old), unlabelled(new)
     problems = []
     if without(old, LEVEL_KEYS) != without(new, LEVEL_KEYS):
         problems.append("keys ce_objectives.py does not write changed")
@@ -120,10 +134,14 @@ def one(pack, a, bots):
         sys.exit(f"{code}: {n} in the pack is not one this script repacks")
 
     level = ce_objectives.apply(copy.deepcopy(shipped_level), race=not a.no_race)
+    if a.vehicle_plan:
+        scenario = ce_scenario.Scenario(a.map, a.tags)
+        with open(a.vehicle_plan, encoding="utf-8") as stream:
+            level = ce_place_vehicles.relabel(level, ce_place_vehicles.scenario_rows(scenario), json.load(stream))
     if level == shipped_level:
         print(f"== {code}: already has its objectives", flush=True)
         return None
-    problems = level_changes(shipped_level, level)
+    problems = level_changes(shipped_level, level, labels=bool(a.vehicle_plan))
     if problems:
         sys.exit(f"{code}: {problems}")
     labels = [o.get("set", {}).get(ce_objectives.LABEL) for o in level["blam"]["objects"]]
@@ -300,7 +318,12 @@ def main():
     ap.add_argument("--sign", action="store_true", help="sign with this machine's device key")
     ap.add_argument("--bake-only", action="store_true", help="rebake and check, pack nothing")
     ap.add_argument("--no-race", action="store_true", help="leave the map's race track out")
+    ap.add_argument("--vehicle-plan", help="ce_place_vehicles.py's plan: take its vehicle labels (one map)")
+    ap.add_argument("--map", help="with --vehicle-plan: the CE .map, whose scenario names the vehicles")
+    ap.add_argument("--tags", help="with --vehicle-plan: the map's staging tags.json")
     a = ap.parse_args()
+    if a.vehicle_plan and not (a.map and a.tags and len(a.packs) == 1):
+        sys.exit("--vehicle-plan takes one pack, with --map and --tags")
     a.packs = [os.path.abspath(p) for p in a.packs]
     a.work, a.out = os.path.abspath(a.work), os.path.abspath(a.out)
     if not a.paks:

@@ -209,8 +209,6 @@ carries them bare and the launcher builds the `.pak` again
 
 ## Not done
 
-- Yoyorast's CTF and Race games lose some vehicles to the 16 filters
-  ([Vehicle sets](ce_map_conversion.md#vehicle-sets)).
 - `tools/level/native_mongoose/build_native.py` starts from a built physics model,
   so a native vehicle takes the wheel boxes only once that model has them.
 - The vehicle data asset keeps the Warthog's HUD icons. Kill feed text is not traced.

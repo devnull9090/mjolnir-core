@@ -206,7 +206,9 @@ jobs:
       - name: CE script translator tests
         run: python -m unittest discover -s tools/ce_scripts -p test_ce_translate.py
       - name: Custom vehicle physics tests
-        run: python -m unittest discover -s tools/level -p "test_ce_vehicle_[pl]*.py"
+        run: |
+          python -m unittest discover -s tools/level -p "test_ce_vehicle_[pl]*.py"
+          python -m unittest discover -s tools/level -p test_ce_place_vehicles.py
       - name: Wwise bank tests
         run: python -m unittest discover -s tools/level -p test_wwise_bank.py
 

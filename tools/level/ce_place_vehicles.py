@@ -14,7 +14,9 @@ on the collision under it.
 A level's `blam.vehicles` and `vehicle_sets` keep the scenario's order, which
 names them. The plan (tools/level/data/yoy_vehicles.json) says where each goes
 and what is dropped; a vehicle it leaves out stays put. Its `tag` makes a
-placement a custom vehicle. Spawn data stays as it was.
+placement a custom vehicle, and its `label` replaces the vehicle set label, so
+vehicles that always go together can share one when a map has more than a
+variant's 16 filters hold. Spawn data stays as it was.
 
 Writes to <out dir>: <name>.level.json (runtime, what `map pack` takes), the
 containers the plan renames with their stub .pak, read from Paks so they hold
@@ -49,6 +51,7 @@ LIFT = 0.05
 MAX_DROP = 1.0
 # The same spot, in cm, allowing for rounding.
 SAME_SPOT = 2.0
+LABEL = "multiplayer data.megalo label"
 
 
 def load_triangles(path):
@@ -115,6 +118,9 @@ def apply_plan(vehicles, sets, rows, flags, plan, surfaces):
             vehicle.update(placed(flag, ground))
             if "tag" in move:
                 vehicle["tag"] = move["tag"]
+            if "label" in move:
+                vehicle["set"] = {**vehicle["set"], LABEL: move["label"]}
+                row_set = {**row_set, "label": move["label"]}
             report.append(f"{name} {row['tag']} {was} -> {move['flag']} "
                           f"{[round(v / CM, 2) for v in vehicle['pos']]} yaw {vehicle['yaw']} "
                           f"ground {ground:.2f}{' as ' + move['tag'] if 'tag' in move else ''}")
@@ -123,6 +129,24 @@ def apply_plan(vehicles, sets, rows, flags, plan, surfaces):
         kept.append(vehicle)
         kept_sets.append(row_set)
     return kept, kept_sets, report
+
+
+def relabel(level, rows, plan):
+    """The plan's labels on a level already placed, as a published pack's is:
+    its vehicles keep the scenario's order, less what the plan dropped. Stops if
+    a custom vehicle is not where the plan says, which means another order."""
+    named = [r for r in rows if r["tag"] not in plan["drop_tags"] and r["name"] not in plan["drop_names"]]
+    vehicles, sets = level["blam"]["vehicles"], level["vehicle_sets"]
+    if not len(vehicles) == len(sets) == len(named):
+        sys.exit(f"{len(vehicles)} vehicles, {len(sets)} set rows, {len(named)} kept in the scenario")
+    for vehicle, row_set, row in zip(vehicles, sets, named):
+        move = plan["moves"].get(row["name"], {})
+        if move.get("tag") != vehicle.get("tag"):
+            sys.exit(f"{row['name']} is {vehicle.get('tag')} in the level: not this level's order")
+        if "label" in move:
+            vehicle["set"][LABEL] = move["label"]
+            row_set["label"] = move["label"]
+    return level
 
 
 def scenario_rows(s):
