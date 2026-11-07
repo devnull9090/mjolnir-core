@@ -24,6 +24,7 @@ end
 -------------------------------------------------------------------------------
 
 local worldName = "Frontend"
+local worldAddress = 1         -- the world's identity; a fireteam leave loads a fresh frontend
 local host = true
 local worlds = nil            -- MapLive.worlds' answers by code; nil: cannot say
 local staleWorld = nil        -- a code whose world is only found missing when asked afresh
@@ -63,7 +64,7 @@ local pc = {
         return {
             GetFName = function() return { ToString = function() return worldName end } end,
             AuthorityGameMode = { IsValid = function() return host end },
-            GetAddress = function() return 1 end,
+            GetAddress = function() return worldAddress end,
         }
     end,
     PlayerState = { GetPlayerName = function() return { ToString = function() return "devnull" end } end },
@@ -123,7 +124,8 @@ local function contents(path)
 end
 local viewModel = {
     CanLeaveFireteam = function() return true end,
-    LeaveFireteam = function() left = left + 1 end,
+    -- The game's own leave loads the frontend again, a new world.
+    LeaveFireteam = function() left = left + 1 worldAddress = worldAddress + 1 end,
 }
 local env = setmetatable({
     print = function() end,
@@ -451,10 +453,29 @@ handlers.kick({ "You were banned by the host.", "" })
 local before = #pushed
 Live.showNotice()
 eq(#pushed, before, "not in the match")
-worldName = "Frontend"
+worldName, worldAddress = "Frontend", worldAddress + 1   -- back on the menu: another world
 Live.showNotice()
 Live.showNotice()
 eq(pushed[#pushed].description, "You were banned by the host.", "on the menu")
+
+-- A kick that arrives on the frontend (the post-game vote is there):
+-- the leave loads the frontend again, and a screen pushed into the world
+-- before that went with it (one PC, two copies, 2026-11-07). Nothing shows
+-- while the old world is up, then the delay counts in the new one.
+do
+    local fakeLeave = viewModel.LeaveFireteam
+    viewModel.LeaveFireteam = function() left = left + 1 end   -- the reload is late
+    local shown = #pushed
+    handlers.kick({ "You were kicked by the host.", "" })
+    Live.showNotice()
+    Live.showNotice()
+    eq(#pushed, shown, "nothing in the world being left")
+    worldAddress = worldAddress + 1                               -- the fresh frontend
+    Live.showNotice()
+    Live.showNotice()
+    eq(#pushed, shown + 1, "the reason in the new world")
+    viewModel.LeaveFireteam = fakeLeave
+end
 
 -- `mjolnir_auto missing` puts the same notice up on one PC (a host alone
 -- hears no `starting`): the same words and the same offer.

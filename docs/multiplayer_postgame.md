@@ -64,6 +64,14 @@ reaches `game_over`, and the host ends the match itself.
      joiner in the match opened the vote, which started another match 20 s
      later with nobody voting. A host alone who leaves mid-match writes no
      standings and gets no vote either way.
+   - **The joiners of a host who leaves by hand** don't come along. The
+     host's leave ends its online game (its net driver goes and the Blam
+     session is disbanded), so a joiner follows the host's travel into a
+     frontend with nobody in it: about two minutes of black screen, then the
+     game's CONNECTION LOST, "Disconnected from host" (one PC, two copies,
+     2026-11-07, both SAVE AND EXIT and `LeaveGame`). A host who wants the
+     fireteam back in the lobby uses the HOST MENU's RETURN TO LOBBY, which
+     travels everyone there together.
 5. **Joiners** get our lobby instead of the game's CLIENT LOBBY whenever the
    host is in it: the host's map and game type, with START GAME, CHANGE MAP
    and GAME TYPE hidden (and, since they were added, PRIVATE / PUBLIC GAME,
@@ -76,7 +84,12 @@ reaches `game_over`, and the host ends the match itself.
    joiner's own lobby then opens the map's download screen with why: which
    map and game type, that this PC doesn't have it, and that DOWNLOAD gets
    it without a restart (`Live.leaveFor`, `Live.showNotice`). A kick for
-   another reason shows the host's reason.
+   another reason shows the host's reason. Leaving the fireteam loads the
+   frontend again, so since MJOLNIRLobby 0.23.1 the screen waits for that
+   fresh frontend (or 12 s) before its 3 s delay; before, a kick from the
+   post-game vote, where the joiner already is on the frontend, could put
+   the screen up in the world being left, and the joiner saw only the main
+   menu (one PC, two copies, 2026-11-07).
 
 The vote, the lobby and their lists offer only maps whose world is in a
 container here: MJOLNIRLevelLoader's `mjolnir_worlds_known` answers from the

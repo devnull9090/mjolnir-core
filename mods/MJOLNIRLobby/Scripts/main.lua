@@ -839,8 +839,20 @@ end
 --- download (or, when `update`, the update) of `code` when the reason is a
 --- map this PC lacks. `release`: the host's release of it.
 function Live.leaveFor(reason, code, release, update)
-    Live.notice = { text = reason, code = code, release = release, update = update, at = os.clock() }
+    Live.notice = Live.newNotice({ text = reason, code = code, release = release, update = update })
     return Live.leaveFireteam()
+end
+
+--- A notice for the main menu, with the world it was made in: leaving the
+--- fireteam loads the frontend again, and a screen pushed before that
+--- reload went with the old world (a kick from the post-game vote showed
+--- nothing; one PC, two copies, 2026-11-07). Live.showNotice waits for
+--- another world, or Live.NOTICE_RELOAD_WAIT when none comes.
+function Live.newNotice(n)
+    n.at = os.clock()
+    local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+    n.world = ok and address or nil
+    return n
 end
 
 Net.on("mapindex", function(f)
@@ -2988,9 +3000,17 @@ end
 --- the session ends, is up first. With a map this PC lacks, its download
 --- screen, whose DOWNLOAD (or UPDATE) gets it; otherwise a notice.
 Live.NOTICE_DELAY = 3
+Live.NOTICE_RELOAD_WAIT = 12
 function Live.showNotice()
     local n = Live.notice
     if not n or not inFrontend() then return end
+    -- The frontend this game left the fireteam in is replaced by a fresh
+    -- one; count the delay in the world after it.
+    if n.world then
+        local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+        if ok and address == n.world and os.clock() - n.at < Live.NOTICE_RELOAD_WAIT then return end
+        n.world = nil
+    end
     n.seen = n.seen or os.clock()
     if os.clock() - n.seen < Live.NOTICE_DELAY then return end
     Live.notice = nil
@@ -4627,7 +4647,7 @@ local function initialize()
         -- The host's reason, and the map it names (Live.removeLacking), on
         -- the main menu once this game is back there (Live.showNotice).
         local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
-        Live.notice = { text = fields[1] or "The host sent you back to the main menu.", code = code, at = os.clock() }
+        Live.notice = Live.newNotice({ text = fields[1] or "The host sent you back to the main menu.", code = code })
         -- In the lobby, LeaveGame does nothing (two PCs, 2026-10-09): the
         -- fireteam's own leave does it.
         if inFrontend() then
