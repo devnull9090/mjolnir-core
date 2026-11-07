@@ -1,0 +1,19 @@
+1/ Weekly update 2 is out. Assault, King, Oddball and Race have reached 46 maps, a new marker points the way to every objective, and Yoyorast Island has the Mongoose.
+https://mjolnircore.com/blog/weekly-update-2
+[image: featured.jpg]
+---
+2/ Assault: one flag, attackers carry it to their own base, and a capture or five minutes swaps the sides. It's on every map with CTF.
+[image: assault-blood-gulch.jpg]
+---
+3/ King of the Hill has a plasma wall and a beacon you can see across the map. Gold when empty, cyan when it's yours, flashing violet when contested.
+[image: king-on-the-hill.jpg]
+---
+4/ A marker now shows the hill, the flags or the Juggernaut, with the distance. Out of view, it slides to the edge of the screen and points the way to turn.
+[image: marker-edge.jpg]
+---
+5/ The Mongoose drives on Yoyorast Island, the first Custom Edition map to bring its own vehicle. It has its own sounds and lights, and room for a passenger.
+[image: mongoose-yoyorast.jpg]
+---
+6/ Nearly all of this has only run on one PC, so we need players. Playtest Saturday, 6 PM MST.
+Join: https://discord.gg/AQnRCHbmXq?event=1556902193548886056
+Watch: https://www.twitch.tv/devnull9090
