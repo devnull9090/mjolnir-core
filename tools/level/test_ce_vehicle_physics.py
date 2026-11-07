@@ -111,6 +111,65 @@ class StretchMaths(unittest.TestCase):
                 self.assertAlmostEqual(a, b)
 
 
+class WheelBoxes(unittest.TestCase):
+    """Four boxes turned 45 degrees by the wheels and a square one for the
+    proxy body, on a donor twice the clone's size."""
+    DONOR = {"fl": (2.0, 1.0, 0.5), "fr": (2.0, -1.0, 0.5), "bl": (-2.0, 1.0, 0.5), "br": (-2.0, -1.0, 0.5)}
+    # The clone's rear wheels sit further back than a uniform shrink would put them.
+    CLONE = {"fl": (1.0, 0.5, 0.25), "fr": (1.0, -0.5, 0.25), "bl": (-1.5, 0.5, 0.25), "br": (-1.5, -0.5, 0.25)}
+    TURNED = ("(0.707107, 0, 0.707107)", "(0, 1, 0)", "(-0.707107, 0, 0.707107)")
+
+    def flat(self):
+        flat = {}
+        spots = [(2.0, -0.8, 0.7), (2.0, 0.8, 0.7), (-2.0, -0.8, 0.7), (-2.0, 0.8, 0.7)]
+        for i, at in enumerate(spots):
+            p = f"boxes[{i}]"
+            flat[p + ".half extents"] = "(0.2, 0.2, 0.2)"
+            flat[p + ".box shape.radius"] = "0.01"
+            flat[p + ".convex transform shape.translation"] = str(at)
+            for axis, row in zip("ijk", self.TURNED):
+                flat[f"{p}.convex transform shape.rotation {axis}"] = row
+        p = "boxes[4]"
+        flat[p + ".half extents"] = "(2, 1, 0.5)"
+        flat[p + ".box shape.radius"] = "0.05"
+        flat[p + ".convex transform shape.translation"] = "(0, 0, 0.6)"
+        for axis, row in zip("ijk", ("(1, 0, 0)", "(0, 1, 0)", "(0, 0, 1)")):
+            flat[f"{p}.convex transform shape.rotation {axis}"] = row
+        return flat
+
+    def centres(self):
+        return physics.wheel_boxes(self.flat(), 0.5, self.DONOR, self.CLONE, 0.5)
+
+    def test_only_the_turned_boxes_move(self):
+        self.assertEqual(sorted(self.centres()), [0, 1, 2, 3])
+
+    def test_a_turned_box_reaches_further_than_its_half(self):
+        self.assertAlmostEqual(physics.box_reach(self.flat(), 0)[2], 0.2 * 2 ** 0.5 + 0.01, places=5)
+
+    def test_each_foot_stays_under_its_marker_so_a_wheel_cannot_pass_the_ground(self):
+        flat = self.flat()
+        donor_gap = 0.5 - (0.7 - physics.box_reach(flat, 0)[2])
+        self.assertGreater(donor_gap, 0)
+        for i, centre in self.centres().items():
+            foot = centre[2] - physics.box_reach(flat, i, 0.5)[2]
+            self.assertAlmostEqual(0.25 - foot, donor_gap * 0.5, places=5)
+
+    def test_a_box_follows_its_wheel_not_the_hull(self):
+        centres = self.centres()
+        self.assertAlmostEqual(centres[2][0], -1.5)  # the back wheel, not half the donor's
+        self.assertAlmostEqual(centres[2][1], -0.4)
+        self.assertAlmostEqual(centres[1][1], 0.4)
+
+    def test_the_lists_box_grows_round_them(self):
+        flat, centres = self.flat(), self.centres()
+        sets = dict(s.split("=", 1) for s in physics.wheel_box_sets(flat, 0.5, centres, [0, 0, 1], [2, 1, 0.5]))
+        centre, half = physics.vec(sets["lists[0].aabb center"]), physics.vec(sets["lists[0].aabb half extents"])
+        foot = min(c[2] - physics.box_reach(flat, i, 0.5)[2] for i, c in centres.items())
+        self.assertAlmostEqual(centre[2] - half[2], foot, places=5)
+        self.assertAlmostEqual(centre[2] + half[2], 1.5, places=5)  # the top stays
+        self.assertEqual(physics.vec(sets["boxes[2].convex transform shape.translation"])[0], -1.5)
+
+
 class Handling(unittest.TestCase):
     def sets(self):
         lines = physics.vehicle_sets(vehicle(), CE, 0.17)

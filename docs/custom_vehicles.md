@@ -73,6 +73,16 @@ throttle) and its pilot sits low:
 - **Collision.** `level machine-collision --plan` writes CE's hull and tyre BSPs
   into the donor's collision model, in the regions the plan names. The physics
   model keeps the donor's bodies with its shapes shrunk to the CE vehicle.
+- **Wheel boxes.** A wheel only pushes back while its marker is above the ground.
+  The driven body's shape list is a box by each wheel and the polyhedron, and on
+  the Warthog each box's foot sits 2.8 cm under its marker, so the body lands
+  before a marker can pass the surface. The biggest box belongs to the second,
+  proxy body, which does not touch the level, so it stops nothing. Stretching the
+  boxes with the hull left the Mongoose's feet 24 cm over its markers, and rear
+  boxes 43 cm ahead of the rear wheels: a hard landing put the wheels under the
+  ground for good, with the vehicle riding on its boxes. `wheel_boxes` keeps each
+  one by its wheel at the tyre's scale, and mass distributions stay, so handling
+  does not change.
 - **Handling.** Each number is the shipped Warthog's times CE Mongoose over CE
   Warthog: mass 1650, steering two thirds.
 - **Lights.** The donor's lights ride VFX sockets of its rig, so they keep the
@@ -81,6 +91,11 @@ throttle) and its pilot sits low:
   `ce_vehicle_lights.py` adds a `lights` entry to `vehicle_sounds.json`, and
   `vehicle_sounds.lua` moves them onto CE's `headlight` and `taillight` markers at
   spawn and hides the Warthog's roof pair. That file sits in each level's folder.
+  CE's markers can sit inside the model: the Mongoose's taillights are 3.4 cm
+  behind their lamp faces, so a glow on the marker is buried and only the light on
+  the ground shows. Pass `--bones` with `ce_vehicle_skin.py`'s `bones.json`, whose
+  lights it moved clear of the body: 4.5 cm for the taillights, 10.7 cm for the
+  outer headlights.
 - **Name.** The prompt's `{ItemName}` comes from no tag and no string table: the
   Blueprint's `BlamVehicleComponent.VehicleUIDataAsset` is read by
   `WBP_InteractPrompt`. `ce_vehicle_name.py` clones the donor's asset with the name
@@ -104,6 +119,8 @@ throttle) and its pilot sits low:
 | CE collision on a driven vehicle, other regions empty | loads; a biped stops at the hull, 132 cm from centre, and pushes it |
 | Shrunk physics model, mass 1650 | drives level, 18.7 wu in 2.6 s |
 | Mongoose: seat marker, four wheels, forward, reverse, turning | works; 18.4 wu in 2.6 s, 89 degree turn |
+| Mongoose off an 8 m ledge, wheel boxes stretched with the hull | all four wheels 19 cm under the ground, boxes 5 cm over it, will not drive |
+| The same bike with `wheel_boxes` and lights clear of the body | a player drove it and reported both right; the 8 m drop itself not repeated |
 
 ## Riders
 
@@ -192,6 +209,10 @@ carries them bare and the launcher builds the `.pak` again
 
 ## Not done
 
+- Yoyorast's CTF and Race games lose some vehicles to the 16 filters
+  ([Vehicle sets](ce_map_conversion.md#vehicle-sets)).
+- `tools/level/native_mongoose/build_native.py` starts from a built physics model,
+  so a native vehicle takes the wheel boxes only once that model has them.
 - The vehicle data asset keeps the Warthog's HUD icons. Kill feed text is not traced.
 - 22 rifle rounds at the empty hull did no damage. Stock vehicles were not
   compared, so whether it takes damage at all is unknown. Destroying a wheel is

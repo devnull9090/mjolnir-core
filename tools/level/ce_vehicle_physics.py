@@ -16,6 +16,17 @@ sits at marker z - radius in the object's space (Warthog: 0.222678 - 0.25 =
 -0.0273 wu, -8.3 cm; the drawn tyres reach -9 cm). The clone keeps that ground
 and takes the drawn tyre's radius, which puts the marker on the drawn tyre's
 centre.
+
+Wheel boxes. A wheel only pushes back while its marker is above the ground.
+What keeps it there is the driven body: the donor's shape list is a box by each
+wheel and the polyhedron, and each box's foot sits just under the wheel's marker
+(Warthog: 2.8 cm), so the body lands before a marker can pass the surface. The
+donor's biggest box is the second, proxy body, which does not touch the level.
+A stretch moves the boxes with the hull, away from the wheels: the Mongoose's
+feet sat 24 cm over its markers, so a wheel could sink past its centre, lose the
+ground for good, and leave the vehicle riding on its boxes at a 25 degree roll.
+wheel_boxes puts each box back by its wheel. Mass distributions stay as they
+are, so handling does not change.
 """
 import math
 import re
@@ -128,9 +139,56 @@ def list_centre_of_mass(flat):
     return [m / total for m in moment]
 
 
-def physics_sets(flat, stretch, mass, centre_of_mass):
+def turned_boxes(flat):
+    """The boxes not square to the object: the donor's wheel wells."""
+    return [i for i in range(count(flat, "boxes"))
+            if vec(flat[f"boxes[{i}].convex transform shape.rotation i"]) != [1, 0, 0]]
+
+
+def box_reach(flat, i, scale=1.0):
+    """How far box i reaches from its centre along each axis, at `scale` of its
+    own size, its radius included."""
+    p = f"boxes[{i}]"
+    rows = [vec(flat[f"{p}.convex transform shape.rotation {axis}"]) for axis in "ijk"]
+    half = vec(flat[p + ".half extents"])
+    radius = float(flat[p + ".box shape.radius"])
+    return [scale * (sum(abs(rows[r][k]) * half[r] for r in range(3)) + radius) for k in range(3)]
+
+
+def wheel_boxes(flat, mean, donor_wheels, wheels, ratio):
+    """{box: centre} for the boxes by the wheels, each as it stands to its wheel
+    on the donor, at the tyre's `ratio` to the donor's. `flat` is the donor's
+    physics model, `mean` the boxes' scale, and the wheels {marker: position}."""
+    centres = {}
+    for i in turned_boxes(flat):
+        at = vec(flat[f"boxes[{i}].convex transform shape.translation"])
+        name = min(donor_wheels, key=lambda n: math.dist(donor_wheels[n][:2], at[:2]))
+        donor, wheel = donor_wheels[name], wheels[name]
+        under = donor[2] - (at[2] - box_reach(flat, i)[2])
+        centres[i] = [wheel[0] + ratio * (at[0] - donor[0]), wheel[1] + ratio * (at[1] - donor[1]),
+                      wheel[2] - ratio * under + box_reach(flat, i, mean)[2]]
+    return centres
+
+
+def wheel_box_sets(flat, mean, centres, aabb_centre, aabb_half):
+    """The edits for `wheel_boxes`, and the shape list's box grown round them.
+    `aabb_centre` and `aabb_half` are the list's as it stands."""
+    lo = [aabb_centre[k] - aabb_half[k] for k in range(3)]
+    hi = [aabb_centre[k] + aabb_half[k] for k in range(3)]
+    sets = []
+    for i, centre in centres.items():
+        reach = box_reach(flat, i, mean)
+        lo = [min(lo[k], centre[k] - reach[k]) for k in range(3)]
+        hi = [max(hi[k], centre[k] + reach[k]) for k in range(3)]
+        sets.append(f"boxes[{i}].convex transform shape.translation={fmt(centre)}")
+    return sets + [f"lists[0].aabb center={fmt([(lo[k] + hi[k]) / 2 for k in range(3)])}",
+                   f"lists[0].aabb half extents={fmt([(hi[k] - lo[k]) / 2 for k in range(3)])}"]
+
+
+def physics_sets(flat, stretch, mass, centre_of_mass, wheels=None):
     """The physics model's edits. `centre_of_mass` is where the driven body's
-    centre ends up, in object space."""
+    centre ends up, in object space. `wheels` keeps the boxes by the wheels:
+    the donor's and the clone's {marker: position}, and the tyres' ratio."""
     sets = [f"mass={mass:.3f}"]
     for i in range(count(flat, "boxes")):
         p = f"boxes[{i}]"
@@ -187,6 +245,9 @@ def physics_sets(flat, stretch, mass, centre_of_mass):
     sets += [f"rigid bodies[0].center off mass offset={fmt(offset)}",
              "rigid bodies[0].shape reference.shape type=list",
              "rigid bodies[0].shape reference.shape=#0"]
+    if wheels:
+        sets += wheel_box_sets(flat, stretch.mean, wheel_boxes(flat, stretch.mean, *wheels), centre,
+                               stretch.size(vec(flat["lists[0].aabb half extents"])))
     return sets
 
 

@@ -188,16 +188,19 @@ def actor_edits(manifest, donor, scale, shift_x, shift_z, lift):
     return edits
 
 
+def wheel_markers(donor, scale, wheel_z):
+    """{marker: position in wu} for the clone's wheels, at the drawn tyres."""
+    bones = donor["wheels"]["bones"]
+    return {marker: (bones[key][0] * scale / CM, -bones[key][1] * scale / CM, wheel_z)
+            for key, marker in donor["wheels"]["markers"].items()}
+
+
 def skeleton_sets(groups, donor, scale, wheel_z, seats, shift, offsets):
     """Wheels at the drawn tyres, riders on CE's seat markers, moved with the
     drawn parts."""
     def wu(cm):
         return cm / CM
-    sets = []
-    if donor["wheels"]:
-        for key, marker in donor["wheels"]["markers"].items():
-            x, y = donor["wheels"]["bones"][key]
-            sets.append((marker, (wu(x * scale), wu(-y * scale), wheel_z)))
+    sets = list(wheel_markers(donor, scale, wheel_z).items()) if donor["wheels"] else []
     for seat in donor["seats"]:
         marker = seat["marker"]
         at = next((seats[n] for n in seat["ce"] if n in seats), None)
@@ -353,8 +356,13 @@ def main():
               f"centre of mass {[round(x, 4) for x in centre]}")
         new("collision_model", donor_tag + "-collision_model", "coll", "--payload", payload,
             "--set-file", set_file("coll", physics.pathfinding_sets(coll, scale)))
+        boxes = None
+        if wheels:
+            clone = wheel_markers(donor, scale, wheel_z)
+            boxes = ({n: physics.vec(skeleton[f"marker groups[{groups[n]}].markers[0].translation"]) for n in clone},
+                     clone, tyre / float(vehicle[f"{physics.HAVOK}.friction points[0].radius"]))
         new("physics_model", donor_tag + "-physics_model", "phmo",
-            "--set-file", set_file("phmo", physics.physics_sets(model, stretch, mass, centre)))
+            "--set-file", set_file("phmo", physics.physics_sets(model, stretch, mass, centre, boxes)))
         model_sets += ["--set", f"collision model=coll:{tag}", "--set", f"physics_model=phmo:{tag}"]
     new("model", donor_tag + "-model", "model", *model_sets)
 
