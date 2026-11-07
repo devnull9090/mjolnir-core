@@ -15,7 +15,7 @@ What this covers, and what it does not (2026-11-07, CU4 Steam build):
 | Host starts a match; every copy travels to the map with HUD and weapon | works |
 | Blam simulation | **shared**: 4 copies, 4 players on 4 machines in every copy, positions agree, a kill counts on both sides |
 | Back to the lobby and a second match | works (4 copies) |
-| Team games | run, but the joining copies land on red with the host (see "Known gaps") |
+| Team games (CTF) | work: 4 copies split 2 against 2, the same in every copy, armour colours match |
 | `Net` messages between host and clients (ClientMessage, lobby messages, kicks) | go over the UE session; not tested one by one |
 
 Proof, 2026-11-07: with 2 copies, the host shot the joiner (in-game input on
@@ -23,7 +23,8 @@ the host) and both copies logged the kill (`Kill`, `death`; the joiner also
 `first_blood`), with the score at 1. With 4 copies, the three joiners were
 teleported (each in its own copy) to stand in front of the host's camera, and
 the host's screen showed all three; every copy listed the same four biped
-positions.
+positions. In CTF with 4 copies, the host (red) saw blue, red and blue
+Spartans in front of it, and every copy's simulation had the same teams.
 
 ## The recipe
 
@@ -185,24 +186,40 @@ the simulation itself.
 Tried and dropped: returning a different lobby owner from `PFLobbyGetOwner`
 (no effect, and it emptied the target session).
 
+## Teams for joining copies
+
+The joiners' simulations join just after the host's game has started, so
+the simulation adds each one as a player joined in progress (player flags
+`0x8001`, player-new at sim `0x182000` called from sim `0x4feac0`). Such a
+player's team comes from the simulation's balancer (sim `0x2b3f50`), not from
+its options. The balancer counts the players who asked for the same team
+(player record `+0xad`) by the team they're on (`+0x4a4`) and takes the first
+team none of them is on, which put every joiner on team 0 (red). And past the
+second player, the team asked for is the slot number (2, 3), which a
+two-team game type doesn't have.
+
+So in test copies a hook on player-new, on the host only (its Lua writes
+`team_game.txt`), puts a player joined in progress in a team game on red or
+blue, whichever the other players are on fewer of (red on a tie: host red,
+then blue, red, blue). It flags the change the way the balancer does (sim
+`0x4d1d40`: 7, player, `0x1000`), so every copy gets it. On the joiners the
+asked-for field keeps the slot number; only the team itself is sent.
+
 ## Known gaps
 
-- **Teams.** In a team game the joining copies land on red with the host. The
-  host's team assignment (`teams: ... red and blue in turn`) runs when the
-  players list is first published, with the host alone; the joiners arrive
-  afterwards. Fix candidates: get the joiners into the start roster (the
-  host's sim would need to know the peers when shell command 0/0 pulls the
-  target session), or pick the smaller team when the simulation adds a
-  joined-in-progress player in a test copy (what the DLL's own injector does
-  for public games, `smaller_team`).
-- **HUD "YOU".** After the host scored, the joiner's HUD also read "YOU 1":
-  something in the HUD tells players apart by account or name, and every copy
-  is `devnull9090`.
+- **HUD "YOU".** The HUD finds "your" row by player key, and every copy is
+  `devnull9090`, so every copy's HUD calls the host's team and score "YOU"
+  (CTF: "RED / YOU" on a blue joiner). The armour colour and the simulation
+  are right.
 - **One account.** Names, kill-feed names, scoreboard rows and match-history
-  claims are all the same player name. Anything keyed by account (hub match
-  history, bans, reports) sees one player.
+  claims all carry one name. Anything keyed by account (hub match history,
+  bans, reports) sees one player.
 - Copies use this checkout's lobby DLL, but the Steam install's other mods.
   `deploy` copies only `mjolnir_lobby.dll`.
+- The endpoint files in `%LOCALAPPDATA%\MJOLNIR\instances\endpoints` carry
+  their writer's process id, and `up` and `down` clear them. A copy that had
+  gone once left ids the next network reused, and the host filed itself as
+  that copy.
 
 ## Diagnosis kept in the DLL (test copies only)
 

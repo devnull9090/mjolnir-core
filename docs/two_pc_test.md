@@ -5,8 +5,8 @@ second Steam account. Both run the same MJOLNIR install, copied as a bundle
 (`tools/mp/make_test_bundle.ps1`).
 
 PC 1 alone can run two to four copies on one account in one lobby and one
-shared match (kills count on every copy; team games still put every joiner on
-red): [multi_instance.md](multi_instance.md).
+shared match (kills count on every copy; CTF splits four copies two against
+two): [multi_instance.md](multi_instance.md).
 
 It answers, in order:
 
