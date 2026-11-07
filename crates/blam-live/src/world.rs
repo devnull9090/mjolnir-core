@@ -262,10 +262,14 @@ pub fn objects(m: &impl Memory, gs: &GameState) -> Result<Vec<LiveObject>> {
     let mut out = Vec::with_capacity(array.used as usize);
     for entry in array.walk(m)? {
         let e = &entry.bytes;
+        // A host's entries repeat their own slot at ENTRY_INDEX; a joiner's
+        // don't (two PCs, 2026-11-07: slot 0 read 4, likely the host's index
+        // for the same object). So the repeat proves the layout only where
+        // it is there, and the datum checks below are the guard everywhere.
         let own = u32::from(u16_at(e, ENTRY_INDEX));
-        if own != entry.index {
+        if own != entry.index && own >= array.maximum {
             return Err(layout(format!(
-                "slot {} names itself {own}; the header entry has moved",
+                "slot {} names itself {own}, past the table's end; the header entry has moved",
                 entry.index
             )));
         }
@@ -504,10 +508,10 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_that_does_not_name_its_own_slot_is_refused() {
+    fn an_entry_naming_a_slot_past_the_table_is_refused() {
         let (mut m, gs) = game();
         let mut entries = vec![0u8; ENTRY_LEN];
-        entries.extend(entry(0xE295, 7, 0, 0x6138, POOL + 0x74));
+        entries.extend(entry(0xE295, 2048, 0, 0x6138, POOL + 0x74));
         m.put(OBJECTS + 0x70, &entries);
         assert!(matches!(
             objects(&m, &gs),
@@ -516,6 +520,19 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn a_joiners_entry_naming_another_slot_is_read() {
+        // A fireteam client's entries don't repeat their own slot (two PCs,
+        // 2026-11-07: slot 0 named 4); the datum still reads.
+        let (mut m, gs) = game();
+        let mut entries = vec![0u8; ENTRY_LEN];
+        entries.extend(entry(0xE295, 7, 0, 0x6138, POOL + 0x74));
+        m.put(OBJECTS + 0x70, &entries);
+        let objects = objects(&m, &gs).unwrap();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].index, 1);
     }
 
     #[test]

@@ -254,6 +254,105 @@ end
 --- { {victim, at, damage} }, medals (lines waiting for the end of a drain),
 --- teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
 local Match = nil
+
+--- The player controlling a biped actor, or nil (MJOLNIRLevelLoader's
+--- kill_floor.lua asks the same way).
+local unitComponent
+local function controllerOf(actor)
+    local index
+    pcall(function()
+        if not actor:IsValid() then return end
+        unitComponent = unitComponent or StaticFindObject("/Script/BlamSynchronization.BlamUnitComponent")
+        local unit = actor:GetComponentByClass(unitComponent)
+        if not (unit and unit:IsValid() and unit:IsControlledByAnyPlayer()) then return end
+        local datum = unit:GetControllingPlayerDatumIndex()
+        if type(datum) == "number" and datum ~= -1 then index = math.floor(datum % 65536) end
+    end)
+    return index
+end
+
+--- Players' bipeds, where no incident named them. The hill and the
+--- Juggernaut's marker (Scripts/markers.lua) read another player from their
+--- biped, because their pawn sits at the world's origin on this machine. A
+--- fireteam client hears other players' spawns only from the host's relay,
+--- which can't carry an actor, so it had none: no contested hill and no
+--- Juggernaut marker on a client, and in a team game no team for anyone,
+--- itself included, until they died (two PCs, 2026-11-07). A pawn's own
+--- GetBlamObjectActor is no way round it: for another player's pawn it
+--- returns a pointer that is no object, unsafe to read (a joiner crashed
+--- while the HUD called it every second).
+---
+--- FindAllOf walks the whole object array (about 23 ms a class; one search
+--- after a joiner's respawn held a frame 89 ms), so it runs once a match, the
+--- first time a biped is wanted. Biped actors are pooled and made ahead, and
+--- NotifyOnNewObject brings any made later, as Scripts/bots.lua does. A
+--- search then only asks the known actors who controls them.
+local PLAYER_BIPEDS = { "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }
+local BIPED_CHECK_EVERY = 0.5
+local BIPED_FIND_EVERY = 2
+local bipedPool, bipedWatched = {}, {}
+
+local function poolBiped(actor)
+    local ok, address = pcall(function() return actor:GetAddress() end)
+    if ok and address then bipedPool[address] = actor end
+end
+
+--- This match's biped actors, found once; later ones arrive by themselves.
+local function fillBipedPool()
+    bipedPool = {}
+    for _, class in ipairs(PLAYER_BIPEDS) do
+        for _, actor in ipairs(FindAllOf(class) or {}) do
+            poolBiped(actor)
+            if not bipedWatched[class] then
+                local ok, path = pcall(function() return actor:GetClass():GetFullName():match("%s(/%S+)$") end)
+                if ok and path then bipedWatched[class] = pcall(NotifyOnNewObject, path, poolBiped) end
+            end
+        end
+    end
+end
+
+local function findBipeds()
+    local mode = Match and Match.mode
+    if not mode then return end
+    -- The markers need where each player is all the time; a team game's board
+    -- needs each player's team once (a client's board put every other player
+    -- under AWAITING ASSIGNMENT, two PCs, 2026-11-07), and a team is read from
+    -- the biped (refreshNames).
+    local where = mode.family == "king" or mode.family == "juggernaut"
+    if not (where or mode.teams) then return end
+    local t = now()
+    if t < (Match.nextBipedCheck or 0) then return end
+    Match.nextBipedCheck = t + BIPED_CHECK_EVERY
+    if t < (Match.nextBipedFind or 0) then return end
+    local missing = false
+    for index, p in pairs(Match.players) do
+        if p.name and not p.left and not p.bot and not p.dead then
+            local other = index ~= LOCAL_PLAYER
+            if (where and other and not (p.biped and controllerOf(p.biped) == index)) or (mode.teams and not p.team) then
+                missing = true
+                break
+            end
+        end
+    end
+    if not missing then return end
+    Match.nextBipedFind = t + BIPED_FIND_EVERY
+    -- Once a match, and again while no Spartan has been seen to watch the
+    -- class by: a team game asks before anyone has spawned.
+    if not Match.bipedsFound or not bipedWatched[PLAYER_BIPEDS[1]] then
+        Match.bipedsFound = true
+        fillBipedPool()
+    end
+    for address, actor in pairs(bipedPool) do
+        local okV, valid = pcall(function() return actor:IsValid() end)
+        if not (okV and valid) then
+            bipedPool[address] = nil
+        else
+            local index = controllerOf(actor)
+            local p = index and Match.players[index]
+            if p and not p.bot then p.biped = actor end
+        end
+    end
+end
 local Feed = nil
 local Board = nil
 local Queue = {}
@@ -308,6 +407,7 @@ local function refreshNames()
                 -- A spawn can precede our incident hook. Use the replicated
                 -- pawn when it exposes a team, and retry the incident's biped
                 -- while a new spawn is still acquiring its simulation team.
+                -- A biped no incident named comes from findBipeds.
                 local okP, pawn = pcall(function() return ps:GetPawn() end)
                 local team = bipedTeam(p.biped) or (okP and bipedTeam(pawn))
                 if team then p.team = team end
@@ -1696,6 +1796,7 @@ local function tick()
     ensureFrameHook()
     refreshLocalPlayer()
     Match.host = isHostWorld(pc)
+    pcall(findBipeds)
     Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets.
@@ -1807,6 +1908,17 @@ pcall(RegisterConsoleCommandHandler, "mjolnir_scoreboard", function(_, args, ar)
     local on = tostring(args and args[1] or ""):lower()
     BoardPin.on = on == "on" or on == "1"
     pcall(function() ar:Log("MJOLNIR HUD: scoreboard " .. (BoardPin.on and "kept up" or "on Tab")) end)
+    return true
+end)
+
+-- What the hill and the Juggernaut's marker know of each player, to
+-- UE4SS.log: a two-PC test reads it on a client.
+pcall(RegisterConsoleCommandHandler, "mjolnir_markers", function(_, _, ar)
+    ExecuteInGameThread(function()
+        local okD, said = pcall(Markers.describe, Match, playerController())
+        Log(okD and ("markers: " .. tostring(said)) or ("mjolnir_markers: " .. tostring(said)))
+    end)
+    pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)
     return true
 end)
 

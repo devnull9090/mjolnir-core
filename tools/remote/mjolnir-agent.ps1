@@ -42,6 +42,12 @@
         POST /launcher/uninstall?slug=S       take a hub mod off through the launcher
                                               (launcher.ps1; poll GET /launcher)
         POST /launcher/quit                   close the launcher
+        GET  /objects?group=G                 the running game's objects as `mjolnir live
+                                              objects --tsv` writes them (mjolnir.exe
+                                              beside this script)
+        POST /teleport?player=N&x=&y=&z=      move player N's biped in this PC's game: each
+                                              PC owns its own player's position, so a
+                                              host can't move a joiner (two-PC tests)
 
     Roots: "ue4ss" (the game's UE4SS folder, Mods under it), "saved"
     (%LOCALAPPDATA%\Meteorite\Saved: crash reports, config) and "agent" (this
@@ -64,7 +70,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "10"
+$AgentVersion = "11"
 
 # --- Where things are --------------------------------------------------------
 
@@ -375,6 +381,58 @@ function Move-ToBackup($spec) {
 # shaders and the game's pipeline cache. Some bugs show only then (a Flux coast
 # whose one ground capture ran before the terrain could draw). Moved, not
 # deleted; a folder the driver holds open is reported and left.
+# The game's objects, read from outside by the MJOLNIR CLI beside this script
+# (`remote.mjs deploy-agent` puts target\release\mjolnir.exe there). One row a
+# line: index, handle, kind, group, tag, x, y, z (sim units), body, shield,
+# parent, owner ("player N"), facing in degrees, address, team.
+function Get-Objects([string]$group) {
+    $cli = Join-Path $PSScriptRoot "mjolnir.exe"
+    if (-not (Test-Path $cli)) { throw "mjolnir.exe is not beside the agent (remote.mjs deploy-agent)" }
+    if ($group -notmatch '^[a-z]{0,4}$') { throw "bad group" }
+    $out = Join-Path ([System.IO.Path]::GetTempPath()) "mjolnir-agent-objects.tsv"
+    Remove-Item $out -ErrorAction SilentlyContinue
+    $arguments = @("live", "objects", "--tsv", $out)
+    if ($group) { $arguments += @("--group", $group) }
+    $text = & $cli @arguments 2>&1 | Out-String
+    if (-not (Test-Path $out)) { throw "mjolnir live objects wrote nothing: $($text.Trim())" }
+    return [System.IO.File]::ReadAllText($out)
+}
+
+# A player's biped moved by writing its position (object +0x44, three floats,
+# sim units). The write goes only where the listing's position is found, so a
+# stale or wrong address is refused rather than written over.
+function Move-Player([int]$player, [single]$x, [single]$y, [single]$z) {
+    $game = Get-Game
+    if (-not $game) { throw "the game is not running" }
+    if (-not ("Mjolnir.Memory" -as [type])) {
+        Add-Type -Namespace Mjolnir -Name Memory -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool ReadProcessMemory(IntPtr process, IntPtr address, byte[] buffer, IntPtr size, out IntPtr done);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool WriteProcessMemory(IntPtr process, IntPtr address, byte[] buffer, IntPtr size, out IntPtr done);
+[DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+'@
+    }
+    $row = (Get-Objects "bipd") -split "`r?`n" | Where-Object { ($_ -split "`t")[11] -eq "player $player" } | Select-Object -First 1
+    if (-not $row) { throw "player $player has no biped" }
+    $c = $row -split "`t"
+    $address = [IntPtr][Convert]::ToInt64($c[13], 16)
+    $listed = @([double]$c[5], [double]$c[6], [double]$c[7])
+    $process = [Mjolnir.Memory]::OpenProcess(0x38, $false, $game.Id)
+    if ($process -eq [IntPtr]::Zero) { throw "OpenProcess refused" }
+    try {
+        $buffer = New-Object byte[] 12
+        $done = [IntPtr]::Zero
+        if (-not [Mjolnir.Memory]::ReadProcessMemory($process, [IntPtr]($address.ToInt64() + 0x44), $buffer, [IntPtr]12, [ref]$done)) { throw "could not read the biped" }
+        $before = @(0, 4, 8 | ForEach-Object { [BitConverter]::ToSingle($buffer, $_) })
+        for ($i = 0; $i -lt 3; $i++) {
+            if ([Math]::Abs($before[$i] - $listed[$i]) -gt 0.05) { throw "+0x44 reads $($before -join ' '), not the listed $($listed -join ' '): not writing" }
+        }
+        $bytes = [BitConverter]::GetBytes($x) + [BitConverter]::GetBytes($y) + [BitConverter]::GetBytes($z)
+        if (-not [Mjolnir.Memory]::WriteProcessMemory($process, [IntPtr]($address.ToInt64() + 0x44), [byte[]]$bytes, [IntPtr]12, [ref]$done)) { throw "could not write the biped" }
+    } finally { [void][Mjolnir.Memory]::CloseHandle($process) }
+    return @{ ok = $true; player = $player; before = $before; after = @($x, $y, $z) }
+}
+
 function Move-ShaderCaches {
     $low = Join-Path (Split-Path -Parent $env:LOCALAPPDATA) "LocalLow"
     $aside = Join-Path $env:LOCALAPPDATA ("MJOLNIR-shader-cache-aside\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -574,6 +632,15 @@ function Handle($request, $stream) {
             $script:LauncherRun = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @(
                 "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$script`"", "-Exe", "`"$exe`"")
             Send-Json $stream 200 @{ ok = $true; note = "updating through $exe (pid $($script:LauncherRun.Id)); poll GET /launcher" }
+        }
+        "GET /objects" {
+            if (-not (Get-Game)) { Send-Json $stream 409 @{ error = "the game is not running" }; return }
+            Send-Response $stream 200 ($Utf8.GetBytes((Get-Objects ([string]$p["group"])))) "text/tab-separated-values"
+        }
+        "POST /teleport" {
+            $invariant = [System.Globalization.CultureInfo]::InvariantCulture
+            Send-Json $stream 200 (Move-Player ([int]$p["player"]) ([single]::Parse($p["x"], $invariant)) `
+                ([single]::Parse($p["y"], $invariant)) ([single]::Parse($p["z"], $invariant)))
         }
         "POST /launcher/quit" {
             $running = @(Get-Process mjolnir-launcher -ErrorAction SilentlyContinue)
