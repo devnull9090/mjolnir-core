@@ -58,10 +58,12 @@ reaches `game_over`, and the host ends the match itself.
    - **A host who leaves the match by hand** gets the lobby, never a vote:
      the pause menu's SAVE AND EXIT (its YES calls
      `BlamCampaignFlowGameSubsystem.EndCampaign`) or `LeaveGame` from
-     script. Standings written before the leave, or within 30 s after it,
-     belong to the match left (`Live.quitEnded`). Before 0.23.0 a host's
-     leave with a joiner in the match opened the vote, which started another
-     match 20 s later with nobody voting.
+     script. Standings written before the leave (a leave while the final
+     standings are up), or within 30 s after it, belong to the match left
+     (`Live.quitEnded`). In the two-PC run a host's `LeaveGame` with a
+     joiner in the match opened the vote, which started another match 20 s
+     later with nobody voting. A host alone who leaves mid-match writes no
+     standings and gets no vote either way.
 5. **Joiners** get our lobby instead of the game's CLIENT LOBBY whenever the
    host is in it: the host's map and game type, with START GAME, CHANGE MAP
    and GAME TYPE hidden (and, since they were added, PRIVATE / PUBLIC GAME,

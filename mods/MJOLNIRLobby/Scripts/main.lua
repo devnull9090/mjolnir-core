@@ -2431,6 +2431,7 @@ local LOBBY_EVENTS = {
             return
         end
         Live.confirmAt = nil
+        Live.quitAt = nil   -- a new match: an earlier leave is not its end
         local removed = Live.removeLacking(Game.map.code)
         setText(Lobby.Status, "Starting " .. titleOf(Game.map) .. " - " .. Game.mode.name .. "...")
         local map, mode = Game.map, Game.mode
@@ -3669,13 +3670,14 @@ end
 
 --- Whether the standings written at `endedAt` are from a match the host left
 --- by hand (Live.quitAt, set by the EndCampaign and LeaveGame hooks in
---- initialize). A host who leaves while the final standings are up comes
---- back to the frontend with them, unseen, and a host's leave with a joiner
---- in the match ended it with standings too; the vote that followed started
---- another match 20 s later with nobody voting (two PCs, 2026-11-07).
---- Standings written before the leave are the match it left (any earlier
---- ones were seen when the host came back from them); ones after it come
---- within moments. Any fresh standings use up a leave.
+--- initialize; cleared when the host starts a game). A host who leaves while
+--- the final standings are up comes back to the frontend with them, unseen
+--- (PC 1, 2026-11-07). The two-PC run saw a vote after a host's LeaveGame
+--- with a joiner in the match, which started another match 20 s later with
+--- nobody voting; alone, a leave mid-match writes no standings. Standings
+--- written before the leave are the match it left (any earlier ones were
+--- seen when the host came back from them); ones after it, within
+--- QUIT_SECONDS. Any fresh standings use up a leave.
 Live.QUIT_SECONDS = 30
 function Live.quitEnded(endedAt)
     local at = Live.quitAt
@@ -4523,6 +4525,7 @@ local AUTO = {
         Game.map, Game.mode = map, mode
         saveGame()
         local private = args[3] == "private"
+        Live.quitAt = nil
         Games.setPublic(not private)
         local ok, why = startGame(map, mode)
         autoState({ result = ok and ("hosting " .. map.code .. " " .. mode.id .. (private and " private" or ""))

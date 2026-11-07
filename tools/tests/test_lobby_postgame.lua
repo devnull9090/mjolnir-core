@@ -281,6 +281,18 @@ hostPostGame()
 eq(lobbies, 1, "after LeaveGame: the lobby")
 eq(postScreens, 0, "no vote after LeaveGame")
 
+-- A leave, then a new game at once: that game's own end still votes.
+reset()
+worldName = "BGL"
+hooks[QUIT_HOOK]()
+worldName = "Frontend"
+upvalue(initialize, "AUTO").host({ "PRS", "slayer", "private" })
+eq(Live.quitAt, nil, "starting a game forgets an earlier leave")
+resultsAt = resultsAt + 1
+standings("PRS", "slayer", resultsAt)
+hostPostGame()
+eq(postScreens, 1, "the new game's end votes")
+
 -- A client's leave is not the host's quit.
 reset()
 host, worldName = false, "BGL"
