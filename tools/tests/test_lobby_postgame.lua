@@ -56,6 +56,7 @@ local function permissive()
     end })
 end
 
+local netDriver = nil           -- the world's net driver; nil: none to reach
 local mainMenu = { IsValid = function() return true end, IsVisible = function() return true end,
     IsActivated = function() return true end }
 local pc = {
@@ -65,6 +66,7 @@ local pc = {
             GetFName = function() return { ToString = function() return worldName end } end,
             AuthorityGameMode = { IsValid = function() return host end },
             GetAddress = function() return worldAddress end,
+            NetDriver = netDriver,
         }
     end,
     PlayerState = { GetPlayerName = function() return { ToString = function() return "devnull" end } end },
@@ -520,8 +522,10 @@ do
     eq(at(200 + after, { frontend = true, players = 0 }), true, "and the host has left")
     eq(at(200 + after + 1, { frontend = true }), false, "once")
     eq(at(400, { frontend = true }), false, "not again until it is a client again")
-    -- The way out: the engine's disconnect, with why. Never the fireteam's
-    -- leave, whose CanLeaveFireteam reads through the missing game state.
+    -- The way out: the game's own CONNECTION LOST, its connection's
+    -- timeout cut to a second; the engine's disconnect when that cannot be
+    -- done or does nothing. Never the fireteam's leave, whose
+    -- CanLeaveFireteam reads through the missing game state.
     local commands = {}
     local findObject = env.StaticFindObject
     env.StaticFindObject = function()
@@ -532,12 +536,33 @@ do
     Live.watchStranded()   -- no game state in the fakes: never a client yet
     eq(#commands, 0, "nothing to leave on a first look")
     local frozen = Live.stranded
-    Live.stranded = function() return true end
-    Live.watchStranded()
-    Live.stranded = frozen
-    eq(commands[1], "disconnect", "the engine's disconnect")
+    local function strand()
+        Live.stranded = function() return true end
+        Live.watchStranded()
+        Live.stranded = frozen
+    end
+    netDriver = { ConnectionTimeout = 120, InitialConnectTimeout = 20 }
+    strand()
+    eq(netDriver.ConnectionTimeout, Live.FORCED_TIMEOUT, "the connection's timeout cut")
+    eq(#commands, 0, "and no disconnect")
     eq(left, before, "not the fireteam's leave")
     has(Live.notice and Live.notice.text, "The host left the match", "with why")
+    -- The timeout ends the connection: a fresh frontend, nothing more to do.
+    worldAddress = worldAddress + 1
+    Live.STRANDED_AFTER = 0
+    Live.watchStranded()
+    eq(#commands, 0, "a new world: the timeout worked")
+    -- It does nothing: the disconnect, once.
+    strand()
+    Live.watchStranded()
+    eq(commands[1], "disconnect", "still that world: the engine's disconnect")
+    Live.watchStranded()
+    eq(#commands, 1, "only once")
+    -- No net driver to reach: the disconnect at once.
+    netDriver = nil
+    strand()
+    eq(commands[2], "disconnect", "no net driver: the disconnect")
+    Live.STRANDED_AFTER = after
     Live.notice = nil
     env.StaticFindObject = findObject
     host = true

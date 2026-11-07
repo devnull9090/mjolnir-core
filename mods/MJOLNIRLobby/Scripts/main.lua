@@ -3071,9 +3071,31 @@ end
 
 local strandedState = {}
 
---- Each poll (the main menu watch, in a match too): leave a fireteam whose
---- host has gone, with why, rather than wait for the game's timeout.
+local function disconnect()
+    local ok, err = pcall(function()
+        local pc = UI.playerController()
+        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            :ExecuteConsoleCommand(pc:GetWorld(), "disconnect", pc)
+    end)
+    if not ok then log("fireteam: could not disconnect: " .. tostring(err)) end
+end
+
+--- Each poll (the main menu watch, in a match too): end the connection to a
+--- host that has gone, with why, rather than wait for the game's timeout.
+Live.FORCED_TIMEOUT = 1
 function Live.watchStranded()
+    local world
+    pcall(function() world = UI.playerController():GetWorld():GetAddress() end)
+    -- A cut timeout that has not ended the connection: the engine's
+    -- disconnect, which leaves this game in the host's lobby, but on its menu.
+    local forced = strandedState.forced
+    if forced and world ~= forced.world then
+        strandedState.forced = nil
+    elseif forced and os.clock() - forced.at >= Live.STRANDED_AFTER then
+        strandedState.forced = nil
+        log("fireteam: the connection did not time out: disconnecting")
+        disconnect()
+    end
     local players
     pcall(function()
         local state = UI.playerController():GetWorld().GameState
@@ -3091,16 +3113,25 @@ function Live.watchStranded()
     end
     log("fireteam: no host in this frontend for " .. Live.STRANDED_AFTER .. " s: the host left the match")
     Live.notice = Live.newNotice({ text = "The host left the match." })
-    -- Not the fireteam's leave: its CanLeaveFireteam reads the game state's
-    -- players, and with no game state it read through a null (a crash, one
-    -- PC, two copies, 2026-11-07). The engine's disconnect takes this game
-    -- to its own menu in about 5 s.
+    -- The game's own way out, two minutes sooner: the connection's timeout
+    -- (120 s on the PlayFab net driver) cut to a second. Its CONNECTION LOST
+    -- leaves the host's lobby and makes this game a fireteam of its own, as
+    -- after the full wait (one PC, two copies, 2026-11-07). Not the
+    -- engine's disconnect, which kept this game in the host's lobby, nor the
+    -- fireteam's leave, whose CanLeaveFireteam read through the missing game
+    -- state (a crash).
     local ok, err = pcall(function()
-        local pc = UI.playerController()
-        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-            :ExecuteConsoleCommand(pc:GetWorld(), "disconnect", pc)
+        local driver = UI.playerController():GetWorld().NetDriver
+        driver.ConnectionTimeout = Live.FORCED_TIMEOUT
+        driver.InitialConnectTimeout = Live.FORCED_TIMEOUT
     end)
-    if not ok then log("fireteam: could not disconnect: " .. tostring(err)) end
+    if ok then
+        strandedState.forced = { at = os.clock(), world = world }
+        log("fireteam: the connection's timeout cut to " .. Live.FORCED_TIMEOUT .. " s")
+    else
+        log("fireteam: could not cut the connection's timeout (" .. tostring(err) .. "): disconnecting")
+        disconnect()
+    end
 end
 
 --- MJOLNIRHud's standings: { code, variant, title, modeTitle, winner,
