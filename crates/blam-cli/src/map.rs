@@ -7,6 +7,7 @@
 //! editor signs it with the author's device key as it publishes, the same
 //! key every other release of theirs carries.
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -171,6 +172,63 @@ fn containers(dir: &Path, code: &str) -> Result<Vec<PathBuf>> {
         }
     }
     Ok(found)
+}
+
+/// The cooked asset of each machine and control the level places from the map's
+/// own tag folder, `objects\mjolnir\<code>\`, as a lower-case path. A tag outside
+/// that folder is the game's or the runtime pack's, so no map has to carry it.
+fn own_machines(level: &serde_json::Value, code: &str) -> BTreeSet<String> {
+    let folder = format!("objects/mjolnir/{}/", code.to_lowercase());
+    let objects = level.pointer("/blam/objects").and_then(|v| v.as_array());
+    objects
+        .into_iter()
+        .flatten()
+        .filter_map(|object| {
+            let kind = match object.get("group")?.as_str()? {
+                "machines" => "device_machine",
+                "controls" => "device_control",
+                _ => return None,
+            };
+            let tag = object.get("tag")?.as_str()?.replace('\\', "/").to_lowercase();
+            tag.starts_with(&folder).then(|| format!("{tag}-{kind}.uasset"))
+        })
+        .collect()
+}
+
+/// Those of `wanted` that no path in `files` ends with.
+fn absent<'a>(wanted: &'a BTreeSet<String>, files: &[String]) -> Vec<&'a str> {
+    wanted
+        .iter()
+        .filter(|asset| !files.iter().any(|file| file.ends_with(asset.as_str())))
+        .map(String::as_str)
+        .collect()
+}
+
+/// Stop the pack if it lacks a machine or control the level places. The map
+/// would still load, with no error, and with those objects simply gone: on
+/// Yoyorast that was every gate, button and shield, and a machine that held the
+/// containers loose in its Paks folder could not tell.
+fn check_machines(level: &serde_json::Value, code: &str, utocs: &[PathBuf]) -> Result<()> {
+    let wanted = own_machines(level, code);
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let mut files = Vec::new();
+    for utoc in utocs {
+        let container = ue_iostore::load_container(utoc)
+            .with_context(|| format!("reading {}", utoc.display()))?;
+        files.extend(container.files.into_keys().map(|f| f.replace('\\', "/").to_lowercase()));
+    }
+    let missing = absent(&wanted, &files);
+    if !missing.is_empty() {
+        bail!(
+            "the level places {} machine and control tag(s) no container here holds: {}. Put \
+             the map's -MJOLNIRMACH-{code}- containers in the folder's machines/",
+            missing.len(),
+            missing.join(", ")
+        );
+    }
+    Ok(())
 }
 
 /// The Wwise banks in a container's `.pak` (tools/level/ce_vehicle_audio.py), by
@@ -377,7 +435,9 @@ fn pack(a: PackArgs) -> Result<()> {
 
     let mut members: Vec<(String, Vec<u8>)> =
         vec![("mjolnir.json".into(), serde_json::to_vec_pretty(&manifest)?)];
-    for utoc in containers(&a.dir, &code)? {
+    let utocs = containers(&a.dir, &code)?;
+    check_machines(&level, &code, &utocs)?;
+    for utoc in utocs {
         for path in [utoc.clone(), utoc.with_extension("ucas")] {
             let file = path.file_name().unwrap().to_string_lossy().to_string();
             members.push((format!("content/{file}"), std::fs::read(&path)?));
@@ -648,5 +708,53 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("ships"));
+    }
+
+    fn placed() -> serde_json::Value {
+        serde_json::json!({ "blam": { "objects": [
+            { "group": "machines", "tag": "objects\\mjolnir\\yoy\\1464" },
+            { "group": "machines", "tag": "objects\\mjolnir\\yoy\\1464" },
+            { "group": "controls", "tag": "objects\\mjolnir\\yoy\\button" },
+            { "group": "scenery", "tag": "objects\\mjolnir\\yoy\\1464" },
+            { "group": "scenery", "tag": "objects\\multi\\spawning\\player_spawn" },
+            { "group": "machines", "tag": "levels\\b40\\devices\\lift" },
+            { "group": "machines", "tag": "objects\\mjolnir\\asc\\1" },
+        ] } })
+    }
+
+    #[test]
+    fn only_the_maps_own_machines_and_controls_are_wanted() {
+        let wanted = own_machines(&placed(), "YOY");
+        assert_eq!(
+            wanted.into_iter().collect::<Vec<_>>(),
+            [
+                "objects/mjolnir/yoy/1464-device_machine.uasset",
+                "objects/mjolnir/yoy/button-device_control.uasset",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_map_with_no_machines_wants_nothing() {
+        assert!(own_machines(&serde_json::json!({ "blam": {} }), "BGL").is_empty());
+        assert!(own_machines(&serde_json::json!({}), "BGL").is_empty());
+    }
+
+    #[test]
+    fn a_tag_no_container_holds_is_absent() {
+        let wanted = own_machines(&placed(), "YOY");
+        let held = "meteorite/content/mjolnir/objects/mjolnir/yoy/1464-device_machine.uasset";
+        assert_eq!(
+            absent(&wanted, &[held.into()]),
+            ["objects/mjolnir/yoy/button-device_control.uasset"]
+        );
+        assert_eq!(absent(&wanted, &[]).len(), 2, "a pack with none lacks them all");
+    }
+
+    #[test]
+    fn a_tags_other_assets_are_not_the_tag() {
+        let wanted = own_machines(&placed(), "YOY");
+        let others = ["objects/mjolnir/yoy/1464-collision_model.uasset".to_string()];
+        assert_eq!(absent(&wanted, &others).len(), 2);
     }
 }

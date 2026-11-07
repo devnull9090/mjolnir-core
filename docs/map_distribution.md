@@ -315,6 +315,11 @@ mjolnir map pack out/bgl --code BGL --version 1.0.0 --sign
   file and its registration record into the archive, and writes the
   manifest. `--sign` signs it with this machine's device key (the tag
   editor's, under DPAPI), which the hub requires.
+- A map's own machines and controls (tags under `objects\mjolnir\<code>\`) ship
+  in `-MJOLNIRMACH-<CODE>-` containers, from the folder's `machines/`. `map pack`
+  stops if the level places one no container holds. The map would still load,
+  with no error and those objects gone, and a PC with the containers loose in its
+  Paks folder would never show it, as Yoyorast 2.6.0 and 2.7.0 didn't.
 - The tag editor publishes it, as it publishes content mods: it signs the
   archive with the publisher's device key, then creates or updates the hub
   mod and uploads the release (`POST /mods`, `POST /mods/{slug}/releases`,
