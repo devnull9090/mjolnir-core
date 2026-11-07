@@ -3047,7 +3047,9 @@ end
 --- frontend with none; true once that has lasted Live.STRANDED_AFTER.
 --- `view`: { host, frontend, players = the game state's player count, nil
 --- with no game state }.
-Live.STRANDED_AFTER = 10
+--- MJOLNIR_STRANDED_AFTER sets it for a test run (a large number: the
+--- game's own two minutes).
+Live.STRANDED_AFTER = tonumber(os.getenv("MJOLNIR_STRANDED_AFTER") or "") or 10
 function Live.stranded(s, now, view)
     if view.host then
         s.client, s.since = false, nil
@@ -3078,7 +3080,13 @@ function Live.watchStranded()
         if state:IsValid() then players = #state.PlayerArray end
     end)
     local frontend = inFrontend()
+    local since = strandedState.since
     if not Live.stranded(strandedState, os.clock(), { host = Net.isHost(), frontend = frontend, players = players }) then
+        -- How long a client waits for the host's game state on a travel to
+        -- the frontend, against Live.STRANDED_AFTER.
+        if since and not strandedState.since then
+            log(string.format("fireteam: the frontend had no host's game state for %.1f s", os.clock() - since))
+        end
         return
     end
     log("fireteam: no host in this frontend for " .. Live.STRANDED_AFTER .. " s: the host left the match")
@@ -3774,7 +3782,17 @@ end
 --- The host, back from a match with fresh standings: the post-game screen
 --- and a new vote; after the host's own Quit, the lobby (Live.quitEnded).
 local function hostPostGame()
-    if Post or not inFrontend() or not Net.isHost() then return end
+    if Post or not inFrontend() then return end
+    if not Net.isHost() then
+        -- A client's standings are for the host's vote. Seen here, so that a
+        -- client back on its own menu soon after (its host left, a kick)
+        -- gets no vote of its own: one whose host left mid-match opened a
+        -- vote on the match before, which hid why it was there (one PC, two
+        -- copies, 2026-11-07).
+        local seen = readResults()
+        if seen then seenResults = seen.endedAt end
+        return
+    end
     local r = readResults()
     if not r or r.endedAt == seenResults or os.time() - (r.endedAt or 0) > RESULTS_FRESH then return end
     if not UI.valid(liveMainMenu()) then return end

@@ -542,4 +542,23 @@ do
     env.StaticFindObject = findObject
     host = true
 end
+
+-- A client's standings are the host's vote's: a client back on its own menu
+-- soon after (its host left mid-match, a kick) opens no vote of its own on
+-- them (one did on the match before, over the reason; 2026-11-07).
+do
+    reset()
+    host, worldName = false, "Frontend"
+    standings("CHL", "slayer", os.time() - 5)
+    hostPostGame()
+    eq(postScreens, 0, "a client opens no post-game screen")
+    host = true   -- back on its own menu
+    hostPostGame()
+    eq(postScreens, 0, "nor once its own host, on standings it had as a client")
+    eq(lobbies, 0, "and no lobby over the main menu")
+    standings("BGL", "slayer", os.time())
+    hostPostGame()
+    eq(postScreens, 1, "its own match after votes as before")
+    reset()
+end
 print("Lobby after a match: " .. checks .. " checks passed")
