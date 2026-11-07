@@ -28,6 +28,7 @@ fn mjolnir_variants_round_trip() {
         blue_flag_type: Some(20),
         score_to_win: 3,
         reset_ticks: 900,
+        assault: None,
         debug: false,
     };
     let health = blam_megalo::powerups::HealthPacks {
@@ -66,6 +67,13 @@ fn mjolnir_variants_round_trip() {
         ("team_race", Variant::team_race(6)),
         ("rally", Variant::rally(15)),
         ("team_rally", Variant::team_rally(15)),
+        (
+            "assault",
+            Variant::ctf(blam_megalo::ctf::Ctf {
+                assault: Some(18000),
+                ..ctf
+            }),
+        ),
     ];
     for (name, v) in variants {
         let bytes = v.write().unwrap();

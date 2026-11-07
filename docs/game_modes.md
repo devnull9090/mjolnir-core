@@ -60,9 +60,9 @@ variant at `GG+0x15f0` and `o = v+4` (variant-format offsets are o-relative);
 
 ## Summary
 
-1. **CE's Standard game types are built, except Assault** (section 3.6):
-   Slayer, Team Slayer, CTF, Oddball, Team Oddball, Juggernaut, King, Crazy
-   King, Team King, Race, Team Race, Rally and Team Rally. This summary was
+1. **CE's Standard game types are built** (section 3.6):
+   Slayer, Team Slayer, CTF, Assault, Oddball, Team Oddball, Juggernaut, King,
+   Crazy King, Team King, Race, Team Race, Rally and Team Rally. This summary was
    written when only Slayer and CTF ran; the rest of it stands.
 2. **The engine is all there.** It is Reach's game-engine layer, and every
    Reach mode is data for it. Read statically, a MJOLNIR match runs with the
@@ -774,6 +774,7 @@ slot 6.
 | Slayer | `slayer` | a kill +1, a suicide -1 | 25 |
 | Team Slayer | `team_slayer` | as Slayer, a betrayal -1 | 50 |
 | CTF | `ctf` | | 3 |
+| Assault | `assault` | one flag: attackers carry the defender's to their own stand; a capture or 5 minutes swaps the sides; Blue defends first | 3 |
 | Oddball | `oddball` | 1 a second while holding the ball | 120 |
 | Team Oddball | `team_oddball` | as Oddball, teams sum | 120 |
 | Juggernaut | `juggernaut` | first killer takes the slot; killing it passes it; +1 for killing it, for its kills and for a kill while nobody is it; it deals x1.5 damage | 15 |
@@ -797,8 +798,12 @@ Where these differ from CE (PC retail unconfirmed):
 - **Stalker** runs at 120%: the sim's speed table has no 125%. CE's motion tracker blip on the Stalker has no replacement, so hunters have only the feed line.
 - **Race vehicles**, section 3.5.
 
-Assault is the Standard game type not built: it needs side swap (B8) and a slot
-of its own. CE's other Classic presets (Rockets, Snipers, Phantoms and the rest) need weapon sets, traits or lives.
+- **Assault** swaps sides in its script, not with the sim's rounds (B8): the
+  defender is a global number and the match stays one round. Teams keep their
+  own stands, so the flag changes base and the players do not. The 5 minutes a
+  side and 3 captures are this project's defaults, not read from CE.
+
+CE's other Classic presets (Rockets, Snipers, Phantoms and the rest) need weapon sets, traits or lives.
 
 Every new form needs the registry DLL from the same release, and the launcher's
 hub validator links `blam-megalo` too. Release order for script traits

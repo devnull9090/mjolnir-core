@@ -35,6 +35,9 @@ local Modes = {
     { id = "ctf", engine = "ctf", slot = 1, name = "CTF", teams = true, scoreHeading = "CAPTURES",
         description = "Take the enemy flag to your base.",
         needs = "pakchunk990-MJOLNIRFLAGB_P" },
+    { id = "assault", engine = "ctf", slot = 1, name = "ASSAULT", teams = true, scoreHeading = "CAPTURES",
+        description = "One flag. Attackers carry it to their own base; a capture or the clock swaps the sides.",
+        needs = "pakchunk990-MJOLNIRFLAGB_P" },
     { id = "oddball", engine = "oddball", slot = 4, name = "ODDBALL",
         description = "Hold the skull to score." },
     { id = "team_oddball", engine = "oddball", slot = 4, name = "TEAM ODDBALL", teams = true,
@@ -85,6 +88,7 @@ Modes.CHOICE_FILE = "match_variant.txt"
 -- to place beyond its engine's own (Juggernaut, Stalker and Reverse Tag only
 -- spawn), and the released maps' lists predate them.
 local DERIVED = {
+    ctf = { "assault" },
     slayer = { "team_slayer", "juggernaut", "stalker", "reverse_tag" },
     koth = { "crazy_king", "team_koth" },
     oddball = { "team_oddball" },

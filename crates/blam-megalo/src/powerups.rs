@@ -200,6 +200,7 @@ mod tests {
             blue_flag_type: None,
             score_to_win: 3,
             reset_ticks: 900,
+            assault: None,
             debug: false,
         });
         let v = ctf.clone().with_health_packs(PACKS).unwrap();

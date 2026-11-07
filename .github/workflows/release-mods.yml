@@ -119,6 +119,7 @@ jobs:
           ./target/release/mjolnir megalo write --mode slayer --vehicle-label-pool --out variants/slayer.mglo
           ./target/release/mjolnir megalo write --mode team-slayer --vehicle-label-pool --out variants/team_slayer.mglo
           ./target/release/mjolnir megalo write --mode ctf --vehicle-label-pool --out variants/ctf.mglo
+          ./target/release/mjolnir megalo write --mode assault --vehicle-label-pool --out variants/assault.mglo
           ./target/release/mjolnir megalo write --mode koth --vehicle-label-pool --out variants/koth.mglo
           ./target/release/mjolnir megalo write --mode crazy-king --vehicle-label-pool --out variants/crazy_king.mglo
           ./target/release/mjolnir megalo write --mode team-koth --vehicle-label-pool --out variants/team_koth.mglo
@@ -246,6 +247,7 @@ jobs:
           for mglo in mods/MJOLNIRLevelLoader/variants/slayer.mglo mods/MJOLNIRLevelLoader/variants/ctf.mglo \
                       mods/MJOLNIRLevelLoader/variants/slayer.layout.json mods/MJOLNIRLevelLoader/variants/ctf.layout.json \
                       mods/MJOLNIRLevelLoader/variants/team_slayer.mglo mods/MJOLNIRLevelLoader/variants/team_slayer.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/assault.mglo mods/MJOLNIRLevelLoader/variants/assault.layout.json \
                       mods/MJOLNIRLevelLoader/variants/koth.mglo mods/MJOLNIRLevelLoader/variants/koth.layout.json \
                       mods/MJOLNIRLevelLoader/variants/crazy_king.mglo mods/MJOLNIRLevelLoader/variants/crazy_king.layout.json \
                       mods/MJOLNIRLevelLoader/variants/team_koth.mglo mods/MJOLNIRLevelLoader/variants/team_koth.layout.json \

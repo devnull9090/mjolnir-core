@@ -2048,6 +2048,7 @@ local START_EVENTS = {
     { "oddball", "ball_game_start" },
     { "ball", "ball_game_start" },
     { "ctf", "ctf_game_start" },
+    { "assault", "ctf_game_start" },
     { "race", "race_game_start" },
     { "rally", "race_game_start" },
 }
@@ -5924,7 +5925,7 @@ local function loadMegaloSwitch()
                 -- one ships in the CE runtime pack: without it the
                 -- simulation wipes the whole script (docs/game_modes.md
                 -- 2.2), a match with no flags and nothing to say why.
-                if name == "ctf" and not Teams.blueFlagInstalled() then
+                if (name == "ctf" or name == "assault") and not Teams.blueFlagInstalled() then
                     Log("CTF needs the CE runtime with the blue flag (" .. Teams.BLUE_FLAG_CONTAINER .. "), and this PC "
                         .. "does not have it: a CTF variant that names the blue flag runs with no flags and no captures "
                         .. "here. Update the MJOLNIR CE runtime pack in the launcher.")

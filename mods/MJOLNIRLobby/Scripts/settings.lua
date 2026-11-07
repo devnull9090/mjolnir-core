@@ -32,6 +32,8 @@ local SCORES = {
         help = "The first team to this many kills wins." },
     ctf = { label = "CAPTURES TO WIN", values = { 1, 3, 5, 10, 15 }, default = 3,
         help = "The first team to capture the enemy flag this many times wins." },
+    assault = { label = "CAPTURES TO WIN", values = { 1, 3, 5, 10, 15 }, default = 3,
+        help = "The first team to capture the flag this many times wins." },
 }
 
 -- Map options: what the map variant may place (variant.rs MAP_FLAGS).

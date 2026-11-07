@@ -11,7 +11,7 @@
 local M = {}
 local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRGameTypeSelect.WBP_MJOLNIRGameTypeSelect_C"
 local ICON_ROOT = "/Game/MJOLNIR/UI/ModeIcons/T_MJMode_"
-local ICONS = { slayer = "Slayer", team_slayer = "TeamSlayer", ctf = "Ctf",
+local ICONS = { slayer = "Slayer", team_slayer = "TeamSlayer", ctf = "Ctf", assault = "Ctf",
     oddball = "Oddball", team_oddball = "Oddball", juggernaut = "Juggernaut",
     stalker = "Juggernaut", reverse_tag = "Juggernaut",
     koth = "Koth", crazy_king = "Koth", team_koth = "Koth",

@@ -24,6 +24,7 @@ Board.modes = {
     team_slayer = { title = "TEAM SLAYER", toWin = 50, unit = "kills", stat = "kills", teams = true,
         family = "slayer", suicidePenalty = true },
     ctf = { title = "CAPTURE THE FLAG", toWin = 3, unit = "captures", stat = "captures", teams = true, family = "ctf" },
+    assault = { title = "ASSAULT", toWin = 3, unit = "captures", stat = "captures", teams = true, family = "ctf" },
     oddball = timed("ODDBALL", "oddball", "ball_taken"),
     team_oddball = timed("TEAM ODDBALL", "oddball", "ball_taken", true),
     juggernaut = { title = "JUGGERNAUT", toWin = 15, unit = "points", stat = "objectiveScore", family = "juggernaut",

@@ -37,7 +37,7 @@ local Teams = {}
 --------------------------------------------------------------------------------
 
 --- The game types played by teams (MJOLNIRLobby's modes.lua with `teams`).
-Teams.TEAM_GAMES = { ctf = true, team_slayer = true, team_koth = true, team_oddball = true,
+Teams.TEAM_GAMES = { ctf = true, assault = true, team_slayer = true, team_koth = true, team_oddball = true,
     team_race = true, team_rally = true }
 
 --- A flag lying within this of its own team's stand is at home, and is drawn
@@ -338,7 +338,8 @@ function Teams.ctfLevel()
     local level = env and env.Current.level
     local ctf = type(level) == "table" and level.ctf
     if type(ctf) ~= "table" or type(ctf.flag) ~= "table" then return nil end
-    if string.lower(tostring(env.variant())) ~= "ctf" then return nil end
+    local variant = string.lower(tostring(env.variant()))
+    if variant ~= "ctf" and variant ~= "assault" then return nil end
     return ctf
 end
 

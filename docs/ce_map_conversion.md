@@ -842,9 +842,13 @@ Reach does the same with Megalo labels:
   and hosted as Slayer with both sets on NONE placed no vehicles. Not tested with
   a client joining: a client changes nothing, and its objects are the host's.
 - Filters come after the variant's own, so a map with many labels can run out.
-  By the variants' layouts, Yoyorast's 15 fit Slayer (1 of its own, all 16
-  vehicles counted in game), but CTF (6) leaves out `ce_warthog_8` to `_10` and
-  Race (2) `ce_warthog_10`. `_9` and `_10` include its two ramp Mongooses.
+  CTF and Assault have 6 of their own, Race 2. A map's plan can give vehicles
+  that always go together one `label` (`ce_place_vehicles.py`): Yoyorast's eleven
+  hogs and Mongooses share six, so every game type places its whole set, where
+  CTF used to leave out three labels and Race one. `add_objectives.py
+  --vehicle-plan` applies a plan to a published pack. A shared label moves as one,
+  so a custom set's count takes both. Coldsnap's set is far past any variant's
+  room; the cut keeps it under what the simulation holds.
 
 Death Island places Banshees and Warthogs when the round begins, and its
 Ghosts, Scorpions and Shades only when their respawn time (30-40 s) runs out,
