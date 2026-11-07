@@ -785,7 +785,9 @@ static void publish_own_endpoints(void) {
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) return;
-    fprintf(f, "%s", test_joiner ? "joiner" : "host");
+    /* The writer's process: a copy that has gone leaves its file behind, and
+       its endpoint ids are reused by whoever makes the next network. */
+    fprintf(f, "%s %lu", test_joiner ? "joiner" : "host", GetCurrentProcessId());
     for (LONG i = 0; i < own_endpoint_count && i < 16; i++) fprintf(f, " %u", own_endpoints[i]);
     fprintf(f, "\n");
     fclose(f);
@@ -803,11 +805,17 @@ static int joiner_with_endpoint(unsigned short endpoint) {
         if (!f) continue;
         int found = 0;
         unsigned id;
-        if (fscanf(f, "%15s", role) == 1 && strcmp(role, "joiner") == 0)
+        unsigned long pid = 0;
+        if (fscanf(f, "%15s %lu", role, &pid) == 2 && strcmp(role, "joiner") == 0)
             while (fscanf(f, "%u", &id) == 1)
                 if (id == endpoint) found = 1;
         fclose(f);
-        if (found) return n;
+        if (!found) continue;
+        /* Only a copy that is still running. */
+        HANDLE writer = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        int alive = writer && WaitForSingleObject(writer, 0) == WAIT_TIMEOUT;
+        if (writer) CloseHandle(writer);
+        if (alive) return n;
     }
     return 0;
 }
@@ -3635,6 +3643,109 @@ static int smaller_team(unsigned char *g, int self) {
     return count[1] < count[0] ? 1 : 0;
 }
 
+/* --- Test copies: a team for each joining copy ----------------------------
+
+   Copies on one account join the host's simulation just after its game has
+   started, so each simulation adds them as players joined in progress
+   (player-new, sim 0x182000: index, options entry, joined in progress; from
+   sim 0x4feac0). Such a player's team comes from the balancer at sim
+   0x2b3f50, not from its options: it counts the players who asked for the
+   same team (player +0xad) by the team they are on (+0x4a4) and takes the
+   first team nobody of them is on, which for the first player to ask for
+   blue is team 0. Every joining copy was red with the host, asking for blue
+   (+0xad 1, +0x4a4 0), on every copy alike. In test copies a player joined
+   in progress in a team game is put on the team it asked for, and the change
+   is flagged the way the balancer flags its own (sim 0x4d1d40: 7, player,
+   0x1000), on every copy. */
+typedef unsigned long long(__fastcall *player_new_full_t)(int, unsigned char *, char);
+typedef void(__fastcall *player_changed_t)(int, int, int, int);
+static player_new_full_t real_player_new;
+static player_changed_t player_changed;
+
+/* mov [r8+rdx+4A4h], ecx; mov r8d, 1000h; movsx edx, r15w; mov ecx, r10d; call rel32 */
+static const unsigned char TEAM_SET[] = {0x41, 0x89, 0x8C, 0x10, 0xA4, 0x04, 0x00, 0x00, 0x41, 0xB8, 0x00,
+                                         0x10, 0x00, 0x00, 0x41, 0x0F, 0xBF, 0xD7, 0x41, 0x8B, 0xCA, 0xE8};
+
+static unsigned long long __fastcall hook_player_new(int index, unsigned char *options, char joined_in_progress) {
+    unsigned long long made = real_player_new(index, options, joined_in_progress);
+    __try {
+        int team_game = lobby_team_game(NULL);
+        unsigned char *players = sim_tls_slot(0x30);
+        unsigned char *data = players ? *(unsigned char **)(players + 0x50) : NULL;
+        int slot = (int)(made & 0xffff);
+        if (data && (int)made != -1) {
+            unsigned char *p = data + (size_t)slot * 0x4b0;
+            int asked = (signed char)p[0xad];
+            /* The host decides (only its Lua writes team_game.txt); every other
+               copy gets the change as the player's update. The team asked for
+               is the slot number past the second player (teams 2, 3, ...), which
+               our two-team game types do not have, so: red or blue, whichever
+               the other players are on fewer of, red on a tie (host, then
+               blue, red, blue, ...). */
+            if (joined_in_progress && team_game && player_changed) {
+                int count[2] = {0, 0};
+                for (int i = 0; i < 16; i++) {
+                    unsigned char *o = data + (size_t)i * 0x4b0;
+                    if (i == slot || !*(unsigned short *)o) continue;
+                    int t = *(int *)(o + 0x4a4);
+                    if (t == 0 || t == 1) count[t]++;
+                }
+                int team = count[1] < count[0] ? 1 : 0;
+                if (*(int *)(p + 0x4a4) != team || asked != team) {
+                    *(int *)(p + 0x4a4) = team;
+                    p[0xad] = (unsigned char)team;
+                    player_changed(7, (short)slot, 0x1000, 0);
+                }
+            }
+            fireteam_log("teams: player %d made%s%s: asked for team %d, on team %d", slot,
+                         joined_in_progress ? " (joined in progress)" : "", team_game ? " in a team game" : "", asked,
+                         *(int *)(p + 0x4a4));
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("teams: the new player was unreadable");
+    }
+    return made;
+}
+
+static const char *hook_player_new_install(void) {
+    if (real_player_new) return "already hooked";
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return "simulation DLL not loaded";
+    int hits;
+    unsigned char *fn = find_in_module(sim, PLAYER_NEW, PLAYER_NEW_MASK, sizeof PLAYER_NEW, 1, &hits);
+    if (!fn) return "player-new not found";
+    unsigned char *set = find_in_module(sim, TEAM_SET, NULL, sizeof TEAM_SET, 1, &hits);
+    if (!set) return "the balancer's team write not found";
+    player_changed = (player_changed_t)(set + sizeof TEAM_SET + 4 + *(int *)(set + sizeof TEAM_SET));
+    /* push rbx/rbp/rsi/rdi; sub rsp,28h (9 bytes), then mov r9d,[rip+X] (7):
+       the trampoline loads the same dword through an absolute address
+       (mov r9, imm64; mov r9d, [r9] zero-extends as the original does). */
+    unsigned char *global = fn + 16 + *(int *)(fn + 12);
+    unsigned char *tramp = (unsigned char *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return "no memory";
+    unsigned char *p = tramp;
+    memcpy(p, fn, 9), p += 9;
+    *p++ = 0x49, *p++ = 0xB9, *(unsigned char **)p = global, p += 8; /* mov r9, imm64 */
+    *p++ = 0x45, *p++ = 0x8B, *p++ = 0x09;                            /* mov r9d, [r9] */
+    *p++ = 0xFF, *p++ = 0x25, *(int *)p = 0, p += 4;
+    *(unsigned char **)p = fn + 16, p += 8; /* jmp fn+16 */
+    DWORD old;
+    if (!VirtualProtect(fn, 16, PAGE_EXECUTE_READWRITE, &old)) return "VirtualProtect failed";
+    unsigned char patch[16];
+    memset(patch, 0x90, sizeof patch);
+    patch[0] = 0xFF, patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = (void *)hook_player_new;
+    memcpy(fn, patch, sizeof patch);
+    VirtualProtect(fn, 16, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), fn, 16);
+    real_player_new = (player_new_full_t)tramp;
+    /* The injector looks player-new up by its first bytes, which the jump
+       now replaces: it calls through the hooked entry instead. */
+    player_new_jip = (player_new_t)fn;
+    return "hooked";
+}
+
 /* The pre-game handler (sim 0x55b2c0) builds the game's player entries from
    the session's members and publishes them as the players parameter, which
    the host's game and every client's are built from. A free-for-all numbers
@@ -5580,6 +5691,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                                  (void **)&real_lobby_start_changes));
         if (sim_join_enabled()) {
             fireteam_log("transport peer table (test copy): %s", hook_peer_table());
+            fireteam_log("teams: player-new (test copy): %s", hook_player_new_install());
             publish_own_endpoints();
         }
     }

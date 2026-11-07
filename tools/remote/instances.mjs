@@ -269,6 +269,20 @@ async function running() {
   });
 }
 
+/**
+ * The copies' Party endpoint ids (the lobby DLL's peer table reads them to
+ * tell same-account joiners apart). A copy that has gone leaves its file, and
+ * the next network reuses its ids, so they go before every start and stop:
+ * by name, one file per copy number.
+ */
+function clearEndpointFiles() {
+  const dir = path.join(ROOT, "endpoints");
+  for (let n = 1; n <= 16; n++) {
+    const file = path.join(dir, `${n}.txt`);
+    if (fs.existsSync(file)) fs.rmSync(file);
+  }
+}
+
 async function waitForBridge(n, seconds = 240) {
   at(n);
   const deadline = Date.now() + seconds * 1000;
@@ -304,6 +318,7 @@ async function up(count, ...extra) {
   if (!(count >= 2 && count <= 8)) throw new Error("up takes 2 to 8 copies");
   const lines = [];
   const already = new Set((await running()).map((r) => r.n));
+  if (already.size === 0) clearEndpointFiles();
   for (let n = 1; n <= count; n++) {
     if (already.has(n)) { lines.push(`instance ${n}: already running`); continue; }
     if (!fs.existsSync(installRoot(n))) lines.push(mirror(n));
@@ -336,6 +351,7 @@ async function up(count, ...extra) {
 async function down() {
   const copies = (await running()).filter((r) => r.n >= 1);
   for (const { pid } of copies) process.kill(pid);
+  clearEndpointFiles();
   return copies.length ? `stopped ${copies.map((c) => `instance ${c.n} (pid ${c.pid})`).join(", ")}` : "no copies running";
 }
 
