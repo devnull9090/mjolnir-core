@@ -646,9 +646,9 @@ static int instance_number(void) {
     return atoi(value);
 }
 
-/* Experiment, off unless MJOLNIR_SIM_JOIN=1 (instances.mjs --sim-join): the
-   copies' simulations join one another (docs/multi_instance.md). Without it
-   every copy follows the host into its match, each running its own. */
+/* MJOLNIR_SIM_JOIN=1, which instances.mjs sets unless --separate: the copies'
+   simulations join one another (docs/multi_instance.md). Without it every
+   copy follows the host into its match, each running its own. */
 static int sim_join_enabled(void) {
     char value[8];
     return test_instance() && instance_number() > 0 &&
@@ -667,10 +667,10 @@ static int asked_by_sim(void *from) {
     return sim_module_base && at >= sim_module_base && at < sim_module_base + sim_module_size;
 }
 
-/* Everyone's question, the exe's too: the identity is also the simulation's
-   transport address, and the exe stamps what it sends with its own answer,
-   so the host would file the joiner's packets under the account's identity
-   (its own) and refuse the join (reason 13). */
+/* Everyone's question, the exe's too (the identity is also the simulation's
+   transport address). The host files a joiner's packets by the peer table
+   below, not by this answer; the exe's callers get the copy's identity only
+   because that is the way it was proven (2026-11-07). */
 static char __fastcall hook_local_identity(void *online, unsigned char *out, int size) {
     char ok = real_local_identity(online, out, size);
     if (ok && out && size >= 1 && test_joiner) out[0] ^= (unsigned char)(instance_number() & 0xff);
@@ -5063,10 +5063,8 @@ __declspec(dllexport) int mjolnir_join(void *L) {
         return 0;
     }
     fireteam_log("join: queued, %u characters", (unsigned)strlen(req->connect));
-    /* Experiment, off unless MJOLNIR_SIM_JOIN=1 (instances.mjs --sim-join):
-       without it every copy follows the host into its match, each running
-       its own simulation; with it a copy's simulation asks to join the host's,
-       which the host refuses so far (docs/multi_instance.md). */
+    /* A test copy joining another takes its own machine identity, so its
+       simulation joins the host's (sim_join_enabled). */
     if (sim_join_enabled()) {
         InterlockedExchange(&test_joiner, 1);
         InterlockedExchange(&own_endpoint_count, 0);

@@ -2,6 +2,14 @@
 //
 // Several copies of the game on this PC, for multiplayer tests without PC 2.
 //
+//   node tools/remote/instances.mjs up <N> [-ResX=960 -ResY=540] [--separate]
+//                                                    N copies signed in, in copy 1's lobby; then
+//                                                    console 1 "mjolnir_auto host BGL slayer private"
+//                                                    starts one match all N play (one simulation;
+//                                                    --separate: each copy its own)
+//   node tools/remote/instances.mjs players          each copy's world, UE players, Blam players
+//   node tools/remote/instances.mjs down             stop every copy (never the Steam game)
+//   node tools/remote/instances.mjs deploy <n>       this checkout's built lobby DLL into copy n
 //   node tools/remote/instances.mjs mirror <n>       build or refresh instance n's install (n >= 1)
 //   node tools/remote/instances.mjs launch <n>       start instance n (0 = the Steam install itself)
 //   node tools/remote/instances.mjs menu <n>         sign in (no keys) and wait for the MULTIPLAYER main menu
@@ -224,13 +232,14 @@ function launch(n, extra = []) {
   const win64 = path.join(root, "Meteorite", "Binaries", "Win64");
   const exe = path.join(win64, "HaloCampaignEvolved.exe");
   if (!fs.existsSync(exe)) throw new Error(`no instance ${n} at ${root}: run mirror ${n} first`);
-  // --sim-join: the lobby DLL's experiment that gives a joining copy's
-  // simulation its own machine identity (MJOLNIR_SIM_JOIN=1).
-  const simJoin = extra.includes("--sim-join");
-  const args = [`-saveddirsuffix=_mj${n}`, ...extra.filter((a) => a !== "--sim-join")];
+  // The copies' simulations join one another (MJOLNIR_SIM_JOIN=1: each copy
+  // gets its own machine identity, docs/multi_instance.md). --separate leaves
+  // that out: every copy then follows the host's match in its own simulation.
+  const separate = extra.includes("--separate");
+  const args = [`-saveddirsuffix=_mj${n}`, ...extra.filter((a) => a !== "--separate" && a !== "--sim-join")];
   const env = { ...process.env, SteamAppId: STEAM_APP_ID, SteamGameId: STEAM_APP_ID, MJOLNIR_INSTANCE: String(n) };
-  if (simJoin) env.MJOLNIR_SIM_JOIN = "1";
-  else delete env.MJOLNIR_SIM_JOIN;
+  if (separate) delete env.MJOLNIR_SIM_JOIN;
+  else env.MJOLNIR_SIM_JOIN = "1";
   const child = spawn(exe, args, { cwd: win64, detached: true, stdio: "ignore", env });
   child.unref();
   return `instance ${n}: started pid ${child.pid} (${args.join(" ")})`;
@@ -340,7 +349,8 @@ async function players() {
     let blam = "?";
     try {
       const out = JSON.parse(execFileSync("python", [path.join(REPO, "tools", "remote", "blam-players.py"), "--json", "--pid", String(pid)], { encoding: "utf8" }));
-      blam = `blam players ${out.players.length} machines mask ${out.machines ?? 0}`;
+      const machines = new Set(out.players.map((p) => p.machine)).size;
+      blam = `blam players ${out.players.length} on ${machines} machine(s)`;
     } catch { /* not in a game */ }
     lines.push(`instance ${n} (pid ${pid}): ${ue}; ${blam}`);
   }

@@ -2,7 +2,8 @@
 
 Multiplayer tests used to need PC 2. `tools/remote/instances.mjs` runs two to
 four copies of Halo: Campaign Evolved on PC 1, all signed in to the one
-account, all in one fireteam lobby, and takes them into a match together.
+account, all in one fireteam lobby, and takes them into one match that every
+copy plays in the same Blam simulation.
 
 What this covers, and what it does not (2026-11-07, CU4 Steam build):
 
@@ -12,14 +13,17 @@ What this covers, and what it does not (2026-11-07, CU4 Steam build):
 | PlayFab lobby and Party network (joining by connection string) | works |
 | UE session (listen server, connections, `GameState.PlayerArray`) | works: every copy lists every player |
 | Host starts a match; every copy travels to the map with HUD and weapon | works |
-| `Net` messages between host and clients (ClientMessage, lobby messages, kicks) | goes over the UE session, so expected to work; not tested one by one |
-| Blam simulation (bipeds, kills, objectives, Megalo state) | **not shared**: each copy runs its own one-machine game |
+| Blam simulation | **shared**: 4 copies, 4 players on 4 machines in every copy, positions agree, a kill counts on both sides |
+| Back to the lobby and a second match | works (4 copies) |
+| Team games | run, but the joining copies land on red with the host (see "Known gaps") |
+| `Net` messages between host and clients (ClientMessage, lobby messages, kicks) | go over the UE session; not tested one by one |
 
-So the copies can test the lobby, the menus, the host flow, travel, the
-post-game return and anything carried by UE messages. They can't test
-gameplay sync, the scoreboard from the simulation, or game types, because
-each copy plays its own match. That still needs PC 2 or a second account; see
-"What still blocks the simulation" below.
+Proof, 2026-11-07: with 2 copies, the host shot the joiner (in-game input on
+the host) and both copies logged the kill (`Kill`, `death`; the joiner also
+`first_blood`), with the score at 1. With 4 copies, the three joiners were
+teleported (each in its own copy) to stand in front of the host's camera, and
+the host's screen showed all three; every copy listed the same four biped
+positions.
 
 ## The recipe
 
@@ -27,9 +31,18 @@ each copy plays its own match. That still needs PC 2 or a second account; see
 node tools/remote/instances.mjs up 2                                    two copies, 1280x720
 node tools/remote/instances.mjs up 4 -windowed -ResX=960 -ResY=540      four copies
 node tools/remote/instances.mjs console 1 "mjolnir_auto host BGL slayer private"
-node tools/remote/instances.mjs players     each copy: world, UE players, Blam players
+node tools/remote/instances.mjs players     each copy: world, UE players, Blam players and machines
 node tools/remote/instances.mjs down        stop every copy (never the Steam game)
 ```
+
+`up N --separate` leaves the simulations apart: every copy still follows the
+host into its match, each playing alone (the state before the identity work
+below).
+
+Driving a copy's player: in-game input through that copy's bridge,
+`MJOLNIR_GAME_DIR="<copy's install>" node tools/mcp/game/cli.mjs input '[{"mouse":"left","hold":3000}]'`
+(no mouse or focus taken). Teleports are written in the copy that owns the
+player (object `+0x44`, see [teleport notes](game_state_reader.md)).
 
 `up N` builds any missing mirror, puts this checkout's built
 `mods/MJOLNIRLobby/native/mjolnir_lobby.dll` into each copy, starts the
@@ -125,60 +138,71 @@ copies left 60 GB of RAM free on PC 1 (128 GB) and used 17 GB on its RTX 5090.
 With 1 to 4 fixed, a match starts and every copy follows the host into the
 map by seamless travel.
 
-## What still blocks the simulation
+## How the simulations are joined
 
-The Blam simulation names each machine with an 8-byte identity, and on one
-account every copy has the same one. The simulation asks the exe's online
-object for it (sim `0x4d1230` reads `[[sim+0x2c40028]+0x10]`, vtable
-`+0x148`, then the object's `+0x18`) and caches it at `sim+0x2c0c7d2`, with a
-flag byte before it. In the exe, `+0x18` (own identity) and `+0x20` (id of a
-new session) come from exe `0x7acc640`; `+0x10` and `+0x30` (the host's
-identity and session) come from exe `0x7ab94c0`. Both derive the value from
-the account through an Online Services interface. The same 8 bytes are the
-simulation's transport address too (sim `0x4d14c0` returns the address as
-the identity when online). On this account it is `11b8d544b36256b4`, which
-the lobby also carries as `OWNERNICKNAME`.
+The Blam simulation names each machine with an 8-byte identity. On one
+account every copy had the same one, so at a match's start each copy saw "the
+host is me", hosted its own one-machine session (`life 6`, peer mask 1) and
+played alone. Three things in the lobby DLL fix that, all in test copies only,
+and on unless `up` is given `--separate` (`MJOLNIR_SIM_JOIN=1`):
 
-So at a match's start (shell command 0/0, sim `0xf4b0` pulls the target
-session), each copy sees "the host is me", hosts its own one-machine session
-(`life 6`, peer mask 1) and plays alone.
+1. **The joiner's own identity.** The simulation asks the exe's online
+   object for its identity (sim `0x4d1230` reads `[[sim+0x2c40028]+0x10]`,
+   vtable `+0x148`, then the object's `+0x18`) and caches it at
+   `sim+0x2c0c7d2`, with a flag byte before it. In the exe, `+0x18` (own
+   identity) and `+0x20` (id of a new session) come from exe `0x7acc640`;
+   `+0x10` and `+0x30` (the host's identity and session) come from exe
+   `0x7ab94c0`. Both derive the value from the account. A copy that joins
+   another mixes its copy number into the first byte of `+0x18`'s answer and
+   of the simulation's new session ids (`+0x20`), then clears the cache flag
+   so the simulation asks again. The host keeps the account's identity.
+   Without the session-id change the joiner failed at once with "FAILED TO
+   JOIN THE HOST'S SQUAD": its own squad session had the host's id, so the
+   join found itself.
+2. **The host's view of each joiner.** The same 8 bytes are the simulation's
+   transport address. The exe's Blam transport (vtable `exe+c11b418`)
+   sends and receives through Party endpoints (receive `0x7add6a0` is a
+   socket `RecvFrom`; the sender's endpoint id is looked up in a map at
+   `transport+0x120`). It registers each peer with exe `0x7ade590`
+   (transport, &identity, two endpoint ids). The caller (`0x7adf740`) takes
+   the endpoints from a component of each player and the identity from the
+   player's UniqueId string, which is the account's for every copy. So the
+   host filed every joiner as itself, and refused each join with reason 13.
+   Now each joining copy writes its own Party endpoint ids to
+   `%LOCALAPPDATA%\MJOLNIR\instances\endpoints\<n>.txt` (from
+   `CreateEndpointCompleted` and `PartyEndpointGetUniqueIdentifier`). An
+   inline hook on `0x7ade590` gives endpoints a joiner wrote that joiner's
+   identity (the account's XOR its copy number), the value its simulation
+   uses for itself. The host then accepts the join: its session is
+   `life 6` with peer mask 3 (two copies), and the joiner's is `life 4` (a
+   peer) in the host's session.
+3. **A lone member stays online** (fix 4 above).
 
-Tried (in the lobby DLL, test copies only, off unless `MJOLNIR_SIM_JOIN=1`,
-which `up N --sim-join` sets):
+The joiners' simulations join just after the host's game has started, so each
+joiner arrives as a player joined in progress (player flags `0x8001`), added by
+the simulation itself.
 
-- Returning a different lobby owner from `PFLobbyGetOwner`: no effect (and
-  it emptied the target session). Removed.
-- Mixing the copy number into the first byte of the joiner's identity
-  (`+0x18`) and of its new session ids (`+0x20`, simulation callers only).
-  The joiner's simulation then sends real join-requests (912 bytes,
-  carrying its new identity) to the host's session, and they reach the host
-  over the copies' own connection. That is the first time a same-account
-  copy's simulation asked to join. Before the session-id change it failed
-  locally with "FAILED TO JOIN THE HOST'S SQUAD", because the joiner's own
-  session had the host's id.
-- The host refuses each join with reason 13. Its join handler (sim
-  `0x4be8a0`) maps the packet's sender address back to a peer. The host's
-  exe files every packet from the joiner under the account identity, which
-  is its own (its refusal goes to `11b8d544b36256b4`). That peer has no
-  transport channel, so the join fails, and the joiner shows "Lost
-  connection to squad leader". Hooking the joiner's exe-side identity too
-  did not change what the host sees, so the host takes the address from its
-  own view of the connection's account, not from the packet.
+Tried and dropped: returning a different lobby owner from `PFLobbyGetOwner`
+(no effect, and it emptied the target session).
 
-Next steps, in order of cost:
+## Known gaps
 
-1. **Two copies only:** remap at the host's exe-to-simulation transport
-   boundary. Packets from the one remote connection become the joiner's
-   identity, and sends to that identity go to the connection. It needs the
-   exe's packet delivery into the simulation found, and it can't tell three
-   or more same-account copies apart.
-2. **Any number of copies:** make the host's exe derive a remote copy's
-   identity from something per copy (each copy would announce its number,
-   and exe `0x7ab94c0` / `0x7acc640` and the address mapping would use it).
-   This means more identity work in the online layer.
-3. **A second account.** A second Steam account (a second Steam client in a
-   sandbox) and a second Microsoft account give a genuinely different
-   identity everywhere. This needs accounts only the user can create.
+- **Teams.** In a team game the joining copies land on red with the host. The
+  host's team assignment (`teams: ... red and blue in turn`) runs when the
+  players list is first published, with the host alone; the joiners arrive
+  afterwards. Fix candidates: get the joiners into the start roster (the
+  host's sim would need to know the peers when shell command 0/0 pulls the
+  target session), or pick the smaller team when the simulation adds a
+  joined-in-progress player in a test copy (what the DLL's own injector does
+  for public games, `smaller_team`).
+- **HUD "YOU".** After the host scored, the joiner's HUD also read "YOU 1":
+  something in the HUD tells players apart by account or name, and every copy
+  is `devnull9090`.
+- **One account.** Names, kill-feed names, scoreboard rows and match-history
+  claims are all the same player name. Anything keyed by account (hub match
+  history, bans, reports) sees one player.
+- Copies use this checkout's lobby DLL, but the Steam install's other mods.
+  `deploy` copies only `mjolnir_lobby.dll`.
 
 ## Diagnosis kept in the DLL (test copies only)
 
@@ -188,5 +212,8 @@ Next steps, in order of cost:
   pump object's vtable, and a hex dump of the first join-request each run.
 - Reading a copy from outside: the simulation's sessions (`life`, peer mask,
   ids) are at `[sim+0x2c3cea0]` (two, `0x5b9e8` apart), and the session ids
-  at `sim+0x12546c0 + index*0x488`. `blam-players.py --pid` prints players and
-  the machine mask.
+  at `sim+0x12546c0 + index*0x488`. `blam-players.py --pid` prints players,
+  their machines and bipeds.
+- `transport: peer <identity> on endpoints <a>/<b> (copy joiner|itself)`: each
+  peer the exe's transport files, and `transport: local endpoint <id>` each
+  Party endpoint a copy makes.
