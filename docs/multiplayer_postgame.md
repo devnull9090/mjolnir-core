@@ -64,42 +64,40 @@ reaches `game_over`, and the host ends the match itself.
      joiner in the match opened the vote, which started another match 20 s
      later with nobody voting. A host alone who leaves mid-match writes no
      standings and gets no vote either way.
-   - **The joiners of a host who leaves by hand** don't come along. The
-     host's leave ends its online game (its net driver goes and the Blam
-     session is disbanded), so a joiner follows the host's travel into a
-     frontend with nobody in it. On its own the game then shows a black
-     screen until the connection's timeout (120 s on the PlayFab net driver;
-     121.8 s measured), then CONNECTION LOST, "Disconnected from host"; that
-     leaves the host's PlayFab lobby and makes the joiner a fireteam of its
-     own (one PC, two copies, 2026-11-07, both SAVE AND EXIT and
-     `LeaveGame`). Since MJOLNIRLobby 0.23.1 the joiner sees it sooner
-     (`Live.stranded`, `Live.watchStranded`):
-     - A game that has been a client (a game state with players) and then
-       sits in the frontend as a client with no game state, or none with
-       players, for 10 s (`Live.STRANDED_AFTER`; `MJOLNIR_STRANDED_AFTER`
-       sets it for a test) has lost its host. On every normal travel to the
-       frontend (after a match's vote, RETURN TO LOBBY) the host's game state
-       came before the next 1.5 s poll, so it never fired there.
-     - It cuts the connection's `ConnectionTimeout` to 1 s: the game's own
-       CONNECTION LOST and lobby leave, about 20 s after the host left, with
-       "The host left the match." under the game's dialog.
-     - Not the engine's `disconnect`: that brought the joiner to its menu
-       but kept it in the host's lobby. It is the fallback when the timeout
-       can't be set or the frontend is still there 10 s later.
-     - Not the fireteam's leave: `CanLeaveFireteam` reads the game state's
-       player list and crashed through the missing game state (it also
-       crashes on a stale view model from `FindAllOf`).
-     - A client's standings are marked seen in the frontend, since its vote
-       is the host's. Before, a joiner back on its own menu this way opened a
-       vote of its own on the match before, and the vote's cancel put the
-       lobby over the reason.
-
-     Getting back together is a normal join (FIND GAMES or an invite), not
-     tested on one PC: every copy is the same PlayFab account, so a copy's
-     leave of the host's lobby takes the host's membership with it, and the
-     host's lobby can't be joined again. A host who wants the fireteam back
-     in the lobby uses the HOST MENU's RETURN TO LOBBY, which travels
-     everyone there together.
+   - **The joiners of a host who leaves by hand** come along. Between two
+     PCs (2026-11-07, both SAVE AND EXIT's `EndCampaign` and `LeaveGame`
+     mid-match), the joiner follows the host's travel into its frontend,
+     has the host's game state within about 2 s, and stays in its fireteam
+     and PlayFab lobby: the host's lobby screen, the joiner's client lobby.
+   - **Between test copies on one PC it strands them.** With every copy
+     on one account (`tools/remote/instances.mjs`), the joiner lands in a
+     frontend with no host's game state: a black screen until the PlayFab
+     net driver's `ConnectionTimeout` (120 s; 121.8 s measured), then
+     CONNECTION LOST, which leaves the host's lobby and makes the joiner a
+     fireteam of its own. Likely because the copies' host listens through
+     the `?listen` console command, not the game's `MemberAdded` flow. In a
+     test copy only (`MJOLNIR_INSTANCE`; `Live.STRANDED_WATCH`), MJOLNIRLobby
+     0.23.1 cuts that short (`Live.stranded`, `Live.watchStranded`):
+     - A client that had players and then sits in the frontend with no game
+       state, or none with players, for 10 s (`Live.STRANDED_AFTER`;
+       `MJOLNIR_STRANDED_AFTER` sets it) cuts the connection's
+       `ConnectionTimeout` to 1 s. That is the game's own CONNECTION LOST and
+       lobby leave, about 20 s after the host left, then "The host left the
+       match." under the game's dialog.
+     - The engine's `disconnect` is the fallback. It reaches the menu but
+       keeps the joiner in the host's lobby.
+     - Not the fireteam's leave: `CanLeaveFireteam` read through the missing
+       game state and crashed. It also crashes on a stale view model from
+       `FindAllOf`.
+     - It stays off on a player's PC, where its one trigger would be a false
+       one: a client in the frontend ahead of a slow host's game state. On
+       every normal travel seen, on two PCs and on copies, the game state
+       came before the next 1.5 s poll.
+   - **A client's standings are the host's vote's.** Since MJOLNIRLobby
+     0.23.1 a client in the frontend marks them seen. Before, a client back
+     on its own menu within 180 s of a match it played (seen on copies,
+     after the exit above) opened a post-game vote of its own on it, and the
+     vote's cancel put the lobby over the reason it was there.
 5. **Joiners** get our lobby instead of the game's CLIENT LOBBY whenever the
    host is in it: the host's map and game type, with START GAME, CHANGE MAP
    and GAME TYPE hidden (and, since they were added, PRIVATE / PUBLIC GAME,

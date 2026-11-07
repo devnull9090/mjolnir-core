@@ -499,11 +499,27 @@ kick({ name = "Arctic", pc = {} }, "why", "PTP")
 eq(sent[1][1], "kick", "a kick message")
 eq(sent[1][3], "PTP", "with the map")
 
--- A joiner whose host left the match by hand follows it into a frontend
--- nobody serves (one PC, two copies, 2026-11-07): it leaves after
+-- Between test copies on one PC a joiner whose host left the match by hand
+-- follows it into a frontend nobody serves (2026-11-07): it leaves after
 -- Live.STRANDED_AFTER with why, and never in a lobby or match that has a
--- host, on its own menu, or before it has been anyone's client.
+-- host, on its own menu, or before it has been anyone's client. Between two
+-- PCs the joiner follows the host into its lobby, so a player's game never
+-- watches for it.
 do
+    eq(Live.STRANDED_WATCH, false, "a player's game (no MJOLNIR_INSTANCE) does not watch")
+    do
+        local cut = { ConnectionTimeout = 120, InitialConnectTimeout = 20 }
+        netDriver = cut
+        local frozenStranded = Live.stranded
+        Live.stranded = function() return true end
+        host, worldName = false, "Frontend"
+        Live.watchStranded()
+        Live.stranded = frozenStranded
+        eq(cut.ConnectionTimeout, 120, "nothing cut on a player's PC")
+        eq(Live.notice, nil, "and nothing said")
+        netDriver, host = nil, true
+    end
+    Live.STRANDED_WATCH = true   -- a test copy
     local after = Live.STRANDED_AFTER
     local s = {}
     local function at(t, view) return Live.stranded(s, t, view) end
@@ -563,6 +579,7 @@ do
     strand()
     eq(commands[2], "disconnect", "no net driver: the disconnect")
     Live.STRANDED_AFTER = after
+    Live.STRANDED_WATCH = false
     Live.notice = nil
     env.StaticFindObject = findObject
     host = true

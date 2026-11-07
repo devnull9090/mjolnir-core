@@ -3038,13 +3038,16 @@ function Live.showNotice()
     })
 end
 
---- A fireteam client left in a frontend no host serves. A host who leaves
---- its match by hand (SAVE AND EXIT, LeaveGame) ends its online game, and
---- every joiner follows its travel into an empty frontend: a black screen for
---- about two minutes, then the game's CONNECTION LOST (one PC, two copies,
---- 2026-11-07). `s` keeps whether this game has been a client (a game state
---- with players, not the host's) and since when it has been one in the
---- frontend with none; true once that has lasted Live.STRANDED_AFTER.
+--- A fireteam client left in a frontend no host serves. Between test copies
+--- of one account on one PC (tools/remote/instances.mjs), a host who leaves
+--- its match by hand (SAVE AND EXIT, LeaveGame) leaves each joiner in an
+--- empty frontend: a black screen for about two minutes, then the game's
+--- CONNECTION LOST (2026-11-07). Between two PCs the joiner follows the host
+--- into its lobby in about 2 s on both leave paths, so this runs only in a
+--- test copy (Live.STRANDED_WATCH). `s` keeps whether this game has been a
+--- client (a game state with players, not the host's) and since when it has
+--- been one in the frontend with none; true once that has lasted
+--- Live.STRANDED_AFTER.
 --- `view`: { host, frontend, players = the game state's player count, nil
 --- with no game state }.
 --- MJOLNIR_STRANDED_AFTER sets it for a test run (a large number: the
@@ -3083,7 +3086,12 @@ end
 --- Each poll (the main menu watch, in a match too): end the connection to a
 --- host that has gone, with why, rather than wait for the game's timeout.
 Live.FORCED_TIMEOUT = 1
+--- A test copy only (MJOLNIR_INSTANCE, set by instances.mjs). On a player's
+--- PC its one trigger would be a false one: a client in the frontend ahead
+--- of a slow host's game state, sent away from a working fireteam.
+Live.STRANDED_WATCH = os.getenv("MJOLNIR_INSTANCE") ~= nil
 function Live.watchStranded()
+    if not Live.STRANDED_WATCH then return end
     local world
     pcall(function() world = UI.playerController():GetWorld():GetAddress() end)
     -- A cut timeout that has not ended the connection: the engine's
@@ -4180,8 +4188,9 @@ local function watchMainMenu()
         local started = os.clock()
         local ok, err = pcall(function()
             pcall(holdFireteamSize)
-            -- A few property reads, so in a match too: it has to see this
-            -- game be a client there to know the frontend after is wrong.
+            -- Test copies only. A few property reads, so in a match too: it
+            -- has to see this game be a client there to know the frontend
+            -- after is wrong.
             local watched, notWatched = pcall(Live.watchStranded)
             if not watched then log("stranded watch: " .. tostring(notWatched)) end
             if not inFrontend() then return end

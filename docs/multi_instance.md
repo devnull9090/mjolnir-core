@@ -214,8 +214,25 @@ asked-for field keeps the slot number; only the team itself is sent.
 - **One account.** Names, kill-feed names, scoreboard rows and match-history
   claims all carry one name. Anything keyed by account (hub match history,
   bans, reports) sees one player.
-- Copies use this checkout's lobby DLL, but the Steam install's other mods.
-  `deploy` copies only `mjolnir_lobby.dll`.
+- Copies use this checkout's MJOLNIRLobby (`deploy`: the DLL, every script
+  and `mod.json`), but the Steam install's other mods.
+- **A host's leave strands the joiners.** After the host's SAVE AND EXIT or
+  `LeaveGame` mid-match, a joining copy lands in a frontend with no host's
+  game state and waits out the 120 s connection timeout. Two PCs don't do
+  this: the joiner is in the host's lobby within about 2 s. In copies only,
+  MJOLNIRLobby cuts the timeout to 1 s after 10 s
+  ([multiplayer_postgame.md](multiplayer_postgame.md));
+  `MJOLNIR_STRANDED_AFTER=100000` in `up`'s environment keeps the game's
+  own two minutes.
+- **No rejoin tests.** After a copy leaves (or crashes out of) the host's
+  PlayFab lobby, that lobby refuses every join (`JoinLobbyCompleted
+  0x89236226`) until both restart, likely because the one account's leave
+  takes the host's membership with it. Rejoining needs PC 2.
+- `up` re-mirrors each copy, which resets its `fireteam.log` to the Steam
+  install's, and `menu` can answer "at the main menu" from a copy's previous
+  run: wait for the copy's lobby (`connection <n>`) before joining. `down`
+  waits for the copies to exit and 5 s more: a copy launched at once quit
+  with no log.
 - The endpoint files in `%LOCALAPPDATA%\MJOLNIR\instances\endpoints` carry
   their writer's process id, and `up` and `down` clear them. A copy that had
   gone once left ids the next network reused, and the host filed itself as
