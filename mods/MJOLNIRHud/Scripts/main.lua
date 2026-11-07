@@ -277,15 +277,39 @@ end
 --- fireteam client hears other players' spawns only from the host's relay,
 --- which can't carry an actor, so it had none: no contested hill and no
 --- Juggernaut marker on a client, and in a team game no team for anyone,
---- itself included, until they died (two PCs, 2026-11-07). FindAllOf walks the
---- whole object array (about 23 ms a class), so it runs only while one is
---- needed, and at most every BIPED_FIND_EVERY seconds. A pawn's own
+--- itself included, until they died (two PCs, 2026-11-07). A pawn's own
 --- GetBlamObjectActor is no way round it: for another player's pawn it
 --- returns a pointer that is no object, unsafe to read (a joiner crashed
 --- while the HUD called it every second).
+---
+--- FindAllOf walks the whole object array (about 23 ms a class; one search
+--- after a joiner's respawn held a frame 89 ms), so it runs once a match, the
+--- first time a biped is wanted. Biped actors are pooled and made ahead, and
+--- NotifyOnNewObject brings any made later, as Scripts/bots.lua does. A
+--- search then only asks the known actors who controls them.
 local PLAYER_BIPEDS = { "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }
 local BIPED_CHECK_EVERY = 0.5
 local BIPED_FIND_EVERY = 2
+local bipedPool, bipedWatched = {}, {}
+
+local function poolBiped(actor)
+    local ok, address = pcall(function() return actor:GetAddress() end)
+    if ok and address then bipedPool[address] = actor end
+end
+
+--- This match's biped actors, found once; later ones arrive by themselves.
+local function fillBipedPool()
+    bipedPool = {}
+    for _, class in ipairs(PLAYER_BIPEDS) do
+        for _, actor in ipairs(FindAllOf(class) or {}) do
+            poolBiped(actor)
+            if not bipedWatched[class] then
+                local ok, path = pcall(function() return actor:GetClass():GetFullName():match("%s(/%S+)$") end)
+                if ok and path then bipedWatched[class] = pcall(NotifyOnNewObject, path, poolBiped) end
+            end
+        end
+    end
+end
 
 local function findBipeds()
     local mode = Match and Match.mode
@@ -312,8 +336,17 @@ local function findBipeds()
     end
     if not missing then return end
     Match.nextBipedFind = t + BIPED_FIND_EVERY
-    for _, class in ipairs(PLAYER_BIPEDS) do
-        for _, actor in ipairs(FindAllOf(class) or {}) do
+    -- Once a match, and again while no Spartan has been seen to watch the
+    -- class by: a team game asks before anyone has spawned.
+    if not Match.bipedsFound or not bipedWatched[PLAYER_BIPEDS[1]] then
+        Match.bipedsFound = true
+        fillBipedPool()
+    end
+    for address, actor in pairs(bipedPool) do
+        local okV, valid = pcall(function() return actor:IsValid() end)
+        if not (okV and valid) then
+            bipedPool[address] = nil
+        else
             local index = controllerOf(actor)
             local p = index and Match.players[index]
             if p and not p.bot then p.biped = actor end
