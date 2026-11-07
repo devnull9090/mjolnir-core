@@ -47,6 +47,28 @@ takes a map off through the launcher for an install from the game's map menu,
 and `remote.mjs shader-caches` moves the shader caches aside for a first run
 (the game then shows its own Loading Shaders screen over the map).
 
+**Two players without anyone at either PC** (agent 11; the run in
+[two_pc_run_2026-11-07.md](two_pc_run_2026-11-07.md)):
+- Each PC owns its own player's position: a host that writes a joiner's biped
+  sees it snap back. `remote.mjs teleport <player> x y z` moves PC 2's player
+  inside PC 2's game, and `remote.mjs objects [group]` reads PC 2's objects
+  (`mjolnir live objects` beside the agent, which also reads a joiner's table).
+- `remote.mjs game-input '<steps>'` drives PC 2's player from inside its game
+  (native/test_input's DLL, put on PC 2 the first time: move it into the
+  backup afterwards). With PC 1's `cli.mjs input` and a teleport in front of
+  the other player, either PC can kill the other.
+- A memory teleport of the host's player doesn't move its actor on PC 2's
+  screen until it moves by input: nudge it when PC 2's view matters.
+- Our screens' `MJ_Event` takes a string. Calling it from the bridge with an
+  `FName` crashed the game. Call it only on the instance that `IsActivated()`
+  and `IsVisible()`.
+- Join a lobby, not an invite: PC 1 lists from its lobby (its MULTIPLAYER
+  button's click event, `mjolnir_auto public on`) with MAX PLAYERS at 2, PC 2
+  runs `mjolnir_auto join <host>`, and PC 1 goes private before starting. A
+  match that was never listed stays out of hub history. One listed for a
+  join-in-progress test stays out too if the host leaves within 60 s with no
+  kills.
+
 **PC 2, once:**
 1. Unzip the bundle.
 2. Close the game.

@@ -11,9 +11,36 @@ function Markers.new(deps)
     local self = {}
     deps.Hill.Waypoint, deps.Hill.log = deps.Waypoint, deps.log
 
+    local unitClass
+
+    --- Where another player's body stands: the biped their spawn named
+    --- (main.lua's player_spawn), while it is still valid, they are alive,
+    --- and it is still their unit (actors are pooled). nil when unknown.
+    local function bipedAt(p, index)
+        local biped = p and not p.dead and p.biped
+        if not biped then return nil end
+        local at
+        pcall(function()
+            if not biped:IsValid() then return end
+            unitClass = unitClass or StaticFindObject("/Script/BlamSynchronization.BlamUnitComponent")
+            local unit = biped:GetComponentByClass(unitClass)
+            if not (unit and unit:IsValid()) then return end
+            local datum = unit:GetControllingPlayerDatumIndex()
+            if type(datum) ~= "number" or datum == -1 or math.floor(datum % 65536) ~= index then return end
+            at = biped:K2_GetActorLocation()
+        end)
+        return at
+    end
+    self.bipedAt = bipedAt
+
     --- Each player with a body: { index, at, team, me }. Players, not AI: the
     --- scripts walk players, so bots neither hold a hill nor contest one. Every
-    --- pawn is read here and now, never kept.
+    --- pawn is read here and now, never kept. Only this machine's own pawn
+    --- follows its player: another player's sits at the world's origin here,
+    --- or on a fireteam client is gone altogether (two PCs, 2026-11-07, which
+    --- hid a contested hill and put a remote Juggernaut's marker at the
+    --- origin), so they are read from their biped, and left out while it is
+    --- unknown.
     local function playersOn(match, pc)
         return function()
             local players = {}
@@ -22,14 +49,16 @@ function Markers.new(deps)
             pc:GetWorld().GameState.PlayerArray:ForEach(function(_, element)
                 local ps = element:get()
                 local pawn = ps:GetPawn()
-                if pawn and pawn:IsValid() then
-                    local index = ps.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
-                    local p = match.players[index]
+                local index = ps.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
+                local p = match.players[index]
+                local me = pawn and pawn:IsValid() and pawn:GetAddress() == myAddress
+                local at = me and pawn:K2_GetActorLocation() or bipedAt(p, index)
+                if at then
                     players[#players + 1] = {
                         index = index,
-                        at = pawn:K2_GetActorLocation(),
+                        at = at,
                         team = match.mode.teams and p and p.team or nil,
-                        me = pawn:GetAddress() == myAddress,
+                        me = me or false,
                     }
                 end
             end)
@@ -85,6 +114,28 @@ function Markers.new(deps)
             match.flags or false }) do
             if marker then marker.hide() end
         end
+    end
+
+    --- What the markers know, as one line (`mjolnir_markers` logs it): the
+    --- live hill or the Juggernaut, and where each player stands for them.
+    function self.describe(match, pc)
+        if not match then return "no match" end
+        local parts = { "family " .. tostring(match.mode and match.mode.family) }
+        if match.hill then parts[#parts + 1] = "hill " .. tostring(match.hill.live) end
+        if match.juggernaut then parts[#parts + 1] = "it " .. tostring(match.juggernaut.it) end
+        local seen = {}
+        for _, p in ipairs(playersOn(match, pc)()) do
+            seen[p.index] = true
+            parts[#parts + 1] = string.format("p%d%s at %.0f %.0f %.0f", p.index, p.me and " (me)" or "",
+                p.at.X, p.at.Y, p.at.Z)
+        end
+        for index, p in pairs(match.players or {}) do
+            if not seen[index] and p.name and not p.bot then
+                parts[#parts + 1] = string.format("p%d unknown (%s%s)", index, p.dead and "dead" or "alive",
+                    p.biped and ", stale biped" or ", no biped")
+            end
+        end
+        return table.concat(parts, "; ")
     end
 
     --- An incident a marker reads. Returns true when someone new became the
