@@ -4920,7 +4920,13 @@ __declspec(dllexport) int mjolnir_join(void *L) {
         return 0;
     }
     fireteam_log("join: queued, %u characters", (unsigned)strlen(req->connect));
-    if (test_instance() && instance_number() > 0) {
+    /* Experiment, off unless MJOLNIR_SIM_JOIN=1 (instances.mjs --sim-join):
+       without it every copy follows the host into its match, each running
+       its own simulation; with it a copy's simulation asks to join the host's,
+       which the host refuses so far (docs/multi_instance.md). */
+    char sim_join[8];
+    if (test_instance() && instance_number() > 0 &&
+        GetEnvironmentVariableA("MJOLNIR_SIM_JOIN", sim_join, sizeof sim_join) > 0 && sim_join[0] == '1') {
         InterlockedExchange(&test_joiner, 1);
         fireteam_log("identity: a test copy joining another: %s", own_machine_identity());
     }

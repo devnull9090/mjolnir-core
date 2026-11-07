@@ -166,43 +166,72 @@ function mirror(n) {
 }
 
 /**
- * Each copy saves the account's cloud settings at startup and moves their
- * concurrency token on, so a copy that kept its older settings stalls before
- * it creates its fireteam lobby (no lobby, no hosting). Setting the token to 0
- * is not enough; with no per-account settings files at all, a copy downloads
- * the cloud's and goes on. So both files go, by name, from the copy's own
- * Saved folder only (never instance 0's, the Steam install's).
+ * The account's settings live in the cloud too, with a concurrency token that
+ * each game keeps in Saved\Config\<account>\Halo*GameUserSettings.ini. A game
+ * whose token differs from the cloud's signs in but never creates its
+ * fireteam lobby (no hosting, no joining), and a game with no such files
+ * uploads its settings and moves the cloud's token on, which strands every
+ * other install, the Steam one included (seen 2026-11-07, fixed by giving it
+ * the cloud's token). So each copy starts with the Steam install's two files,
+ * content and token: no copy uploads, and the token stays the Steam game's.
+ * The Steam install's files are read, never written.
  */
-function forgetCloudSettings(n) {
-  const config = path.join(process.env.LOCALAPPDATA ?? "", "Meteorite", `Saved__mj${n}`, "Config");
-  if (!(n >= 1) || !fs.existsSync(config)) return 0;
-  let removed = 0;
-  for (const user of fs.readdirSync(config, { withFileTypes: true })) {
+function shareCloudSettings(n) {
+  const from = path.join(process.env.LOCALAPPDATA ?? "", "Meteorite", "Saved", "Config");
+  const to = path.join(process.env.LOCALAPPDATA ?? "", "Meteorite", `Saved__mj${n}`, "Config");
+  if (!(n >= 1) || !fs.existsSync(from)) return 0;
+  let copied = 0;
+  for (const user of fs.readdirSync(from, { withFileTypes: true })) {
     if (!user.isDirectory() || !/^\d+$/.test(user.name)) continue;
     for (const name of ["HaloLocalGameUserSettings.ini", "HaloGlobalGameUserSettings.ini"]) {
-      const file = path.join(config, user.name, name);
-      if (fs.existsSync(file)) {
-        fs.rmSync(file);
-        removed++;
-      }
+      const file = path.join(from, user.name, name);
+      if (!fs.existsSync(file)) continue;
+      fs.mkdirSync(path.join(to, user.name), { recursive: true });
+      fs.copyFileSync(file, path.join(to, user.name, name));
+      copied++;
     }
   }
-  return removed;
+  return copied;
+}
+
+/**
+ * A copy's own display settings: windowed at the asked size and every
+ * scalability group at its lowest, so four copies fit one GPU (a fourth at
+ * the Steam game's settings died in D3D12 at startup, 2026-11-07). Written to
+ * the copy's own Saved folder from the Steam game's file.
+ */
+function seedUserSettings(n, extra) {
+  const from = path.join(process.env.LOCALAPPDATA ?? "", "Meteorite", "Saved", "Config", "Windows", "GameUserSettings.ini");
+  const dir = path.join(process.env.LOCALAPPDATA ?? "", "Meteorite", `Saved__mj${n}`, "Config", "Windows");
+  if (!(n >= 1) || !fs.existsSync(from)) return;
+  const size = (flag, fallback) => Number(extra.find((a) => a.startsWith(flag))?.slice(flag.length) ?? fallback);
+  const width = size("-ResX=", 1280), height = size("-ResY=", 720);
+  const text = fs.readFileSync(from, "utf8")
+    .replace(/^(sg\.(?!ResolutionQuality)\w+)=.*$/gm, "$1=0")
+    .replace(/^((?:Last)?(?:Preferred|Confirmed)?FullscreenMode|FullscreenMode)=.*$/gm, "$1=2")
+    .replace(/^((?:LastUserConfirmed)?ResolutionSizeX)=.*$/gm, `$1=${width}`)
+    .replace(/^((?:LastUserConfirmed)?ResolutionSizeY)=.*$/gm, `$1=${height}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "GameUserSettings.ini"), text);
 }
 
 function launch(n, extra = []) {
   const root = installRoot(n);
-  if (n >= 1) forgetCloudSettings(n);
+  if (n >= 1) {
+    shareCloudSettings(n);
+    seedUserSettings(n, extra);
+  }
   const win64 = path.join(root, "Meteorite", "Binaries", "Win64");
   const exe = path.join(win64, "HaloCampaignEvolved.exe");
   if (!fs.existsSync(exe)) throw new Error(`no instance ${n} at ${root}: run mirror ${n} first`);
-  const args = [`-saveddirsuffix=_mj${n}`, ...extra];
-  const child = spawn(exe, args, {
-    cwd: win64,
-    detached: true,
-    stdio: "ignore",
-    env: { ...process.env, SteamAppId: STEAM_APP_ID, SteamGameId: STEAM_APP_ID, MJOLNIR_INSTANCE: String(n) },
-  });
+  // --sim-join: the lobby DLL's experiment that gives a joining copy's
+  // simulation its own machine identity (MJOLNIR_SIM_JOIN=1).
+  const simJoin = extra.includes("--sim-join");
+  const args = [`-saveddirsuffix=_mj${n}`, ...extra.filter((a) => a !== "--sim-join")];
+  const env = { ...process.env, SteamAppId: STEAM_APP_ID, SteamGameId: STEAM_APP_ID, MJOLNIR_INSTANCE: String(n) };
+  if (simJoin) env.MJOLNIR_SIM_JOIN = "1";
+  else delete env.MJOLNIR_SIM_JOIN;
+  const child = spawn(exe, args, { cwd: win64, detached: true, stdio: "ignore", env });
   child.unref();
   return `instance ${n}: started pid ${child.pid} (${args.join(" ")})`;
 }
@@ -270,8 +299,11 @@ async function up(count, ...extra) {
     if (already.has(n)) { lines.push(`instance ${n}: already running`); continue; }
     if (!fs.existsSync(installRoot(n))) lines.push(mirror(n));
     lines.push(deploy(n));
-    lines.push(launch(n, extra.length ? extra : ["-windowed", "-ResX=1280", "-ResY=720"]));
-    await sleep(4000);
+    const window = extra.some((a) => a.startsWith("-Res") || a === "-windowed") ? [] : ["-windowed", "-ResX=1280", "-ResY=720"];
+    lines.push(launch(n, [...window, ...extra]));
+    // One copy's startup (asset load, shader cache) at a time: four at once
+    // crashed one in D3D12.
+    await waitForBridge(n);
   }
   for (let n = 1; n <= count; n++) await waitForBridge(n);
   for (let n = 1; n <= count; n++) lines.push(await menu(n));
