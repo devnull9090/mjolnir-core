@@ -646,6 +646,15 @@ static int instance_number(void) {
     return atoi(value);
 }
 
+/* Experiment, off unless MJOLNIR_SIM_JOIN=1 (instances.mjs --sim-join): the
+   copies' simulations join one another (docs/multi_instance.md). Without it
+   every copy follows the host into its match, each running its own. */
+static int sim_join_enabled(void) {
+    char value[8];
+    return test_instance() && instance_number() > 0 &&
+           GetEnvironmentVariableA("MJOLNIR_SIM_JOIN", value, sizeof value) > 0 && value[0] == '1';
+}
+
 typedef char(__fastcall *identity_t)(void *, unsigned char *, int);
 static identity_t real_local_identity, real_new_session_id;
 static unsigned char *sim_module_base;
@@ -742,6 +751,125 @@ static const char *own_machine_identity(void) {
     return "own";
 }
 
+/* --- Test copies: the exe's peer table -------------------------------------
+
+   The exe's Blam transport (vtable exe+c11b418 on CU4) sends and receives
+   over Party endpoints and keeps two maps: a peer's 8-byte identity to its
+   two endpoints (one per channel), and each endpoint to the identity. A peer
+   is registered by exe 0x7ade590 (transport, &identity, {endpoint, endpoint}),
+   with the identity parsed from its player's UniqueId: the account's for
+   every copy, so on the host all joiners were filed as the host itself
+   (join refused, reason 13). Each joining copy writes its own endpoint ids
+   to %LOCALAPPDATA%\MJOLNIR\instances\endpoints\<n>.txt; a registration of
+   endpoints a joiner wrote takes the account's identity with that joiner's
+   number mixed in, the value its simulation uses for itself. */
+static char endpoints_dir[MAX_PATH];
+static unsigned short own_endpoints[16];
+static volatile LONG own_endpoint_count;
+
+static const char *shared_endpoints_dir(void) {
+    if (!endpoints_dir[0]) {
+        char local[MAX_PATH];
+        if (!GetEnvironmentVariableA("LOCALAPPDATA", local, sizeof local)) return NULL;
+        snprintf(endpoints_dir, sizeof endpoints_dir, "%s\\MJOLNIR\\instances\\endpoints", local);
+        CreateDirectoryA(endpoints_dir, NULL);
+    }
+    return endpoints_dir;
+}
+
+static void publish_own_endpoints(void) {
+    const char *d = shared_endpoints_dir();
+    if (!d || !test_instance()) return;
+    char path[MAX_PATH], tmp[MAX_PATH];
+    snprintf(path, sizeof path, "%s\\%d.txt", d, instance_number());
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f) return;
+    fprintf(f, "%s", test_joiner ? "joiner" : "host");
+    for (LONG i = 0; i < own_endpoint_count && i < 16; i++) fprintf(f, " %u", own_endpoints[i]);
+    fprintf(f, "\n");
+    fclose(f);
+    MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+}
+
+/* The joining copy whose published endpoints include `endpoint`, or 0. */
+static int joiner_with_endpoint(unsigned short endpoint) {
+    const char *d = shared_endpoints_dir();
+    if (!d || !endpoint) return 0;
+    for (int n = 1; n <= 16; n++) {
+        char path[MAX_PATH], role[16];
+        snprintf(path, sizeof path, "%s\\%d.txt", d, n);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        int found = 0;
+        unsigned id;
+        if (fscanf(f, "%15s", role) == 1 && strcmp(role, "joiner") == 0)
+            while (fscanf(f, "%u", &id) == 1)
+                if (id == endpoint) found = 1;
+        fclose(f);
+        if (found) return n;
+    }
+    return 0;
+}
+
+typedef void(__fastcall *register_peer_t)(void *, unsigned long long *, unsigned short *);
+static register_peer_t real_register_peer;
+
+static void __fastcall hook_register_peer(void *transport, unsigned long long *identity, unsigned short *endpoints) {
+    __try {
+        if (identity && endpoints) {
+            unsigned long long was = *identity;
+            int k = joiner_with_endpoint(endpoints[0]);
+            if (!k) k = joiner_with_endpoint(endpoints[1]);
+            if (k) *identity = was ^ (unsigned long long)(k & 0xff);
+            fireteam_log("transport: peer %016llx on endpoints %u/%u%s%s", *identity, endpoints[0], endpoints[1],
+                         k ? " (copy " : "", k ? (k == instance_number() ? "itself)" : "joiner)") : "");
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    real_register_peer(transport, identity, endpoints);
+}
+
+static const unsigned char REGISTER_PEER[] = {0x48, 0x8B, 0xC4, 0x4C, 0x89, 0x40, 0x18, 0x48, 0x89, 0x50, 0x10,
+                                              0x55, 0x53, 0x48, 0x8D, 0x68, 0xA1, 0x48, 0x81, 0xEC, 0xC8, 0x00,
+                                              0x00, 0x00, 0x48, 0x89, 0x70, 0xE8, 0x48, 0x8D, 0x59, 0x58};
+
+static void *inline_hook(unsigned char *fn, size_t stolen, void *hook);
+
+static const char *hook_peer_table(void) {
+    if (real_register_peer) return "already hooked";
+    int hits;
+    unsigned char *fn = find_in_module((unsigned char *)GetModuleHandleA(NULL), REGISTER_PEER, NULL,
+                                       sizeof REGISTER_PEER, 1, &hits);
+    if (!fn) return hits ? "peer registration matched more than once" : "peer registration not found";
+    /* mov rax,rsp / mov [rax+18h],r8 / mov [rax+10h],rdx / push rbp / push rbx /
+       lea rbp,[rax-5Fh]: 17 bytes, nothing position-dependent. */
+    real_register_peer = (register_peer_t)inline_hook(fn, 17, (void *)hook_register_peer);
+    return real_register_peer ? "hooked" : "could not hook";
+}
+
+/* A local endpoint just made (CreateEndpointCompleted): remember its id. */
+static void note_local_endpoint(const unsigned char *change) {
+    typedef unsigned(__stdcall * get_id_t)(void *, unsigned short *);
+    static get_id_t get_id;
+    if (!get_id) {
+        HMODULE party = GetModuleHandleA(store_dll("PartyWin.dll"));
+        if (party) get_id = (get_id_t)GetProcAddress(party, "PartyEndpointGetUniqueIdentifier");
+    }
+    if (!get_id) return;
+    __try {
+        void *endpoint = *(void *const *)(change + 40);
+        unsigned short id = 0;
+        if (endpoint && get_id(endpoint, &id) == 0 && id) {
+            LONG at = InterlockedIncrement(&own_endpoint_count) - 1;
+            if (at < 16) own_endpoints[at] = id;
+            fireteam_log("transport: local endpoint %u", id);
+            publish_own_endpoints();
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
 /* Party's own words for an error detail (PartyGetErrorMessage), or "". */
 static const char *party_error_text(unsigned detail) {
     typedef unsigned(__stdcall * get_message_t)(unsigned, const char **);
@@ -777,6 +905,13 @@ static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count
             case 7:
                 reason = change[6], has_reason = 1;
                 break;
+            }
+            if (test_instance()) {
+                if (type == 10 && result == 0) note_local_endpoint((const unsigned char *)change);
+                if (type == 19 || type == 20) {
+                    InterlockedExchange(&own_endpoint_count, 0);
+                    publish_own_endpoints();
+                }
             }
             if (has_result && (result || detail))
                 fireteam_log("party: %s (%u) result %u detail 0x%x%s%s", party_change_name(type), type, result, detail,
@@ -844,14 +979,22 @@ static unsigned long long __fastcall hook_sim_send(void *gateway, void *address,
                    simulation uses for the peer, and the gateway's class. */
                 unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
                 __try {
-                    fireteam_log("sim: %s to address %016llx, gateway vtable exe+%llx (slots exe+%llx exe+%llx exe+%llx exe+%llx)",
-                                 sim_message_name(type), *(unsigned long long *)address,
-                                 (unsigned long long)(*(unsigned char **)gateway - exe),
-                                 (unsigned long long)((*(unsigned char ***)gateway)[0] - exe),
-                                 (unsigned long long)((*(unsigned char ***)gateway)[1] - exe),
-                                 (unsigned long long)((*(unsigned char ***)gateway)[2] - exe),
-                                 (unsigned long long)((*(unsigned char ***)gateway)[3] - exe));
+                    /* The link's transport: [[gateway+0x10]+0x28], the exe's
+                       object the batch flush (sim 0x531b90) sends through. */
+                    unsigned char *link = *(unsigned char **)((unsigned char *)gateway + 0x10);
+                    void **transport = link ? *(void ***)(link + 0x28) : NULL;
+                    void **vt = transport ? *(void ***)transport : NULL;
+                    char slots[300] = "";
+                    size_t used = 0;
+                    for (int s = 0; vt && s < 10 && used + 24 < sizeof slots; s++)
+                        used += (size_t)snprintf(slots + used, sizeof slots - used, " +%x:%llx", s * 8,
+                                                 (unsigned long long)((unsigned char *)vt[s] - exe));
+                    fireteam_log("sim: %s to address %016llx %016llx %016llx; transport %p vtable exe+%llx;%s",
+                                 sim_message_name(type), ((unsigned long long *)address)[0],
+                                 ((unsigned long long *)address)[1], ((unsigned long long *)address)[2],
+                                 (void *)transport, vt ? (unsigned long long)((unsigned char *)vt - exe) : 0ull, slots);
                 } __except (EXCEPTION_EXECUTE_HANDLER) {
+                    fireteam_log("sim: transport unreadable");
                 }
             }
             if (type == 4 && test_instance() && sent[type] == 1) {
@@ -4924,10 +5067,10 @@ __declspec(dllexport) int mjolnir_join(void *L) {
        without it every copy follows the host into its match, each running
        its own simulation; with it a copy's simulation asks to join the host's,
        which the host refuses so far (docs/multi_instance.md). */
-    char sim_join[8];
-    if (test_instance() && instance_number() > 0 &&
-        GetEnvironmentVariableA("MJOLNIR_SIM_JOIN", sim_join, sizeof sim_join) > 0 && sim_join[0] == '1') {
+    if (sim_join_enabled()) {
         InterlockedExchange(&test_joiner, 1);
+        InterlockedExchange(&own_endpoint_count, 0);
+        publish_own_endpoints();
         fireteam_log("identity: a test copy joining another: %s", own_machine_identity());
     }
     free(InterlockedExchangePointer((void *volatile *)&pending_join, req));
@@ -5437,6 +5580,10 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
                      swap_import("PlayFabMultiplayerWin.dll", "PFMultiplayerStartProcessingLobbyStateChanges",
                                  thunk ? (void *)thunk : (void *)hook_lobby_start_changes,
                                  (void **)&real_lobby_start_changes));
+        if (sim_join_enabled()) {
+            fireteam_log("transport peer table (test copy): %s", hook_peer_table());
+            publish_own_endpoints();
+        }
     }
     if (GetModuleHandleA("PlayFabMultiplayerGDK.dll"))
         fireteam_log("GDK subsystem tick (joins by connection string): %s", hook_gdk_tick_slot());
