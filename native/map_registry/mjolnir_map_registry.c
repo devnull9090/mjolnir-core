@@ -532,6 +532,64 @@ __declspec(dllexport) int mjolnir_map_registry_rescan(void *L) {
     return 0;
 }
 
+// Lua C function, 0 results: whether worlds are in a container here, by the
+// same lookup a travel takes (hooked_first_package). MJOLNIR Lobby asks
+// before it offers or starts a map: a map listed in a maps.json whose
+// containers are not in Paks (a leftover of `mjolnir level bake
+// --install-test`) never travels. Its countdown runs, its world's name
+// resolves nowhere, and the fireteam waits on MISSION SELECT (two PCs,
+// 2026-11-07). `world_request.txt`: one world name per line (a map's code;
+// its world is /Game/Levels/Halo1/Solo/<CODE>/<CODE>). `world_reply.txt`:
+// `ok`, then `<name> 1` or `<name> 0` for each name; `error <why>` while
+// there is no index to ask, which the lobby takes as "cannot say".
+static void native_path(const char *file, char *out, size_t cap);
+static void write_reply(const char *file, const char *text);
+
+__declspec(dllexport) int mjolnir_worlds_known(void *L) {
+    (void)L;
+    ensure_init();
+    if (!g_hooked || g_nmaps == 0) {
+        write_reply("world_reply.txt", g_hooked ? "error no world is indexed" : "error the world index is not open");
+        return 0;
+    }
+    char path[MAX_PATH];
+    native_path("world_request.txt", path, sizeof path);
+    FILE *in = NULL;
+    if (fopen_s(&in, path, "rb") != 0 || !in) {
+        write_reply("world_reply.txt", "error no world_request.txt");
+        return 0;
+    }
+    native_path("world_reply.txt", path, sizeof path);
+    FILE *out = NULL;
+    if (fopen_s(&out, path, "wb") != 0 || !out) {
+        fclose(in);
+        return 0;
+    }
+    fputs("ok\n", out);
+    char line[160];
+    while (fgets(line, sizeof line, in)) {
+        size_t n = strlen(line);
+        while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' ')) line[--n] = 0;
+        if (!n || n >= 128) continue;
+        int name_ok = 1;
+        for (size_t i = 0; i < n; i++) {
+            char c = line[i];
+            if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) name_ok = 0;
+        }
+        if (!name_ok) continue;
+        wchar_t leaf[128];
+        if (!MultiByteToWideChar(CP_UTF8, 0, line, -1, leaf, 128)) continue;
+        int known = 0;
+        EnterCriticalSection(&g_cs);
+        for (int i = 0; i < g_nmaps && !known; i++) known = _wcsicmp(leaf, g_maps[i].leaf) == 0;
+        LeaveCriticalSection(&g_cs);
+        fprintf(out, "%s %d\n", line, known);
+    }
+    fclose(in);
+    fclose(out);
+    return 0;
+}
+
 // ------------------------------------------------- mounting a map live
 //
 // A map downloaded while the game runs (docs/live_map_install.md): its

@@ -27,6 +27,11 @@ jobs:
           lua5.4 tools/tests/test_flag_marker.lua
           lua5.4 tools/tests/test_match_report.lua
 
+      - name: Test the lobby after a match (Quit, missing worlds, a joiner told why)
+        run: |
+          lua5.4 tools/tests/test_lobby_postgame.lua
+          lua5.4 tools/tests/test_map_worlds.lua
+
       - name: Test UI class retention across map travel
         run: lua5.4 tools/tests/test_ui_class_lifetime.lua
 
