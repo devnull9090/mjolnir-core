@@ -1,9 +1,11 @@
 # Play test: Yoyorast Island V2
 
 For Yoyorast Island V2 2.7.0 with mods 0.46.0. Every game type below hosts and
-runs on one PC, with its objectives and vehicles in the simulation. This list is
-what one PC cannot prove: bots are not players to the scripts, so they never
-score an objective, take a flag or become "it".
+runs on one PC, with its objectives and vehicles in the simulation. Moving one
+player straight onto each objective has already proved that flags, hills, the ball
+and laps score, and that dropped flags and balls go home. This list is what that
+cannot prove: anything between two players, anything on a joiner's screen, and
+getting around the map for real.
 
 Two players is the minimum, one on each team. Four is better: a contested hill,
 a betrayal and a shared team score all need more than one on a side. Work down
@@ -36,7 +38,8 @@ Host Slayer, then have everyone join.
 ## 3. Assault (new)
 
 Assault is new and has never been played by two people. It is under Capture the
-Flag. Blue defends first.
+Flag. Blue defends first. A capture, a timed swap and a dropped flag all work with
+one player: what's new here is the other team.
 
 - [ ] One flag is out, on Blue's stand. Red can take it, and Blue cannot.
 - [ ] Red carries it to Red's own stand: Red scores, and the flag appears on
@@ -82,8 +85,9 @@ Flag. Blue defends first.
 
 ## 8. Race
 
-Yoyorast's lap is 27 flags and about 2.2 km. Nobody has finished one yet, so the
-first thing to find out is whether every flag can be reached.
+Yoyorast's lap is 27 flags and about 2.2 km. A lap scores, but only by moving the
+player between flags: nobody has driven one, so the first thing to find out is
+whether every flag can be reached.
 
 - [ ] **Race:** drive a full lap in a Warthog or Mongoose. Each flag you touch moves
       the marker on, and a lap scores. Note any flag you can't reach.

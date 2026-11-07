@@ -801,9 +801,11 @@ Where these differ from CE (PC retail unconfirmed):
 - **Assault** swaps sides in its script, not with the sim's rounds (B8): the
   defender is a global number and the match stays one round. Teams keep their
   own stands, so the flag changes base and the players do not. The 5 minutes a
-  side and 3 captures are this project's defaults, not read from CE. The clock's
-  swap ran in game on Yoyorast: `flag_reset` came 5:00 after the first flag, and
-  the sim gave the same actor to the next flag, so its team has to be read fresh.
+  side and 3 captures are this project's defaults, not read from CE. Run in game
+  on Yoyorast: `flag_reset` came 5:00 after the first flag and 5:00 after a capture,
+  a capture scored and moved the flag to the scorer's stand, and a dropped flag went
+  home after 30 s with no swap. The sim gave the same actor to the next flag, so its
+  team has to be read fresh.
 - **Flag markers** (`Scripts/flagmark.lua`) read the flag actors themselves, so CTF
   and Assault get a marker that follows a flag home, dropped or carried, in place
   of the waypoints that never reach Unreal (B4).
@@ -813,6 +815,7 @@ Where these differ from CE (PC retail unconfirmed):
   and a side lasts `sideSeconds` in the mode's row (`Scripts/scoreboard.lua`), which
   has to match `--side-seconds` in the variant. The host counts from the first
   flag. A joiner has no such start, so sees only the role until the first swap.
+  In game, the sim's swap came in the second the line predicted.
 
 CE's other Classic presets (Rockets, Snipers, Phantoms and the rest) need weapon sets, traits or lives.
 
@@ -840,7 +843,20 @@ The sim's random pick (`Get Random Object With Label`, action 96) worked on Pris
 
 Script traits, tested on PC 1, 2026-11-05: a test variant (`--mode trait-test`, never shipped) ran 22 m in a 2 s run against 13 to 15 m normally, the 1.5 it sets, and drew the player in active camo. Stalker and Reverse Tag host and run. Damage, damage resistance, and the traits on someone who is "it" were not measured: bots are not players to the script, so nobody becomes it solo.
 
-Not tested: a full lap or a Race win, touching a Rally flag, any team score, a contested hill, passing the Juggernaut or its beacon (bots are not players to the script, so all of these need two PCs), a suicide in Slayer, Slayer and plain King on this build, and any vehicle in a race.
+Tested on PC 1, 2026-11-06, on Yoyorast Island 2.7.0, by moving one player straight onto each objective (a bot is not a player to the script, but this one is):
+
+| Game type | Result |
+|---|---|
+| Race | all 27 flags fired in order, a lap scored, and the third lap ended the round |
+| Team Race | a lap went to the team |
+| Rally, Team Rally | a touch scored and the flag moved; 7 points in one pass of the flags |
+| King, Team King | a point a second on the hill, with `ON THE HILL` on the HUD |
+| Crazy King | the hill walked 0, 1, 3, a minute each; only the live hill scored |
+| Oddball, Team Oddball | a touch picked up the ball, a point a second; the ball dropped at the carrier's death and went home after 30 s |
+| CTF | a capture scored, and a dropped flag went home after 30 s |
+| Slayer | a suicide cost the player and the team a point |
+
+Not tested: a contested hill, passing the Juggernaut or its beacon, a kill or betrayal between players, an own-team flag return, a capture blocked by an absent flag (all need two PCs), any vehicle in a race, and whether every race flag can be reached on the ground: moving the player proves a flag's zone fires, not the way to it.
 
 ---
 
