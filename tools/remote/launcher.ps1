@@ -22,11 +22,16 @@
 
     Never presses Launch: that would set aside the bridge and every hand-
     installed mod (unsupported.rs). The game is started through Steam, as ever.
+
+    With -Uninstall <slug> it takes that hub mod off through the launcher's own
+    command instead, which leaves the PC as one that never had it: the way to
+    test an install from the game's map menu (docs/live_map_install.md).
 #>
 param(
     [Parameter(Mandatory)][string]$Exe,
     [int]$Port = 9333,
-    [int]$Minutes = 90
+    [int]$Minutes = 90,
+    [ValidatePattern('^[a-z0-9-]*$')][string]$Uninstall = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -214,6 +219,14 @@ function Find-Check {
 
 try {
     if (Get-Process HaloCampaignEvolved -ErrorAction SilentlyContinue) { throw "the game is running; quit it first" }
+    if ($Uninstall) {
+        Set-State "running" "uninstalling $Uninstall"
+        Start-Debuggable
+        $left = Invoke-Page "window.__TAURI_INTERNALS__.invoke('hub_uninstall', { slug: '$Uninstall' }).then((s) => s.installed.length)"
+        Stop-Launcher
+        Set-State "done" "uninstalled $Uninstall; $left hub mods installed"
+        exit 0
+    }
     Set-State "running" "asking what is out of date"
     $before = Find-Check
     if ($before) {

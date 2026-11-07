@@ -2963,6 +2963,87 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     return string.format("coast %dx%d at %d cm, sea at %g", k.res[1], k.res[2], math.floor(k.cell), k.water)
 end
 
+--- A coast takes its ground once, as it spawns. A capture that drew nothing
+--- leaves the ground map at its clear value, far over the sea, so the domain
+--- reads as land all the way across: its coast map's red channel is saturated
+--- and the sea draws only outside the domain, the seabed bare inside it. Seen
+--- once on PC 2 (Yoyorast, 2026-11-06) and not on demand since; taking the
+--- capture again brought the sea straight back. A healthy coast has open sea
+--- at some of these (Yoyorast and Death Island read 0 at three of the five),
+--- and each read waits on the GPU, so only these few.
+Effects.COAST_SAMPLES = { { 0.25, 0.25 }, { 0.75, 0.25 }, { 0.5, 0.5 }, { 0.25, 0.75 }, { 0.75, 0.75 } }
+Effects.COAST_LAND = 254.0
+--- Seconds between tries. A capture costs a frame of about 0.7 s, so a coast
+--- gets this many and no more, however it reads.
+Effects.COAST_RETRIES = { 2000, 5000, 10000 }
+
+--- Whether the coast map reads as land everywhere; nil when it cannot be read.
+function Effects.coastDry(dom)
+    local w = getWorld()
+    local lib = findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local rt = dom.CoastlineMap
+    if not (w and lib and rt and rt:IsValid()) then return nil end
+    for _, uv in ipairs(Effects.COAST_SAMPLES) do
+        local c = lib:ReadRenderTargetRawUV(w, rt, uv[1], uv[2], false)
+        if c.R < Effects.COAST_LAND then return false end
+    end
+    return true
+end
+
+--- Take the coast's ground capture again, then look at it again, until it
+--- reads right or the tries run out; `done` (the ground put back) runs then.
+--- `try` counts from 1. A level left behind is left alone.
+function Effects.coastCheck(level, try, done)
+    local dom = Current.level == level and Current.actors["__flux_coast"]
+    local alive = dom and dom:IsValid()
+    local ok, dry = false, nil
+    if alive then ok, dry = pcall(Effects.coastDry, dom) end
+    if not ok or not dry then
+        if try > 1 then Log(string.format("flux: coast reads right after %d capture(s) again", try - 1)) end
+        if alive and not ok then Log("flux: coast check: " .. tostring(dry)) end
+        done()
+        return
+    end
+    local wait = Effects.COAST_RETRIES[try]
+    if not wait then
+        Log(string.format("flux: coast still reads as land after %d capture(s) again; "
+            .. "`mjolnir_flux_recapture` takes it again by hand", try - 1))
+        done()
+        return
+    end
+    Log(string.format("flux: coast reads as land all over, its ground capture drew nothing; taking it again (%d)", try))
+    local rebuilt, why = pcall(function() dom:RebuildAll() end)
+    if not rebuilt then
+        Log("flux: capture: " .. tostring(why))
+        done()
+        return
+    end
+    ExecuteInGameThreadWithDelay(wait, function() Effects.coastCheck(level, try + 1, done) end)
+end
+
+--- `mjolnir_flux_recapture`: a coast's ground capture again, by hand. Ground
+--- that stands only for the capture has to stand for this one too: without
+--- Death Island's the island left the coast map.
+function Effects.fluxRecapture()
+    local dom = Current.actors and Current.actors["__flux_coast"]
+    if not (dom and dom:IsValid()) then return "no Flux coast on this level" end
+    local shown = {}
+    for _, item in ipairs(Current.level.decor or {}) do
+        local a = type(item) == "table" and item.capture_only and Current.actors[item.id]
+        if a and a:IsValid() then
+            a:SetActorHiddenInGame(false)
+            shown[#shown + 1] = a
+        end
+    end
+    dom:RebuildAll()
+    ExecuteInGameThreadWithDelay(3000, function()
+        for _, a in ipairs(shown) do
+            pcall(function() if a:IsValid() then a:SetActorHiddenInGame(true) end end)
+        end
+    end)
+    return "ground captured again"
+end
+
 --- Fluid Flux's sea kept out of the tunnels and rooms (level.flux.dry,
 --- upgrade_ce_map.flux_dry_zones). Its surface is one plane at sea level
 --- everywhere, so it stood in a tunnel ramping under it, churning, and its
@@ -3304,15 +3385,19 @@ function Effects.flux(world)
                 if a then only[#only + 1] = a end
             end
             ExecuteInGameThreadWithDelay(3000, function()
-                for _, a in ipairs(only) do
-                    pcall(function() if a:IsValid() then a:SetActorHiddenInGame(true) end end)
-                end
-                for _, u in ipairs(uncut) do
-                    pcall(function() u[1]:SetVectorParameterValue(FName("LandRect"), u[2]) end)
-                end
-                for _, f in ipairs(floored) do
-                    pcall(function() f[1]:SetMaterial(f[2], f[3]) end)
-                end
+                -- Checked before the ground goes back: a capture taken again
+                -- has to see what this one was meant to.
+                Effects.coastCheck(level, 1, function()
+                    for _, a in ipairs(only) do
+                        pcall(function() if a:IsValid() then a:SetActorHiddenInGame(true) end end)
+                    end
+                    for _, u in ipairs(uncut) do
+                        pcall(function() u[1]:SetVectorParameterValue(FName("LandRect"), u[2]) end)
+                    end
+                    for _, f in ipairs(floored) do
+                        pcall(function() f[1]:SetMaterial(f[2], f[3]) end)
+                    end
+                end)
             end)
             Log(string.format("flux: %s; %d actor(s) out of the ground capture, %d ground slot(s) whole for it, "
                 .. "%d sea floor slot(s) out of it", table.concat(made, ", "), tagged, #uncut, #floored))
@@ -6039,6 +6124,13 @@ local function initialize()
     RegisterConsoleCommandHandler("mjolnir_flux_bake", function()
         local _, msg = pcall(Effects.fluxBake)
         Log("flux bake: " .. tostring(msg))
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_flux_recapture", function()
+        ExecuteInGameThread(function()
+            local _, msg = pcall(Effects.fluxRecapture)
+            Log("flux: " .. tostring(msg))
+        end)
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_level_clear", function()

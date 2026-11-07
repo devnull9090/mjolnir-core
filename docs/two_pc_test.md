@@ -39,6 +39,14 @@ This brings PC 2's launcher, runtime, code mods and maps up to the latest
 releases ([game_automation.md](game_automation.md#matches-and-a-second-pc)).
 Then put the build under test on top with `put` or `sync-mods.mjs`.
 
+Both PCs hold only the game's files and the launcher's hub set, so a test can
+show what a player gets. Take anything you put on top back out afterwards:
+`remote.mjs move <plan.json>` moves files into a backup beside `Meteorite`, with
+a ledger. To test a player's first time, `remote.mjs launcher uninstall <slug>`
+takes a map off through the launcher for an install from the game's map menu,
+and `remote.mjs shader-caches` moves the shader caches aside for a first run
+(the game then shows its own Loading Shaders screen over the map).
+
 **PC 2, once:**
 1. Unzip the bundle.
 2. Close the game.

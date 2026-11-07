@@ -12,6 +12,10 @@
 //   node tools/remote/remote.mjs ls <root> [path]
 //        roots: ue4ss, saved, agent, paks (game closed to replace a container),
 //        launcher (its config folder; agent 5)
+//   node tools/remote/remote.mjs move <plan.json>          move files into a backup beside Meteorite (agent 10;
+//                                                          game closed; plan: { backup, files: [{root, path}], restore })
+//   node tools/remote/remote.mjs shader-caches             move the shader caches aside, for a first-run test (agent 10)
+//   node tools/remote/remote.mjs window minimize|restore   minimize the game's window or bring it back (agent 10)
 //   node tools/remote/remote.mjs install-bridge
 //   node tools/remote/remote.mjs deploy-lobby              the lobby's DLL and games.lua
 //   node tools/remote/remote.mjs log [lines]               the tail of MJOLNIRLobby's fireteam.log
@@ -29,6 +33,8 @@
 //   node tools/remote/remote.mjs launcher check            what it says is out of date
 //   node tools/remote/remote.mjs launcher update           update everything through its Updates screen
 //                                                          (itself first), and wait for the end
+//   node tools/remote/remote.mjs launcher uninstall <slug> take a hub mod off through the launcher (agent 10), to test
+//                                                          an install from the game's map menu
 //   node tools/remote/remote.mjs launcher quit             close it
 //
 // The agent's address and token come from MJOLNIR_REMOTE / MJOLNIR_REMOTE_TOKEN,
@@ -127,6 +133,15 @@ export const commands = {
   },
   async quit(flag) {
     return JSON.stringify(await json("POST", "/quit", flag === "--force" ? { force: "1" } : {}));
+  },
+  async move(plan) {
+    return JSON.stringify(await json("POST", "/move", {}, fs.readFileSync(plan)));
+  },
+  async "shader-caches"() {
+    return JSON.stringify(await json("POST", "/shader-caches"));
+  },
+  async window(state = "minimize") {
+    return JSON.stringify(await json("POST", "/window", { state }));
   },
   async get(root, remote, local) {
     const bytes = await call("GET", "/file", { root, path: remote });
@@ -271,11 +286,13 @@ export const commands = {
       }
       case "quit":
         return JSON.stringify(await json("POST", "/launcher/quit"));
+      case "uninstall":
       case "update": {
-        const started = await json("POST", "/launcher/update");
+        const uninstall = verb === "uninstall";
+        const started = await json("POST", `/launcher/${verb}`, uninstall ? { slug: minutes } : {});
         if (!started.ok) throw new Error(started.error);
         console.log(started.note);
-        const deadline = Date.now() + Number(minutes) * 60000;
+        const deadline = Date.now() + (uninstall ? 5 : Number(minutes)) * 60000;
         let last = "";
         while (Date.now() < deadline) {
           await sleep(10000);
