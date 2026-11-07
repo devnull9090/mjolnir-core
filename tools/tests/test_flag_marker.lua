@@ -188,4 +188,29 @@ eq(marks.line, "ATTACK  /  SIDES SWAP IN 5:00", "and the clock from the first sw
 tick(mark, true)
 eq(marks.line, nil, "a hidden HUD hides the line")
 
+-- Handles: the salt (high half) counts up as a slot is reused, and wraps.
+eq(FlagMark.newer(0xe3660094, 0xe3650094), true, "a later object in the same slot")
+eq(FlagMark.newer(0xe3650094, 0xe3660094), false, "not an earlier one")
+eq(FlagMark.newer(0xe3660095, 0xe3650094), false, "nor one in another slot")
+eq(FlagMark.newer(0x00010094, 0xffff0094), true, "the salt wraps")
+eq(FlagMark.newer(nil, 0xe3650094), false, "an actor with no handle is no later object")
+
+-- A fireteam client can keep a deleted flag's actor where it last stood, with
+-- its colour, while the next flag takes the same slot (Assault, two PCs).
+local function handled(a, index)
+    local sync = { BlamObjectIndex = index }
+    a.GetComponentByClass = function() return sync end
+    return a
+end
+world = {}
+mark = assault(false)
+local leftover = handled(blue, -479919980) -- 0xe3650094: Blue's flag, captured
+leftover.variant, leftover.place = "Blue", { X = 3368, Y = -6834, Z = -14625 }
+local live = handled(actor(-521, -6818, -14829, "Default"), -479854444) -- 0xe3660094
+notify(live)
+at(mark, 0, "Blue")
+assert(marks.Red, "the live flag is marked")
+eq(marks.Blue, nil, "and the leftover in its slot is not")
+eq(marks.line, "ATTACK", "so the role is read from the live flag")
+
 print("Flag marker: teams from the variant, Assault's reused actor, both CTF flags, carried and unused flags, freed actors, Assault's role and clock")

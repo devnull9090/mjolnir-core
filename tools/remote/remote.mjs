@@ -21,6 +21,12 @@
 //   node tools/remote/remote.mjs log [lines]               the tail of MJOLNIRLobby's fireteam.log
 //   node tools/remote/remote.mjs crash                     the newest crash report's message and stack
 //   node tools/remote/remote.mjs input '[{"key":"Enter"}]'  keys and clicks for the game window (agent 2)
+//   node tools/remote/remote.mjs game-input '[{"key":"W","hold":800}]'
+//                                                          the player's keys from inside the game, no focus
+//                                                          (native/test_input's DLL, which this puts on PC 2)
+//   node tools/remote/remote.mjs objects [group] [file]    `mjolnir live objects` on PC 2 (agent 11)
+//   node tools/remote/remote.mjs teleport <player> x y z   move that player's biped in PC 2's game (agent 11).
+//                                                          A host can't: each PC owns its own player's position
 //   node tools/remote/remote.mjs signin                    sign in at the title screen with no input
 //   node tools/remote/remote.mjs auto state|host CODE mode|join [host]|public on|off
 //                                                          MJOLNIRLobby's mjolnir_auto, and its answer
@@ -97,6 +103,12 @@ const AGENT_FILES = [
   [path.join(REPO, "mods", "MJOLNIRBridge", "Scripts", "main.lua"), "MJOLNIRBridge/Scripts/main.lua"],
   [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
 ];
+// The MJOLNIR CLI beside the agent, for `objects` and `teleport` (agent 11).
+// Big, so deploy-agent sends it only when PC 2's copy differs in size.
+const AGENT_CLI = path.join(REPO, "target", "release", "mjolnir.exe");
+// The test input DLL (native/test_input/build.ps1 builds it into the bridge
+// mod; install-bridge copies it into the game). A test file: no release ships it.
+const TEST_INPUT_DLL = "Mods/MJOLNIRBridge/native/mjolnir_test_input.dll";
 const PROBE_LUA = path.join(REPO, "tools", "remote", "audio-probe.lua");
 export const SIGN_IN_LUA =
   'local t = FindFirstOf("WBP_TitleMenu_C") if t and t:IsValid() then ' +
@@ -172,6 +184,79 @@ export const commands = {
     const result = await json("POST", "/input", {}, steps);
     if (!result.ok) throw new Error(result.error ?? result.output ?? "input failed");
     return result.output || "sent";
+  },
+  /**
+   * The player's keys, buttons and look from inside PC 2's game, as game_input's
+   * in-game route does on PC 1: no OS input, so the window needs no focus. The
+   * DLL goes on PC 2 the first time (take it back out after the test), and the
+   * script is written and renamed into place by the bridge's Lua, so the DLL
+   * never reads half a file.
+   */
+  async "game-input"(stepsJson, gap = "60") {
+    const { toScript, parseAck } = await import("../mcp/game/in_game_input.mjs");
+    const script = toScript(JSON.parse(stepsJson), Number(gap));
+    const listed = (await json("GET", "/list", { root: "ue4ss", path: path.posix.dirname(TEST_INPUT_DLL) }).catch(() => ({ items: [] }))).items;
+    if (!listed.some((item) => item.name === path.posix.basename(TEST_INPUT_DLL))) {
+      const local = path.join(REPO, "mods", "MJOLNIRBridge", "native", "mjolnir_test_input.dll");
+      if (!fs.existsSync(local)) throw new Error(`${local} is missing: run native/test_input/build.ps1`);
+      await put(local, "ue4ss", TEST_INPUT_DLL);
+    }
+    const { install, pid } = await json("GET", "/status");
+    const ue4ss = `${install}\\Meteorite\\Binaries\\Win64\\ue4ss`;
+    const dll = `${ue4ss}\\${TEST_INPUT_DLL.replaceAll("/", "\\")}`;
+    const dir = `${ue4ss}\\mjolnir-bridge\\`;
+    const id = Date.now() % 1_000_000_000;
+    const lua = (text) => `[==[${text}]==]`;
+    // A new worker deletes any script waiting as it starts, so it has to say
+    // it is up (input_status.txt) before the first one goes. A status file
+    // outlives the game, so the worker is started once per game process (the
+    // pid it was started for is kept here, as game.mjs does for PC 1).
+    const enabledFor = path.join(os.tmpdir(), "mjolnir-pc2-test-input-pid.txt");
+    const readStatus = () => call("GET", "/file", { root: "ue4ss", path: "mjolnir-bridge/input_status.txt" }).then((b) => b.toString("utf8").trim()).catch(() => null);
+    if ((fs.existsSync(enabledFor) ? fs.readFileSync(enabledFor, "utf8").trim() : "") !== String(pid)) {
+      await bridge("lua",
+        `os.remove(${lua(dir + "input_status.txt")})\n` +
+        `local enable, err = package.loadlib(${lua(dll)}, "mjolnir_test_input_enable")\n` +
+        `if not enable then error(err) end\nenable()\nprint("enabled")`);
+      let status = null;
+      for (let i = 0; i < 40 && !status; i++) {
+        await sleep(150);
+        status = await readStatus();
+      }
+      if (!status?.startsWith("ok")) throw new Error(`the test input DLL did not start: ${status ?? "no input_status.txt"}`);
+      fs.writeFileSync(enabledFor, String(pid));
+    }
+    const enabled = await bridge("lua",
+      `os.remove(${lua(dir + "input_ack.txt")})\n` +
+      `local f = assert(io.open(${lua(dir + "input_cmd.tmp")}, "w"))\n` +
+      `f:write(${lua([`id ${id}`, ...script.lines, ""].join("\n"))})\nf:close()\n` +
+      `assert(os.rename(${lua(dir + "input_cmd.tmp")}, ${lua(dir + "input_cmd.txt")}))\nprint("sent")`);
+    if (!enabled.includes("sent")) throw new Error(`could not send the script: ${enabled}`);
+    const deadline = Date.now() + script.duration + 8000;
+    while (Date.now() < deadline) {
+      await sleep(150);
+      const text = await call("GET", "/file", { root: "ue4ss", path: "mjolnir-bridge/input_ack.txt" }).then((b) => b.toString("utf8")).catch(() => null);
+      const ack = text && parseAck(text, id);
+      if (ack) {
+        if (!ack.ok) throw new Error(`input failed: ${ack.error}`);
+        return `${script.done.join("\n")}\nsimulation reads so far: ${ack.reads}, carrying our input: ${ack.delivered}`;
+      }
+    }
+    const status = await call("GET", "/file", { root: "ue4ss", path: "mjolnir-bridge/input_status.txt" }).then((b) => b.toString("utf8")).catch(() => "none");
+    throw new Error(`the test input worker did not answer (input_status.txt: ${status.trim()})`);
+  },
+  /** `mjolnir live objects` in PC 2's game, as TSV (agent 11). */
+  async objects(group = "", local) {
+    const text = (await call("GET", "/objects", { group })).toString("utf8");
+    if (local) {
+      fs.writeFileSync(local, text);
+      return `${local}: ${text.split("\n").filter(Boolean).length} objects`;
+    }
+    return text;
+  },
+  /** Move player N's biped in PC 2's own game (agent 11). */
+  async teleport(player, x, y, z) {
+    return JSON.stringify(await json("POST", "/teleport", { player, x, y, z }));
   },
   /** Run `mjolnir_auto ...` in the game and wait for its answer (a newer `at`). */
   async auto(...words) {
@@ -258,6 +343,11 @@ export const commands = {
   async "deploy-agent"() {
     const out = [];
     for (const [local, name] of AGENT_FILES) out.push(await put(local, "agent", name));
+    if (fs.existsSync(AGENT_CLI)) {
+      const listed = (await json("GET", "/list", { root: "agent", path: "" })).items ?? [];
+      const there = listed.find((item) => item.name === "mjolnir.exe");
+      if (!there || there.size !== fs.statSync(AGENT_CLI).size) out.push(await put(AGENT_CLI, "agent", "mjolnir.exe"));
+    }
     out.push(JSON.stringify(await json("POST", "/restart-agent")));
     await sleep(4000);
     out.push(JSON.stringify(await json("GET", "/status")));
