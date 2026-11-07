@@ -99,18 +99,28 @@ end
 
 --- The installed maps ({ code, title, description, modes }): the launcher's
 --- MJOLNIRMaps\maps.json, then MJOLNIRLevelLoader\maps.json (written by
---- `mjolnir level bake --install-test`) for codes it does not list.
+--- `mjolnir level bake --install-test`) for codes it does not list. A map
+--- whose world is in no container here is left out (MapLive.worlds): every
+--- list, the vote and what a client tells its host it has agree that it is
+--- not installed. When the native half cannot say, nothing is left out.
 local function installedMaps()
-    local maps, seen = {}, {}
+    local maps, seen, codes = {}, {}, {}
     for _, path in ipairs({ MAPS_DIR .. "\\maps.json", LOADER_DIR .. "\\maps.json" }) do
         for _, map in ipairs(readMaps(path)) do
-            if type(map) == "table" and map.code and not seen[map.code] then
+            if type(map) == "table" and type(map.code) == "string" and not seen[map.code] then
                 seen[map.code] = true
                 maps[#maps + 1] = map
+                codes[#codes + 1] = map.code
             end
         end
     end
-    return maps
+    local known = MapLive.worlds(codes)
+    if not known then return maps end
+    local out = {}
+    for _, map in ipairs(maps) do
+        if known[map.code] ~= false then out[#out + 1] = map end
+    end
+    return out
 end
 
 local modesFor
@@ -267,6 +277,14 @@ local function startGame(map, mode)
             return false, "FORGE is host only for now: start it without fireteam members"
         end
         Games.setPublic(false)
+    end
+    -- Its world in a container here, asked afresh: a start whose world is
+    -- nowhere counts down and never travels, which left the host on MISSION
+    -- SELECT and the fireteam on STARTING THE NEXT GAME (two PCs, 2026-11-07).
+    local known = MapLive.worlds({ map.code }, true)
+    if known and known[map.code] == false then
+        return false, titleOf(map) .. " is not installed on this PC: no container has its world. "
+            .. "Install it again from the MJOLNIR launcher"
     end
     -- A map installed after the game started (in game, or by the launcher
     -- with no relaunch since) is in no cooked registration: its scenario
@@ -783,8 +801,20 @@ Net.on("starting", function(f)
     if have and not MapLive.differs(f[1], f[2]) then return end
     log("client lobby: the host is starting " .. f[1] .. (have and ", another release of it than this PC's" or
         ", which this PC does not have") .. ": leaving the fireteam")
-    Live.leaveFireteam()
+    Live.leaveFor(Live.missingReason(f[1], f[3], have), f[1], f[2] ~= "" and f[2] or nil, have)
 end)
+
+--- Why a fireteam member left when the host started `code` (game type
+--- `modeId`): it lacks the map, or, when `have`, has another release of it.
+function Live.missingReason(code, modeId, have)
+    local game = Live.title(code) .. (modeId and modeId ~= "" and ("  /  " .. modeTitle(modeId)) or "")
+    if have then
+        return "The host started " .. game .. " with another version of the map than this PC's, "
+            .. "so you left the fireteam. Update it here (no restart), then join the host again."
+    end
+    return "The host started " .. game .. ", and this PC doesn't have that map, so you left the fireteam. "
+        .. "Download it here (no restart), then join the host again."
+end
 
 --- Leave the fireteam from the lobby: the game's own leave, on the local
 --- player's view model (the one that can). BlamCampaignFlowGameSubsystem's
@@ -801,6 +831,16 @@ function Live.leaveFireteam()
     end
     log("fireteam: nothing to leave")
     return false
+end
+
+--- A fireteam client leaving for a reason its game would not show (it says
+--- only CONNECTION LOST, Disconnected from host; two PCs, 2026-11-07): leave,
+--- and keep the reason for the main menu (Live.showNotice), with the
+--- download (or, when `update`, the update) of `code` when the reason is a
+--- map this PC lacks. `release`: the host's release of it.
+function Live.leaveFor(reason, code, release, update)
+    Live.notice = { text = reason, code = code, release = release, update = update, at = os.clock() }
+    return Live.leaveFireteam()
 end
 
 Net.on("mapindex", function(f)
@@ -2399,6 +2439,7 @@ local LOBBY_EVENTS = {
             return
         end
         Live.confirmAt = nil
+        Live.quitAt = nil   -- a new match: an earlier leave is not its end
         local removed = Live.removeLacking(Game.map.code)
         setText(Lobby.Status, "Starting " .. titleOf(Game.map) .. " - " .. Game.mode.name .. "...")
         local map, mode = Game.map, Game.mode
@@ -2939,6 +2980,42 @@ local function modeById(map, id)
         if mode.id == id then return mode end
     end
     return nil
+end
+
+--- A fireteam client back in the frontend after leaving for a reason
+--- (Live.leaveFor, a kick): the reason on screen, Live.NOTICE_DELAY after
+--- the frontend is there, so the game's own CONNECTION LOST, which comes as
+--- the session ends, is up first. With a map this PC lacks, its download
+--- screen, whose DOWNLOAD (or UPDATE) gets it; otherwise a notice.
+Live.NOTICE_DELAY = 3
+function Live.showNotice()
+    local n = Live.notice
+    if not n or not inFrontend() then return end
+    n.seen = n.seen or os.clock()
+    if os.clock() - n.seen < Live.NOTICE_DELAY then return end
+    Live.notice = nil
+    log("left the fireteam: " .. tostring(n.text))
+    local have = n.code and mapByCode(n.code)
+    if n.code and (not have or MapLive.differs(n.code, n.release)) then
+        local mine = MapLive.release(n.code)
+        Live.prompt(n.code, {
+            reason = n.text,
+            action = have and "UPDATE" or "DOWNLOAD",
+            release = n.release,
+            version = (Live.hostRelease[n.code] or {}).version,
+            update = have and true or nil,
+            have = mine and mine.version,
+            readyText = "Join the host again from FIND GAMES or their invite.",
+        })
+        return
+    end
+    local rec
+    rec = UI.push({
+        title = "BACK AT THE MAIN MENU",
+        subtitle = "FROM THE HOST",
+        description = n.text,
+        buttons = { { label = "OK", description = n.text, onClick = function() UI.pop(rec) end } },
+    })
 end
 
 --- MJOLNIRHud's standings: { code, variant, title, modeTitle, winner,
@@ -3566,6 +3643,11 @@ local function decide()
     local mode = modeById(map, o.mode)
     if not (map and mode) then
         log("post-game: " .. tostring(o.code) .. " / " .. tostring(o.mode) .. " is not installed")
+        -- Everyone back to the lobby, the host with the reason: the vote's
+        -- screen shows STARTING THE NEXT GAME to the end, and only the
+        -- host's LOBBY, disabled once a game is chosen, ever closed it.
+        Post.failed = "Could not start: " .. Live.title(o.code) .. " is not installed on this PC"
+        Post.cancel = true
         return
     end
     Game.map, Game.mode = map, mode
@@ -3584,20 +3666,47 @@ local function decide()
         local removed = Live.removeLacking(map.code)
         ExecuteInGameThreadWithDelay(removed > 0 and 3000 or 0, function()
             local ok, err = startGame(map, mode)
-            if not ok and Post and alive(Post.screen) then setText(Post.screen.Status, "Could not start: " .. tostring(err)) end
+            if not ok and Post and Post.vote == v then
+                log("post-game: could not start " .. map.code .. ": " .. tostring(err))
+                Post.failed = "Could not start: " .. tostring(err)
+                Post.cancel = true
+            end
         end)
     end
     ExecuteInGameThreadWithDelay(2500, go)
 end
 
+--- Whether the standings written at `endedAt` are from a match the host left
+--- by hand (Live.quitAt, set by the EndCampaign and LeaveGame hooks in
+--- initialize; cleared when the host starts a game). A host who leaves while
+--- the final standings are up comes back to the frontend with them, unseen
+--- (PC 1, 2026-11-07). The two-PC run saw a vote after a host's LeaveGame
+--- with a joiner in the match, which started another match 20 s later with
+--- nobody voting; alone, a leave mid-match writes no standings. Standings
+--- written before the leave are the match it left (any earlier ones were
+--- seen when the host came back from them); ones after it, within
+--- QUIT_SECONDS. Any fresh standings use up a leave.
+Live.QUIT_SECONDS = 30
+function Live.quitEnded(endedAt)
+    local at = Live.quitAt
+    Live.quitAt = nil
+    if not (at and endedAt) then return false end
+    return endedAt <= at + Live.QUIT_SECONDS
+end
+
 --- The host, back from a match with fresh standings: the post-game screen
---- and a new vote.
+--- and a new vote; after the host's own Quit, the lobby (Live.quitEnded).
 local function hostPostGame()
     if Post or not inFrontend() or not Net.isHost() then return end
     local r = readResults()
     if not r or r.endedAt == seenResults or os.time() - (r.endedAt or 0) > RESULTS_FRESH then return end
     if not UI.valid(liveMainMenu()) then return end
     seenResults = r.endedAt
+    if Live.quitEnded(r.endedAt) then
+        log("post-game: the host quit the match: the lobby, with no vote")
+        openLobby()
+        return
+    end
     if not loadClass(POSTGAME_CLASS) then
         log("post-game screen not installed (an older pakchunk984-MJOLNIRUI): the lobby instead")
         openLobby()
@@ -3629,11 +3738,15 @@ local function postTick()
     local v = Post.vote
     if v and v.host then
         if Post.cancel or (not alive(Post.screen) and not v.chosen) then
-            -- LOBBY, or Back: no vote; the lobby to pick by hand.
+            -- LOBBY, or Back: no vote; the lobby to pick by hand. So does a
+            -- chosen game that could not start, with why on the lobby's
+            -- status line (decide).
+            local failed = Post.failed
             Net.toClients("cancel", v.id)
             closePostGame()
             Post = { dismissed = v.id }
             openLobby()
+            if failed and alive(Lobby) then setText(Lobby.Status, failed) end
             return
         end
         if not v.chosen then
@@ -3953,6 +4066,8 @@ local function watchMainMenu()
             pcall(SquadPanel.refresh, fireteamSize())
             pcall(hostPostGame)
             pcall(broadcastLobby)
+            local shown, whyNot = pcall(Live.showNotice)
+            if not shown then log("notice: " .. tostring(whyNot)) end
             local menu = liveMainMenu()
             -- Signed in once a main menu has been up (it comes after "press
             -- start"); still so behind our screens, which may hide it. Only
@@ -4067,9 +4182,10 @@ local function remotePlayers()
 end
 
 --- Send a player back to their main menu: a kick message over the lobby's
---- channel (Scripts/net.lua), on which their own game leaves the match.
-local function kick(player, why)
-    local ok = Net.toClient(player.pc, "kick", why)
+--- channel (Scripts/net.lua), on which their own game leaves the match and
+--- shows `why`. `code`: a map they lack, which they are offered there.
+local function kick(player, why, code)
+    local ok = Net.toClient(player.pc, "kick", why, code or "")
     log(string.format("host: %s %s (%s)", ok and "sent back" or "could not send back", player.name, why))
     return ok
 end
@@ -4090,7 +4206,10 @@ function Live.removeLacking(code)
     local title = Live.title(code)
     for _, p in ipairs(remotePlayers()) do
         if out[p.name] then
-            if kick(p, "You don't have " .. title .. ", so the game started without you.") then removed = removed + 1 end
+            if kick(p, "You don't have " .. title .. ", so the host started the game without you. "
+                .. "Download it here (no restart), then join the host again.", code) then
+                removed = removed + 1
+            end
             Live.states[p.name] = nil
         end
     end
@@ -4319,6 +4438,8 @@ end
 --   mjolnir_auto join [host name]      join a listed game (the first, or the host's),
 --                                      downloading its map first when it is not here
 --   mjolnir_auto download <CODE>       the download screen for a map
+--   mjolnir_auto missing <CODE> [mode] what a fireteam member sees when the
+--                                      host starts a map it lacks
 --   mjolnir_auto install <CODE> [<release id>]
 --                                      install a map (or that release of it) in
 --                                      game, with no screen
@@ -4414,6 +4535,7 @@ local AUTO = {
         Game.map, Game.mode = map, mode
         saveGame()
         local private = args[3] == "private"
+        Live.quitAt = nil
         Games.setPublic(not private)
         local ok, why = startGame(map, mode)
         autoState({ result = ok and ("hosting " .. map.code .. " " .. mode.id .. (private and " private" or ""))
@@ -4463,6 +4585,15 @@ local AUTO = {
         })
         autoState({ result = "download screen " .. code })
     end,
+    -- What a fireteam member sees when the host starts a map it lacks
+    -- (`mjolnir_auto missing <CODE> [<mode>]`): the leave and the notice the
+    -- host's `starting` message gives one, on one PC.
+    missing = function(args)
+        local code = string.upper(args[1] or "")
+        if not code:match("^[%w_]+$") then return autoState({ result = "error no map code" }) end
+        Live.leaveFor(Live.missingReason(code, args[2], false), code)
+        autoState({ result = "notice " .. code })
+    end,
     -- A map installed in game with no screen (`mjolnir_auto install <CODE>`).
     install = function(args)
         local code = string.upper(args[1] or "")
@@ -4493,6 +4624,10 @@ local function initialize()
     -- enforced as a banned player rejoined, two PCs 2026-10-03).
     Net.on("kick", function(fields)
         log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
+        -- The host's reason, and the map it names (Live.removeLacking), on
+        -- the main menu once this game is back there (Live.showNotice).
+        local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
+        Live.notice = { text = fields[1] or "The host sent you back to the main menu.", code = code, at = os.clock() }
         -- In the lobby, LeaveGame does nothing (two PCs, 2026-10-09): the
         -- fireteam's own leave does it.
         if inFrontend() then
@@ -4512,6 +4647,20 @@ local function initialize()
         end
         ExecuteInGameThreadWithDelay(200, leave)
     end)
+    -- The host leaving its match by hand: the standings that leaves behind
+    -- open the lobby, not a vote (Live.quitEnded). The pause menu's SAVE AND
+    -- EXIT, once its dialog says YES, calls EndCampaign (traced in game,
+    -- 2026-11-07); LeaveGame is the same leave from script, which the
+    -- two-PC run used. A client's leave (its own exit, a kick) is no host's.
+    for _, fn in ipairs({ "EndCampaign", "LeaveGame" }) do
+        local hooked = pcall(RegisterHook, "/Script/BlamEngine.BlamCampaignFlowGameSubsystem:" .. fn, function()
+            if Net.isHost() and not inFrontend() then
+                Live.quitAt = os.time()
+                log("host: left the match (" .. fn .. "): no vote after it")
+            end
+        end)
+        if not hooked then log("host: " .. fn .. " not hooked, so leaving a match that way still opens the vote") end
+    end
     RegisterConsoleCommandHandler("mjolnir_auto", function(full)
         local args = {}
         for word in tostring(full or ""):gmatch("%S+") do args[#args + 1] = word end

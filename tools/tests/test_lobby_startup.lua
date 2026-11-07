@@ -41,7 +41,9 @@ local modules = {
         isPublic = function() return false end, status = function() return "" end,
         changed = function() calls[#calls+1] = "changed" end,
     },
-    maplive = { register = function() calls[#calls+1] = "register"; return true end, release = function() return {} end },
+    -- No world index here (MapLive.worlds returns nil: "cannot say").
+    maplive = { register = function() calls[#calls+1] = "register"; return true end, release = function() return {} end,
+        worlds = function() return nil end },
     settings = { variantLine = function() return "" end },
     net = { on = function() end, toClients = function() calls[#calls+1] = "starting message" end },
     json = { encode = function() return "{}" end },

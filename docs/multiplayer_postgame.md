@@ -51,12 +51,38 @@ reaches `game_over`, and the host ends the match itself.
      the fireteam follows into the map.
    - LOBBY, or Back on the host, ends the vote and opens the lobby to pick
      by hand.
+   - A chosen game that cannot start (its map is not installed, or its
+     world is in no container) does the same, with why on the lobby's
+     status line. Before MJOLNIRLobby 0.23.0 the vote stayed on STARTING THE
+     NEXT GAME with LOBBY disabled (two PCs, 2026-11-07).
+   - **A host who leaves the match by hand** gets the lobby, never a vote:
+     the pause menu's SAVE AND EXIT (its YES calls
+     `BlamCampaignFlowGameSubsystem.EndCampaign`) or `LeaveGame` from
+     script. Standings written before the leave (a leave while the final
+     standings are up), or within 30 s after it, belong to the match left
+     (`Live.quitEnded`). In the two-PC run a host's `LeaveGame` with a
+     joiner in the match opened the vote, which started another match 20 s
+     later with nobody voting. A host alone who leaves mid-match writes no
+     standings and gets no vote either way.
 5. **Joiners** get our lobby instead of the game's CLIENT LOBBY whenever the
    host is in it: the host's map and game type, with START GAME, CHANGE MAP
    and GAME TYPE hidden (and, since they were added, PRIVATE / PUBLIC GAME,
    MAX PLAYERS and GAME SETTINGS). Since mods-v0.20.0, a joiner without the
    host's map, or with another release of it, sees START GAME as DOWNLOAD
    MAP or UPDATE MAP ([live_map_install.md](live_map_install.md)).
+6. **A joiner the host starts without** (a map it lacks, or another release
+   of it; `starting`, or the host's `kick`) leaves the fireteam, and the
+   game itself says only CONNECTION LOST. Since MJOLNIRLobby 0.23.0 the
+   joiner's own lobby then opens the map's download screen with why: which
+   map and game type, that this PC doesn't have it, and that DOWNLOAD gets
+   it without a restart (`Live.leaveFor`, `Live.showNotice`). A kick for
+   another reason shows the host's reason.
+
+The vote, the lobby and their lists offer only maps whose world is in a
+container here: MJOLNIRLevelLoader's `mjolnir_worlds_known` answers from the
+same index a start's travel resolves its world through, so a maps.json entry
+whose containers are gone (a leftover of `mjolnir level bake --install-test`)
+is left out and logged, and START GAME on one fails with why.
 
 Each machine shows its own standings. They agree because every machine
 counted the same incidents ([multiplayer_hud.md](multiplayer_hud.md)).
@@ -108,11 +134,11 @@ A message is `MJOLNIR|<verb>|<field>...`:
 | `ballot` | anyone, the host included | id, option |
 | `cancel` | host | id |
 | `lobby` | host, while its lobby is up | map code, game type, game settings line ([host_game_settings.md](host_game_settings.md)), campaign-list index, hub release id, version |
-| `starting` | host, as it starts a game | map code, hub release id |
+| `starting` | host, as it starts a game | map code, hub release id, game type |
 | `mapstate` | a client getting the host's map | map code, stage, percent ([live_map_install.md](live_map_install.md)) |
 | `where` | a client joining a match under way | map code |
 | `mapindex` | host, in answer to `where` | map code, campaign-list index |
-| `kick` | host | why |
+| `kick` | host | why; the map code when it is a map they lack (MJOLNIRLobby 0.23.0), which the client offers with the reason |
 | `reporting` | anyone on the post-game screen | 1 when the report panel opens, 0 when it closes: the host holds the vote |
 | `iam` | a client | its identity ticket ([player_identity.md](player_identity.md)) |
 | `whois` | a client with no roster yet | none |
