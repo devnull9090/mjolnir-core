@@ -371,6 +371,13 @@ async function up(count, ...extra) {
 async function down() {
   const copies = (await running()).filter((r) => r.n >= 1);
   for (const { pid } of copies) process.kill(pid);
+  // Gone before this returns: `down; up` launched copy 1 while the old one
+  // was still exiting, and the new one quit at once (2026-11-07).
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 30 && copies.some((c) => alive(c.pid)); i++) await sleep(500);
+  // Even then a copy launched at once quit with no log (twice, 2026-11-07);
+  // one launched a few seconds later started.
+  if (copies.length) await sleep(5000);
   clearEndpointFiles();
   return copies.length ? `stopped ${copies.map((c) => `instance ${c.n} (pid ${c.pid})`).join(", ")}` : "no copies running";
 }

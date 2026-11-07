@@ -496,4 +496,50 @@ sent = {}
 kick({ name = "Arctic", pc = {} }, "why", "PTP")
 eq(sent[1][1], "kick", "a kick message")
 eq(sent[1][3], "PTP", "with the map")
+
+-- A joiner whose host left the match by hand follows it into a frontend
+-- nobody serves (one PC, two copies, 2026-11-07): it leaves after
+-- Live.STRANDED_AFTER with why, and never in a lobby or match that has a
+-- host, on its own menu, or before it has been anyone's client.
+do
+    local after = Live.STRANDED_AFTER
+    local s = {}
+    local function at(t, view) return Live.stranded(s, t, view) end
+    eq(at(0, { frontend = true }), false, "starting up: no game state, never a client")
+    eq(at(30, { frontend = true }), false, "still nothing to leave")
+    eq(at(31, { host = true, frontend = true, players = 1 }), false, "its own menu")
+    eq(at(40, { frontend = true }), false, "joining: the host's frontend loading")
+    eq(at(70, { frontend = true }), false, "however long, before it was a client")
+    eq(at(71, { frontend = true, players = 2 }), false, "in the host's lobby")
+    eq(at(80, { frontend = false, players = 2 }), false, "in the match")
+    eq(at(90, { frontend = false }), false, "the travel back: not the frontend yet")
+    eq(at(91, { frontend = true }), false, "the frontend, before the host's game state")
+    eq(at(91 + after - 1, { frontend = true }), false, "a slow host is not gone")
+    eq(at(91 + after, { frontend = true, players = 2 }), false, "the lobby after a match")
+    eq(at(200, { frontend = true, players = 0 }), false, "an empty game state starts the count")
+    eq(at(200 + after, { frontend = true, players = 0 }), true, "and the host has left")
+    eq(at(200 + after + 1, { frontend = true }), false, "once")
+    eq(at(400, { frontend = true }), false, "not again until it is a client again")
+    -- The way out: the engine's disconnect, with why. Never the fireteam's
+    -- leave, whose CanLeaveFireteam reads through the missing game state.
+    local commands = {}
+    local findObject = env.StaticFindObject
+    env.StaticFindObject = function()
+        return { ExecuteConsoleCommand = function(_, _, command) commands[#commands + 1] = command end }
+    end
+    local before = left
+    host, worldName = false, "Frontend"
+    Live.watchStranded()   -- no game state in the fakes: never a client yet
+    eq(#commands, 0, "nothing to leave on a first look")
+    local frozen = Live.stranded
+    Live.stranded = function() return true end
+    Live.watchStranded()
+    Live.stranded = frozen
+    eq(commands[1], "disconnect", "the engine's disconnect")
+    eq(left, before, "not the fireteam's leave")
+    has(Live.notice and Live.notice.text, "The host left the match", "with why")
+    Live.notice = nil
+    env.StaticFindObject = findObject
+    host = true
+end
 print("Lobby after a match: " .. checks .. " checks passed")

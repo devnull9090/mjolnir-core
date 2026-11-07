@@ -3038,6 +3038,63 @@ function Live.showNotice()
     })
 end
 
+--- A fireteam client left in a frontend no host serves. A host who leaves
+--- its match by hand (SAVE AND EXIT, LeaveGame) ends its online game, and
+--- every joiner follows its travel into an empty frontend: a black screen for
+--- about two minutes, then the game's CONNECTION LOST (one PC, two copies,
+--- 2026-11-07). `s` keeps whether this game has been a client (a game state
+--- with players, not the host's) and since when it has been one in the
+--- frontend with none; true once that has lasted Live.STRANDED_AFTER.
+--- `view`: { host, frontend, players = the game state's player count, nil
+--- with no game state }.
+Live.STRANDED_AFTER = 10
+function Live.stranded(s, now, view)
+    if view.host then
+        s.client, s.since = false, nil
+        return false
+    end
+    if (view.players or 0) > 0 then
+        s.client, s.since = true, nil
+        return false
+    end
+    if not (s.client and view.frontend) then
+        s.since = nil
+        return false
+    end
+    s.since = s.since or now
+    if now - s.since < Live.STRANDED_AFTER then return false end
+    s.client, s.since = false, nil
+    return true
+end
+
+local strandedState = {}
+
+--- Each poll (the main menu watch, in a match too): leave a fireteam whose
+--- host has gone, with why, rather than wait for the game's timeout.
+function Live.watchStranded()
+    local players
+    pcall(function()
+        local state = UI.playerController():GetWorld().GameState
+        if state:IsValid() then players = #state.PlayerArray end
+    end)
+    local frontend = inFrontend()
+    if not Live.stranded(strandedState, os.clock(), { host = Net.isHost(), frontend = frontend, players = players }) then
+        return
+    end
+    log("fireteam: no host in this frontend for " .. Live.STRANDED_AFTER .. " s: the host left the match")
+    Live.notice = Live.newNotice({ text = "The host left the match." })
+    -- Not the fireteam's leave: its CanLeaveFireteam reads the game state's
+    -- players, and with no game state it read through a null (a crash, one
+    -- PC, two copies, 2026-11-07). The engine's disconnect takes this game
+    -- to its own menu in about 5 s.
+    local ok, err = pcall(function()
+        local pc = UI.playerController()
+        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            :ExecuteConsoleCommand(pc:GetWorld(), "disconnect", pc)
+    end)
+    if not ok then log("fireteam: could not disconnect: " .. tostring(err)) end
+end
+
 --- MJOLNIRHud's standings: { code, variant, title, modeTitle, winner,
 --- endedAt, matchId, teams = { {team, total} }, players = { {name, score,
 --- kills, deaths, team, you, userId, hubName, reports} } } in standing order
@@ -4074,6 +4131,10 @@ local function watchMainMenu()
         local started = os.clock()
         local ok, err = pcall(function()
             pcall(holdFireteamSize)
+            -- A few property reads, so in a match too: it has to see this
+            -- game be a client there to know the frontend after is wrong.
+            local watched, notWatched = pcall(Live.watchStranded)
+            if not watched then log("stranded watch: " .. tostring(notWatched)) end
             if not inFrontend() then return end
             -- Retried until they are in: without them the lobby shows but
             -- does nothing. Both return at once when already done.
