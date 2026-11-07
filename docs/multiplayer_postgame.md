@@ -108,11 +108,11 @@ A message is `MJOLNIR|<verb>|<field>...`:
 | `ballot` | anyone, the host included | id, option |
 | `cancel` | host | id |
 | `lobby` | host, while its lobby is up | map code, game type, game settings line ([host_game_settings.md](host_game_settings.md)), campaign-list index, hub release id, version |
-| `starting` | host, as it starts a game | map code, hub release id |
+| `starting` | host, as it starts a game | map code, hub release id, game type |
 | `mapstate` | a client getting the host's map | map code, stage, percent ([live_map_install.md](live_map_install.md)) |
 | `where` | a client joining a match under way | map code |
 | `mapindex` | host, in answer to `where` | map code, campaign-list index |
-| `kick` | host | why |
+| `kick` | host | why; the map code when it is a map they lack (MJOLNIRLobby 0.23.0), which the client offers with the reason |
 | `reporting` | anyone on the post-game screen | 1 when the report panel opens, 0 when it closes: the host holds the vote |
 | `iam` | a client | its identity ticket ([player_identity.md](player_identity.md)) |
 | `whois` | a client with no roster yet | none |

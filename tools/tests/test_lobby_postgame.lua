@@ -335,7 +335,7 @@ v.endsAt = os.clock() - 1
 postTick()   -- decides: ZZT is not installed
 postTick()   -- and the post-game ends
 eq(lobbies, 1, "a chosen game that is not installed: the lobby")
-has(lobbyStatus, "COULD NOT START", "with why on the lobby")
+has(lobbyStatus, "Could not start: ZZT is not installed on this PC", "with why on the lobby")
 eq(sent[#sent][1], "cancel", "and the fireteam's vote is closed")
 eq(countdowns(), 0, "nothing starts")
 -- The world goes missing after the vote was made: the start fails, and the

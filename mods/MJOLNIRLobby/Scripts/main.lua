@@ -3637,7 +3637,7 @@ local function decide()
         -- Everyone back to the lobby, the host with the reason: the vote's
         -- screen shows STARTING THE NEXT GAME to the end, and only the
         -- host's LOBBY, disabled once a game is chosen, ever closed it.
-        Post.failed = "COULD NOT START " .. Live.title(o.code) .. ": IT IS NOT INSTALLED ON THIS PC"
+        Post.failed = "Could not start: " .. Live.title(o.code) .. " is not installed on this PC"
         Post.cancel = true
         return
     end
