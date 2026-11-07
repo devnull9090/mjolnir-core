@@ -38,6 +38,8 @@
 #>
 param(
     [string]$ProcessName = "HaloCampaignEvolved",
+    # One copy of several (tools/remote/instances.mjs runs more than one).
+    [int]$ProcessId = 0,
     [Parameter(Mandatory = $true)][string]$OutFile,
     [int]$MaxWidth = 800,
     [switch]$ForceForeground
@@ -102,9 +104,11 @@ function Fail($message) {
     exit 1
 }
 
-$process = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowHandle -ne 0 } |
-    Select-Object -First 1
+$process = if ($ProcessId) { Get-Process -Id $ProcessId -ErrorAction SilentlyContinue } else {
+    Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Select-Object -First 1
+}
 if (-not $process) { Fail "no window found for process '$ProcessName'" }
 
 # With the UE4SS GUI console open the process has two top-level windows, and

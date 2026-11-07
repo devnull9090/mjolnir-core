@@ -208,6 +208,17 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
    maxUserCount, maxDeviceCount, maxUsersPerDeviceCount, maxDevicesPerUserCount,
    maxEndpointsPerDeviceCount, directPeerConnectivityOptions (uint32 each). The
    ini ships 4, 4, 2, 1, 3; the log line confirms the order on a real call. */
+/* A test copy of the game started by tools/remote/instances.mjs, which sets
+   MJOLNIR_INSTANCE: several copies on one PC, signed in to one account. */
+static int test_instance(void) {
+    static int known = -1;
+    if (known < 0) {
+        char value[16];
+        known = GetEnvironmentVariableA("MJOLNIR_INSTANCE", value, sizeof value) > 0;
+    }
+    return known;
+}
+
 static long __stdcall hook_create_network(void *handle, void *user, void *config, unsigned region_count, void *regions,
                                           void *invitation, void *context, void *descriptor, void *applied) {
     if (config) {
@@ -218,7 +229,10 @@ static long __stdcall hook_create_network(void *handle, void *user, void *config
         c[1] = at_least(c[1], fireteam_size);
         /* The per-device limits stay as shipped: raising users/device to 4 and
            endpoints/device to 5 made every remote join time out, guests or not. */
-        fireteam_log("party: users %u devices %u", c[0], c[1]);
+        /* Test copies share one account, so the network has to take one user
+           on several devices; shipped, a user is on one device only. */
+        if (test_instance()) c[3] = at_least(c[3], fireteam_size);
+        fireteam_log("party: users %u devices %u devices/user %u", c[0], c[1], c[3]);
     }
     return real_create_network(handle, user, config, region_count, regions, invitation, context, descriptor, applied);
 }
@@ -545,6 +559,338 @@ static const char *party_change_name(unsigned type) {
     return type < sizeof names / sizeof *names ? names[type] : "(chat/audio)";
 }
 
+/* PFMultiplayerStartProcessingLobbyStateChanges(handle, &count, &changes):
+   every PlayFab lobby event. Logged in test copies only (several on one PC,
+   one account): whether a joiner on the same account is ever a new member of
+   the host's lobby. Each change starts with its type; the "...Completed" ones
+   carry an HRESULT next, and MemberAdded/MemberRemoved the lobby and then the
+   member's entity key (id, type). */
+typedef long(__stdcall *lobby_start_changes_t)(void *, unsigned *, const void *const **);
+
+static lobby_start_changes_t real_lobby_start_changes;
+
+/* The game's lobby event pump (exe 0x6f44150 on CU4) keeps its own object in
+   rsi (`mov rsi, rcx` in its prologue) when it calls the import; the thunk in
+   front of the hook saves it here. */
+static void *volatile lobby_pump_rsi;
+
+static long __stdcall hook_lobby_start_changes(void *handle, unsigned *count, const void *const **changes) {
+    long hr = real_lobby_start_changes(handle, count, changes);
+    static int described;
+    if (!described && lobby_pump_rsi) {
+        described = 1;
+        __try {
+            unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+            void **vtable = *(void ***)lobby_pump_rsi;
+            fireteam_log("lobby events: pump object %p vtable exe+%llx; +80 exe+%llx +a0 exe+%llx +c0 exe+%llx "
+                         "+e0 exe+%llx +140 exe+%llx",
+                         lobby_pump_rsi, (unsigned long long)((unsigned char *)vtable - exe),
+                         (unsigned long long)((unsigned char *)vtable[0x80 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0xa0 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0xc0 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0xe0 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0x140 / 8] - exe));
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("lobby events: pump object unreadable");
+        }
+    }
+    if (hr >= 0 && count && changes && *changes && test_instance()) {
+        static const char *const names[] = {
+            "CreateAndJoinLobbyCompleted", "JoinLobbyCompleted", "MemberAdded", "AddMemberCompleted", "MemberRemoved",
+            "ForceRemoveMemberCompleted", "LeaveLobbyCompleted", "Updated", "PostUpdateCompleted", "Disconnecting",
+            "Disconnected", "JoinArrangedLobbyCompleted", "FindLobbiesCompleted", "InviteReceived",
+            "InviteListenerStatusChanged", "SendInviteCompleted"};
+        for (unsigned i = 0; i < *count; i++) {
+            const unsigned char *change = (const unsigned char *)(*changes)[i];
+            if (!change) continue;
+            __try {
+                unsigned type = *(const unsigned *)change;
+                const char *name = type < sizeof names / sizeof *names ? names[type] : "?";
+                if (type == 2 || type == 4) {
+                    const char *member = *(const char *const *)(change + 16);
+                    fireteam_log("lobby event: %s %s", name, member ? member : "?");
+                } else if (type == 7) {
+                    continue; /* property updates: many, and not the join */
+                } else if (type <= 1 || type == 3 || type == 5 || type == 6 || type == 8 || type == 11) {
+                    fireteam_log("lobby event: %s 0x%08lx", name, *(const long *)(change + 4));
+                } else {
+                    fireteam_log("lobby event: %s", name);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                fireteam_log("lobby event: unreadable");
+            }
+        }
+    }
+    return hr;
+}
+
+/* --- Test copies on one account: a machine identity of their own ----------
+
+   The simulation asks the exe for its machine identity (sim 0x4d1230 on CU4:
+   [[iface]+0x10] -> vtable +0x148 -> the online object, whose +0x18 writes 8
+   bytes) and caches it (a byte flag, then the 8 bytes). At a match's start it
+   pulls the session to join from the same object (sim 0xf4b0: +0x10 the
+   host's identity, +0x30 the session) and hosts its own when the host's
+   identity is its own. The exe answers with the account's identity, so on
+   one account every copy is "the host" and plays alone. A copy that joined
+   another by connection string (tools/remote/instances.mjs) takes the
+   account's identity with its copy number mixed into the first byte, and
+   the cache is cleared so the simulation asks again. */
+static volatile LONG test_joiner;
+/* The simulation's cached identity: a byte flag, then the 8 bytes. */
+static unsigned char *sim_identity_flag;
+
+static int instance_number(void) {
+    char value[16];
+    if (GetEnvironmentVariableA("MJOLNIR_INSTANCE", value, sizeof value) == 0) return 0;
+    return atoi(value);
+}
+
+/* MJOLNIR_SIM_JOIN=1, which instances.mjs sets unless --separate: the copies'
+   simulations join one another (docs/multi_instance.md). Without it every
+   copy follows the host into its match, each running its own. */
+static int sim_join_enabled(void) {
+    char value[8];
+    return test_instance() && instance_number() > 0 &&
+           GetEnvironmentVariableA("MJOLNIR_SIM_JOIN", value, sizeof value) > 0 && value[0] == '1';
+}
+
+typedef char(__fastcall *identity_t)(void *, unsigned char *, int);
+static identity_t real_local_identity, real_new_session_id;
+static unsigned char *sim_module_base;
+static size_t sim_module_size;
+
+/* Only the simulation's own questions get the copy's identity; the exe keeps
+   the account's for everything it does itself. */
+static int asked_by_sim(void *from) {
+    unsigned char *at = (unsigned char *)from;
+    return sim_module_base && at >= sim_module_base && at < sim_module_base + sim_module_size;
+}
+
+/* Everyone's question, the exe's too (the identity is also the simulation's
+   transport address). The host files a joiner's packets by the peer table
+   below, not by this answer; the exe's callers get the copy's identity only
+   because that is the way it was proven (2026-11-07). */
+static char __fastcall hook_local_identity(void *online, unsigned char *out, int size) {
+    char ok = real_local_identity(online, out, size);
+    if (ok && out && size >= 1 && test_joiner) out[0] ^= (unsigned char)(instance_number() & 0xff);
+    return ok;
+}
+
+/* The id of a session the simulation creates (sim 0x4d10c0 asks the same
+   object's +0x20): the account's too, so a joiner's own squad session had
+   the host's id, and joining that id found "itself" (FAILED TO JOIN THE
+   HOST'S SQUAD). */
+static char __fastcall hook_new_session_id(void *online, unsigned char *out, int size) {
+    char ok = real_new_session_id(online, out, size);
+    if (out && size >= 1 && test_joiner && asked_by_sim(_ReturnAddress()))
+        out[0] ^= (unsigned char)(instance_number() & 0xff);
+    return ok;
+}
+
+static int swap_slot(void **vtable, int slot, void *hook, void **original) {
+    if (vtable[slot] == hook) return 1;
+    DWORD old;
+    if (!VirtualProtect(&vtable[slot], sizeof(void *), PAGE_READWRITE, &old)) return 0;
+    *original = vtable[slot];
+    vtable[slot] = hook;
+    VirtualProtect(&vtable[slot], sizeof(void *), old, &old);
+    return 1;
+}
+
+/* movzx eax, byte [rip+flag]; ...; mov rax, [rip+iface]; ...; call [rax+148h] */
+static const unsigned char LOCAL_IDENTITY[] = {0x48, 0x81, 0xEC, 0xE8, 0x01, 0x00, 0x00, 0x0F, 0xB6, 0x05, 0, 0, 0, 0,
+                                               0x84, 0xC0, 0x0F, 0x85, 0, 0, 0, 0, 0x48, 0x8B, 0x05, 0, 0, 0, 0,
+                                               0x48, 0x89, 0x9C, 0x24, 0xE0, 0x01, 0x00, 0x00, 0x48, 0x85, 0xC0};
+static const unsigned char LOCAL_IDENTITY_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0,
+                                                    0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+static unsigned char *find_in_module(unsigned char *base, const unsigned char *pattern, const unsigned char *mask,
+                                     size_t size, int want, int *hits);
+
+static const char *own_machine_identity(void) {
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return "simulation DLL not loaded";
+    int hits;
+    unsigned char *at = find_in_module(sim, LOCAL_IDENTITY, LOCAL_IDENTITY_MASK, sizeof LOCAL_IDENTITY, 1, &hits);
+    if (!at) return "identity code not found";
+    unsigned char *flag = at + 14 + *(int *)(at + 10);
+    sim_identity_flag = flag;
+    void **iface_global = (void **)(at + 29 + *(int *)(at + 25));
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+    sim_module_base = sim;
+    sim_module_size = nt->OptionalHeader.SizeOfImage;
+    __try {
+        unsigned char *iface = *(unsigned char **)iface_global;
+        void *holder = iface ? *(void **)(iface + 0x10) : NULL;
+        if (!holder) return "no online interface yet";
+        typedef void *(__fastcall * get_online_t)(void *);
+        void *online = (*(get_online_t **)holder)[0x148 / 8](holder);
+        if (!online) return "no online object";
+        void **vtable = *(void ***)online;
+        unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+        char slots[400];
+        size_t used = 0;
+        for (int s = 1; s <= 0x60 / 8 && used + 24 < sizeof slots; s++)
+            used += (size_t)snprintf(slots + used, sizeof slots - used, " +%x:%llx", s * 8,
+                                     (unsigned long long)((unsigned char *)(s == 3 && real_local_identity
+                                                                                ? (void *)real_local_identity
+                                                                                : vtable[s]) - exe));
+        fireteam_log("identity: online object %p vtable exe+%llx;%s", online,
+                     (unsigned long long)((unsigned char *)vtable - exe), slots);
+        if (!swap_slot(vtable, 0x18 / 8, (void *)hook_local_identity, (void **)&real_local_identity) ||
+            !swap_slot(vtable, 0x20 / 8, (void *)hook_new_session_id, (void **)&real_new_session_id))
+            return "VirtualProtect failed";
+        unsigned long long before = *(unsigned long long *)(flag + 1);
+        *flag = 0; /* the simulation asks the exe again on its next use */
+        fireteam_log("identity: machine %016llx until now; copy %d mixes %02x into its first byte", before,
+                     instance_number(), instance_number() & 0xff);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return "online object unreadable";
+    }
+    return "own";
+}
+
+/* --- Test copies: the exe's peer table -------------------------------------
+
+   The exe's Blam transport (vtable exe+c11b418 on CU4) sends and receives
+   over Party endpoints and keeps two maps: a peer's 8-byte identity to its
+   two endpoints (one per channel), and each endpoint to the identity. A peer
+   is registered by exe 0x7ade590 (transport, &identity, {endpoint, endpoint}),
+   with the identity parsed from its player's UniqueId: the account's for
+   every copy, so on the host all joiners were filed as the host itself
+   (join refused, reason 13). Each joining copy writes its own endpoint ids
+   to %LOCALAPPDATA%\MJOLNIR\instances\endpoints\<n>.txt; a registration of
+   endpoints a joiner wrote takes the account's identity with that joiner's
+   number mixed in, the value its simulation uses for itself. */
+static char endpoints_dir[MAX_PATH];
+static unsigned short own_endpoints[16];
+static volatile LONG own_endpoint_count;
+
+static const char *shared_endpoints_dir(void) {
+    if (!endpoints_dir[0]) {
+        char local[MAX_PATH];
+        if (!GetEnvironmentVariableA("LOCALAPPDATA", local, sizeof local)) return NULL;
+        snprintf(endpoints_dir, sizeof endpoints_dir, "%s\\MJOLNIR\\instances\\endpoints", local);
+        CreateDirectoryA(endpoints_dir, NULL);
+    }
+    return endpoints_dir;
+}
+
+static void publish_own_endpoints(void) {
+    const char *d = shared_endpoints_dir();
+    if (!d || !test_instance()) return;
+    char path[MAX_PATH], tmp[MAX_PATH];
+    snprintf(path, sizeof path, "%s\\%d.txt", d, instance_number());
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f) return;
+    /* The writer's process: a copy that has gone leaves its file behind, and
+       its endpoint ids are reused by whoever makes the next network. */
+    fprintf(f, "%s %lu", test_joiner ? "joiner" : "host", GetCurrentProcessId());
+    for (LONG i = 0; i < own_endpoint_count && i < 16; i++) fprintf(f, " %u", own_endpoints[i]);
+    fprintf(f, "\n");
+    fclose(f);
+    MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+}
+
+/* The joining copy whose published endpoints include `endpoint`, or 0. */
+static int joiner_with_endpoint(unsigned short endpoint) {
+    const char *d = shared_endpoints_dir();
+    if (!d || !endpoint) return 0;
+    for (int n = 1; n <= 16; n++) {
+        char path[MAX_PATH], role[16];
+        snprintf(path, sizeof path, "%s\\%d.txt", d, n);
+        FILE *f = fopen(path, "r");
+        if (!f) continue;
+        int found = 0;
+        unsigned id;
+        unsigned long pid = 0;
+        if (fscanf(f, "%15s %lu", role, &pid) == 2 && strcmp(role, "joiner") == 0)
+            while (fscanf(f, "%u", &id) == 1)
+                if (id == endpoint) found = 1;
+        fclose(f);
+        if (!found) continue;
+        /* Only a copy that is still running. */
+        HANDLE writer = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        int alive = writer && WaitForSingleObject(writer, 0) == WAIT_TIMEOUT;
+        if (writer) CloseHandle(writer);
+        if (alive) return n;
+    }
+    return 0;
+}
+
+typedef void(__fastcall *register_peer_t)(void *, unsigned long long *, unsigned short *);
+static register_peer_t real_register_peer;
+
+static void __fastcall hook_register_peer(void *transport, unsigned long long *identity, unsigned short *endpoints) {
+    __try {
+        if (identity && endpoints) {
+            unsigned long long was = *identity;
+            int k = joiner_with_endpoint(endpoints[0]);
+            if (!k) k = joiner_with_endpoint(endpoints[1]);
+            if (k) *identity = was ^ (unsigned long long)(k & 0xff);
+            fireteam_log("transport: peer %016llx on endpoints %u/%u%s%s", *identity, endpoints[0], endpoints[1],
+                         k ? " (copy " : "", k ? (k == instance_number() ? "itself)" : "joiner)") : "");
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    real_register_peer(transport, identity, endpoints);
+}
+
+static const unsigned char REGISTER_PEER[] = {0x48, 0x8B, 0xC4, 0x4C, 0x89, 0x40, 0x18, 0x48, 0x89, 0x50, 0x10,
+                                              0x55, 0x53, 0x48, 0x8D, 0x68, 0xA1, 0x48, 0x81, 0xEC, 0xC8, 0x00,
+                                              0x00, 0x00, 0x48, 0x89, 0x70, 0xE8, 0x48, 0x8D, 0x59, 0x58};
+
+static void *inline_hook(unsigned char *fn, size_t stolen, void *hook);
+
+static const char *hook_peer_table(void) {
+    if (real_register_peer) return "already hooked";
+    int hits;
+    unsigned char *fn = find_in_module((unsigned char *)GetModuleHandleA(NULL), REGISTER_PEER, NULL,
+                                       sizeof REGISTER_PEER, 1, &hits);
+    if (!fn) return hits ? "peer registration matched more than once" : "peer registration not found";
+    /* mov rax,rsp / mov [rax+18h],r8 / mov [rax+10h],rdx / push rbp / push rbx /
+       lea rbp,[rax-5Fh]: 17 bytes, nothing position-dependent. */
+    real_register_peer = (register_peer_t)inline_hook(fn, 17, (void *)hook_register_peer);
+    return real_register_peer ? "hooked" : "could not hook";
+}
+
+/* A local endpoint just made (CreateEndpointCompleted): remember its id. */
+static void note_local_endpoint(const unsigned char *change) {
+    typedef unsigned(__stdcall * get_id_t)(void *, unsigned short *);
+    static get_id_t get_id;
+    if (!get_id) {
+        HMODULE party = GetModuleHandleA(store_dll("PartyWin.dll"));
+        if (party) get_id = (get_id_t)GetProcAddress(party, "PartyEndpointGetUniqueIdentifier");
+    }
+    if (!get_id) return;
+    __try {
+        void *endpoint = *(void *const *)(change + 40);
+        unsigned short id = 0;
+        if (endpoint && get_id(endpoint, &id) == 0 && id) {
+            LONG at = InterlockedIncrement(&own_endpoint_count) - 1;
+            if (at < 16) own_endpoints[at] = id;
+            fireteam_log("transport: local endpoint %u", id);
+            publish_own_endpoints();
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+/* Party's own words for an error detail (PartyGetErrorMessage), or "". */
+static const char *party_error_text(unsigned detail) {
+    typedef unsigned(__stdcall * get_message_t)(unsigned, const char **);
+    static get_message_t get_message;
+    if (!get_message) {
+        HMODULE party = GetModuleHandleA(store_dll("PartyWin.dll"));
+        if (party) get_message = (get_message_t)GetProcAddress(party, "PartyGetErrorMessage");
+    }
+    const char *text = NULL;
+    if (!get_message || get_message(detail, &text) != 0 || !text) return "";
+    return text;
+}
+
 static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count, const void *const **changes) {
     unsigned err = real_party_start_changes(handle, count, changes);
     if (err == 0 && count && changes && *changes) {
@@ -555,7 +901,34 @@ static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count
             /* Messages and returned buffers come every frame; chat and audio
                (32 and up) are not the join. */
             if (type == 21 || type == 22 || type >= 32) continue;
-            fireteam_log("party: %s (%u)", party_change_name(type), type);
+            /* Why a step failed: the "...Completed" changes carry a result and
+               an error detail after the type; LocalUserRemoved a reason after
+               its network and local user. */
+            unsigned result = 0, detail = 0, reason = 0;
+            int has_result = 0, has_reason = 0;
+            switch (type) {
+            case 1: case 2: case 3: case 4: case 8: case 10: case 11: case 19: case 25: case 26: case 30: case 31:
+                result = change[1], detail = change[2], has_result = 1;
+                break;
+            case 7:
+                reason = change[6], has_reason = 1;
+                break;
+            }
+            if (test_instance()) {
+                if (type == 10 && result == 0) note_local_endpoint((const unsigned char *)change);
+                if (type == 19 || type == 20) {
+                    InterlockedExchange(&own_endpoint_count, 0);
+                    publish_own_endpoints();
+                }
+            }
+            if (has_result && (result || detail))
+                fireteam_log("party: %s (%u) result %u detail 0x%x%s%s", party_change_name(type), type, result, detail,
+                             detail ? " " : "", detail ? party_error_text(detail) : "");
+            else if (has_reason)
+                fireteam_log("party: %s (%u) reason %u detail 0x%x%s%s", party_change_name(type), type, reason, detail,
+                             detail ? " " : "", detail ? party_error_text(detail) : "");
+            else
+                fireteam_log("party: %s (%u)", party_change_name(type), type);
         }
     }
     return err;
@@ -608,6 +981,42 @@ static unsigned long long __fastcall hook_sim_send(void *gateway, void *address,
             if (!name) {
                 snprintf(label, sizeof label, "type %u", type);
                 name = label;
+            }
+            if (test_instance() && (type == 7 || type == 4) && sent[type] == 1 && gateway && address) {
+                /* Where the exe's transport sends it: the 8-byte address the
+                   simulation uses for the peer, and the gateway's class. */
+                unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+                __try {
+                    /* The link's transport: [[gateway+0x10]+0x28], the exe's
+                       object the batch flush (sim 0x531b90) sends through. */
+                    unsigned char *link = *(unsigned char **)((unsigned char *)gateway + 0x10);
+                    void **transport = link ? *(void ***)(link + 0x28) : NULL;
+                    void **vt = transport ? *(void ***)transport : NULL;
+                    char slots[300] = "";
+                    size_t used = 0;
+                    for (int s = 0; vt && s < 10 && used + 24 < sizeof slots; s++)
+                        used += (size_t)snprintf(slots + used, sizeof slots - used, " +%x:%llx", s * 8,
+                                                 (unsigned long long)((unsigned char *)vt[s] - exe));
+                    fireteam_log("sim: %s to address %016llx %016llx %016llx; transport %p vtable exe+%llx;%s",
+                                 sim_message_name(type), ((unsigned long long *)address)[0],
+                                 ((unsigned long long *)address)[1], ((unsigned long long *)address)[2],
+                                 (void *)transport, vt ? (unsigned long long)((unsigned char *)vt - exe) : 0ull, slots);
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                    fireteam_log("sim: transport unreadable");
+                }
+            }
+            if (type == 4 && test_instance() && sent[type] == 1) {
+                /* Which machine identities a join carries (test copies on one account). */
+                char hex[3 * 96 + 1];
+                unsigned n = size < 96 ? size : 96;
+                for (unsigned b = 0; b < n; b++) snprintf(hex + 3 * b, 4, "%02x ", data[b]);
+                fireteam_log("sim: join-request bytes %s", hex);
+                /* The account's identity differs from a copy's in its first byte only. */
+                if (sim_identity_flag)
+                    for (unsigned b = 0; b + 8 <= size; b++)
+                        if (memcmp(data + b + 1, sim_identity_flag + 2, 7) == 0)
+                            fireteam_log("sim: join-request carries an identity with first byte %02x at +%u (own %02x)",
+                                         data[b], b, sim_identity_flag[1]);
             }
             if ((type == 4 || type == 6 || type == 7 || type == 1) && size >= 8)
                 fireteam_log("sim: send %s (size %u) session %016llx%s%u, from sim+%llx", name, size,
@@ -1390,6 +1799,9 @@ static const unsigned char SOLO_SESSION_BRANCH[] = {0x83, 0xF8, 0x01, 0x7F, 0x6C
 static unsigned char *solo_session_branch;
 
 static const char *stay_online_alone(int on) {
+    /* Test copies on one account always count one session member, however
+       many copies have joined: each match would start offline. */
+    if (test_instance()) on = 1;
     if (!solo_session_branch) {
         unsigned char pattern[sizeof SOLO_SESSION_BRANCH];
         memcpy(pattern, SOLO_SESSION_BRANCH, sizeof pattern);
@@ -3231,6 +3643,109 @@ static int smaller_team(unsigned char *g, int self) {
     return count[1] < count[0] ? 1 : 0;
 }
 
+/* --- Test copies: a team for each joining copy ----------------------------
+
+   Copies on one account join the host's simulation just after its game has
+   started, so each simulation adds them as players joined in progress
+   (player-new, sim 0x182000: index, options entry, joined in progress; from
+   sim 0x4feac0). Such a player's team comes from the balancer at sim
+   0x2b3f50, not from its options: it counts the players who asked for the
+   same team (player +0xad) by the team they are on (+0x4a4) and takes the
+   first team nobody of them is on, which for the first player to ask for
+   blue is team 0. Every joining copy was red with the host, asking for blue
+   (+0xad 1, +0x4a4 0), on every copy alike. In test copies a player joined
+   in progress in a team game is put on the team it asked for, and the change
+   is flagged the way the balancer flags its own (sim 0x4d1d40: 7, player,
+   0x1000), on every copy. */
+typedef unsigned long long(__fastcall *player_new_full_t)(int, unsigned char *, char);
+typedef void(__fastcall *player_changed_t)(int, int, int, int);
+static player_new_full_t real_player_new;
+static player_changed_t player_changed;
+
+/* mov [r8+rdx+4A4h], ecx; mov r8d, 1000h; movsx edx, r15w; mov ecx, r10d; call rel32 */
+static const unsigned char TEAM_SET[] = {0x41, 0x89, 0x8C, 0x10, 0xA4, 0x04, 0x00, 0x00, 0x41, 0xB8, 0x00,
+                                         0x10, 0x00, 0x00, 0x41, 0x0F, 0xBF, 0xD7, 0x41, 0x8B, 0xCA, 0xE8};
+
+static unsigned long long __fastcall hook_player_new(int index, unsigned char *options, char joined_in_progress) {
+    unsigned long long made = real_player_new(index, options, joined_in_progress);
+    __try {
+        int team_game = lobby_team_game(NULL);
+        unsigned char *players = sim_tls_slot(0x30);
+        unsigned char *data = players ? *(unsigned char **)(players + 0x50) : NULL;
+        int slot = (int)(made & 0xffff);
+        if (data && (int)made != -1) {
+            unsigned char *p = data + (size_t)slot * 0x4b0;
+            int asked = (signed char)p[0xad];
+            /* The host decides (only its Lua writes team_game.txt); every other
+               copy gets the change as the player's update. The team asked for
+               is the slot number past the second player (teams 2, 3, ...), which
+               our two-team game types do not have, so: red or blue, whichever
+               the other players are on fewer of, red on a tie (host, then
+               blue, red, blue, ...). */
+            if (joined_in_progress && team_game && player_changed) {
+                int count[2] = {0, 0};
+                for (int i = 0; i < 16; i++) {
+                    unsigned char *o = data + (size_t)i * 0x4b0;
+                    if (i == slot || !*(unsigned short *)o) continue;
+                    int t = *(int *)(o + 0x4a4);
+                    if (t == 0 || t == 1) count[t]++;
+                }
+                int team = count[1] < count[0] ? 1 : 0;
+                if (*(int *)(p + 0x4a4) != team || asked != team) {
+                    *(int *)(p + 0x4a4) = team;
+                    p[0xad] = (unsigned char)team;
+                    player_changed(7, (short)slot, 0x1000, 0);
+                }
+            }
+            fireteam_log("teams: player %d made%s%s: asked for team %d, on team %d", slot,
+                         joined_in_progress ? " (joined in progress)" : "", team_game ? " in a team game" : "", asked,
+                         *(int *)(p + 0x4a4));
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fireteam_log("teams: the new player was unreadable");
+    }
+    return made;
+}
+
+static const char *hook_player_new_install(void) {
+    if (real_player_new) return "already hooked";
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return "simulation DLL not loaded";
+    int hits;
+    unsigned char *fn = find_in_module(sim, PLAYER_NEW, PLAYER_NEW_MASK, sizeof PLAYER_NEW, 1, &hits);
+    if (!fn) return "player-new not found";
+    unsigned char *set = find_in_module(sim, TEAM_SET, NULL, sizeof TEAM_SET, 1, &hits);
+    if (!set) return "the balancer's team write not found";
+    player_changed = (player_changed_t)(set + sizeof TEAM_SET + 4 + *(int *)(set + sizeof TEAM_SET));
+    /* push rbx/rbp/rsi/rdi; sub rsp,28h (9 bytes), then mov r9d,[rip+X] (7):
+       the trampoline loads the same dword through an absolute address
+       (mov r9, imm64; mov r9d, [r9] zero-extends as the original does). */
+    unsigned char *global = fn + 16 + *(int *)(fn + 12);
+    unsigned char *tramp = (unsigned char *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return "no memory";
+    unsigned char *p = tramp;
+    memcpy(p, fn, 9), p += 9;
+    *p++ = 0x49, *p++ = 0xB9, *(unsigned char **)p = global, p += 8; /* mov r9, imm64 */
+    *p++ = 0x45, *p++ = 0x8B, *p++ = 0x09;                            /* mov r9d, [r9] */
+    *p++ = 0xFF, *p++ = 0x25, *(int *)p = 0, p += 4;
+    *(unsigned char **)p = fn + 16, p += 8; /* jmp fn+16 */
+    DWORD old;
+    if (!VirtualProtect(fn, 16, PAGE_EXECUTE_READWRITE, &old)) return "VirtualProtect failed";
+    unsigned char patch[16];
+    memset(patch, 0x90, sizeof patch);
+    patch[0] = 0xFF, patch[1] = 0x25;
+    memset(patch + 2, 0, 4);
+    *(void **)(patch + 6) = (void *)hook_player_new;
+    memcpy(fn, patch, sizeof patch);
+    VirtualProtect(fn, 16, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), fn, 16);
+    real_player_new = (player_new_full_t)tramp;
+    /* The injector looks player-new up by its first bytes, which the jump
+       now replaces: it calls through the hooked entry instead. */
+    player_new_jip = (player_new_t)fn;
+    return "hooked";
+}
+
 /* The pre-game handler (sim 0x55b2c0) builds the game's player entries from
    the session's members and publishes them as the players parameter, which
    the host's game and every client's are built from. A free-for-all numbers
@@ -4659,6 +5174,14 @@ __declspec(dllexport) int mjolnir_join(void *L) {
         return 0;
     }
     fireteam_log("join: queued, %u characters", (unsigned)strlen(req->connect));
+    /* A test copy joining another takes its own machine identity, so its
+       simulation joins the host's (sim_join_enabled). */
+    if (sim_join_enabled()) {
+        InterlockedExchange(&test_joiner, 1);
+        InterlockedExchange(&own_endpoint_count, 0);
+        publish_own_endpoints();
+        fireteam_log("identity: a test copy joining another: %s", own_machine_identity());
+    }
     free(InterlockedExchangePointer((void *volatile *)&pending_join, req));
     return 0;
 }
@@ -5148,6 +5671,30 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("PFLobbyForceRemoveMember: %s",
                  swap_import("PlayFabMultiplayerWin.dll", "PFLobbyForceRemoveMember", (void *)hook_lobby_force_remove,
                              (void **)&real_lobby_force_remove));
+    if (test_instance()) {
+        /* A thunk in front of the hook keeps the caller's rsi:
+           mov rax, &lobby_pump_rsi; mov [rax], rsi; mov rax, hook; jmp rax. */
+        unsigned char *thunk = VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (thunk) {
+            unsigned char *p = thunk;
+            *p++ = 0x48, *p++ = 0xb8; /* mov rax, &lobby_pump_rsi */
+            *(void *volatile **)p = &lobby_pump_rsi, p += 8;
+            *p++ = 0x48, *p++ = 0x89, *p++ = 0x30; /* mov [rax], rsi */
+            *p++ = 0x48, *p++ = 0xb8; /* mov rax, hook */
+            *(void **)p = (void *)hook_lobby_start_changes, p += 8;
+            *p++ = 0xff, *p++ = 0xe0; /* jmp rax */
+            FlushInstructionCache(GetCurrentProcess(), thunk, 64);
+        }
+        fireteam_log("PFMultiplayerStartProcessingLobbyStateChanges (test copy %s): %s", "events logged",
+                     swap_import("PlayFabMultiplayerWin.dll", "PFMultiplayerStartProcessingLobbyStateChanges",
+                                 thunk ? (void *)thunk : (void *)hook_lobby_start_changes,
+                                 (void **)&real_lobby_start_changes));
+        if (sim_join_enabled()) {
+            fireteam_log("transport peer table (test copy): %s", hook_peer_table());
+            fireteam_log("teams: player-new (test copy): %s", hook_player_new_install());
+            publish_own_endpoints();
+        }
+    }
     if (GetModuleHandleA("PlayFabMultiplayerGDK.dll"))
         fireteam_log("GDK subsystem tick (joins by connection string): %s", hook_gdk_tick_slot());
     else
