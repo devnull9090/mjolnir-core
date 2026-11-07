@@ -456,6 +456,18 @@ Live.showNotice()
 Live.showNotice()
 eq(pushed[#pushed].description, "You were banned by the host.", "on the menu")
 
+-- `mjolnir_auto missing` puts the same notice up on one PC (a host alone
+-- hears no `starting`): the same words and the same offer.
+host = true
+local before_ = #prompts
+upvalue(initialize, "AUTO").missing({ "PTP", "slayer" })
+has(Live.notice and Live.notice.text, "The host started PTP  /  SLAYER, and this PC doesn't have that map",
+    "the verb's notice is the joiner's")
+Live.showNotice()
+Live.showNotice()
+eq(#prompts, before_ + 1, "and offers the map")
+eq(prompts[#prompts].code, "PTP", "the map named")
+
 -- The host's own kick of a guest without the map names it.
 host = true
 local kick = upvalue(Live.removeLacking, "kick")

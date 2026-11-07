@@ -801,12 +801,20 @@ Net.on("starting", function(f)
     if have and not MapLive.differs(f[1], f[2]) then return end
     log("client lobby: the host is starting " .. f[1] .. (have and ", another release of it than this PC's" or
         ", which this PC does not have") .. ": leaving the fireteam")
-    local game = Live.title(f[1]) .. (f[3] and f[3] ~= "" and ("  /  " .. modeTitle(f[3])) or "")
-    Live.leaveFor(have and ("The host started " .. game .. " with another version of the map than this PC's, "
-        .. "so you left the fireteam. Update it here (no restart), then join the host again.")
-        or ("The host started " .. game .. ", and this PC doesn't have that map, so you left the fireteam. "
-        .. "Download it here (no restart), then join the host again."), f[1], f[2] ~= "" and f[2] or nil, have)
+    Live.leaveFor(Live.missingReason(f[1], f[3], have), f[1], f[2] ~= "" and f[2] or nil, have)
 end)
+
+--- Why a fireteam member left when the host started `code` (game type
+--- `modeId`): it lacks the map, or, when `have`, has another release of it.
+function Live.missingReason(code, modeId, have)
+    local game = Live.title(code) .. (modeId and modeId ~= "" and ("  /  " .. modeTitle(modeId)) or "")
+    if have then
+        return "The host started " .. game .. " with another version of the map than this PC's, "
+            .. "so you left the fireteam. Update it here (no restart), then join the host again."
+    end
+    return "The host started " .. game .. ", and this PC doesn't have that map, so you left the fireteam. "
+        .. "Download it here (no restart), then join the host again."
+end
 
 --- Leave the fireteam from the lobby: the game's own leave, on the local
 --- player's view model (the one that can). BlamCampaignFlowGameSubsystem's
@@ -4430,6 +4438,8 @@ end
 --   mjolnir_auto join [host name]      join a listed game (the first, or the host's),
 --                                      downloading its map first when it is not here
 --   mjolnir_auto download <CODE>       the download screen for a map
+--   mjolnir_auto missing <CODE> [mode] what a fireteam member sees when the
+--                                      host starts a map it lacks
 --   mjolnir_auto install <CODE> [<release id>]
 --                                      install a map (or that release of it) in
 --                                      game, with no screen
@@ -4574,6 +4584,15 @@ local AUTO = {
             onReady = function() autoState({ result = "installed " .. code }) end,
         })
         autoState({ result = "download screen " .. code })
+    end,
+    -- What a fireteam member sees when the host starts a map it lacks
+    -- (`mjolnir_auto missing <CODE> [<mode>]`): the leave and the notice the
+    -- host's `starting` message gives one, on one PC.
+    missing = function(args)
+        local code = string.upper(args[1] or "")
+        if not code:match("^[%w_]+$") then return autoState({ result = "error no map code" }) end
+        Live.leaveFor(Live.missingReason(code, args[2], false), code)
+        autoState({ result = "notice " .. code })
     end,
     -- A map installed in game with no screen (`mjolnir_auto install <CODE>`).
     install = function(args)
