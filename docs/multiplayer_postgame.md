@@ -51,12 +51,36 @@ reaches `game_over`, and the host ends the match itself.
      the fireteam follows into the map.
    - LOBBY, or Back on the host, ends the vote and opens the lobby to pick
      by hand.
+   - A chosen game that cannot start (its map is not installed, or its
+     world is in no container) does the same, with why on the lobby's
+     status line. Before MJOLNIRLobby 0.23.0 the vote stayed on STARTING THE
+     NEXT GAME with LOBBY disabled (two PCs, 2026-11-07).
+   - **A host who leaves the match by hand** gets the lobby, never a vote:
+     the pause menu's SAVE AND EXIT (its YES calls
+     `BlamCampaignFlowGameSubsystem.EndCampaign`) or `LeaveGame` from
+     script. Standings written before the leave, or within 30 s after it,
+     belong to the match left (`Live.quitEnded`). Before 0.23.0 a host's
+     leave with a joiner in the match opened the vote, which started another
+     match 20 s later with nobody voting.
 5. **Joiners** get our lobby instead of the game's CLIENT LOBBY whenever the
    host is in it: the host's map and game type, with START GAME, CHANGE MAP
    and GAME TYPE hidden (and, since they were added, PRIVATE / PUBLIC GAME,
    MAX PLAYERS and GAME SETTINGS). Since mods-v0.20.0, a joiner without the
    host's map, or with another release of it, sees START GAME as DOWNLOAD
    MAP or UPDATE MAP ([live_map_install.md](live_map_install.md)).
+6. **A joiner the host starts without** (a map it lacks, or another release
+   of it; `starting`, or the host's `kick`) leaves the fireteam, and the
+   game itself says only CONNECTION LOST. Since MJOLNIRLobby 0.23.0 the
+   joiner's own lobby then opens the map's download screen with why: which
+   map and game type, that this PC doesn't have it, and that DOWNLOAD gets
+   it without a restart (`Live.leaveFor`, `Live.showNotice`). A kick for
+   another reason shows the host's reason.
+
+The vote, the lobby and their lists offer only maps whose world is in a
+container here: MJOLNIRLevelLoader's `mjolnir_worlds_known` answers from the
+same index a start's travel resolves its world through, so a maps.json entry
+whose containers are gone (a leftover of `mjolnir level bake --install-test`)
+is left out and logged, and START GAME on one fails with why.
 
 Each machine shows its own standings. They agree because every machine
 counted the same incidents ([multiplayer_hud.md](multiplayer_hud.md)).
