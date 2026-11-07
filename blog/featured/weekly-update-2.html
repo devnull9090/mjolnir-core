@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Reproduce with Chrome headless: --window-size=1200,630 --hide-scrollbars
+ --screenshot=<absolute-output.png> file:///<repo>/blog/featured/weekly-update-2.html
+ Encode the PNG to JPEG at quality 90. Uses only local assets and system fonts. -->
+<html lang="en"><meta charset="utf-8"><title>Weekly update 2 — featured image</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:1200px;height:630px;overflow:hidden;background:#070d13;font-family:Bahnschrift,"Segoe UI",sans-serif;color:#f1f7fb}
+.grid{position:absolute;left:400px;top:-46px;width:940px;height:722px;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(3,1fr);gap:7px;transform:skewX(-7deg)}
+.t{position:relative;overflow:hidden;background:#101c27}.t img{position:absolute;inset:-2px -30px;width:calc(100% + 60px);height:calc(100% + 4px);object-fit:cover;transform:skewX(7deg);filter:brightness(1.12) saturate(1.08)}
+.w2{grid-column:span 2}.tall{grid-row:span 2}
+.shade{position:absolute;inset:0;background:linear-gradient(90deg,#070d13 34%,#070d13e0 41%,#070d1366 50%,#070d1300 58%),linear-gradient(0deg,#070d13a0,#070d1300 22%)}
+.text{position:absolute;left:52px;top:44px;width:560px}.brand{font-size:16px;letter-spacing:4px;color:#e6c26a}
+.tag{margin-top:64px;font-size:14px;letter-spacing:3px;color:#9de6f0}h1{font-size:68px;line-height:1.02;letter-spacing:-2px;margin:16px 0 22px;font-weight:800}h1 span{color:#e6c26a}
+.sub{font-size:23px;line-height:1.4;color:#d4e1e9}.footer{position:absolute;left:52px;bottom:36px;font-size:12px;letter-spacing:1.8px;color:#a5bdcd}
+</style><body>
+<div class="grid">
+<div class="t w2 tall"><img src="../../hub/public/blog-images/weekly-update-2/king-on-the-hill.jpg" alt=""></div>
+<div class="t"><img src="../../hub/public/blog-images/weekly-update-2/assault-blood-gulch.jpg" alt=""></div>
+<div class="t"><img src="../../hub/public/blog-images/weekly-update-2/mongoose-yoyorast.jpg" alt=""></div>
+</div>
+<div class="shade"></div>
+<div class="text"><div class="brand">MJOLNIR / WEEKLY UPDATE 2</div><div class="tag">NEW GAME TYPES ON 46 MAPS</div>
+<h1>COME BREAK<br><span>THEM WITH US.</span></h1><div class="sub">Assault, King, Oddball and Race.<br>Playtest Saturday, 6 PM MST.</div></div>
+<div class="footer">MJOLNIRCORE.COM/BLOG</div></body></html>
