@@ -175,26 +175,63 @@ end
 local pool = {}
 local watched = {}
 
+--- NotifyOnNewObject takes a class's full path, which an actor of the class
+--- gives. Spartans are the one class with no pool waiting for AI: they exist
+--- once someone spawns, and bots start 3 s into a match, so a start before the
+--- first spawn left them unwatched and every Spartan bot unseen. The HUD took
+--- each for a squad the map lacks, tried three more, and gave up with all
+--- thirty-two walking the map and none on the board (Forge on Yoyorast,
+--- 2026-11-07). Their class needs no actor to say where it is.
+local CLASS_PATHS = {
+    BP_SpartansBipedActor_C = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C",
+}
+
+local function watch(class, path)
+    if watched[class] then return end
+    local ok = pcall(NotifyOnNewObject, path, function(new)
+        local id = address(new)
+        if id then pool[id] = new end
+    end)
+    if ok then watched[class] = true end
+end
+
+--- `NotifyOnNewObject` needs the class in memory, and a map's first Spartan
+--- may be the bot about to be placed.
+local function loadClass(path)
+    local library = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    return pcall(function()
+        return library:LoadClassAsset_Blocking(library:Conv_SoftClassPathToSoftClassRef(library:MakeSoftClassPath(path)))
+    end)
+end
+
 local function fillPool()
     pool = {}
     for _, class in ipairs(CLASSES) do
         for _, a in ipairs(FindAllOf(class) or {}) do
             local at = address(a)
             if at then pool[at] = a end
-            -- NotifyOnNewObject takes the class's full path.
             if not watched[class] then
                 local ok, path = pcall(function() return a:GetClass():GetFullName():match("%s(/%S+)$") end)
-                if ok and path then
-                    watched[class] = true
-                    pcall(NotifyOnNewObject, path, function(new)
-                        local id = address(new)
-                        if id then pool[id] = new end
-                    end)
-                end
+                if ok and path then watch(class, path) end
             end
         end
     end
+    for class, path in pairs(CLASS_PATHS) do
+        if not watched[class] and loadClass(path) then watch(class, path) end
+    end
 end
+
+--- Whether a class that could hold this match's bots is not being watched: an
+--- actor of it would arrive unseen, and only a scan finds it.
+local function blind()
+    for _, class in ipairs(CLASSES) do
+        if not watched[class] then return true end
+    end
+    return false
+end
+
+--- Scans of the whole object array a match may spend on that: about 160 ms each.
+local MAX_RESCANS = 3
 
 --- Every AI biped out of the pool (a pooled actor waits at the origin),
 --- and where each stands.
@@ -263,7 +300,7 @@ function Bots.begin(count, now, onSeat, opts)
         placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
         isPlayer = opts.isPlayer or function() return false end, teams = opts.teams and true or false,
         level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1],
-        starts = map.starts, areas = map.areas, tasks = map.tasks, began = now }
+        starts = map.starts, areas = map.areas, tasks = map.tasks, began = now, rescans = 0 }
     Bots.resize(count, now)
     log(string.format("bots: %d bot(s) for this match%s; %s", count, opts.teams and ", on red and blue" or "",
         state.starts and string.format("each placed on the best of %d starts", #state.starts)
@@ -707,11 +744,25 @@ local function step(now, humans, live, where)
             end
         end
         if now - p.placedAt > PLACE_TIMEOUT then
+            -- It may be standing there unseen: look before placing another.
+            -- The next scan finds it new, if it came.
+            if blind() and state.rescans < MAX_RESCANS and not p.rescanned then
+                p.rescanned, state.rescans = true, state.rescans + 1
+                fillPool()
+                return
+            end
+            p.rescanned = nil
             p.tries = (p.tries or 0) + 1
             state.placing = nil
             if state.starts and p.family == p.primary then
                 -- The map's bots.json lists this squad, so the map has it: another
-                -- one next time.
+                -- one next time. Should it have come after all, nothing would
+                -- ever direct it, so it goes, unless it is someone else's now.
+                local shared = false
+                for _, o in ipairs(state.slots) do
+                    if o ~= p and o.squad == p.squad and (o.status == "alive" or o.status == "placing") then shared = true end
+                end
+                if not shared then script({ string.format("(ai_erase %s)", p.squad) }) end
                 p.bad = p.bad or {}
                 p.bad[p.j] = true
                 if p.tries >= 4 then
