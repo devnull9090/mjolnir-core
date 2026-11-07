@@ -165,8 +165,34 @@ function mirror(n) {
   return `instance ${n}: ${dst}\n  ${linked} linked, ${copied} copied, ${kept} unchanged, ${skipped} run files left out`;
 }
 
+/**
+ * Each copy saves the account's cloud settings at startup and moves their
+ * concurrency token on, so a copy that kept its older settings stalls before
+ * it creates its fireteam lobby (no lobby, no hosting). Setting the token to 0
+ * is not enough; with no per-account settings files at all, a copy downloads
+ * the cloud's and goes on. So both files go, by name, from the copy's own
+ * Saved folder only (never instance 0's, the Steam install's).
+ */
+function forgetCloudSettings(n) {
+  const config = path.join(process.env.LOCALAPPDATA ?? "", "Meteorite", `Saved__mj${n}`, "Config");
+  if (!(n >= 1) || !fs.existsSync(config)) return 0;
+  let removed = 0;
+  for (const user of fs.readdirSync(config, { withFileTypes: true })) {
+    if (!user.isDirectory() || !/^\d+$/.test(user.name)) continue;
+    for (const name of ["HaloLocalGameUserSettings.ini", "HaloGlobalGameUserSettings.ini"]) {
+      const file = path.join(config, user.name, name);
+      if (fs.existsSync(file)) {
+        fs.rmSync(file);
+        removed++;
+      }
+    }
+  }
+  return removed;
+}
+
 function launch(n, extra = []) {
   const root = installRoot(n);
+  if (n >= 1) forgetCloudSettings(n);
   const win64 = path.join(root, "Meteorite", "Binaries", "Win64");
   const exe = path.join(win64, "HaloCampaignEvolved.exe");
   if (!fs.existsSync(exe)) throw new Error(`no instance ${n} at ${root}: run mirror ${n} first`);
@@ -181,7 +207,119 @@ function launch(n, extra = []) {
   return `instance ${n}: started pid ${child.pid} (${args.join(" ")})`;
 }
 
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "..");
+
+/** This checkout's built lobby DLL into copy n (the copies' join code lives there). */
+function deploy(n) {
+  const dll = path.join(REPO, "mods", "MJOLNIRLobby", "native", "mjolnir_lobby.dll");
+  if (!fs.existsSync(dll)) throw new Error(`${dll} is not built: run native/lobby/build.ps1`);
+  const to = path.join(installRoot(n), "Meteorite", "Binaries", "Win64", "ue4ss", "Mods", "MJOLNIRLobby", "native");
+  fs.copyFileSync(dll, path.join(to, "mjolnir_lobby.dll"));
+  return `instance ${n}: ${path.basename(dll)} from this checkout`;
+}
+
+/** Running copies: [{pid, n}] by exe path (n 0 = the Steam install). */
+async function running() {
+  const { execFileSync } = await import("node:child_process");
+  const out = execFileSync("powershell", ["-NoProfile", "-Command",
+    "Get-Process HaloCampaignEvolved -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.Id)`t$($_.Path)\" }; exit 0"],
+  { encoding: "utf8" });
+  return out.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [pid, exe] = line.split("\t");
+    const m = exe.match(/instances[\\/](\d+)[\\/]/i);
+    return { pid: Number(pid), n: m ? Number(m[1]) : 0 };
+  });
+}
+
+async function waitForBridge(n, seconds = 240) {
+  at(n);
+  const deadline = Date.now() + seconds * 1000;
+  while (Date.now() < deadline) {
+    try {
+      await bridgeCall("ping", "", 3_000);
+      return;
+    } catch { await sleep(2000); }
+  }
+  throw new Error(`instance ${n}: the bridge did not answer within ${seconds}s`);
+}
+
+async function waitForLobby(n, seconds = 180) {
+  const deadline = Date.now() + seconds * 1000;
+  while (Date.now() < deadline) {
+    try { return await connection(n); } catch { await sleep(5000); }
+  }
+  throw new Error(`instance ${n}: no fireteam lobby within ${seconds}s`);
+}
+
+const PLAYERS_LUA =
+  'local pc = FindFirstOf("PlayerController") local w = pc:GetWorld() local n = 0 ' +
+  "pcall(function() n = #w.GameState.PlayerArray end) " +
+  'print(w:GetFName():ToString() .. " players " .. n .. (pc:HasAuthority() and " host" or " client"))';
+
+/**
+ * Copies 1..count up, signed in, in one lobby: 1 hosts (its menu world made
+ * a listen server, which a same-account join never triggers), the rest join
+ * it by connection string.
+ */
+async function up(count, ...extra) {
+  count = Number(count);
+  if (!(count >= 2 && count <= 8)) throw new Error("up takes 2 to 8 copies");
+  const lines = [];
+  const already = new Set((await running()).map((r) => r.n));
+  for (let n = 1; n <= count; n++) {
+    if (already.has(n)) { lines.push(`instance ${n}: already running`); continue; }
+    if (!fs.existsSync(installRoot(n))) lines.push(mirror(n));
+    lines.push(deploy(n));
+    lines.push(launch(n, extra.length ? extra : ["-windowed", "-ResX=1280", "-ResY=720"]));
+    await sleep(4000);
+  }
+  for (let n = 1; n <= count; n++) await waitForBridge(n);
+  for (let n = 1; n <= count; n++) lines.push(await menu(n));
+  for (let n = 1; n <= count; n++) {
+    await waitForLobby(n);
+    lines.push(`instance ${n}: fireteam lobby up`);
+  }
+  at(1);
+  await bridgeCall("console", "open /Game/Levels/UI/Frontend/Frontend?listen");
+  await sleep(12_000);
+  await waitForLobby(1);
+  lines.push("instance 1: hosting (menu world listening)");
+  for (let n = 2; n <= count; n++) {
+    lines.push(await join(n, 1));
+    await sleep(15_000);
+  }
+  lines.push(await lua(1, PLAYERS_LUA));
+  return lines.join("\n");
+}
+
+async function down() {
+  const copies = (await running()).filter((r) => r.n >= 1);
+  for (const { pid } of copies) process.kill(pid);
+  return copies.length ? `stopped ${copies.map((c) => `instance ${c.n} (pid ${c.pid})`).join(", ")}` : "no copies running";
+}
+
+/** Each running copy's world and player count (UE), and its Blam players and machines. */
+async function players() {
+  const lines = [];
+  for (const { pid, n } of await running()) {
+    let ue = "?";
+    try { ue = await lua(n, PLAYERS_LUA, 10_000); } catch (error) { ue = String(error.message); }
+    const { execFileSync } = await import("node:child_process");
+    let blam = "?";
+    try {
+      const out = JSON.parse(execFileSync("python", [path.join(REPO, "tools", "remote", "blam-players.py"), "--json", "--pid", String(pid)], { encoding: "utf8" }));
+      blam = `blam players ${out.players.length} machines mask ${out.machines ?? 0}`;
+    } catch { /* not in a game */ }
+    lines.push(`instance ${n} (pid ${pid}): ${ue}; ${blam}`);
+  }
+  return lines.join("\n");
+}
+
 const commands = {
+  up: (count, ...extra) => up(count, ...extra),
+  down: () => down(),
+  players: () => players(),
+  deploy: (n) => deploy(Number(n)),
   mirror: (n) => mirror(Number(n)),
   launch: (n, ...extra) => launch(Number(n), extra),
   menu: (n) => menu(Number(n)),

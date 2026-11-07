@@ -8,7 +8,9 @@ waiting for its first spawn, 0x8000 joined in progress), machine (+0x1a) and
 unit (+0x28, -1 = no biped). tools/remote/jip-test.mjs reads it to tell a
 joiner that spawned from one that did not. Read-only.
 
-    python tools/remote/blam-players.py [--json]
+    python tools/remote/blam-players.py [--json] [--pid N]
+
+--pid picks one copy when several run (tools/remote/instances.mjs).
 """
 import ctypes
 import ctypes.wintypes as w
@@ -31,8 +33,11 @@ class THREADENTRY32(ctypes.Structure):
 
 
 def main():
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process HaloCampaignEvolved).Id"],
-                         capture_output=True, text=True).stdout.strip()
+    if "--pid" in sys.argv:
+        out = sys.argv[sys.argv.index("--pid") + 1]
+    else:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process HaloCampaignEvolved).Id"],
+                             capture_output=True, text=True).stdout.strip()
     if not out:
         print(json.dumps({"error": "the game is not running"}) if "--json" in sys.argv else "the game is not running")
         return 1

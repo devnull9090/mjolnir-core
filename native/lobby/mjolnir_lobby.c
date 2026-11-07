@@ -624,6 +624,124 @@ static long __stdcall hook_lobby_start_changes(void *handle, unsigned *count, co
     return hr;
 }
 
+/* --- Test copies on one account: a machine identity of their own ----------
+
+   The simulation asks the exe for its machine identity (sim 0x4d1230 on CU4:
+   [[iface]+0x10] -> vtable +0x148 -> the online object, whose +0x18 writes 8
+   bytes) and caches it (a byte flag, then the 8 bytes). At a match's start it
+   pulls the session to join from the same object (sim 0xf4b0: +0x10 the
+   host's identity, +0x30 the session) and hosts its own when the host's
+   identity is its own. The exe answers with the account's identity, so on
+   one account every copy is "the host" and plays alone. A copy that joined
+   another by connection string (tools/remote/instances.mjs) takes the
+   account's identity with its copy number mixed into the first byte, and
+   the cache is cleared so the simulation asks again. */
+static volatile LONG test_joiner;
+/* The simulation's cached identity: a byte flag, then the 8 bytes. */
+static unsigned char *sim_identity_flag;
+
+static int instance_number(void) {
+    char value[16];
+    if (GetEnvironmentVariableA("MJOLNIR_INSTANCE", value, sizeof value) == 0) return 0;
+    return atoi(value);
+}
+
+typedef char(__fastcall *identity_t)(void *, unsigned char *, int);
+static identity_t real_local_identity, real_new_session_id;
+static unsigned char *sim_module_base;
+static size_t sim_module_size;
+
+/* Only the simulation's own questions get the copy's identity; the exe keeps
+   the account's for everything it does itself. */
+static int asked_by_sim(void *from) {
+    unsigned char *at = (unsigned char *)from;
+    return sim_module_base && at >= sim_module_base && at < sim_module_base + sim_module_size;
+}
+
+/* Everyone's question, the exe's too: the identity is also the simulation's
+   transport address, and the exe stamps what it sends with its own answer,
+   so the host would file the joiner's packets under the account's identity
+   (its own) and refuse the join (reason 13). */
+static char __fastcall hook_local_identity(void *online, unsigned char *out, int size) {
+    char ok = real_local_identity(online, out, size);
+    if (ok && out && size >= 1 && test_joiner) out[0] ^= (unsigned char)(instance_number() & 0xff);
+    return ok;
+}
+
+/* The id of a session the simulation creates (sim 0x4d10c0 asks the same
+   object's +0x20): the account's too, so a joiner's own squad session had
+   the host's id, and joining that id found "itself" (FAILED TO JOIN THE
+   HOST'S SQUAD). */
+static char __fastcall hook_new_session_id(void *online, unsigned char *out, int size) {
+    char ok = real_new_session_id(online, out, size);
+    if (out && size >= 1 && test_joiner && asked_by_sim(_ReturnAddress()))
+        out[0] ^= (unsigned char)(instance_number() & 0xff);
+    return ok;
+}
+
+static int swap_slot(void **vtable, int slot, void *hook, void **original) {
+    if (vtable[slot] == hook) return 1;
+    DWORD old;
+    if (!VirtualProtect(&vtable[slot], sizeof(void *), PAGE_READWRITE, &old)) return 0;
+    *original = vtable[slot];
+    vtable[slot] = hook;
+    VirtualProtect(&vtable[slot], sizeof(void *), old, &old);
+    return 1;
+}
+
+/* movzx eax, byte [rip+flag]; ...; mov rax, [rip+iface]; ...; call [rax+148h] */
+static const unsigned char LOCAL_IDENTITY[] = {0x48, 0x81, 0xEC, 0xE8, 0x01, 0x00, 0x00, 0x0F, 0xB6, 0x05, 0, 0, 0, 0,
+                                               0x84, 0xC0, 0x0F, 0x85, 0, 0, 0, 0, 0x48, 0x8B, 0x05, 0, 0, 0, 0,
+                                               0x48, 0x89, 0x9C, 0x24, 0xE0, 0x01, 0x00, 0x00, 0x48, 0x85, 0xC0};
+static const unsigned char LOCAL_IDENTITY_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0,
+                                                    0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+static unsigned char *find_in_module(unsigned char *base, const unsigned char *pattern, const unsigned char *mask,
+                                     size_t size, int want, int *hits);
+
+static const char *own_machine_identity(void) {
+    unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
+    if (!sim) return "simulation DLL not loaded";
+    int hits;
+    unsigned char *at = find_in_module(sim, LOCAL_IDENTITY, LOCAL_IDENTITY_MASK, sizeof LOCAL_IDENTITY, 1, &hits);
+    if (!at) return "identity code not found";
+    unsigned char *flag = at + 14 + *(int *)(at + 10);
+    sim_identity_flag = flag;
+    void **iface_global = (void **)(at + 29 + *(int *)(at + 25));
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim + ((IMAGE_DOS_HEADER *)sim)->e_lfanew);
+    sim_module_base = sim;
+    sim_module_size = nt->OptionalHeader.SizeOfImage;
+    __try {
+        unsigned char *iface = *(unsigned char **)iface_global;
+        void *holder = iface ? *(void **)(iface + 0x10) : NULL;
+        if (!holder) return "no online interface yet";
+        typedef void *(__fastcall * get_online_t)(void *);
+        void *online = (*(get_online_t **)holder)[0x148 / 8](holder);
+        if (!online) return "no online object";
+        void **vtable = *(void ***)online;
+        unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+        char slots[400];
+        size_t used = 0;
+        for (int s = 1; s <= 0x60 / 8 && used + 24 < sizeof slots; s++)
+            used += (size_t)snprintf(slots + used, sizeof slots - used, " +%x:%llx", s * 8,
+                                     (unsigned long long)((unsigned char *)(s == 3 && real_local_identity
+                                                                                ? (void *)real_local_identity
+                                                                                : vtable[s]) - exe));
+        fireteam_log("identity: online object %p vtable exe+%llx;%s", online,
+                     (unsigned long long)((unsigned char *)vtable - exe), slots);
+        if (!swap_slot(vtable, 0x18 / 8, (void *)hook_local_identity, (void **)&real_local_identity) ||
+            !swap_slot(vtable, 0x20 / 8, (void *)hook_new_session_id, (void **)&real_new_session_id))
+            return "VirtualProtect failed";
+        unsigned long long before = *(unsigned long long *)(flag + 1);
+        *flag = 0; /* the simulation asks the exe again on its next use */
+        fireteam_log("identity: machine %016llx until now; copy %d mixes %02x into its first byte", before,
+                     instance_number(), instance_number() & 0xff);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return "online object unreadable";
+    }
+    return "own";
+}
+
 /* Party's own words for an error detail (PartyGetErrorMessage), or "". */
 static const char *party_error_text(unsigned detail) {
     typedef unsigned(__stdcall * get_message_t)(unsigned, const char **);
@@ -720,6 +838,34 @@ static unsigned long long __fastcall hook_sim_send(void *gateway, void *address,
             if (!name) {
                 snprintf(label, sizeof label, "type %u", type);
                 name = label;
+            }
+            if (test_instance() && (type == 7 || type == 4) && sent[type] == 1 && gateway && address) {
+                /* Where the exe's transport sends it: the 8-byte address the
+                   simulation uses for the peer, and the gateway's class. */
+                unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+                __try {
+                    fireteam_log("sim: %s to address %016llx, gateway vtable exe+%llx (slots exe+%llx exe+%llx exe+%llx exe+%llx)",
+                                 sim_message_name(type), *(unsigned long long *)address,
+                                 (unsigned long long)(*(unsigned char **)gateway - exe),
+                                 (unsigned long long)((*(unsigned char ***)gateway)[0] - exe),
+                                 (unsigned long long)((*(unsigned char ***)gateway)[1] - exe),
+                                 (unsigned long long)((*(unsigned char ***)gateway)[2] - exe),
+                                 (unsigned long long)((*(unsigned char ***)gateway)[3] - exe));
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                }
+            }
+            if (type == 4 && test_instance() && sent[type] == 1) {
+                /* Which machine identities a join carries (test copies on one account). */
+                char hex[3 * 96 + 1];
+                unsigned n = size < 96 ? size : 96;
+                for (unsigned b = 0; b < n; b++) snprintf(hex + 3 * b, 4, "%02x ", data[b]);
+                fireteam_log("sim: join-request bytes %s", hex);
+                /* The account's identity differs from a copy's in its first byte only. */
+                if (sim_identity_flag)
+                    for (unsigned b = 0; b + 8 <= size; b++)
+                        if (memcmp(data + b + 1, sim_identity_flag + 2, 7) == 0)
+                            fireteam_log("sim: join-request carries an identity with first byte %02x at +%u (own %02x)",
+                                         data[b], b, sim_identity_flag[1]);
             }
             if ((type == 4 || type == 6 || type == 7 || type == 1) && size >= 8)
                 fireteam_log("sim: send %s (size %u) session %016llx%s%u, from sim+%llx", name, size,
@@ -1502,6 +1648,9 @@ static const unsigned char SOLO_SESSION_BRANCH[] = {0x83, 0xF8, 0x01, 0x7F, 0x6C
 static unsigned char *solo_session_branch;
 
 static const char *stay_online_alone(int on) {
+    /* Test copies on one account always count one session member, however
+       many copies have joined: each match would start offline. */
+    if (test_instance()) on = 1;
     if (!solo_session_branch) {
         unsigned char pattern[sizeof SOLO_SESSION_BRANCH];
         memcpy(pattern, SOLO_SESSION_BRANCH, sizeof pattern);
@@ -4771,6 +4920,10 @@ __declspec(dllexport) int mjolnir_join(void *L) {
         return 0;
     }
     fireteam_log("join: queued, %u characters", (unsigned)strlen(req->connect));
+    if (test_instance() && instance_number() > 0) {
+        InterlockedExchange(&test_joiner, 1);
+        fireteam_log("identity: a test copy joining another: %s", own_machine_identity());
+    }
     free(InterlockedExchangePointer((void *volatile *)&pending_join, req));
     return 0;
 }
