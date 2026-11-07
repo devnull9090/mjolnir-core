@@ -135,12 +135,13 @@ local function readFile(path)
     return data
 end
 
---- What the match marks in the world: the hill, the next flag, the Juggernaut.
+--- What the match marks in the world: the hill, the next flag, the Juggernaut, the flags.
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
     Race = dofile(MOD_DIR .. "\\Scripts\\race.lua"),
     Juggernaut = dofile(MOD_DIR .. "\\Scripts\\juggernaut.lua"),
+    FlagMark = dofile(MOD_DIR .. "\\Scripts\\flagmark.lua"),
     Board = Scoreboard,
     log = Log,
     readLevel = function(map)

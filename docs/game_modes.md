@@ -801,7 +801,12 @@ Where these differ from CE (PC retail unconfirmed):
 - **Assault** swaps sides in its script, not with the sim's rounds (B8): the
   defender is a global number and the match stays one round. Teams keep their
   own stands, so the flag changes base and the players do not. The 5 minutes a
-  side and 3 captures are this project's defaults, not read from CE.
+  side and 3 captures are this project's defaults, not read from CE. The clock's
+  swap ran in game on Yoyorast: `flag_reset` came 5:00 after the first flag, and
+  the sim gave the same actor to the next flag, so its team has to be read fresh.
+- **Flag markers** (`Scripts/flagmark.lua`) read the flag actors themselves, so CTF
+  and Assault get a marker that follows a flag home, dropped or carried, in place
+  of the waypoints that never reach Unreal (B4).
 
 CE's other Classic presets (Rockets, Snipers, Phantoms and the rest) need weapon sets, traits or lives.
 

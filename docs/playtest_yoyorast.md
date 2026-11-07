@@ -45,6 +45,8 @@ Flag. Blue defends first.
 - [ ] A dropped flag goes home after 30 seconds, or when a defender touches it.
 - [ ] Three captures end the game, and the score screen is right.
 - [ ] The flag's colour and the HUD agree with who is defending.
+- [ ] A marker shows the flag and how far it is. It stays on the flag when someone
+      carries it, on every player's screen, and moves when the sides swap.
 
 ## 4. Capture the Flag
 
