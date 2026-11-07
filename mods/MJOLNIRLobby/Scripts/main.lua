@@ -839,8 +839,20 @@ end
 --- download (or, when `update`, the update) of `code` when the reason is a
 --- map this PC lacks. `release`: the host's release of it.
 function Live.leaveFor(reason, code, release, update)
-    Live.notice = { text = reason, code = code, release = release, update = update, at = os.clock() }
+    Live.notice = Live.newNotice({ text = reason, code = code, release = release, update = update })
     return Live.leaveFireteam()
+end
+
+--- A notice for the main menu, with the world it was made in: leaving the
+--- fireteam loads the frontend again, and a screen pushed before that
+--- reload went with the old world (a kick from the post-game vote showed
+--- nothing; one PC, two copies, 2026-11-07). Live.showNotice waits for
+--- another world, or Live.NOTICE_RELOAD_WAIT when none comes.
+function Live.newNotice(n)
+    n.at = os.clock()
+    local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+    n.world = ok and address or nil
+    return n
 end
 
 Net.on("mapindex", function(f)
@@ -2988,9 +3000,17 @@ end
 --- the session ends, is up first. With a map this PC lacks, its download
 --- screen, whose DOWNLOAD (or UPDATE) gets it; otherwise a notice.
 Live.NOTICE_DELAY = 3
+Live.NOTICE_RELOAD_WAIT = 12
 function Live.showNotice()
     local n = Live.notice
     if not n or not inFrontend() then return end
+    -- The frontend this game left the fireteam in is replaced by a fresh
+    -- one; count the delay in the world after it.
+    if n.world then
+        local ok, address = pcall(function() return UI.playerController():GetWorld():GetAddress() end)
+        if ok and address == n.world and os.clock() - n.at < Live.NOTICE_RELOAD_WAIT then return end
+        n.world = nil
+    end
     n.seen = n.seen or os.clock()
     if os.clock() - n.seen < Live.NOTICE_DELAY then return end
     Live.notice = nil
@@ -3016,6 +3036,110 @@ function Live.showNotice()
         description = n.text,
         buttons = { { label = "OK", description = n.text, onClick = function() UI.pop(rec) end } },
     })
+end
+
+--- A fireteam client left in a frontend no host serves. Between test copies
+--- of one account on one PC (tools/remote/instances.mjs), a host who leaves
+--- its match by hand (SAVE AND EXIT, LeaveGame) leaves each joiner in an
+--- empty frontend: a black screen for about two minutes, then the game's
+--- CONNECTION LOST (2026-11-07). Between two PCs the joiner follows the host
+--- into its lobby in about 2 s on both leave paths, so this runs only in a
+--- test copy (Live.STRANDED_WATCH). `s` keeps whether this game has been a
+--- client (a game state with players, not the host's) and since when it has
+--- been one in the frontend with none; true once that has lasted
+--- Live.STRANDED_AFTER.
+--- `view`: { host, frontend, players = the game state's player count, nil
+--- with no game state }.
+--- MJOLNIR_STRANDED_AFTER sets it for a test run (a large number: the
+--- game's own two minutes).
+Live.STRANDED_AFTER = tonumber(os.getenv("MJOLNIR_STRANDED_AFTER") or "") or 10
+function Live.stranded(s, now, view)
+    if view.host then
+        s.client, s.since = false, nil
+        return false
+    end
+    if (view.players or 0) > 0 then
+        s.client, s.since = true, nil
+        return false
+    end
+    if not (s.client and view.frontend) then
+        s.since = nil
+        return false
+    end
+    s.since = s.since or now
+    if now - s.since < Live.STRANDED_AFTER then return false end
+    s.client, s.since = false, nil
+    return true
+end
+
+local strandedState = {}
+
+local function disconnect()
+    local ok, err = pcall(function()
+        local pc = UI.playerController()
+        StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            :ExecuteConsoleCommand(pc:GetWorld(), "disconnect", pc)
+    end)
+    if not ok then log("fireteam: could not disconnect: " .. tostring(err)) end
+end
+
+--- Each poll (the main menu watch, in a match too): end the connection to a
+--- host that has gone, with why, rather than wait for the game's timeout.
+Live.FORCED_TIMEOUT = 1
+--- A test copy only (MJOLNIR_INSTANCE, set by instances.mjs). On a player's
+--- PC its one trigger would be a false one: a client in the frontend ahead
+--- of a slow host's game state, sent away from a working fireteam.
+Live.STRANDED_WATCH = os.getenv("MJOLNIR_INSTANCE") ~= nil
+function Live.watchStranded()
+    if not Live.STRANDED_WATCH then return end
+    local world
+    pcall(function() world = UI.playerController():GetWorld():GetAddress() end)
+    -- A cut timeout that has not ended the connection: the engine's
+    -- disconnect, which leaves this game in the host's lobby, but on its menu.
+    local forced = strandedState.forced
+    if forced and world ~= forced.world then
+        strandedState.forced = nil
+    elseif forced and os.clock() - forced.at >= Live.STRANDED_AFTER then
+        strandedState.forced = nil
+        log("fireteam: the connection did not time out: disconnecting")
+        disconnect()
+    end
+    local players
+    pcall(function()
+        local state = UI.playerController():GetWorld().GameState
+        if state:IsValid() then players = #state.PlayerArray end
+    end)
+    local frontend = inFrontend()
+    local since = strandedState.since
+    if not Live.stranded(strandedState, os.clock(), { host = Net.isHost(), frontend = frontend, players = players }) then
+        -- How long a client waits for the host's game state on a travel to
+        -- the frontend, against Live.STRANDED_AFTER.
+        if since and not strandedState.since then
+            log(string.format("fireteam: the frontend had no host's game state for %.1f s", os.clock() - since))
+        end
+        return
+    end
+    log("fireteam: no host in this frontend for " .. Live.STRANDED_AFTER .. " s: the host left the match")
+    Live.notice = Live.newNotice({ text = "The host left the match." })
+    -- The game's own way out, two minutes sooner: the connection's timeout
+    -- (120 s on the PlayFab net driver) cut to a second. Its CONNECTION LOST
+    -- leaves the host's lobby and makes this game a fireteam of its own, as
+    -- after the full wait (one PC, two copies, 2026-11-07). Not the
+    -- engine's disconnect, which kept this game in the host's lobby, nor the
+    -- fireteam's leave, whose CanLeaveFireteam read through the missing game
+    -- state (a crash).
+    local ok, err = pcall(function()
+        local driver = UI.playerController():GetWorld().NetDriver
+        driver.ConnectionTimeout = Live.FORCED_TIMEOUT
+        driver.InitialConnectTimeout = Live.FORCED_TIMEOUT
+    end)
+    if ok then
+        strandedState.forced = { at = os.clock(), world = world }
+        log("fireteam: the connection's timeout cut to " .. Live.FORCED_TIMEOUT .. " s")
+    else
+        log("fireteam: could not cut the connection's timeout (" .. tostring(err) .. "): disconnecting")
+        disconnect()
+    end
 end
 
 --- MJOLNIRHud's standings: { code, variant, title, modeTitle, winner,
@@ -3697,7 +3821,17 @@ end
 --- The host, back from a match with fresh standings: the post-game screen
 --- and a new vote; after the host's own Quit, the lobby (Live.quitEnded).
 local function hostPostGame()
-    if Post or not inFrontend() or not Net.isHost() then return end
+    if Post or not inFrontend() then return end
+    if not Net.isHost() then
+        -- A client's standings are for the host's vote. Seen here, so that a
+        -- client back on its own menu soon after (its host left, a kick)
+        -- gets no vote of its own: one whose host left mid-match opened a
+        -- vote on the match before, which hid why it was there (one PC, two
+        -- copies, 2026-11-07).
+        local seen = readResults()
+        if seen then seenResults = seen.endedAt end
+        return
+    end
     local r = readResults()
     if not r or r.endedAt == seenResults or os.time() - (r.endedAt or 0) > RESULTS_FRESH then return end
     if not UI.valid(liveMainMenu()) then return end
@@ -4054,6 +4188,11 @@ local function watchMainMenu()
         local started = os.clock()
         local ok, err = pcall(function()
             pcall(holdFireteamSize)
+            -- Test copies only. A few property reads, so in a match too: it
+            -- has to see this game be a client there to know the frontend
+            -- after is wrong.
+            local watched, notWatched = pcall(Live.watchStranded)
+            if not watched then log("stranded watch: " .. tostring(notWatched)) end
             if not inFrontend() then return end
             -- Retried until they are in: without them the lobby shows but
             -- does nothing. Both return at once when already done.
@@ -4627,7 +4766,7 @@ local function initialize()
         -- The host's reason, and the map it names (Live.removeLacking), on
         -- the main menu once this game is back there (Live.showNotice).
         local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
-        Live.notice = { text = fields[1] or "The host sent you back to the main menu.", code = code, at = os.clock() }
+        Live.notice = Live.newNotice({ text = fields[1] or "The host sent you back to the main menu.", code = code })
         -- In the lobby, LeaveGame does nothing (two PCs, 2026-10-09): the
         -- fireteam's own leave does it.
         if inFrontend() then

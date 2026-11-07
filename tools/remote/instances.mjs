@@ -248,12 +248,25 @@ function launch(n, extra = []) {
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "..");
 
 /** This checkout's built lobby DLL into copy n (the copies' join code lives there). */
+/**
+ * This checkout's MJOLNIRLobby into copy n: its built DLL (the copies' join
+ * code lives there) and its scripts and mod.json, so a lobby change can be
+ * tried on the copies before it ships. The Steam install keeps its own.
+ */
 function deploy(n) {
-  const dll = path.join(REPO, "mods", "MJOLNIRLobby", "native", "mjolnir_lobby.dll");
+  const from = path.join(REPO, "mods", "MJOLNIRLobby");
+  const dll = path.join(from, "native", "mjolnir_lobby.dll");
   if (!fs.existsSync(dll)) throw new Error(`${dll} is not built: run native/lobby/build.ps1`);
-  const to = path.join(installRoot(n), "Meteorite", "Binaries", "Win64", "ue4ss", "Mods", "MJOLNIRLobby", "native");
-  fs.copyFileSync(dll, path.join(to, "mjolnir_lobby.dll"));
-  return `instance ${n}: ${path.basename(dll)} from this checkout`;
+  const to = path.join(installRoot(n), "Meteorite", "Binaries", "Win64", "ue4ss", "Mods", "MJOLNIRLobby");
+  fs.copyFileSync(dll, path.join(to, "native", "mjolnir_lobby.dll"));
+  let scripts = 0;
+  for (const name of fs.readdirSync(path.join(from, "Scripts"))) {
+    if (!name.endsWith(".lua")) continue;
+    fs.copyFileSync(path.join(from, "Scripts", name), path.join(to, "Scripts", name));
+    scripts++;
+  }
+  fs.copyFileSync(path.join(from, "mod.json"), path.join(to, "mod.json"));
+  return `instance ${n}: MJOLNIRLobby from this checkout (DLL, ${scripts} scripts, mod.json)`;
 }
 
 /** Running copies: [{pid, n}] by exe path (n 0 = the Steam install). */
@@ -303,10 +316,14 @@ async function waitForLobby(n, seconds = 180) {
   throw new Error(`instance ${n}: no fireteam lobby within ${seconds}s`);
 }
 
+// Host or client by the game state's authority: the first player controller
+// found can be a stale one from the world before (a host read as "client"
+// after a post-game travel).
 const PLAYERS_LUA =
-  'local pc = FindFirstOf("PlayerController") local w = pc:GetWorld() local n = 0 ' +
+  'local pc = FindFirstOf("PlayerController") local w = pc:GetWorld() local n, host = 0, false ' +
   "pcall(function() n = #w.GameState.PlayerArray end) " +
-  'print(w:GetFName():ToString() .. " players " .. n .. (pc:HasAuthority() and " host" or " client"))';
+  "pcall(function() host = w.GameState:HasAuthority() end) " +
+  'print(w:GetFName():ToString() .. " players " .. n .. (host and " host" or " client"))';
 
 /**
  * Copies 1..count up, signed in, in one lobby: 1 hosts (its menu world made
@@ -321,7 +338,10 @@ async function up(count, ...extra) {
   if (already.size === 0) clearEndpointFiles();
   for (let n = 1; n <= count; n++) {
     if (already.has(n)) { lines.push(`instance ${n}: already running`); continue; }
-    if (!fs.existsSync(installRoot(n))) lines.push(mirror(n));
+    // Refreshed every start: a copy made before a mods update kept the old
+    // mods (copies 1 and 2 ran MJOLNIRLobby 0.22.0 after the install had
+    // 0.23.0, 2026-11-07). About a second; only changed files are copied.
+    lines.push(mirror(n));
     lines.push(deploy(n));
     const window = extra.some((a) => a.startsWith("-Res") || a === "-windowed") ? [] : ["-windowed", "-ResX=1280", "-ResY=720"];
     lines.push(launch(n, [...window, ...extra]));
@@ -351,6 +371,13 @@ async function up(count, ...extra) {
 async function down() {
   const copies = (await running()).filter((r) => r.n >= 1);
   for (const { pid } of copies) process.kill(pid);
+  // Gone before this returns: `down; up` launched copy 1 while the old one
+  // was still exiting, and the new one quit at once (2026-11-07).
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 30 && copies.some((c) => alive(c.pid)); i++) await sleep(500);
+  // Even then a copy launched at once quit with no log (twice, 2026-11-07);
+  // one launched a few seconds later started.
+  if (copies.length) await sleep(5000);
   clearEndpointFiles();
   return copies.length ? `stopped ${copies.map((c) => `instance ${c.n} (pid ${c.pid})`).join(", ")}` : "no copies running";
 }

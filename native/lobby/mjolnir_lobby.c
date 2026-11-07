@@ -3676,13 +3676,14 @@ static unsigned long long __fastcall hook_player_new(int index, unsigned char *o
         if (data && (int)made != -1) {
             unsigned char *p = data + (size_t)slot * 0x4b0;
             int asked = (signed char)p[0xad];
-            /* The host decides (only its Lua writes team_game.txt); every other
-               copy gets the change as the player's update. The team asked for
+            /* The host decides; every other copy gets the change as the
+               player's update. A joining copy skips it: its team_game.txt can
+               be the Steam install's, copied in with the rest. The team asked for
                is the slot number past the second player (teams 2, 3, ...), which
                our two-team game types do not have, so: red or blue, whichever
                the other players are on fewer of, red on a tie (host, then
                blue, red, blue, ...). */
-            if (joined_in_progress && team_game && player_changed) {
+            if (joined_in_progress && team_game && player_changed && !test_joiner) {
                 int count[2] = {0, 0};
                 for (int i = 0; i < 16; i++) {
                     unsigned char *o = data + (size_t)i * 0x4b0;

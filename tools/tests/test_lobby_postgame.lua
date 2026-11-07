@@ -24,6 +24,7 @@ end
 -------------------------------------------------------------------------------
 
 local worldName = "Frontend"
+local worldAddress = 1         -- the world's identity; a fireteam leave loads a fresh frontend
 local host = true
 local worlds = nil            -- MapLive.worlds' answers by code; nil: cannot say
 local staleWorld = nil        -- a code whose world is only found missing when asked afresh
@@ -55,6 +56,7 @@ local function permissive()
     end })
 end
 
+local netDriver = nil           -- the world's net driver; nil: none to reach
 local mainMenu = { IsValid = function() return true end, IsVisible = function() return true end,
     IsActivated = function() return true end }
 local pc = {
@@ -63,7 +65,8 @@ local pc = {
         return {
             GetFName = function() return { ToString = function() return worldName end } end,
             AuthorityGameMode = { IsValid = function() return host end },
-            GetAddress = function() return 1 end,
+            GetAddress = function() return worldAddress end,
+            NetDriver = netDriver,
         }
     end,
     PlayerState = { GetPlayerName = function() return { ToString = function() return "devnull" end } end },
@@ -123,7 +126,8 @@ local function contents(path)
 end
 local viewModel = {
     CanLeaveFireteam = function() return true end,
-    LeaveFireteam = function() left = left + 1 end,
+    -- The game's own leave loads the frontend again, a new world.
+    LeaveFireteam = function() left = left + 1 worldAddress = worldAddress + 1 end,
 }
 local env = setmetatable({
     print = function() end,
@@ -451,10 +455,29 @@ handlers.kick({ "You were banned by the host.", "" })
 local before = #pushed
 Live.showNotice()
 eq(#pushed, before, "not in the match")
-worldName = "Frontend"
+worldName, worldAddress = "Frontend", worldAddress + 1   -- back on the menu: another world
 Live.showNotice()
 Live.showNotice()
 eq(pushed[#pushed].description, "You were banned by the host.", "on the menu")
+
+-- A kick that arrives on the frontend (the post-game vote is there):
+-- the leave loads the frontend again, and a screen pushed into the world
+-- before that went with it (one PC, two copies, 2026-11-07). Nothing shows
+-- while the old world is up, then the delay counts in the new one.
+do
+    local fakeLeave = viewModel.LeaveFireteam
+    viewModel.LeaveFireteam = function() left = left + 1 end   -- the reload is late
+    local shown = #pushed
+    handlers.kick({ "You were kicked by the host.", "" })
+    Live.showNotice()
+    Live.showNotice()
+    eq(#pushed, shown, "nothing in the world being left")
+    worldAddress = worldAddress + 1                               -- the fresh frontend
+    Live.showNotice()
+    Live.showNotice()
+    eq(#pushed, shown + 1, "the reason in the new world")
+    viewModel.LeaveFireteam = fakeLeave
+end
 
 -- `mjolnir_auto missing` puts the same notice up on one PC (a host alone
 -- hears no `starting`): the same words and the same offer.
@@ -475,4 +498,109 @@ sent = {}
 kick({ name = "Arctic", pc = {} }, "why", "PTP")
 eq(sent[1][1], "kick", "a kick message")
 eq(sent[1][3], "PTP", "with the map")
+
+-- Between test copies on one PC a joiner whose host left the match by hand
+-- follows it into a frontend nobody serves (2026-11-07): it leaves after
+-- Live.STRANDED_AFTER with why, and never in a lobby or match that has a
+-- host, on its own menu, or before it has been anyone's client. Between two
+-- PCs the joiner follows the host into its lobby, so a player's game never
+-- watches for it.
+do
+    eq(Live.STRANDED_WATCH, false, "a player's game (no MJOLNIR_INSTANCE) does not watch")
+    do
+        local cut = { ConnectionTimeout = 120, InitialConnectTimeout = 20 }
+        netDriver = cut
+        local frozenStranded = Live.stranded
+        Live.stranded = function() return true end
+        host, worldName = false, "Frontend"
+        Live.watchStranded()
+        Live.stranded = frozenStranded
+        eq(cut.ConnectionTimeout, 120, "nothing cut on a player's PC")
+        eq(Live.notice, nil, "and nothing said")
+        netDriver, host = nil, true
+    end
+    Live.STRANDED_WATCH = true   -- a test copy
+    local after = Live.STRANDED_AFTER
+    local s = {}
+    local function at(t, view) return Live.stranded(s, t, view) end
+    eq(at(0, { frontend = true }), false, "starting up: no game state, never a client")
+    eq(at(30, { frontend = true }), false, "still nothing to leave")
+    eq(at(31, { host = true, frontend = true, players = 1 }), false, "its own menu")
+    eq(at(40, { frontend = true }), false, "joining: the host's frontend loading")
+    eq(at(70, { frontend = true }), false, "however long, before it was a client")
+    eq(at(71, { frontend = true, players = 2 }), false, "in the host's lobby")
+    eq(at(80, { frontend = false, players = 2 }), false, "in the match")
+    eq(at(90, { frontend = false }), false, "the travel back: not the frontend yet")
+    eq(at(91, { frontend = true }), false, "the frontend, before the host's game state")
+    eq(at(91 + after - 1, { frontend = true }), false, "a slow host is not gone")
+    eq(at(91 + after, { frontend = true, players = 2 }), false, "the lobby after a match")
+    eq(at(200, { frontend = true, players = 0 }), false, "an empty game state starts the count")
+    eq(at(200 + after, { frontend = true, players = 0 }), true, "and the host has left")
+    eq(at(200 + after + 1, { frontend = true }), false, "once")
+    eq(at(400, { frontend = true }), false, "not again until it is a client again")
+    -- The way out: the game's own CONNECTION LOST, its connection's
+    -- timeout cut to a second; the engine's disconnect when that cannot be
+    -- done or does nothing. Never the fireteam's leave, whose
+    -- CanLeaveFireteam reads through the missing game state.
+    local commands = {}
+    local findObject = env.StaticFindObject
+    env.StaticFindObject = function()
+        return { ExecuteConsoleCommand = function(_, _, command) commands[#commands + 1] = command end }
+    end
+    local before = left
+    host, worldName = false, "Frontend"
+    Live.watchStranded()   -- no game state in the fakes: never a client yet
+    eq(#commands, 0, "nothing to leave on a first look")
+    local frozen = Live.stranded
+    local function strand()
+        Live.stranded = function() return true end
+        Live.watchStranded()
+        Live.stranded = frozen
+    end
+    netDriver = { ConnectionTimeout = 120, InitialConnectTimeout = 20 }
+    strand()
+    eq(netDriver.ConnectionTimeout, Live.FORCED_TIMEOUT, "the connection's timeout cut")
+    eq(#commands, 0, "and no disconnect")
+    eq(left, before, "not the fireteam's leave")
+    has(Live.notice and Live.notice.text, "The host left the match", "with why")
+    -- The timeout ends the connection: a fresh frontend, nothing more to do.
+    worldAddress = worldAddress + 1
+    Live.STRANDED_AFTER = 0
+    Live.watchStranded()
+    eq(#commands, 0, "a new world: the timeout worked")
+    -- It does nothing: the disconnect, once.
+    strand()
+    Live.watchStranded()
+    eq(commands[1], "disconnect", "still that world: the engine's disconnect")
+    Live.watchStranded()
+    eq(#commands, 1, "only once")
+    -- No net driver to reach: the disconnect at once.
+    netDriver = nil
+    strand()
+    eq(commands[2], "disconnect", "no net driver: the disconnect")
+    Live.STRANDED_AFTER = after
+    Live.STRANDED_WATCH = false
+    Live.notice = nil
+    env.StaticFindObject = findObject
+    host = true
+end
+
+-- A client's standings are the host's vote's: a client back on its own menu
+-- soon after (its host left mid-match, a kick) opens no vote of its own on
+-- them (one did on the match before, over the reason; 2026-11-07).
+do
+    reset()
+    host, worldName = false, "Frontend"
+    standings("CHL", "slayer", os.time() - 5)
+    hostPostGame()
+    eq(postScreens, 0, "a client opens no post-game screen")
+    host = true   -- back on its own menu
+    hostPostGame()
+    eq(postScreens, 0, "nor once its own host, on standings it had as a client")
+    eq(lobbies, 0, "and no lobby over the main menu")
+    standings("BGL", "slayer", os.time())
+    hostPostGame()
+    eq(postScreens, 1, "its own match after votes as before")
+    reset()
+end
 print("Lobby after a match: " .. checks .. " checks passed")
