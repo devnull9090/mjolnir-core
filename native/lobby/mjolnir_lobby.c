@@ -208,6 +208,17 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
    maxUserCount, maxDeviceCount, maxUsersPerDeviceCount, maxDevicesPerUserCount,
    maxEndpointsPerDeviceCount, directPeerConnectivityOptions (uint32 each). The
    ini ships 4, 4, 2, 1, 3; the log line confirms the order on a real call. */
+/* A test copy of the game started by tools/remote/instances.mjs, which sets
+   MJOLNIR_INSTANCE: several copies on one PC, signed in to one account. */
+static int test_instance(void) {
+    static int known = -1;
+    if (known < 0) {
+        char value[16];
+        known = GetEnvironmentVariableA("MJOLNIR_INSTANCE", value, sizeof value) > 0;
+    }
+    return known;
+}
+
 static long __stdcall hook_create_network(void *handle, void *user, void *config, unsigned region_count, void *regions,
                                           void *invitation, void *context, void *descriptor, void *applied) {
     if (config) {
@@ -218,7 +229,10 @@ static long __stdcall hook_create_network(void *handle, void *user, void *config
         c[1] = at_least(c[1], fireteam_size);
         /* The per-device limits stay as shipped: raising users/device to 4 and
            endpoints/device to 5 made every remote join time out, guests or not. */
-        fireteam_log("party: users %u devices %u", c[0], c[1]);
+        /* Test copies share one account, so the network has to take one user
+           on several devices; shipped, a user is on one device only. */
+        if (test_instance()) c[3] = at_least(c[3], fireteam_size);
+        fireteam_log("party: users %u devices %u devices/user %u", c[0], c[1], c[3]);
     }
     return real_create_network(handle, user, config, region_count, regions, invitation, context, descriptor, applied);
 }
@@ -545,6 +559,84 @@ static const char *party_change_name(unsigned type) {
     return type < sizeof names / sizeof *names ? names[type] : "(chat/audio)";
 }
 
+/* PFMultiplayerStartProcessingLobbyStateChanges(handle, &count, &changes):
+   every PlayFab lobby event. Logged in test copies only (several on one PC,
+   one account): whether a joiner on the same account is ever a new member of
+   the host's lobby. Each change starts with its type; the "...Completed" ones
+   carry an HRESULT next, and MemberAdded/MemberRemoved the lobby and then the
+   member's entity key (id, type). */
+typedef long(__stdcall *lobby_start_changes_t)(void *, unsigned *, const void *const **);
+
+static lobby_start_changes_t real_lobby_start_changes;
+
+/* The game's lobby event pump (exe 0x6f44150 on CU4) keeps its own object in
+   rsi (`mov rsi, rcx` in its prologue) when it calls the import; the thunk in
+   front of the hook saves it here. */
+static void *volatile lobby_pump_rsi;
+
+static long __stdcall hook_lobby_start_changes(void *handle, unsigned *count, const void *const **changes) {
+    long hr = real_lobby_start_changes(handle, count, changes);
+    static int described;
+    if (!described && lobby_pump_rsi) {
+        described = 1;
+        __try {
+            unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
+            void **vtable = *(void ***)lobby_pump_rsi;
+            fireteam_log("lobby events: pump object %p vtable exe+%llx; +80 exe+%llx +a0 exe+%llx +c0 exe+%llx "
+                         "+e0 exe+%llx +140 exe+%llx",
+                         lobby_pump_rsi, (unsigned long long)((unsigned char *)vtable - exe),
+                         (unsigned long long)((unsigned char *)vtable[0x80 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0xa0 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0xc0 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0xe0 / 8] - exe),
+                         (unsigned long long)((unsigned char *)vtable[0x140 / 8] - exe));
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("lobby events: pump object unreadable");
+        }
+    }
+    if (hr >= 0 && count && changes && *changes && test_instance()) {
+        static const char *const names[] = {
+            "CreateAndJoinLobbyCompleted", "JoinLobbyCompleted", "MemberAdded", "AddMemberCompleted", "MemberRemoved",
+            "ForceRemoveMemberCompleted", "LeaveLobbyCompleted", "Updated", "PostUpdateCompleted", "Disconnecting",
+            "Disconnected", "JoinArrangedLobbyCompleted", "FindLobbiesCompleted", "InviteReceived",
+            "InviteListenerStatusChanged", "SendInviteCompleted"};
+        for (unsigned i = 0; i < *count; i++) {
+            const unsigned char *change = (const unsigned char *)(*changes)[i];
+            if (!change) continue;
+            __try {
+                unsigned type = *(const unsigned *)change;
+                const char *name = type < sizeof names / sizeof *names ? names[type] : "?";
+                if (type == 2 || type == 4) {
+                    const char *member = *(const char *const *)(change + 16);
+                    fireteam_log("lobby event: %s %s", name, member ? member : "?");
+                } else if (type == 7) {
+                    continue; /* property updates: many, and not the join */
+                } else if (type <= 1 || type == 3 || type == 5 || type == 6 || type == 8 || type == 11) {
+                    fireteam_log("lobby event: %s 0x%08lx", name, *(const long *)(change + 4));
+                } else {
+                    fireteam_log("lobby event: %s", name);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                fireteam_log("lobby event: unreadable");
+            }
+        }
+    }
+    return hr;
+}
+
+/* Party's own words for an error detail (PartyGetErrorMessage), or "". */
+static const char *party_error_text(unsigned detail) {
+    typedef unsigned(__stdcall * get_message_t)(unsigned, const char **);
+    static get_message_t get_message;
+    if (!get_message) {
+        HMODULE party = GetModuleHandleA(store_dll("PartyWin.dll"));
+        if (party) get_message = (get_message_t)GetProcAddress(party, "PartyGetErrorMessage");
+    }
+    const char *text = NULL;
+    if (!get_message || get_message(detail, &text) != 0 || !text) return "";
+    return text;
+}
+
 static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count, const void *const **changes) {
     unsigned err = real_party_start_changes(handle, count, changes);
     if (err == 0 && count && changes && *changes) {
@@ -555,7 +647,27 @@ static unsigned __stdcall hook_party_start_changes(void *handle, unsigned *count
             /* Messages and returned buffers come every frame; chat and audio
                (32 and up) are not the join. */
             if (type == 21 || type == 22 || type >= 32) continue;
-            fireteam_log("party: %s (%u)", party_change_name(type), type);
+            /* Why a step failed: the "...Completed" changes carry a result and
+               an error detail after the type; LocalUserRemoved a reason after
+               its network and local user. */
+            unsigned result = 0, detail = 0, reason = 0;
+            int has_result = 0, has_reason = 0;
+            switch (type) {
+            case 1: case 2: case 3: case 4: case 8: case 10: case 11: case 19: case 25: case 26: case 30: case 31:
+                result = change[1], detail = change[2], has_result = 1;
+                break;
+            case 7:
+                reason = change[6], has_reason = 1;
+                break;
+            }
+            if (has_result && (result || detail))
+                fireteam_log("party: %s (%u) result %u detail 0x%x%s%s", party_change_name(type), type, result, detail,
+                             detail ? " " : "", detail ? party_error_text(detail) : "");
+            else if (has_reason)
+                fireteam_log("party: %s (%u) reason %u detail 0x%x%s%s", party_change_name(type), type, reason, detail,
+                             detail ? " " : "", detail ? party_error_text(detail) : "");
+            else
+                fireteam_log("party: %s (%u)", party_change_name(type), type);
         }
     }
     return err;
@@ -5148,6 +5260,25 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("PFLobbyForceRemoveMember: %s",
                  swap_import("PlayFabMultiplayerWin.dll", "PFLobbyForceRemoveMember", (void *)hook_lobby_force_remove,
                              (void **)&real_lobby_force_remove));
+    if (test_instance()) {
+        /* A thunk in front of the hook keeps the caller's rsi:
+           mov rax, &lobby_pump_rsi; mov [rax], rsi; mov rax, hook; jmp rax. */
+        unsigned char *thunk = VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (thunk) {
+            unsigned char *p = thunk;
+            *p++ = 0x48, *p++ = 0xb8; /* mov rax, &lobby_pump_rsi */
+            *(void *volatile **)p = &lobby_pump_rsi, p += 8;
+            *p++ = 0x48, *p++ = 0x89, *p++ = 0x30; /* mov [rax], rsi */
+            *p++ = 0x48, *p++ = 0xb8; /* mov rax, hook */
+            *(void **)p = (void *)hook_lobby_start_changes, p += 8;
+            *p++ = 0xff, *p++ = 0xe0; /* jmp rax */
+            FlushInstructionCache(GetCurrentProcess(), thunk, 64);
+        }
+        fireteam_log("PFMultiplayerStartProcessingLobbyStateChanges (test copy %s): %s", "events logged",
+                     swap_import("PlayFabMultiplayerWin.dll", "PFMultiplayerStartProcessingLobbyStateChanges",
+                                 thunk ? (void *)thunk : (void *)hook_lobby_start_changes,
+                                 (void **)&real_lobby_start_changes));
+    }
     if (GetModuleHandleA("PlayFabMultiplayerGDK.dll"))
         fireteam_log("GDK subsystem tick (joins by connection string): %s", hook_gdk_tick_slot());
     else
