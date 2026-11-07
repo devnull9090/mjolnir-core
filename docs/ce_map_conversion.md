@@ -829,6 +829,22 @@ Reach does the same with Megalo labels:
   computes the same filters from the same line and level.
 - The host sets them on the RED VEHICLES and BLUE VEHICLES pages of GAME
   SETTINGS (`MJOLNIRLobby/Scripts/settings.lua`).
+- A FORGE game has no filters: the sandbox engine builds its own variant. Its
+  map variant still lists the vehicles, with bit `0x20` of an entry's flags as
+  the hide flag (`0x2c` against a palette placement's `0x0c`), and the palette's
+  placed counts include them. So the loader writes the labels a Slayer game
+  would place to `forge_vehicles.txt`, cut to the room Slayer's variant has, and
+  MJOLNIRForge's DLL clears the bit on those entries before the objects are made:
+  at new-map, on F2 and on F6, for the map's own layout or a saved one. A save
+  sets it again in what it writes, so a host's vehicle sets still decide in a
+  match. Measured in FORGE: Yoyorast shows all 16, Coldsnap 21 of its 47 default
+  vehicles, Death Island 16, with no round reset in 75 s. A layout saved there
+  and hosted as Slayer with both sets on NONE placed no vehicles. Not tested with
+  a client joining: a client changes nothing, and its objects are the host's.
+- Filters come after the variant's own, so a map with many labels can run out.
+  By the variants' layouts, Yoyorast's 15 fit Slayer (1 of its own, all 16
+  vehicles counted in game), but CTF (6) leaves out `ce_warthog_8` to `_10` and
+  Race (2) `ce_warthog_10`. `_9` and `_10` include its two ramp Mongooses.
 
 Death Island places Banshees and Warthogs when the round begins, and its
 Ghosts, Scorpions and Shades only when their respawn time (30-40 s) runs out,

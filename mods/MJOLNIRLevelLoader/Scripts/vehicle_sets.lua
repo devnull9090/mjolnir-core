@@ -120,6 +120,25 @@ function VehicleSets.filters(vehicles, mode, choices)
     return out
 end
 
+--- forge_vehicles.txt for MJOLNIRForge's DLL (native/forge/forge_vehicles.h):
+--- `label<TAB>team` a line, -1 for either team. A FORGE game runs the sandbox
+--- engine, whose own variant has no filters, so the DLL shows these instead:
+--- what a Slayer game with CE's default sets would place, cut to the room
+--- `layout` (slayer.layout.json) leaves. Coldsnap's default set is 47 vehicles,
+--- and more than the simulation keeps resets the round.
+function VehicleSets.forgeLines(vehicles, layout)
+    local room = 15
+    if type(layout) == "table" then
+        room = (layout.max_filters or 16) - #(layout.filters or {})
+    end
+    local out = { "forge-vehicles 1" }
+    local filters = VehicleSets.filters(vehicles, "slayer", VehicleSets.fromSettings({}))
+    for i = 1, math.min(room, #filters) do
+        out[#out + 1] = filters[i].label .. "\t" .. tostring(filters[i].team or -1)
+    end
+    return table.concat(out, "\n") .. "\n"
+end
+
 -- MSB-first bits appended to a byte string cut at bit `at`.
 local function writer(bytes, at)
     local w = { parts = { bytes:sub(1, math.floor(at / 8)) }, acc = 0, n = 0 }

@@ -617,7 +617,7 @@ bytes, the layout the property codec reads (`0x330230`) and writes
 | `+0x12` | respawn time, s | 8 |
 | `+0x13` | multiplayer object type | 5 |
 | `+0x14` | label (i16, -1 none) | 1 + 8 |
-| `+0x16` | flags | 8 |
+| `+0x16` | flags: `0x20` hidden until a filter asks, as a converted map's vehicles are | 8 |
 | `+0x17` | team: 0 red, 1 blue, ... 8 neutral | 4 |
 | `+0x18`, `+0x19` | type extras: spare clips; teleporter channel, passability | 8; 5, 5 |
 | `+0x1a` | colour (-1 none) | 1 + 3 |

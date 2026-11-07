@@ -62,6 +62,7 @@
 #include "pack_bindings.h"
 #include "layout_files.h"
 #include "layout_revert.h"
+#include "forge_vehicles.h"
 #include "layout_blf.h"
 #include "layout_bounds.h"
 #include "utility_properties.h"
@@ -294,6 +295,8 @@ static char g_status_path[MAX_PATH];
 static char g_layouts_dir[MAX_PATH];  // the mod's layouts folder, beside native
 static char g_pack_inventory[MAX_PATH];
 static char g_running_path[MAX_PATH]; // MJOLNIRLevelLoader's running.txt
+static char g_vehicles_path[MAX_PATH]; // and its forge_vehicles.txt
+static volatile LONG g_vehicles_shown; // the map's vehicles the last build showed, for pump
 static char g_layout[160];            // what the layout code last did, for pump (any engine)
 static unsigned g_layout_id;          // changes even when a new map repeats the same refusal
 
@@ -326,6 +329,7 @@ static void derive_paths(HMODULE self) {
     snprintf(g_layouts_dir, MAX_PATH, "%s..\\layouts\\", g_dir);
     snprintf(g_pack_inventory, MAX_PATH, "%s..\\..\\..\\MJOLNIRForgePacks\\installed.txt", g_dir);
     snprintf(g_running_path, MAX_PATH, "%s..\\..\\MJOLNIRLevelLoader\\running.txt", g_dir);
+    snprintf(g_vehicles_path, MAX_PATH, "%s..\\..\\MJOLNIRLevelLoader\\forge_vehicles.txt", g_dir);
 }
 
 // The simulation thread's thread-local block. Only meaningful on that thread.
@@ -1098,6 +1102,39 @@ static void mv_build_authored(void *mv) {
     if (changed) layout_note("authored door defaults: %d panel(s) Fixed", changed);
 }
 
+// Whether running.txt's game type is FORGE. New-map builds a variant in every
+// game, and only a Forge game has no filters to show the map's vehicles.
+static int running_is_forge(void) {
+    FILE *f = NULL;
+    char line[256];
+    if (fopen_s(&f, g_running_path, "rb") != 0 || !f) return 0;
+    size_t n = fread(line, 1, sizeof line - 1, f);
+    fclose(f);
+    line[n] = '\0';
+    const char *tab = strchr(line, '\t');
+    return tab && !strncmp(tab + 1, "forge\t", 6);
+}
+
+// The vehicle labels a Forge game shows (forge_vehicles.h). 0 in any other
+// game, on a map with none, and for a file that does not read.
+static int vehicles_read(forge_vehicle_set *set) {
+    set->count = 0;
+    if (!running_is_forge()) return 0;
+    FILE *f = NULL;
+    if (fopen_s(&f, g_vehicles_path, "rb") != 0 || !f) return 0;
+    int rows = forge_vehicles_read(f, set);
+    fclose(f);
+    return rows > 0;
+}
+
+// Before the objects are made: the round reset and mv_replace create what the
+// entries say. A client's objects are the host's.
+static void vehicles_show(void *mv) {
+    forge_vehicle_set set;
+    if (is_client(tls_block()) || !vehicles_read(&set)) return;
+    InterlockedExchange(&g_vehicles_shown, forge_vehicles_mark((uint8_t *)mv, &set, 0));
+}
+
 // Replace the objects of the live variant `mv` with the scratch variant's
 // (or, when `scenario`, with the map's own), the way host migration
 // (0x304190) recreates them: delete, rebuild, create, resend.
@@ -1110,6 +1147,7 @@ static void mv_replace(uint8_t *tls, void *mv, int scenario) {
     g_mv_delete_all();
     if (scenario) mv_build_authored(mv);
     else mv_adopt(mv);
+    vehicles_show(mv);
     g_mv_create_all(mv);
     for (uint32_t i = 0; i < MV_ENTRIES; i++) g_mv_entry_dirty(i, 4);
     g_mv_budget(mv);
@@ -1128,6 +1166,9 @@ static void layout_save(void) {
     // derives it from the map id, which on a converted map gives zero again:
     // the same variant. So save a copy at 31.
     memcpy(g_mv_scratch, mv, MV_SIZE);
+    // A saved layout runs in every game, where the host's vehicle sets decide.
+    forge_vehicle_set shown;
+    if (vehicles_read(&shown)) forge_vehicles_mark(g_mv_scratch, &shown, 1);
     // Automatic panels publish a transient open MV pose for native physics
     // and replication. Save the host's authored closed origins in this copy.
     typedef int (*doors_copy_fn)(void *, void *);
@@ -1256,10 +1297,9 @@ static void layout_revert(uint8_t *tls) {
     layout_note("%s: the map's own layout%s", code, saved ? " (saved one moved to history)" : "");
 }
 
-// New-map's call that builds the live variant from the scenario lands here:
-// build it, then, when the map has a saved layout, make that current instead,
-// as new-map does with a variant the session supplies. Simulation thread.
-static void layout_new_map(void *mv) {
+// Build the live variant, then, when the map has a saved layout, make that
+// current instead, as new-map does with a variant the session supplies.
+static void layout_new_map_build(void *mv) {
     // Palette slots first: a saved layout names palette entries, and a slot's
     // object is what its entry places (no Forge tick has run yet, and none
     // runs at all under Megalo).
@@ -1281,6 +1321,13 @@ static void layout_new_map(void *mv) {
     }
     mv_adopt(mv);
     layout_note("%s: saved layout, %d objects", code, mv_objects((const uint8_t *)mv));
+}
+
+// New-map's call that builds the live variant from the scenario lands here.
+// Simulation thread.
+static void layout_new_map(void *mv) {
+    layout_new_map_build(mv);
+    vehicles_show(mv);
 }
 
 // Memory for a jump within reach of a rel32 call in the simulation DLL.
@@ -2260,10 +2307,11 @@ __declspec(dllexport) int mjolnir_forge_pump(void *L) {
     snprintf(text, sizeof text,
              "forge=%d\nplayer=%d\nediting=%d\nheld=%08x\nheld_tag=%s\nheld_group=%s\ncursor=%08x\ncursor_tag=%s\n"
              "cursor_group=%s\ndistance=%.1f\nlast=%s\nlast_id=%u\nselected=%d\npalette_version=%u\nlifted=%d\n"
-             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\nlayout_id=%u\ngrid_m=%.2g\nrotation_snap=%d\n",
+             "layout=%s\nphased=%d\naim=%s\nbudget=%d\nspent=%d\nheld_path=%s\ncursor_path=%s\nlayout_id=%u\ngrid_m=%.2g\nrotation_snap=%d\n"
+             "vehicles_shown=%ld\n",
              live, s.player, s.editing, s.held, s.held_tag, s.held_group, s.cursor, s.cursor_tag, s.cursor_group,
              s.distance, s.last, s.last_id, s.selected, s.rows_version, g_lifted, layout, g_phased, g_aim, s.budget, s.spent,
-             s.held_path, s.cursor_path, layout_id, s.grid_m, s.rotation_snap);
+             s.held_path, s.cursor_path, layout_id, s.grid_m, s.rotation_snap, g_vehicles_shown);
     if (s.props) {
         size_t used = strlen(text);
         snprintf(text + used, sizeof text - used, "team=%s\nlabel=%s\nrespawn=%d\norder=%d\nmp_type=%d\nphysics=%s\n",
