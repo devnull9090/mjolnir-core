@@ -213,8 +213,12 @@ setUpvalue(hostPostGame, "openPostGame", function()
 end)
 setUpvalue(postTick, "drawPostGame", function() end)
 
-local QUIT_HOOK = "/Script/BlamEngine.BlamCampaignFlowGameSubsystem:LeaveGame"
-eq(type(hooks[QUIT_HOOK]), "function", "the host's Quit (LeaveGame) is hooked")
+-- The pause menu's SAVE AND EXIT ends in EndCampaign (traced in game); a
+-- LeaveGame from script is the same leave.
+local QUIT_HOOK = "/Script/BlamEngine.BlamCampaignFlowGameSubsystem:EndCampaign"
+local LEAVE_HOOK = "/Script/BlamEngine.BlamCampaignFlowGameSubsystem:LeaveGame"
+eq(type(hooks[QUIT_HOOK]), "function", "SAVE AND EXIT (EndCampaign) is hooked")
+eq(type(hooks[LEAVE_HOOK]), "function", "LeaveGame is hooked")
 local resultsAt = os.time() - 1
 local function standings(code, variant, endedAt)
     results = table.concat({ "match", code, variant, "Blood Gulch", "Slayer", "devnull", tostring(endedAt), "-" }, "\t")
@@ -266,6 +270,17 @@ eq(countdowns(), 0, "and nothing starts")
 eq(Live.quitAt, nil, "the quit is used up")
 eq(logged("the host quit the match"), true, "logged")
 
+-- LeaveGame, the same leave from script, counts too.
+reset()
+worldName = "BGL"
+hooks[LEAVE_HOOK]()
+worldName = "Frontend"
+resultsAt = resultsAt + 1
+standings("BGL", "slayer", resultsAt)
+hostPostGame()
+eq(lobbies, 1, "after LeaveGame: the lobby")
+eq(postScreens, 0, "no vote after LeaveGame")
+
 -- A client's leave is not the host's quit.
 reset()
 host, worldName = false, "BGL"
@@ -290,6 +305,15 @@ standings("BGL", "slayer", resultsAt)
 hostPostGame()
 eq(lobbies, 1, "a Quit during the final standings: the lobby")
 eq(postScreens, 0, "no vote")
+-- However long the finished match was held (in game: a round over on a
+-- one-minute limit, held with hold_match.txt, then SAVE AND EXIT 12 s later).
+reset()
+Live.quitAt = os.time()
+resultsAt = os.time() - 60
+standings("BGL", "slayer", resultsAt)
+hostPostGame()
+eq(lobbies, 1, "standings from well before the quit: still the lobby")
+eq(postScreens, 0, "still no vote")
 
 -------------------------------------------------------------------------------
 -- 2. A map whose world is in no container

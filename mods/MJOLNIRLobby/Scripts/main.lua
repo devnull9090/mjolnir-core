@@ -3668,18 +3668,20 @@ local function decide()
 end
 
 --- Whether the standings written at `endedAt` are from a match the host left
---- with the pause menu's Quit (Live.quitAt, set by the LeaveGame hook in
---- initialize). The simulation ends a match its host leaves the way it ends
---- any other, so MJOLNIRHud writes standings and the host's game comes back
---- to the frontend with them; the vote that followed started another match
---- 20 s later with nobody voting (two PCs, 2026-11-07). The standings come
---- moments after the quit, or up to the final standings' seven seconds
---- before it (a Quit while they are up). Any fresh standings use up a quit.
+--- by hand (Live.quitAt, set by the EndCampaign and LeaveGame hooks in
+--- initialize). A host who leaves while the final standings are up comes
+--- back to the frontend with them, unseen, and a host's leave with a joiner
+--- in the match ended it with standings too; the vote that followed started
+--- another match 20 s later with nobody voting (two PCs, 2026-11-07).
+--- Standings written before the leave are the match it left (any earlier
+--- ones were seen when the host came back from them); ones after it come
+--- within moments. Any fresh standings use up a leave.
+Live.QUIT_SECONDS = 30
 function Live.quitEnded(endedAt)
     local at = Live.quitAt
     Live.quitAt = nil
     if not (at and endedAt) then return false end
-    return endedAt >= at - 10 and endedAt <= at + 30
+    return endedAt <= at + Live.QUIT_SECONDS
 end
 
 --- The host, back from a match with fresh standings: the post-game screen
@@ -4623,16 +4625,20 @@ local function initialize()
         end
         ExecuteInGameThreadWithDelay(200, leave)
     end)
-    -- The host's Quit from the pause menu (LeaveGame): the standings it
-    -- leaves behind open the lobby, not a vote (Live.quitEnded). A client's
-    -- leave (its Quit, a kick) is no host's.
-    local quitHooked = pcall(RegisterHook, "/Script/BlamEngine.BlamCampaignFlowGameSubsystem:LeaveGame", function()
-        if Net.isHost() and not inFrontend() then
-            Live.quitAt = os.time()
-            log("host: left the match (Quit): no vote after it")
-        end
-    end)
-    if not quitHooked then log("host: LeaveGame not hooked, so a host's Quit still opens the vote") end
+    -- The host leaving its match by hand: the standings that leaves behind
+    -- open the lobby, not a vote (Live.quitEnded). The pause menu's SAVE AND
+    -- EXIT, once its dialog says YES, calls EndCampaign (traced in game,
+    -- 2026-11-07); LeaveGame is the same leave from script, which the
+    -- two-PC run used. A client's leave (its own exit, a kick) is no host's.
+    for _, fn in ipairs({ "EndCampaign", "LeaveGame" }) do
+        local hooked = pcall(RegisterHook, "/Script/BlamEngine.BlamCampaignFlowGameSubsystem:" .. fn, function()
+            if Net.isHost() and not inFrontend() then
+                Live.quitAt = os.time()
+                log("host: left the match (" .. fn .. "): no vote after it")
+            end
+        end)
+        if not hooked then log("host: " .. fn .. " not hooked, so leaving a match that way still opens the vote") end
+    end
     RegisterConsoleCommandHandler("mjolnir_auto", function(full)
         local args = {}
         for word in tostring(full or ""):gmatch("%S+") do args[#args + 1] = word end
