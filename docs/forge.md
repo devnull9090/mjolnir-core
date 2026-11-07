@@ -119,6 +119,10 @@ grenades, power-ups, ammo and scenery such as spawn points, teleporters, flag
 stands and health packs. A map with a smaller palette only offers its baked
 selection. Adding installed assets does not change that selection.
 
+A converted map's own vehicles start in place: a FORGE game shows the ones a
+Slayer game on that map would place. Saving keeps them under the host's vehicle
+settings, so a match still places what its VEHICLE SET pages say.
+
 The **blocks** palette includes a Covenant crate and portable shield. Maps
 can also include original namespaced model sets such as Foundry through
 [Forge packs](forge_packs.md). Per-kind quotas and overall object capacity

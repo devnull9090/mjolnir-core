@@ -33,7 +33,7 @@ local PRESET_TYPE = { [2] = "warthog", [3] = "ghost", [4] = "scorpion", [5] = "r
 -- A game type's bit in CE's spawn flags (default bits 0-3, allowed 8-11).
 -- Juggernaut, Stalker and Reverse Tag are CE's Oddball engine. Race has no bit
 -- in our data and takes Slayer's set.
-local MODE_BIT = { slayer = 0, team_slayer = 0, ctf = 1, king = 2, koth = 2, crazy_king = 2, team_koth = 2,
+local MODE_BIT = { slayer = 0, team_slayer = 0, ctf = 1, assault = 1, king = 2, koth = 2, crazy_king = 2, team_koth = 2,
     oddball = 3, team_oddball = 3, juggernaut = 3, stalker = 3, reverse_tag = 3, race = 0, team_race = 0, rally = 0, team_rally = 0 }
 -- Owner team on the placements (gen_ce_level.py CE_OWNER_TEAMS): red 0, blue 1.
 local TEAM_INDEX = { red = 0, blue = 1 }
@@ -118,6 +118,25 @@ function VehicleSets.filters(vehicles, mode, choices)
         return (a.team or -1) < (b.team or -1)
     end)
     return out
+end
+
+--- forge_vehicles.txt for MJOLNIRForge's DLL (native/forge/forge_vehicles.h):
+--- `label<TAB>team` a line, -1 for either team. A FORGE game runs the sandbox
+--- engine, whose own variant has no filters, so the DLL shows these instead:
+--- what a Slayer game with CE's default sets would place, cut to the room
+--- `layout` (slayer.layout.json) leaves. Coldsnap's default set is 47 vehicles,
+--- and more than the simulation keeps resets the round.
+function VehicleSets.forgeLines(vehicles, layout)
+    local room = 15
+    if type(layout) == "table" then
+        room = (layout.max_filters or 16) - #(layout.filters or {})
+    end
+    local out = { "forge-vehicles 1" }
+    local filters = VehicleSets.filters(vehicles, "slayer", VehicleSets.fromSettings({}))
+    for i = 1, math.min(room, #filters) do
+        out[#out + 1] = filters[i].label .. "\t" .. tostring(filters[i].team or -1)
+    end
+    return table.concat(out, "\n") .. "\n"
 end
 
 -- MSB-first bits appended to a byte string cut at bit `at`.

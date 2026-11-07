@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """Put a chassis's lights on a CE vehicle's body.
 
-    ce_vehicle_lights.py <numbers.json> <vehicle_sounds.json> <class> [--scale 0.5887] [--shift-x 20.5] [--shift-z -10.8]
+    ce_vehicle_lights.py <numbers.json> <vehicle_sounds.json> <class> [--bones bones.json]
+        [--scale 0.5887] [--shift-x 20.5] [--shift-z -10.8]
 
 A light rides a VFX socket of the donor's rig, which keeps the donor's shape at
 the rig's scale, so each is moved in its socket's space onto CE's headlight and
 taillight markers. Niagara components cannot be edited in the cooked Blueprint,
 so MJOLNIRLevelLoader's vehicle_sounds.lua applies this at spawn, on every
 client. Lights CE has no marker for, the Warthog's roof pair, are hidden.
+
+CE's markers can sit behind the model's surface: the Mongoose's taillights are
+inside their lamps, so the glow is buried and only the light on the ground
+shows. `--bones` takes ce_vehicle_skin.py's bones.json, whose lights it moved
+clear of the body, in place of the raw markers.
 """
 import argparse
 import json
@@ -63,16 +69,30 @@ def lights(markers, scale, shift_x, shift_z):
     return {"move": move, "hide": HIDE}
 
 
+def cleared(manifest):
+    """The lights of a bones.json as markers: wu, CE's axes, by kind."""
+    parents = {row["bone"]: row["ue_object"]["translation"] for row in manifest["bones"]}
+    markers = {"headlight": [], "taillight": []}
+    for row in manifest["light_bones"]:
+        at = [row["location"][k] + parents[row["bone"]][k] for k in range(3)]
+        kind = "taillight" if "Taillight" in row["name"] else "headlight"
+        markers[kind].append((at[0] / CM, -at[1] / CM, at[2] / CM))
+    return markers
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("numbers")
     ap.add_argument("table")
     ap.add_argument("actor_class")
+    ap.add_argument("--bones", help="ce_vehicle_skin.py's bones.json: lights clear of the body")
     ap.add_argument("--scale", type=float, default=0.5887)
     ap.add_argument("--shift-x", type=float, default=20.5)
     ap.add_argument("--shift-z", type=float, default=-10.8)
     a = ap.parse_args()
     markers = json.load(open(a.numbers, encoding="utf-8"))["all_markers"]
+    if a.bones:
+        markers = cleared(json.load(open(a.bones, encoding="utf-8")))
     table = json.load(open(a.table, encoding="utf-8"))
     table[a.actor_class]["lights"] = lights(markers, a.scale, a.shift_x, a.shift_z)
     with open(a.table, "w", encoding="utf-8") as f:

@@ -1,7 +1,7 @@
 -- A small, game-side publisher. Only this module writes Discord's activity;
 -- MJOLNIRHud publishes a fresh, session-bound snapshot of its own Lua state.
 local Presence = {}
-local MODES = { slayer = "Slayer", team_slayer = "Team Slayer", ctf = "Capture the Flag",
+local MODES = { slayer = "Slayer", team_slayer = "Team Slayer", ctf = "Capture the Flag", assault = "Assault",
     koth = "King", crazy_king = "Crazy King", team_koth = "Team King",
     oddball = "Oddball", team_oddball = "Team Oddball", juggernaut = "Juggernaut",
     stalker = "Stalker", reverse_tag = "Reverse Tag",

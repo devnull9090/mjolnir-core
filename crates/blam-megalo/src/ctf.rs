@@ -16,6 +16,12 @@
 //! The events raise the game's own incidents (`flag_grabbed`, `flag_scored`
 //! ...), which reach Unreal's incident handler like any other.
 //!
+//! Assault plays the same rules with one flag at a time. The defending team's
+//! stand makes it, the attackers carry it to their own stand, and a capture or
+//! the end of a side's clock swaps the sides. A sim round would swap them too,
+//! but MJOLNIR ends a match at the first `round_over`, so the script keeps the
+//! defender in a global number and the match stays one round.
+//!
 //! A trigger stops at its first failed condition (`0x423a70`), so each
 //! branch is a subroutine of its own; and a label loop leaves its last
 //! object as the current one, so the flag being handled is kept in a global.
@@ -88,6 +94,12 @@ const TEAM_INDEX: u8 = 3;
 // object.object[0]: a flag's stand, a stand's flag.
 const LINK: u8 = 0;
 
+// Assault's global numbers: the defending team (0 red, 1 blue), the ticks left
+// on this side's clock, and a place to work out the other team.
+const DEFENDER: u8 = 0;
+const CLOCK: u8 = 1;
+const OTHER: u8 = 2;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Ctf {
     /// The red flag's index in `multiplayer_object_type_list` (entry 18,
@@ -105,6 +117,9 @@ pub struct Ctf {
     pub score_to_win: u16,
     /// Ticks a dropped flag lies before it resets.
     pub reset_ticks: i16,
+    /// Assault, with the ticks a side defends for. Needs a blue flag type:
+    /// one type for both teams has no stand to tell the defender by.
+    pub assault: Option<i16>,
     /// Raise marker incidents as the capture check passes each of its tests
     /// (`lap_complete`, `final_lap`, `final_lap_team`, `flag_dropped_neutral`),
     /// for the loader to log.
@@ -145,6 +160,10 @@ fn link(of: u8) -> Var {
     })
 }
 
+fn global(index: u8) -> Var {
+    Var::Number(Number::GlobalNumber(index))
+}
+
 /// Send `FLAG` back: unlink it from its stand (whose loop then makes a new
 /// one) and delete it.
 fn reset_flag(items: &mut Vec<Item>) {
@@ -155,12 +174,17 @@ fn reset_flag(items: &mut Vec<Item>) {
 
 impl Variant {
     pub fn ctf(c: Ctf) -> Variant {
+        assert!(
+            c.assault.is_none() || c.blue_flag_type.is_some(),
+            "Assault tells the defender's stand by the flag type it makes"
+        );
         let mut b = Builder::new(Variant {
             teams: true,
             // Long enough for the first tick to give the spawn points
             // their teams (a first spawn at tick 0 used them neutral).
             initial_spawn_delay: 2,
             vars: Variables {
+                global_numbers: if c.assault.is_some() { 3 } else { 0 },
                 global_players: 1,
                 global_objects: 4,
                 object_numbers: 4,
@@ -184,8 +208,26 @@ impl Variant {
         let no_player = Var::Player(Player(player::NONE));
         let flag_team = Team::ObjectOwner(FLAG);
 
+        // Assault: the other team defends, with a full clock.
+        let swap = c.assault.map(|ticks| {
+            b.sub(
+                TriggerKind::Do,
+                vec![
+                    set(global(OTHER), constant(1)),
+                    Item::Do(Action::ModifyVariable {
+                        a: global(OTHER),
+                        b: global(DEFENDER),
+                        op: Op::Subtract,
+                    }),
+                    set(global(DEFENDER), global(OTHER)),
+                    set(global(CLOCK), constant(ticks)),
+                ],
+            )
+        });
+
         // Each stand, as the current object: if the carrier's team owns it,
-        // the carrier stands in it and its own flag is home, score.
+        // the carrier stands in it and its own flag is home, score. In Assault
+        // the attackers have no flag to keep home.
         let mut score = marker(c.debug, 104);
         score.push(eq(
             Var::Team(Team::ObjectOwner(object::CURRENT)),
@@ -197,14 +239,16 @@ impl Variant {
             shape: Object::Ref(object::CURRENT),
         }));
         score.extend(marker(c.debug, 106));
-        score.push(set(obj(HOME_FLAG), link(object::CURRENT)));
-        score.push(eq(
-            Var::Number(Number::ObjectNumber {
-                object: HOME_FLAG,
-                index: AWAY,
-            }),
-            constant(0),
-        ));
+        if c.assault.is_none() {
+            score.push(set(obj(HOME_FLAG), link(object::CURRENT)));
+            score.push(eq(
+                Var::Number(Number::ObjectNumber {
+                    object: HOME_FLAG,
+                    index: AWAY,
+                }),
+                constant(0),
+            ));
+        }
         score.extend(marker(c.debug, 111));
         score.extend([
             Item::Do(Action::ModifyScore {
@@ -220,6 +264,7 @@ impl Variant {
             }),
         ]);
         reset_flag(&mut score);
+        score.extend(swap.map(|s| Item::Do(Action::CallTrigger(s))));
         let score = b.sub(TriggerKind::EachObjectWithLabel(STANDS), score);
 
         // The flag has just been picked up.
@@ -364,7 +409,19 @@ impl Variant {
                 Item::Do(Action::CallTrigger(label))
             })
             .collect();
-        let init = b.trigger(TriggerKind::Do, ATTR_INIT, spawn_teams.clone());
+        // Blue defends first, and a side's clock starts full.
+        let first: Vec<Item> = c
+            .assault
+            .into_iter()
+            .flat_map(|ticks| {
+                [
+                    set(global(DEFENDER), constant(1)),
+                    set(global(CLOCK), constant(ticks)),
+                ]
+            })
+            .chain(spawn_teams.clone())
+            .collect();
+        let init = b.trigger(TriggerKind::Do, ATTR_INIT, first);
         b.v.entry_points.init = Some(init);
         b.trigger(TriggerKind::Do, ATTR_NORMAL, spawn_teams);
 
@@ -423,16 +480,15 @@ impl Variant {
                 // first, so a stand on any other team makes no flag and the
                 // setup leaves the last stand's flag alone.
                 let mut make = |team: i8, object_type: u16| {
-                    b.sub(
-                        TriggerKind::Do,
-                        vec![
-                            eq(
-                                Var::Team(Team::ObjectOwner(object::CURRENT)),
-                                Var::Team(Team::Ref(team::team(team))),
-                            ),
-                            create(object_type),
-                        ],
-                    )
+                    let mut items = vec![eq(
+                        Var::Team(Team::ObjectOwner(object::CURRENT)),
+                        Var::Team(Team::Ref(team::team(team))),
+                    )];
+                    if c.assault.is_some() {
+                        items.push(eq(global(DEFENDER), constant(i16::from(team))));
+                    }
+                    items.push(create(object_type));
+                    b.sub(TriggerKind::Do, items)
                 };
                 let red = make(0, c.flag_type);
                 let blue = make(1, blue_type);
@@ -463,6 +519,46 @@ impl Variant {
                 Item::Do(Action::CallTrigger(loose)),
             ],
         );
+
+        // Every tick of Assault: at the end of a side's clock the flag goes
+        // home, carried or not, and the sides swap.
+        if let Some(swap) = swap {
+            let mut home = vec![
+                set(obj(FLAG), obj(object::CURRENT)),
+                Item::Do(Action::SendIncident {
+                    incident: incident::FLAG_RESET,
+                    cause: Subject::None,
+                    effect: Subject::Team(flag_team),
+                    value: Some(flag_team_index()),
+                }),
+            ];
+            reset_flag(&mut home);
+            let home = b.sub(TriggerKind::EachObjectWithLabel(FLAGS), home);
+            let expired = b.sub(
+                TriggerKind::Do,
+                vec![
+                    Item::If(ConditionKind::Compare {
+                        a: global(CLOCK),
+                        b: constant(0),
+                        op: Compare::LessOrEqual,
+                    }),
+                    Item::Do(Action::CallTrigger(home)),
+                    Item::Do(Action::CallTrigger(swap)),
+                ],
+            );
+            b.trigger(
+                TriggerKind::Do,
+                ATTR_NORMAL,
+                vec![
+                    Item::Do(Action::ModifyVariable {
+                        a: global(CLOCK),
+                        b: constant(1),
+                        op: Op::Subtract,
+                    }),
+                    Item::Do(Action::CallTrigger(expired)),
+                ],
+            );
+        }
 
         // Every tick: a team at the score to win ends the round.
         b.trigger(
@@ -495,6 +591,7 @@ mod tests {
             blue_flag_type,
             score_to_win: 3,
             reset_ticks: 1800,
+            assault: None,
             debug,
         })
     }
@@ -544,6 +641,7 @@ mod tests {
             blue_flag_type: None,
             score_to_win: 3,
             reset_ticks: 900,
+            assault: None,
             debug: false,
         })
         .write()
@@ -553,6 +651,115 @@ mod tests {
             .fold(0u32, |h, &b| h.wrapping_mul(31).wrapping_add(b as u32));
         // 0xcdee_fd5d before the flag's waypoint icon was corrected to 6.
         assert_eq!((bytes.len(), sum), (1700, 0xe795_8d7e));
+    }
+
+    /// Five minutes a side at the simulation's 60 ticks a second.
+    fn assault() -> Variant {
+        Variant::ctf(Ctf {
+            flag_type: 18,
+            blue_flag_type: Some(20),
+            score_to_win: 3,
+            reset_ticks: 1800,
+            assault: Some(18000),
+            debug: false,
+        })
+    }
+
+    /// Every action in the variant, for the rules that do not sit in one
+    /// known trigger.
+    fn sets_of(v: &Variant, target: u8) -> usize {
+        v.actions
+            .iter()
+            .filter(|a| {
+                matches!(a, Action::ModifyVariable { a: Var::Number(Number::GlobalNumber(i)), op: Op::Set, .. }
+                    if *i == target)
+            })
+            .count()
+    }
+
+    #[test]
+    fn assault_reads_back_and_plain_ctf_carries_none_of_it() {
+        let v = assault();
+        check_ranges(&v);
+        assert_eq!(v.vars.global_numbers, 3);
+        assert_eq!(v.object_types, vec![18, 20]);
+        assert!(v.teams);
+        assert!(v.write().unwrap().len() < 0x5000);
+
+        let plain = ctf(Some(20), false);
+        assert_eq!(plain.vars.global_numbers, 0);
+        assert_eq!(sets_of(&plain, DEFENDER), 0);
+    }
+
+    /// A stand makes a flag only for the defending team: each create sits
+    /// behind the stand's team and the defender both, so one flag is out.
+    #[test]
+    fn only_the_defenders_stand_makes_a_flag() {
+        let v = assault();
+        let makers: Vec<u16> = (0..v.triggers.len() as u16)
+            .filter(|&t| {
+                actions(&v, t)
+                    .iter()
+                    .any(|a| matches!(a, Action::CreateObject { .. }))
+            })
+            .collect();
+        assert_eq!(makers.len(), 2, "one create for each team");
+        for t in makers {
+            assert_eq!(
+                conditions(&v, t).len(),
+                2,
+                "the stand's team, then the defender"
+            );
+        }
+    }
+
+    /// Blue defends first on a full clock, and the swap puts the other team
+    /// in: the sets are init's and the swap's.
+    #[test]
+    fn a_swap_changes_the_defender_and_refills_the_clock() {
+        let v = assault();
+        assert_eq!(sets_of(&v, DEFENDER), 2);
+        assert_eq!(sets_of(&v, CLOCK), 2);
+        let swap = (0..v.triggers.len() as u16)
+            .find(|&t| {
+                actions(&v, t).iter().any(|a| {
+                    matches!(a, Action::ModifyVariable { a: Var::Number(Number::GlobalNumber(i)), op: Op::Subtract, .. }
+                        if *i == OTHER)
+                })
+            })
+            .expect("a swap");
+        assert_eq!(v.triggers[swap as usize].attribute, ATTR_SUBROUTINE);
+        let calls = v
+            .actions
+            .iter()
+            .filter(|a| matches!(a, Action::CallTrigger(t) if *t == swap))
+            .count();
+        assert_eq!(calls, 2, "a capture and the end of the clock");
+    }
+
+    /// Attackers have no flag at home, so the capture must not ask for one:
+    /// the home flag global is never read.
+    #[test]
+    fn a_capture_does_not_need_a_flag_at_home() {
+        let number_of_home = |v: &Variant| {
+            v.conditions
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c.kind,
+                        ConditionKind::Compare {
+                            a: Var::Number(Number::ObjectNumber {
+                                object: HOME_FLAG,
+                                ..
+                            }),
+                            ..
+                        }
+                    )
+                })
+                .count()
+        };
+        assert_eq!(number_of_home(&ctf(Some(20), false)), 1);
+        assert_eq!(number_of_home(&assault()), 0);
     }
 
     /// The two-type stand logic as `megalo dump` lists it: the object

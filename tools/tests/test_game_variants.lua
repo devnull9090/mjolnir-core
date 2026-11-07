@@ -35,7 +35,7 @@ for _, mode in ipairs(Modes) do
     assert(mode.engine and mode.name and mode.description and mode.slot, mode.id .. ": incomplete row")
     assert(mode.slot <= 7, mode.id .. ": past the eight insertion point copies")
 end
-eq(#Modes, 16, "16 variants")
+eq(#Modes, 17, "17 variants")
 eq(Modes.byId("crazy_king").name, "CRAZY KING", "byId")
 eq(Modes.byId("nope"), nil, "unknown id")
 eq(Modes.slot("rally"), 6, "the Race family's slot")
@@ -52,7 +52,7 @@ local tiles = Modes.engines(Modes)
 eq(#tiles, 6, "six tiles: the cooked screens have no more")
 eq(ids(tiles), "slayer ctf oddball koth race forge", "tile order")
 eq(ids(tiles[1].variants), "slayer team_slayer", "Slayer's variants")
-eq(ids(tiles[2].variants), "ctf", "CTF's variants")
+eq(ids(tiles[2].variants), "ctf assault", "CTF's variants")
 eq(ids(tiles[3].variants), "oddball team_oddball juggernaut stalker reverse_tag", "Oddball's variants")
 eq(ids(tiles[4].variants), "koth crazy_king team_koth", "King's variants")
 eq(ids(tiles[5].variants), "race team_race rally team_rally", "Race's variants")
@@ -75,7 +75,7 @@ eq(ids(offered("slayer")), "slayer team_slayer juggernaut stalker reverse_tag",
 eq(ids(offered("koth")), "koth crazy_king team_koth", "King brings its family")
 eq(ids(offered("oddball")), "oddball team_oddball", "Oddball brings Team Oddball")
 eq(ids(offered("race")), "race team_race rally team_rally", "Race brings its family")
-eq(ids(offered("ctf")), "ctf", "CTF brings nothing")
+eq(ids(offered("ctf")), "ctf assault", "CTF brings Assault")
 -- On a Slayer-only map the Oddball tile holds the variants that only spawn.
 local slayerOnly = Modes.engines(offered("slayer"))
 eq(ids(slayerOnly), "slayer oddball", "tiles on a Slayer-only map")
@@ -98,7 +98,7 @@ choice = Modes.step(king, choice)
 eq(Modes.step(slayer, choice).id, "slayer", "another tile chooses what it shows")
 eq(Modes.shown(king, Modes.byId("slayer")).id, "crazy_king", "a tile left keeps its variant")
 eq(Modes.step(king, Modes.byId("slayer")).id, "crazy_king", "and comes back to it")
-eq(Modes.step(tiles[2], Modes.byId("ctf")).id, "ctf", "a lone variant stays")
+eq(Modes.step(tiles[6], Modes.byId("forge")).id, "forge", "a lone variant stays")
 Modes.memory = { koth = "gone" }
 eq(Modes.shown(king, nil).id, "koth", "a remembered variant no longer offered is dropped")
 Modes.memory = {}
@@ -163,7 +163,7 @@ do
     eq(id, nil, "a variant this PC lacks falls back")
     assert(why:find("rally.mglo", 1, true), "and says which")
     eq(exact("BGL\tforge\n", "BGL", 5, lack), "forge", "Forge has no file")
-    eq(exact("BGL\tassault\n", "BGL", 3, have), "assault", "a newer host's id runs on its file")
+    eq(exact("BGL\tgrifball\n", "BGL", 3, have), "grifball", "a newer host's id runs on its file")
 end
 
 -- The tables other files keep.
@@ -186,7 +186,7 @@ local probes = {
     { type = "warthog", team = "red", label = "king", default = 4 },
     { type = "warthog", team = "red", label = "oddball", default = 8 },
 }
-local SETS = { slayer = "slayer", team_slayer = "slayer", ctf = "ctf", koth = "king", crazy_king = "king",
+local SETS = { slayer = "slayer", team_slayer = "slayer", ctf = "ctf", assault = "ctf", koth = "king", crazy_king = "king",
     team_koth = "king", oddball = "oddball", team_oddball = "oddball", juggernaut = "oddball",
     stalker = "oddball", reverse_tag = "oddball",
     race = "slayer", team_race = "slayer", rally = "slayer", team_rally = "slayer" }
@@ -208,6 +208,7 @@ local function startEvent(mode)
     return "slayer_start"
 end
 local EXPECTED = { slayer = "slayer_start", team_slayer = "slayer_start", ctf = "ctf_game_start",
+    assault = "ctf_game_start",
     oddball = "ball_game_start", team_oddball = "ball_game_start", juggernaut = "juggernaut_game_start",
     stalker = "juggernaut_game_start", reverse_tag = "juggernaut_game_start",
     koth = "koth_game_start", crazy_king = "koth_game_start", team_koth = "koth_game_start",

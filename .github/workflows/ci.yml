@@ -24,6 +24,7 @@ jobs:
           lua5.4 tools/tests/test_multiplayer_ui.lua
           lua5.4 tools/tests/test_lobby_startup.lua
           lua5.4 tools/tests/test_hill_marker.lua
+          lua5.4 tools/tests/test_flag_marker.lua
           lua5.4 tools/tests/test_match_report.lua
 
       - name: Test UI class retention across map travel
@@ -206,7 +207,9 @@ jobs:
       - name: CE script translator tests
         run: python -m unittest discover -s tools/ce_scripts -p test_ce_translate.py
       - name: Custom vehicle physics tests
-        run: python -m unittest discover -s tools/level -p test_ce_vehicle_physics.py
+        run: |
+          python -m unittest discover -s tools/level -p "test_ce_vehicle_[pl]*.py"
+          python -m unittest discover -s tools/level -p test_ce_place_vehicles.py
       - name: Wwise bank tests
         run: python -m unittest discover -s tools/level -p test_wwise_bank.py
 

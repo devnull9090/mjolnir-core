@@ -205,7 +205,7 @@ function VariantSettings.forMode(settings, mode)
 end
 
 --- The insertion point slot of every game type (MJOLNIRLobby's modes.lua).
-VariantSettings.VARIANT_SLOTS = { slayer = 0, ctf = 1, team_slayer = 2,
+VariantSettings.VARIANT_SLOTS = { slayer = 0, ctf = 1, assault = 1, team_slayer = 2,
     koth = 3, crazy_king = 3, team_koth = 3, oddball = 4, team_oddball = 4, juggernaut = 4,
     stalker = 4, reverse_tag = 4, forge = 5, race = 6, team_race = 6, rally = 6, team_rally = 6 }
 

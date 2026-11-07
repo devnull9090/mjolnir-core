@@ -140,5 +140,31 @@ local _, added, dropped = VehicleSets.apply(read("tools/tests/fixtures/vehicle_s
 eq(added, 16 - #layout.filters, "CTF fills to 16")
 eq(dropped, 20 - added, "the rest left out")
 
+-- A FORGE game shows what a Slayer game with CE's default sets places.
+local forgeMap = {
+    { type = "warthog", team = "red", default = 15, allowed = 15, label = "ce_warthog_1" },
+    { type = "warthog", team = "blue", default = 15, allowed = 15, label = "ce_warthog_1" },
+    { type = "ghost", team = "red", default = 1, allowed = 15, label = "ce_ghost_1" },
+    { type = "scorpion", team = "red", default = 2, allowed = 15, label = "ce_scorpion_1" },
+}
+eq(VehicleSets.forgeLines(forgeMap, { max_filters = 16, filters = { { label = 0 } } }),
+    "forge-vehicles 1\nce_ghost_1\t0\nce_warthog_1\t-1\n",
+    "Slayer's set, with team constraints, and nothing CTF's alone")
+eq(VehicleSets.forgeLines({}, nil), "forge-vehicles 1\n", "a map with no vehicle sets")
+
+-- More labels than Slayer's variant has room for are cut as a match cuts them,
+-- so Coldsnap's 47 default vehicles do not all appear.
+local crowd = {}
+for r = 1, 10 do
+    for _, t in ipairs({ "warthog", "ghost", "scorpion" }) do
+        crowd[#crowd + 1] = { type = t, team = "red", default = 15, allowed = 15, label = "ce_" .. t .. "_" .. r }
+    end
+end
+local _, rows = VehicleSets.forgeLines(crowd, { max_filters = 16, filters = { { label = 0 } } }):gsub("\n", "\n")
+eq(rows - 1, 15, "as many labels as a Slayer game has room for")
+local _, without = VehicleSets.forgeLines(crowd, nil):gsub("\n", "\n")
+eq(without - 1, 15, "the same with no layout to read")
+assert(not VehicleSets.forgeLines(crowd, nil):find("_10", 1, true), "the highest ranks go first")
+
 print("Vehicle sets: defaults, NONE, one-type and custom sets per game type, team constraints, "
-    .. "filters appended and read back with and without script traits, the 16-filter cap")
+    .. "filters appended and read back with and without script traits, the 16-filter cap, Forge's list")

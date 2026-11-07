@@ -2683,6 +2683,7 @@ pub(crate) mod tests {
             blue_flag_type: Some(20),
             score_to_win: 3,
             reset_ticks: 1800,
+            assault: None,
             debug: false,
         });
         vec![
@@ -2761,6 +2762,7 @@ pub(crate) mod tests {
                 blue_flag_type: Some(20),
                 score_to_win: 3,
                 reset_ticks: 1800,
+                assault: None,
                 debug: false,
             })
             .with_time_limit(),

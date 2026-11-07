@@ -2048,6 +2048,7 @@ local START_EVENTS = {
     { "oddball", "ball_game_start" },
     { "ball", "ball_game_start" },
     { "ctf", "ctf_game_start" },
+    { "assault", "ctf_game_start" },
     { "race", "race_game_start" },
     { "rally", "race_game_start" },
 }
@@ -5842,6 +5843,15 @@ local function loadMegaloSwitch()
                 forgeOn()
                 RunningVariant = chosen
                 teamArmor(false)
+                -- The sandbox's own variant has no filters to show the map's
+                -- vehicles: MJOLNIRForge's DLL shows these (vehicle_sets.lua).
+                local shown = io.open(MOD_DIR .. "\\forge_vehicles.txt", "wb")
+                if shown then
+                    local okL, layout = pcall(Json.decode, readFile(MOD_DIR .. "\\variants\\slayer.layout.json") or "")
+                    local list = type(level.vehicle_sets) == "table" and level.vehicle_sets or {}
+                    shown:write(VehicleSets.forgeLines(list, okL and layout or nil))
+                    shown:close()
+                end
                 local running = io.open(MOD_DIR .. "\\running.txt", "w")
                 if running then
                     running:write(tostring(code), "\tforge\t", tostring(level.title or level.name or code), "\n")
@@ -5915,7 +5925,7 @@ local function loadMegaloSwitch()
                 -- one ships in the CE runtime pack: without it the
                 -- simulation wipes the whole script (docs/game_modes.md
                 -- 2.2), a match with no flags and nothing to say why.
-                if name == "ctf" and not Teams.blueFlagInstalled() then
+                if (name == "ctf" or name == "assault") and not Teams.blueFlagInstalled() then
                     Log("CTF needs the CE runtime with the blue flag (" .. Teams.BLUE_FLAG_CONTAINER .. "), and this PC "
                         .. "does not have it: a CTF variant that names the blue flag runs with no flags and no captures "
                         .. "here. Update the MJOLNIR CE runtime pack in the launcher.")

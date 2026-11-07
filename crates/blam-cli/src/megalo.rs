@@ -62,6 +62,9 @@ pub enum Mode {
     /// Capture the Flag (CE rules): flags on the map's `ctf_flag_return`
     /// stands; carry the enemy's to your own while yours is home.
     Ctf,
+    /// Assault: CTF with one flag at a time. Attackers carry the defender's
+    /// flag to their own stand; a capture or the clock swaps the sides.
+    Assault,
     /// Free-for-all Oddball: hold the neutral skull to score seconds.
     Oddball,
     /// Team Oddball: Oddball, the carrier's seconds counting for their team.
@@ -134,6 +137,9 @@ pub struct WriteArgs {
     /// CTF: seconds a dropped flag lies before it resets.
     #[arg(long, default_value_t = 30)]
     pub reset_seconds: u16,
+    /// Assault: seconds a side defends before the sides swap.
+    #[arg(long, default_value_t = 300)]
+    pub side_seconds: u16,
     /// CTF: raise marker incidents through the capture check (diagnostic).
     #[arg(long)]
     pub debug_capture: bool,
@@ -288,12 +294,19 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 w.tick_rate > 0 && w.tick_rate <= 32767,
                 "--tick-rate must be 1..32767"
             );
-            if matches!(w.mode, Mode::Ctf) && !w.single_flag && w.blue_flag_type == w.flag_type {
+            if matches!(w.mode, Mode::Ctf | Mode::Assault)
+                && !w.single_flag
+                && w.blue_flag_type == w.flag_type
+            {
                 anyhow::bail!(
                     "--blue-flag-type is --flag-type ({}): one type for both teams is --single-flag",
                     w.flag_type
                 );
             }
+            anyhow::ensure!(
+                !(matches!(w.mode, Mode::Assault) && w.single_flag),
+                "Assault tells the defender's stand by its flag type: --single-flag cannot work"
+            );
             let reset_ticks = || {
                 i16::try_from(u32::from(w.reset_seconds) * u32::from(w.tick_rate))
                     .context("oddball reset exceeds 32767 ticks")
@@ -335,12 +348,20 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 Mode::TeamRace => Variant::team_race(w.score.unwrap_or(6)),
                 Mode::Rally => Variant::rally(w.score.unwrap_or(15)),
                 Mode::TeamRally => Variant::team_rally(w.score.unwrap_or(15)),
-                Mode::Ctf => Variant::ctf(blam_megalo::ctf::Ctf {
+                Mode::Ctf | Mode::Assault => Variant::ctf(blam_megalo::ctf::Ctf {
                     flag_type: w.flag_type,
                     blue_flag_type: (!w.single_flag).then_some(w.blue_flag_type),
                     score_to_win: w.score.unwrap_or(3),
                     reset_ticks: i16::try_from(u32::from(w.reset_seconds) * u32::from(w.tick_rate))
                         .context("--reset-seconds times --tick-rate is past 32767 ticks")?,
+                    assault: if matches!(w.mode, Mode::Assault) {
+                        Some(
+                            i16::try_from(u32::from(w.side_seconds) * u32::from(w.tick_rate))
+                                .context("--side-seconds times --tick-rate is past 32767 ticks")?,
+                        )
+                    } else {
+                        None
+                    },
                     debug: w.debug_capture,
                 }),
             };

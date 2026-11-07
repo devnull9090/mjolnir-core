@@ -17,6 +17,37 @@ PLAN = {"moves": {"m": {"flag": "f", "tag": "new"}}, "drop_tags": ["prop"], "dro
 FLAGS = {"f": {"position": [10.0, -2.0, 5.3], "facing": [-math.pi / 2, 0.0]}}
 
 
+class Relabel(unittest.TestCase):
+    PLAN = {"moves": {"a": {"flag": "f", "tag": "goose", "label": "ce_warthog_1"},
+                      "b": {"flag": "f", "tag": "goose", "label": "ce_warthog_1"},
+                      "c": {"flag": "f"}},
+            "drop_tags": ["prop"], "drop_names": ["pen"]}
+    ROWS = [row("a", "t", [0, 0, 0]), row(None, "prop", [0, 0, 0]), row("b", "t", [0, 0, 0]),
+            row("pen", "t", [0, 0, 0]), row("c", "t", [0, 0, 0])]
+
+    def level(self, tags=("goose", "goose", None)):
+        vehicles = [{"set": {tool.LABEL: f"ce_warthog_{i}"}} for i in range(1, 4)]
+        for v, tag in zip(vehicles, tags):
+            if tag:
+                v["tag"] = tag
+        return {"blam": {"vehicles": vehicles}, "vehicle_sets": [{"label": f"ce_warthog_{i}"} for i in range(1, 4)]}
+
+    def test_rows_the_plan_dropped_are_skipped_and_the_label_is_shared(self):
+        level = tool.relabel(self.level(), self.ROWS, self.PLAN)
+        self.assertEqual([v["set"][tool.LABEL] for v in level["blam"]["vehicles"]],
+                         ["ce_warthog_1", "ce_warthog_1", "ce_warthog_3"])
+        self.assertEqual([r["label"] for r in level["vehicle_sets"]],
+                         ["ce_warthog_1", "ce_warthog_1", "ce_warthog_3"])
+
+    def test_refuses_another_count(self):
+        with self.assertRaises(SystemExit):
+            tool.relabel(self.level(), self.ROWS[:2], self.PLAN)
+
+    def test_refuses_a_level_in_another_order(self):
+        with self.assertRaises(SystemExit):
+            tool.relabel(self.level(("goose", None, "goose")), self.ROWS, self.PLAN)
+
+
 class Plan(unittest.TestCase):
     def apply(self, rows, vehicles=None, surfaces=lambda x, y: [0.0, 5.0, 9.0]):
         vehicles = vehicles or [vehicle(r["position"]) for r in rows]
@@ -30,6 +61,16 @@ class Plan(unittest.TestCase):
         self.assertEqual(kept[0]["tag"], "new")
         self.assertEqual(kept[0]["set"], {"a": "b"})
         self.assertEqual(kept[1]["pos"], tool.to_ue([3, 3, 3]))
+
+    def test_a_label_goes_on_the_vehicle_and_its_set_row(self):
+        plan = {"moves": {"m": {"flag": "f", "label": "ce_warthog_1"}}, "drop_tags": [], "drop_names": []}
+        rows = [row("m", "t", [2, 2, 2])]
+        vehicles = [vehicle(rows[0]["position"])]
+        kept, sets, _ = tool.apply_plan(vehicles, [{"label": "old"}], rows, FLAGS, plan, lambda x, y: [0.0, 5.0, 9.0])
+        self.assertEqual(kept[0]["set"][tool.LABEL], "ce_warthog_1")
+        self.assertEqual(kept[0]["set"]["a"], "b")
+        self.assertEqual(sets, [{"label": "ce_warthog_1"}])
+        self.assertNotIn(tool.LABEL, vehicles[0]["set"])  # the input stays as it was
 
     def test_a_flag_on_the_ground_is_lifted(self):
         kept, _, _ = self.apply([row("m", "t", [2, 2, 2])], surfaces=lambda x, y: [5.29])
