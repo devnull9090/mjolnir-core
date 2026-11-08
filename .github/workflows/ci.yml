@@ -6,7 +6,34 @@ on:
   push:
     branches: [main]
 
+# A newer push to the same pull request cancels the run it supersedes. A run
+# on main is never cancelled once it has started.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The two required checks (Lint Lua Mods, Validate Repo Structure) run on
+# every pull request; they take a minute or two. Build native and Hub run
+# only when their inputs change (see .github/scripts/changed-areas.sh), and
+# also whenever this file or that script changes, or detection fails.
 jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.areas.outputs.native }}
+      hub: ${{ steps.areas.outputs.hub }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: areas
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SELF: .github/workflows/ci.yml
+        run: bash .github/scripts/changed-areas.sh
+
   lint-mods:
     name: Lint Lua Mods
     runs-on: ubuntu-latest
@@ -108,11 +135,15 @@ jobs:
 
   # Five mods have a native half (native/blam_console, native/map_registry,
   # native/lobby, native/frame_times, native/forge),
-  # built on every pull request so a change that does not compile is caught
-  # here and not at the release gate. The artifacts are what a reviewer
-  # installs to test; the release workflow builds its own from the tag.
+  # built on every pull request that changes native/ or the crates the map
+  # registry links (mjolnir-mglo-cabi), so a change that does not compile is
+  # caught here and not at the release gate. The artifacts are what a reviewer
+  # installs to test; a PR that skips this job leaves the DLLs as released.
+  # The release workflow builds its own from the tag.
   build-native:
     name: Build native (Blam console + map registry + lobby + frame times + forge DLLs)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -245,8 +276,12 @@ jobs:
           fi
           echo "✅ No secrets found."
 
+  # Runs when hub/ changes or anything its build snapshots does: docs/, defs/,
+  # changelog/, blog/, and the tools/fixtures/ its tests read.
   hub:
     name: Hub (lint, types, generated-artifact drift)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.hub == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

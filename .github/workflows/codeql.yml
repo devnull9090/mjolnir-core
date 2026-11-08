@@ -1,0 +1,116 @@
+# CodeQL, as a committed workflow instead of the repository's default setup,
+# so a pull request only analyses the languages it changes.
+#
+# Default setup analysed all eight languages on every push to every pull
+# request. Rust is the slow one: 13-16 minutes a run (about 7 of them building
+# the database, 4 running queries), and over two weeks it ran on 180 PR pushes,
+# almost none of which touched a .rs file. It was also the last required
+# check to go green.
+#
+# What runs:
+#   pull_request   each language whose files the PR changes (relative to main;
+#                  see .github/scripts/changed-areas.sh), plus actions always
+#   push to main   every language, so main's results stay the baseline each
+#                  PR is compared against
+#   weekly         every language, to pick up new queries
+#
+# The matrix is static and every entry always runs, so each required check
+# ("Analyze (rust)" and so on) reports on every PR. A language with nothing to
+# analyse finishes in seconds with its steps skipped, which reads as a pass.
+# A matrix built from the change set would leave unchanged languages' checks
+# at "Expected" forever and block the merge.
+#
+# actions is analysed on every PR even when no workflow changed: it takes
+# under a minute, and it gives every commit a CodeQL upload, which the main
+# ruleset's code scanning rule waits for before it lets a PR merge.
+#
+# The settings match what default setup ran (CodeQL bundle default suite,
+# build-mode none for every language, dependency caching on, category
+# /language:<lang>), so existing alerts carry over instead of reopening.
+#
+# Default setup must be switched off for this to work: GitHub rejects advanced
+# setup uploads while it is on (Settings -> Code security -> CodeQL analysis).
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Changed languages
+    runs-on: ubuntu-latest
+    outputs:
+      codeql: ${{ steps.areas.outputs.codeql }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: areas
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SELF: .github/workflows/codeql.yml
+          FULL_ON_PUSH: "true"
+        run: bash .github/scripts/changed-areas.sh
+
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    needs: changes
+    # Runs even if change detection failed, and then analyses everything:
+    # a broken detector must not turn into skipped (passing) checks.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - actions
+          - c-cpp
+          - csharp
+          - java-kotlin
+          - javascript-typescript
+          - python
+          - ruby
+          - rust
+    env:
+      RUN: ${{ needs.changes.result != 'success' || contains(needs.changes.outputs.codeql, format('[{0}]', matrix.language)) }}
+    steps:
+      - name: Skip (no ${{ matrix.language }} files changed)
+        if: env.RUN != 'true'
+        run: echo "No ${{ matrix.language }} files changed in this pull request; nothing to analyse." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+        if: env.RUN == 'true'
+
+      - name: Initialize CodeQL
+        if: env.RUN == 'true'
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          dependency-caching: true
+
+      - name: Perform CodeQL Analysis
+        if: env.RUN == 'true'
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

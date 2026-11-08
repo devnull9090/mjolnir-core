@@ -5,7 +5,10 @@
 # v0.10.0 release.
 #
 # Path-filtered so PRs that touch neither the crates nor either desktop app
-# skip these jobs entirely.
+# skip the workflow entirely. Within it, a `changes` job picks which jobs run
+# (.github/scripts/changed-areas.sh): a crate change runs all three, because
+# both apps build crates from the workspace, but a launcher-only change runs
+# only the launcher job and a tag-editor-only change only the tag editor's.
 name: Rust Tests
 
 # Test jobs only ever read the repo; keep the token to that.
@@ -22,6 +25,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rust-tests.yml'
+      - '.github/scripts/changed-areas.sh'
   push:
     branches: [main]
     paths:
@@ -31,10 +35,38 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rust-tests.yml'
+      - '.github/scripts/changed-areas.sh'
+
+# A newer push to the same pull request cancels the run it supersedes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.areas.outputs.rust }}
+      tag_editor: ${{ steps.areas.outputs.tag_editor }}
+      launcher: ${{ steps.areas.outputs.launcher }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: areas
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SELF: .github/workflows/rust-tests.yml
+        run: bash .github/scripts/changed-areas.sh
+
+  # Each job also runs when change detection itself failed, so a broken
+  # detector shows up as extra work rather than as tests that never ran.
   crates:
     name: Workspace crates (${{ matrix.os }})
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -59,6 +91,8 @@ jobs:
 
   tag-editor:
     name: Tag editor
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.tag_editor == 'true') }}
     # Windows to match the release build environment; the crate also has
     # cfg(windows) dependencies, and Tauri needs no system packages here,
     # unlike a Linux runner.
@@ -85,6 +119,8 @@ jobs:
 
   launcher:
     name: Launcher links, Discord startup and Forge inventory
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.launcher == 'true') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

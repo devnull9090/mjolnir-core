@@ -73,7 +73,8 @@ question.
 A native half keeps its C source and a `build.ps1` in `native/<name>/`.
 The build writes the DLL into `mods/<Mod>/native/`, where the Lua side
 loads it from, and `.gitignore` keeps it out of the tree. CI builds it on
-every pull request and `release-mods.yml` builds it again from the tag,
+every pull request that changes `native/` or the Rust crates, and
+`release-mods.yml` builds it again from the tag,
 so adding one means adding its DLL to `.gitignore`, its build and upload
 to the `build-native` jobs in both `ci.yml` and `release-mods.yml`, and
 its download and check to the release job.
