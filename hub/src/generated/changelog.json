@@ -76,6 +76,35 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.48.0",
+      "tag": "mods-v0.48.0",
+      "title": "Make a match public or private while it runs",
+      "date": "2026-11-08",
+      "summary": "Make a match public or private mid-match, from the HOST MENU or with /public and /private, and no more restarting a game to list it.",
+      "body": "### Added\n\nIn MJOLNIRLobby 0.24.0 and MJOLNIRHud 0.19.0.\n\n- **Public or private mid-match.** The HOST MENU has MAKE PUBLIC and MAKE\n  PRIVATE, and chat has `/public` and `/private` for the host. A match made\n  public is listed in FIND GAMES at once, and players can join it while it\n  runs. A match made private comes out of FIND GAMES: everyone in it stays,\n  and nobody new can join. Your chat says when the listing is up or down.\n  FORGE matches stay private.\n\n### Fixed\n\nIn MJOLNIRLobby 0.24.0.\n\n- **A game that couldn't be listed until a restart.** A match started private\n  with only you in the fireteam went offline, and your game never came back\n  online on its own. Switching to PUBLIC GAME afterwards said \"Not listed yet:\n  no lobby yet\" and nothing showed in FIND GAMES. Your game now stays online\n  through a match whether it is public or private, so you can list it any\n  time.\n- **RETURN TO LOBBY brings an offline game back online.** If your game still\n  ends up offline (FORGE does), RETURN TO LOBBY now leaves the match the way\n  SAVE AND EXIT does, and your game is online again in the lobby.\n- **The lobby says what's wrong.** An offline game no longer looks as if its\n  listing is still on the way: the lobby says it went offline and how to\n  bring it back.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Public or private mid-match. The HOST MENU has MAKE PUBLIC and MAKE PRIVATE, and chat has /public and /private for the host. A match made public is listed in FIND GAMES at once, and players can join it while it runs. A match made private comes out of FIND GAMES: everyone in it stays, and nobody new can join. Your chat says when the listing is up or down. FORGE matches stay private."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A game that couldn't be listed until a restart. A match started private with only you in the fireteam went offline, and your game never came back online on its own. Switching to PUBLIC GAME afterwards said \"Not listed yet: no lobby yet\" and nothing showed in FIND GAMES. Your game now stays online through a match whether it is public or private, so you can list it any time.",
+            "RETURN TO LOBBY brings an offline game back online. If your game still ends up offline (FORGE does), RETURN TO LOBBY now leaves the match the way SAVE AND EXIT does, and your game is online again in the lobby.",
+            "The lobby says what's wrong. An offline game no longer looks as if its listing is still on the way: the lobby says it went offline and how to bring it back."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.48.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.48.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.48.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.47.0",
       "tag": "mods-v0.47.0",
       "title": "A marker on the ball, and teams that agree on every PC",

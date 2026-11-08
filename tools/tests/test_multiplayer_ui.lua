@@ -1015,6 +1015,7 @@ local function runAs(who, text)
         blam = function(line) said.blam[#said.blam + 1] = line end,
         bench = function() said.benched = true; return { "Benching." } end,
         setBots = function(n, kind, level) said.bots, said.kind, said.level = n, kind, level; return n .. " bot(s)." end,
+        setPublic = function(on) said.public = on end,
         botCount = function() return 2 end }
     said.answer = table.concat(Commands.run(cx, who, text), " | ")
     return said
@@ -1049,6 +1050,15 @@ eq(runAs({ here = true, index = 0 }, "/bots 6").kind, nil)  -- the kind playing 
 eq(runAs({ here = true, index = 0 }, "/bots 6 dogs").answer, "/bots: no kind or level called 'dogs'.")
 eq(runAs({ here = false, index = 2 }, "/bots 4").answer, "/bots is for the host.")
 eq(runAs({ here = false, index = 2 }, "/bots 4").bots, nil)
+-- /public and /private are the host's; the Lobby answers in chat, so they
+-- say nothing themselves.
+local pub = runAs({ here = true, index = 0 }, "/public")
+eq(pub.public, true); eq(pub.answer, "")
+eq(runAs({ here = true, index = 0 }, "/private").public, false)
+eq(runAs({ here = false, index = 2 }, "/public").answer, "/public is for the host.")
+eq(runAs({ here = false, index = 2 }, "/public").public, nil)
+eq(labels(Commands.suggest("/p", true)), "/players,/public,/private")
+eq(labels(Commands.suggest("/p", false)), "/players")
 -- /bench runs where it is typed, for anyone, host or not.
 local benched = runAs({ here = false, index = 2 }, "/bench")
 assert(benched.benched); eq(benched.answer, "Benching.")
