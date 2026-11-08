@@ -2834,7 +2834,6 @@ static int inject_needed(void);
 static void seats_tick(void);
 static void client_teams_tick(void);
 static void tracker_teams_tick(void);
-static unsigned char *joined_session(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
@@ -3683,14 +3682,31 @@ static int smaller_team(unsigned char *g, int self) {
    touched, so its balancer (sim 0x2b3f50, which counts +0xad) and its own
    team changes (sim 0x1823c0) see what they always did. A configuration
    update that puts the seat number back is undone on the next tick. */
+static unsigned char *players_list_session(void) {
+    /* The simulation session with peers and a players list (+0x4580 set),
+       the client's (state +0x5b460 == 4) first. Not joined_session(): its
+       own peer's +0x174 is 1 only while joining, and read 2 in a running
+       game on one test copy, so that lookup found no session there. */
+    find_sim_sessions();
+    if (!sim_sessions || !*sim_sessions) return NULL;
+    unsigned char *found = NULL;
+    for (int si = 0; si < 2; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (!*(unsigned *)(s + 0x5c) || !s[0x4580]) continue;
+        if (*(int *)(s + 0x5b460) == 4) return s;
+        if (!found) found = s;
+    }
+    return found;
+}
+
 static void client_teams_tick(void) {
     unsigned char *g = sim_game_globals();
     if (!g || !g[1] || g[0x10] != 3 || g[0x11] != 4) return;
     unsigned char *players = sim_tls_slot(0x30);
     unsigned char *data = players ? *(unsigned char **)(players + 0x50) : NULL;
     if (!data) return;
-    unsigned char *session = joined_session();
-    unsigned char *list = session && session[0x4580] ? session + 0x45f8 : NULL;
+    unsigned char *session = players_list_session();
+    unsigned char *list = session ? session + 0x45f8 : NULL;
     static unsigned short said[16];
     for (int i = 0; i < 16; i++) {
         unsigned char *p = data + (size_t)i * 0x4b0;
