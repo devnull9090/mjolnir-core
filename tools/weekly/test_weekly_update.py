@@ -66,6 +66,12 @@ class WeeklyUpdateTests(unittest.TestCase):
         text = f"## What to test\n\n{wu.playtest_markdown(start)}\n{wu.TWITCH_LINK}\n"
         self.assertEqual(wu.check_playtest(text, dt.date(2026, 11, 6)), [])
 
+    def test_check_playtest_takes_the_same_evening(self):
+        # A Saturday post: 6 PM MST that day is already Sunday in UTC.
+        start = dt.datetime(2026, 11, 8, 1, 0, tzinfo=dt.timezone.utc)
+        text = f"## What to test\n\n{wu.playtest_markdown(start)}\n{wu.TWITCH_LINK}\n"
+        self.assertEqual(wu.check_playtest(text, dt.date(2026, 11, 7)), [])
+
     def test_check_playtest_names_what_is_missing(self):
         self.assertEqual(len(wu.check_playtest("Nothing here.", dt.date(2026, 11, 6))), 4)
 

@@ -1,11 +1,11 @@
 ---
 name: weekly-update
-description: Draft the Friday community update for mjolnircore.com/blog and its X post — Saturday's playtest with what to test, then what shipped since the last one, with every claim verified, screenshots and doc links, in a PR for review. Use when the weekly reminder fires, or when the user asks for the weekly update, a community update, or a recap of recent work.
+description: Draft the Saturday community update for mjolnircore.com/blog and its X post — that evening's playtest with what to test, then what shipped since the last one, with every claim verified, screenshots and doc links, in a PR for review. Use when the weekly reminder fires, or when the user asks for the weekly update, a community update, or a recap of recent work.
 ---
 
 # Weekly update
 
-One post every Friday for players, map makers and modders: when Saturday's playtest is
+One post every Saturday for players, map makers and modders: when that evening's playtest is
 and what we need tested, what changed and why it matters to them, and where to read more.
 Readers are not following the repository. A commit title is raw material, never finished
 text.
@@ -34,8 +34,9 @@ link doesn't change.
 
 ## 2. Decide what to test
 
-This section is the reason the post goes out on Friday, so write it first. Start from the
-newest `docs/playtest_*.md` and the digest's known issues: whatever has only run on one PC,
+This section is the reason the post goes out on the day of the playtest, so write it first.
+Start from the newest `docs/playtest_*.md`, the newest `docs/two_pc_run_*.md` and the
+digest's known issues: whatever has only run on one PC,
 needs a second player, or shipped this week and hasn't been played. Ask the user which map
 to start on if the list doesn't make it clear.
 
@@ -97,13 +98,13 @@ Save as `hub/public/blog-images/<slug>/<name>.webp` or `.jpg`, 1600 wide and und
 
 ## 5. Write
 
-`blog/YYYY-MM-DD-weekly-update-<n>.md`, dated the Friday it goes out, in the format in
+`blog/YYYY-MM-DD-weekly-update-<n>.md`, dated the Saturday it goes out, in the format in
 `blog/README.md`, tagged `weekly-update` plus topic tags already in use.
 
 - Open with two or three plain sentences on the week. No hype words.
 - `## Saturday's playtest` comes next, with **When**, **Join us** and **Watch** lines: the
   time as the digest gives it, the Discord event, and the Twitch stream. Say the date,
-  never "tomorrow". Under it, `### Before you join` and `### What to test`.
+  never "tonight". Under it, `### Before you join` and `### What to test`.
 - `##` sections by theme, each saying what changed for the reader, then the picture, then
   links. Version numbers appear once, in a closing table with changelog links.
 - Doc links come from the digest. Pages on the site use site paths; the rest use GitHub.
@@ -144,4 +145,4 @@ pnpm --dir hub sync:check
 Commit the post, its images and `hub/src/generated/blog.json`. Open the blog page in the hub
 preview and look at it, then push a branch and open a PR through `devnull9090`. Leave it
 unmerged. The PR body says which shots are missing and which claims need the user's eye.
-The post has to be live before Saturday's playtest, so say so in the PR.
+The post has to be live before the playtest at 6 PM MST that evening, so say so in the PR.

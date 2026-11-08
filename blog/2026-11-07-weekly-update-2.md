@@ -1,13 +1,13 @@
 # Weekly update 2: Assault, King of the Hill and Saturday's playtest
 
 **Author:** MJOLNIR Core
-**Summary:** Assault, King, Oddball and Race reach the maps, a marker points you to the objective, and Yoyorast Island gets the Mongoose. Most of it has never been played by two people, so join Saturday's playtest and help us find what breaks.
+**Summary:** Assault, King, Oddball and Race reach the maps, a marker points you to the objective, and Yoyorast Island gets the Mongoose. Most of it has only run on our own test PCs, so join Saturday's playtest and help us find what breaks.
 **Tags:** weekly-update, multiplayer, maps, forge
 **Image:** /blog-images/weekly-update-2/featured.jpg
 
-Weekly updates now come out on Fridays, the day before our playtest, so each one can tell you what's new and what we most need tested.
+Weekly updates now come out on Saturdays, the day of our playtest, so each one can tell you what's new and what we most need tested that evening.
 
-This was a big week. Assault completes Halo CE's Standard game types, and 46 maps were updated to offer them. Nearly all of it has only ever run on one PC, so this Saturday matters more than most.
+This was a big week. Assault completes Halo CE's Standard game types, and 46 maps were updated to offer them. Until today nearly all of it had only run on one PC. We ran it between two of our PCs today and fixed what turned up, so this Saturday matters more than most.
 
 ## Saturday's playtest
 
@@ -19,22 +19,23 @@ We play every Saturday at this time, so if you can't make this one, come to the 
 
 ### Before you join
 
-1. **Open the [launcher](/download) early and let it update.** It brings your mods and maps up to date. This week's map updates come to about 1.5 GB if you have every map.
+1. **Open the [launcher](/download) early and let it update.** It brings your mods to 0.46.4 and your maps up to date. This week's map updates come to about 1.5 GB if you have every map.
 2. **Install [Yoyorast Island](/mods/ce-yoyorast-island-v2) and check it says 2.7.1.** Earlier versions don't have the map's gates and buttons.
 
 ### What to test
 
 We'll start on Yoyorast Island and work down the list. All of this needs real players, because bots can't hold a hill, carry a ball or take over as the Juggernaut.
 
-1. **Joining.** Everyone loads in and sees the same score. Everyone sees the two Mongooses at the top of the ramp, and a joiner hears a vehicle's engine and sees it move.
+1. **Joining.** Everyone loads in and sees the same score. Everyone sees the two Mongooses at the top of the ramp, and a joiner hears a vehicle's engine and sees it move. If the host picks a map you don't have, you should be told which map and offered its download.
 2. **Gates, shields and teleporters.** Nobody has used these with a second player yet. Press a button as a joiner. Does the gate rise for everyone, block players and vehicles, and drop after 60 seconds? Does a panic shield come up, block, and drop after a minute? If someone joins while a gate is up, do they see it up? Do the teleporters work both ways?
 3. **The Mongoose.** Drive it off a high ledge onto the beach, where it should land on its wheels and drive away. Brake hard with someone watching from behind: the lamps should glow. Carry a second player on the back, and check you both see the same thing.
-4. **Assault.** It has never been played by two people. One flag starts on Blue's stand. Red can take it and Blue can't. A capture moves the flag to Red's stand with Blue attacking. Five minutes with no capture sends the flag home and swaps the sides. Three captures win. Check that the flag's marker stays on it for everyone, and that ATTACK or DEFEND is right on each player's screen.
+4. **Assault.** It has never been played by two people. One flag starts on Blue's stand. Red can take it and Blue can't. A capture moves the flag to Red's stand with Blue attacking. Five minutes with no capture sends the flag home and swaps the sides. Three captures win. Check that the flag's marker stays on it for everyone, that only one flag shows after a capture, and that ATTACK or DEFEND is right on each player's screen.
 5. **Capture the Flag and Team Slayer.** You can only score while your own flag is home. A dropped flag goes back when its own team touches it. Every Warthog and Mongoose should be on the map. With three or more players, killing a teammate costs a point.
-6. **King of the Hill.** A second player on the hill stops the scoring, and the hill's colour should show it. In Crazy King the hill moves every minute, so tell us if it ever lands somewhere you can't reach. In Team King, teammates shouldn't contest each other.
+6. **King of the Hill.** A second player on the hill stops the scoring, and every screen should say HILL CONTESTED. In Crazy King the hill moves every minute, so tell us if it ever lands somewhere you can't reach. In Team King, teammates shouldn't contest each other.
 7. **Oddball, Juggernaut, Stalker and Reverse Tag.** Killing the carrier drops the ball. Killing the Juggernaut, the Stalker or whoever is "it" should pass the role to you, on every player's screen.
 8. **Race and Rally.** Nobody has driven a lap yet. Yoyorast's is 27 flags and about 2.2 km. Take a Warthog or Mongoose round and tell us about any flag you can't reach. In Rally, touching the live flag should score and move it somewhere else.
 9. **Forge.** Host Forge. The map's vehicles should be there, and a joiner should see them too. Grab one with the Monitor, move it, press F5, then host Slayer: it should start at its new spot.
+10. **Leaving.** When the host picks SAVE AND EXIT, the host should go back to the lobby with no vote. A match that ends on its own should still hold a vote, and everyone should travel to the winner.
 
 If something breaks, note which item it was. Before you close the game, copy `Meteorite\Binaries\Win64\ue4ss\UE4SS.log` from your game folder and post it in our [Discord](https://discord.gg/9gxYZsByW9). The full checklist is [on GitHub](https://github.com/devnull9090/mjolnir-core/blob/main/docs/playtest_yoyorast.md).
 
@@ -61,7 +62,7 @@ Each of those comes in variants: King, Crazy King and Team King; Oddball and Tea
 
 That makes 17 game types on Blood Gulch alone. The same map updates also stop you respawning on a health pack's spot on the Halo CE maps.
 
-The hill stands out from across the map. A wall of plasma rings it and a beacon rises from it, gold when it's empty, cyan when you hold it, orange-red when someone else does, and flashing violet when it's contested. One rule to know: unlike Halo CE, a contested hill scores for nobody, as in Reach.
+The hill stands out from across the map. A wall of plasma rings it and a beacon rises from it, gold when it's empty, cyan when you hold it, orange-red when someone else does, and flashing violet when it's contested. One rule to know: unlike Halo CE, a contested hill scores for nobody, as in Reach. This look reached players today with CE runtime 1.19.0, which the launcher installs.
 
 ![An empty hill on Blood Gulch: a gold wall of plasma around the hill, with a beacon rising from the middle.](/blog-images/weekly-update-2/king-hill.jpg)
 
@@ -103,6 +104,21 @@ Its handling isn't final, and it still shows the Warthog's HUD icons. Tell us ho
 - **F2 can't quietly lose your save.** One press used to move your saved layout into history with nothing on screen. It now takes two presses, and the first tells you what will happen.
 - **F6 brings a reverted save back,** even after a restart. Objects you placed after your last save are still lost by a revert.
 
+## Fixed today
+
+We played this week's game types between two of our PCs today, one hosting and one joining, and fixed what we found. Two of these fixes help when you play alone too.
+
+- **Everyone is where they really are.** On a joiner's screen, the marker on the Juggernaut, or on whoever was it in Reverse Tag, pointed at the middle of the map. The scoreboard didn't know the teams either, so a joiner had no "/ YOU" and no ATTACK or DEFEND line. Markers now follow the player, and every team shows from the start.
+- **HILL CONTESTED shows.** With two players on the hill, both screens said ON THE HILL while nobody scored. Now they say HILL CONTESTED, and a hill someone else holds shows in their colour.
+- **One flag in Assault.** After a capture, a joiner could keep a ghost of the old flag, with a second marker and a swap clock stuck at 0:00.
+- **Quitting goes to the lobby.** A host who picked SAVE AND EXIT could land on the post-game vote, and the next match started 20 seconds later. A match that ends on its own still votes.
+- **The vote offers only maps you have installed.** If a chosen game can't start, everyone goes back to the lobby and is told why.
+- **Missing a map? You're told which one.** A joiner without the host's map, or with another version of it, saw only CONNECTION LOST. Now you see which map it was and its download screen. DOWNLOAD installs it without a restart, then you can join again. A kick shows the host's reason, and the screen stays up until you've read it.
+- **The right number of Spartan bots.** When bots started before anyone had spawned, as in Forge, eight bots could become thirty-two, none of them on the board.
+- **Yoyorast's sea.** The island could load with bare sand where the sea should be. The loader now notices and fixes it as the map loads.
+
+They're in [mods 0.46.1](/changelog/mods/0.46.1) to [0.46.4](/changelog/mods/0.46.4).
+
 ## Player pages and leaderboards
 
 Every player's page now has a combat record: a career ring with a spoke for each match, form over time, where they killed and died on each map, their arsenal, rivals and medals.
@@ -131,8 +147,8 @@ The new [leaderboards](/leaderboards) rank Kills, K/D, Wins, Win rate, Headshots
 | Product | Now at | Notes |
 | --- | --- | --- |
 | Launcher | [0.23.0](/changelog/launcher/0.23.0) | From 0.21.0 |
-| Code mods | [0.46.0](/changelog/mods/0.46.0) | From 0.43.1 |
-| CE runtime | 1.18.0 | The launcher installs it |
+| Code mods | [0.46.4](/changelog/mods/0.46.4) | From 0.43.1 |
+| CE runtime | 1.19.0 | The launcher installs it |
 | CLI | [0.10.0](/changelog/cli/0.10.0) | From 0.7.0. Scoop and Homebrew are still on 0.9.0 |
 | Tag editor | [0.25.0](/changelog/tag-editor/0.25.0) | No change this week |
 

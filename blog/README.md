@@ -64,8 +64,8 @@ behind it does not ship.
 
 ## Weekly updates
 
-Every Friday a community post rounds up what reached players: features, maps,
-Forge packs, fixes and new guides. It leads with the next day's playtest: when
+Every Saturday a community post rounds up what reached players: features, maps,
+Forge packs, fixes and new guides. It leads with that evening's playtest: when
 it is, the Discord event, the Twitch stream, and what we need tested.
 `tools/weekly/weekly_update.py gather` lists everything since the last
 `weekly-update` post and reads the playtest's time from Discord, `check` tests a
