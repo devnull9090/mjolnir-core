@@ -574,8 +574,16 @@ impl Pathfinding {
             }
         }
 
-        // Closest first; a stretch of a link takes one seam.
-        found.sort_by(|a, b| a.score.total_cmp(&b.score));
+        // Closest first; a stretch of a link takes one seam. `found` comes
+        // out of the hash map in a new order every run, so seams that tie
+        // go by their segments: each pair is tried once (`tried`), which
+        // makes the order total and the bake the same run to run.
+        found.sort_by(|a, b| {
+            a.score
+                .total_cmp(&b.score)
+                .then(a.i.cmp(&b.i))
+                .then(a.j.cmp(&b.j))
+        });
         let mut taken: Vec<Vec<[f32; 2]>> = vec![Vec::new(); segs.len()];
         let clash = |list: &[[f32; 2]], r: [f32; 2]| {
             list.iter()
@@ -1564,6 +1572,55 @@ mod tests {
         assert!(joined(&slabs(-0.01, 0.0, [0.0, 1.0], [0.0, 1.0], false)));
         assert!(!joined(&slabs(0.15, 0.0, [0.0, 1.0], [0.0, 1.0], false)));
         assert!(!joined(&slabs(0.05, 0.12, [0.0, 1.0], [0.0, 1.0], false)));
+    }
+
+    #[test]
+    fn seams_that_tie_come_out_in_one_order() {
+        // Eight slab pairs side by side, each joined across a crack of no
+        // width (`slabs(0.0, 0.0, ..)` eight times over): every seam scores
+        // 0, so their order is the tie-break's alone. The crack search
+        // walks a hash map, so without one the joining links and hints came
+        // out in a new order on every build (rebakes of published maps,
+        // 2026-11-07).
+        let mut points: Vec<[f32; 3]> = Vec::new();
+        let mut faces: Vec<Vec<usize>> = Vec::new();
+        for p in 0..8 {
+            let (y, h) = (3.0 * p as f32, -0.08);
+            let base = points.len();
+            points.extend([
+                [0.0, y, 0.0],
+                [1.0, y, 0.0],
+                [1.0, y + 1.0, 0.0],
+                [0.0, y + 1.0, 0.0],
+                [1.0, y, h],
+                [1.0, y + 1.0, h],
+                [1.0, y, 0.0],
+                [2.0, y, 0.0],
+                [2.0, y + 1.0, 0.0],
+                [1.0, y + 1.0, 0.0],
+                [1.0, y, h],
+                [1.0, y + 1.0, h],
+            ]);
+            for f in [[0, 1, 2, 3], [2, 1, 4, 5], [6, 7, 8, 9], [6, 9, 11, 10]] {
+                faces.push(f.iter().map(|i| base + i).collect());
+            }
+        }
+        let polys: Vec<&[usize]> = faces.iter().map(|f| f.as_slice()).collect();
+        let c = shell(&points, &polys);
+        let pf = Pathfinding::build(&c).unwrap();
+        pf.check_rings().unwrap();
+        pf.check_hints().unwrap();
+        let users = pf
+            .links
+            .iter()
+            .filter(|l| l.flags == LINK_INTERSECTION)
+            .count();
+        assert_eq!(users, 16);
+        let first = format!("{pf:?}");
+        for n in 0..16 {
+            let again = format!("{:?}", Pathfinding::build(&c).unwrap());
+            assert!(again == first, "build {n} differs from the first");
+        }
     }
 
     #[test]
