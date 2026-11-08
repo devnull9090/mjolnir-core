@@ -265,10 +265,13 @@ local Current = {
 --- Current.hit emptied, for a call's hit-result out parameter. UE4SS writes
 --- the call's FHitResult back into the table, and the next call pushes
 --- every field in it into the parameter first. Three of them are weak
---- object pointers (Component, PhysMaterial, HitObjectHandle's Actor),
---- which UE4SS cannot set: each logged "[push_weakobjectproperty]
---- Operation::Set is not supported", three lines a move, ~822,000 in a
---- 10-minute CTF match on Chill Out from the flag cloth alone (2026-11-07).
+--- object pointers (Component, PhysMaterial, HitObjectHandle's
+--- ReferenceObject), which UE4SS cannot set: each logged
+--- "[push_weakobjectproperty] Operation::Set is not supported", three lines
+--- a move, ~822,000 in a 10-minute CTF match on Chill Out from the flag
+--- cloth alone (2026-11-07). Emptied, a move also cost a quarter of the
+--- time (300 in 6 ms, not 22), and no more garbage: UE4SS writes fresh
+--- tables for the result's vectors every call either way.
 --- A function on Current rather than a local: main.lua is at Lua's 200.
 function Current.emptyHit()
     local hit = Current.hit
