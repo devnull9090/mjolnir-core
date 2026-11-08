@@ -264,13 +264,14 @@ def repack(p, level, a, bots):
     return release(p, level, a, os.path.join(w, "bake"), bots_file if has_bots else None)
 
 
-def release(p, level, a, container, bots_file, bots_may_change=True):
+def release(p, level, a, container, bots_file, bots_may_change=True, added=frozenset()):
     """Pack the next release of a pack: its map container from the folder
     `container`, `level` as its level file and `bots_file` as its bots'
     starts, everything else as the old pack has it. The new pack may differ
-    from the old only in the map container, the level file and (with
-    `bots_may_change`) the bots' starts. Returns the new archive (None with
-    --bake-only)."""
+    from the old only in the map container, the level file, (with
+    `bots_may_change`) the bots' starts and the `added` members, which the
+    new pack must have and the old must not. Returns the new archive (None
+    with --bake-only)."""
     z, manifest, m, code = p.z, p.manifest, p.manifest["map"], p.code
     slug, version, runtime, w, unpacked, names = p.slug, p.version, p.runtime, p.w, p.unpacked, p.names
     water, foliage = p.water, p.foliage
@@ -342,10 +343,11 @@ def release(p, level, a, container, bots_file, bots_may_change=True):
     old = {n: z.getinfo(n).CRC for n in names if n not in ("mjolnir.json", "signature.json")}
     got = {n: nz.getinfo(n).CRC for n in nz.namelist() if n not in ("mjolnir.json", "signature.json")}
     changed = {n for n in set(old) | set(got) if old.get(n) != got.get(n)}
-    allowed = {f"content/{stem}.ucas", f"content/{stem}.utoc", "map/level.json"}
+    allowed = {f"content/{stem}.ucas", f"content/{stem}.utoc", "map/level.json"} | set(added)
     if bots_may_change:
         allowed.add("map/bots.json")
-    if set(old) != set(got) or "map/level.json" not in changed or changed - allowed:
+    if (set(old) & set(added) or set(old) | set(added) != set(got) or "map/level.json" not in changed
+            or changed - allowed):
         sys.exit(f"{code}: the new pack differs from the old in {changed}")
     print(f"  {archive}: {os.path.getsize(archive) / 2 ** 20:.1f} MiB", flush=True)
     return archive

@@ -254,6 +254,8 @@ jobs:
           python -m unittest discover -s tools/level -p test_ce_place_vehicles.py
       - name: Spawn set tests
         run: python -m unittest discover -s tools/level -p test_spawn_sets.py
+      - name: Baked river water pack tests
+        run: python -m unittest discover -s tools/level -p test_add_flux_state.py
       - name: Wwise bank tests
         run: python -m unittest discover -s tools/level -p test_wwise_bank.py
 
