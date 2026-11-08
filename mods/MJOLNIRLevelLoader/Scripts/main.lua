@@ -258,8 +258,23 @@ local Current = {
     -- a fresh {} a call left 7,733 FHitResult tables (13 objects each) live
     -- on Death Island, all marked again by every garbage collection, and a
     -- 10 Hz loop added one a run. One shared table: nothing piles up.
+    -- Hand it over through Current.emptyHit(), never as it is: see there.
     hit = {},
 }
+
+--- Current.hit emptied, for a call's hit-result out parameter. UE4SS writes
+--- the call's FHitResult back into the table, and the next call pushes
+--- every field in it into the parameter first. Three of them are weak
+--- object pointers (Component, PhysMaterial, HitObjectHandle's Actor),
+--- which UE4SS cannot set: each logged "[push_weakobjectproperty]
+--- Operation::Set is not supported", three lines a move, ~822,000 in a
+--- 10-minute CTF match on Chill Out from the flag cloth alone (2026-11-07).
+--- A function on Current rather than a local: main.lua is at Lua's 200.
+function Current.emptyHit()
+    local hit = Current.hit
+    for k in pairs(hit) do hit[k] = nil end
+    return hit
+end
 
 local function resetState()
     Current.worldName = nil
@@ -1627,7 +1642,7 @@ local function spawnEnvironment(world)
         place("__sky_fog", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
             pcall(function()
                 actor:K2_SetActorLocation({ X = high.X, Y = high.Y, Z = high.Z + (skyFog.height or 400000.0) },
-                    false, Current.hit, false)
+                    false, Current.emptyHit(), false)
             end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
@@ -1652,7 +1667,7 @@ local function spawnEnvironment(world)
     local haze = env.haze
     if type(haze) == "table" and type(haze.color) == "table" then
         place("__haze", "/Script/Engine.ExponentialHeightFog", nil, function(actor)
-            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, Current.hit, false) end)
+            pcall(function() actor:K2_SetActorLocation({ X = 0, Y = 0, Z = haze.height or 0 }, false, Current.emptyHit(), false) end)
             local c = actor.Component
             c.Mobility = MOBILITY_MOVABLE
             c.FogCutoffDistance = haze.cutoff or 80000
@@ -1940,9 +1955,9 @@ local function seatPackMesh(actor, comp, hp)
     -- straight up from the crate's lowest corner, in the crate's frame.
     local p = hp.pos or { 0, 0, 0 }
     local up = (p[3] or 0) + lowest
-    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, Current.hit, false)
+    comp:K2_SetRelativeLocation({ X = (p[1] or 0) + up * f.Z, Y = (p[2] or 0) + up * r.Z, Z = up * u.Z }, false, Current.emptyHit(), false)
     comp:SetAbsolute(false, true, false)
-    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, Current.hit, false)
+    comp:K2_SetWorldRotation({ Pitch = 0, Yaw = actor:K2_GetActorRotation().Yaw, Roll = 0 }, false, Current.emptyHit(), false)
 end
 
 local function dressHealthPack(world, actor, hp)
@@ -1968,7 +1983,7 @@ local function dressHealthPack(world, actor, hp)
     comp:SetCollisionEnabled(COLLISION_NONE)
     local p, s = hp.pos or { 0, 0, 0 }, hp.scale or 1.0
     comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.hit, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, Current.emptyHit(), false)
     comp:SetRelativeScale3D({ X = s, Y = s, Z = s })
     pcall(seatPackMesh, actor, comp, hp)
     PackMeshes[key] = comp
@@ -2360,7 +2375,7 @@ local function updateWeather()
     for i = 1, math.max(1, math.min(w.copies or 1, 16)) do
         local comp = Current.actors["__weather" .. i]
         if comp and comp:IsValid() then
-            if follow then comp:K2_SetWorldLocation(here, false, Current.hit, true) end
+            if follow then comp:K2_SetWorldLocation(here, false, Current.emptyHit(), true) end
             if changed then pcall(function() comp:SetVisibility(not hidden, false) end) end
         else
             missing[#missing + 1] = i
@@ -2713,7 +2728,7 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
                     end)
                 end
                 actor:K2_SetActorTransform({ Rotation = Foliage.rotation(yaw * math.pi / 128, nx / 127, ny / 127),
-                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, Current.hit, true)
+                    Translation = { X = x, Y = y, Z = z }, Scale3D = { X = s, Y = s, Z = s } }, false, Current.emptyHit(), true)
                 actors[#actors + 1] = actor
                 Current.actors[string.format("__clad_%d_%d", g, k)] = actor
             end
@@ -5255,7 +5270,7 @@ local function watch()
                 end
                 -- A held part (period 0) is placed once.
                 if moved then
-                    m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, Current.hit, false)
+                    m.comp:K2_SetWorldLocation({ X = at[1], Y = at[2], Z = at[3] }, false, Current.emptyHit(), false)
                 end
             end
         end
@@ -5411,7 +5426,7 @@ local function watch()
                     Current.mathLib = Current.mathLib or StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
                     local ro = Current.mathLib:RotatorFromAxisAndAngle(k, yaw)
                     m.rot.Pitch, m.rot.Yaw, m.rot.Roll = ro.Pitch, ro.Yaw, ro.Roll
-                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
+                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.emptyHit(), false)
                 elseif yaw ~= m.yaw then
                     m.yaw = yaw
                     local r = math.rad(yaw)
@@ -5421,7 +5436,7 @@ local function watch()
                     m.loc.Y = m.pivot[2] + dx * sn + dy * c
                     m.loc.Z = m.rest[3]
                     m.rot.Yaw = yaw
-                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.hit, false)
+                    m.actor:K2_SetActorLocationAndRotation(m.loc, m.rot, false, Current.emptyHit(), false)
                 end
                 if m.pose and m.part and m.part:IsValid() then
                     pcall(function()

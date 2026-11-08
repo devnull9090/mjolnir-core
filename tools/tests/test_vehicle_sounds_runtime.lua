@@ -62,6 +62,7 @@ local entry = {
 local logs = {}
 local file = "table"
 local current = { level = { _dir = "x" }, hit = {} }
+function current.emptyHit() return current.hit end
 local V = require("vehicle_sounds")
 V.init({
     Log = function(m) logs[#logs + 1] = m end,

@@ -62,7 +62,7 @@ local function bind(device, actor)
     end
     for _, id in ipairs(device.decor) do
         local item = env.Current.actors[id]
-        item:K2_SetActorLocation(Devices.shifted(item:K2_GetActorLocation(), p, b), false, env.Current.hit or {}, false)
+        item:K2_SetActorLocation(Devices.shifted(item:K2_GetActorLocation(), p, b), false, env.Current.emptyHit(), false)
         item:K2_AttachToComponent(part, FName("None"), 1, 1, 1, true)
     end
     part:SetVisibility(false, false)
