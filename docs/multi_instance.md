@@ -245,8 +245,9 @@ asked-for field keeps the slot number; only the team itself is sent.
   claims all carry one name. Anything keyed by account (hub match history,
   bans, reports) sees one player.
 - Copies use this checkout's MJOLNIRLobby (`deploy`: the DLL, every script
-  and `mod.json`) and MJOLNIRHud (scripts and `mod.json`), but the Steam
-  install's other mods.
+  and `mod.json`), the MJOLNIRHud, MJOLNIRLevelLoader and MJOLNIRForge
+  scripts and `mod.json`, and a built map registry DLL, but the Steam
+  install's other mods and DLLs.
 - **A host's leave strands the joiners.** After the host's SAVE AND EXIT or
   `LeaveGame` mid-match, a joining copy lands in a frontend with no host's
   game state and waits out the 120 s connection timeout. Two PCs don't do
