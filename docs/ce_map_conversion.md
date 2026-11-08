@@ -1022,8 +1022,22 @@ it as the domain's `InitialState` before the domain starts. Its
 the priming sources are skipped, and CE's water is hidden at once. A bake
 for another domain (centre, resolution, cell or height) is ignored, by
 assemble and by the loader, and the river fills the old way: rebake after
-changing a map's `flux` settings or its river mesh. Battle Creek was baked
-on 2026-10-19.
+changing a map's `flux` settings or its river mesh. Battle Creek and
+Timberland were baked on 2026-10-19.
+
+A map must not ship unbaked. Every Flux source costs the render thread about
+0.4 ms a frame, and a river that fills spawns all its priming sources for
+the first minute. Timberland's 42 primers held the median frame at 34 ms for
+that minute at 4K (13-25 ms after), and Proving Ground's 92 at 54 ms
+(15 ms with its bake). The river also visibly filled in during that minute.
+Timberland's and Battle Creek's bakes never reached their hub packs: the scan
+and the launcher kept only foliage and decals then, and later rebuilds took
+`flux.state` out to pass the scan. `tools/level/add_flux_state.py
+<pack.mjolnir>...` puts a map's bake (`ce_conversions/upgrade/<CODE>/flux_state`)
+into its published pack as the next patch release, after checking that it fits
+the pack's domain as the loader does, and changes nothing else in the pack.
+`add_bots.py` and `add_objectives.py` carry `flux_state/` through their
+rebuilds.
 
 ## Limits
 
