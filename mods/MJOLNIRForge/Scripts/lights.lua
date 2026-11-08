@@ -132,6 +132,11 @@ local function engineAdapter()
                 end
                 -- Reuse the out-parameter table: UE4SS retains FHitResult
                 -- wrappers for fresh tables (LevelLoader uses the same rule).
+                -- Emptied first: UE4SS writes the last light's result into
+                -- it and pushes every field back into the next call, and
+                -- three are weak pointers it cannot set, each logging
+                -- "[push_weakobjectproperty] Operation::Set is not supported".
+                for k in pairs(hit) do hit[k] = nil end
                 c:K2_SetRelativeLocation(Lights.offset(spec), false, hit, false)
                 c.bUseInverseSquaredFalloff = true
                 c.IntensityUnits = 1 -- candelas, not lumens or legacy unitless brightness
