@@ -61,6 +61,16 @@ local MATERIAL_RETRY_SECONDS = 3
 local HILL_HEIGHT_CM = 600 -- how far above or below still counts as on it
 local MARKER_HEIGHT_CM = 350 -- the screen marker's spot, above the ground the hill stands on
 local PILLAR = {} -- what `drawn` holds while only the beacon stands
+-- One hit-result table for every move, emptied first. UE4SS keeps the
+-- FHitResult it writes into a fresh table alive, so a {} a call piles up
+-- (the beacon moves every frame), and it pushes a used table's fields back
+-- into the next call, three of them weak pointers it logs it cannot set.
+-- LevelLoader's Current.emptyHit() does the same.
+local HIT = {}
+local function emptyHit()
+    for k in pairs(HIT) do HIT[k] = nil end
+    return HIT
+end
 local COLOURS = {
     empty = { para = { 1, 0.8, 0.25 }, perp = { 1, 0.55, 0.08 } }, -- gold
     you = { para = { 0.45, 1, 0.9 }, perp = { 0.1, 0.8, 1 } }, -- cyan
@@ -422,7 +432,7 @@ function Hill.field(name)
             actor.StaticMeshComponent:SetMaterial(0, self.mid)
             local from, to = ground[i], ground[i % #panels + 1]
             local base = (from + to) / 2 - WALL_SINK_CM
-            actor:K2_SetActorLocation({ X = panel.x, Y = panel.y, Z = base + WALL_CM / 2 }, false, {}, false)
+            actor:K2_SetActorLocation({ X = panel.x, Y = panel.y, Z = base + WALL_CM / 2 }, false, emptyHit(), false)
             -- Not through SpawnActor: its rotation comes out wrong from UE4SS.
             actor:K2_SetActorRotation(panelRotation(panel, to - from), false)
             local length = math.sqrt(panel.width ^ 2 + (to - from) ^ 2)
@@ -434,7 +444,7 @@ function Hill.field(name)
             self.beacon = spawnPart(world, cylinder, self.beaconMid)
         end
         self.beacon.StaticMeshComponent:SetMaterial(0, self.beaconMid)
-        self.beacon:K2_SetActorLocation({ X = spot.x, Y = spot.y, Z = spot.z + BEACON_CM / 2 }, false, {}, false)
+        self.beacon:K2_SetActorLocation({ X = spot.x, Y = spot.y, Z = spot.z + BEACON_CM / 2 }, false, emptyHit(), false)
         self.beacon:SetActorScale3D({ X = BEACON_RADIUS_CM / 50, Y = BEACON_RADIUS_CM / 50, Z = BEACON_CM / 100 })
         showPart(self.beacon, true)
         if self.holographic then
@@ -444,7 +454,7 @@ function Hill.field(name)
             self.anchor.StaticMeshComponent:SetMaterial(0, self.beaconMid)
             self.anchor:K2_SetActorLocation({
                 X = spot.x, Y = spot.y, Z = groundAt(world, spot.x, spot.y, spot.z) + 5,
-            }, false, {}, false)
+            }, false, emptyHit(), false)
             self.anchor:K2_SetActorRotation({ Pitch = 0, Yaw = 0, Roll = 0 }, false)
             self.anchor:SetActorScale3D({ X = 2, Y = 2, Z = 1 })
             showPart(self.anchor, true)
@@ -461,7 +471,7 @@ function Hill.field(name)
         local foot = at.Z + (up or 0)
         -- The shader measures its braid and foot from the centre.
         if self.holographic then vector(self.beaconMid, "FieldCenter", at.X, at.Y, foot, BEACON_RADIUS_CM) end
-        self.beacon:K2_SetActorLocation({ X = at.X, Y = at.Y, Z = foot + BEACON_CM / 2 }, false, {}, false)
+        self.beacon:K2_SetActorLocation({ X = at.X, Y = at.Y, Z = foot + BEACON_CM / 2 }, false, emptyHit(), false)
     end
 
     --- Take the pillar down and leave the rest (the line, the marker).
