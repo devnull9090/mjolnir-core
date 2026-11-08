@@ -39,6 +39,41 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.11.0",
+      "tag": "cli-v0.11.0",
+      "title": "Same bake, same bytes",
+      "date": "2026-11-08",
+      "summary": "Level bakes give identical bytes every run, Assault joins mjolnir megalo, and map pack stops when a level's machines aren't in the pack.",
+      "body": "### Added\n\n- **Assault in `mjolnir megalo write`.** `--mode assault` writes CE's Assault:\n  CTF with one flag at a time, which the attackers carry to their own stand. A\n  capture, or `--side-seconds` (default 300), swaps the sides.\n- **Multiplayer data in `mjolnir live objects`.** For an object that isn't a\n  unit and has multiplayer data, the team column shows its multiplayer type,\n  owner team and label. That tells spawn points, teleporter ends and objective\n  markers apart, and shows which team respawns on each.\n\n### Changed\n\n- **A level bake gives the same bytes every run.** Pathfinding seams with equal\n  scores were ordered by a hash map, so every bake numbered hints and links\n  differently. Ties now go by segment pair. A map without ties bakes as before.\n- **`map pack` stops on a missing machine.** Every tag a level places from\n  `objects\\mjolnir\\<code>\\`, such as its machines and controls, now has to be\n  in one of the pack's containers. Without them the map still loaded, but every\n  gate, button and shield was gone.\n\n### Fixed\n\n- **`mjolnir live` on a joiner.** It now reads a joining PC's object table, whose\n  entries don't repeat their own slot. Only an index past the table's end is\n  refused.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Assault in mjolnir megalo write. --mode assault writes CE's Assault: CTF with one flag at a time, which the attackers carry to their own stand. A capture, or --side-seconds (default 300), swaps the sides.",
+            "Multiplayer data in mjolnir live objects. For an object that isn't a unit and has multiplayer data, the team column shows its multiplayer type, owner team and label. That tells spawn points, teleporter ends and objective markers apart, and shows which team respawns on each."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "A level bake gives the same bytes every run. Pathfinding seams with equal scores were ordered by a hash map, so every bake numbered hints and links differently. Ties now go by segment pair. A map without ties bakes as before.",
+            "map pack stops on a missing machine. Every tag a level places from objects\\mjolnir\\<code>\\, such as its machines and controls, now has to be in one of the pack's containers. Without them the map still loaded, but every gate, button and shield was gone."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "mjolnir live on a joiner. It now reads a joining PC's object table, whose entries don't repeat their own slot. Only an index past the table's end is refused."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.11.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.11.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.11.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.47.0",
