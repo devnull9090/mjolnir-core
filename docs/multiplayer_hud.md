@@ -299,12 +299,16 @@ only while that player still controls it (actors are pooled, and a dead
 player's old one can carry an enemy). Kill/death actors also refresh known
 teams. No player index or roster order implies a team.
 
-A fireteam client cannot trust that component. It shows the team the
-client's player record asked for (`P+0xad`), which past the second player is
-the slot number: a red player in seat 2 read Green on its own machine (test
-copies, 2026-11-07), so client boards put such players under AWAITING
-ASSIGNMENT, or a seat-1 player the balancer put on red under Blue (#347,
-#349). The pawn's `BlamGameTeam` has no `GetGameTeamString` at all. So in a
+A fireteam client could not trust that component before MJOLNIRLobby 0.23.2.
+It showed the team in the client's own player record (`P+0xad`), which past
+the second player was the slot number: a red player in seat 2 read Green on
+both joining copies (test copies, 2026-11-07), so client boards put such
+players under AWAITING ASSIGNMENT, or a seat-1 player the balancer put on red
+under Blue (#347, #349). Since 0.23.2 the lobby DLL writes the host's team
+into each player record on a client every tick, so the component agrees with
+the host; the game's own motion tracker compares these components too
+([game_modes.md](game_modes.md) 2.1, #350).
+The pawn's `BlamGameTeam` has no `GetGameTeamString` at all. So in a
 team game the host, whose reads are right, sends each human seat's team
 once a second when it changes, and to each player as they arrive
 (`Relay.TEAMS`):

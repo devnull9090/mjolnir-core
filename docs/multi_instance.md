@@ -221,6 +221,15 @@ then blue, red, blue). It flags the change the way the balancer does (sim
 `0x4d1d40`: 7, player, `0x1000`), so every copy gets it. On the joiners the
 asked-for field keeps the slot number; only the team itself is sent.
 
+That slot number is what a joiner's Unreal team component shows, so seat 2's
+copy saw its own biped as Green, and the game's own motion tracker compares
+those components (#350). Since MJOLNIRLobby 0.23.2 every client writes
+the host's team into `+0xad` each tick ([game_modes.md](game_modes.md) 2.1).
+On two PCs it comes from the players list the host publishes; a copy's
+joiners never reach that list, so in a copy a player joined in progress takes
+the `+0x4a4` this hook sends. The client's log says `teams: client: player N
+was on team 2, the host has them on 0`.
+
 ## Known gaps
 
 - **HUD "YOU".** The HUD finds "your" row by player key, and every copy is
