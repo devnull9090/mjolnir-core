@@ -147,6 +147,21 @@ static void fireteam_log(const char *fmt, ...) {
 
 static unsigned at_least(unsigned value, unsigned floor) { return value < floor ? floor : value; }
 
+/* What the game itself last asked for on its own lobby, before any rewrite
+   for a public game: the membership lock (0 open, 1 locked) and the session
+   flags ("_flags"); -1 until seen. Going private puts these back, so a game
+   made private mid-match is closed the way the game closed it
+   (post_join_state). A new lobby starts open with the flags it is created
+   with. */
+static volatile LONG game_lock = -1;
+static volatile LONG game_flags = -1;
+
+static void note_game_flags(const char *const *keys, const char *const *values, unsigned count) {
+    for (unsigned i = 0; keys && values && i < count && i < 64; i++)
+        if (keys[i] && values[i] && strcmp(keys[i], "_flags") == 0)
+            InterlockedExchange(&game_flags, (LONG)strtoul(values[i], NULL, 10));
+}
+
 /* PFMultiplayerCreateAndJoinLobby(handle, creator, createConfiguration,
    joinConfiguration, asyncContext, lobby). The configuration is the caller's;
    its first field is maxMemberCount. */
@@ -183,8 +198,10 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
     if (config) {
         __try {
             const unsigned char *c = (const unsigned char *)config;
-            fireteam_log("lobby: create, access policy %u, owner migration %u", *(const unsigned *)(c + 8),
-                         *(const unsigned *)(c + 4));
+            char line[CALLER_STACK];
+            caller_stack(line);
+            fireteam_log("lobby: create, access policy %u, owner migration %u, from%s", *(const unsigned *)(c + 8),
+                         *(const unsigned *)(c + 4), line);
             for (int group = 0; group < 2; group++) {
                 unsigned count = *(const unsigned *)(c + 12 + group * 20);
                 const char *const *keys = *(const char *const *const *)(c + 16 + group * 24);
@@ -192,6 +209,10 @@ static long __stdcall hook_create_join_lobby(void *handle, void *creator, void *
                 for (unsigned i = 0; keys && i < count && i < 64; i++)
                     fireteam_log("lobby: create %s property %s = %.200s", group ? "lobby" : "search",
                                  keys[i] ? keys[i] : "?", values && values[i] ? values[i] : "");
+                if (group) {
+                    InterlockedExchange(&game_lock, 0);
+                    note_game_flags(keys, values, count);
+                }
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             fireteam_log("lobby: create configuration unreadable");
@@ -223,6 +244,9 @@ static long __stdcall hook_create_network(void *handle, void *user, void *config
                                           void *invitation, void *context, void *descriptor, void *applied) {
     if (config) {
         unsigned *c = (unsigned *)config;
+        char line[CALLER_STACK];
+        caller_stack(line);
+        fireteam_log("party: new network asked from%s", line);
         fireteam_log("party: users %u devices %u users/device %u devices/user %u endpoints/device %u (options %u)", c[0],
                      c[1], c[2], c[3], c[4], c[5]);
         c[0] = at_least(c[0], fireteam_size);
@@ -461,6 +485,13 @@ static long __stdcall hook_lobby_post_update(void *lobby, void *user, const void
     if (!update) return real_lobby_post_update(lobby, user, update, member, context);
     __try {
         log_lobby_properties((const unsigned char *)update);
+        if (lobby == current_lobby) {
+            const unsigned char *u = (const unsigned char *)update;
+            const unsigned *asked = ((const unsigned *const *)update)[LOBBY_UPDATE_LOCK];
+            if (asked) InterlockedExchange(&game_lock, (LONG)*asked);
+            note_game_flags(*(const char *const *const *)(u + 64), *(const char *const *const *)(u + 72),
+                            *(const unsigned *)(u + 56));
+        }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fireteam_log("lobby: properties unreadable");
     }
@@ -1738,6 +1769,18 @@ static void *__fastcall hook_leave_session_public(void *self, void *out, unsigne
     return real_leave_session_public(self, out, params);
 }
 
+/* The public Online Services CreateSession (exe 0x69f0340 on CU4), two slots
+   before LeaveSession in ISessions' order: whoever asks for the game's
+   session (and so its lobby) is on the stack here. */
+static leave_session_public_t real_create_session_public;
+
+static void *__fastcall hook_create_session_public(void *self, void *out, unsigned char *params) {
+    char line[CALLER_STACK];
+    caller_stack(line);
+    fireteam_log("session: CreateSession asked from%s", line);
+    return real_create_session_public(self, out, params);
+}
+
 static const char *hook_leave_session_slot(void) {
     static char why[80];
     int hits;
@@ -1779,6 +1822,13 @@ static const char *hook_leave_session_slot(void) {
             *pub = (void *)hook_leave_session_public;
             VirtualProtect(pub, sizeof *pub, old2, &old2);
             fireteam_log("LeaveSession public entry: hooked");
+        }
+        void **create = pub - 2;
+        if (in_image(*create) && VirtualProtect(create, sizeof *create, PAGE_READWRITE, &old2)) {
+            real_create_session_public = (leave_session_public_t)*create;
+            *create = (void *)hook_create_session_public;
+            VirtualProtect(create, sizeof *create, old2, &old2);
+            fireteam_log("CreateSession public entry: hooked");
         }
     } else {
         fireteam_log("LeaveSession public entry: not where expected, left alone");
@@ -5248,6 +5298,16 @@ __declspec(dllexport) int mjolnir_sim_command(void *L) {
     return 0;
 }
 
+/* Who wants the solo-start branch patched (stay_online_alone): a joiner
+   going into a public game (stay_online.txt), a public host (keep_lobby) or
+   any host of our multiplayer matches (host_online.txt). */
+static volatile LONG stay_online_value;
+static volatile LONG host_online;
+
+static const char *online_alone(void) {
+    return stay_online_alone(stay_online_value || keep_lobby || host_online);
+}
+
 /* native\stay_online.txt: "1" before joining a public game from FIND GAMES
    (games.lua), "2" when that game is in a match. A joiner landing in a
    session that is already running took the same one-member branch and left
@@ -5265,7 +5325,8 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
         if (fscanf(f, "%d", &value) != 1) value = 0;
         fclose(f);
     }
-    fireteam_log("session: alone, stay online: %s", stay_online_alone(value || keep_lobby));
+    InterlockedExchange(&stay_online_value, value ? 1 : 0);
+    fireteam_log("session: alone, stay online: %s", online_alone());
     /* 2: the game joined is in a match; its world's begin play waits for the
        Blam game. 1: a lobby join, whose host's menu world never has one. */
     InterlockedExchange(&jip_armed, value ? 1 : 0);
@@ -5273,20 +5334,92 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
     return 0;
 }
 
-/* native\keep_lobby.txt: "1" while the host's game is public (games.lua), so the
-   game cannot leave its lobby (a match started alone would); "0" otherwise. */
-__declspec(dllexport) int mjolnir_keep_lobby(void *L) {
+/* native\host_online.txt: "1" once this game hosts one of our multiplayer
+   matches (games.lua, at each start). A host alone then stays online, public
+   or private, so its lobby and connection string outlive the start: the
+   game can be made public later, in the lobby or mid-match. As shipped, a
+   private match started alone left the lobby, and nothing short of SAVE AND
+   EXIT or a restart made another (2026-11-07). */
+__declspec(dllexport) int mjolnir_host_online(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
     char path[MAX_PATH];
-    snprintf(path, sizeof path, "%skeep_lobby.txt", dir);
+    snprintf(path, sizeof path, "%shost_online.txt", dir);
     FILE *f = fopen(path, "r");
     int value = 0;
     if (f) {
         if (fscanf(f, "%d", &value) != 1) value = 0;
         fclose(f);
     }
-    InterlockedExchange(&keep_lobby, value ? 1 : 0);
+    InterlockedExchange(&host_online, value ? 1 : 0);
+    fireteam_log("session: a host alone, public or private: %s", online_alone());
+    return 0;
+}
+
+/* Puts the current lobby's joining state where the host's choice now says,
+   between the game's own updates: public unlocks its membership and sets the
+   join flags (what hook_lobby_post_update keeps while public); private gives
+   back the lock and flags the game itself last asked for, so a match made
+   private mid-match is closed the way the game closes one. Only the owner's
+   lobby, and only what is known. */
+static void post_join_state(int open) {
+    void *lobby = current_lobby;
+    if (!lobby || !lobby_owned) return;
+    LONG lock_was = game_lock, flags_was = game_flags;
+    lobby_post_update_t post =
+        real_lobby_post_update ? real_lobby_post_update : (lobby_post_update_t)playfab("PFLobbyPostUpdate");
+    get_owner_t get_owner = (get_owner_t)playfab("PFLobbyGetOwner");
+    const void *owner = NULL;
+    long hr;
+    if (!post || !get_owner) {
+        fireteam_log("lobby: joining state not posted: PFLobbyPostUpdate or PFLobbyGetOwner not found");
+        return;
+    }
+    if ((hr = get_owner(lobby, &owner)) < 0 || !owner) {
+        fireteam_log("lobby: joining state not posted: no owner (0x%08lx)", (unsigned long)hr);
+        return;
+    }
+    __declspec(align(8)) unsigned char update[LOBBY_UPDATE_SIZE] = {0};
+    unsigned lock = open ? MEMBERSHIP_UNLOCKED : (unsigned)lock_was;
+    if (open || lock_was >= 0) ((const unsigned **)update)[LOBBY_UPDATE_LOCK] = &lock;
+    char flags_text[16];
+    const char *key = "_flags", *value = flags_text;
+    if (flags_was >= 0) {
+        unsigned flags = open ? (unsigned)flags_was | SESSION_JOIN_FLAGS : (unsigned)flags_was;
+        snprintf(flags_text, sizeof flags_text, "%u", flags);
+        /* Lobby properties: count +56, keys +64, values +72. */
+        *(unsigned *)(update + 56) = 1;
+        *(const char *const **)(update + 64) = &key;
+        *(const char *const **)(update + 72) = &value;
+    } else {
+        flags_text[0] = 0;
+    }
+    if (!((const unsigned **)update)[LOBBY_UPDATE_LOCK] && !flags_text[0]) return;
+    hr = post(lobby, (void *)owner, update, NULL, NULL);
+    fireteam_log("lobby: %s for %p: lock %s, _flags %s: 0x%08lx", open ? "made public" : "made private", lobby,
+                 ((const unsigned **)update)[LOBBY_UPDATE_LOCK] ? (lock ? "locked" : "open") : "left",
+                 flags_text[0] ? flags_text : "left", (unsigned long)hr);
+}
+
+/* native\keep_lobby.txt: "1" while the host's game is public (games.lua), so the
+   game cannot leave its lobby (a match started alone would); "0" otherwise.
+   A second number, 1 in a match: making the game public opens its lobby at
+   once, and making it private mid-match closes it again (post_join_state).
+   Private in the menu changes nothing there: the game posts no update on the
+   way back from a match, so its last ask is the match's lock, which would
+   keep invited friends out of the fireteam. */
+__declspec(dllexport) int mjolnir_keep_lobby(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%skeep_lobby.txt", dir);
+    FILE *f = fopen(path, "r");
+    int value = 0, in_match = 0;
+    if (f) {
+        if (fscanf(f, "%d %d", &value, &in_match) < 1) value = 0;
+        fclose(f);
+    }
+    LONG was = InterlockedExchange(&keep_lobby, value ? 1 : 0);
     snprintf(path, sizeof path, "%sjoin_in_progress.txt", dir);
     f = fopen(path, "r");
     /* Joins into a public match under way are on unless the file says 0. */
@@ -5297,8 +5430,15 @@ __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
     }
     InterlockedExchange(&join_in_progress, jip ? 1 : 0);
     if (!jip) fireteam_log("login: joins into a match under way are off (join_in_progress.txt)");
-    fireteam_log("lobby: keep while public: %s; a host alone: %s", value ? "yes" : "no", stay_online_alone(value));
+    fireteam_log("lobby: keep while public: %s; a host alone: %s", value ? "yes" : "no", online_alone());
     if (value) fireteam_log("PreLogin (joins into a public match under way): %s", hook_pre_login_slots());
+    if (was != (value ? 1 : 0) && (value || in_match)) {
+        __try {
+            post_join_state(value != 0);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            fireteam_log("lobby: joining state faulted (%08lx)", GetExceptionCode());
+        }
+    }
     return 0;
 }
 

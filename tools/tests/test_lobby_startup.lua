@@ -40,6 +40,7 @@ local modules = {
         setPublic = function(on) calls[#calls+1] = "public:" .. tostring(on) end,
         isPublic = function() return false end, status = function() return "" end,
         changed = function() calls[#calls+1] = "changed" end,
+        hosting = function(on) calls[#calls+1] = "hosting:" .. tostring(on) end,
     },
     -- No world index here (MapLive.worlds returns nil: "cannot say").
     maplive = { register = function() calls[#calls+1] = "register"; return true end, release = function() return {} end,
@@ -128,6 +129,10 @@ eq(state():find("signed_in=1", 1, true) ~= nil, true)
 local countdowns = 0
 for _, call in ipairs(calls) do if call == "StartCountdown" then countdowns = countdowns + 1 end end
 eq(countdowns, 1, "one native countdown")
+-- FORGE is never public: a host alone leaves its lobby as shipped.
+local hosting
+for _, call in ipairs(calls) do hosting = call:match("^hosting:(%a+)") or hosting end
+eq(hosting, "false", "FORGE start keeps the shipped solo branch")
 -- Our lobby overlays and post-game voting may hide/destroy the stock menu.
 widgets.WBP_MainMenu_C = nil
 eq(UI.startupReady(), true, "lobby overlay retains readiness")

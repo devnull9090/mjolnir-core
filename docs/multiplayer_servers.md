@@ -62,7 +62,42 @@ only; every session starts private). While public, `games.lua`:
   game that quits drops out when its heartbeat goes stale (90 s).
 
 The lobby's footer says why a game isn't listed (no launcher sign-in, an old
-key, the hub unreachable).
+key, the hub unreachable, no online lobby).
+
+**Public or private mid-match** (MJOLNIRLobby 0.24.0). The HOST MENU has MAKE
+PUBLIC / MAKE PRIVATE, and chat has `/public` and `/private`
+([multiplayer_hud.md](multiplayer_hud.md)); FORGE matches stay private. Each
+change and the listing's outcome reach the host's chat as a system line
+(`MJOLNIRLobby\chat_notice.txt`, read by MJOLNIRHud). The native half
+(`post_join_state`) posts the lobby's joining state at once rather than at the
+game's next update:
+- **Public:** membership unlocked and `_flags` given the join bits (what a
+  game started public keeps). The PreLogin pass and the joiner injection
+  follow the flag live.
+- **Private, in a match:** the lock and `_flags` the game itself last asked
+  for (locked, 1344 after a start), so nobody new can join. Going private in
+  the menu posts nothing: the game posts no update on the way back from a
+  match, so its last ask there is the match's lock, which would keep invited
+  friends out.
+
+**A host stays online alone** (MJOLNIRLobby 0.24.0). As shipped, a match
+started with one session member leaves the session to play offline
+(`UBlamOnlineSessionSubsystem::SetSessionRunning`, exe 0x7abb940), so a game
+started private and alone lost its lobby. It couldn't be listed later, and
+RETURN TO LOBBY (a `servertravel`) never got one back. Only SAVE AND EXIT or
+a restart did (2026-11-07). Each start from our lobby now writes
+`native\host_online.txt`, and the branch patch public games used applies to
+any host, public or private. FORGE keeps the shipped branch.
+
+Where a host still ends up with no lobby (FORGE, or a game update that moves
+the patched branch), RETURN TO LOBBY with nobody else in the match calls
+`BlamCampaignFlowGameSubsystem:EndCampaign`, SAVE AND EXIT's own exit. About
+3 s after the menu loads, the game asks for a new session itself (traced
+2026-11-08 through the hooked public `CreateSession`: exe 0x7ac2790 to
+0x7abee20). That function returns early on state bits a solo start leaves
+set, and only that exit clears them: a `servertravel` back, or `EndCampaign`
+from the menu, makes no lobby. In the menu with no lobby, the footer says
+how to get one back.
 
 **FIND GAMES** (`WBP_MJOLNIRFindGames`, chunk 984) is a server table of up
 to 40 public games:

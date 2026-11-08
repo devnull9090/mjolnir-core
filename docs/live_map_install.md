@@ -301,6 +301,7 @@ PCs on 2026-10-09 (eced8a14).
 - **Joining a match under way on a map this PC lacks** works. On two PCs, PC
   2 used DOWNLOAD AND JOIN on PC 1's running Gephyrophobia game. Its held
   join asked `where`, got `mapindex` back at once, moved the map from index
-  18 to 19, and joined: the host's game had 2 players. The host's match has
-  to be started public. One started private with the host alone plays
-  offline, and can't be listed later.
+  18 to 19, and joined: the host's game had 2 players. A match started
+  private with the host alone used to play offline and could never be listed
+  later. Since MJOLNIRLobby 0.24.0 a host stays online alone, and the match
+  can be made public mid-match ([multiplayer_servers.md](multiplayer_servers.md)).
