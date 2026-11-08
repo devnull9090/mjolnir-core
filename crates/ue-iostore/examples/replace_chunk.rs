@@ -41,9 +41,16 @@ fn main() {
     }
     let c = matches[0];
 
-    let targets: Vec<_> = c.files.iter().filter(|(path, _)| path.ends_with(suffix.as_str())).collect();
+    let targets: Vec<_> = c
+        .files
+        .iter()
+        .filter(|(path, _)| path.ends_with(suffix.as_str()))
+        .collect();
     if targets.len() != 1 {
-        eprintln!("{} indexed files end with {suffix:?}, expected one", targets.len());
+        eprintln!(
+            "{} indexed files end with {suffix:?}, expected one",
+            targets.len()
+        );
         std::process::exit(1);
     }
     let (target_path, target_index) = (targets[0].0.clone(), *targets[0].1);
@@ -83,7 +90,9 @@ fn main() {
     let mut files: Vec<(String, usize)> = c
         .files
         .iter()
-        .filter_map(|(path, chunk_index)| chunk_to_entry.get(chunk_index).map(|e| (path.clone(), *e)))
+        .filter_map(|(path, chunk_index)| {
+            chunk_to_entry.get(chunk_index).map(|e| (path.clone(), *e))
+        })
         .collect();
     // In chunk order, as the bake lists them.
     files.sort_by_key(|f| f.1);
@@ -96,7 +105,12 @@ fn main() {
     );
 
     std::fs::create_dir_all(out_dir).expect("create out dir");
-    let stem = c.utoc_path.file_stem().unwrap().to_string_lossy().to_string();
+    let stem = c
+        .utoc_path
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     let utoc = format!("{out_dir}/{stem}.utoc");
     let ucas = format!("{out_dir}/{stem}.ucas");
     std::fs::write(&utoc, &built.utoc).expect("write utoc");
@@ -106,15 +120,26 @@ fn main() {
     let back = ue_iostore::load_all(out_dir).expect("read the written container back");
     let back = back
         .iter()
-        .find(|b| b.utoc_path.file_stem().is_some_and(|s| s.to_string_lossy() == stem))
+        .find(|b| {
+            b.utoc_path
+                .file_stem()
+                .is_some_and(|s| s.to_string_lossy() == stem)
+        })
         .expect("the written container is not readable");
     if back.chunks.len() != entries.len() || back.files.len() != files.len() {
-        eprintln!("read back {} chunks / {} files, wrote {} / {}", back.chunks.len(), back.files.len(),
-                  entries.len(), files.len());
+        eprintln!(
+            "read back {} chunks / {} files, wrote {} / {}",
+            back.chunks.len(),
+            back.files.len(),
+            entries.len(),
+            files.len()
+        );
         std::process::exit(1);
     }
-    let intended: std::collections::HashMap<_, _> =
-        entries.iter().map(|e| ((e.id.id, e.id.index, e.id.kind), &e.data)).collect();
+    let intended: std::collections::HashMap<_, _> = entries
+        .iter()
+        .map(|e| ((e.id.id, e.id.index, e.id.kind), &e.data))
+        .collect();
     for ch in &back.chunks {
         let got = ue_iostore::read_chunk(back, ch, None, &oodle).expect("read back chunk");
         if intended.get(&(ch.chunk_id, ch.chunk_index, ch.chunk_type)) != Some(&&got) {
