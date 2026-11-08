@@ -48,8 +48,21 @@ CANVASES = {
     },
 }
 
-# Player starts usable by a free-for-all or team game, in preference order.
-START_TYPES = ("Slayer", "Ctf", "AllGames", "AllGamesExceptCtf", "AllGamesExceptCtfAndRace")
+# Spawn sets (#360). Each CE or Halo 2 start lists the game types that spawn
+# players at it; a family is the game types that share a set of starts
+# (MJOLNIRLevelLoader's vehicle_sets.lua maps each game type to one). Starts
+# no family serves (Halo 2's Headhunter and Territories) are not placed.
+CTF_FAMILY = "ctf"
+NONCTF_FAMILIES = ("slayer", "oddball", "king", "race")
+# Halo 2 has Juggernaut starts of its own; CE's Juggernaut is an Oddball ball
+# type, so on a CE map it spawns where Oddball does.
+H2_NONCTF_FAMILIES = NONCTF_FAMILIES + ("juggernaut",)
+START_FAMILIES = {"Ctf": ("ctf",), "Slayer": ("slayer",), "Oddball": ("oddball",), "King": ("king",),
+                  "Race": ("race",), "Juggernaut": ("juggernaut",)}
+# A start hidden unless the variant has an object filter on its label: the
+# loader adds the filters for the match's game type (`spawn_sets`).
+SPAWN_SET_LABEL = "spawn_set_{}"
+SPAWN_SET_POOL = 16   # `mjolnir megalo write --vehicle-label-pool` writes this many
 
 # scenario_vehicle "multiplayer spawn flags": bits 0-3 make a vehicle part
 # of Slayer's, CTF's, King's and Oddball's default set; bits 8-11 only allow
@@ -272,6 +285,95 @@ OCEAN_MAPS = {
 # at every CE start, owned by the neutral team, which any player may use.
 SPAWN_SCENERY = r"objects\multi\spawning\player_spawn"
 
+
+def start_families(start, halo2):
+    """The families a staged start serves (a set of NONCTF_FAMILIES and
+    "ctf"). Halo 2 reads a start that lists no game type as every one
+    (Containment, Relic, Sanctuary and Warlock list none on every start);
+    CE's starts always list theirs."""
+    nonctf = H2_NONCTF_FAMILIES if halo2 else NONCTF_FAMILIES
+    kinds = [g for g in start.get("game_types", []) if g != "None"]
+    if halo2 and not kinds:
+        kinds = ["AllGames"]
+    out = set()
+    for g in kinds:
+        if g == "AllGames":
+            out |= {CTF_FAMILY, *nonctf}
+        elif g == "AllGamesExceptCtf":
+            out |= set(nonctf)
+        elif g == "AllGamesExceptCtfAndRace":
+            out |= set(nonctf) - {"race"}
+        else:
+            out |= set(START_FAMILIES.get(g, ()))
+    if not halo2:
+        out.discard("juggernaut")
+    return out
+
+
+def spawn_plan(player_starts, halo2):
+    """Where players spawn, by game type (#360).
+
+    Returns (spawns, spawn_sets): each spawn is {start, label, hidden} for a
+    `player_spawn` placement at that staged start, and each spawn set is
+    {label, families}. A position serving every non-CTF family is visible:
+    labelled with its CTF team (red, blue, or none, which CTF parks on a team
+    nobody plays; blam-megalo ctf.rs). The rest are hidden, and a hidden spawn
+    exists only in a game whose variant has an object filter on its label:
+    a CTF-only start keeps its `ctf_spawn_<team>` label, which the CTF and
+    Assault variants filter on; a start some non-CTF families use takes a
+    `spawn_set_<k>` label, whose filter the loader adds for those families. A
+    start serving CTF and some of the others is both. Starts at one position
+    are one spawn, serving every family any of them lists."""
+    nonctf = set(H2_NONCTF_FAMILIES if halo2 else NONCTF_FAMILIES)
+    pos_key = lambda s: tuple(round(v, 2) for v in s["pos"])
+    served = [(s, start_families(s, halo2)) for s in player_starts]
+    if not any(f for _, f in served):
+        # Nothing names a game type we play: every start, as before sets,
+        # with no CTF team (CTF parks them).
+        served = [(s, set(nonctf)) for s in player_starts]
+    spots = {}
+    for s, families in sorted(served, key=lambda sf: sf[0]["team"]):
+        if not families:
+            continue
+        spot = spots.setdefault(pos_key(s), {"start": s, "families": set(), "team": None})
+        spot["families"] |= families
+        if CTF_FAMILY in families and spot["team"] is None and s["team"] in CTF_TEAMS_UE:
+            spot["team"] = CTF_TEAMS_UE[s["team"]]
+    spots = list(spots.values())
+    # A family no start serves spawns where Slayer does (or, with no Slayer
+    # starts either, at every start some non-CTF family uses).
+    every = any(nonctf <= spot["families"] for spot in spots)
+    if not every:
+        for family in sorted(nonctf):
+            if any(family in spot["families"] for spot in spots):
+                continue
+            hosts = [spot for spot in spots if "slayer" in spot["families"]] or \
+                    [spot for spot in spots if spot["families"] & nonctf]
+            for spot in hosts:
+                spot["families"].add(family)
+    spawns, sets = [], {}
+    for spot in spots:
+        families, team = spot["families"], spot["team"]
+        ctf = CTF_FAMILY in families and team is not None
+        rest = frozenset(families & nonctf)
+        if rest == nonctf:
+            spawns.append({"start": spot["start"], "label": f"ctf_spawn_{team or 'none'}", "hidden": False})
+            continue
+        if ctf:
+            spawns.append({"start": spot["start"], "label": f"ctf_spawn_{team}", "hidden": True})
+        if rest:
+            if rest not in sets:
+                sets[rest] = SPAWN_SET_LABEL.format(len(sets))
+            spawns.append({"start": spot["start"], "label": sets[rest], "hidden": True})
+    if len(sets) > SPAWN_SET_POOL:
+        raise SystemExit(f"{len(sets)} spawn sets; the variants carry {SPAWN_SET_POOL} labels for them")
+    if not any(s["label"].startswith("spawn_set_") or not s["hidden"] for s in spawns):
+        # Only CTF starts: every game type uses them, as before sets.
+        for s in spawns:
+            s["hidden"] = False
+    spawn_sets = [{"label": label, "families": sorted(rest)} for rest, label in sets.items()]
+    return spawns, spawn_sets
+
 # CE pairs a "teleport from" flag with the "teleport to" flags on its channel;
 # the simulation keeps Reach's multiplayer teleporters, which move what enters
 # a sender's boundary to a receiver on the same teleporter channel. Both ends
@@ -333,8 +435,6 @@ FLAG_STAND_SCENERY = r"objects\multi\ctf\flag_stand"
 FLAG_STAND_LABEL = "ctf_flag_return"
 CTF_TEAMS = {0: "defender", 1: "attacker"}
 CTF_TEAMS_UE = {0: "red", 1: "blue"}
-# Starts a CTF game uses.
-CTF_START_TYPES = ("Ctf", "AllGames")
 CAPTURE_RADIUS = 1.0   # world units
 CAPTURE_HEIGHT = 1.5
 
@@ -1317,34 +1417,31 @@ def main():
         dropped[f"{asset} (no equivalent in this game)"] += 1
         return None
 
-    # Starts: every one a slayer or CTF game would use, de-duplicated by
-    # position, in team order.
-    usable = [s for s in placement["player_starts"] if any(g in START_TYPES for g in s["game_types"])]
-    usable = usable or placement["player_starts"]
-    pos_key = lambda s: tuple(round(v, 2) for v in s["pos"])
-    # CTF gives each start a team; Slayer ignores it. A spot a CTF start uses
-    # is labelled with its team, the rest "none", and the CTF variant sets
-    # the spawn points' teams by label (blam-megalo ctf.rs); they stay neutral
-    # for every other game type.
-    ctf_team = {}
-    for s in placement["player_starts"]:
-        if any(g in CTF_START_TYPES for g in s["game_types"]) and s["team"] in CTF_TEAMS_UE:
-            ctf_team.setdefault(pos_key(s), CTF_TEAMS_UE[s["team"]])
+    # Starts: one spawn point per position some game type spawns at, by the
+    # game types the CE or Halo 2 starts there list (spawn_plan). CTF gives
+    # each start a team; the CTF variant sets the spawn points' teams by
+    # label (blam-megalo ctf.rs), and they stay neutral in every other game.
+    plan, spawn_sets = spawn_plan(placement["player_starts"], source == "halo2_mcc")
     seen, starts, spawns = set(), [], []
-    for s in sorted(usable, key=lambda s: s["team"]):
-        key = pos_key(s)
+    hidden_spawns = 0
+    for p in plan:
+        s = p["start"]
+        lifted = [s["pos"][0], s["pos"][1], s["pos"][2] + a.start_lift]
+        key = tuple(round(v, 2) for v in s["pos"])
         if key not in seen:
             seen.add(key)
-            lifted = [s["pos"][0], s["pos"][1], s["pos"][2] + a.start_lift]
             starts.append({"pos": to_ue(lifted), "yaw": yaw_ue(s["facing"])})
-            spawns.append({
-                "tag": SPAWN_SCENERY,
-                "group": "scenery",
-                "pos": to_ue(lifted),
-                "rot": [0, yaw_ue(s["facing"]), 0],
-                "set": {"multiplayer data.owner team": "neutral",
-                        "multiplayer data.megalo label": f"ctf_spawn_{ctf_team.get(key, 'none')}"},
-            })
+        spawn_set = {"multiplayer data.owner team": "neutral", "multiplayer data.megalo label": p["label"]}
+        if p["hidden"]:
+            spawn_set["multiplayer data.spawn flags"] = HIDE_UNLESS_REQUIRED
+            hidden_spawns += 1
+        spawns.append({
+            "tag": SPAWN_SCENERY,
+            "group": "scenery",
+            "pos": to_ue(lifted),
+            "rot": [0, yaw_ue(s["facing"]), 0],
+            "set": spawn_set,
+        })
 
     vehicles, weapons, equipment, health_spots = [], [], [], []
     vehicle_sets = []
@@ -1687,6 +1784,10 @@ def main():
         level["health_pack"] = dict(HEALTH_PACK_MESH, materials=[ce_model_material("healthpack.png")])
     if vehicle_sets:
         level["vehicle_sets"] = vehicle_sets
+    if spawn_sets:
+        # The hidden spawn points' labels and the families each serves; the
+        # loader adds a filter for each label the match's game type is in.
+        level["spawn_sets"] = spawn_sets
     foliage = json.load(open(a.foliage, encoding="utf-8")) if a.foliage else {}
     if foliage.get("groups"):
         # The game's grass, tufts and shore stones (scatter_foliage.py), with
@@ -1703,7 +1804,8 @@ def main():
         json.dump(level, f, indent=2)
         f.write("\n")
     print(
-        f"{name}: {len(starts)} starts, {len(vehicles)} vehicles, {len(weapons)} weapons, "
+        f"{name}: {len(starts)} starts ({len(spawns)} spawn points, {hidden_spawns} hidden, "
+        f"{len(spawn_sets)} spawn sets), {len(vehicles)} vehicles, {len(weapons)} weapons, "
         f"{len(equipment)} equipment, {len(teleporters)} teleporter ends, {len(flag_stands)} flag stands, "
         f"{len(markers)} markers, {len(decor)} decor ({len(flares)} lens flares), {len(health_spots)} health packs"
     )

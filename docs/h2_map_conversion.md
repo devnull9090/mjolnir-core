@@ -238,7 +238,15 @@ units and axes, so every later step reads them unchanged:
   paired by identifier); assault, territories and headhunter keep names the
   tag map leaves out. Halo 2 spawns by influence, so its player starts carry
   no CTF side (Lockout's are all team 0); each start takes the side of the
-  nearer CTF flag spawn, so a CTF game has red and blue spawns. Props are
+  nearer CTF flag spawn, so a CTF game has red and blue spawns. A start
+  (0x34 bytes) lists four game types at `0x14` (CE's numbers, plus 6
+  Headhunter, 7 Juggernaut and 8 Territories) and a spawn type for each at
+  `0x1C` (0 both, 1 initial spawn only, 2 respawn only), staged as
+  `game_types` and `spawn_types`. A start that lists no game type serves
+  every one: Containment, Relic, Sanctuary and Warlock list none on any
+  start, and Terminal's 88 untyped starts stand beside 61 All games ones.
+  The level generator places them by game type ([ce_map_conversion.md](ce_map_conversion.md),
+  "Spawn sets"); spawn types are not used yet. Props are
   scenery and crates (`bloc`), staged with their
   render and collision models. Game-type props (the CTF and territory flag
   bases) are left out: the level's own CTF stands replace them.

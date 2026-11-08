@@ -5953,7 +5953,7 @@ local function loadMegaloSwitch()
                 if shown then
                     local okL, layout = pcall(Json.decode, readFile(MOD_DIR .. "\\variants\\slayer.layout.json") or "")
                     local list = type(level.vehicle_sets) == "table" and level.vehicle_sets or {}
-                    shown:write(VehicleSets.forgeLines(list, okL and layout or nil))
+                    shown:write(VehicleSets.forgeLines(list, okL and layout or nil, level.spawn_sets, level.game))
                     shown:close()
                 end
                 local running = io.open(MOD_DIR .. "\\running.txt", "w")
@@ -5993,11 +5993,14 @@ local function loadMegaloSwitch()
                     Log("multiplayer switch: game settings not applied (" .. tostring(why) .. "); the variant's own rules run")
                 end
             end
-            -- CE's vehicle sets: the map places its vehicles hidden, and
-            -- the variant requires the labels of the ones the host's vehicle
-            -- settings pick (vehicle_sets.lua). Every machine computes the
-            -- same filters from the same settings line and level.
-            if bytes and type(level.vehicle_sets) == "table" then
+            -- CE's vehicle sets, and CE's and Halo 2's spawn sets: the map
+            -- places its vehicles, and the spawn points only some game types
+            -- use, hidden, and the variant requires the labels of the ones
+            -- this game type and the host's vehicle settings pick
+            -- (vehicle_sets.lua). Spawn sets go first, so a cut drops
+            -- vehicles. Every machine computes the same filters from the
+            -- same settings line and level.
+            if bytes and (type(level.vehicle_sets) == "table" or type(level.spawn_sets) == "table") then
                 local layout
                 local rawLayout = readFile(MOD_DIR .. "\\variants\\" .. name .. ".layout.json")
                 if rawLayout then
@@ -6005,18 +6008,25 @@ local function loadMegaloSwitch()
                     if okL then layout = l end
                 end
                 local choices = VehicleSets.fromSettings(parsed)
+                local spawns = VehicleSets.spawnFilters(level.spawn_sets, name, level.game)
                 local okV, out, added, dropped = pcall(function()
-                    return VehicleSets.apply(bytes, layout,
-                        VehicleSets.filters(level.vehicle_sets, name, choices))
+                    local wanted = {}
+                    for _, f in ipairs(spawns) do wanted[#wanted + 1] = f end
+                    if type(level.vehicle_sets) == "table" then
+                        for _, f in ipairs(VehicleSets.filters(level.vehicle_sets, name, choices)) do
+                            wanted[#wanted + 1] = f
+                        end
+                    end
+                    return VehicleSets.apply(bytes, layout, wanted)
                 end)
                 if okV and out then
                     bytes = out
-                    Log(string.format("multiplayer switch: vehicles %s: %d label filter(s)%s",
-                        VehicleSets.describe(choices), added,
+                    Log(string.format("multiplayer switch: spawn sets %d, vehicles %s: %d label filter(s)%s",
+                        #spawns, VehicleSets.describe(choices), added,
                         dropped > 0 and (", " .. dropped .. " left out (the variant holds 16 filters)") or ""))
                 else
-                    Log("multiplayer switch: vehicle sets not applied (" .. tostring(okV and added or out)
-                        .. "); the map's vehicles stay hidden")
+                    Log("multiplayer switch: spawn and vehicle sets not applied (" .. tostring(okV and added or out)
+                        .. "); the map's hidden spawn points and vehicles stay hidden")
                 end
             end
             local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")

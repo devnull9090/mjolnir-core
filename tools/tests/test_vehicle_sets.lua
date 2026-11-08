@@ -166,5 +166,50 @@ local _, without = VehicleSets.forgeLines(crowd, nil):gsub("\n", "\n")
 eq(without - 1, 15, "the same with no layout to read")
 assert(not VehicleSets.forgeLines(crowd, nil):find("_10", 1, true), "the highest ranks go first")
 
+-- Spawn sets (#360): Blood Gulch's CE starts, as gen_ce_level.py's spawn_plan
+-- labels them. Slayer, Oddball and King share one set; Race has its own; CTF
+-- adds none (its CTF-only starts keep the labels its variant filters on).
+local bgl = {
+    { label = "spawn_set_0", families = { "king", "oddball", "slayer" } },
+    { label = "spawn_set_1", families = { "race" } },
+}
+local function labels(list)
+    local out = {}
+    for _, f in ipairs(list) do out[#out + 1] = f.label .. (f.team and ("/" .. f.team) or "") end
+    return table.concat(out, ",")
+end
+eq(labels(VehicleSets.spawnFilters(bgl, "slayer", "halo1")), "spawn_set_0", "Slayer's set")
+eq(labels(VehicleSets.spawnFilters(bgl, "team_slayer", "halo1")), "spawn_set_0", "Team Slayer spawns as Slayer")
+eq(labels(VehicleSets.spawnFilters(bgl, "crazy_king", "halo1")), "spawn_set_0", "King's family")
+eq(labels(VehicleSets.spawnFilters(bgl, "team_rally", "halo1")), "spawn_set_1", "Rally spawns as Race")
+eq(labels(VehicleSets.spawnFilters(bgl, "ctf", "halo1")), "", "CTF needs no spawn set filter")
+eq(labels(VehicleSets.spawnFilters(bgl, "assault", "halo1")), "", "nor does Assault")
+eq(labels(VehicleSets.spawnFilters(bgl, "juggernaut", "halo1")), "spawn_set_0", "CE's Juggernaut spawns as Oddball")
+eq(labels(VehicleSets.spawnFilters(nil, "slayer", "halo1")), "", "a map with no spawn sets")
+eq(VehicleSets.spawnFamily("juggernaut", "halo2"), "juggernaut", "Halo 2's Juggernaut has starts of its own")
+eq(VehicleSets.spawnFamily("juggernaut", nil), "oddball", "a level without a game is CE's")
+eq(VehicleSets.spawnFamily("something_new", "halo1"), "slayer", "an unknown game type spawns as Slayer")
+
+-- Spawn set filters go in before the vehicles', so a full variant drops
+-- vehicles, never spawns.
+do
+    local wanted = VehicleSets.spawnFilters(bgl, "slayer", "halo1")
+    for i = 1, 20 do wanted[#wanted + 1] = { label = "ce_warthog_" .. ((i - 1) % 10 + 1) } end
+    local pool = { spawn_set_0 = 80, spawn_set_1 = 81 }
+    for r = 1, 10 do pool["ce_warthog_" .. r] = r end
+    local _, added, dropped = VehicleSets.apply(string.rep("\0", 8), { filters_at = 8, max_filters = 16,
+        filters = { { label = 0 } }, labels = pool }, wanted)
+    eq(added, 15, "fifteen filters fit beside the variant's own")
+    eq(dropped, 6, "the rest are vehicles")
+end
+
+-- Forge shows Slayer's spawn sets before the vehicles.
+eq(VehicleSets.forgeLines({}, nil, bgl, "halo1"), "forge-vehicles 1\nspawn_set_0\t-1\n",
+    "Forge reveals Slayer's spawn set")
+eq(VehicleSets.forgeLines(forgeMap, { max_filters = 16, filters = { { label = 0 } } }, bgl, "halo1"),
+    "forge-vehicles 1\nspawn_set_0\t-1\nce_ghost_1\t0\nce_warthog_1\t-1\n",
+    "then the vehicles")
+
 print("Vehicle sets: defaults, NONE, one-type and custom sets per game type, team constraints, "
-    .. "filters appended and read back with and without script traits, the 16-filter cap, Forge's list")
+    .. "filters appended and read back with and without script traits, the 16-filter cap, Forge's list; "
+    .. "spawn sets per game type, ahead of vehicles, and in Forge")

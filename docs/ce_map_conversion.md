@@ -634,7 +634,9 @@ opening spawn raises no `player_spawn` (only respawns do), or at the first
 
 - **Spawn points.** Under a multiplayer engine players spawn only at scenery
   whose multiplayer type is *player spawn location*; the scenario's player
-  starts are not read. One is placed at every CE start (neutral team).
+  starts are not read. One is placed at every position a CE or Halo 2 start
+  some game type uses (neutral team), hidden unless every game type but CTF
+  uses it (see "Spawn sets" below).
 - **Vehicles, weapons, pickups** through `defs/level/ce-tag-map.json`; each CE
   tag maps to the first equivalent the game has a type for
   (`defs/level/palette-map.json`). The bake adds a type the canvas palette
@@ -745,9 +747,12 @@ there is no variant, no flag object and no flag mesh, so each piece is ours.
   condition encodings match ReachVariantTool's opcode list; they are checked
   against the CU4 decoder in
   [re/megalo_variant_format.md](re/megalo_variant_format.md).
-- **Teams.** Each CE start is labelled `ctf_spawn_red`, `ctf_spawn_blue` or
-  `ctf_spawn_none` and placed neutral. The variant gives the red and blue
+- **Teams.** A spawn point CTF uses is labelled `ctf_spawn_red` or
+  `ctf_spawn_blue` by its CE start's team, one every other game type uses
+  `ctf_spawn_none`, all placed neutral. The variant gives the red and blue
   spawn points their teams, and parks the rest on a team no player is on.
+  The CTF-only ones are hidden, so only CTF and Assault, whose variants
+  filter on these labels, place them (see "Spawn sets").
   It waits 2 s before the first spawn (the loadout camera time), so the
   first tick has set the teams up; a spawn on tick 0 used them neutral.
 - **The flags** (`tools/level/build_ctf_flag.sh`) are two weapons cloned
@@ -854,6 +859,63 @@ Death Island places Banshees and Warthogs when the round begins, and its
 Ghosts, Scorpions and Shades only when their respawn time (30-40 s) runs out,
 with or without labels; Infinity places everything at once. Not yet
 explained.
+
+### Spawn sets
+
+CE and Halo 2 decide a map's spawns per game type too (#360). Each player
+start lists up to four game types: CTF, Slayer, Oddball, King, Race, All
+games, All except CTF, All except CTF and Race, and on Halo 2 also
+Headhunter, Juggernaut and Territories. Before spawn sets, a converted map
+placed every start Slayer or CTF used, and every game type but CTF spawned at
+all of them: Slayer on Blood Gulch used the 38 CTF base starts beside its own
+17, and the Oddball-, King- and Race-only starts were never placed.
+
+The vehicle sets' mechanism does it, with no script change:
+
+- `gen_ce_level.py` (`spawn_plan`) turns each start's game types into
+  families: `ctf`, `slayer`, `oddball`, `king`, `race`, and on Halo 2 maps
+  `juggernaut`. Starts at one position are one spawn point, serving every
+  family any of them lists.
+- A spawn point every family but CTF uses is placed as before, visible:
+  `ctf_spawn_red`/`blue` if CTF uses it too, else `ctf_spawn_none`.
+- A CTF-only spawn point is hidden ("hide unless megalo required") under
+  `ctf_spawn_red`/`blue`. The CTF and Assault variants already filter on those
+  labels (filters 2-4), so they place it and no other game type does.
+- A spawn point some, not all, of the other families use is hidden under a
+  label from a pool, `spawn_set_0`..`spawn_set_15`, one per distinct set of
+  families. The level's `spawn_sets` lists each label's families. A start CTF
+  uses as well becomes two spawn points at one spot, one of each kind.
+- A family no start serves spawns with Slayer.
+- `mjolnir megalo write --vehicle-label-pool` also writes the 16 pool labels
+  into every variant's string table and layout.json (86 labels, string index
+  91 at most, of 127). Launcher 0.23.0's validator accepts the variants, so
+  no launcher release has to come first.
+- When a match starts, MJOLNIRLevelLoader (`vehicle_sets.lua`,
+  `spawnFilters`) adds one filter per spawn set the game type's family is in,
+  before the vehicle filters, so a full variant drops vehicles, not spawns.
+  Families: Slayer and Team Slayer `slayer`; CTF and Assault `ctf` (no
+  filters: the standing ones do it); King, Crazy King and Team King `king`;
+  Oddball, Team Oddball, Stalker and Reverse Tag `oddball`; Race, Team Race,
+  Rally and Team Rally `race`; Juggernaut `juggernaut` on Halo 2 maps and
+  `oddball` on CE's (CE's Juggernaut is an Oddball ball type). FORGE shows
+  Slayer's (`forge_vehicles.txt`, first).
+
+Measured on Blood Gulch in test copies (2026-11-08), its shipped spawn points
+relabelled in place: Team Slayer placed 17 spawn points, all CE's Slayer
+starts, and every first spawn and respawn was on one of them; CTF placed the
+38 base starts, owned 17 red and 21 blue, and each player respawned in their
+own base. A joining copy places no spawn points in either: the host decides
+spawns. FORGE was not tried.
+
+A rebuilt map needs a loader that adds the filters: on an older loader a game
+type whose spawns are all in hidden sets has none (Slayer on Blood Gulch).
+So the mods release comes first, then the maps.
+
+Halo 2's starts carry a spawn type per game type (0 both, 1 initial spawn
+only, 2 respawn only), staged as `spawn_types` and not used yet: the initial
+spawn flag the simulation needs for a first spawn is the scenery tag's
+(`player_spawn`), not the placement's, so a respawn-only start would need a
+second spawn tag in the runtime pack.
 
 ### Health packs
 
