@@ -230,6 +230,16 @@ joiners never reach that list, so in a copy a player joined in progress takes
 the `+0x4a4` this hook sends. The client's log says `teams: client: player N
 was on team 2, the host has them on 0`.
 
+That copy fallback is for team games only. In a free-for-all nobody sets
+`+0x4a4` (the balancer runs only with teams on), so it reads 0 for every
+player. Before the gate it put every player on team 0 on the joiners, and
+their trackers drew the moving host white (FFA Slayer, 3 copies,
+2026-11-08). The joiners know it's a team game from `team_game.txt`, which
+their Lua now writes from the host's `starting` message. Before that, a copy
+kept the file it was mirrored with, from whatever the Steam install hosted
+last. A free-for-all needs nothing from the fix: host and clients number
+players by slot (0, 1, 2), so every other player is on another team.
+
 ## Known gaps
 
 - **HUD "YOU".** The HUD finds "your" row by player key, and every copy is

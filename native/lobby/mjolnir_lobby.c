@@ -3676,8 +3676,12 @@ static int smaller_team(unsigned char *g, int self) {
    team: the entry for them in the players list the host published (session
    +0x45f8, 16 entries of 0xb0, identifier +0x12 = player +8, team +0xa8).
    A test copy's joiners never reach that list (the simulation adds them
-   itself), so there a joined-in-progress player takes the team the host's
-   player-new hook sends as +0x4a4. Only +0xad is written; the unit, the
+   itself), so there, in a team game, a joined-in-progress player takes the
+   team the host's player-new hook sends as +0x4a4. A free-for-all needs
+   nothing: the list numbers its players by slot and so does the
+   configuration (0, 1, 2 on host and clients alike), so every other player
+   is on another team and the tracker draws them all as enemies, as the
+   host's does. Only +0xad is written; the unit, the
    snapshot and the component follow within a tick. The host is never
    touched, so its balancer (sim 0x2b3f50, which counts +0xad) and its own
    team changes (sim 0x1823c0) see what they always did. A configuration
@@ -3707,6 +3711,18 @@ static void client_teams_tick(void) {
     if (!data) return;
     unsigned char *session = players_list_session();
     unsigned char *list = session ? session + 0x45f8 : NULL;
+    /* The test copy fallback is for team games only. In a free-for-all
+       nobody sets +0x4a4 (the balancer runs only with teams on), so it reads
+       0 for every player and put them all on team 0: friends on the tracker.
+       The lobby writes team_game.txt on a joiner from the host's "starting"
+       (the session's variant and the client's game globals say teams off in
+       team games too), read again every two seconds. */
+    static int team_game;
+    static DWORD team_game_read;
+    if (test_instance() && GetTickCount() - team_game_read > 2000) {
+        team_game_read = GetTickCount();
+        team_game = lobby_team_game(NULL);
+    }
     static unsigned short said[16];
     for (int i = 0; i < 16; i++) {
         unsigned char *p = data + (size_t)i * 0x4b0;
@@ -3721,7 +3737,7 @@ static void client_teams_tick(void) {
                 break;
             }
         }
-        if (team < 0 && test_instance() && (*(unsigned *)(p + 4) & 0x8000)) {
+        if (team < 0 && test_instance() && team_game && (*(unsigned *)(p + 4) & 0x8000)) {
             int sent = *(int *)(p + 0x4a4);
             if (sent == 0 || sent == 1) team = sent, from = "the test copy host's team";
         }

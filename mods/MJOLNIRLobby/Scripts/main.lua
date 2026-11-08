@@ -234,6 +234,21 @@ local function writeVariantSettings(line)
     log("game settings: " .. (line ~= "" and line or "the variant's own"))
 end
 
+--- Whether the next match is a team game, for the native half (mjolnir_lobby.c,
+--- lobby_team_game). The game's variant still says free-for-all when the
+--- players are numbered (the loader swaps in the team variant as the map
+--- loads), so without this a host's third player came in on team 2, which the
+--- engine ends at once as a draw (#229, teams_balance). Written by the host as
+--- it starts a game and by a fireteam client from the host's "starting": a
+--- joining test copy's own file was the Steam install's, copied in with the
+--- rest, and its team fallback put every free-for-all player on team 0.
+local function writeTeamGame(teams)
+    local f = io.open(MOD_DIR .. "\\native\\team_game.txt", "w")
+    if not f then return end
+    f:write(teams and "1" or "0")
+    f:close()
+end
+
 -- The controller and campaign helpers already exist at PRESS ENTER TO START.
 -- Starting then travels to the UE world but never starts its Blam mission.
 -- Observe the stock main menu once, after its login/profile initialization.
@@ -315,16 +330,7 @@ local function startGame(map, mode)
     -- The host's game settings, which the loader patches into the variant;
     -- the fireteam got the same line with the lobby (broadcastLobby).
     writeVariantSettings(Settings.variantLine())
-    -- Whether this is a team game, for the native half: the game's variant
-    -- still says free-for-all when the players are numbered (the loader
-    -- swaps in the team variant as the map loads), so without this a third
-    -- player came in on team 2, which the engine ends at once as a draw
-    -- (#229; mjolnir_lobby.c, teams_balance).
-    local tf = io.open(MOD_DIR .. "\\native\\team_game.txt", "w")
-    if tf then
-        tf:write(mode.teams and "1" or "0")
-        tf:close()
-    end
+    writeTeamGame(mode.teams)
     -- A guest without the map leaves rather than hold everyone's start. The
     -- third field is the exact game type: every start says it, a post-game
     -- vote's too, whose winner no lobby message carries.
@@ -794,6 +800,8 @@ end)
 Net.on("starting", function(f)
     if Net.isHost() or not f[1] then return end
     MODES.follow(LOADER_DIR, f[1], f[3], log)
+    local mode = MODES.byId(f[3])
+    if mode then writeTeamGame(mode.teams) end
     local have = false
     for _, map in ipairs(installedMaps()) do
         if map.code == f[1] then have = true end
