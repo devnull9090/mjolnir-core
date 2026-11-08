@@ -184,7 +184,17 @@ bytes, 23 conditions, 67 actions, 22 triggers. Verified.
 - **Spawns.** At `init` and every tick, the spawn labels' owner teams are set
   to 0, 1 and a team nobody is on (`ctf.rs:329-349`); the sim spawns players
   only at scenery whose owner team matches their designator, or neutral
-  (sim `0x2f84e0`).
+  (sim `0x2f84e0`, own team first, then neutral). Read live on Chill Out
+  (`mjolnir live objects` now prints each object's multiplayer type, owner team
+  and label): 16 red starts on 0, 17 blue on 1, the 25 others on 2. Any other
+  scenery with a multiplayer block takes respawns too, and a teleporter end
+  placed with no owner team is on team 0, so red respawned on the pads, by the
+  blue base as well: half of red's respawns there (test copies, 2026-11-07,
+  #346). Owned by the eighth team the pads still send (sim `0x3e5820` lists
+  teleporters of any team) and take no respawns; `gen_ce_level.py` and
+  `forge-maps/generate.py` place them so from then on. The 28 published maps
+  that had team-0 ends get them moved by `tools/level/fix_teleporter_teams.py`,
+  which sets the owner byte in each shipped scenario rather than rebaking it.
 - **Flags.** Each stand without a flag creates one (object type 18, label
   `ctf_flag`), links it to the stand, copies the stand's owner team, sets pickup
   to enemies, pickup priority automatic, a waypoint for everyone, and
@@ -243,8 +253,10 @@ follow-up reads:
 | **None of that reaches Unreal** | the per-frame snapshot is pushed by the sim (`0x1af290` -> producer `0xce50` -> per object `0x11d20`). Nothing within four call levels reads `D+0x182`, `D+0x178` or `D+0x17a`; the forced-colour trait becomes one "traits differ" bit; the exe has no 0x1e8-stride walk of the render cache | Verified negative (follow-up pass over the producer tree) |
 | **What does reach Unreal: the model variant and permutations** | mesh-state word 0 is `0x5b3190(object)` = the hlmt variant name at `D+0xea` (the resolved variant, not the stored placement id); the pairs are the current permutation per region. In the exe, `0x7a20850` sets `VariantName` (`+0x154`, read by `GetVariantName`, exe `0x79f2210`) and broadcasts `OnVariantChanged` (`+0x188`); meshes and `MaterialOverrides` follow the permutations (`0x7a21080` -> `0x7a26040`), which broadcasts `OnRegionsChanged` (`+0xb0`) last | Verified |
 | The unit's team bytes | `UBlamGameTeamComponent +0xa8/+0xa9` (exe `0x7a18f30`) = unit `+0x1ba/+0x1bb` (sim `0x11d20` stack struct `+0x70/+0x71`, copied by exe `0x7a0f7a0` to record `+0x80/+0x81`) = `P+0xac/P+0xad`. In mode 3, `+0xa8` is 0xff for every player and `+0xa9` is the team index | Verified |
+| A client's `P+0xad` can be the seat number | it is the team in the configuration the client was sent (`0x1823c0`, configuration `+0x88`), not the host's: in test copies seat 2 was 0 on the host and 2 on both joiners, whose config copy said 2. The session numbers a team game's members 0, 1, 2, 3 (host log `2:t2->t0 3:t3->t1`) and the host re-teams only the list it publishes (`teams_balance`, `inject_players`). Since MJOLNIRLobby 0.23.2 a client writes the host's team into `P+0xad` every tick (from the published players list, session `+0x45f8`, entry `+0xa8`, matched by identifier `+0x12` = `P+8`), so its components agree with the host's (#350). In a free-for-all (Slayer, Juggernaut) the published list and every configuration number the players by slot (host and clients `P+0xad` 0, 1, 2), so nothing is rewritten and the tracker's compare finds every other player hostile. Script teams under a free-for-all header (`G+0x3b9`) never reach `P+0xad` (section 3.1), so Infection-style allies stay enemies on the tracker, as before 0.23.2. A test copy's fallback (a joined-in-progress player missing from the list takes `+0x4a4`) is gated on `team_game.txt`, which a joiner's Lua writes from the host's `starting` message. In a free-for-all `+0x4a4` is 0 for everyone (the balancer `0x2b3f50` runs only with teams on), and the ungated fallback put every copy on team 0 | Verified in test copies (team games, FFA Slayer, Juggernaut); PC 2 pending |
+| The motion tracker's friend or foe | the local player's tracker subsystem (`UMeteoriteMotionTrackerPlayerDataSubsystem`, interface vtable at `+0x58`, slot 8 exe `0x7cb17d0`) fills each blip in exe `0x7cb13f0`, which stores exe `0x7cb0b00(self actor, blip actor)` at blip `+0x39` (1 hostile, 2 friendly). That test first compares both bytes of the two team components (`+0xa8` u16), then, since `BlamGameAllegianceSubsystem` is there in a match (a game instance subsystem; its ally rows at `+0xb8` allow each allegiance only itself), answers hostile whenever either allegiance is `0xff` (`je` at exe `0x7cb0c86`, `0x7cb0c8c`). Every Megalo player has `0xff`, so every tracker drew every player as an enemy, except the host's with bots in, where the bot team table gives players a campaign team (docs/re/ai_in_multiplayer.md). Since MJOLNIRLobby 0.23.2 those two jumps skip the hostile store while a multiplayer game runs, so the first comparison decides: teammates are friends (#350) | Verified: code, the subsystem live in a match, white and red blips in test copies |
 | Only units carry a team component | exe `0x7a1a0c0` adds it (through `0x7a234a0`) for bipeds, vehicles, giants and creatures. Weapons, so the CTF flag, never have one | Verified |
-| `ActorTeamIs*` is wrong in Megalo games | exe `0x7b3a270` (`ActorTeamIsEnemy`) and its siblings index `BlamGameAllegianceSubsystem` tables by `+0xa8`; with 0xff, Enemy is true for teammates and Ally false | Code verified; that the subsystem exists in a match inferred |
+| `ActorTeamIs*` is wrong in Megalo games | exe `0x7b3a270` (`ActorTeamIsEnemy`) and its siblings index `BlamGameAllegianceSubsystem` tables by `+0xa8`; with 0xff, Enemy is true for teammates and Ally false. The HUD's aim-assist update (exe `0x7c79670`, `AMeteoriteHUD.AimAssistInfo`) has the same `0xff` rule for `AutoAimFlags.bFriendly`, but the reticle is already right: over a teammate it stays the plain cyan, over an enemy it turns red. Bypassing the rule there (`je` at `0x7c799fa`/`0x7c79a00` to `0x7c79a65`) made a teammate fully targeted and turned the reticle red, so it is left stock | Code verified; the subsystem is there in a match; reticle colours compared in test copies, 2026-11-07 |
 | From an actor to its sim object | `BlamObjectSynchronizationComponent.BlamObjectIndex` (`+0xf8`, the sim object handle and the key of the object-to-actor map exe `0x7a13a70`) and `BlamTagDefinitionIndex` (`+0xfc`), BlueprintReadOnly, readable from Lua | Verified |
 
 So the only native, sim-driven colour channel Unreal has is an object's model
@@ -444,7 +456,7 @@ person takes the team of the Spartan nearest the camera (`2683-2697`).
 | 3 | A late asynchronous apply puts the player's own body mesh back on the swapped component, leaving the Mk V material on a foreign mesh; a remote player's appearance arriving on a client re-triggers it | exe `0x7a21080`, `0x7a26040`; sim `0x1823c0` | Mechanism verified; timing inferred |
 | 4 | Trigger timing: the class watch fires when the pool builds an actor, often before it has a team (`tintBiped` gives up without one, `2646-2652`), not when a pooled actor is reused. On a client, other players' spawns raise no re-tint (`player_spawn` is not relayed, `2427`; their `respawn_final_tick` is personal and dropped, `2377`). The client's own spawn does re-tint, and CTF levels re-tint every 3 s, so the gap is remote spawns on levels without a `ctf` block | `main.lua` | Verified code; frequency inferred |
 | 5 | First person takes the nearest biped's team: wrong in melee, vehicles and deaths | `2683-2697` | Verified code |
-| - | **Not a cause:** the team value. The multiplayer half of the team component is `P+0xad` on every machine, refreshed with each update. Do not switch to `ActorTeamIs*` or the allegiance half (0xff) | section 2.1 | Verified |
+| - | **Not a cause:** the team value. The multiplayer half of the team component is `P+0xad` on every machine, refreshed with each update. Do not switch to `ActorTeamIs*` or the allegiance half (0xff). Past the second seat a client's `P+0xad` could be the seat number until MJOLNIRLobby 0.23.2 (section 2.1) | section 2.1 | Verified |
 
 **The fix.**
 
@@ -808,7 +820,13 @@ Where these differ from CE (PC retail unconfirmed):
   team has to be read fresh.
 - **Flag markers** (`Scripts/flagmark.lua`) read the flag actors themselves, so CTF
   and Assault get a marker that follows a flag home, dropped or carried, in place
-  of the waypoints that never reach Unreal (B4).
+  of the waypoints that never reach Unreal (B4). Oddball's ball, the same skull
+  actor, gets one too (`FlagMark.ball`): gold loose, orange carried, none on the
+  carrier's own screen. A marker's spot is found a few times a second and then
+  follows its actor every frame (`Hill.field`'s `track`), as do the Juggernaut's
+  beacon and marker, which start over the holder's head and are not drawn on the
+  holder's own screen. A seated player's biped actor keeps the place they got
+  in at, so a player in a vehicle is read from the vehicle (#348).
 - **Assault's line** under the score says ATTACK or DEFEND and counts to the next
   swap, from the same module. The script's clock is a Megalo number that no
   Unreal code can read, so the HUD keeps its own: a swap is the flag changing team,

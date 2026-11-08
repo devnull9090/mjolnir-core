@@ -1,4 +1,5 @@
--- MJOLNIR HUD: where the flags are, in Capture the Flag and Assault.
+-- MJOLNIR HUD: where the flags are, in Capture the Flag and Assault, and
+-- Oddball's ball (FlagMark.ball), which is the same skull actor.
 --
 -- No Megalo waypoint reaches Unreal (docs/game_modes.md, B4), so as with the
 -- hill this draws its own marker. Assault needs one most: its flag changes base,
@@ -21,6 +22,7 @@ local FlagMark = {}
 
 local CLASS_PATH = "/Game/Weapons/Melee/Skull/Blueprints/BP_SkullActor.BP_SkullActor_C"
 local CLASS = "BP_SkullActor_C"
+local FP_CLASS = "BP_FP_SkullActor_C"
 local MESH_SYNC = { "/Script/BlamSynchronization.BlamMeshSynchronizationComponentBase",
     "/Script/BlamSynchronization.BlamMeshSynchronizationComponent",
     "/Script/BlamEngine.BlamMeshSynchronizationComponentBase" }
@@ -65,13 +67,15 @@ local function add(actor)
     local ok, name = pcall(function() return actor:GetFullName() end)
     if not ok or type(name) ~= "string" or name:find("Default__", 1, true) then return end
     local address = actor:GetAddress()
+    -- The carrier's first-person copy stands at their camera: never a place.
+    local fp = name:find(FP_CLASS, 1, true) ~= nil
     for _, known in ipairs(actors) do
         if known.address == address then
-            known.actor = actor
+            known.actor, known.fp = actor, fp
             return
         end
     end
-    actors[#actors + 1] = { actor = actor, address = address }
+    actors[#actors + 1] = { actor = actor, address = address, fp = fp }
 end
 
 local function watch()
@@ -130,29 +134,44 @@ end
 --- colour, while the next flag takes the same slot (Assault on two PCs,
 --- 2026-11-07: a second, blue marker at the stand just captured from). An
 --- actor whose slot holds a later object is that leftover, and not a flag.
-local function flagsNow()
+--- Every skull actor out now, but first-person copies: { actor, at, object,
+--- team } (team from its model variant, nil without one). An actor gone
+--- since the last look leaves the list, and so does one whose slot holds a
+--- later object.
+local function skullsNow()
     local found = {}
     for i = #actors, 1, -1 do
-        local actor = actors[i].actor
+        local entry = actors[i]
+        local actor = entry.actor
         if not actor:IsValid() then
             table.remove(actors, i)
-        else
+        elseif not entry.fp then
             local at = actor:K2_GetActorLocation()
-            local team = FlagMark.teamOf(variantOf(actor))
-            if team and not FlagMark.parked(at) then
-                found[#found + 1] = { team = team, at = at, object = objectOf(actor) }
+            if not FlagMark.parked(at) then
+                found[#found + 1] = { actor = actor, at = at, object = objectOf(actor),
+                    team = FlagMark.teamOf(variantOf(actor)) }
             end
         end
     end
     local out = {}
-    for _, flag in ipairs(found) do
+    for _, skull in ipairs(found) do
         local superseded = false
         for _, other in ipairs(found) do
-            if FlagMark.newer(other.object, flag.object) then superseded = true end
+            if FlagMark.newer(other.object, skull.object) then superseded = true end
         end
-        if not superseded then
-            out[flag.team] = { x = flag.at.X, y = flag.at.Y, z = flag.at.Z, r = NEAR_CM }
-        end
+        if not superseded then out[#out + 1] = skull end
+    end
+    return out
+end
+
+local function spot(skull)
+    return { x = skull.at.X, y = skull.at.Y, z = skull.at.Z, r = NEAR_CM, actor = skull.actor }
+end
+
+local function flagsNow()
+    local out = {}
+    for _, skull in ipairs(skullsNow()) do
+        if skull.team then out[skull.team] = spot(skull) end
     end
     return out
 end
@@ -165,7 +184,10 @@ function FlagMark.new(Hill, side)
     local line = fields.Red -- one line, on either field
 
     function self.hide()
-        for _, field in pairs(fields) do field.unmark() end
+        for _, field in pairs(fields) do
+            field.track(nil)
+            field.unmark()
+        end
         line.hideLine()
     end
 
@@ -209,10 +231,66 @@ function FlagMark.new(Hill, side)
                 if flag and at and not inside then
                     field.mark(pc, { x = flag.x, y = flag.y, z = flag.z + HEIGHT_CM }, team, "Ctf",
                         Hill.Waypoint and Hill.Waypoint.label(metres, level) or "", now)
+                    field.track(flag.actor, HEIGHT_CM)
                 else
+                    field.track(nil)
                     field.unmark()
                 end
             end
+        end)
+    end
+
+    return self
+end
+
+--- Whether a skull actor hangs off another actor: a carrier.
+local function carried(actor)
+    local ok, parent = pcall(function() return actor:GetAttachParentActor() end)
+    return ok and parent ~= nil and parent:IsValid()
+end
+
+--- Oddball's ball: one marker, on the ball loose (gold) or carried (the
+--- carrier's colour: orange), and none on the carrier's own screen, where it
+--- is in their hands. Nothing else says where the ball is: the variant's
+--- waypoint never reaches Unreal (#352).
+function FlagMark.ball(Hill)
+    local self = { next = 0 }
+    local field = Hill.field("mjolnir_ball")
+
+    function self.hide()
+        field.track(nil)
+        field.unmark()
+    end
+
+    function self.frame(pc, now)
+        field.frame(pc, now)
+    end
+
+    --- The ball now, as { x, y, z, r, actor, carried }, or nil.
+    function self.find()
+        local skulls = skullsNow()
+        local ball = skulls[1]
+        if not ball then return nil end
+        local out = spot(ball)
+        out.carried = carried(ball.actor)
+        return out
+    end
+
+    function self.tick(now, pc, hidden)
+        if now < self.next then return end
+        self.next = now + EVERY
+        if hidden then return self.hide() end
+        pcall(function()
+            watch()
+            local pawn = pc.Pawn
+            local at = pawn and pawn:IsValid() and pawn:K2_GetActorLocation() or nil
+            local ball = self.find()
+            local inside, metres, _, level = false, 0, nil, ""
+            if ball and at then inside, metres, _, level = Hill.bearing(ball, at, 0) end
+            if not (ball and at) or inside then return self.hide() end
+            field.mark(pc, { x = ball.x, y = ball.y, z = ball.z + HEIGHT_CM }, ball.carried and "other" or "empty",
+                "Oddball", Hill.Waypoint and Hill.Waypoint.label(metres, level) or "", now)
+            field.track(ball.actor, HEIGHT_CM)
         end)
     end
 

@@ -213,6 +213,12 @@ function Waypoint.new(log)
         return true
     end
 
+    --- Move the spot of a marker already up, every frame for one that follows
+    --- something: no widget work, and nothing when nothing is marked.
+    function self.aim(x, y, z)
+        if target then target.x, target.y, target.z = x, y, z end
+    end
+
     local function move(now)
         local spot = Waypoint.project(view, target, width, height, width * MARGIN_X, height * MARGIN_Y, place)
         if not shownX or math.abs(spot.x - shownX) > MOVE_PIXELS or math.abs(spot.y - shownY) > MOVE_PIXELS then

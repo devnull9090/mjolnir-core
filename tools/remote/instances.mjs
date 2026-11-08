@@ -9,8 +9,10 @@
 //                                                    --separate: each copy its own)
 //   node tools/remote/instances.mjs players          each copy's world, UE players, Blam players
 //   node tools/remote/instances.mjs down             stop every copy (never the Steam game)
-//   node tools/remote/instances.mjs deploy <n>       this checkout's built lobby DLL into copy n
-//   node tools/remote/instances.mjs mirror <n>       build or refresh instance n's install (n >= 1)
+//   node tools/remote/instances.mjs deploy <n>       this checkout's lobby, HUD, LevelLoader, Forge into copy n
+//   node tools/remote/instances.mjs mirror <n>       build or refresh instance n's install (n >= 1);
+//                                                    with MJ_OVERLAY=<dir>, that folder's files (laid
+//                                                    out as the install) replace the copy's own
 //   node tools/remote/instances.mjs launch <n>       start instance n (0 = the Steam install itself)
 //   node tools/remote/instances.mjs menu <n>         sign in (no keys) and wait for the MULTIPLAYER main menu
 //   node tools/remote/instances.mjs lua <n> <code>   Lua in instance n (or lua <n> @file.lua)
@@ -146,6 +148,15 @@ function mirror(n) {
   const dst = installRoot(n);
   const ue4ssRel = path.join("Meteorite", "Binaries", "Win64", "ue4ss");
   let linked = 0, copied = 0, kept = 0, skipped = 0;
+  // An earlier overlay's files go first, so this mirror puts the install's
+  // own back (a copied file of the same size and newer would be kept).
+  const manifest = path.join(dst, ".mj_overlay.json");
+  if (fs.existsSync(manifest)) {
+    for (const rel of JSON.parse(fs.readFileSync(manifest, "utf8"))) {
+      if (fs.existsSync(path.join(dst, rel))) fs.rmSync(path.join(dst, rel));
+    }
+    fs.rmSync(manifest);
+  }
   for (const top of ["Engine", "Meteorite"]) {
     for (const rel of walk(src, top)) {
       const from = path.join(src, rel);
@@ -170,7 +181,25 @@ function mirror(n) {
     }
   }
   fs.mkdirSync(path.join(dst, ue4ssRel, "mjolnir-bridge"), { recursive: true });
-  return `instance ${n}: ${dst}\n  ${linked} linked, ${copied} copied, ${kept} unchanged, ${skipped} run files left out`;
+  // MJ_OVERLAY: a folder laid out as the install (Meteorite\Content\Paks\...,
+  // Meteorite\Binaries\Win64\ue4ss\MJOLNIRMaps\<CODE>\level.json), copied over
+  // this copy's files: a release candidate tried in the copies only. A copy,
+  // never a write through the hard link, which would change the Steam
+  // install's file too. The next mirror without it restores the copy.
+  const overlay = process.env.MJ_OVERLAY;
+  let overlaid = [];
+  if (overlay) {
+    for (const rel of walk(overlay)) {
+      const to = path.join(dst, rel);
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      if (fs.existsSync(to)) fs.rmSync(to);
+      fs.copyFileSync(path.join(overlay, rel), to);
+      overlaid.push(rel);
+    }
+    fs.writeFileSync(manifest, JSON.stringify(overlaid, null, 1));
+  }
+  return `instance ${n}: ${dst}\n  ${linked} linked, ${copied} copied, ${kept} unchanged, ${skipped} run files left out` +
+    (overlay ? `, ${overlaid.length} overlaid from ${overlay}` : "");
 }
 
 /**
@@ -247,11 +276,11 @@ function launch(n, extra = []) {
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "..");
 
-/** This checkout's built lobby DLL into copy n (the copies' join code lives there). */
 /**
  * This checkout's MJOLNIRLobby into copy n: its built DLL (the copies' join
  * code lives there) and its scripts and mod.json, so a lobby change can be
- * tried on the copies before it ships. The Steam install keeps its own.
+ * tried on the copies before it ships, and the MJOLNIRHud, MJOLNIRLevelLoader
+ * and MJOLNIRForge scripts. The Steam install keeps its own.
  */
 function deploy(n) {
   const from = path.join(REPO, "mods", "MJOLNIRLobby");
@@ -266,7 +295,34 @@ function deploy(n) {
     scripts++;
   }
   fs.copyFileSync(path.join(from, "mod.json"), path.join(to, "mod.json"));
-  return `instance ${n}: MJOLNIRLobby from this checkout (DLL, ${scripts} scripts, mod.json)`;
+  // The script mods a match runs on too: the HUD draws most of what a
+  // multiplayer test looks at, LevelLoader dresses the level and its flags,
+  // and Forge places pack lights. Scripts and mod.json only; their DLLs stay
+  // the installed ones (the map registry follows).
+  const scriptMods = [];
+  for (const mod of ["MJOLNIRHud", "MJOLNIRLevelLoader", "MJOLNIRForge"]) {
+    const modFrom = path.join(REPO, "mods", mod);
+    const modTo = path.join(path.dirname(to), mod);
+    if (!fs.existsSync(path.join(modTo, "Scripts"))) continue;
+    let count = 0;
+    for (const name of fs.readdirSync(path.join(modFrom, "Scripts"))) {
+      if (!name.endsWith(".lua")) continue;
+      fs.copyFileSync(path.join(modFrom, "Scripts", name), path.join(modTo, "Scripts", name));
+      count++;
+    }
+    fs.copyFileSync(path.join(modFrom, "mod.json"), path.join(modTo, "mod.json"));
+    scriptMods.push(`${mod} (${count} scripts)`);
+  }
+  // The map registry, when this checkout has built one (native/map_registry/
+  // build.ps1): it stages each match's variant where the copy's simulation
+  // reads it, which a registry from before 2026-11-07 does not.
+  const registry = path.join(REPO, "mods", "MJOLNIRLevelLoader", "native", "mjolnir_map_registry.dll");
+  let staged = "";
+  if (fs.existsSync(registry)) {
+    fs.copyFileSync(registry, path.join(path.dirname(to), "MJOLNIRLevelLoader", "native", "mjolnir_map_registry.dll"));
+    staged = ", map registry DLL";
+  }
+  return `instance ${n}: MJOLNIRLobby (DLL, ${scripts} scripts), ${scriptMods.join(", ")}${staged} from this checkout`;
 }
 
 /** Running copies: [{pid, n}] by exe path (n 0 = the Steam install). */

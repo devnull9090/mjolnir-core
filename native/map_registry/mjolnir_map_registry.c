@@ -1387,7 +1387,25 @@ static int mglo_dir(uint8_t *sim, char *dir, size_t cap) {
         char local[MAX_PATH];
         DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", local, MAX_PATH);
         if (!n || n >= MAX_PATH) return 0;
-        snprintf(root, sizeof root, "%s\\Meteorite\\Saved\\BlamData\\", local);
+        // A game started with `-saveddirsuffix=<s>` (the test copies,
+        // tools/remote/instances.mjs) keeps its saved data in `Saved_<s>`,
+        // and its simulation reads the variant from there once the host has
+        // filled the path. Staged under plain `Saved`, every copy wrote the
+        // Steam game's file and played whatever variant its own folder last
+        // had (CTF on Chill Out with no flags, 2026-11-07).
+        char suffix[64] = "";
+        const char *cmd = GetCommandLineA();
+        const char *at = cmd ? strstr(cmd, "-saveddirsuffix=") : NULL;
+        if (at) {
+            at += strlen("-saveddirsuffix=");
+            size_t k = 0;
+            while (at[k] && at[k] != ' ' && at[k] != '"' && k + 1 < sizeof suffix) {
+                suffix[k] = at[k];
+                k++;
+            }
+            suffix[k] = 0;
+        }
+        snprintf(root, sizeof root, "%s\\Meteorite\\Saved%s%s\\BlamData\\", local, suffix[0] ? "_" : "", suffix);
     }
     if (!sub[0]) strcpy_s(sub, sizeof sub, "HotReload");
     snprintf(dir, cap, "%s%s%s\\", root, root[strlen(root) - 1] == '\\' ? "" : "\\", sub);

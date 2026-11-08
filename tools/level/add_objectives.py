@@ -104,51 +104,75 @@ def runtime_range(manifest):
     return next((d["range"] for d in deps if d["slug"] == RUNTIME), None), others
 
 
-def one(pack, a, bots):
-    z = zipfile.ZipFile(pack)
-    manifest = json.loads(z.read("mjolnir.json"))
-    m = manifest["map"]
-    code = m["code"]
-    slug = re.sub(r"-\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$", "", os.path.basename(pack)[: -len(".mjolnir")])
-    version = a.version or bump(manifest["version"], a.version_bump)
-    runtime, others = runtime_range(manifest)
-    runtime = a.runtime or runtime
-    if others or not runtime:
-        sys.exit(f"{code}: deps {manifest.get('deps')} are not one runtime range; pass --runtime or pack by hand")
-    w = os.path.join(a.work, code)
-    if os.path.isdir(w):
-        shutil.rmtree(w)
-    unpacked = os.path.join(w, "pack")
-    z.extractall(unpacked)
-    names = z.namelist()
-    known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json",
-             "map/bots.json", "map/vehicle_sounds.json"}
-    with open(os.path.join(unpacked, "map", "level.json"), encoding="utf-8") as stream:
-        shipped_level = json.load(stream)
-    water = flux_members(z, shipped_level)
-    known.update(water)
-    foliage = (shipped_level.get("foliage") or {}).get("file")
-    for n in names:
-        if n in known or n.startswith("content/") or n.startswith("map/decals/") or n == f"map/{foliage}":
-            continue
-        sys.exit(f"{code}: {n} in the pack is not one this script repacks")
+class Pack:
+    """A published pack, unpacked to <work>/<CODE>/pack, and what its next
+    release keeps of it: slug, runtime range, the shipped level file."""
 
+    def __init__(self, path, a):
+        self.z = zipfile.ZipFile(path)
+        self.manifest = json.loads(self.z.read("mjolnir.json"))
+        self.code = code = self.manifest["map"]["code"]
+        self.slug = re.sub(r"-\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$", "", os.path.basename(path)[: -len(".mjolnir")])
+        self.version = a.version or bump(self.manifest["version"], a.version_bump)
+        self.w = os.path.join(a.work, code)
+        if os.path.isdir(self.w):
+            shutil.rmtree(self.w)
+        self.unpacked = os.path.join(self.w, "pack")
+        self.z.extractall(self.unpacked)
+        self.names = self.z.namelist()
+        known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json",
+                 "map/bots.json", "map/vehicle_sounds.json"}
+        with open(os.path.join(self.unpacked, "map", "level.json"), encoding="utf-8") as stream:
+            self.level = json.load(stream)
+        runtime, others = runtime_range(self.manifest)
+        self.runtime = a.runtime or runtime
+        # `map pack` gives a map one dependency per Forge pack its level
+        # names, as these.
+        forge = [{"slug": f["slug"], "range": f"^{f['version']}"}
+                 for f in self.level["blam"].get("forge_packs", [])]
+        if sorted(others, key=str) != sorted(forge, key=str) or not self.runtime:
+            sys.exit(f"{code}: deps {self.manifest.get('deps')} are not one runtime range and the level's "
+                     "Forge packs; pass --runtime or pack by hand")
+        self.water = flux_members(self.z, self.level)
+        known.update(self.water)
+        self.foliage = (self.level.get("foliage") or {}).get("file")
+        for n in self.names:
+            if (n in known or n.startswith("content/") or n.startswith("map/decals/")
+                    or n == f"map/{self.foliage}"):
+                continue
+            sys.exit(f"{code}: {n} in the pack is not one this script repacks")
+
+
+def one(pack, a, bots):
+    p = Pack(pack, a)
+    shipped_level = p.level
     level = ce_objectives.apply(copy.deepcopy(shipped_level), race=not a.no_race)
     if a.vehicle_plan:
         scenario = ce_scenario.Scenario(a.map, a.tags)
         with open(a.vehicle_plan, encoding="utf-8") as stream:
             level = ce_place_vehicles.relabel(level, ce_place_vehicles.scenario_rows(scenario), json.load(stream))
     if level == shipped_level:
-        print(f"== {code}: already has its objectives", flush=True)
+        print(f"== {p.code}: already has its objectives", flush=True)
         return None
     problems = level_changes(shipped_level, level, labels=bool(a.vehicle_plan))
     if problems:
-        sys.exit(f"{code}: {problems}")
+        sys.exit(f"{p.code}: {problems}")
     labels = [o.get("set", {}).get(ce_objectives.LABEL) for o in level["blam"]["objects"]]
-    print(f"== {code} ({slug}) {manifest['version']} -> {version}: modes {level['modes']}, "
+    print(f"== {p.code} ({p.slug}) {p.manifest['version']} -> {p.version}: modes {level['modes']}, "
           f"{labels.count(ce_objectives.HILL_LABEL)} hills, {labels.count(ce_objectives.BALL_LABEL)} ball spawns, "
           f"{labels.count(ce_objectives.RACE_LABEL)} race flags"
           + (f" of radius {level['race_flags'][0][3] / 100:.2f} m" if level.get("race_flags") else ""), flush=True)
+    return repack(p, level, a, bots)
+
+
+def repack(p, level, a, bots):
+    """Rebake a pack's scenario from `level` and pack the next release: the
+    map container's other packages must come out byte for byte, and the new
+    pack may differ from the old only in that container, the level file and
+    the bots' starts. Returns the new archive (None with --bake-only)."""
+    z, manifest, m, code = p.z, p.manifest, p.manifest["map"], p.code
+    slug, version, runtime, w, unpacked, names = p.slug, p.version, p.runtime, p.w, p.unpacked, p.names
+    water, foliage = p.water, p.foliage
 
     # The bake input. Keys only the loader reads stay out, koth_hills and
     # race_flags with them.
@@ -237,6 +261,22 @@ def one(pack, a, bots):
         os.remove(y)
         compared += 1
     print(f"  {compared} other package(s) of the map container unchanged", flush=True)
+    return release(p, level, a, os.path.join(w, "bake"), bots_file if has_bots else None)
+
+
+def release(p, level, a, container, bots_file, bots_may_change=True):
+    """Pack the next release of a pack: its map container from the folder
+    `container`, `level` as its level file and `bots_file` as its bots'
+    starts, everything else as the old pack has it. The new pack may differ
+    from the old only in the map container, the level file and (with
+    `bots_may_change`) the bots' starts. Returns the new archive (None with
+    --bake-only)."""
+    z, manifest, m, code = p.z, p.manifest, p.manifest["map"], p.code
+    slug, version, runtime, w, unpacked, names = p.slug, p.version, p.runtime, p.w, p.unpacked, p.names
+    water, foliage = p.water, p.foliage
+    has_bots = "map/bots.json" in names
+    content = os.path.join(unpacked, "content")
+    stem = f"pakchunk997-MJOLNIRMAP-{code}_P"
 
     # The level file the map ships from now on.
     out_level = os.path.join(w, "level.json")
@@ -252,7 +292,7 @@ def one(pack, a, bots):
         s = os.path.basename(f)[: -len(".utoc")]
         if s == stem:
             for e in ("utoc", "ucas"):
-                shutil.copyfile(os.path.join(w, "bake", f"{stem}.{e}"), os.path.join(stage, f"{stem}.{e}"))
+                shutil.copyfile(os.path.join(container, f"{stem}.{e}"), os.path.join(stage, f"{stem}.{e}"))
             continue
         to = os.path.join(stage, "machines") if MACHINE.search(s) else stage
         for e in ("utoc", "ucas"):
@@ -293,13 +333,18 @@ def one(pack, a, bots):
     # The new pack holds what the old one did, the map container, the level
     # file, the bots' starts and the manifest aside.
     nz = zipfile.ZipFile(archive)
-    problems = manifest_changes(manifest, json.loads(nz.read("mjolnir.json")))
+    new_manifest = json.loads(nz.read("mjolnir.json"))
+    problems = manifest_changes(manifest, new_manifest)
+    if not a.runtime and new_manifest.get("deps") != manifest.get("deps"):
+        problems.append(f"deps {manifest.get('deps')} became {new_manifest.get('deps')}")
     if problems:
         sys.exit(f"{code}: the manifest differs: {problems}")
     old = {n: z.getinfo(n).CRC for n in names if n not in ("mjolnir.json", "signature.json")}
     got = {n: nz.getinfo(n).CRC for n in nz.namelist() if n not in ("mjolnir.json", "signature.json")}
     changed = {n for n in set(old) | set(got) if old.get(n) != got.get(n)}
-    allowed = {f"content/{stem}.ucas", f"content/{stem}.utoc", "map/level.json", "map/bots.json"}
+    allowed = {f"content/{stem}.ucas", f"content/{stem}.utoc", "map/level.json"}
+    if bots_may_change:
+        allowed.add("map/bots.json")
     if set(old) != set(got) or "map/level.json" not in changed or changed - allowed:
         sys.exit(f"{code}: the new pack differs from the old in {changed}")
     print(f"  {archive}: {os.path.getsize(archive) / 2 ** 20:.1f} MiB", flush=True)

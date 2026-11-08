@@ -208,6 +208,14 @@ fn percent(fraction: Option<f32>, maximum: f32) -> String {
 /// sim+0x1bacc0 reads the first byte; `ai_set_team` writes `team | 0xff00`).
 const UNIT_TEAM: u64 = 0x1ba;
 
+/// An object's multiplayer block: its offset in the datum (`D+0x182`), and
+/// in the block the multiplayer object type, the owner team and the label
+/// index (docs/re/reach_game_engine.md, "Labels and map objects").
+const MP_BLOCK: u64 = 0x182;
+const MP_TYPE: usize = 0x11;
+const MP_OWNER: usize = 0x19;
+const MP_LABEL: usize = 0x84;
+
 fn objects(
     process: &blam_live::Process,
     attached: tagtable::Attached,
@@ -280,7 +288,26 @@ fn objects(
                     .map(|b| format!("team {}/{}", b[0] as i8, b[1] as i8))
                     .unwrap_or_default()
             }
-            _ => String::new(),
+            // Anything else with a multiplayer block (`D+0x182`, a u16
+            // offset into the datum; docs/re/reach_game_engine.md): its
+            // multiplayer object type, owner team (8 neutral, -1 none) and
+            // label index, which the respawn search and Megalo's label
+            // loops read.
+            _ => process
+                .read(o.datum + MP_BLOCK, 2)
+                .ok()
+                .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                .filter(|&at| at != 0xFFFF && (at as usize) + MP_LABEL + 2 <= o.datum_size as usize)
+                .and_then(|at| process.read(o.datum + u64::from(at), MP_LABEL + 2).ok())
+                .map(|mp| {
+                    format!(
+                        "mp type {} owner {} label {}",
+                        mp[MP_TYPE],
+                        mp[MP_OWNER] as i8,
+                        i16::from_le_bytes([mp[MP_LABEL], mp[MP_LABEL + 1]])
+                    )
+                })
+                .unwrap_or_default(),
         };
         out.push_str(&format!(
             "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\t{yaw:.1}\t{:#x}\t{team}\n",

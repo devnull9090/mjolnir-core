@@ -41,8 +41,8 @@ Stalker and Reverse Tag are then under ODDBALL, and Rally under RACE.
 ## 2. Juggernaut (Blood Gulch)
 
 - [ ] Nobody is the Juggernaut at the start.
-- [ ] The first kill makes the killer the Juggernaut: +1, a beacon on them, YOU ARE THE JUGGERNAUT for them.
-- [ ] The other player sees the beacon follow them.
+- [ ] The first kill makes the killer the Juggernaut: +1, a beacon over their head for the others, YOU ARE THE JUGGERNAUT and no beacon for them.
+- [ ] The other player sees the beacon follow them smoothly, into a vehicle too.
 - [ ] Killing the Juggernaut passes it on, with +1 and the beacon moving.
 - [ ] Each Juggernaut kill scores +1.
 - [ ] A Juggernaut who falls or suicides frees the slot, and the beacon goes.
@@ -83,6 +83,7 @@ On foot. Set RACE on the Race tile.
 - [ ] Team Oddball: the carrier scores 1 a second for their team.
 - [ ] The bar matches on both PCs.
 - [ ] Oddball: first to 120 ends the match.
+- [ ] A skull marker shows the ball on every PC: gold while it lies, orange while carried, none for the carrier.
 
 ## 8. Rally and Team Race (Prisoner, then Blood Gulch)
 

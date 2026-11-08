@@ -117,6 +117,7 @@ end
 
 local remotes = {}   -- address -> controller
 local rosterSent = {} -- address -> the bot roster it has had (Relay.syncBots)
+local teamsSent = {} -- address -> the team roster it has had (Relay.syncTeams)
 local watching = false
 
 local function track(pc)
@@ -129,6 +130,7 @@ end
 function Relay.arm()
     remotes = {}
     rosterSent = {}
+    teamsSent = {}
     for _, pc in ipairs(FindAllOf("PlayerController") or {}) do track(pc) end
     if not watching then
         watching = pcall(NotifyOnNewObject, "/Script/Engine.PlayerController", track)
@@ -199,6 +201,57 @@ function Relay.syncBots(message, version)
         if ok and address and rosterSent[address] ~= version then
             if pcall(function() pc:ClientMessage(message, kind, 0) end) then
                 rosterSent[address] = version
+                sent = sent + 1
+            end
+        end
+    end
+    return sent
+end
+
+--- Each human seat's team, from the host, which reads them right. A
+--- client's Unreal team component shows the team that machine's player
+--- record asked for (`P+0xad`): past the second player that is the slot
+--- number, so a red player in seat 2 read Green there and sat under
+--- AWAITING ASSIGNMENT, and a seat-1 player on red read Blue (test copies,
+--- 2026-11-07; #347, #349). Sent when it changes and to each player as they
+--- arrive:
+---   MJOLNIR|teams|0R;1B;2R
+Relay.TEAMS = "MJOLNIR|teams|"
+
+--- The message for `teams` ({ [seat] = "Red" | "Blue" }), seats in order;
+--- nil when no seat has a team yet.
+function Relay.encodeTeams(teams)
+    local seats = {}
+    for seat, side in pairs(teams) do
+        if type(seat) == "number" and SIDE_LETTER[side] then seats[#seats + 1] = seat end
+    end
+    if #seats == 0 then return nil end
+    table.sort(seats)
+    local items = {}
+    for _, seat in ipairs(seats) do items[#items + 1] = string.format("%d%s", seat, SIDE_LETTER[teams[seat]]) end
+    return Relay.TEAMS .. table.concat(items, ";")
+end
+
+--- `{ [seat] = "Red" | "Blue" }`, or nil when `text` is not a team roster.
+function Relay.decodeTeams(text)
+    if type(text) ~= "string" or text:sub(1, #Relay.TEAMS) ~= Relay.TEAMS then return nil end
+    local teams = {}
+    for seat, letter in text:sub(#Relay.TEAMS + 1):gmatch("(%d+)([RB])") do
+        teams[tonumber(seat)] = LETTER_SIDE[letter]
+    end
+    return teams
+end
+
+--- Sends the team roster `message` to each remote player that has not had
+--- it. Returns how many got it.
+function Relay.syncTeams(message)
+    local kind = FName("MJOLNIR")
+    local sent = 0
+    for _, pc in ipairs(Relay.controllers()) do
+        local ok, address = pcall(function() return pc:GetAddress() end)
+        if ok and address and teamsSent[address] ~= message then
+            if pcall(function() pc:ClientMessage(message, kind, 0) end) then
+                teamsSent[address] = message
                 sent = sent + 1
             end
         end

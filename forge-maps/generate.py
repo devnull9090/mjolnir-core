@@ -91,8 +91,12 @@ def spawn(level, position, yaw=0, team="neutral"):
 
 
 def teleporter(level, position, yaw, channel="alpha"):
+    # On the eighth team, which no game type plays: left unset, a pad is red's
+    # (team 0), and the respawn search takes any scenery a team owns, so red
+    # respawned on teleporter pads (#346). Any team may use a pad.
     level["blam"]["objects"].append({"group": "scenery", "tag": TELE + "2way",
         "pos": ue(position), "rot": [0, -yaw, 0], "set": {
+            "multiplayer data.owner team": "eighth party",
             "multiplayer data.teleporter channel": channel,
             "multiplayer data.boundary shape": "cylinder",
             "multiplayer data.boundary width or radius": "0.35",

@@ -41,6 +41,46 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.47.0",
+      "tag": "mods-v0.47.0",
+      "title": "A marker on the ball, and teams that agree on every PC",
+      "date": "2026-11-08",
+      "summary": "A marker on Oddball's ball, markers that follow players smoothly and into vehicles, the host's teams on every board, and teammates as friends on the tracker.",
+      "body": "### Added\n\nIn MJOLNIRHud 0.18.0.\n\n- **A marker on the ball in Oddball.** Nothing used to say where the ball was.\n  It now has a skull marker with its distance: gold while it lies loose, orange\n  while someone carries it, and none on the carrier's own screen.\n\n### Changed\n\n- **The Juggernaut's beacon floats over their head.** In Juggernaut and Reverse\n  Tag the beacon used to rise from the holder's feet. It now starts above their\n  head, and the holder no longer sees their own. Their screen already says YOU\n  ARE THE JUGGERNAUT, or YOU ARE IT.\n- **MJOLNIRLevelLoader 0.12.3** stages a test copy's game type in that copy's\n  own saved folder. Nothing changes for players.\n\n### Fixed\n\nIn MJOLNIRHud 0.18.0.\n\n- **Beacons and markers lagged behind.** The Juggernaut's beacon and marker,\n  and the flag markers, moved ten times a second and jumped along behind\n  whoever they followed. They now move every frame.\n- **A marker stayed where a player got into a vehicle.** A Juggernaut or Reverse\n  Tag marker, and a hill's contested state, kept the spot where the player\n  boarded. They now follow the vehicle.\n- **Players under AWAITING ASSIGNMENT, or on the wrong team.** On a joiner's\n  scoreboard, a player who joined late, or anyone past the first two seats,\n  could show under AWAITING ASSIGNMENT. A player could also be listed on the\n  other team. The host's game knows each team, and every joiner now takes the\n  teams from it.\n- **Bots from an earlier match.** Bots added in one match came back on a\n  joiner's scoreboard in later matches, under AWAITING ASSIGNMENT. A match now\n  lists only its own bots.\n\nIn MJOLNIRLobby 0.23.2.\n\n- **Teammates on the motion tracker as enemies.** In team games the motion\n  tracker drew every other player as an enemy, teammates included: on every\n  joiner's screen, and on the host's unless bots were playing. Teammates now\n  show as friends and the other team as enemies.\n- **Players on the wrong team in a joiner's game.** A joiner's game could keep\n  the players past the first two seats on teams of their own (seat 2 on green,\n  seat 3 on yellow). It now takes each player's team from the host's game.\n\nIn MJOLNIRLevelLoader 0.12.3 and MJOLNIRForge 0.4.4.\n\n- **A log that grew by hundreds of thousands of lines.** A waving flag added\n  `push_weakobjectproperty` warnings to UE4SS.log many times a second, about\n  822,000 in one ten-minute Capture the Flag match on Chill Out, and each\n  Forge pack light after the first added three. They add none now.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A marker on the ball in Oddball. Nothing used to say where the ball was. It now has a skull marker with its distance: gold while it lies loose, orange while someone carries it, and none on the carrier's own screen."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "The Juggernaut's beacon floats over their head. In Juggernaut and Reverse Tag the beacon used to rise from the holder's feet. It now starts above their head, and the holder no longer sees their own. Their screen already says YOU ARE THE JUGGERNAUT, or YOU ARE IT.",
+            "MJOLNIRLevelLoader 0.12.3 stages a test copy's game type in that copy's own saved folder. Nothing changes for players."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Beacons and markers lagged behind. The Juggernaut's beacon and marker, and the flag markers, moved ten times a second and jumped along behind whoever they followed. They now move every frame.",
+            "A marker stayed where a player got into a vehicle. A Juggernaut or Reverse Tag marker, and a hill's contested state, kept the spot where the player boarded. They now follow the vehicle.",
+            "Players under AWAITING ASSIGNMENT, or on the wrong team. On a joiner's scoreboard, a player who joined late, or anyone past the first two seats, could show under AWAITING ASSIGNMENT. A player could also be listed on the other team. The host's game knows each team, and every joiner now takes the teams from it.",
+            "Bots from an earlier match. Bots added in one match came back on a joiner's scoreboard in later matches, under AWAITING ASSIGNMENT. A match now lists only its own bots.",
+            "Teammates on the motion tracker as enemies. In team games the motion tracker drew every other player as an enemy, teammates included: on every joiner's screen, and on the host's unless bots were playing. Teammates now show as friends and the other team as enemies.",
+            "Players on the wrong team in a joiner's game. A joiner's game could keep the players past the first two seats on teams of their own (seat 2 on green, seat 3 on yellow). It now takes each player's team from the host's game.",
+            "A log that grew by hundreds of thousands of lines. A waving flag added pushweakobjectproperty warnings to UE4SS.log many times a second, about 822,000 in one ten-minute Capture the Flag match on Chill Out, and each Forge pack light after the first added three. They add none now."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.47.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.47.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.47.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.46.4",
       "tag": "mods-v0.46.4",
       "title": "The reason stays on screen",

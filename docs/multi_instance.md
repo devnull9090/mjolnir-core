@@ -59,6 +59,18 @@ Other verbs: `mirror`, `deploy`, `launch`, `menu`, `lua`, `console`,
 `tools/mcp/game/capture.ps1 -ProcessId <pid> -OutFile shot.png`. The Blam
 players of one copy: `python tools/remote/blam-players.py --pid <pid>`.
 
+A release candidate's files can be tried in the copies only:
+`MJ_OVERLAY=<dir> node tools/remote/instances.mjs mirror <n>` (or `up`) copies
+every file under `<dir>`, laid out as the install
+(`Meteorite\Content\Paks\pakchunk904-MJOLNIRHUB-ce-chill-out-2_P.ucas`,
+`Meteorite\Binaries\Win64\ue4ss\MJOLNIRMaps\CHL\level.json`), over the copy's
+own, breaking the hard link so the Steam install keeps its file. The copy
+records what it took in `.mj_overlay.json`; the next `mirror` without
+`MJ_OVERLAY` puts the install's files back. Used 2026-11-07 for the
+teleporter-team packs (#346): a hub map's containers sit in the install as
+`pakchunk9xx-MJOLNIRHUB-<slug>-<i>_P`, so the patched map container went over
+the installed file holding the shipped one, found by hash.
+
 Rebuild the lobby DLL before `up` when it changes (`native/lobby/build.ps1`).
 The test-only behaviour below runs only in copies the tool starts, because
 the tool sets `MJOLNIR_INSTANCE`. The Steam game, and every player's game,
@@ -186,6 +198,22 @@ the simulation itself.
 Tried and dropped: returning a different lobby owner from `PFLobbyGetOwner`
 (no effect, and it emptied the target session).
 
+## The game type each copy plays
+
+The map registry (MJOLNIRLevelLoader's native DLL) stages each match's
+variant as `mjolnir.mglo` in the folder the simulation reads it from. It asks
+the simulation for that folder, which is still empty when a match is staged,
+and fell back to `%LOCALAPPDATA%\Meteorite\Saved\BlamData\HotReload`. A copy
+started with `-saveddirsuffix=_mjN` reads `Saved__mjN` instead. So every copy
+wrote the Steam game's file and played whatever variant its own folder last
+had: CTF on Chill Out ran with no flags and no CTF spawns (2026-11-07). The
+registry from that day falls back to `Saved_<suffix>` when the command line
+has one, and `deploy` puts this checkout's built registry DLL into each copy
+(`native/map_registry/build.ps1`). The Steam game, started with no suffix, is
+unchanged. Check a copy's game type from its `map_registry.log`: the
+`megalo: ... installed` line should name `Saved__mjN`. Copy tests of game
+types before that day ran the wrong variant.
+
 ## Teams for joining copies
 
 The joiners' simulations join just after the host's game has started, so
@@ -205,17 +233,40 @@ then blue, red, blue). It flags the change the way the balancer does (sim
 `0x4d1d40`: 7, player, `0x1000`), so every copy gets it. On the joiners the
 asked-for field keeps the slot number; only the team itself is sent.
 
+That slot number is what a joiner's Unreal team component shows, so seat 2's
+copy saw its own biped as Green, and the game's own motion tracker compares
+those components (#350). Since MJOLNIRLobby 0.23.2 every client writes
+the host's team into `+0xad` each tick ([game_modes.md](game_modes.md) 2.1).
+On two PCs it comes from the players list the host publishes; a copy's
+joiners never reach that list, so in a copy a player joined in progress takes
+the `+0x4a4` this hook sends. The client's log says `teams: client: player N
+was on team 2, the host has them on 0`.
+
+That copy fallback is for team games only. In a free-for-all nobody sets
+`+0x4a4` (the balancer runs only with teams on), so it reads 0 for every
+player. Before the gate it put every player on team 0 on the joiners, and
+their trackers drew the moving host white (FFA Slayer, 3 copies,
+2026-11-08). The joiners know it's a team game from `team_game.txt`, which
+their Lua now writes from the host's `starting` message. Before that, a copy
+kept the file it was mirrored with, from whatever the Steam install hosted
+last. A free-for-all needs nothing from the fix: host and clients number
+players by slot (0, 1, 2), so every other player is on another team.
+
 ## Known gaps
 
 - **HUD "YOU".** The HUD finds "your" row by player key, and every copy is
   `devnull9090`, so every copy's HUD calls the host's team and score "YOU"
   (CTF: "RED / YOU" on a blue joiner). The armour colour and the simulation
-  are right.
+  are right. Every player state also reads index 0 in every copy, so the
+  host's HUD knows only seat 0 and its team roster to clients names only
+  seat 0 (`MJOLNIR|teams|0R`). Board and team checks per seat need PC 2.
 - **One account.** Names, kill-feed names, scoreboard rows and match-history
   claims all carry one name. Anything keyed by account (hub match history,
   bans, reports) sees one player.
 - Copies use this checkout's MJOLNIRLobby (`deploy`: the DLL, every script
-  and `mod.json`), but the Steam install's other mods.
+  and `mod.json`), the MJOLNIRHud, MJOLNIRLevelLoader and MJOLNIRForge
+  scripts and `mod.json`, and a built map registry DLL, but the Steam
+  install's other mods and DLLs.
 - **A host's leave strands the joiners.** After the host's SAVE AND EXIT or
   `LeaveGame` mid-match, a joining copy lands in a frontend with no host's
   game state and waits out the 120 s connection timeout. Two PCs don't do
