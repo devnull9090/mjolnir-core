@@ -270,8 +270,9 @@ local Current = {
 --- "[push_weakobjectproperty] Operation::Set is not supported", three lines
 --- a move, ~822,000 in a 10-minute CTF match on Chill Out from the flag
 --- cloth alone (2026-11-07). Emptied, a move also cost a quarter of the
---- time (300 in 6 ms, not 22), and no more garbage: UE4SS writes fresh
---- tables for the result's vectors every call either way.
+--- time (300 in 6 ms, not 22 with their 900 log lines), and no more
+--- garbage: UE4SS writes fresh tables for the result's vectors every call
+--- either way.
 --- A function on Current rather than a local: main.lua is at Lua's 200.
 function Current.emptyHit()
     local hit = Current.hit
