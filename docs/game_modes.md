@@ -184,7 +184,15 @@ bytes, 23 conditions, 67 actions, 22 triggers. Verified.
 - **Spawns.** At `init` and every tick, the spawn labels' owner teams are set
   to 0, 1 and a team nobody is on (`ctf.rs:329-349`); the sim spawns players
   only at scenery whose owner team matches their designator, or neutral
-  (sim `0x2f84e0`).
+  (sim `0x2f84e0`, own team first, then neutral). Read live on Chill Out
+  (`mjolnir live objects` now prints each object's multiplayer type, owner team
+  and label): 16 red starts on 0, 17 blue on 1, the 25 others on 2. Any other
+  scenery with a multiplayer block takes respawns too, and a teleporter end
+  placed with no owner team is on team 0, so red respawned on the pads, by the
+  blue base as well: half of red's respawns there (test copies, 2026-11-07,
+  #346). Owned by the eighth team the pads still send (sim `0x3e5820` lists
+  teleporters of any team) and take no respawns; `gen_ce_level.py` places them
+  so from then on, and maps built before keep team 0 until rebuilt.
 - **Flags.** Each stand without a flag creates one (object type 18, label
   `ctf_flag`), links it to the stand, copies the stand's owner team, sets pickup
   to enemies, pickup priority automatic, a waypoint for everyone, and
@@ -808,7 +816,13 @@ Where these differ from CE (PC retail unconfirmed):
   team has to be read fresh.
 - **Flag markers** (`Scripts/flagmark.lua`) read the flag actors themselves, so CTF
   and Assault get a marker that follows a flag home, dropped or carried, in place
-  of the waypoints that never reach Unreal (B4).
+  of the waypoints that never reach Unreal (B4). Oddball's ball, the same skull
+  actor, gets one too (`FlagMark.ball`): gold loose, orange carried, none on the
+  carrier's own screen. A marker's spot is found a few times a second and then
+  follows its actor every frame (`Hill.field`'s `track`), as do the Juggernaut's
+  beacon and marker, which start over the holder's head and are not drawn on the
+  holder's own screen. A seated player's biped actor keeps the place they got
+  in at, so a player in a vehicle is read from the vehicle (#348).
 - **Assault's line** under the score says ATTACK or DEFEND and counts to the next
   swap, from the same module. The script's clock is a Megalo number that no
   Unreal code can read, so the HUD keeps its own: a swap is the flag changing team,

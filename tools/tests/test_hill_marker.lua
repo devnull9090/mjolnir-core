@@ -355,28 +355,45 @@ eq(jug.named(2), true, "a new Juggernaut")
 eq(jug.named(2), false, "a resend is not news")
 jug.tick(1, js.pc, false, 0, list)
 eq(jug.beacon, nil, "their body is gone, nothing to mark")
-bodies = { { index = 0, at = { X = 1, Y = 1, Z = 1 } }, { index = 2, at = { X = 100, Y = 200, Z = 300 } } }
+-- Their biped, which the beacon follows between updates (#351).
+local body = { valid = true, at = { X = 100, Y = 200, Z = 300 } }
+function body:IsValid() return self.valid end
+function body:K2_GetActorLocation() return self.at end
+bodies = { { index = 0, at = { X = 1, Y = 1, Z = 1 } }, { index = 2, at = { X = 100, Y = 200, Z = 300 }, actor = body } }
 jug.tick(2, js.pc, false, 0, list)
 eq(jug.beacon.location.X, 100, "the beacon stands on them")
+eq(jug.beacon.location.Z, 300 + 150 + 3500, "from over their head up")
 eq(jug.beacon.hidden, false, "shown")
 eq(jug.beaconMid.params.FieldCenter.G, 200, "the shader follows")
 eq(#jug.parts, 0, "no wall")
 eq(jug.widget.visibility, 1, "no line for the others")
+body.at = { X = 300, Y = 200, Z = 300 }
+jug.frame(js.pc, 2.5)
+eq(jug.beacon.location.X, 300, "every frame, between updates")
 bodies[2].at = { X = 500, Y = 200, Z = 300 }
+body.at = bodies[2].at
 jug.tick(3, js.pc, false, 0, list)
 eq(jug.beacon.location.X, 500, "and follows them")
-jug.named(0)
-jug.tick(4, js.pc, false, 0, list)
-eq(jug.beacon.location.X, 1, "a new Juggernaut has it")
-eq(jug.text.text, "YOU ARE THE JUGGERNAUT", "and is told")
-eq(jug.widget.visibility, 4, "the line shows")
+body.valid = false
+body.at = { X = 900, Y = 200, Z = 300 }
+jug.frame(js.pc, 3.5)
+eq(jug.beacon.location.X, 500, "a freed biped is never read")
+body.valid = true
 local beacon = jug.beacon
 beacon.valid = false
-jug.tick(5, js.pc, false, 0, list)
+jug.tick(4, js.pc, false, 0, list)
 assert(jug.beacon ~= beacon, "a freed beacon is replaced")
 eq(jug.beacon.StaticMeshComponent.material, jug.beaconMid, "with its material")
-eq(jug.named(-1), false, "a free slot is no one's news")
+jug.named(0)
+jug.tick(5, js.pc, false, 0, list)
+eq(jug.beacon.hidden, true, "a Juggernaut sees no beacon of their own")
+eq(jug.text.text, "YOU ARE THE JUGGERNAUT", "and is told")
+eq(jug.widget.visibility, 4, "the line shows")
+jug.named(2)
 jug.tick(6, js.pc, false, 0, list)
+eq(jug.beacon.hidden, false, "the beacon is back on someone else")
+eq(jug.named(-1), false, "a free slot is no one's news")
+jug.tick(7, js.pc, false, 0, list)
 eq(jug.beacon.hidden, true, "and hides the beacon")
 eq(jug.widget.visibility, 1, "and the line")
 jug.named(0)
@@ -388,8 +405,11 @@ local tag = Juggernaut.new(Hill, Board.modes.reverse_tag.holder)
 local here = { { index = 0, at = { X = 100, Y = 200, Z = 300 } } }
 local function herePlayers() return here end
 tag.named(0)
-tag.tick(0, scene(all).pc, false, 0, herePlayers)
-eq(tag.beacon.hidden, false, "whoever is it has a beacon")
+local ts = scene(all)
+tag.tick(0, ts.pc, false, 1, herePlayers)
+eq(tag.beacon.hidden, false, "whoever is it has a beacon for the others")
+tag.tick(1, ts.pc, false, 0, herePlayers)
+eq(tag.beacon.hidden, true, "and none of their own")
 eq(tag.text.text, "YOU ARE IT", "and is told")
 
 -- Stalker: nobody gets a beacon, seen from either side; only they read a line.

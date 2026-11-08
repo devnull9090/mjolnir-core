@@ -1,7 +1,8 @@
 -- MJOLNIR HUD: what a match marks in the world, by game type family: the hill
 -- (Scripts/hill.lua), the next flag (Scripts/race.lua), the Juggernaut
--- (Scripts/juggernaut.lua), the flags (Scripts/flagmark.lua). main.lua holds this
--- one module, so its tick and handlers do not each carry the four.
+-- (Scripts/juggernaut.lua), the flags and Oddball's ball (Scripts/flagmark.lua).
+-- main.lua holds this one module, so its tick and handlers do not each carry
+-- the five.
 
 local Markers = {}
 
@@ -13,13 +14,17 @@ function Markers.new(deps)
 
     local unitClass
 
-    --- Where another player's body stands: the biped their spawn named
-    --- (main.lua's player_spawn), while it is still valid, they are alive,
-    --- and it is still their unit (actors are pooled). nil when unknown.
+    --- Where another player's body stands, and the actor it was read from:
+    --- the biped their spawn named (main.lua's player_spawn), while it is
+    --- still valid, they are alive, and it is still their unit (actors are
+    --- pooled); nil when unknown. A seated player's biped actor hangs off the
+    --- vehicle's but keeps the place they got in at, so their marker and
+    --- beacon stayed there while they drove off (Blood Gulch, test copies,
+    --- 2026-11-07, #348): then it is the vehicle's place, and the vehicle.
     local function bipedAt(p, index)
         local biped = p and not p.dead and p.biped
         if not biped then return nil end
-        local at
+        local at, body
         pcall(function()
             if not biped:IsValid() then return end
             unitClass = unitClass or StaticFindObject("/Script/BlamSynchronization.BlamUnitComponent")
@@ -27,13 +32,20 @@ function Markers.new(deps)
             if not (unit and unit:IsValid()) then return end
             local datum = unit:GetControllingPlayerDatumIndex()
             if type(datum) ~= "number" or datum == -1 or math.floor(datum % 65536) ~= index then return end
-            at = biped:K2_GetActorLocation()
+            local okP, parent = pcall(function() return biped:GetAttachParentActor() end)
+            if okP and parent and parent:IsValid() then
+                at, body = parent:K2_GetActorLocation(), parent
+            else
+                at, body = biped:K2_GetActorLocation(), biped
+            end
         end)
-        return at
+        return at, at and body or nil
     end
     self.bipedAt = bipedAt
 
-    --- Each player with a body: { index, at, team, me }. Players, not AI: the
+    --- Each player with a body: { index, at, team, me, actor }, `actor` the
+    --- pawn or biped `at` was read from, for a marker that follows it every
+    --- frame (checked before each use). Players, not AI: the
     --- scripts walk players, so bots neither hold a hill nor contest one. Every
     --- pawn is read here and now, never kept. Only this machine's own pawn
     --- follows its player: another player's sits at the world's origin here,
@@ -52,13 +64,19 @@ function Markers.new(deps)
                 local index = ps.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
                 local p = match.players[index]
                 local me = pawn and pawn:IsValid() and pawn:GetAddress() == myAddress
-                local at = me and pawn:K2_GetActorLocation() or bipedAt(p, index)
+                local at, actor
+                if me then
+                    at, actor = pawn:K2_GetActorLocation(), pawn
+                else
+                    at, actor = bipedAt(p, index)
+                end
                 if at then
                     players[#players + 1] = {
                         index = index,
                         at = at,
                         team = match.mode.teams and p and p.team or nil,
                         me = me or false,
+                        actor = actor,
                     }
                 end
             end)
@@ -88,6 +106,8 @@ function Markers.new(deps)
         elseif family == "ctf" and not match.flags then
             local seconds = match.mode.sideSeconds
             match.flags = deps.FlagMark.new(deps.Hill, seconds and { seconds = seconds, host = match.host } or nil)
+        elseif family == "oddball" and not match.ball then
+            match.ball = deps.FlagMark.ball(deps.Hill)
         end
     end
 
@@ -100,18 +120,19 @@ function Markers.new(deps)
             local mine = match.players[me]
             match.flags.tick(now, pc, hidden, mine and mine.team)
         end
+        if match.ball then match.ball.tick(now, pc, hidden) end
     end
 
     --- Every frame, from any player controller: on a host that can be a
     --- client's, and the marker is the local player's.
     function self.frame(match, pc, now)
-        local marker = match.hill or match.race or match.juggernaut or match.flags
+        local marker = match.hill or match.race or match.juggernaut or match.flags or match.ball
         if marker and pc:IsLocalController() then marker.frame(pc, now) end
     end
 
     function self.hide(match)
         for _, marker in ipairs({ match.hill or false, match.race or false, match.juggernaut or false,
-            match.flags or false }) do
+            match.flags or false, match.ball or false }) do
             if marker then marker.hide() end
         end
     end

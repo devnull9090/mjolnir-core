@@ -36,6 +36,8 @@ Hill.field = function(name)
             return true
         end,
         unmark = function() marks[team] = nil end,
+        -- What the marker follows between updates (#348).
+        track = function(actor, up) marks.tracked = marks.tracked or {}; marks.tracked[team] = actor and { actor, up } end,
         frame = function() marks.framed = (marks.framed or 0) + 1 end,
         ensureLine = function() end,
         say = function(words) marks.line = words end,
@@ -212,5 +214,34 @@ at(mark, 0, "Blue")
 assert(marks.Red, "the live flag is marked")
 eq(marks.Blue, nil, "and the leftover in its slot is not")
 eq(marks.line, "ATTACK", "so the role is read from the live flag")
+-- Between updates the marker follows the flag's actor (#348).
+eq(marks.tracked.Red[1], live, "the marker follows the live flag")
 
-print("Flag marker: teams from the variant, Assault's reused actor, both CTF flags, carried and unused flags, freed actors, Assault's role and clock")
+-- Oddball's ball (#352), on a module of its own: the actor list is the
+-- module's. The carrier's first-person copy, at their camera, is never it.
+local Ball = dofile("mods/MJOLNIRHud/Scripts/flagmark.lua")
+local ball = actor(5000, 0, 0, "Default")
+local fp = actor(9000, 0, 0, "Default")
+function fp:GetFullName() return "BP_FP_SkullActor_C /Game/Levels/X.X:PersistentLevel.BP_FP_SkullActor_C_" .. self.address end
+world = { fp, ball }
+marks = {}
+local bm = Ball.ball(Hill)
+tick(bm)
+assert(marks.Blue, "the ball is marked")
+eq(marks.Blue.icon, "Oddball", "with the Oddball icon")
+eq(marks.Blue.holder, "empty", "loose: gold")
+eq(marks.Blue.spot.x, 5000, "on the ball, not the first-person copy")
+eq(marks.tracked.Blue[1], ball, "and followed between updates")
+local carrier = { IsValid = function() return true end }
+function ball:GetAttachParentActor() return carrier end
+tick(bm)
+eq(marks.Blue.holder, "other", "carried by someone else")
+ball.place = { X = 50, Y = 0, Z = 0 }
+tick(bm)
+eq(marks.Blue, nil, "none on the carrier's own screen")
+eq(marks.tracked.Blue, nil, "and nothing followed")
+ball.valid = false
+tick(bm)
+eq(marks.Blue, nil, "a gone ball leaves only its first-person copy, which is no ball")
+
+print("Flag marker: teams from the variant, Assault's reused actor, both CTF flags, carried and unused flags, freed actors, Assault's role and clock, Oddball's ball")

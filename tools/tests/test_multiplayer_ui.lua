@@ -87,7 +87,12 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
             { __index = function(t, k) local child = block(); rawset(t, k, child); return child end })
     end
     local function biped(index)
+        -- Its unit is that player's: the board reads a stored biped's team
+        -- only while it still is (#347).
+        local unit = { IsValid = function() return true end, IsControlledByAnyPlayer = function() return true end,
+            GetControllingPlayerDatumIndex = function() return index end }
         return { IsValid = function() return true end,
+            GetComponentByClass = function() return unit end,
             K2_GetActorLocation = function() return { X = index * 100, Y = 1, Z = 2 } end,
             BlamGameTeam = { GetGameTeamString = function()
             return { ToString = function() return "EBlamMultiplayerTeam::" .. (teams[index] or "None") end }
@@ -612,6 +617,51 @@ local charlieKills = 0
 for i = 0, 2 do if relayHost.board["Name" .. i].text == "Charlie" then charlieKills = relayHost.board["Kills" .. i].text end end
 eq(charlieKills, "1")
 print("Multiplayer UI: the feed's relay to fireteam clients")
+
+-- Teams on a fireteam client come from the host (#347, #349). A client's own
+-- reads of Unreal's team component show what each player record asked for:
+-- past the second player the slot number, so seat 2 reads Green there.
+local function rosters(h)
+    local out = {}
+    for _, m in ipairs(h.remote.sent) do
+        if m:find("MJOLNIR|teams|", 1, true) then out[#out + 1] = m end
+    end
+    return out
+end
+local teamHost = runHUD("team_slayer")
+teamHost.teams[0] = "Red"; teamHost.teams[1] = "Blue"; teamHost.teams[2] = "Red"
+for i = 0, 2 do teamHost.incident("player_spawn", i, -1, 0) end
+for _ = 1, 4 do teamHost.poll() end
+local sentRosters = #rosters(teamHost)
+eq(rosters(teamHost)[sentRosters], "MJOLNIR MJOLNIR|teams|0R;1B;2R", "the host's team roster")
+for _ = 1, 3 do teamHost.poll() end
+eq(#rosters(teamHost), sentRosters, "not sent again while it holds")
+teamHost.teams[2] = "Blue"; teamHost.incident("player_spawn", 2, -1, 0)
+for _ = 1, 2 do teamHost.poll() end
+eq(rosters(teamHost)[sentRosters + 1], "MJOLNIR MJOLNIR|teams|0R;1B;2B", "and again when a team changes")
+local function boardHas(h, text)
+    for i = 0, 18 do
+        if h.board["Row" .. i].visibility == 3 and h.board["Name" .. i].text == text then return true end
+    end
+    return false
+end
+local seated = runHUD("team_slayer", true)
+seated.teams[0] = "Red"; seated.teams[1] = "Blue"; seated.teams[2] = "Green"
+for i = 0, 2 do seated.incident("player_spawn", i, -1, 0) end
+seated.hold(true)
+assert(boardHas(seated, "AWAITING ASSIGNMENT  /  1"), "the client's own read leaves seat 2 unassigned")
+hear(seated, "MJOLNIR|teams|0R;1B;2R")
+seated.hold(true)
+assert(boardHas(seated, "RED TEAM  /  2"), "the host's roster puts seat 2 on Red")
+assert(not boardHas(seated, "AWAITING ASSIGNMENT  /  1"), "and nobody waits")
+seated.incident("player_spawn", 2, -1, 0)
+for _ = 1, 2 do seated.poll() end
+assert(boardHas(seated, "RED TEAM  /  2"), "a later read of the component does not undo it")
+-- The host takes no roster, its own included.
+hear(teamHost, "MJOLNIR|teams|0B;1B;2B")
+teamHost.hold(true)
+assert(boardHas(teamHost, "RED TEAM  /  1"), "the host keeps its own reads")
+print("Multiplayer UI: a fireteam client takes each seat's team from the host")
 
 -- An older UI container (no feed rows): the lines go to its six text lines,
 -- newest at the bottom, and the respawn countdown is one line again.

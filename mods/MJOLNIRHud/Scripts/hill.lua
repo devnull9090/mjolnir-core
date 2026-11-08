@@ -326,8 +326,29 @@ function Hill.field(name)
         return self.marker.point(pc, spot, colours.para, icon, words, holder == "contested", now)
     end
 
+    --- Follow `actor` every frame: the screen marker's spot `up` cm above it
+    --- and, when `beaconUp` is given, the beacon's foot that far above it.
+    --- The update that marks it runs a few times a second, so without this a
+    --- moving player's beacon and marker jumped behind them (#351). The actor
+    --- is checked before each use, and nil stops following.
+    function self.track(actor, up, beaconUp)
+        self.tracked, self.trackUp, self.beaconUp = actor, up or 0, beaconUp
+    end
+
     --- Every frame: keep the marker on its spot.
     function self.frame(pc, now)
+        local actor = self.tracked
+        if actor then
+            local ok, at = pcall(function()
+                if actor:IsValid() then return actor:K2_GetActorLocation() end
+            end)
+            if ok and at then
+                if self.marker then self.marker.aim(at.X, at.Y, at.Z + self.trackUp) end
+                if self.beaconUp and self.drawn == PILLAR then pcall(self.pillarAt, at, self.beaconUp) end
+            else
+                self.tracked = nil
+            end
+        end
         if self.marker then self.marker.frame(pc, now) end
     end
 
@@ -435,8 +456,23 @@ function Hill.field(name)
         self.drawn = key
     end
 
-    --- The beacon alone, standing on `at` (a moving spot: X, Y, Z), no wall.
-    function self.pillar(world, now, at)
+    --- Where a standing pillar is: its foot `up` cm above `at`.
+    function self.pillarAt(at, up)
+        local foot = at.Z + (up or 0)
+        -- The shader measures its braid and foot from the centre.
+        if self.holographic then vector(self.beaconMid, "FieldCenter", at.X, at.Y, foot, BEACON_RADIUS_CM) end
+        self.beacon:K2_SetActorLocation({ X = at.X, Y = at.Y, Z = foot + BEACON_CM / 2 }, false, {}, false)
+    end
+
+    --- Take the pillar down and leave the rest (the line, the marker).
+    function self.unpillar()
+        if self.drawn == PILLAR then self.drawn = nil end
+        pcall(showPart, self.beacon, false)
+    end
+
+    --- The beacon alone, standing `up` cm above `at` (a moving spot: X, Y, Z),
+    --- no wall.
+    function self.pillar(world, now, at, up)
         if not ready(world, now) then return end
         if not (self.beacon and self.beacon:IsValid()) then
             local cylinder = loadAsset(CYLINDER)
@@ -452,9 +488,7 @@ function Hill.field(name)
             showPart(self.beacon, true)
             self.drawn = PILLAR
         end
-        -- The shader measures its braid and foot from the centre.
-        if self.holographic then vector(self.beaconMid, "FieldCenter", at.X, at.Y, at.Z, BEACON_RADIUS_CM) end
-        self.beacon:K2_SetActorLocation({ X = at.X, Y = at.Y, Z = at.Z + BEACON_CM / 2 }, false, {}, false)
+        self.pillarAt(at, up)
     end
 
     --- Colour it for `holder` (as Hill.holder gives; "you", "empty" ...).

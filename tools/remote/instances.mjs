@@ -9,7 +9,7 @@
 //                                                    --separate: each copy its own)
 //   node tools/remote/instances.mjs players          each copy's world, UE players, Blam players
 //   node tools/remote/instances.mjs down             stop every copy (never the Steam game)
-//   node tools/remote/instances.mjs deploy <n>       this checkout's built lobby DLL into copy n
+//   node tools/remote/instances.mjs deploy <n>       this checkout's MJOLNIRLobby and MJOLNIRHud into copy n
 //   node tools/remote/instances.mjs mirror <n>       build or refresh instance n's install (n >= 1)
 //   node tools/remote/instances.mjs launch <n>       start instance n (0 = the Steam install itself)
 //   node tools/remote/instances.mjs menu <n>         sign in (no keys) and wait for the MULTIPLAYER main menu
@@ -251,7 +251,8 @@ const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace
 /**
  * This checkout's MJOLNIRLobby into copy n: its built DLL (the copies' join
  * code lives there) and its scripts and mod.json, so a lobby change can be
- * tried on the copies before it ships. The Steam install keeps its own.
+ * tried on the copies before it ships, and its MJOLNIRHud scripts. The
+ * Steam install keeps its own.
  */
 function deploy(n) {
   const from = path.join(REPO, "mods", "MJOLNIRLobby");
@@ -266,7 +267,26 @@ function deploy(n) {
     scripts++;
   }
   fs.copyFileSync(path.join(from, "mod.json"), path.join(to, "mod.json"));
-  return `instance ${n}: MJOLNIRLobby from this checkout (DLL, ${scripts} scripts, mod.json)`;
+  // The HUD too: most of what a multiplayer test looks at is drawn by it.
+  const hudFrom = path.join(REPO, "mods", "MJOLNIRHud");
+  const hudTo = path.join(path.dirname(to), "MJOLNIRHud");
+  let hud = 0;
+  for (const name of fs.readdirSync(path.join(hudFrom, "Scripts"))) {
+    if (!name.endsWith(".lua")) continue;
+    fs.copyFileSync(path.join(hudFrom, "Scripts", name), path.join(hudTo, "Scripts", name));
+    hud++;
+  }
+  fs.copyFileSync(path.join(hudFrom, "mod.json"), path.join(hudTo, "mod.json"));
+  // The map registry, when this checkout has built one (native/map_registry/
+  // build.ps1): it stages each match's variant where the copy's simulation
+  // reads it, which a registry from before 2026-11-07 does not.
+  const registry = path.join(REPO, "mods", "MJOLNIRLevelLoader", "native", "mjolnir_map_registry.dll");
+  let staged = "";
+  if (fs.existsSync(registry)) {
+    fs.copyFileSync(registry, path.join(path.dirname(to), "MJOLNIRLevelLoader", "native", "mjolnir_map_registry.dll"));
+    staged = ", map registry DLL";
+  }
+  return `instance ${n}: MJOLNIRLobby (DLL, ${scripts} scripts), MJOLNIRHud (${hud} scripts)${staged} from this checkout`;
 }
 
 /** Running copies: [{pid, n}] by exe path (n 0 = the Steam install). */

@@ -255,6 +255,38 @@ end
 --- teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
 local Match = nil
 
+--- Each seat's team as the host told it (Relay.TEAMS), on a fireteam client;
+--- kept until this machine's match ends (it can arrive while the map loads).
+--- A client's own reads of Unreal's team component show what its player
+--- record asked for, which is not always the team (#347, #349), so the
+--- host's word wins.
+local HeardTeams = nil
+
+local function heardTeam(index)
+    return Match and not Match.host and HeardTeams and HeardTeams[index] or nil
+end
+
+--- A team read on this machine, for player `p`: the host's, on a client
+--- that has heard it.
+local function setTeam(p, team)
+    p.team = heardTeam(p.index) or team or p.team
+end
+
+--- The heard teams onto the seats known now (a seat not known yet takes its
+--- team as it arrives, through setTeam). True when one changed.
+local function applyHeardTeams()
+    if not (Match and HeardTeams) or Match.host then return false end
+    local changed = false
+    for seat, side in pairs(HeardTeams) do
+        local p = Match.players[seat]
+        if p and p.team ~= side then
+            p.team = side
+            changed = true
+        end
+    end
+    return changed
+end
+
 --- The player controlling a biped actor, or nil (MJOLNIRLevelLoader's
 --- kill_floor.lua asks the same way).
 local unitComponent
@@ -408,9 +440,12 @@ local function refreshNames()
                 -- pawn when it exposes a team, and retry the incident's biped
                 -- while a new spawn is still acquiring its simulation team.
                 -- A biped no incident named comes from findBipeds.
+                -- Only while the biped is still this player's: actors are
+                -- pooled, and a dead player's old one can carry another
+                -- player's unit, of either team (#347).
                 local okP, pawn = pcall(function() return ps:GetPawn() end)
-                local team = bipedTeam(p.biped) or (okP and bipedTeam(pawn))
-                if team then p.team = team end
+                local own = p.biped and controllerOf(p.biped) == index and p.biped or nil
+                setTeam(p, bipedTeam(own) or (okP and bipedTeam(pawn)) or nil)
             end
         end)
     end)
@@ -641,7 +676,7 @@ HANDLERS.player_spawn = function(inc)
     if type(inc.cause) == "number" and inc.cause >= 0 and inc.biped then
         stats(inc.cause).biped = inc.biped
         stats(inc.cause).left = false
-        stats(inc.cause).team = bipedTeam(inc.biped) or stats(inc.cause).team
+        setTeam(stats(inc.cause), bipedTeam(inc.biped))
     end
     refreshNames()
     boardDirty = true
@@ -846,6 +881,19 @@ local function syncBotNames()
     pcall(Relay.syncBots, message, message)
 end
 
+--- In a team game, each human seat's team to each fireteam player who has
+--- not had this roster (Relay.TEAMS): when one changes, and to a player who
+--- just arrived. Once the relay has its controllers.
+local function syncTeams()
+    if not (Match and Match.host and Match.mode.teams and Match.relayArmed) then return end
+    local teams = {}
+    for index, p in pairs(Match.players) do
+        if p.team and p.name and not p.left and not p.bot and not Bots.isBot(index) then teams[index] = p.team end
+    end
+    local message = Relay.encodeTeams(teams)
+    if message then pcall(Relay.syncTeams, message) end
+end
+
 local function drain()
     local queued = Queue
     Queue = {}
@@ -891,8 +939,7 @@ local function drain()
             for _, actor in ipairs({ { inc.cause, inc.biped }, { inc.effect, inc.victimBiped } }) do
                 local index, biped = actor[1], actor[2]
                 if type(index) == "number" and index >= 0 and biped then
-                    local team = bipedTeam(biped)
-                    if team then stats(index).team = team end
+                    setTeam(stats(index), bipedTeam(biped))
                 end
             end
             local ok, err = pcall(handler, inc)
@@ -968,6 +1015,14 @@ local function applyBotNames()
 end
 
 local function relayed(text)
+    local teams = Relay.decodeTeams(text)
+    if teams then
+        -- The host's own hook sees what it sends: never take it there.
+        if Match and Match.host then return end
+        HeardTeams = teams
+        if applyHeardTeams() then boardDirty = true end
+        return
+    end
     local roster, sides = Relay.decodeBots(text)
     if roster then
         HeardBots, HeardSides = roster, sides
@@ -1478,8 +1533,9 @@ local function startMatch(running, world)
     nextRosterRefresh = 0
     Log("match: " .. running.code .. " " .. tostring(running.variant))
     -- Bot names heard while this match was still loading (a host's next
-    -- match replaces them as soon as it is up).
+    -- match replaces them as soon as it is up), and the seats' teams.
     applyBotNames()
+    applyHeardTeams()
 end
 
 --- The widgets, once the map's world is up: created too early (while the
@@ -1624,6 +1680,13 @@ local function endMatch()
     if Match then Markers.hide(Match) end
     Match, Feed, Board = nil, nil, nil
     Queue = {}
+    -- The bots heard belong to the match that ended: kept, a client put them
+    -- in the next match's seats with no side, under AWAITING ASSIGNMENT
+    -- (two bots from a King match on a later Team Slayer board, playtest
+    -- 2026-11-07, #349). The next match's roster comes after this, while
+    -- that map loads.
+    HeardBots, HeardSides = nil, nil
+    HeardTeams = nil
 end
 
 --- `mjolnir_feed_demo` (Scripts/demo.lua): the feed's lines, a medal and the
@@ -1822,6 +1885,7 @@ local function tick()
     if now() >= (Match.nextBotRoster or 0) then
         Match.nextBotRoster = now() + 1
         syncBotNames()
+        syncTeams()
     end
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1

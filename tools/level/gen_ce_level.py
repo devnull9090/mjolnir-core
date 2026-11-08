@@ -1516,6 +1516,13 @@ def main():
             # same_pad checked is its "teleport from" flag's turned round.
             "rot": [0, sender_yaw(f), 0],
             "set": {
+                # Left unset, a pad is owned by team 0, so in every team game
+                # red respawned on teleporter pads, by the blue base too (half
+                # of red's respawns on Chill Out CTF, test copies 2026-11-07,
+                # #346): the respawn search takes any scenery its team owns.
+                # Who may use a pad does not depend on its team (sim
+                # 0x3e5820 lists teleporters of any team).
+                "multiplayer data.owner team": MARKER_TEAM,
                 "multiplayer data.teleporter channel": channel_value(channel),
                 "multiplayer data.boundary shape": "cylinder",
                 "multiplayer data.boundary width or radius": f"{TELEPORTER_RADIUS}",

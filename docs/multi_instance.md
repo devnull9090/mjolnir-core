@@ -186,6 +186,22 @@ the simulation itself.
 Tried and dropped: returning a different lobby owner from `PFLobbyGetOwner`
 (no effect, and it emptied the target session).
 
+## The game type each copy plays
+
+The map registry (MJOLNIRLevelLoader's native DLL) stages each match's
+variant as `mjolnir.mglo` in the folder the simulation reads it from. It asks
+the simulation for that folder, which is still empty when a match is staged,
+and fell back to `%LOCALAPPDATA%\Meteorite\Saved\BlamData\HotReload`. A copy
+started with `-saveddirsuffix=_mjN` reads `Saved__mjN` instead. So every copy
+wrote the Steam game's file and played whatever variant its own folder last
+had: CTF on Chill Out ran with no flags and no CTF spawns (2026-11-07). The
+registry from that day falls back to `Saved_<suffix>` when the command line
+has one, and `deploy` puts this checkout's built registry DLL into each copy
+(`native/map_registry/build.ps1`). The Steam game, started with no suffix, is
+unchanged. Check a copy's game type from its `map_registry.log`: the
+`megalo: ... installed` line should name `Saved__mjN`. Copy tests of game
+types before that day ran the wrong variant.
+
 ## Teams for joining copies
 
 The joiners' simulations join just after the host's game has started, so
@@ -210,12 +226,15 @@ asked-for field keeps the slot number; only the team itself is sent.
 - **HUD "YOU".** The HUD finds "your" row by player key, and every copy is
   `devnull9090`, so every copy's HUD calls the host's team and score "YOU"
   (CTF: "RED / YOU" on a blue joiner). The armour colour and the simulation
-  are right.
+  are right. Every player state also reads index 0 in every copy, so the
+  host's HUD knows only seat 0 and its team roster to clients names only
+  seat 0 (`MJOLNIR|teams|0R`). Board and team checks per seat need PC 2.
 - **One account.** Names, kill-feed names, scoreboard rows and match-history
   claims all carry one name. Anything keyed by account (hub match history,
   bans, reports) sees one player.
 - Copies use this checkout's MJOLNIRLobby (`deploy`: the DLL, every script
-  and `mod.json`), but the Steam install's other mods.
+  and `mod.json`) and MJOLNIRHud (scripts and `mod.json`), but the Steam
+  install's other mods.
 - **A host's leave strands the joiners.** After the host's SAVE AND EXIT or
   `LeaveGame` mid-match, a joining copy lands in a frontend with no host's
   game state and waits out the 120 s connection timeout. Two PCs don't do

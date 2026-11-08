@@ -42,4 +42,18 @@ eq(at({ biped = biped(500, 0x00ab0001), dead = true }, 1), nil, "a dead player")
 local broken = { IsValid = function() error("freed") end }
 eq(at({ biped = broken }, 1), nil, "a read that throws")
 
+-- Seated: the biped hangs off the vehicle but keeps the place they got in at
+-- (#348), so the place is the vehicle's, and the vehicle is what to follow.
+local seated = biped(500, 0x00ab0001)
+local warthog = { IsValid = function() return true end, K2_GetActorLocation = function() return { X = 9000, Y = 0, Z = 0 } end }
+seated.GetAttachParentActor = function() return warthog end
+local place, body = at({ biped = seated }, 1)
+eq(place.X, 9000, "a seated player is where the vehicle is")
+eq(body, warthog, "and the vehicle is followed")
+local walker = biped(500, 0x00ab0001)
+walker.GetAttachParentActor = function() return nil end
+place, body = at({ biped = walker }, 1)
+eq(place.X, 500, "on foot, their own place")
+eq(body, walker, "and their biped")
+
 print("ok")
