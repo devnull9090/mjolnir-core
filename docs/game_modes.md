@@ -191,8 +191,10 @@ bytes, 23 conditions, 67 actions, 22 triggers. Verified.
   placed with no owner team is on team 0, so red respawned on the pads, by the
   blue base as well: half of red's respawns there (test copies, 2026-11-07,
   #346). Owned by the eighth team the pads still send (sim `0x3e5820` lists
-  teleporters of any team) and take no respawns; `gen_ce_level.py` places them
-  so from then on, and maps built before keep team 0 until rebuilt.
+  teleporters of any team) and take no respawns; `gen_ce_level.py` and
+  `forge-maps/generate.py` place them so from then on. The 28 published maps
+  that had team-0 ends get them moved by `tools/level/fix_teleporter_teams.py`,
+  which sets the owner byte in each shipped scenario rather than rebaking it.
 - **Flags.** Each stand without a flag creates one (object type 18, label
   `ctf_flag`), links it to the stand, copies the stand's owner team, sets pickup
   to enemies, pickup priority automatic, a waypoint for everyone, and

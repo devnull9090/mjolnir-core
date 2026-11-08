@@ -59,6 +59,18 @@ Other verbs: `mirror`, `deploy`, `launch`, `menu`, `lua`, `console`,
 `tools/mcp/game/capture.ps1 -ProcessId <pid> -OutFile shot.png`. The Blam
 players of one copy: `python tools/remote/blam-players.py --pid <pid>`.
 
+A release candidate's files can be tried in the copies only:
+`MJ_OVERLAY=<dir> node tools/remote/instances.mjs mirror <n>` (or `up`) copies
+every file under `<dir>`, laid out as the install
+(`Meteorite\Content\Paks\pakchunk904-MJOLNIRHUB-ce-chill-out-2_P.ucas`,
+`Meteorite\Binaries\Win64\ue4ss\MJOLNIRMaps\CHL\level.json`), over the copy's
+own, breaking the hard link so the Steam install keeps its file. The copy
+records what it took in `.mj_overlay.json`; the next `mirror` without
+`MJ_OVERLAY` puts the install's files back. Used 2026-11-07 for the
+teleporter-team packs (#346): a hub map's containers sit in the install as
+`pakchunk9xx-MJOLNIRHUB-<slug>-<i>_P`, so the patched map container went over
+the installed file holding the shipped one, found by hash.
+
 Rebuild the lobby DLL before `up` when it changes (`native/lobby/build.ps1`).
 The test-only behaviour below runs only in copies the tool starts, because
 the tool sets `MJOLNIR_INSTANCE`. The Steam game, and every player's game,

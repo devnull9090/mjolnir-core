@@ -2393,6 +2393,7 @@
           0
         ],
         "set": {
+          "multiplayer data.owner team": "eighth party",
           "multiplayer data.teleporter channel": "alpha",
           "multiplayer data.boundary shape": "cylinder",
           "multiplayer data.boundary width or radius": "0.35",
@@ -2958,6 +2959,7 @@
           0
         ],
         "set": {
+          "multiplayer data.owner team": "eighth party",
           "multiplayer data.teleporter channel": "alpha",
           "multiplayer data.boundary shape": "cylinder",
           "multiplayer data.boundary width or radius": "0.35",

@@ -485,6 +485,20 @@ rest (Team Slayer, Crazy King, Rally and so on), which keeps a hub manifest with
 `tools/level/add_objectives.py` does this for a published map: it rebakes the pack's scenario and
 writes the next release.
 
+A rebake does not always give back a shipped scenario byte for byte, even with the level
+unchanged. Until 2026-11-08 the bots' pathfinding seams came out of a hash map (`blam-sbsp`
+`pathfinding.rs`, the crack search), so seams that tied on score were numbered, and could be
+chosen, differently from run to run: of 28 maps rebaked on 2026-11-07, 16 came back exact. Ties
+now go by segment index, so a bake gives the same bytes every run (Damnation and Chill Out, each
+baked twice). A map without tied seams bakes as before; one baked before with ties keeps its
+shipped numbering until it is rebaked, which then numbers its seams the new way. A map baked
+before a bake change also picks that change up (Crossline's equipment palette, which saved Forge
+layouts index). For an edit to a few fields,
+`tools/level/fix_teleporter_teams.py` shows the other way: set the fields in the shipped scenario
+with `mjolnir tag-file`, rebuild the map container around it with `ue-iostore`'s `replace_chunk`
+example (the writer `level bake` uses; unchanged, it rebuilds a container byte for byte), and
+check with `mjolnir tagdiff` that only those fields moved.
+
 ## File placement and flow
 
 ```
