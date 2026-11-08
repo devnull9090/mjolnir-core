@@ -426,7 +426,7 @@ local function layCloth(entry, angles)
         local dx, dy = -math.sin(a), math.cos(a)
         STRIP_AT.X, STRIP_AT.Y, STRIP_AT.Z = x + dx * w / 2, y + dy * w / 2, CLOTH.z
         STRIP_ROT.Yaw = 90 + math.deg(a)
-        strip:K2_SetRelativeLocationAndRotation(STRIP_AT, STRIP_ROT, false, env.Current.hit, false)
+        strip:K2_SetRelativeLocationAndRotation(STRIP_AT, STRIP_ROT, false, env.Current.emptyHit(), false)
         x, y = x + dx * w, y + dy * w
     end
 end
@@ -564,7 +564,7 @@ local function attachFlagMesh(world, entry, ctf, team, pos, rot, scale)
     comp:SetStaticMesh(mesh)
     comp:SetCollisionEnabled(COLLISION_NONE)
     comp:K2_SetRelativeLocationAndRotation({ X = pos[1], Y = pos[2], Z = pos[3] },
-        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, env.Current.hit, false)
+        { Pitch = rot[1], Yaw = rot[2], Roll = rot[3] }, false, env.Current.emptyHit(), false)
     comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
     entry.cloth = nil
     local keep = { comp }
@@ -594,7 +594,7 @@ local function unpin(entry, flag)
     local p = type(flag) == "table" and flag.pos or { 0, 0, 0 }
     comp:SetAbsolute(false, false, false)
     comp:K2_SetRelativeLocationAndRotation({ X = p[1], Y = p[2], Z = p[3] },
-        { Pitch = 0, Yaw = 0, Roll = 0 }, false, env.Current.hit, false)
+        { Pitch = 0, Yaw = 0, Roll = 0 }, false, env.Current.emptyHit(), false)
 end
 
 --- A flag at home is drawn exactly on its stand, facing the stand's way.
@@ -608,7 +608,7 @@ local function pin(entry, flag, stand)
         X = stand.pos[1] + p[1] * math.cos(yaw) - p[2] * math.sin(yaw),
         Y = stand.pos[2] + p[1] * math.sin(yaw) + p[2] * math.cos(yaw),
         Z = stand.pos[3] + p[3],
-    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, env.Current.hit, false)
+    }, { Pitch = 0, Yaw = stand.yaw or 0, Roll = 0 }, false, env.Current.emptyHit(), false)
     entry.home = stand
     Flags.homes[entry.team] = entry
 end

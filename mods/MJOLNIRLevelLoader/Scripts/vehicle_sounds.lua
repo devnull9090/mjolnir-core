@@ -205,13 +205,12 @@ end
 --- Every running component to the vehicle, and each loop to its pitch and share.
 local function follow(run, bound, at, volume, now)
     local sound = run.sound
-    local hit = env.Current.hit or {}
     for i = #run.shots, 1, -1 do
         local shot = run.shots[i]
         if now > shot.untilAt or not shot.comp:IsValid() then
             table.remove(run.shots, i)
         else
-            shot.comp:K2_SetWorldLocation(at, false, hit, false)
+            shot.comp:K2_SetWorldLocation(at, false, env.Current.emptyHit(), false)
         end
     end
     if not run.playing then return end
@@ -221,7 +220,7 @@ local function follow(run, bound, at, volume, now)
     for i, range in ipairs(ranges) do
         local comp = run.loops[i]
         if comp and comp:IsValid() then
-            comp:K2_SetWorldLocation(at, false, hit, false)
+            comp:K2_SetWorldLocation(at, false, env.Current.emptyHit(), false)
             local share = VehicleSounds.weight(p, range, i == 1, i == #ranges)
             comp:SetVolumeMultiplier(sound.gain * volume * share)
             if share > 0 then comp:SetPitchMultiplier(VehicleSounds.rate(p, range)) end
