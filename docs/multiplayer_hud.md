@@ -43,6 +43,8 @@ again for the next match.
 | `/unban <name>` | host | |
 | `/slay <player>` | host | kill a player |
 | `/bots <0-15> [kind] [level]` | host | this match's AI bots: the ones playing stay, more join or the last ones leave; a kind (`spartans`, `elites`, `grunts`, `jackals`, `mixed`) or a level (`normal`, `heroic`, `legendary`) brings new bots of it instead; alone, how many ([bots.md](bots.md)) |
+| `/public` | host | list this match in FIND GAMES, so anyone can join it now; not in FORGE |
+| `/private` | host | take this match out of FIND GAMES; everyone in it stays, nobody new can join |
 | `/tp <player>` | host | teleport to a player (experimental) |
 | `/bring <player>` | host | teleport a player to you (experimental) |
 
@@ -57,6 +59,11 @@ again for the next match.
   only one it starts, then the only one it is in.
 - **Kick, ban, unban** call MJOLNIRLobby's `mjolnir_auto kick|ban|unban`
   through the console. The Lobby takes an exact name before a partial one.
+- **Public, private** call MJOLNIRLobby's `mjolnir_auto public on|off`, the
+  HOST MENU's MAKE PUBLIC / MAKE PRIVATE. They say nothing themselves: the
+  Lobby writes each listing status to `MJOLNIRLobby\chat_notice.txt` while a
+  match runs (`<unix time>\t<line>` a line), and the host's chat shows each
+  line under 30 s old as a system line.
 - **Kill and teleport** are Blam script, sent through MJOLNIRBlamConsole's
   mailbox (`native\request.txt`, ids from 7000000, one line a poll):
   `(unit_kill (player_get <index>))`; a teleport is `objects_attach` then

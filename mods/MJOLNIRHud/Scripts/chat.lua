@@ -521,6 +521,8 @@ local function commandCx(isHost)
         players = ctx.players,
         kick = function(name, ban) ctx.console("mjolnir_auto " .. (ban and "ban " or "kick ") .. name) end,
         unban = function(name) ctx.console("mjolnir_auto unban " .. name) end,
+        -- The Lobby says how it went, in this chat (lobbyNotices).
+        setPublic = function(on) ctx.console("mjolnir_auto public " .. (on and "on" or "off")) end,
         blam = function(line) Commands.queueBlam(line) end,
         setBots = ctx.setBots,
         botCount = ctx.botCount,
@@ -671,6 +673,21 @@ local function writeRecord(force)
     f:close()
 end
 
+--- The Lobby's word on this match's listing (/public, /private, its HOST
+--- MENU), as system lines: its chat_notice.txt, "<unix time>\t<line>" a
+--- line. Lines over 30 s old are another match's.
+local function lobbyNotices()
+    local path = (ctx.dir:match("^(.*)\\[^\\]*$") or ctx.dir) .. "\\MJOLNIRLobby\\chat_notice.txt"
+    local f = io.open(path, "rb")
+    if not f then return end
+    local text = f:read("*a") or ""
+    f:close()
+    os.remove(path)
+    for at, line in text:gmatch("(%d+)\t([^\r\n]+)") do
+        if os.time() - tonumber(at) <= 30 then systemLine(line) end
+    end
+end
+
 --- Each HUD poll, in a match.
 function Chat.tick(match)
     gate()
@@ -695,6 +712,7 @@ function Chat.tick(match)
             end
         end
         inbox = {}
+        lobbyNotices()
         writeRecord(false)
         if Commands then
             Commands.prepareBlam()

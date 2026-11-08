@@ -335,6 +335,9 @@ local function startGame(map, mode)
     -- third field is the exact game type: every start says it, a post-game
     -- vote's too, whose winner no lobby message carries.
     pcall(Net.toClients, "starting", map.code, (MapLive.release(map.code) or {}).id or "", mode.id)
+    -- Online through the start, even alone: the game can go public later.
+    -- FORGE is never public, and stays as shipped.
+    Games.hosting(not mode.forge)
     helpers:StartCountdown(setup, pc)
     log(string.format("starting %s (%s): countdown", map.code, mode.id))
     Games.changed()
@@ -4367,6 +4370,16 @@ end
 --- (as after a match), and the host's lobby opens there.
 local function returnToLobby()
     lobbyOnReturn = true
+    -- A host alone whose match went offline has no online lobby, and the
+    -- travel below keeps it that way: only the game's own exit, SAVE AND
+    -- EXIT's EndCampaign, makes it create another (PC 1, 2026-11-08).
+    if #remotePlayers() == 0 and not Games.online() then
+        local left = pcall(function() FindFirstOf("BlamCampaignFlowGameSubsystem"):EndCampaign() end)
+        if left then
+            log("host: no online lobby: back through the game's own exit, which makes one")
+            return
+        end
+    end
     pcall(function()
         local pc = UI.playerController()
         StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
@@ -4450,25 +4463,42 @@ openHostMenu = function()
         return
     end
     local title = Game.map and (titleOf(Game.map) .. "  /  " .. modeName(Game.mode and Game.mode.id)) or "MATCH"
+    -- PUBLIC / PRIVATE mid-match (not FORGE, which is never public): the
+    -- listing follows at once, and so does whether anyone new can join.
+    local listing = nil
+    if not (Game.mode and Game.mode.forge) then
+        local public = Games.isPublic()
+        listing = { label = public and "MAKE PRIVATE" or "MAKE PUBLIC",
+            description = (public and "Take this match out of FIND GAMES. Everyone here stays; nobody new can join."
+                or "List this match in FIND GAMES, so anyone can join it now.")
+                .. ((Games.status() or "") ~= "" and ("\n\nNow: " .. Games.status()) or ""),
+            onClick = function()
+                closeHostMenu()
+                Games.setPublic(not public)
+                log("host: made the match " .. (public and "private" or "public"))
+            end }
+    end
+    local buttons = {
+        { label = "END GAME", description = "End the match now. Everyone sees the results and votes on the next game.",
+            onClick = function()
+                closeHostMenu()
+                native_("mjolnir_sim_end_game")
+            end },
+        { label = "RETURN TO LOBBY", description = "Take everyone back to the lobby to change the map or game type.",
+            onClick = function()
+                closeHostMenu()
+                returnToLobby()
+            end },
+        { label = "PLAYERS", description = "Kick or ban a player.", onClick = playersScreen },
+        { label = "BANNED PLAYERS", description = "Unban a player.", onClick = bansScreen },
+    }
+    if listing then table.insert(buttons, 3, listing) end
     hostMenuOpen = UI.push({
         layout = hostLayout,
         title = "HOST MENU",
         subtitle = string.upper(title),
-        description = "Your match: end it, take everyone back to the lobby, or manage players.",
-        buttons = {
-            { label = "END GAME", description = "End the match now. Everyone sees the results and votes on the next game.",
-                onClick = function()
-                    closeHostMenu()
-                    native_("mjolnir_sim_end_game")
-                end },
-            { label = "RETURN TO LOBBY", description = "Take everyone back to the lobby to change the map or game type.",
-                onClick = function()
-                    closeHostMenu()
-                    returnToLobby()
-                end },
-            { label = "PLAYERS", description = "Kick or ban a player.", onClick = playersScreen },
-            { label = "BANNED PLAYERS", description = "Unban a player.", onClick = bansScreen },
-        },
+        description = "Your match: end it, take everyone back to the lobby, list it publicly, or manage players.",
+        buttons = buttons,
     })
 end
 
@@ -4667,9 +4697,16 @@ local AUTO = {
         saveBans()
         autoState({ result = "unbanned " .. wanted })
     end,
+    -- Also chat's /public and /private (MJOLNIRHud), mid-match: the listing's
+    -- status reaches the host's chat (games.lua, chat_notice.txt).
     public = function(args)
-        Games.setPublic(args[1] ~= "off")
-        autoState({ result = "public " .. tostring(args[1] ~= "off") })
+        local on = args[1] ~= "off"
+        if on and Game.mode and Game.mode.forge and not inFrontend() then
+            Games.notice("FORGE games stay private.")
+            return autoState({ result = "error FORGE games stay private" })
+        end
+        Games.setPublic(on)
+        autoState({ result = "public " .. tostring(on) })
     end,
     host = function(args)
         if not UI.startupReady() then
@@ -4835,6 +4872,7 @@ local function initialize()
             return ok and tostring(address) or nil
         end,
         worldObject = function() return UI.playerController():GetWorld() end,
+        inMatch = function() return not inFrontend() end,
         -- The game a public listing shows: the lobby's choice, which a start
         -- (from the lobby or the post-game vote) also sets.
         info = function()

@@ -21,6 +21,9 @@
 --   tp, bring          objects_attach then objects_detach, a poll apart:
 --                      the attached object takes its parent's place
 --                      (experimental: not tried with two players yet)
+--   public, private    MJOLNIRLobby's own (`mjolnir_auto public on|off`),
+--                      which answers in the host's chat as the listing
+--                      goes up or comes down (its chat_notice.txt)
 
 local Commands = {}
 
@@ -46,6 +49,8 @@ local LIST = {
     { name = "slay", who = "host", args = "<player>", help = "Kill a player", player = true },
     { name = "bots", who = "host", args = "<0-15> [spartans|elites|grunts|jackals|mixed] [normal|heroic|legendary]",
         help = "Add or remove AI bots in this match, or change what they are and how well they aim" },
+    { name = "public", who = "host", help = "List this match in FIND GAMES, so anyone can join it now" },
+    { name = "private", who = "host", help = "Take this match out of FIND GAMES; nobody new can join" },
     { name = "tp", who = "host", args = "<player>", help = "Teleport to a player (experimental)", player = true },
     { name = "bring", who = "host", args = "<player>", help = "Teleport a player to you (experimental)", player = true },
 }
@@ -165,7 +170,7 @@ end
 --- Runs `text` on the host. `who` = { name, index, here } for the sender:
 --- `here` when it was typed on the host itself, `index` its seat (nil when
 --- not seated yet). `cx` = { players (), kick (name, ban), unban (name),
---- blam (line), isHost }. Returns the lines to answer the sender with.
+--- blam (line), setPublic (on), isHost }. Returns the lines to answer the sender with.
 function Commands.run(cx, who, text)
     local name, rest = Commands.parse(text)
     local c = name and BY_NAME[name]
@@ -209,6 +214,10 @@ function Commands.run(cx, who, text)
             if not hit then return { "/bots: no kind or level called '" .. word .. "'." } end
         end
         return { cx.setBots(n, kind, level) }
+    end
+    if c.name == "public" or c.name == "private" then
+        cx.setPublic(c.name == "public")
+        return {}
     end
     if c.name == "unban" then
         if rest == "" then return { "/unban <name>" } end

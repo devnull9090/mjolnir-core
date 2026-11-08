@@ -22,9 +22,10 @@ local Games = {}
 
 local HEARTBEAT_SECONDS = 30
 local REPLY_TIMEOUT = 20      -- seconds before a hub call counts as failed
+local LOBBY_LOST_SECONDS = 15 -- this long without a lobby in the menu, it is gone
 local MAX_PLAYERS = 16        -- the hub's ceiling, and the fireteam's
 
-local nativeDir, listingFile, Json, Net, log, Session, guest
+local nativeDir, listingFile, noticeFile, Json, Net, log, Session, guest
 local publicPresence, presenceCheckedAt, lastWorld, nextPresenceBroadcast = nil, nil, nil, 0
 local connectionChecked, online = 0, false
 local sequence = 0
@@ -145,7 +146,8 @@ local function keepLobby(on)
     if keeping == on then return end
     local f = io.open(nativeDir .. "keep_lobby.txt", "wb")
     if not f then return end
-    f:write(on and "1" or "0")
+    -- Then 1 in a match: going private there closes the lobby again.
+    f:write(on and "1" or "0", (Host.inMatch and Host.inMatch()) and " 1" or " 0")
     f:close()
     if native("mjolnir_keep_lobby") then keeping = on end
 end
@@ -162,6 +164,23 @@ local function stayOnline(on)
     f:write(on and "1" or "0")
     f:close()
     native("mjolnir_stay_online")
+end
+
+--- A host of our matches stays online when it starts one alone, public or
+--- private (the native half's host_online.txt): its lobby, and so the
+--- connection string a listing needs, outlives the start, and the game can
+--- be made public later, in the lobby or mid-match. As shipped, a private
+--- match started alone left the lobby for good (2026-11-07). Set at each
+--- start (`on` false for FORGE); campaign before the first is as shipped.
+local hostingOnline = nil
+function Games.hosting(on)
+    on = on and true or false
+    if hostingOnline == on then return end
+    local f = io.open(nativeDir .. "host_online.txt", "wb")
+    if not f then return end
+    f:write(on and "1" or "0")
+    f:close()
+    if native("mjolnir_host_online") then hostingOnline = on end
 end
 
 --- A joiner into a match under way holds its world's begin play until its
@@ -327,8 +346,24 @@ end
 -- Hosting: the listing
 -------------------------------------------------------------------------------
 
+--- A line for the host's match chat (MJOLNIRHud shows it as a system line):
+--- <Mods>\MJOLNIRLobby\chat_notice.txt, "<unix time>\t<line>" a line. Only
+--- in a match, where the HUD reads it; it drops lines over 30 s old.
+local function notice(text)
+    if not (Host.inMatch and Host.inMatch()) then return end
+    local f = io.open(noticeFile, "ab")
+    if not f then return end
+    f:write(os.time(), "\t", text, "\n")
+    f:close()
+end
+Games.notice = notice
+
+--- The listing's status: the lobby's footer, the HOST MENU, and, when it
+--- changes in a match, the host's chat.
 local function setStatus(text)
-    Host.status = text or ""
+    text = text or ""
+    if text ~= Host.status and text ~= "" then notice(text) end
+    Host.status = text
 end
 
 --- The listing's id in listing.txt beside this mod, while there is one:
@@ -363,18 +398,29 @@ end
 local function beat()
     local info = Host.info and Host.info()
     if not (info and info.map_code and info.game_type) then return end
-    local conn, why = connectionString()
+    local conn = connectionString()
+    local now = os.time()
     if not conn then
-        -- The game left its online lobby: a match started with the host
-        -- alone in the fireteam plays offline (2026-10-02). A listing kept
-        -- up would hand joiners a dead connection string, which the game
-        -- reports as a full fireteam, so it comes down until a lobby is back.
+        -- The game has no online lobby. A match started alone used to play
+        -- offline (2026-10-02); Games.hosting keeps a host online now, but a
+        -- lobby can still go (a game update that moves the patched branch).
+        -- A listing kept up would hand joiners a dead connection string,
+        -- which the game reports as a full fireteam, so it comes down until
+        -- a lobby is back.
         if Host.id then unlist("the game left its online lobby") end
-        Host.nextBeat = os.time() + 5
-        setStatus(info.in_game and "Not listed: this match is offline. A match started with only you in the fireteam can't be joined."
-            or ("Not listed yet: " .. tostring(why)))
+        Host.nextBeat = now + 5
+        Host.noLobbySince = Host.noLobbySince or now
+        if info.in_game then
+            setStatus("Not listed: this match is offline. HOST MENU > RETURN TO LOBBY brings your game back online.")
+        elseif Host.lobbySeen and now - Host.noLobbySince >= LOBBY_LOST_SECONDS then
+            setStatus("Not listed: your game went offline. Start a match, then HOST MENU > RETURN TO LOBBY"
+                .. " brings it back online (or restart the game).")
+        else
+            setStatus("Not listed yet: waiting for your game's online lobby...")
+        end
         return
     end
+    Host.lobbySeen, Host.noLobbySince = true, nil
     local players = math.max(1, info.players or 1)
     local state = info.in_game and "in_game" or "open"
     if players >= Host.maxPlayers then state = "full" end
@@ -445,7 +491,9 @@ local function beat()
         Host.busy = false
         Host.confirmed = status == 200 and os.time() or nil
         Host.nextBeat = os.time() + HEARTBEAT_SECONDS
-        if status == 404 then
+        if status == 200 then
+            setStatus("PUBLIC: listed in FIND GAMES")
+        elseif status == 404 then
             -- Swept, or replaced by a listing from another session: list again.
             Host.id, Host.token = nil, nil
             noteListing(nil)
@@ -477,6 +525,11 @@ end
 function Games.isPublic() return Host.public end
 function Games.status() return Host.status end
 
+--- Whether the game has an online lobby now (asked afresh). RETURN TO
+--- LOBBY leaves a match without one the way SAVE AND EXIT does, which makes
+--- the game create one.
+function Games.online() return connectionString() ~= nil end
+
 --- The hub API and what its failures mean, for the match uploader.
 Games.call = hub
 Games.explain = explain
@@ -487,10 +540,12 @@ function Games.setPublic(on)
     if wasPublic and not Host.public then unlist("private") end
     Host.nextBeat = 0
     keepLobby(Host.public)
+    local inMatch = Host.inMatch and Host.inMatch()
     if Host.public then
-        setStatus("PUBLIC: listing...")
+        setStatus(inMatch and "PUBLIC: listing this match in FIND GAMES..." or "PUBLIC: listing...")
     else
-        setStatus("PRIVATE: only your fireteam and invited friends can join")
+        setStatus(inMatch and "PRIVATE: out of FIND GAMES. Everyone here stays; nobody new can join."
+            or "PRIVATE: only your fireteam and invited friends can join")
     end
 end
 
@@ -621,6 +676,8 @@ local function presenceTick()
         if now >= connectionChecked then
             connectionChecked = now + 5
             online = connectionString() ~= nil
+            -- Public or not: a lobby lost later is then gone, not on its way.
+            if online then Host.lobbySeen = true end
         end
         local info = Host.info and Host.info()
         local jip = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
@@ -655,11 +712,13 @@ function Games.leavePresence()
     if guest then guest:leave() end
 end
 
---- deps: { modDir, json, net, log, version, info, world }.
+--- deps: { modDir, json, net, log, version, info, world, worldObject, modes,
+--- inMatch }.
 
 function Games.init(deps)
     nativeDir = deps.modDir .. "\\native\\"
     listingFile = deps.modDir .. "\\listing.txt"
+    noticeFile = deps.modDir .. "\\chat_notice.txt"
     Json, Net, log = deps.json, deps.net, deps.log
     Session = dofile(deps.modDir .. "\\Scripts\\publicsession.lua")
     guest = Session.new()
@@ -676,6 +735,7 @@ function Games.init(deps)
     noteListing(nil)
     Host.version = deps.version or ""
     Host.info = deps.info
+    Host.inMatch = deps.inMatch
     Host.modes = deps.modes
     keepLobby(false)
     local function loop()
