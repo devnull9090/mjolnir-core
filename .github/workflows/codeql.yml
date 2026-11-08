@@ -20,9 +20,16 @@
 # A matrix built from the change set would leave unchanged languages' checks
 # at "Expected" forever and block the merge.
 #
+# A skipped language still uploads a result: an empty CodeQL SARIF under its
+# own category. The main ruleset's code scanning rule compares a PR's results
+# with main's for every configuration main has (this workflow, one category
+# per language). With any of them missing it cannot tell what the PR
+# introduces, so it holds the merge ("6 configurations not found" on PR #365,
+# a Python and docs change). An empty result introduces no alerts. Main's own
+# results come from the push to main, which analyses every language.
+#
 # actions is analysed on every PR even when no workflow changed: it takes
-# under a minute, and it gives every commit a CodeQL upload, which the main
-# ruleset's code scanning rule waits for before it lets a PR merge.
+# under a minute.
 #
 # The settings match what default setup ran (CodeQL bundle default suite,
 # build-mode none for every language, dependency caching on, category
@@ -96,7 +103,28 @@ jobs:
     steps:
       - name: Skip (no ${{ matrix.language }} files changed)
         if: env.RUN != 'true'
-        run: echo "No ${{ matrix.language }} files changed in this pull request; nothing to analyse." | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          LANG_NAME: ${{ matrix.language }}
+        run: |
+          echo "No $LANG_NAME files changed in this pull request; nothing to analyse." | tee -a "$GITHUB_STEP_SUMMARY"
+          # An empty CodeQL result, so the ruleset finds this language's
+          # configuration on the PR (see the header).
+          mkdir -p "$RUNNER_TEMP/codeql-skipped"
+          printf '%s\n' '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"CodeQL"}},"results":[]}]}' \
+            > "$RUNNER_TEMP/codeql-skipped/$LANG_NAME.sarif"
+
+      # upload-sarif reads the commit from the checkout; only .github is needed.
+      - uses: actions/checkout@v4
+        if: env.RUN != 'true'
+        with:
+          sparse-checkout: .github
+
+      - name: Upload an empty result for ${{ matrix.language }}
+        if: env.RUN != 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ runner.temp }}/codeql-skipped/${{ matrix.language }}.sarif
+          category: /language:${{ matrix.language }}
 
       - uses: actions/checkout@v4
         if: env.RUN == 'true'
