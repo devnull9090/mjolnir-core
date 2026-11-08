@@ -99,7 +99,7 @@ jobs:
           - ruby
           - rust
     env:
-      RUN: ${{ matrix.language != 'ruby' && (needs.changes.result != 'success' || contains(needs.changes.outputs.codeql, format('[{0}]', matrix.language))) }}
+      RUN: ${{ needs.changes.result != 'success' || contains(needs.changes.outputs.codeql, format('[{0}]', matrix.language)) }}
     steps:
       - name: Skip (no ${{ matrix.language }} files changed)
         if: env.RUN != 'true'
