@@ -102,10 +102,36 @@ local function variantOf(actor)
     return nil
 end
 
+--- The simulation object an actor shows (BlamObjectSynchronizationComponent's
+--- BlamObjectIndex) as an unsigned handle, or nil.
+local OBJECT_SYNC = "/Script/BlamSynchronization.BlamObjectSynchronizationComponent"
+local objectSync
+local function objectOf(actor)
+    local ok, index = pcall(function()
+        if not (objectSync and objectSync:IsValid()) then objectSync = StaticFindObject(OBJECT_SYNC) end
+        return actor:GetComponentByClass(objectSync).BlamObjectIndex
+    end)
+    if ok and type(index) == "number" and index ~= -1 then return index % 4294967296 end
+    return nil
+end
+
+--- Whether handle `a` is a later object than `b` in the same slot of the
+--- object table: the salt (its high half) counts up each time the slot is
+--- reused, and wraps.
+function FlagMark.newer(a, b)
+    if not (a and b) or a % 65536 ~= b % 65536 then return false end
+    local sa, sb = math.floor(a / 65536), math.floor(b / 65536)
+    return sa ~= sb and (sa - sb) % 65536 < 32768
+end
+
 --- { Red = { x, y, z, r }, Blue = ... } for the flags out now. An actor gone
---- since the last look leaves the list.
+--- since the last look leaves the list. A fireteam client can keep the actor
+--- of a flag the simulation deleted where it last stood, still showing its
+--- colour, while the next flag takes the same slot (Assault on two PCs,
+--- 2026-11-07: a second, blue marker at the stand just captured from). An
+--- actor whose slot holds a later object is that leftover, and not a flag.
 local function flagsNow()
-    local out = {}
+    local found = {}
     for i = #actors, 1, -1 do
         local actor = actors[i].actor
         if not actor:IsValid() then
@@ -114,8 +140,18 @@ local function flagsNow()
             local at = actor:K2_GetActorLocation()
             local team = FlagMark.teamOf(variantOf(actor))
             if team and not FlagMark.parked(at) then
-                out[team] = { x = at.X, y = at.Y, z = at.Z, r = NEAR_CM }
+                found[#found + 1] = { team = team, at = at, object = objectOf(actor) }
             end
+        end
+    end
+    local out = {}
+    for _, flag in ipairs(found) do
+        local superseded = false
+        for _, other in ipairs(found) do
+            if FlagMark.newer(other.object, flag.object) then superseded = true end
+        end
+        if not superseded then
+            out[flag.team] = { x = flag.at.X, y = flag.at.Y, z = flag.at.Z, r = NEAR_CM }
         end
     end
     return out

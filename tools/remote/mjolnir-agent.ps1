@@ -19,8 +19,15 @@
                                               aside first, so it can be replaced
                                               while the game runs)
         GET  /list?root=R&path=P              a directory listing
+        POST /move                            move files out of the game into a backup
+                                              beside Meteorite, game closed (body:
+                                              { backup, files: [{root, path}], restore })
+        POST /shader-caches                   move the driver's and the game's shader
+                                              caches aside, game closed, so the next
+                                              start compiles as a first run does
+        POST /window?state=minimize|restore   minimize the game's window or bring it back
         POST /install-bridge                  install the bundled bridge mod
-        POST /input                           keyboard and mouse steps for the
+        POST /input                          keyboard and mouse steps for the
                                               game window (input.ps1 beside this
                                               script; steals focus while it runs)
         GET  /screenshot[?max=W]              the game window as a PNG (capture.ps1)
@@ -32,7 +39,15 @@
         POST /launcher/update                 update everything through the launcher's
                                               Updates screen (launcher.ps1, in the
                                               background; poll GET /launcher)
+        POST /launcher/uninstall?slug=S       take a hub mod off through the launcher
+                                              (launcher.ps1; poll GET /launcher)
         POST /launcher/quit                   close the launcher
+        GET  /objects?group=G                 the running game's objects as `mjolnir live
+                                              objects --tsv` writes them (mjolnir.exe
+                                              beside this script)
+        POST /teleport?player=N&x=&y=&z=      move player N's biped in this PC's game: each
+                                              PC owns its own player's position, so a
+                                              host can't move a joiner (two-PC tests)
 
     Roots: "ue4ss" (the game's UE4SS folder, Mods under it), "saved"
     (%LOCALAPPDATA%\Meteorite\Saved: crash reports, config) and "agent" (this
@@ -55,7 +70,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "9"
+$AgentVersion = "11"
 
 # --- Where things are --------------------------------------------------------
 
@@ -322,6 +337,138 @@ function Read-Request($stream) {
     return @{ method = $method; path = $path; params = $params; headers = $headers; body = $body }
 }
 
+# Move files or folders from paks and ue4ss into <install>\<backup>, keeping
+# their paths under the install, so nothing the launcher did not install hides
+# what the hub is missing. Nothing is deleted: the ledger is written before the
+# first move, and `restore` (a script's text) goes beside it. Another call to
+# the same backup adds to its ledger.
+function Move-ToBackup($spec) {
+    if ($spec.backup -notmatch '^MJOLNIR-backup-\d{8}$') { throw "backup must be MJOLNIR-backup-<yyyymmdd>" }
+    $install = [System.IO.Path]::GetFullPath($GameDir).TrimEnd("\")
+    $backup = Join-Path $install $spec.backup
+    $moves = @()
+    foreach ($file in $spec.files) {
+        if ($file.root -ne "paks" -and $file.root -ne "ue4ss") { throw "only paks and ue4ss can be moved" }
+        $from = Resolve-RootPath $file.root $file.path
+        if (-not (Test-Path -LiteralPath $from)) { throw "no such file: $($file.root)/$($file.path)" }
+        $item = Get-Item -LiteralPath $from
+        $relative = $from.Substring($install.Length + 1)
+        $moves += [pscustomobject]@{
+            path = $relative.Replace("\", "/"); dir = [bool]$item.PSIsContainer
+            size = if ($item.PSIsContainer) { -1 } else { $item.Length }
+            from = $from; to = (Join-Path $backup $relative)
+        }
+    }
+    New-Item -ItemType Directory -Force -Path $backup | Out-Null
+    $ledgerFile = Join-Path $backup "ledger.json"
+    $earlier = @()
+    if (Test-Path -LiteralPath $ledgerFile) { $earlier = @((Get-Content -LiteralPath $ledgerFile -Raw | ConvertFrom-Json).moved) }
+    $entries = @($earlier) + @($moves | Select-Object path, dir, size)
+    $ledger = @{ made = (Get-Date).ToString("s"); host = $env:COMPUTERNAME; moved = $entries }
+    [System.IO.File]::WriteAllText($ledgerFile, ($ledger | ConvertTo-Json -Depth 4), $Utf8)
+    if ($spec.restore) { [System.IO.File]::WriteAllText((Join-Path $backup "restore.ps1"), [string]$spec.restore, $Utf8) }
+    $failed = @()
+    foreach ($move in $moves) {
+        try {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $move.to) | Out-Null
+            Move-Item -LiteralPath $move.from -Destination $move.to -ErrorAction Stop
+        } catch { $failed += "$($move.path): $($_.Exception.Message)" }
+    }
+    return @{ ok = ($failed.Count -eq 0); moved = $moves.Count - $failed.Count; failed = $failed; backup = $backup }
+}
+
+# Everything a first run of the game does not have: the driver's compiled
+# shaders and the game's pipeline cache. Some bugs show only then (a Flux coast
+# whose one ground capture ran before the terrain could draw). Moved, not
+# deleted; a folder the driver holds open is reported and left.
+# The game's objects, read from outside by the MJOLNIR CLI beside this script
+# (`remote.mjs deploy-agent` puts target\release\mjolnir.exe there). One row a
+# line: index, handle, kind, group, tag, x, y, z (sim units), body, shield,
+# parent, owner ("player N"), facing in degrees, address, team.
+function Get-Objects([string]$group) {
+    $cli = Join-Path $PSScriptRoot "mjolnir.exe"
+    if (-not (Test-Path $cli)) { throw "mjolnir.exe is not beside the agent (remote.mjs deploy-agent)" }
+    if ($group -notmatch '^[a-z]{0,4}$') { throw "bad group" }
+    $out = Join-Path ([System.IO.Path]::GetTempPath()) "mjolnir-agent-objects.tsv"
+    Remove-Item $out -ErrorAction SilentlyContinue
+    $arguments = @("live", "objects", "--tsv", $out)
+    if ($group) { $arguments += @("--group", $group) }
+    $text = & $cli @arguments 2>&1 | Out-String
+    if (-not (Test-Path $out)) { throw "mjolnir live objects wrote nothing: $($text.Trim())" }
+    return [System.IO.File]::ReadAllText($out)
+}
+
+# A player's biped moved by writing its position (object +0x44, three floats,
+# sim units). The write goes only where the listing's position is found, so a
+# stale or wrong address is refused rather than written over.
+function Move-Player([int]$player, [single]$x, [single]$y, [single]$z) {
+    $game = Get-Game
+    if (-not $game) { throw "the game is not running" }
+    if (-not ("Mjolnir.Memory" -as [type])) {
+        Add-Type -Namespace Mjolnir -Name Memory -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool ReadProcessMemory(IntPtr process, IntPtr address, byte[] buffer, IntPtr size, out IntPtr done);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool WriteProcessMemory(IntPtr process, IntPtr address, byte[] buffer, IntPtr size, out IntPtr done);
+[DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+'@
+    }
+    $row = (Get-Objects "bipd") -split "`r?`n" | Where-Object { ($_ -split "`t")[11] -eq "player $player" } | Select-Object -First 1
+    if (-not $row) { throw "player $player has no biped" }
+    $c = $row -split "`t"
+    $address = [IntPtr][Convert]::ToInt64($c[13], 16)
+    $listed = @([double]$c[5], [double]$c[6], [double]$c[7])
+    $process = [Mjolnir.Memory]::OpenProcess(0x38, $false, $game.Id)
+    if ($process -eq [IntPtr]::Zero) { throw "OpenProcess refused" }
+    try {
+        $buffer = New-Object byte[] 12
+        $done = [IntPtr]::Zero
+        if (-not [Mjolnir.Memory]::ReadProcessMemory($process, [IntPtr]($address.ToInt64() + 0x44), $buffer, [IntPtr]12, [ref]$done)) { throw "could not read the biped" }
+        $before = @(0, 4, 8 | ForEach-Object { [BitConverter]::ToSingle($buffer, $_) })
+        for ($i = 0; $i -lt 3; $i++) {
+            if ([Math]::Abs($before[$i] - $listed[$i]) -gt 0.05) { throw "+0x44 reads $($before -join ' '), not the listed $($listed -join ' '): not writing" }
+        }
+        $bytes = [BitConverter]::GetBytes($x) + [BitConverter]::GetBytes($y) + [BitConverter]::GetBytes($z)
+        if (-not [Mjolnir.Memory]::WriteProcessMemory($process, [IntPtr]($address.ToInt64() + 0x44), [byte[]]$bytes, [IntPtr]12, [ref]$done)) { throw "could not write the biped" }
+    } finally { [void][Mjolnir.Memory]::CloseHandle($process) }
+    return @{ ok = $true; player = $player; before = $before; after = @($x, $y, $z) }
+}
+
+function Move-ShaderCaches {
+    $low = Join-Path (Split-Path -Parent $env:LOCALAPPDATA) "LocalLow"
+    $aside = Join-Path $env:LOCALAPPDATA ("MJOLNIR-shader-cache-aside\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+    $caches = @(
+        (Join-Path $env:LOCALAPPDATA "D3DSCache"),
+        (Join-Path $env:LOCALAPPDATA "NVIDIA\DXCache"),
+        (Join-Path $env:LOCALAPPDATA "NVIDIA\GLCache"),
+        (Join-Path $low "NVIDIA\PerDriverVersion\DXCache"),
+        (Join-Path $env:LOCALAPPDATA "AMD\DxCache"),
+        (Join-Path $env:LOCALAPPDATA "AMD\DxcCache"),
+        (Join-Path $Roots.saved "Meteorite_PCD3D_SM6.upipelinecache")
+    )
+    $moved = @(); $failed = @(); $n = 0
+    New-Item -ItemType Directory -Force -Path $aside | Out-Null
+    foreach ($cache in $caches) {
+        if (-not (Test-Path -LiteralPath $cache)) { continue }
+        $n += 1
+        $to = Join-Path $aside "$n-$(Split-Path -Leaf $cache)"
+        try {
+            Move-Item -LiteralPath $cache -Destination $to -ErrorAction Stop
+            $moved += $cache
+        } catch {
+            # A service holds a file in it (NVIDIA's DXCache): the rest can go
+            # one by one, which is all the game's own entries need.
+            New-Item -ItemType Directory -Force -Path $to | Out-Null
+            $held = 0; $took = 0
+            foreach ($item in @(Get-ChildItem -LiteralPath $cache -Force -ErrorAction SilentlyContinue)) {
+                try { Move-Item -LiteralPath $item.FullName -Destination $to -ErrorAction Stop; $took += 1 } catch { $held += 1 }
+            }
+            $moved += "$cache ($took moved, $held held open)"
+            if ($took -eq 0) { $failed += "${cache}: $($_.Exception.Message)" }
+        }
+    }
+    return @{ ok = ($failed.Count -eq 0); moved = $moved; failed = $failed; aside = $aside }
+}
+
 function Handle($request, $stream) {
     $p = $request.params
     switch ("$($request.method) $($request.path)") {
@@ -389,6 +536,29 @@ function Handle($request, $stream) {
             })
             Send-Json $stream 200 @{ items = $items }
         }
+        "POST /move" {
+            if (Get-Game) { Send-Json $stream 409 @{ error = "close the game first" }; return }
+            $spec = $Utf8.GetString($request.body) | ConvertFrom-Json
+            Send-Json $stream 200 (Move-ToBackup $spec)
+        }
+        "POST /window" {
+            $game = Get-Game
+            if (-not $game) { Send-Json $stream 409 @{ error = "the game is not running" }; return }
+            if (-not ("Mjolnir.Window" -as [type])) {
+                Add-Type -Namespace Mjolnir -Name Window -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool ShowWindowAsync(System.IntPtr window, int command);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsIconic(System.IntPtr window);
+'@
+            }
+            $command = if ($p["state"] -eq "restore") { 9 } else { 6 }   # SW_RESTORE, SW_MINIMIZE
+            [void][Mjolnir.Window]::ShowWindowAsync($game.MainWindowHandle, $command)
+            Start-Sleep -Milliseconds 300
+            Send-Json $stream 200 @{ ok = $true; minimized = [Mjolnir.Window]::IsIconic($game.MainWindowHandle) }
+        }
+        "POST /shader-caches" {
+            if (Get-Game) { Send-Json $stream 409 @{ error = "close the game first" }; return }
+            Send-Json $stream 200 (Move-ShaderCaches)
+        }
         "POST /install-bridge" { Send-Json $stream 200 @{ ok = $true; note = (Install-Bridge) } }
         "POST /input" {
             $script = Join-Path $PSScriptRoot "input.ps1"
@@ -443,6 +613,16 @@ function Handle($request, $stream) {
             if (-not (Test-Path $out)) { throw "--check-updates wrote nothing (a launcher older than 0.17.0?)" }
             Send-Response $stream 200 ([System.IO.File]::ReadAllBytes($out))
         }
+        "POST /launcher/uninstall" {
+            if ($script:LauncherRun -and -not $script:LauncherRun.HasExited) { Send-Json $stream 200 @{ ok = $false; error = "a launcher run is already going" }; return }
+            if (Get-Game) { Send-Json $stream 200 @{ ok = $false; error = "the game is running; quit it first" }; return }
+            if ($p["slug"] -notmatch '^[a-z0-9-]+$') { Send-Json $stream 200 @{ ok = $false; error = "bad slug" }; return }
+            $script = Join-Path $PSScriptRoot "launcher.ps1"
+            $exe = Get-LauncherExe
+            $script:LauncherRun = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$script`"", "-Exe", "`"$exe`"", "-Uninstall", $p["slug"])
+            Send-Json $stream 200 @{ ok = $true; note = "uninstalling $($p["slug"]) through $exe" }
+        }
         "POST /launcher/update" {
             if ($script:LauncherRun -and -not $script:LauncherRun.HasExited) { Send-Json $stream 200 @{ ok = $false; error = "an update is already running" }; return }
             if (Get-Game) { Send-Json $stream 200 @{ ok = $false; error = "the game is running; quit it first" }; return }
@@ -452,6 +632,15 @@ function Handle($request, $stream) {
             $script:LauncherRun = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @(
                 "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$script`"", "-Exe", "`"$exe`"")
             Send-Json $stream 200 @{ ok = $true; note = "updating through $exe (pid $($script:LauncherRun.Id)); poll GET /launcher" }
+        }
+        "GET /objects" {
+            if (-not (Get-Game)) { Send-Json $stream 409 @{ error = "the game is not running" }; return }
+            Send-Response $stream 200 ($Utf8.GetBytes((Get-Objects ([string]$p["group"])))) "text/tab-separated-values"
+        }
+        "POST /teleport" {
+            $invariant = [System.Globalization.CultureInfo]::InvariantCulture
+            Send-Json $stream 200 (Move-Player ([int]$p["player"]) ([single]::Parse($p["x"], $invariant)) `
+                ([single]::Parse($p["y"], $invariant)) ([single]::Parse($p["z"], $invariant)))
         }
         "POST /launcher/quit" {
             $running = @(Get-Process mjolnir-launcher -ErrorAction SilentlyContinue)

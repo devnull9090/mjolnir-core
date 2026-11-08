@@ -40,6 +40,8 @@ local textures = {}            -- code -> { name = texture path, file = cover id
 local registered = {}          -- code -> true once its row is in this session
 local job = nil                -- the install in flight
 local releases = { byCode = {}, at = nil }   -- MapLive.release's cache
+local worlds = { byCode = {}, asked = {}, at = nil, failed = false }   -- MapLive.worlds' answers
+local WORLD_SECONDS = 10
 
 local function readFile(path)
     local f = io.open(path, "rb")
@@ -351,10 +353,62 @@ function MapLive.mount(paks)
     end
     os.remove(loaderNative .. "mount_reply.txt")
     local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_mount_paks")
+    worlds.at = nil
     if not ok then return false, err end
     local reply = (readFile(loaderNative .. "mount_reply.txt") or "error no reply"):gsub("%s+$", "")
     if reply:match("^ok") then return true end
     return false, reply:gsub("^error ", "")
+end
+
+--- Whether each map in `codes` has its world in a container this game
+--- mounted: { [code] = true or false }, from the map registry's index of
+--- every container in Paks, the lookup a start's travel takes. A map listed
+--- in a maps.json without its containers (a leftover of `mjolnir level bake
+--- --install-test`) starts a countdown that never travels: the host waits on
+--- MISSION SELECT and the fireteam on STARTING THE NEXT GAME (two PCs,
+--- 2026-11-07). nil when the native half cannot say: before MapLive.init, an
+--- MJOLNIRLevelLoader from before mjolnir_worlds_known, or no index yet.
+--- Asked again after WORLD_SECONDS, after a mount, for a code not asked
+--- about yet, or when `fresh`; a native half that could not answer is asked
+--- again only after WORLD_SECONDS (the lists ask several times a second).
+function MapLive.worlds(codes, fresh)
+    if not loaderNative then return nil end
+    local due = fresh or not worlds.at or os.clock() - worlds.at > WORLD_SECONDS
+    local names = {}
+    for _, code in ipairs(codes) do
+        if type(code) == "string" and code:match("^[%w_]+$") then
+            names[#names + 1] = code
+            if not worlds.asked[code] and not worlds.failed then due = true end
+        end
+    end
+    if due and #names > 0 then
+        worlds.at, worlds.failed = os.clock(), true
+        if writeFile(loaderNative .. "world_request.txt", table.concat(names, "\n") .. "\n") then
+            os.remove(loaderNative .. "world_reply.txt")
+            local ok, why = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_worlds_known")
+            local reply = ok and readFile(loaderNative .. "world_reply.txt") or ("error " .. tostring(why))
+            if not reply:match("^ok") and not worlds.warned then
+                worlds.warned = true
+                log("map worlds: cannot check (" .. reply:gsub("^error ", ""):gsub("%s+$", "")
+                    .. "), so every listed map is offered until it can")
+            end
+            if reply:match("^ok") then
+                worlds.failed = false
+                for _, name in ipairs(names) do worlds.asked[name] = true end
+                for code, known in reply:gmatch("([%w_]+) ([01])") do
+                    if known == "0" and worlds.byCode[code] ~= false then
+                        log("map " .. code .. ": its world is in no container here, so it is not offered or started "
+                            .. "(a maps.json entry without its map, such as a leftover of mjolnir level bake --install-test)")
+                    end
+                    worlds.byCode[code] = known == "1"
+                end
+            end
+        end
+    end
+    if worlds.failed then return nil end
+    local out = {}
+    for _, code in ipairs(codes) do out[code] = worlds.byCode[code] end
+    return out
 end
 
 -------------------------------------------------------------------------------

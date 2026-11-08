@@ -24,6 +24,10 @@ eq(Hill.describe(hill, { X = -2500, Y = 0, Z = 0 }, 180), "HILL 20 M BEHIND", "b
 eq(Hill.describe(hill, { X = 0, Y = -2500, Z = 0 }, 0), "HILL 20 M RIGHT", "Unreal: +Y is to the right of +X")
 eq(Hill.describe(hill, { X = 0, Y = 2500, Z = 0 }, 0), "HILL 20 M LEFT", "and -Y to the left")
 eq(Hill.describe(hill, { X = -2500, Y = 0, Z = -1000 }, 0), "HILL 20 M AHEAD ABOVE", "a floor up")
+local inside, metres, _, level = Hill.bearing(hill, { X = 120, Y = 0, Z = -900 }, 0)
+eq(inside, true, "under the hill, inside its circle")
+eq(metres, 0, "is no distance from its edge, never a negative one")
+eq(level, " ABOVE", "and it is above")
 
 local panels = Hill.panels({ x = 100, y = 200, z = 0, r = 800 })
 eq(#panels, 34, "a panel about every 150 cm")

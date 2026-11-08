@@ -323,6 +323,15 @@ found once when bots start, and actors made later arrive through
 `NotifyOnNewObject`. Scanning six classes every tick held the game thread
 135 ms three times a second.
 
+Spartans have no pool waiting: their class has actors only once someone has
+spawned, and bots start 3 s into a match. `NotifyOnNewObject` needs a class's
+path, so `bots.lua` keeps that one by name and loads the class first. Without
+that, a match starting before the first spawn (Forge on Yoyorast) saw none of
+its Spartan bots: each placement looked like a squad the map lacks, so each bot
+was placed four times and given up on, thirty-two AI with no seat on the board.
+As a backstop, a placement that times out while a class is unwatched scans once
+before placing again, and a try that gives up erases its squad.
+
 ## Names on the clients
 
 A client hears bot seats in the host's relayed incidents

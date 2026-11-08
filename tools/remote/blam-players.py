@@ -5,10 +5,13 @@ HaloSimulation_tag_release.dll, +0x30; 0x4b0 bytes a player; the game globals
 at +0x60). This walks every thread of HaloCampaignEvolved, finds the one with
 a running game, and prints each player: salt, flags (+4: bit 0 active, bit 3
 waiting for its first spawn, 0x8000 joined in progress), machine (+0x1a) and
-unit (+0x28, -1 = no biped). tools/remote/jip-test.mjs reads it to tell a
+unit (+0x28, -1 = no biped) and
+team (the options entry's +0xa8). tools/remote/jip-test.mjs reads it to tell a
 joiner that spawned from one that did not. Read-only.
 
-    python tools/remote/blam-players.py [--json]
+    python tools/remote/blam-players.py [--json] [--pid N]
+
+--pid picks one copy when several run (tools/remote/instances.mjs).
 """
 import ctypes
 import ctypes.wintypes as w
@@ -31,8 +34,11 @@ class THREADENTRY32(ctypes.Structure):
 
 
 def main():
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process HaloCampaignEvolved).Id"],
-                         capture_output=True, text=True).stdout.strip()
+    if "--pid" in sys.argv:
+        out = sys.argv[sys.argv.index("--pid") + 1]
+    else:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process HaloCampaignEvolved).Id"],
+                             capture_output=True, text=True).stdout.strip()
     if not out:
         print(json.dumps({"error": "the game is not running"}) if "--json" in sys.argv else "the game is not running")
         return 1
@@ -87,12 +93,22 @@ def main():
                     capacity = struct.unpack("<i", read(players + 0x2c, 4))[0]
                     for i in range(min(capacity, 16)):
                         e = read(data + i * 0x4b0, 0x30)
+                        tail = read(data + i * 0x4b0 + 0xa8, 8) or bytes(8)
+                        team_index = read(data + i * 0x4b0 + 0x4a4, 4)
                         salt = struct.unpack_from("<H", e, 0)[0]
                         if salt:
+                            # The game's options entry for this slot (0xb0 apart from
+                            # game globals +0x2e0) holds the team at +0xa8.
+                            team = read(g + 0x2e0 + i * 0xb0 + 0xa8, 1)
                             result["players"].append({
                                 "index": i, "salt": salt, "flags": struct.unpack_from("<I", e, 4)[0],
                                 "machine": struct.unpack_from("<h", e, 0x1a)[0],
                                 "unit": struct.unpack_from("<i", e, 0x28)[0],
+                                "team": struct.unpack("<b", team)[0] if team else None,
+                                # The player's own record: the team it asked for (+0xad)
+                                # and the team it is on (+0x4a4).
+                                "requested": struct.unpack_from("<b", tail, 5)[0],
+                                "on": struct.unpack("<i", team_index)[0] if team_index else None,
                             })
                     result["machines"] = struct.unpack("<I", read(g + 0x26c, 4))[0]
             if thread:
@@ -104,7 +120,7 @@ def main():
         if not result["players"]:
             print("no running game")
         for p in result["players"]:
-            print(f"player {p['index']}: salt {p['salt']:04x} flags {p['flags']:08x} machine {p['machine']} unit {p['unit']}")
+            print(f"player {p['index']}: salt {p['salt']:04x} flags {p['flags']:08x} machine {p['machine']} unit {p['unit']} team {p['team']} requested {p['requested']} on {p['on']}")
     return 0
 
 

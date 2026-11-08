@@ -107,7 +107,9 @@ function Hill.bearing(spot, at, yaw)
     else
         way = "RIGHT"
     end
-    return flat <= spot.r, math.floor((flat - spot.r) / CM_PER_METRE + 0.5), way, level
+    -- Inside the circle on another floor the edge is no distance away: a joiner
+    -- waiting to spawn under the hill read "-8 M ABOVE" (two PCs, 2026-11-07).
+    return flat <= spot.r, math.max(0, math.floor((flat - spot.r) / CM_PER_METRE + 0.5)), way, level
 end
 
 --- The line for a player at `at` looking along `yaw`: the hill's distance and

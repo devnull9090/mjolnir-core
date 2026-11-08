@@ -93,8 +93,23 @@ function findInstall() {
   return null;
 }
 
-const FOUND = findInstall();
-const INSTALL = FOUND?.root ?? null;
+let FOUND = findInstall();
+let INSTALL = FOUND?.root ?? null;
+
+/**
+ * Point every tool at another copy of the game (tools/remote/instances.mjs
+ * runs several on one PC, each with its own install folder and bridge).
+ */
+function setInstall(root) {
+  for (const binaries of ["Win64", "WinGDK"]) {
+    if (fs.existsSync(path.join(root, "Meteorite", "Binaries", binaries, EXE_NAME))) {
+      FOUND = { root, binaries };
+      INSTALL = root;
+      return;
+    }
+  }
+  throw new Error(`no ${EXE_NAME} under ${root}`);
+}
 
 function paths() {
   if (!INSTALL) {
@@ -838,4 +853,4 @@ export async function callTool(name, args = {}) {
   }
 }
 
-export { INSTALL, paths, bridgeCall, bridgeStatus, gameProcess, log };
+export { INSTALL, paths, setInstall, bridgeCall, bridgeStatus, gameProcess, log };

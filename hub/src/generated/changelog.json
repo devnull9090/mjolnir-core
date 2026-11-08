@@ -39,6 +39,104 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.46.4",
+      "tag": "mods-v0.46.4",
+      "title": "The reason stays on screen",
+      "date": "2026-11-07",
+      "summary": "A player the host starts without, or kicks from the post-game vote, now always sees why and the map's download, with no stray vote over it.",
+      "body": "### Fixed\n\nIn MJOLNIRLobby 0.23.1.\n\n- **The reason could vanish.** When the host started a map you don't have, or\n  sent you back from the post-game vote, you left the fireteam and the game\n  loaded the main menu again. If that reload came late, the screen telling you\n  why, with the map's download, went with it, and you saw only the main menu.\n  It now waits for the fresh main menu before it appears.\n- **A vote of your own on the match just played.** Back on your own menu soon\n  after a match you joined, your game could open a post-game vote of its own\n  on that match and put it over the reason you were sent back. Only the\n  host's vote is shown now.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The reason could vanish. When the host started a map you don't have, or sent you back from the post-game vote, you left the fireteam and the game loaded the main menu again. If that reload came late, the screen telling you why, with the map's download, went with it, and you saw only the main menu. It now waits for the fresh main menu before it appears.",
+            "A vote of your own on the match just played. Back on your own menu soon after a match you joined, your game could open a post-game vote of its own on that match and put it over the reason you were sent back. Only the host's vote is shown now."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.4",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.4.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.4"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.46.3",
+      "tag": "mods-v0.46.3",
+      "title": "Leaving means leaving",
+      "date": "2026-11-07",
+      "summary": "A host who quits goes to the lobby, not a new match; the vote offers only maps that are really installed; a joiner without the map is told why.",
+      "body": "### Fixed\n\nIn MJOLNIRLobby 0.23.0 and MJOLNIRLevelLoader 0.12.2.\n\n- **Quitting started another match.** A host who chose SAVE AND EXIT could land\n  on the post-game vote, and with nobody voting the next match started 20\n  seconds later. Leaving a match now takes the host to the lobby with no vote.\n  A match that ends on its own still votes and starts the winner as before.\n- **The vote could pick a map that wasn't there.** A map listed but not really\n  installed could win the vote, leaving the host on MISSION SELECT and everyone\n  else on STARTING THE NEXT GAME. Such a map is no longer listed or offered, and\n  if a chosen game can't start, everyone goes back to the lobby with the reason.\n- **A joiner without the map saw only CONNECTION LOST.** When the host starts a\n  map you don't have, or a different version of it, you still leave the\n  fireteam, but now you're told which map it was and get its download screen:\n  DOWNLOAD installs it without a restart, then you can join the host again. A\n  kick from the host now shows the host's reason too.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Quitting started another match. A host who chose SAVE AND EXIT could land on the post-game vote, and with nobody voting the next match started 20 seconds later. Leaving a match now takes the host to the lobby with no vote. A match that ends on its own still votes and starts the winner as before.",
+            "The vote could pick a map that wasn't there. A map listed but not really installed could win the vote, leaving the host on MISSION SELECT and everyone else on STARTING THE NEXT GAME. Such a map is no longer listed or offered, and if a chosen game can't start, everyone goes back to the lobby with the reason.",
+            "A joiner without the map saw only CONNECTION LOST. When the host starts a map you don't have, or a different version of it, you still leave the fireteam, but now you're told which map it was and get its download screen: DOWNLOAD installs it without a restart, then you can join the host again. A kick from the host now shows the host's reason too."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.3"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.46.2",
+      "tag": "mods-v0.46.2",
+      "title": "Everyone where they really are",
+      "date": "2026-11-07",
+      "summary": "The HUD now finds other players where they actually stand, so hill, Juggernaut and flag markers and the scoreboard agree on every PC in a match, the host's and a joiner's alike.",
+      "body": "### Fixed\n\nAll in MJOLNIRHud 0.17.2.\n\n- **A contested hill never showed.** With two players on the hill, both HUDs\n  still said ON THE HILL while the game had stopped scoring. HILL CONTESTED now\n  shows, and so does the colour of a hill someone else holds.\n- **Markers pointed at the middle of the map.** A Juggernaut, Reverse Tag or\n  Stalker marker for another player sat at the map's centre, or didn't show at\n  all for someone who joined. It now follows that player.\n- **A joiner's scoreboard didn't know the teams.** Someone who joined saw the\n  host under AWAITING ASSIGNMENT and, for their first life, had no team of their\n  own: no \"/ YOU\" and no Assault ATTACK or DEFEND line. Every team now shows from\n  the start.\n- **A second flag in Assault.** After a capture, a joiner could keep a ghost of\n  the old flag, which drew a second marker and stopped the sides-swap clock at\n  0:00. Only the real flag shows now.\n- **A negative distance to the hill.** Standing under the hill, on another\n  floor, read \"-8 M ABOVE\". It now reads 0 M, since you are already inside its\n  circle and only need to go up or down.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "A contested hill never showed. With two players on the hill, both HUDs still said ON THE HILL while the game had stopped scoring. HILL CONTESTED now shows, and so does the colour of a hill someone else holds.",
+            "Markers pointed at the middle of the map. A Juggernaut, Reverse Tag or Stalker marker for another player sat at the map's centre, or didn't show at all for someone who joined. It now follows that player.",
+            "A joiner's scoreboard didn't know the teams. Someone who joined saw the host under AWAITING ASSIGNMENT and, for their first life, had no team of their own: no \"/ YOU\" and no Assault ATTACK or DEFEND line. Every team now shows from the start.",
+            "A second flag in Assault. After a capture, a joiner could keep a ghost of the old flag, which drew a second marker and stopped the sides-swap clock at 0:00. Only the real flag shows now.",
+            "A negative distance to the hill. Standing under the hill, on another floor, read \"-8 M ABOVE\". It now reads 0 M, since you are already inside its circle and only need to go up or down."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.2"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.46.1",
+      "tag": "mods-v0.46.1",
+      "title": "Bots on the board, and a sea that repairs itself",
+      "date": "2026-11-07",
+      "summary": "Spartan bots stop multiplying unseen, a coast that loads with no sea takes its ground again by itself, and King's hill gets its glow with CE runtime 1.19.0.",
+      "body": "### Fixed\n\n- **Spartan bots missing from the board** (MJOLNIRHud 0.17.1). When a match's\n  bots started before anyone had spawned, as in Forge, the game could not see its\n  own Spartan bots. Each was placed four times and then given up on, so eight\n  bots became thirty-two, none of them on the board and none of them directed.\n  You now get the number you asked for, and they all show on the board.\n- **A map with no sea** (MJOLNIRLevelLoader 0.12.1). Yoyorast Island could load\n  with bare sand where the sea should be, the water stopping dead at a straight\n  line. A coast takes its picture of the ground once, as it loads, and if that\n  came out empty the sea had nothing to work from. The loader now checks the\n  result and takes it again, up to three times. `mjolnir_flux_recapture` does\n  the same from the console.\n\n### Changed\n\n- **King's hill glows.** The hill's energy field and beacon were finished but\n  never reached players, who got the plasma hill instead. They ship in CE\n  runtime 1.19.0, which the launcher installs. The hill keeps its plasma look\n  until then, and nothing else about King changes.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Spartan bots missing from the board (MJOLNIRHud 0.17.1). When a match's bots started before anyone had spawned, as in Forge, the game could not see its own Spartan bots. Each was placed four times and then given up on, so eight bots became thirty-two, none of them on the board and none of them directed. You now get the number you asked for, and they all show on the board.",
+            "A map with no sea (MJOLNIRLevelLoader 0.12.1). Yoyorast Island could load with bare sand where the sea should be, the water stopping dead at a straight line. A coast takes its picture of the ground once, as it loads, and if that came out empty the sea had nothing to work from. The loader now checks the result and takes it again, up to three times. mjolnirfluxrecapture does the same from the console."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "King's hill glows. The hill's energy field and beacon were finished but never reached players, who got the plasma hill instead. They ship in CE runtime 1.19.0, which the launcher installs. The hill keeps its plasma look until then, and nothing else about King changes."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.46.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.46.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.46.1"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.10.0",
