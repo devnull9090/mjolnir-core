@@ -2832,6 +2832,8 @@ static void inject_players(void);
 static int inject_needed(void);
 
 static void seats_tick(void);
+static void client_teams_tick(void);
+static void tracker_teams_tick(void);
 
 static void __fastcall hook_main_tick(void) {
     if (trace_on) trace_tick();
@@ -2842,6 +2844,13 @@ static void __fastcall hook_main_tick(void) {
     }
     if (fade_in_pending) fade_in_tick();
     if (script_pending) script_tick();
+    __try {
+        client_teams_tick();
+        tracker_teams_tick();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        static int said;
+        if (!said++) fireteam_log("teams: the client and tracker team fixes faulted (%08lx)", GetExceptionCode());
+    }
     if (teams_pending || teams_installed || team_wanted_count) {
         __try {
             teams_tick();
@@ -3641,6 +3650,155 @@ static int smaller_team(unsigned char *g, int self) {
         if (t == 0 || t == 1) count[t]++;
     }
     return count[1] < count[0] ? 1 : 0;
+}
+
+/* --- Clients: each player's team as the host has it (#350) ----------------
+
+   The game's own motion tracker calls a blip friendly when the two actors'
+   Unreal team components hold the same two bytes (UBlamGameTeamComponent
+   +0xa8 allegiance, +0xa9 multiplayer team; exe 0x7cb0b00, called for each
+   blip by exe 0x7cb13f0, which stores the answer at blip +0x39). The
+   multiplayer byte is the unit's +0x1bb (snapshot record +0x81, exe
+   0x7a18f30), which sim 0x182cb0 copies from its player's +0xad every tick.
+
+   On the host +0xad is the team the game put the player on. On a client it
+   is the team in the configuration the client was sent (sim 0x1823c0, from
+   configuration +0x88), and that can be the player's seat number: the
+   session numbers a team game's members 0, 1, 2, 3 (the playtest's "2:t2->t0
+   3:t3->t1") and only the list the host publishes is re-teamed
+   (teams_balance, inject_players). Test copies showed it: seat 2, red on the
+   host, was team 2 on both joining copies, its own biped read Green there,
+   and its tracker drew its red teammate as an enemy.
+
+   So on a client in a multiplayer game (game globals +0x10 == 3, +0x11 == 4,
+   distributed client), every tick,
+   a player whose +0xad differs from the host's team for them gets the host's
+   team: the entry for them in the players list the host published (session
+   +0x45f8, 16 entries of 0xb0, identifier +0x12 = player +8, team +0xa8).
+   A test copy's joiners never reach that list (the simulation adds them
+   itself), so there, in a team game, a joined-in-progress player takes the
+   team the host's player-new hook sends as +0x4a4. A free-for-all needs
+   nothing: the list numbers its players by slot and so does the
+   configuration (0, 1, 2 on host and clients alike), so every other player
+   is on another team and the tracker draws them all as enemies, as the
+   host's does. Only +0xad is written; the unit, the
+   snapshot and the component follow within a tick. The host is never
+   touched, so its balancer (sim 0x2b3f50, which counts +0xad) and its own
+   team changes (sim 0x1823c0) see what they always did. A configuration
+   update that puts the seat number back is undone on the next tick. */
+static unsigned char *players_list_session(void) {
+    /* The simulation session with peers and a players list (+0x4580 set),
+       the client's (state +0x5b460 == 4) first. Not joined_session(): its
+       own peer's +0x174 is 1 only while joining, and read 2 in a running
+       game on one test copy, so that lookup found no session there. */
+    find_sim_sessions();
+    if (!sim_sessions || !*sim_sessions) return NULL;
+    unsigned char *found = NULL;
+    for (int si = 0; si < 2; si++) {
+        unsigned char *s = *sim_sessions + si * 0x5b9e8;
+        if (!*(unsigned *)(s + 0x5c) || !s[0x4580]) continue;
+        if (*(int *)(s + 0x5b460) == 4) return s;
+        if (!found) found = s;
+    }
+    return found;
+}
+
+static void client_teams_tick(void) {
+    unsigned char *g = sim_game_globals();
+    if (!g || !g[1] || g[0x10] != 3 || g[0x11] != 4) return;
+    unsigned char *players = sim_tls_slot(0x30);
+    unsigned char *data = players ? *(unsigned char **)(players + 0x50) : NULL;
+    if (!data) return;
+    unsigned char *session = players_list_session();
+    unsigned char *list = session ? session + 0x45f8 : NULL;
+    /* The test copy fallback is for team games only. In a free-for-all
+       nobody sets +0x4a4 (the balancer runs only with teams on), so it reads
+       0 for every player and put them all on team 0: friends on the tracker.
+       The lobby writes team_game.txt on a joiner from the host's "starting"
+       (the session's variant and the client's game globals say teams off in
+       team games too), read again every two seconds. */
+    static int team_game;
+    static DWORD team_game_read;
+    if (test_instance() && GetTickCount() - team_game_read > 2000) {
+        team_game_read = GetTickCount();
+        team_game = lobby_team_game(NULL);
+    }
+    static unsigned short said[16];
+    for (int i = 0; i < 16; i++) {
+        unsigned char *p = data + (size_t)i * 0x4b0;
+        if (!*(unsigned short *)p) continue;
+        unsigned long long id = *(unsigned long long *)(p + 8);
+        int team = -1;
+        const char *from = "the host's players list";
+        for (int e = 0; list && e < 16; e++) {
+            unsigned char *entry = list + e * 0xb0;
+            if (entry[0] && *(unsigned long long *)(entry + 0x12) == id) {
+                team = (signed char)entry[0xa8];
+                break;
+            }
+        }
+        if (team < 0 && test_instance() && team_game && (*(unsigned *)(p + 4) & 0x8000)) {
+            int sent = *(int *)(p + 0x4a4);
+            if (sent == 0 || sent == 1) team = sent, from = "the test copy host's team";
+        }
+        if (team < 0 || team > 15 || p[0xad] == (unsigned char)team) continue;
+        unsigned short change = (unsigned short)(p[0xad] << 8 | team);
+        if (said[i] != change) {
+            said[i] = change;
+            fireteam_log("teams: client: player %d was on team %d, the host has them on %d (%s)", i,
+                         (signed char)p[0xad], team, from);
+        }
+        p[0xad] = (unsigned char)team;
+    }
+}
+
+/* The motion tracker's team test (#350), exe 0x7cb0b00. With the game's
+   allegiance subsystem in place (BlamGameAllegianceSubsystem, a game
+   instance subsystem, there in every match; its ally rows at +0xb8 allow
+   each allegiance only itself) the test reads the allegiance bytes, and an
+   allegiance of 0xFF on either side is hostile outright. Every player of a
+   Megalo game has allegiance 0xFF (P+0xac, sim 0x1823c0), so every tracker
+   drew every player as an enemy. The host's tracker was right only with bots
+   in: the bot team table gives its players a campaign team (teams_players).
+
+   The two jumps that make 0xFF hostile (`je` at exe 0x7cb0c86 and 0x7cb0c8c,
+   to the `bl = 1` at 0x7cb0cb2) are moved four bytes on, past that store, so
+   the result is the test's own comparison of both bytes, which it made
+   first: two players are friends when their multiplayer teams are equal. An
+   actor with a real allegiance still differs from one with none, so a
+   campaign player (allegiance 1) sees what it always did; the jumps are put
+   back whenever no multiplayer game runs (game globals +0x10 != 3). */
+static const unsigned char TRACKER_TEST[] = {0x4C, 0x8B, 0xC0, 0x48, 0x85, 0xC0, 0x74, 0x3D, 0x8B, 0x48, 0x08,
+                                             0x0F, 0xBA, 0xE1, 0x1E, 0x72, 0x34, 0x40, 0x80, 0xFF, 0xFF, 0x74,
+                                             0x2A, 0x41, 0x80, 0xFE, 0xFF, 0x74, 0x24, 0x41, 0x3A, 0xFE};
+#define TRACKER_JE_SELF 22  /* rel8 of `je` after `cmp dil, 0xff` */
+#define TRACKER_JE_OTHER 28 /* rel8 of `je` after `cmp r14b, 0xff` */
+static unsigned char *tracker_test;
+static int tracker_test_on;
+
+static void tracker_teams_tick(void) {
+    static int looked;
+    if (!looked) {
+        looked = 1;
+        int hits;
+        tracker_test = find_in_module((unsigned char *)GetModuleHandleA(NULL), TRACKER_TEST, NULL,
+                                      sizeof TRACKER_TEST, 1, &hits);
+        fireteam_log("teams: the motion tracker's team test %s (%d matches)", tracker_test ? "found" : "not found",
+                     hits);
+    }
+    if (!tracker_test) return;
+    unsigned char *g = sim_game_globals();
+    int want = g && g[1] && g[0x10] == 3;
+    if (want == tracker_test_on) return;
+    DWORD old;
+    if (!VirtualProtect(tracker_test, sizeof TRACKER_TEST, PAGE_EXECUTE_READWRITE, &old)) return;
+    tracker_test[TRACKER_JE_SELF] = want ? 0x2E : 0x2A;
+    tracker_test[TRACKER_JE_OTHER] = want ? 0x28 : 0x24;
+    VirtualProtect(tracker_test, sizeof TRACKER_TEST, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), tracker_test, sizeof TRACKER_TEST);
+    tracker_test_on = want;
+    fireteam_log("teams: the motion tracker compares %s", want ? "multiplayer teams (a multiplayer game)"
+                                                               : "allegiances only (the game's own test)");
 }
 
 /* --- Test copies: a team for each joining copy ----------------------------
