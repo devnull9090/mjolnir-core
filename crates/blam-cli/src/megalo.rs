@@ -174,11 +174,11 @@ pub struct WriteArgs {
     #[arg(long = "require-label", value_name = "LABEL")]
     pub require_labels: Vec<String>,
     /// Put CE's vehicle set labels (`ce_<type>_<rank>`, VEHICLE_SET_TYPES x
-    /// 1..=VEHICLE_SET_RANKS) in the string table, and write
-    /// `<out>.layout.json` beside the variant: the bit its object filters
-    /// begin at, the filters it has, and each label's string index, from
-    /// which MJOLNIRLevelLoader adds a map's vehicle set filters when a
-    /// match starts.
+    /// 1..=VEHICLE_SET_RANKS) and the spawn set labels (`spawn_set_<k>`,
+    /// 0..SPAWN_SET_POOL) in the string table, and write `<out>.layout.json`
+    /// beside the variant: the bit its object filters begin at, the filters
+    /// it has, and each label's string index, from which MJOLNIRLevelLoader
+    /// adds a map's spawn and vehicle set filters when a match starts.
     #[arg(long)]
     pub vehicle_label_pool: bool,
     #[command(flatten)]
@@ -286,6 +286,9 @@ pub const VEHICLE_SET_TYPES: [&str; 7] = [
 /// Ranks per category and team (`ce_<type>_<rank>`); a map's further ones
 /// share the last.
 pub const VEHICLE_SET_RANKS: u8 = 10;
+/// Spawn set labels (`spawn_set_<k>`, 0..SPAWN_SET_POOL), as
+/// tools/level/gen_ce_level.py gives a map's hidden spawn points (#360).
+pub const SPAWN_SET_POOL: u8 = 16;
 
 pub fn run(a: MegaloArgs) -> Result<()> {
     match a.command {
@@ -433,6 +436,17 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                         };
                         pool.insert(label, serde_json::json!(i));
                     }
+                }
+                for k in 0..SPAWN_SET_POOL {
+                    let label = format!("spawn_set_{k}");
+                    let i = match v.strings.iter().position(|s| *s == label) {
+                        Some(i) => i,
+                        None => {
+                            v.strings.push(label.clone());
+                            v.strings.len() - 1
+                        }
+                    };
+                    pool.insert(label, serde_json::json!(i));
                 }
                 if v.strings.len() > 127 {
                     anyhow::bail!("{} strings; the table holds at most 127", v.strings.len());

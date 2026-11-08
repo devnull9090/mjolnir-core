@@ -120,7 +120,8 @@ pub fn sanitize(name: &str) -> String {
 }
 
 /// Halo 2's game type enum (player starts, netgame equipment) in the names
-/// halo2ue gives CE's.
+/// halo2ue gives CE's, and Halo 2's own (Headhunter, Juggernaut,
+/// Territories) in names of their own.
 fn game_type(v: i16) -> String {
     match v {
         0 => "None".into(),
@@ -129,9 +130,23 @@ fn game_type(v: i16) -> String {
         3 => "Oddball".into(),
         4 => "King".into(),
         5 => "Race".into(),
+        6 => "Headhunter".into(),
+        7 => "Juggernaut".into(),
+        8 => "Territories".into(),
         12 => "AllGames".into(),
         13 => "AllGamesExceptCtf".into(),
         14 => "AllGamesExceptCtfAndRace".into(),
+        n => format!("Unknown({n})"),
+    }
+}
+
+/// A player start's spawn type, one per game type slot: which spawns the
+/// start serves for that game type. CE's starts have none (both).
+fn spawn_type(v: i16) -> String {
+    match v {
+        0 => "Both".into(),
+        1 => "InitialOnly".into(),
+        2 => "RespawnOnly".into(),
         n => format!("Unknown({n})"),
     }
 }
@@ -546,6 +561,7 @@ fn placements<'c>(
                 "pos": pos, "facing": s.f32(0x0C), "team": side(pos, s.i16(0x10)), "h2_team": s.i16(0x10),
                 "bsp_index": s.i16(0x12),
                 "game_types": (0..4).map(|k| game_type(s.i16(0x14 + 2 * k))).collect::<Vec<_>>(),
+                "spawn_types": (0..4).map(|k| spawn_type(s.i16(0x1C + 2 * k))).collect::<Vec<_>>(),
             })
         })
         .collect();

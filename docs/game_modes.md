@@ -180,7 +180,9 @@ bytes, 23 conditions, 67 actions, 22 triggers. Verified.
 
 - **Labels.** Stands `ctf_flag_return` (filter 0), flags `ctf_flag` (1), spawn
   labels `ctf_spawn_red`, `ctf_spawn_blue`, `ctf_spawn_none` (2-4)
-  (`ctf.rs:42-62`).
+  (`ctf.rs:42-62`). Those filters also place the CTF-only spawn points a map
+  built since #360 hides, so no other game type spawns in the CTF bases
+  ([ce_map_conversion.md](ce_map_conversion.md), "Spawn sets").
 - **Spawns.** At `init` and every tick, the spawn labels' owner teams are set
   to 0, 1 and a team nobody is on (`ctf.rs:329-349`); the sim spawns players
   only at scenery whose owner team matches their designator, or neutral

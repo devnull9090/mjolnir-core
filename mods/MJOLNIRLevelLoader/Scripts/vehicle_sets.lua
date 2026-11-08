@@ -1,5 +1,6 @@
--- CE's vehicle sets, as object filters on a Megalo game variant
--- (docs/ce_map_conversion.md, "Vehicle sets").
+-- CE's vehicle sets, and CE's and Halo 2's spawn sets, as object filters on
+-- a Megalo game variant (docs/ce_map_conversion.md, "Vehicle sets" and
+-- "Spawn sets").
 --
 -- A converted map places every CE vehicle hidden ("hide unless megalo
 -- required") under a label it shares with its counterpart on the other team
@@ -120,19 +121,61 @@ function VehicleSets.filters(vehicles, mode, choices)
     return out
 end
 
+-- Spawn sets (#360). A converted map places the spawn points only some game
+-- types use hidden, under a `spawn_set_<k>` label, and lists in its level's
+-- `spawn_sets` the families each label serves (tools/level/gen_ce_level.py,
+-- spawn_plan). A game type spawns at the sets its family is in. CTF needs
+-- none: its CTF-only starts keep the `ctf_spawn_<team>` labels the CTF and
+-- Assault variants already filter on.
+local MODE_FAMILY = { slayer = "slayer", team_slayer = "slayer", forge = "slayer",
+    ctf = "ctf", assault = "ctf",
+    king = "king", koth = "king", crazy_king = "king", team_koth = "king",
+    oddball = "oddball", team_oddball = "oddball", stalker = "oddball", reverse_tag = "oddball",
+    juggernaut = "oddball",
+    race = "race", team_race = "race", rally = "race", team_rally = "race" }
+
+--- The family game type `mode` spawns as on a map from `game` ("halo1" or
+--- "halo2"). Halo 2 has Juggernaut starts of its own; CE's Juggernaut is an
+--- Oddball ball type and spawns where Oddball does.
+function VehicleSets.spawnFamily(mode, game)
+    mode = tostring(mode)
+    if mode == "juggernaut" and game == "halo2" then return "juggernaut" end
+    return MODE_FAMILY[mode] or "slayer"
+end
+
+--- The filters game type `mode` adds for a map's spawn sets: {label} for
+--- each set its family is in, in the level's order.
+function VehicleSets.spawnFilters(spawnSets, mode, game)
+    local family = VehicleSets.spawnFamily(mode, game)
+    local out = {}
+    for _, set in ipairs(type(spawnSets) == "table" and spawnSets or {}) do
+        for _, f in ipairs(type(set.families) == "table" and set.families or {}) do
+            if f == family and set.label then
+                out[#out + 1] = { label = set.label }
+                break
+            end
+        end
+    end
+    return out
+end
+
 --- forge_vehicles.txt for MJOLNIRForge's DLL (native/forge/forge_vehicles.h):
 --- `label<TAB>team` a line, -1 for either team. A FORGE game runs the sandbox
 --- engine, whose own variant has no filters, so the DLL shows these instead:
---- what a Slayer game with CE's default sets would place, cut to the room
---- `layout` (slayer.layout.json) leaves. Coldsnap's default set is 47 vehicles,
---- and more than the simulation keeps resets the round.
-function VehicleSets.forgeLines(vehicles, layout)
+--- the spawn points and vehicles a Slayer game with CE's default sets would
+--- place, cut to the room `layout` (slayer.layout.json) leaves. Coldsnap's
+--- default set is 47 vehicles, and more than the simulation keeps resets the
+--- round.
+function VehicleSets.forgeLines(vehicles, layout, spawnSets, game)
     local room = 15
     if type(layout) == "table" then
         room = (layout.max_filters or 16) - #(layout.filters or {})
     end
     local out = { "forge-vehicles 1" }
-    local filters = VehicleSets.filters(vehicles, "slayer", VehicleSets.fromSettings({}))
+    local filters = VehicleSets.spawnFilters(spawnSets, "forge", game)
+    for _, f in ipairs(VehicleSets.filters(vehicles, "slayer", VehicleSets.fromSettings({}))) do
+        filters[#filters + 1] = f
+    end
     for i = 1, math.min(room, #filters) do
         out[#out + 1] = filters[i].label .. "\t" .. tostring(filters[i].team or -1)
     end
