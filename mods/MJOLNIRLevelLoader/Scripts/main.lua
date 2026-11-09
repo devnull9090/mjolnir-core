@@ -280,6 +280,39 @@ function Current.emptyHit()
     return hit
 end
 
+--- A load's steps, timed (os.clock: wall time on Windows). A converted
+--- map's dressing held the game thread 1.5 s on Timberland, and which step
+--- took it was a guess (docs/lua_native_audit.md). Current.lapStart() as a
+--- world's load begins, Current.lap(name) after each step (the time since
+--- the last lap), Current.lapDone() logs them once. Laps outside a load
+--- (a console command's) are not kept.
+function Current.lapStart()
+    local now = os.clock()
+    Current.laps = { at = now, started = now }
+end
+
+function Current.lap(name)
+    local laps = Current.laps
+    if not laps then return end
+    local now = os.clock()
+    laps[#laps + 1] = { name = name, ms = (now - laps.at) * 1000 }
+    laps.at = now
+end
+
+function Current.lapDone()
+    local laps = Current.laps
+    if not laps then return end
+    Current.laps = nil
+    local parts, longest = {}, { name = "none", ms = 0 }
+    for _, l in ipairs(laps) do
+        if l.ms >= 1 then parts[#parts + 1] = string.format("%s %.0f", l.name, l.ms) end
+        if l.ms > longest.ms then longest = l end
+    end
+    Log(string.format("load timing on %s: %.0f ms from the world to dressed, longest step %s %.0f ms; ms: %s",
+        tostring(Current.scenario), (os.clock() - laps.started) * 1000, longest.name, longest.ms,
+        table.concat(parts, ", ")))
+end
+
 local function resetState()
     Current.worldName = nil
     Current.scenario = nil
@@ -411,6 +444,7 @@ end
 --- one is loaded, else the world's.
 local function loadCurrentLevelFile(scenario)
     local tag = scenarioTagOf()
+    Current.lap("scenario tag")
     if tag then
         local level = loadLevelFile(scenario, tag)
         -- The tag outlives its map: on a fireteam client the map just left
@@ -3692,7 +3726,9 @@ function Foliage.spawn(world)
         end
         return
     end
+    Current.lap("before foliage")
     local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
+    Current.lap("foliage file")
     local magic = raw and raw:sub(1, 4)
     if magic ~= Foliage.MAGIC and magic ~= Foliage.MAGIC2 and magic ~= Foliage.MAGIC3 then
         Log("foliage: " .. foliage.file .. " missing or not a foliage file")
@@ -3727,10 +3763,12 @@ function Foliage.spawn(world)
             Log("foliage: the level file says baked, but the world carries none; spawning it")
         end
     end
+    Current.lap("foliage baked meshes")
     -- Baked cladding rocks likewise: spawned only for a group the world
     -- does not carry.
     local rocks, rocked = {}, 0
     if landWorld and coloured then rocks, rocked = Foliage.bakedRocks(true) end
+    Current.lap("foliage baked rocks")
     for g = 1, count do
         local size
         size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
@@ -4405,7 +4443,9 @@ function Land.apply(world)
             or tostring(cliffs)))
         return
     end
+    Current.lap("before landscape")
     local land = FindFirstOf("Landscape")
+    Current.lap("landscape scan")
     if not (land and land:IsValid()) then
         Log("landscape: the level names one but the world has none")
         return
@@ -4414,8 +4454,10 @@ function Land.apply(world)
         local ok, missing = pcall(Land.pbr, Land.landSetter(land), spec.pbr)
         Log("landscape: " .. (ok and string.format("B30 ground applied (%d surface map(s) missing)", missing)
             or tostring(missing)))
+        Current.lap("landscape pbr")
         local gok, slots = pcall(Land.ground, world, spec)
         Log("landscape: " .. (gok and string.format("%d mesh ground slot(s) in the same look", slots) or tostring(slots)))
+        Current.lap("landscape ground")
         -- The cliffs' fill (the sand's bounce) on the landscape too, its share
         -- on flat ground GroundSlope.w (pbr.slope[4]).
         local f = type(spec.cliff) == "table" and spec.cliff.fill
@@ -4674,7 +4716,9 @@ function Footprints.deformStart(world)
     local land = Current.level and Current.level.landscape
     if not (type(land) == "table" and type(land.pbr) == "table" and land.deform ~= false) then return end
     if Current.actors["__deform_manager"] and Current.actors["__deform_manager"]:IsValid() then return end
+    Current.lap("before deformation")
     local ldl = FindFirstOf("Landscape")
+    Current.lap("deformation landscape scan")
     if not (ldl and ldl:IsValid()) then return end
     local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
     local cls = ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(Footprints.DEFORM_MANAGER)))
@@ -4698,6 +4742,7 @@ function Footprints.deformStart(world)
     for i = 1, #out do
         pcall(function() n = n + Footprints.actorBrushes(out[i]:get()) end)
     end
+    Current.lap("deformation manager and pawns")
     -- Vehicles and bipeds are not pawns: the actors of their classes.
     for _, path in ipairs({ "BP_WarthogVehicleActor_C", "BP_ScorpionVehicleActor_C", "BP_GhostVehicleActor_C",
         "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }) do
@@ -4708,6 +4753,7 @@ function Footprints.deformStart(world)
             for i = 1, #all do pcall(function() n = n + Footprints.actorBrushes(all[i]:get()) end) end
         end
     end
+    Current.lap("deformation vehicles and bipeds")
     -- Our own footprints give way to the game's.
     Footprints.on = false
     local v = { R = 1.0, G = 4.0, B = 1.0 / 9216.0, A = 0.0 }
@@ -4927,8 +4973,11 @@ local function spawnDecor(world)
     local level = Current.level
     Current.world = world
     spawnEnvironment(world)
+    Current.lap("environment")
     spawnSounds(world)
+    Current.lap("sounds")
     preloadEventSounds()
+    Current.lap("event sounds")
     local decor = level and level.decor
     if type(decor) ~= "table" or #decor == 0 then
         Log("level '" .. tostring(level and level.name) .. "': no decor to spawn")
@@ -4947,9 +4996,12 @@ local function spawnDecor(world)
             if id then baked[id] = a end
         end
     end
+    Current.lap("baked decor scan")
+    local bakedMs, spawnedMs = 0, 0
     for index, item in ipairs(decor) do
         local id = (type(item) == "table" and item.id) or ("#" .. index)
         local own = baked[id]
+        local itemAt = os.clock()
         if own then
             nBaked = nBaked + 1
             -- Still, as spawnDecorItem keeps them (a swapped tree's piece),
@@ -5021,14 +5073,19 @@ local function spawnDecor(world)
                 Log(string.format("decor '%s': %s", tostring(id), tostring(err)))
             end
         end
+        if own then bakedMs = bakedMs + (os.clock() - itemAt) else spawnedMs = spawnedMs + (os.clock() - itemAt) end
     end
     Log(string.format("level '%s': %d decor spawned, %d failed%s",
         tostring(level.name), Current.spawned, Current.failed,
         nBaked > 0 and string.format(", %d baked in the world", nBaked) or ""))
+    Log(string.format("load timing: decor loop %.0f ms on %d baked piece(s), %.0f ms on %d spawned",
+        bakedMs * 1000, nBaked, spawnedMs * 1000, #decor - nBaked))
+    Current.lap("decor loop")
     if type(level.slot_meshes) == "table" then
         local sok, sn = pcall(Land.slotMeshes, world, level)
         Log("slot meshes: " .. tostring(sok and sn or sn))
     end
+    Current.lap("slot meshes")
     if proxyWanted() then
         Log(string.format("terrain shadow proxy: %d spawned", applyShadowProxies(world)))
     end
@@ -5036,24 +5093,35 @@ local function spawnDecor(world)
         local ok, done, err = pcall(applySunMask, world)
         Log("sun mask: " .. tostring(ok and (done or err) or done))
     end
+    Current.lap("shadow proxy and sun mask")
     local ok, err = pcall(applyWater, world)
     if not ok then Log("water: " .. tostring(err)) end
+    Current.lap("water")
     ok, err = pcall(Foliage.spawn, world)
     if not ok then Log("foliage: " .. tostring(err)) end
+    Current.lap("foliage")
     ok, err = pcall(Effects.spawn, world)
     if not ok then Log("effects: " .. tostring(err)) end
+    Current.lap("effects")
     ok, err = pcall(Effects.waterfalls, world)
     if not ok then Log("waterfalls: " .. tostring(err)) end
+    Current.lap("waterfalls")
     ok, err = pcall(Effects.flux, world)
     if not ok then Log("flux: " .. tostring(err)) end
+    Current.lap("flux")
     ok, err = pcall(Placed.lights, world)
     if not ok then Log("lights: " .. tostring(err)) end
+    Current.lap("lights")
     ok, err = pcall(Placed.decals, world)
     if not ok then Log("decals: " .. tostring(err)) end
+    Current.lap("decals")
     Land.apply(world)
+    Current.lap("landscape")
     ok, err = pcall(Footprints.deformStart, world)
     if not ok then Log("deformation: " .. tostring(err)) end
+    Current.lap("deformation")
     Current.recaptureSkyAfterDecor(world)
+    Current.lap("sky recapture")
 end
 
 --------------------------------------------------------------------------------
@@ -5085,6 +5153,7 @@ local function tick()
         -- case-sensitive test missed it, and every return to the menu spent
         -- seconds dressing it).
         if string.upper(worldName):find("SEAMLESSTRAVEL", 1, true) then return end
+        Current.lapStart()
         Current.scenario = scenarioOf(world)
         if not Current.scenario then return end
         -- The menu has no level. The match is over, so the file that tells
@@ -5097,7 +5166,9 @@ local function tick()
         end
 
         local level, err = loadCurrentLevelFile(Current.scenario)
+        Current.lap("level file")
         if not level then
+            Current.laps = nil
             Current.fileMissing = true
             if err and not err:find("^no file") then
                 Log("level file for " .. Current.scenario .. ": " .. err)
@@ -5107,6 +5178,7 @@ local function tick()
         Current.level = level
         Log(string.format("world %s has level '%s'", Current.scenario, tostring(level.name)))
         hookIncidents()
+        Current.lap("incident hooks")
     end
 
     -- Terrain and sky need only the world, so they are in place behind the
@@ -5115,6 +5187,7 @@ local function tick()
     if Current.level and not Current.furnished then
         Current.furnished = true
         spawnDecor(world)
+        Current.lapDone()
     end
     if Current.level and not Current.faded then
         if not getPawn() then return end -- still loading
@@ -5918,7 +5991,12 @@ local function loadMegaloSwitch()
     --- 2026-10-01).
     local switched = { code = nil, at = -1000 }
     local function switchFor(code, pending, how)
+        local readAt = os.clock()
         local level = multiplayerLevel(code)
+        if code then
+            Log(string.format("load timing: the %s switch read %s's level file in %.0f ms", how, tostring(code),
+                (os.clock() - readAt) * 1000))
+        end
         -- The match for other mods (MJOLNIRHud): "CODE<TAB>game
         -- type<TAB>title", or no file while no multiplayer map runs.
         os.remove(MOD_DIR .. "\\running.txt")
