@@ -54,7 +54,13 @@ local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
     "WBP_MJOLNIRLobby", "WBP_MJOLNIRMapSelect", "WBP_MJOLNIRFindGames", "WBP_MJOLNIRGameSettings",
     "WBP_MJOLNIRMapDownload", "WBP_MJOLNIRGameTypeSelect", "WBP_MJOLNIRPostGame",
 }, log)
-Presence.init({ modDir = MOD_DIR, json = Json, log = log })
+Presence.init({ modDir = MOD_DIR, json = Json, log = log, reportSlow = UI.reportSlow })
+
+-- Lua's generational collector, as MJOLNIRHud and MJOLNIRLevelLoader run it:
+-- the default incremental one finishes each cycle inside whichever loop
+-- allocates next, as a 50-200 ms run (docs/performance.md, "Lua garbage
+-- collection hitches").
+pcall(collectgarbage, "generational")
 
 local HELPERS = "/Game/UI/Frontend/CampaignMenu/Data/BPFL_CampaignMenuHelpers.Default__BPFL_CampaignMenuHelpers_C"
 local SCENARIOS = "/Game/Blueprints/Campaign/DT_Scenarios.DT_Scenarios"
@@ -4313,17 +4319,15 @@ local function saveBans()
     end
 end
 
---- The other players: { name, pc } for each remote controller with a player.
 --- The other players: { name, pc } for each remote controller with a
---- connection and a player state, found the way Net.toClients finds them.
---- (GameState.PlayerArray with PlayerState:GetOwner() crashed the host inside
---- UE4SS's function call, 2026-10-03.)
+--- connection and a player state, from Net.clients, which keeps its walk of
+--- the controllers until someone joins or leaves: the host watch asks every
+--- 5 s once a ban exists. (GameState.PlayerArray with PlayerState:GetOwner()
+--- crashed the host inside UE4SS's function call, 2026-10-03.)
 local function remotePlayers()
     local out = {}
-    for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
+    for _, pc in ipairs(Net.clients()) do
         pcall(function()
-            if not pc:IsValid() or pc:IsLocalController() then return end
-            if not (UI.valid(pc.Player) and UI.valid(pc.PlayerState)) then return end
             out[#out + 1] = { name = pc.PlayerState:GetPlayerName():ToString(), pc = pc }
         end)
     end
@@ -4865,6 +4869,7 @@ local function initialize()
         json = Json,
         net = Net,
         log = log,
+        reportSlow = UI.reportSlow,
         version = LOBBY_VERSION,
         modes = MODES,
         world = function()
@@ -4943,8 +4948,10 @@ local function initialize()
         return hub and hub.name or nil
     end)
     local function identityLoop()
+        local started = os.clock()
         local ok, err = pcall(Identity.tick, Net.isHost())
         if not ok then log("identity: " .. tostring(err)) end
+        UI.reportSlow("identity", started)
         ExecuteInGameThreadWithDelay(1000, identityLoop)
     end
     ExecuteInGameThreadWithDelay(1000, identityLoop)

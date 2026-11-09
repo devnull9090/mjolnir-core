@@ -103,6 +103,7 @@ Net.on = function(verb, fn) handlers[verb] = fn end
 Net.isHost = function() return host end
 Net.toClients = function(verb, ...) sent[#sent + 1] = { verb, ... } end
 Net.toClient = function(_, verb, ...) sent[#sent + 1] = { verb, ... }; return true end
+Net.clients = function() return {} end   -- no client connected
 
 local Modes = dofile("mods/MJOLNIRLobby/Scripts/modes.lua")
 Modes.writeChoice = function() end

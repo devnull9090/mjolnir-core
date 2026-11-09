@@ -65,6 +65,9 @@ jobs:
           lua5.4 tools/tests/test_lobby_postgame.lua
           lua5.4 tools/tests/test_map_worlds.lua
 
+      - name: Test host-to-client messages (controller walks only when players change)
+        run: lua5.4 tools/tests/test_lobby_net.lua
+
       - name: Test UI class retention across map travel
         run: lua5.4 tools/tests/test_ui_class_lifetime.lua
 

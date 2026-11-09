@@ -117,6 +117,7 @@ function Presence.init(deps)
     nativeDir = deps.modDir .. "\\native\\"
     hudFile = deps.modDir .. "\\..\\MJOLNIRHud\\discord_match.txt"
     Json, log = deps.json, deps.log
+    local reportSlow = deps.reportSlow or function() end
     -- The marker prevents a previous process's snapshot being reused even if
     -- the player restarts the game within the freshness window.
     session = tostring(os.time()) .. "-" .. tostring({}):gsub("[^%w]", "")
@@ -148,8 +149,10 @@ function Presence.init(deps)
         if nativeUpdate then nativeUpdate() end
     end
     local function loop()
+        local started = os.clock()
         local ok, err = pcall(publish)
         if not ok then log("Discord presence: " .. tostring(err)) end
+        pcall(reportSlow, "presence", started)
         ExecuteInGameThreadWithDelay(1000, loop)
     end
     -- Connect before the frontend is signed in; Discord holds a cold-launch
