@@ -337,8 +337,8 @@ joined):
   - **Entry `+0x0C` is the host's index, not the entry's own.** On the client,
     entries 84 and 88 read 139 and 140, the host's indices for the same units.
     A check that it equals the entry's index rejects every unit on a client,
-    including the client's own (the lifts have that check: see
-    [below](#correctness-issues-found-along-the-way)).
+    including the client's own. The lift push had that check until #375
+    ([below](#correctness-issues-found-along-the-way)).
 - **Correctness, not only cost.** In the same test the client's
   `BP_SpartansBipedActor_C` for the host did not follow the host:
   - It stayed where the host spawned, 3 m up, after the host walked 14 m, while
@@ -448,16 +448,18 @@ joined):
 
 ## Correctness issues found along the way
 
-- **The native lift push skips a fireteam client's own player** (found
-  2026-11-09, read from a client's tables; not yet seen on a lift map).
-  `lift_biped`
-  ([lifts_runtime.h:80-87](../native/lobby/lifts_runtime.h)) requires the
-  object entry's `+0x0C` to equal the entry's index. On a client that field is
-  the host's index (above), so every unit fails the check, the client's own
-  included. The push then never runs, although the design has every peer push
-  its own players. Checking the salt and type alone fixes it. The Forge doors'
-  `fd_object` has the same check, but they return before it on a client.
-  The native lifts (#370, MJOLNIRLobby 0.25.0) are unreleased, in mods 0.49.0.
+- **The native lift push skipped a fireteam client's own player** (found
+  2026-11-09; fixed in #375, before MJOLNIRLobby 0.25.0 ships).
+  - **Cause.** `lift_biped` required the object entry's `+0x0C` to equal the
+    entry's index. On a client that field is the host's index (above), so every
+    unit failed the check, the client's own included, and no joiner was ever
+    pushed.
+  - **Fix.** #375 checks the salt, type and datum size instead.
+  - **Proof.** On Lockout with two copies, a joiner in the lower tube got no
+    push with the old DLL and rode to the upper floor with the fix
+    ([re/lift_push.md](re/lift_push.md#a-fireteam-clients-own-player)).
+  - **The doors.** The Forge doors' `fd_object` has the same check, but they
+    return before it on a client.
 - **`LoopAsync` handing work to the game thread every second.** CTF
   (`main.lua:404-410`), WorldBuilder (`main.lua:352-358`) and Bridge
   (`main.lua:375-396`) do it, and BlamConsole does it per answer. LevelLoader
@@ -614,7 +616,7 @@ line, with a 51 ms worst file round trip.
 4. The flag cloth throttle, then the cloth material: done in
    MJOLNIRLevelLoader 0.13.1 and 0.13.2.
 5. Native lifts in the lobby DLL's simulation tick: done (#370, MJOLNIRLobby
-   0.25.0, through a file). Fireteam clients still need the `+0x0C` fix
+   0.25.0, through a file). Fireteam clients needed the `+0x0C` fix, #375
    ([above](#correctness-issues-found-along-the-way)).
 6. The native roster, then the bots. The roster is a go: build it on
    `lua_channel.h`.
