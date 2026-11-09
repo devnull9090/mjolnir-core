@@ -69,9 +69,13 @@ local function object(fields)
     return o
 end
 local function noop() end
+-- hill.lua keeps the libraries it finds and finds them again only once a kept
+-- handle is no longer valid, so each scene's libraries end with the scene.
+local libraries = {}
 local function scene(available, failCreate)
+    for _, library in ipairs(libraries) do library.valid = false end
     local s = { actors = {}, mids = {}, loads = 0, available = available }
-    local system = {}
+    local system = object()
     function system:MakeSoftObjectPath(path) return path end
     function system:Conv_SoftObjPathToSoftObjRef(path) return path end
     function system:LoadAsset_Blocking(path)
@@ -79,7 +83,7 @@ local function scene(available, failCreate)
         if available[path] then return object({ path = path }) end
     end
     function system:LineTraceSingle() end
-    local materials = {}
+    local materials = object()
     function materials:CreateDynamicMaterialInstance(_, master)
         if failCreate and failCreate[master.path] then return end
         local mid = object({ master = master.path, params = {} })
@@ -87,22 +91,29 @@ local function scene(available, failCreate)
         s.mids[#s.mids + 1] = mid
         return mid
     end
-    local widgets = {}
+    local widgets = object()
     function widgets:Create()
         local w = object({ WidgetTree = {} })
         w.AddToViewport, w.SetAnchorsInViewport, w.SetAlignmentInViewport = noop, noop, noop
         function w:SetVisibility(value) self.visibility = value end
         return w
     end
+    local math_ = object({ MakeRotFromZX = function(_, z, x) return { z = z, x = x } end })
+    local classes = {}
+    libraries = { system, materials, widgets, math_ }
     _G.FName, _G.FText = function(x) return x end, function(x) return x end
+    s.finds = 0
     _G.StaticFindObject = function(path)
+        s.finds = s.finds + 1
         if path == "/Script/Engine.Default__KismetSystemLibrary" then return system end
         if path == "/Script/Engine.Default__KismetMaterialLibrary" then return materials end
         if path == "/Script/UMG.Default__WidgetBlueprintLibrary" then return widgets end
-        if path == "/Script/Engine.Default__KismetMathLibrary" then
-            return { MakeRotFromZX = function(_, z, x) return { z = z, x = x } end }
+        if path == "/Script/Engine.Default__KismetMathLibrary" then return math_ end
+        if not classes[path] then
+            classes[path] = object({ path = path })
+            libraries[#libraries + 1] = classes[path]
         end
-        return object({ path = path })
+        return classes[path]
     end
     _G.StaticConstructObject = function()
         local t = object()
@@ -174,9 +185,12 @@ m.tick(1.25, s.pc, false, contested)
 assert(m.anchor ~= oldAnchor, "an expired anchor is replaced without waiting for a hill move")
 eq(#s.actors, actorsBefore + 1, "replacing the anchor leaves the other pooled actors intact")
 actorsBefore = #s.actors
+local findsBefore = s.finds
 m.moved(1)
 m.tick(2, s.pc, false)
 eq(#s.actors, actorsBefore, "moving to a smaller hill reuses geometry")
+-- Two lookups a panel made each move a 30-130 ms poll in a match.
+eq(s.finds, findsBefore, "a hill move finds no library again")
 eq(m.mid.params.FieldCenter.R, 2000, "field center moves")
 eq(m.beaconMid.params.FieldCenter.B, 400, "beacon center moves")
 eq(m.mid.params.FieldCenter.A, 200, "radius follows the active hill")

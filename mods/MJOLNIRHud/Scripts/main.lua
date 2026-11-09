@@ -47,6 +47,7 @@ local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
+local Bipeds = dofile(MOD_DIR .. "\\Scripts\\bipeds.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
@@ -56,7 +57,10 @@ end
 local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
     "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat",
 }, Log)
-Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
+-- Every biped actor from here on, before any map makes its pools: the bots and
+-- findBipeds read them without walking the object array (Scripts/bipeds.lua).
+Bipeds.arm(Log)
+Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log, Bipeds)
 
 --- The match log must never break the HUD: a failure in it is logged, and
 --- the feed, the board and the end of the match go on.
@@ -314,34 +318,15 @@ end
 --- returns a pointer that is no object, unsafe to read (a joiner crashed
 --- while the HUD called it every second).
 ---
---- FindAllOf walks the whole object array (about 23 ms a class; one search
---- after a joiner's respawn held a frame 89 ms), so it runs once a match, the
---- first time a biped is wanted. Biped actors are pooled and made ahead, and
---- NotifyOnNewObject brings any made later, as Scripts/bots.lua does. A
---- search then only asks the known actors who controls them.
+--- The biped actors come from Scripts/bipeds.lua, which has seen every one
+--- made since the mod loaded, so a search only asks the known actors who
+--- controls them. They were found with FindAllOf (about 23 ms a class; one
+--- search after a joiner's respawn held a frame 89 ms), once a match and again
+--- every 2 s while no Spartan had been seen. That is still the way, once a
+--- match, if the watch could not be armed.
 local PLAYER_BIPEDS = { "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }
 local BIPED_CHECK_EVERY = 0.5
 local BIPED_FIND_EVERY = 2
-local bipedPool, bipedWatched = {}, {}
-
-local function poolBiped(actor)
-    local ok, address = pcall(function() return actor:GetAddress() end)
-    if ok and address then bipedPool[address] = actor end
-end
-
---- This match's biped actors, found once; later ones arrive by themselves.
-local function fillBipedPool()
-    bipedPool = {}
-    for _, class in ipairs(PLAYER_BIPEDS) do
-        for _, actor in ipairs(FindAllOf(class) or {}) do
-            poolBiped(actor)
-            if not bipedWatched[class] then
-                local ok, path = pcall(function() return actor:GetClass():GetFullName():match("%s(/%S+)$") end)
-                if ok and path then bipedWatched[class] = pcall(NotifyOnNewObject, path, poolBiped) end
-            end
-        end
-    end
-end
 
 local function findBipeds()
     local mode = Match and Match.mode
@@ -368,20 +353,21 @@ local function findBipeds()
     end
     if not missing then return end
     Match.nextBipedFind = t + BIPED_FIND_EVERY
-    -- Once a match, and again while no Spartan has been seen to watch the
-    -- class by: a team game asks before anyone has spawned.
-    if not Match.bipedsFound or not bipedWatched[PLAYER_BIPEDS[1]] then
+    if not Bipeds.armed() and not Match.bipedsFound then
         Match.bipedsFound = true
-        fillBipedPool()
+        for _, class in ipairs(PLAYER_BIPEDS) do Bipeds.scan(class) end
     end
-    for address, actor in pairs(bipedPool) do
-        local okV, valid = pcall(function() return actor:IsValid() end)
-        if not (okV and valid) then
-            bipedPool[address] = nil
-        else
-            local index = controllerOf(actor)
-            local p = index and Match.players[index]
-            if p and not p.bot then p.biped = actor end
+    for _, class in ipairs(PLAYER_BIPEDS) do
+        local set = Bipeds.of(class)
+        for address, actor in pairs(set) do
+            local okV, valid = pcall(function() return actor:IsValid() end)
+            if not (okV and valid) then
+                set[address] = nil
+            else
+                local index = controllerOf(actor)
+                local p = index and Match.players[index]
+                if p and not p.bot then p.biped = actor end
+            end
         end
     end
 end
@@ -1839,6 +1825,8 @@ local function tick()
     end
     if code ~= lastWorld then
         lastWorld = code
+        -- The last world's bipeds are gone; campaign missions make hundreds.
+        pcall(Bipeds.prune)
         local running = runningMatch()
         if Match then endMatch() end
         if running and code == running.code then startMatch(running, code) end
@@ -1862,12 +1850,13 @@ local function tick()
     pcall(findBipeds)
     Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
     -- The host finds its fireteam's controllers once, then as they come; a
-    -- few seconds in, off the tick that makes the widgets.
+    -- few seconds in, off the tick that makes the widgets. Its bots start on a
+    -- later poll than that search (a FindAllOf, about 25 ms in a match): the
+    -- two shared one poll before.
     if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then
         Match.relayArmed = true
         pcall(Relay.arm)
-    end
-    if Match.host and not Match.botsChecked and now() - Match.startedAt > 3 then
+    elseif Match.host and Match.relayArmed and not Match.botsChecked and now() - Match.startedAt > 3 then
         Match.botsChecked = true
         startBots(Bots.wanted(LOADER_DIR))
     end

@@ -362,6 +362,14 @@ end
 --- Six strips, not eight: each strip is a component move every pass, and a
 --- move costs the game thread ~60 us of transform and render update
 --- (docs/lua_native_audit.md). Six still read as a ripple.
+--- With `wave_master` (the CE runtime pack's chunk 966, unreal/
+--- MJOLNIRMaterials/Scripts/build_flag_cloth.py) the GPU waves the cloth:
+--- the strips are laid out straight once and its World Position Offset bends
+--- them from the material's Time, the same chain Teams.clothTick builds
+--- here; Lua only hands it ClothWave while a carried flag's motion changes
+--- it. Its strips' bounds are scaled by `bounds_scale`, as the wave carries
+--- them off their rest places. Without that master (an older runtime pack)
+--- Lua moves the strips.
 local CLOTH = {
     mesh = "/Engine/BasicShapes/Plane.Plane",
     strips = 6,
@@ -372,6 +380,8 @@ local CLOTH = {
     textures = "ctf\\flag_cloth_%s.png",
     cooked = "/Game/MJOLNIR/H2/T_flag_cloth_%s.T_flag_cloth_%s",
     master = "/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided",
+    wave_master = "/Game/MJOLNIR/Cloth/M_CE_FlagCloth.M_CE_FlagCloth",
+    bounds_scale = 4,
 }
 
 --- How the cloth moves. At rest it streams out from the pole with a slow
@@ -393,10 +403,13 @@ local WAVE = { idle = 0.32, idle_rate = 3.2, run = 0.6, run_rate = 9.0, fast = 7
 --- the one in first person) still waves 30 times a second, so its trail
 --- swings round smoothly; a flag at rest ripples slowly and needs 15.
 --- With flags on the map but none near and on screen, a pass only looks;
---- with no flags (no CTF or Assault game) it waits a second.
-local CLOTH_MS = { moving = 33, rest = 66, unseen = 100, none = 1000 }
+--- with no flags (no CTF or Assault game) it waits a second. With the GPU
+--- master (CLOTH.wave_master) a flag waves by itself, seen or not, so the
+--- loop only watches for one near that moves, every `gpu_rest` ms.
+local CLOTH_MS = { moving = 33, rest = 66, unseen = 100, gpu_rest = 200, none = 1000 }
 
---- The cloth's material spec for `team`, or nil with neither texture.
+--- The cloth's material spec for `team`, or nil with neither texture, and
+--- whether it is the GPU-waved master.
 local function clothMaterial(team)
     local base = string.format(CLOTH.cooked, team, team)
     if not env.resolveMesh(base) then
@@ -405,9 +418,10 @@ local function clothMaterial(team)
         if not f then return nil end
         f:close()
     end
-    return { parent = CLOTH.master, textures = { Base = base },
+    local gpu = env.resolveMesh(CLOTH.wave_master) ~= nil
+    return { parent = gpu and CLOTH.wave_master or CLOTH.master, textures = { Base = base },
         scalars = { HasLightmap = 0.0, HasPrimary = 0.0, HasSecondary = 0.0, HasMicro = 0.0, HasBump = 0.0,
-            HasSelfIllum = 0.0 } }
+            HasSelfIllum = 0.0 } }, gpu
 end
 
 --- Hide the skull's own meshes, all but ours (`mine`: the flag mesh, and its
@@ -445,11 +459,70 @@ local function layCloth(entry, angles)
     end
 end
 
+--- ClothWave's name and the colour handed with it, made once: a new table
+--- per strip each time would be garbage (STRIP_AT).
+local WaveParam = { name = nil, value = { R = 0, G = 0, B = 0, A = 0 } }
+
+local function setWaveOn(mid)
+    mid:SetVectorParameterValue(WaveParam.name, WaveParam.value)
+end
+
+--- Hand `entry`'s wave (swing, amp, rate, phase offset: M_CE_FlagCloth's
+--- ClothWave) to its strips' materials when it has moved enough to see, or
+--- when `force`d. A set is a parameter on a material instance, not a
+--- component move.
+local function sendWave(entry, force)
+    local wave, mids = entry.wave, entry.mids
+    if not (wave and mids) then return end
+    local sent = wave.sent
+    if not force and sent and math.abs(sent[1] - wave.swing) < 0.02 and sent[2] == wave.amp
+        and sent[3] == wave.rate and sent[4] == wave.offset then
+        return
+    end
+    WaveParam.name = WaveParam.name or FName("ClothWave")
+    local v = WaveParam.value
+    v.R, v.G, v.B, v.A = wave.swing, wave.amp, wave.rate, wave.offset
+    for _, mid in ipairs(mids) do pcall(setWaveOn, mid) end
+    sent = sent or {}
+    sent[1], sent[2], sent[3], sent[4] = wave.swing, wave.amp, wave.rate, wave.offset
+    wave.sent = sent
+end
+
+--- The world's clock in seconds: the materials' Time (as main.lua's pulses
+--- read it), or nil.
+local Clock = { ksl = nil }
+local function gameTime()
+    local world = env.getWorld()
+    if not (world and world:IsValid()) then return nil end
+    local ksl = Clock.ksl
+    if not (ksl and ksl:IsValid()) then
+        ksl = env.findObject("/Script/Engine.Default__KismetSystemLibrary")
+        Clock.ksl = ksl
+    end
+    return ksl and ksl:GetGameTimeInSeconds(world)
+end
+
+--- The phase offset that keeps a GPU-waved ripple going on from where it is
+--- at time `t` when its rate changes from `from` to `to`: the material's
+--- phase is Time * rate + offset, so the offset takes up the change instead
+--- of the ripple jumping. Kept within one turn.
+function Teams.clothRebase(offset, from, to, t)
+    return (offset + t * (from - to)) % (2 * math.pi)
+end
+
+--- A new ripple rate for a GPU-waved flag (Teams.clothRebase).
+local function setRate(wave, rate)
+    if wave.rate == rate then return end
+    local t = gameTime()
+    if t then wave.offset = Teams.clothRebase(wave.offset, wave.rate, rate, t) end
+    wave.rate = rate
+end
+
 --- Hang the cloth on `comp` (an entry's flag mesh) in `team`'s colours, or
 --- recolour the one already there. Returns the strips, or nil without the
 --- texture (said once).
 local function attachCloth(world, entry, comp, team)
-    local material = clothMaterial(team)
+    local material, gpu = clothMaterial(team)
     if not material then
         sayOnce("nocloth", "CTF: no " .. string.format(CLOTH.textures, team)
             .. " in the loader's folder: flags have no cloth (tools/level/ce_flag_cloth.py)")
@@ -480,15 +553,27 @@ local function attachCloth(world, entry, comp, team)
         entry.wave = { t = 0, swing = 0 }
         layCloth(entry, {})
     end
+    local wave = entry.wave
+    wave.gpu = gpu
+    if gpu and not wave.rate then
+        -- At rest, each flag at its own phase: two in view don't ripple in step.
+        wave.amp, wave.rate, wave.offset = WAVE.idle, WAVE.idle_rate, math.random() * 2 * math.pi
+    end
+    local mids = {}
     for k, s in ipairs(strips) do
         env.applyMaterials(s, { material }, world, "flag_cloth_" .. team)
         pcall(function()
-            s:GetMaterial(0):SetVectorParameterValue(FName("BaseXform"),
+            local mid = s:GetMaterial(0)
+            mid:SetVectorParameterValue(FName("BaseXform"),
                 { R = 1 / CLOTH.strips, G = 1, B = (k - 1) / CLOTH.strips, A = 0 })
+            mids[#mids + 1] = mid
         end)
+        if gpu then pcall(function() s:SetBoundsScale(CLOTH.bounds_scale) end) end
         s:SetHiddenInGame(false, false)
         s:SetVisibility(true, false)
     end
+    entry.mids = gpu and mids or nil
+    if gpu then sendWave(entry, true) end
     return strips
 end
 
@@ -529,28 +614,33 @@ function Teams.clothTick()
     local now = os.clock()
     local pawn = env.getPawn()
     local me = pawn and pawn:IsValid() and pawn:K2_GetActorLocation()
-    local wait = CLOTH_MS.unseen
+    local wait, gpu = CLOTH_MS.unseen, false
     for _, entry in pairs(Flags.known) do
         local strips, comp = entry.cloth, entry.comp
         local at = strips and strips[1] and comp and entry.actor:IsValid() and comp:IsValid() and strips[1]:IsValid()
             and entry.actor:K2_GetActorLocation()
         local near = at and (entry.fp or not me
             or (at.X - me.X) ^ 2 + (at.Y - me.Y) ^ 2 + (at.Z - me.Z) ^ 2 < WAVE.near * WAVE.near)
+        gpu = gpu or (entry.wave ~= nil and entry.wave.gpu == true)
         -- The flag in first person too: held, it is drawn before the camera;
         -- after a score or a drop its actor lingers at the origin for ~35 s,
-        -- unseen, and is not waved (CHL, 2026-11-08).
-        if near and clothDrawn(strips) then
+        -- unseen, and is not waved (CHL, 2026-11-08). The GPU waves a flag
+        -- whether it is seen or not: there the check would only cost.
+        if near and (entry.wave.gpu or clothDrawn(strips)) then
             local wave = entry.wave
-            local dt = math.min(0.1, math.max(0.001, now - (wave.at or now - 0.033)))
+            -- Up to a quarter second: the GPU rest pace is 200 ms.
+            local dt = math.min(0.25, math.max(0.001, now - (wave.at or now - 0.033)))
             wave.at = now
             local vx, vy = 0, 0
             if wave.x then vx, vy = (at.X - wave.x) / dt, (at.Y - wave.y) / dt end
             wave.x, wave.y = at.X, at.Y
             local speed = math.sqrt(vx * vx + vy * vy)
             local f = math.min(1, speed / WAVE.fast)
-            if entry.fp or speed > 60 then
+            -- The GPU waves a flag at rest by itself (CLOTH.wave_master):
+            -- only a moving one needs the loop at 30 Hz, for its trail.
+            if speed > 60 or (entry.fp and not wave.gpu) then
                 wait = CLOTH_MS.moving
-            elseif wait > CLOTH_MS.rest then
+            elseif wait > CLOTH_MS.rest and not wave.gpu then
                 wait = CLOTH_MS.rest
             end
             if speed > 60 then
@@ -562,19 +652,30 @@ function Teams.clothTick()
                 local want = math.atan(-lx, ly)
                 wave.swing = wave.swing + turn(wave.swing, want) * math.min(1, dt * WAVE.swing)
             end
-            local amp = WAVE.idle + (WAVE.run - WAVE.idle) * f
-            wave.t = wave.t + dt * (WAVE.idle_rate + (WAVE.run_rate - WAVE.idle_rate) * f)
-            wave.angles = wave.angles or {}
-            local angles, n = wave.angles, CLOTH.strips
-            for k = 1, n do
-                angles[k] = wave.swing + amp * (k / n) * math.sin(wave.t - k * WAVE.crest / n)
+            if wave.gpu then
+                -- Ripple and rate in quarter steps of speed, so a carrier's
+                -- every stride is not a new rate; sendWave hands over only
+                -- what changed.
+                local q = math.floor(f * 4 + 0.5) / 4
+                wave.amp = WAVE.idle + (WAVE.run - WAVE.idle) * q
+                setRate(wave, WAVE.idle_rate + (WAVE.run_rate - WAVE.idle_rate) * q)
+                sendWave(entry)
+            else
+                local amp = WAVE.idle + (WAVE.run - WAVE.idle) * f
+                wave.t = wave.t + dt * (WAVE.idle_rate + (WAVE.run_rate - WAVE.idle_rate) * f)
+                wave.angles = wave.angles or {}
+                local angles, n = wave.angles, CLOTH.strips
+                for k = 1, n do
+                    angles[k] = wave.swing + amp * (k / n) * math.sin(wave.t - k * WAVE.crest / n)
+                end
+                layCloth(entry, angles)
             end
-            layCloth(entry, angles)
         elseif entry.wave then
             -- Out of sight: start its speed afresh when it comes back.
             entry.wave.x = nil
         end
     end
+    if gpu and wait == CLOTH_MS.unseen then wait = CLOTH_MS.gpu_rest end
     return wait
 end
 

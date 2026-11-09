@@ -134,5 +134,21 @@ eq(Teams.clothTick(), 100, "cloth: Assault's bomb is a flag too")
 Teams.init({ Current = { level = {} }, variant = function() return "ctf" end })
 eq(Teams.clothTick(), 1000, "cloth: a level without a ctf block has no flags")
 
+-- The GPU-waved cloth's phase is Time * rate + offset (M_CE_FlagCloth). A
+-- carrier speeding up changes the rate: the new offset keeps the phase where
+-- it was at that moment, so the ripple does not jump.
+local function near(a, b, label)
+    local d = (a - b) % (2 * math.pi)
+    assert(math.min(d, 2 * math.pi - d) < 1e-6, label .. ": " .. tostring(a) .. " vs " .. tostring(b))
+end
+for _, case in ipairs({ { 0.4, 3.2, 9.0, 0 }, { 5.9, 3.2, 4.65, 1234.567 }, { 1.0, 9.0, 3.2, 86400.25 } }) do
+    local offset, from, to, t = case[1], case[2], case[3], case[4]
+    local rebased = Teams.clothRebase(offset, from, to, t)
+    near(t * to + rebased, t * from + offset, "cloth: rate " .. from .. " -> " .. to .. " at " .. t .. " s")
+    assert(rebased >= 0 and rebased < 2 * math.pi, "cloth: the offset stays within one turn")
+end
+eq(Teams.clothRebase(1.5, 3.2, 3.2, 999), 1.5, "cloth: the same rate keeps the offset")
+
 print("Teams: flag teams from model variants, player teams, the first-person flag's enemy, the pin "
-    .. "rule, the Paks folder, the blue flag's container in the hub state, the flag cloth's pace")
+    .. "rule, the Paks folder, the blue flag's container in the hub state, the flag cloth's pace and "
+    .. "its GPU ripple's phase")

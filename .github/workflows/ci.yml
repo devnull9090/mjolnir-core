@@ -59,6 +59,9 @@ jobs:
           lua5.4 tools/tests/test_flag_marker.lua
           lua5.4 tools/tests/test_markers_players.lua
           lua5.4 tools/tests/test_match_report.lua
+          lua5.4 tools/tests/test_bipeds.lua
+          lua5.4 tools/tests/test_bots_scan.lua
+          lua5.4 tools/tests/test_waypoint.lua
 
       - name: Test the lobby after a match (Quit, missing worlds, a joiner told why)
         run: |
