@@ -183,6 +183,10 @@ jobs:
         shell: pwsh
         run: .\native\lobby\test-forge-doors.ps1
 
+      - name: Test Halo 2 lift files and pushes
+        shell: pwsh
+        run: .\native\lobby\test-lifts.ps1
+
       - name: Build mjolnir_frame_times.dll
         shell: pwsh
         run: .\native\frame_times\build.ps1
