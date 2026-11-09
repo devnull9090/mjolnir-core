@@ -150,6 +150,18 @@ Ranked by expected gain.
 
 ### 1. Flag cloth: a material, not C
 
+**Status, 2026-11-08:** both halves built.
+- **Throttle** (MJOLNIRLevelLoader 0.13.1, PR #368): measured on CHL.
+  - Facing a flag: 12 → 5.5 ms/s.
+  - Flags near but out of view: 10.5–16 → 1.4–2.3 ms/s.
+- **GPU material** (0.13.2, branch `work/flag-cloth-gpu`): `M_CE_FlagCloth` in
+  the runtime pack's chunk 966 (`build_flag_cloth.py`).
+  - At rest: 0.5 ms/s.
+  - Carrying a flag: about 3 ms/s.
+  - It waits for a CE runtime pack release; until then the throttle runs.
+
+The text below is the audit as written.
+
 - **Today:** `Teams.clothTick` runs every 33 ms on every map and returns at once
   outside CTF and Assault ([teams.lua:490](../mods/MJOLNIRLevelLoader/Scripts/teams.lua),
   scheduled at [main.lua:5238](../mods/MJOLNIRLevelLoader/Scripts/main.lua)).
@@ -274,7 +286,7 @@ next two need: per-map data in, simulation reads out.
 | 1 | **Done in MJOLNIRLobby 0.24.1:** the 5.1 s host hitch (above), plus generational GC in the Lobby | `net.lua` `Net.clients`, `maplive.lua` `MapLive.release`, `games.lua` `presenceTick` | 82 hitches to 1 in a 4-minute host test |
 | 2 | Arm `NotifyOnNewObject` for the bot and Spartan classes at mod load, so no match runs a whole-array scan; drop the 2 s biped rescan; rescan bot classes only if the map has them; put `Relay.arm` and the bots start on different polls | `bots.lua:207-234`, `main.lua:333-373`, `main.lua:1866-1873` | the Hud tick's 50–129 ms worst runs |
 | 3 | Load frame: don't `SetMaterial(i, the same material)` on every slot of every baked piece unless it has `scalars`; share the `StaticMeshActor` scan; five `FindFirstOf` become `GetAllActorsOfClass`; decode `level.json` once per map (the travel hooks decode it again, about 124 ms each); read only `foliage.bin`'s header when foliage is baked; spread the steps over frames, then run two full collections | `main.lua:4945-4971`, `3669`, `4702-4710`, `5849-5855`, `3695` | *estimate* 0.5–0.8 s off TMB's 1.5 s frame, no frame over about 50 ms |
-| 4 | Flag cloth throttle until the material exists | `teams.lua:490` | most of the 30–35 ms/s in CTF |
+| 4 | **Done in MJOLNIRLevelLoader 0.13.1 and 0.13.2:** flag cloth throttle, then the GPU cloth material ([above](#1-flag-cloth-a-material-not-c)) | `teams.lua` `Teams.clothTick` | CHL facing a flag 12 → 5.5 ms/s (throttle) → 0.5 ms/s (material) |
 | 5 | Hill and race redraw: 16–64 panels with 2 `StaticFindObject` each, per hill move; cache the libraries, spread the panels over polls | `hill.lua:207-278, 407-467` | *estimate* 64–256 ms on each hill move in King |
 | 6 | Cache `syncClass` (one `StaticFindObject` per flag or ball every 0.2 s) | `flagmark.lua:89-95` | *estimate* about 20 ms/s in CTF, Assault and Oddball |
 | 7 | Cache each shield's class | `devices.lua:75` | the 37 hitches with devices over 20 ms on YOY |

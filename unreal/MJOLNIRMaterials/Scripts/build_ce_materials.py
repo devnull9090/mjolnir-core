@@ -1470,8 +1470,11 @@ return o;
 """
 
 
-def build_environment(name, masked, defaults, two_sided=False, land=False):
-    """`land`: the landscape master (tools/level/build_landscape.py). A
+def build_environment(name, masked, defaults, two_sided=False, land=False, offset=None):
+    """`offset(g, m)`, when given, wires a World Position Offset into the
+    graph before it compiles (build_flag_cloth.py).
+
+    `land`: the landscape master (tools/level/build_landscape.py). A
     landscape has no CE texture coordinates, so its base and lightmap UVs
     both come from world XY over the landscape's rectangle (LandRect: x, y,
     width, height in cm), and its Base, Lightmap, Bake and SunShare are the
@@ -1786,6 +1789,10 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
         m.set_editor_property("opacity_mask_clip_value", 0.5)
         holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
         mel.connect_material_property(holes, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    if offset:
+        # A World Position Offset of the caller's (build_flag_cloth.py: the
+        # CTF flag's cloth), wired before the material compiles.
+        offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
