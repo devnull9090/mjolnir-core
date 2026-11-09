@@ -25,11 +25,15 @@ Bots.RESPAWN_SECONDS = 5
 local PLACE_TIMEOUT = 4
 local SCAN_SECONDS = 0.25
 
---- The AI bipeds a bot can be (the squads' characters').
---- Spartans are the players' own class: `isPlayer` keeps their bodies out.
-local CLASSES = {
-    "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C", "BP_GruntBipedActor_C", "BP_JackalBipedActor_C",
-    "BP_BruteBipedActor_C", "BP_MaleMarineBipedActor_C", "BP_FemaleMarineBipedActor_C",
+--- The AI bipeds a bot can be (the squads' characters) are Scripts/bipeds.lua's
+--- CLASSES. Spartans are the players' own class: `isPlayer` keeps their bodies
+--- out.
+
+--- The body each kind of bot is placed in, so a placement that goes unseen
+--- rescans that class alone. A map from before kinds (`bot_<k>`) can be any.
+local KIND_CLASS = {
+    spartan = "BP_SpartansBipedActor_C", elite = "BP_EliteBipedActor_C",
+    grunt = "BP_GruntBipedActor_C", jackal = "BP_JackalBipedActor_C",
 }
 
 --- The kinds of bot a map baked with `blam.bots.types` offers, as the
@@ -76,9 +80,12 @@ local dllDir, mapsDir, levelsDir = nil, nil, nil
 local enable, run, setTeams = nil, nil, nil
 local scriptId = os.time() + 7000
 local log = function() end
+local Bipeds = nil
 
 --- `modsDir`: ue4ss\Mods; MJOLNIRLobby's DLL sits in MJOLNIRLobby\native.
-function Bots.init(modsDir, logFn)
+--- `bipeds`: Scripts/bipeds.lua, armed when the mod loaded.
+function Bots.init(modsDir, logFn, bipeds)
+    Bipeds = bipeds
     dllDir = modsDir .. "\\MJOLNIRLobby\\native\\"
     mapsDir = (modsDir:match("^(.*)\\[^\\]*$") or modsDir) .. "\\MJOLNIRMaps\\"
     levelsDir = modsDir .. "\\MJOLNIRLevelLoader\\levels\\"
@@ -168,86 +175,80 @@ local function address(actor)
     return ok and a or nil
 end
 
---- Every AI biped actor there is, by address. FindAllOf walks the whole
---- object array (about 23 ms a class on Blood Gulch, 2026-10-25), so the
---- pools are found once, when bots start, and actors made later arrive
---- through NotifyOnNewObject; a tick only reads positions.
-local pool = {}
-local watched = {}
+--- Every AI biped actor there is comes from Scripts/bipeds.lua, which has
+--- watched for them since the mod loaded: the pools a map makes as it loads
+--- and any actor made later, so a match never walks the object array for them.
+--- The pools were found with FindAllOf when bots started (about 160 ms for the
+--- seven classes in a match), and a Spartan bot went unseen when no Spartan
+--- existed yet to say where its class was (Forge on Yoyorast, 2026-11-07).
 
---- NotifyOnNewObject takes a class's full path, which an actor of the class
---- gives. Spartans are the one class with no pool waiting for AI: they exist
---- once someone spawns, and bots start 3 s into a match, so a start before the
---- first spawn left them unwatched and every Spartan bot unseen. The HUD took
---- each for a squad the map lacks, tried three more, and gave up with all
---- thirty-two walking the map and none on the board (Forge on Yoyorast,
---- 2026-11-07). Their class needs no actor to say where it is.
-local CLASS_PATHS = {
-    BP_SpartansBipedActor_C = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C",
-}
-
-local function watch(class, path)
-    if watched[class] then return end
-    local ok = pcall(NotifyOnNewObject, path, function(new)
-        local id = address(new)
-        if id then pool[id] = new end
-    end)
-    if ok then watched[class] = true end
-end
-
---- `NotifyOnNewObject` needs the class in memory, and a map's first Spartan
---- may be the bot about to be placed.
-local function loadClass(path)
-    local library = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-    return pcall(function()
-        return library:LoadClassAsset_Blocking(library:Conv_SoftClassPathToSoftClassRef(library:MakeSoftClassPath(path)))
-    end)
-end
-
-local function fillPool()
-    pool = {}
-    for _, class in ipairs(CLASSES) do
-        for _, a in ipairs(FindAllOf(class) or {}) do
-            local at = address(a)
-            if at then pool[at] = a end
-            if not watched[class] then
-                local ok, path = pcall(function() return a:GetClass():GetFullName():match("%s(/%S+)$") end)
-                if ok and path then watch(class, path) end
-            end
-        end
-    end
-    for class, path in pairs(CLASS_PATHS) do
-        if not watched[class] and loadClass(path) then watch(class, path) end
-    end
-end
-
---- Whether a class that could hold this match's bots is not being watched: an
---- actor of it would arrive unseen, and only a scan finds it.
+--- Whether an actor of a class that could hold this match's bots would arrive
+--- unseen: only when the watch could not be armed. Then a scan finds it.
 local function blind()
-    for _, class in ipairs(CLASSES) do
-        if not watched[class] then return true end
-    end
-    return false
+    return not Bipeds.armed()
 end
 
---- Scans of the whole object array a match may spend on that: about 160 ms each.
+--- Scans of the whole object array a match may spend when blind: about 23 ms
+--- a class.
 local MAX_RESCANS = 3
 
---- Every AI biped out of the pool (a pooled actor waits at the origin),
---- and where each stands.
-local function liveActors()
-    local out, where = {}, {}
-    for at, a in pairs(pool) do
-        local ok, l = pcall(function()
-            if not a:IsValid() then return nil end
-            return a:K2_GetActorLocation()
-        end)
-        if ok and l == nil then
-            pool[at] = nil
-        elseif ok and math.abs(l.X) + math.abs(l.Y) >= 1 then
-            out[at], where[at] = a, { l.X, l.Y, l.Z }
+--- The classes a scan for slot `s`'s bot looks through: its kind's body, or,
+--- for a map from before kinds, every class the map has pooled actors of
+--- (every class when it has none).
+local function classesFor(s)
+    local kind = s and s.family and s.family:match("^(%a+)")
+    if KIND_CLASS[kind] then return { KIND_CLASS[kind] } end
+    local have = {}
+    for _, class in ipairs(Bipeds.CLASSES) do
+        if next(Bipeds.of(class)) ~= nil then have[#have + 1] = class end
+    end
+    return #have > 0 and have or Bipeds.CLASSES
+end
+
+--- The actors out of the pool at the last read (a pooled actor waits at the
+--- origin), by address, each with its class's set. A scan reads these, and
+--- reads every actor only of the classes a placement needs (`liveActors`).
+local offOrigin = {}
+
+--- How often a scan reads every pooled actor of every class anyway, in
+--- seconds, in case one left the origin unread.
+local FULL_SECONDS = 5
+
+--- Read one kept actor: where it is when out of the pool. A gone actor leaves
+--- its set.
+local function read(set, at, a, out, where, outSets)
+    local ok, l = pcall(function()
+        if not a:IsValid() then return nil end
+        return a:K2_GetActorLocation()
+    end)
+    if ok and l == nil then
+        set[at] = nil
+    elseif ok and math.abs(l.X) + math.abs(l.Y) >= 1 then
+        out[at], where[at], outSets[at] = a, { l.X, l.Y, l.Z }, set
+    end
+end
+
+--- Every AI biped out of the pool, and where each stands. Only the actors out
+--- at the last read, and every actor of the classes in `full` (nil: none).
+--- The step's every use of these is an actor out of the pool, but a placement
+--- must see its bot's actor leave it: then its class is read in full. Reading
+--- every pooled actor each scan was about 2,200 calls a second for Blood
+--- Gulch's 271 bipeds, 13-14 ms/s of the HUD's tick (2026-11-08).
+local function liveActors(full)
+    local out, where, outSets = {}, {}, {}
+    local whole = {}
+    for _, class in ipairs(full or {}) do
+        local set = Bipeds.of(class)
+        if not whole[set] then
+            whole[set] = true
+            for at, a in pairs(set) do read(set, at, a, out, where, outSets) end
         end
     end
+    for at, set in pairs(offOrigin) do
+        local a = set[at]
+        if a and not whole[set] then read(set, at, a, out, where, outSets) end
+    end
+    offOrigin = outSets
     return out, where
 end
 
@@ -292,19 +293,28 @@ function Bots.begin(count, now, onSeat, opts)
     if not teamTable(opts.teams) and opts.teams then
         log("bots: MJOLNIRLobby's DLL cannot give bots a team; they fight both sides")
     end
-    fillPool()
+    -- Actors of earlier maps go. Without the watch, the pools are found the old
+    -- way, once.
+    Bipeds.prune()
+    if blind() then
+        for _, class in ipairs(Bipeds.CLASSES) do Bipeds.scan(class) end
+    end
     math.randomseed(os.time())
     local level = opts.level or Bots.LEGENDARY
     local map = readBotsFile(opts.map) or {}
+    -- The first scan reads every actor.
+    offOrigin = {}
     state = { slots = {}, onSeat = onSeat, onKill = opts.onKill or function() end, retired = {}, nextScan = 0,
-        placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
+        nextFull = 0, placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
         isPlayer = opts.isPlayer or function() return false end, teams = opts.teams and true or false,
         level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1],
         starts = map.starts, areas = map.areas, tasks = map.tasks, began = now, rescans = 0 }
     Bots.resize(count, now)
-    log(string.format("bots: %d bot(s) for this match%s; %s", count, opts.teams and ", on red and blue" or "",
+    log(string.format("bots: %d bot(s) for this match%s; %s; %d biped actors known%s", count,
+        opts.teams and ", on red and blue" or "",
         state.starts and string.format("each placed on the best of %d starts", #state.starts)
-            or "no bots.json: each keeps its squad's start"))
+            or "no bots.json: each keeps its squad's start",
+        Bipeds.count(), blind() and " (scanned: no watch)" or ""))
     return true
 end
 
@@ -356,6 +366,7 @@ function Bots.stop()
         if state.teams then teamTable(false) end
     end
     state = nil
+    offOrigin = {}
 end
 
 function Bots.active()
@@ -748,7 +759,7 @@ local function step(now, humans, live, where)
             -- The next scan finds it new, if it came.
             if blind() and state.rescans < MAX_RESCANS and not p.rescanned then
                 p.rescanned, state.rescans = true, state.rescans + 1
-                fillPool()
+                for _, class in ipairs(classesFor(p)) do Bipeds.scan(class) end
                 return
             end
             p.rescanned = nil
@@ -830,10 +841,33 @@ end
 --- biped, dead }`: `player_get <nth>` is that player (it counts the players
 --- there are), `team` is "Red", "Blue" or nil, and `biped` their biped's actor
 --- since they last spawned.
+--- The classes a scan reads in full. A bot being placed: its own class, so
+--- its actor is seen leaving the pool. Nothing else changes while it is
+--- placed, so what the scan sees agrees with the actors out when it began
+--- (`before`), which is how a placement tells its actor from the others. A
+--- bot due to be placed: its class, so `before` holds every actor of it
+--- already out. Otherwise every class every FULL_SECONDS, and none between.
+local function fullClasses(now)
+    local p = state.placing
+    if p then return classesFor(p) end
+    if now >= state.nextFull then
+        state.nextFull = now + FULL_SECONDS
+        return Bipeds.CLASSES
+    end
+    local list = nil
+    for _, s in ipairs(state.slots) do
+        if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
+            list = list or {}
+            for _, class in ipairs(classesFor(s)) do list[#list + 1] = class end
+        end
+    end
+    return list
+end
+
 function Bots.tick(now, humans)
     if not state or now < state.nextScan then return end
     state.nextScan = now + SCAN_SECONDS
-    local live, where = liveActors()
+    local live, where = liveActors(fullClasses(now))
     step(now, humans or {}, live, where)
     -- Where each actor stood this scan, for the next one's teleport test.
     if state then state.lastWhere = where end

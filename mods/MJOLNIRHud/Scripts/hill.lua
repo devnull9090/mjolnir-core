@@ -71,6 +71,22 @@ local function emptyHit()
     for k in pairs(HIT) do HIT[k] = nil end
     return HIT
 end
+-- The traces' other tables, made once: no actor to ignore, no debug colours.
+local IGNORE = {}
+local NO_COLOUR = { R = 0, G = 0, B = 0, A = 0 }
+
+-- Engine objects by path, found once and kept. StaticFindObject costs about
+-- 1 ms even for a /Script path, more in a match, and a hill move asked for two
+-- per panel, for 16 to 64 panels: 30-130 ms on one poll. A kept handle is
+-- checked before each use and found again if it went.
+local found = {}
+local function object(path)
+    local o = found[path]
+    if o and o:IsValid() then return o end
+    o = StaticFindObject(path)
+    found[path] = o
+    return o
+end
 local COLOURS = {
     empty = { para = { 1, 0.8, 0.25 }, perp = { 1, 0.55, 0.08 } }, -- gold
     you = { para = { 0.45, 1, 0.9 }, perp = { 0.1, 0.8, 1 } }, -- cyan
@@ -207,19 +223,20 @@ end
 --- that may stand over the hill, then from higher for a slope that rises past
 --- that start (a trace starting underground hits nothing).
 local function groundAt(world, x, y, z)
-    local library = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-    local none = { R = 0, G = 0, B = 0, A = 0 }
+    local library = object("/Script/Engine.Default__KismetSystemLibrary")
     for _, above in ipairs(TRACE_STARTS_CM) do
-        local hit = {}
+        -- The shared hit table, emptied: a fresh {} a trace piled up.
+        local hit = emptyHit()
+        for k in pairs(IGNORE) do IGNORE[k] = nil end
         library:LineTraceSingle(world, { X = x, Y = y, Z = z + above },
-            { X = x, Y = y, Z = z - TRACE_DEPTH_CM }, 0, false, {}, 0, hit, true, none, none, 0)
+            { X = x, Y = y, Z = z - TRACE_DEPTH_CM }, 0, false, IGNORE, 0, hit, true, NO_COLOUR, NO_COLOUR, 0)
         if hit.bBlockingHit then return math.max(hit.Location.Z, z - LOWEST_CM) end
     end
     return z
 end
 
 local function loadAsset(path)
-    local library = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local library = object("/Script/Engine.Default__KismetSystemLibrary")
     local ok, asset = pcall(function()
         return library:LoadAsset_Blocking(library:Conv_SoftObjPathToSoftObjRef(library:MakeSoftObjectPath(path)))
     end)
@@ -231,7 +248,7 @@ local function vector(mid, name, r, g, b, a)
 end
 
 local function instance(world, master, name)
-    local library = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local library = object("/Script/Engine.Default__KismetMaterialLibrary")
     local ok, mid = pcall(function()
         return library:CreateDynamicMaterialInstance(world, master, FName(name), 0)
     end)
@@ -275,14 +292,14 @@ end
 --- A panel's rotation: facing out, its bottom edge rising `rise` cm over its
 --- width, so it meets both neighbours on a slope.
 local function panelRotation(panel, rise)
-    local library = StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
+    local library = object("/Script/Engine.Default__KismetMathLibrary")
     local slope = rise / panel.width
     local c, s = math.cos(panel.angle), math.sin(panel.angle)
     return library:MakeRotFromZX({ X = c, Y = s, Z = 0 }, { X = slope * s, Y = -slope * c, Z = 1 })
 end
 
 local function spawnPart(world, mesh, mid)
-    local class = StaticFindObject("/Script/Engine.StaticMeshActor")
+    local class = object("/Script/Engine.StaticMeshActor")
     local actor = world:SpawnActor(class, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
     local comp = actor.StaticMeshComponent
     -- SetStaticMesh refuses a registered Static component without a word.
@@ -295,10 +312,10 @@ local function spawnPart(world, mesh, mid)
 end
 
 local function build(pc)
-    local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-    local w = library:Create(pc, StaticFindObject("/Script/UMG.UserWidget"), pc)
+    local library = object("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local w = library:Create(pc, object("/Script/UMG.UserWidget"), pc)
     local tree = w.WidgetTree
-    local t = StaticConstructObject(StaticFindObject("/Script/UMG.TextBlock"), tree, FName("MJOLNIRHillText"))
+    local t = StaticConstructObject(object("/Script/UMG.TextBlock"), tree, FName("MJOLNIRHillText"))
     tree.RootWidget = t
     t:SetColorAndOpacity({ SpecifiedColor = { R = 1, G = 1, B = 1, A = 1 }, ColorUseRule = 0 })
     t:SetShadowOffset({ X = 1.5, Y = 1.5 })

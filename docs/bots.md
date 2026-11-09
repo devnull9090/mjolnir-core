@@ -318,19 +318,38 @@ makes). An actor is that bot's until the `Kill` that names it. A Spartan bot's
 actor is the players' class, `BP_SpartansBipedActor_C`, so an actor a player
 spawned in (their `player_spawn` names it) is never taken for a bot.
 
-`FindAllOf` walks the whole object array (about 23 ms a class): the pools are
-found once when bots start, and actors made later arrive through
-`NotifyOnNewObject`. Scanning six classes every tick held the game thread
-135 ms three times a second.
+The actors come from `Scripts/bipeds.lua`, one `NotifyOnNewObject` on the
+bipeds' native ancestor armed when the HUD loads, before any map. It sees every
+biped actor as it is made, the pools a map makes as it loads included, so a
+match never walks the object array for them. `FindAllOf` costs about 23 ms a
+class in a match:
 
-Spartans have no pool waiting: their class has actors only once someone has
-spawned, and bots start 3 s into a match. `NotifyOnNewObject` needs a class's
-path, so `bots.lua` keeps that one by name and loads the class first. Without
-that, a match starting before the first spawn (Forge on Yoyorast) saw none of
-its Spartan bots: each placement looked like a squad the map lacks, so each bot
-was placed four times and given up on, thirty-two AI with no seat on the board.
-As a backstop, a placement that times out while a class is unwatched scans once
-before placing again, and a try that gives up erases its squad.
+- Scanning six classes every tick held the game thread 135 ms three times a
+  second.
+- Scanning the seven classes once when bots started (until MJOLNIRHud 0.19.1)
+  made a 108–129 ms Hud tick 3 s into hosted matches, and again on up to three
+  rescans.
+- A watch on a Blueprint class's own path needs the class loaded, and a
+  Blueprint class can be unloaded and loaded again between maps at a new
+  address. Spartans have no pool waiting, so a match starting before the first
+  spawn (Forge on Yoyorast) once saw none of its Spartan bots. Each placement
+  looked like a squad the map lacks, so each bot was placed four times and given
+  up on: thirty-two AI with no seat on the board. A native class is never
+  unloaded.
+
+A scan (every 0.25 s) reads only the actors out of the pool at the last read:
+the bots, their bodies left standing, and the players. Every pooled actor of a
+class is read only from the moment a bot of that class is due to be placed
+until it is seen, plus a full read every 5 s. The step uses only actors out
+of the pool, and a placement must see its actor leave the pool. Reading all of
+Blood Gulch's 271 pooled bipeds every scan was about 2,200 calls a second:
+with 8 bots, the Hud tick went from 11.6 to 5.0 ms/s (MJOLNIRHud 0.19.1,
+`tools/tests/test_bots_scan.lua`).
+
+As a backstop, if the watch could not be armed, bots start with one scan of
+each class, and a placement that times out scans its own kind's class once
+before placing again (three a match at most). A try that gives up erases its
+squad.
 
 ## Names on the clients
 
