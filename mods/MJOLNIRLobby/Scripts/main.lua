@@ -4995,5 +4995,12 @@ local function initialize()
     log("ready (" .. #installedMaps() .. " map(s) installed)")
 end
 
+-- The native half searches the game's code for the places it hooks, on a
+-- worker thread from now, so the answers wait for initialize's
+-- mjolnir_fireteam_open instead of freezing the game there (1.2 s).
+do
+    local start = package and package.loadlib and package.loadlib(MOD_DIR .. "\\native\\mjolnir_lobby.dll", "mjolnir_scans_start")
+    if start then pcall(start) end
+end
 ExecuteInGameThreadWithDelay(5000, initialize)
 print("[MJOLNIR Lobby] Module loaded.\n")
