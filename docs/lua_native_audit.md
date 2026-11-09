@@ -302,7 +302,10 @@ its biped pools; later ones are caught by the existing watch either way.
 Screenshots from a fixed camera on TMB, BGL and ZAN differ by 1–6/255 on
 average, which is wind, clouds, water and Zanzibar's turning wheel. YOY's
 10 devices all bound, and ASC's three turning machines rode their
-simulation actors.
+simulation actors. On BGL, `mjolnir_foliage off`, `on` and
+`mjolnir_level_reload` each re-dressed the map as it was: the grass in its
+own colours (not the 2026-10-18 dark grey), and the cladding rocks hidden,
+then shown again.
 
 **What is left.**
 
@@ -315,6 +318,8 @@ simulation actors.
   - the landscape's cliff materials (19–25 slots in one function).
 - **The travel's own decode, 92–239 ms on the frame the map starts.** The
   switch needs the level's variant and vehicle sets before the map loads.
+- **`mjolnir_foliage off` and `on`:** a frame of 71–78 ms on BGL, hiding or
+  showing its 7,086 rocks at once. Only that console command does it.
 - **More Lua in all on Zanzibar,** 1,553 ms against 1,386: the queue and its
   closures cost a little per material slot.
 - **Engine frames of 100–330 ms** before the player is in, with none of our
