@@ -108,7 +108,8 @@ end
 local env
 env = setmetatable({
     io = { open = open },
-    os = { time = function() return 1000 + math.floor(time) end, remove = function(path) files[path] = nil end },
+    os = { time = function() return 1000 + math.floor(time) end, clock = function() return time end,
+        remove = function(path) files[path] = nil end },
     dofile = function(path) return assert(loadfile(path:gsub("\\", "/"), "t", env))() end,
     ExecuteInGameThreadWithDelay = function(ms, fn) scheduled[#scheduled + 1] = { at = time + ms / 1000, fn = fn } end,
     package = { loadlib = function(_, name) return function()

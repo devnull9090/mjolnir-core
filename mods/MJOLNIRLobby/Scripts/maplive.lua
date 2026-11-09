@@ -39,7 +39,7 @@ local fetching = {}            -- code -> callbacks waiting on its screenshot
 local textures = {}            -- code -> { name = texture path, file = cover id }
 local registered = {}          -- code -> true once its row is in this session
 local job = nil                -- the install in flight
-local releases = { byCode = {}, at = nil }   -- MapLive.release's cache
+local releases = { byCode = {}, at = nil, text = nil }   -- MapLive.release's cache
 local worlds = { byCode = {}, asked = {}, at = nil, failed = false }   -- MapLive.worlds' answers
 local WORLD_SECONDS = 10
 
@@ -317,18 +317,24 @@ end
 
 --- The hub release of `code` this PC has installed, from the launcher's
 --- state: { id, version }, or nil (not from the hub, or no launcher state).
---- Read again at most every few seconds.
+--- Read again at most every few seconds, and decoded only when its text has
+--- changed: with 55 maps installed the file is 259 KB, and a decode took
+--- ~19 ms and made 4.6 MB of garbage, every 6 s on a host
+--- (docs/lua_native_audit.md).
 function MapLive.release(code)
     if not releases.at or os.time() - releases.at > 5 then
-        releases.byCode = {}
         releases.at = os.time()
         local appdata = os.getenv("APPDATA")
         local text = appdata and readFile(appdata .. "\\com.devnull9090.mjolnir-launcher\\hub_state.json")
-        local ok, state = pcall(Json.decode, text or "")
-        if ok and type(state) == "table" and type(state.installed) == "table" then
-            for _, m in ipairs(state.installed) do
-                if type(m) == "table" and type(m.map_code) == "string" and type(m.release_id) == "string" then
-                    releases.byCode[m.map_code] = { id = m.release_id, version = tostring(m.version or "?") }
+        if text ~= releases.text then
+            releases.text = text
+            releases.byCode = {}
+            local ok, state = pcall(Json.decode, text or "")
+            if ok and type(state) == "table" and type(state.installed) == "table" then
+                for _, m in ipairs(state.installed) do
+                    if type(m) == "table" and type(m.map_code) == "string" and type(m.release_id) == "string" then
+                        releases.byCode[m.map_code] = { id = m.release_id, version = tostring(m.version or "?") }
+                    end
                 end
             end
         end

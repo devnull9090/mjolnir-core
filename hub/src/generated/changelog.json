@@ -80,13 +80,19 @@
       "tag": "mods-v0.49.0",
       "title": "Spawns by game type, ready for the maps",
       "date": "2026-11-08",
-      "summary": "The loader can give each game type its own spawn points, as CE and Halo 2 did. Maps change once they are updated.",
-      "body": "### Changed\n\nIn MJOLNIRLevelLoader 0.13.0.\n\n- **Spawns by game type, ready for the maps.** A converted map can now give\n  each game type its own spawn points, as CE and Halo 2 did: Slayer at\n  Slayer's starts and not in the CTF bases, CTF only in the bases, and Race,\n  Oddball and King at their own starts. Maps change once they are updated;\n  until then they play as before.",
+      "summary": "The loader can give each game type its own spawn points, as CE and Halo 2 did, and hosts no longer stutter every five seconds.",
+      "body": "### Changed\n\nIn MJOLNIRLevelLoader 0.13.0.\n\n- **Spawns by game type, ready for the maps.** A converted map can now give\n  each game type its own spawn points, as CE and Halo 2 did: Slayer at\n  Slayer's starts and not in the CTF bases, CTF only in the bases, and Race,\n  Oddball and King at their own starts. Maps change once they are updated;\n  until then they play as before.\n\n### Fixed\n\nIn MJOLNIRLobby 0.24.1.\n\n- **A stutter every five seconds while hosting.** Every five seconds the host\n  searched the whole game for the players' connections, even with nobody\n  else in the game, and each search made a frame of 50–70 ms. The host now\n  searches again only when someone joins or leaves, or the map changes. It\n  also stops re-reading the launcher's list of installed maps when that list\n  hasn't changed.",
       "sections": [
         {
           "heading": "Changed",
           "items": [
             "Spawns by game type, ready for the maps. A converted map can now give each game type its own spawn points, as CE and Halo 2 did: Slayer at Slayer's starts and not in the CTF bases, CTF only in the bases, and Race, Oddball and King at their own starts. Maps change once they are updated; until then they play as before."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "A stutter every five seconds while hosting. Every five seconds the host searched the whole game for the players' connections, even with nobody else in the game, and each search made a frame of 50–70 ms. The host now searches again only when someone joins or leaves, or the map changes. It also stops re-reading the launcher's list of installed maps when that list hasn't changed."
           ]
         }
       ],

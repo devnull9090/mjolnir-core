@@ -144,33 +144,78 @@ function Net.toClient(pc, verb, ...)
     return ok
 end
 
---- To every connected fireteam client. A controller left over from the
---- previous world has no player and no player state; a client RPC on one
---- with no connection would run here, on the host.
+--- Whether `pc` is a connected client's controller: not this machine's own,
+--- with a connection and a player state. A controller left over from the
+--- previous world has neither, and a client RPC on one with no connection
+--- would run here, on the host.
+local function connected(pc)
+    local ok, yes = pcall(function()
+        return valid(pc) and not isLocal(pc) and valid(pc.Player) and valid(pc.PlayerState)
+    end)
+    return ok and yes == true
+end
+
+--- The world's players, from its game state: a key made of their player
+--- states' addresses, which changes when anyone joins or leaves or the world
+--- changes, and whether it lists anyone besides this machine's own local
+--- players. nil when the game state cannot be read. Reading the array is
+--- safe; PlayerState:GetOwner() on its entries crashed the host inside
+--- UE4SS (2026-10-03), so the controllers themselves still come from
+--- FindAllOf.
+local function roster()
+    local ok, key, count = pcall(function()
+        local pc = localController()
+        if not pc then error("no local controller") end
+        local addresses = {}
+        pc:GetWorld().GameState.PlayerArray:ForEach(function(_, element)
+            addresses[#addresses + 1] = tostring(element:get():GetAddress())
+        end)
+        table.sort(addresses)
+        return table.concat(addresses, ","), #addresses
+    end)
+    if not ok or type(key) ~= "string" then return nil end
+    local okL, locals = pcall(function() return #Engine.GameViewport.GameInstance.LocalPlayers end)
+    return key, not (okL and type(locals) == "number" and count <= locals)
+end
+
+--- Every connected fireteam client's controller (on the host).
 ---
---- For a message the host repeats (REPEATED), the controllers are looked up
---- again at most every CONTROLLERS_SECONDS: FindAllOf walks every object
---- (~20 ms), and the host sends the post-game vote every second (#232). A
---- joiner gets the next one; one gone fails the checks below. Any other
---- message looks them up as it is sent, so a one-off reaches a new joiner.
+--- FindAllOf("PlayerController") walks every object in the game, ~20 ms on a
+--- converted map. Each send used to walk, and the host's public-session
+--- message every 5 s made a 50-70 ms frame every 5.1 s on every host, with
+--- clients or alone (docs/lua_native_audit.md). The walk's result is kept
+--- until the world's players change (roster's key), so a joiner is found at
+--- the next send, and nothing is walked while the host is alone. When the
+--- game state cannot be read, a message the host repeats (`repeated`: the
+--- post-game vote, every second, #232) reuses a walk up to
+--- CONTROLLERS_SECONDS old, and any other walks again.
 Net.CONTROLLERS_SECONDS = 2
 Net.REPEATED = { vote = true, lobby = true }
-local controllers = { list = {}, at = -100 }
+local controllers = { list = {}, at = -100, key = nil }
 
+function Net.clients(repeated)
+    local key, others = roster()
+    if key and not others then return {} end
+    if key then
+        if key ~= controllers.key then
+            controllers.list, controllers.at, controllers.key = FindAllOf("PlayerController") or {}, os.clock(), key
+        end
+    elseif not repeated or os.clock() - controllers.at >= Net.CONTROLLERS_SECONDS then
+        controllers.list, controllers.at, controllers.key = FindAllOf("PlayerController") or {}, os.clock(), nil
+    end
+    local out = {}
+    for _, pc in ipairs(controllers.list) do
+        if connected(pc) then out[#out + 1] = pc end
+    end
+    return out
+end
+
+--- To every connected fireteam client.
 function Net.toClients(verb, ...)
     local msg = compose(verb, ...)
     local sent = 0
-    if not Net.REPEATED[verb] or os.clock() - controllers.at >= Net.CONTROLLERS_SECONDS then
-        controllers.list, controllers.at = FindAllOf("PlayerController") or {}, os.clock()
-    end
-    for _, pc in ipairs(controllers.list) do
-        if valid(pc) and not isLocal(pc) then
-            local ok = pcall(function()
-                if not (valid(pc.Player) and valid(pc.PlayerState)) then error("not connected") end
-                pc:ClientMessage(msg, FName(TYPE), 0)
-            end)
-            if ok then sent = sent + 1 end
-        end
+    for _, pc in ipairs(Net.clients(Net.REPEATED[verb])) do
+        if pcall(function() pc:ClientMessage(msg, FName(TYPE), 0) end) then sent = sent + 1 end
     end
     if lastSent[verb] ~= sent then
         lastSent[verb] = sent

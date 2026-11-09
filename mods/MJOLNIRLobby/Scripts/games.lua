@@ -26,6 +26,7 @@ local LOBBY_LOST_SECONDS = 15 -- this long without a lobby in the menu, it is go
 local MAX_PLAYERS = 16        -- the hub's ceiling, and the fireteam's
 
 local nativeDir, listingFile, noticeFile, Json, Net, log, Session, guest
+local reportSlow = function() end
 local publicPresence, presenceCheckedAt, lastWorld, nextPresenceBroadcast = nil, nil, nil, 0
 local connectionChecked, online = 0, false
 local sequence = 0
@@ -679,7 +680,10 @@ local function presenceTick()
             -- Public or not: a lobby lost later is then gone, not on its way.
             if online then Host.lobbySeen = true end
         end
-        local info = Host.info and Host.info()
+        -- Only a public game has a session to show (Session.host), so a
+        -- private host does not build one: it reads the launcher's state and
+        -- every player's name and pawn, each second.
+        local info = Host.public and Host.info and Host.info() or nil
         local jip = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
         publicPresence = Session.host(Host, info, now, online, jip)
         if now >= nextPresenceBroadcast then
@@ -713,13 +717,14 @@ function Games.leavePresence()
 end
 
 --- deps: { modDir, json, net, log, version, info, world, worldObject, modes,
---- inMatch }.
+--- inMatch, reportSlow }.
 
 function Games.init(deps)
     nativeDir = deps.modDir .. "\\native\\"
     listingFile = deps.modDir .. "\\listing.txt"
     noticeFile = deps.modDir .. "\\chat_notice.txt"
     Json, Net, log = deps.json, deps.net, deps.log
+    reportSlow = deps.reportSlow or reportSlow
     Session = dofile(deps.modDir .. "\\Scripts\\publicsession.lua")
     guest = Session.new()
     Host.world = deps.world
@@ -738,7 +743,11 @@ function Games.init(deps)
     Host.inMatch = deps.inMatch
     Host.modes = deps.modes
     keepLobby(false)
+    -- Timed for the hitch log (MJOLNIRHud's hitches.lua), which saw none of
+    -- this loop before: its controller walk every 5 s on a host was the
+    -- "none of our timed loops" hitch every 5.1 s.
     local function loop()
+        local started = os.clock()
         local okPresence, errPresence = pcall(presenceTick)
         if okPresence then
             presenceCheckedAt = os.time()
@@ -749,6 +758,7 @@ function Games.init(deps)
         local ok, err = pcall(tick)
         if not ok then log("games: " .. tostring(err)) end
         jipTick()
+        pcall(reportSlow, "games", started)
         ExecuteInGameThreadWithDelay(1000, loop)
     end
     ExecuteInGameThreadWithDelay(1000, loop)
