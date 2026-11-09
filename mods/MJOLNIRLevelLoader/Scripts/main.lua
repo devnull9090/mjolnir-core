@@ -1085,41 +1085,54 @@ local function runtimeMaterial(world, spec, name, target)
     return mid
 end
 
-local function applyMaterials(comp, list, world, id)
-    if type(list) ~= "table" then return 0, 0 end
-    local applied, failed = 0, 0
-    -- A machine's moving part is drawn moved by its material (the CE device
-    -- masters' World Position Offset), out past the mesh's own bounds: the
-    -- spec's bounds_scale keeps the mesh drawn wherever the part goes.
-    local bounds = 1.0
-    for i, entry in ipairs(list) do
-        local mat, err
-        if type(entry) == "string" and #entry > 0 then
-            mat = resolveMesh(entry)
-            err = "not found: " .. entry
-        elseif type(entry) == "table" then
-            local ok, m, e = pcall(runtimeMaterial, world, entry, string.format("%s_%d", id, i - 1))
-            mat, err = ok and m or nil, ok and e or m
-            if mat and type(entry.bounds_scale) == "number" then bounds = math.max(bounds, entry.bounds_scale) end
-        end
-        if mat then
-            if pcall(function() comp:SetMaterial(i - 1, mat) end) then
-                applied = applied + 1
-            else
-                failed = failed + 1
-            end
-        elseif entry ~= "" then
-            failed = failed + 1
-            Log(string.format("decor '%s' slot %d: %s", tostring(id), i - 1, tostring(err)))
-        end
+--- One slot of applyMaterials: entry `i` of a material list made and set,
+--- counted in `st` ({ applied, failed, bounds }). A load sets a spawned
+--- piece's slots one at a time, a slice a frame (spawnDecorItem): CE
+--- terrain is up to 106 runtime materials on one mesh.
+local function applyMaterial(comp, entry, i, world, id, st)
+    local mat, err
+    if type(entry) == "string" and #entry > 0 then
+        mat = resolveMesh(entry)
+        err = "not found: " .. entry
+    elseif type(entry) == "table" then
+        local ok, m, e = pcall(runtimeMaterial, world, entry, string.format("%s_%d", id, i - 1))
+        mat, err = ok and m or nil, ok and e or m
+        -- A machine's moving part is drawn moved by its material (the CE
+        -- device masters' World Position Offset), out past the mesh's own
+        -- bounds: the spec's bounds_scale keeps the mesh drawn wherever the
+        -- part goes.
+        if mat and type(entry.bounds_scale) == "number" then st.bounds = math.max(st.bounds, entry.bounds_scale) end
     end
-    if bounds > 1.0 then
+    if mat then
+        if pcall(function() comp:SetMaterial(i - 1, mat) end) then
+            st.applied = st.applied + 1
+        else
+            st.failed = st.failed + 1
+        end
+    elseif entry ~= "" then
+        st.failed = st.failed + 1
+        Log(string.format("decor '%s' slot %d: %s", tostring(id), i - 1, tostring(err)))
+    end
+end
+
+--- After applyMaterial's slots: the bounds the moving parts need. Returns
+--- the slots applied and failed.
+local function materialsDone(comp, id, st)
+    if st.bounds > 1.0 then
+        local bounds = st.bounds
         local ok = pcall(function() comp:SetBoundsScale(bounds) end)
         if not ok then ok = pcall(function() comp.BoundsScale = bounds; comp:MarkRenderStateDirty() end) end
         Log(string.format("decor '%s': bounds scale %.2f for its moving machine parts%s", tostring(id), bounds,
             ok and "" or " (could not set)"))
     end
-    return applied, failed
+    return st.applied, st.failed
+end
+
+local function applyMaterials(comp, list, world, id)
+    if type(list) ~= "table" then return 0, 0 end
+    local st = { applied = 0, failed = 0, bounds = 1.0 }
+    for i, entry in ipairs(list) do applyMaterial(comp, entry, i, world, id, st) end
+    return materialsDone(comp, id, st)
 end
 
 --- The pieces build_terrain_meshes.py writes ("<map>_terrain",
@@ -1541,55 +1554,80 @@ local function spawnDecorItem(world, origin, item)
         return nil, "mesh did not apply: " .. item.mesh
     end
 
-    if item.tint and not applyTint(actor.StaticMeshComponent, item.tint) then
-        Log("tint failed for '" .. tostring(item.id) .. "' (mesh has no Color param?)")
-    end
-    if item.materials then
-        local nApplied, nFailed = applyMaterials(actor.StaticMeshComponent, item.materials, world, tostring(item.id))
-        Log(string.format("decor '%s': %d material(s) applied, %d failed",
-            tostring(item.id), nApplied, nFailed))
-        local pulse = item.pulse
-        if type(pulse) == "table" and type(pulse.param) == "string" then
-            local first = item.materials[1]
-            local base = type(first) == "table" and first.scalars and first.scalars[pulse.param]
-            local okM, mid = pcall(function() return actor.StaticMeshComponent:GetMaterial(0) end)
-            if okM and mid and mid:IsValid() and base then
-                -- The setter kept: UE4SS hands back a new function handle at
-                -- every method lookup (~250 bytes), and one bound to its
-                -- object, so it is this instance's own.
-                Current.pulses[#Current.pulses + 1] = {
-                    mid = mid, set = mid.SetScalarParameterValue, param = FName(pulse.param), base = base,
-                    fn = pulse["function"] or 2, period = pulse.period or 1.0,
-                }
+    -- The piece's look, as jobs in order: its tint, its material slots one
+    -- a job, then what needs them. During a load they go to the load's queue
+    -- (Current.dressQueue), a slice a frame: Timberland's 26 spawned pieces
+    -- took 569 ms in one frame, its CE terrain 106 materials of them.
+    -- Otherwise they run now.
+    local id = tostring(item.id)
+    local jobs = {}
+    if item.tint then
+        jobs[#jobs + 1] = function(comp)
+            if not applyTint(comp, item.tint) then
+                Log("tint failed for '" .. id .. "' (mesh has no Color param?)")
             end
         end
     end
-    -- `scalars`: values on the mesh's own materials (scalarMid), e.g. a
-    -- swapped tree's sway.
-    if type(item.scalars) == "table" then
-        pcall(function()
-            local comp = actor.StaticMeshComponent
-            for i = 0, comp:GetNumMaterials() - 1 do
-                local mid = scalarMid(world, comp:GetMaterial(i), item.scalars)
-                if mid then comp:SetMaterial(i, mid) end
+    if item.materials then
+        local st = { applied = 0, failed = 0, bounds = 1.0 }
+        for i, entry in ipairs(type(item.materials) == "table" and item.materials or {}) do
+            jobs[#jobs + 1] = function(comp) applyMaterial(comp, entry, i, world, id, st) end
+        end
+        jobs[#jobs + 1] = function(comp)
+            local nApplied, nFailed = materialsDone(comp, id, st)
+            Log(string.format("decor '%s': %d material(s) applied, %d failed", id, nApplied, nFailed))
+            local pulse = item.pulse
+            if type(pulse) == "table" and type(pulse.param) == "string" then
+                local first = item.materials[1]
+                local base = type(first) == "table" and first.scalars and first.scalars[pulse.param]
+                local okM, mid = pcall(function() return comp:GetMaterial(0) end)
+                if okM and mid and mid:IsValid() and base then
+                    -- The setter kept: UE4SS hands back a new function handle at
+                    -- every method lookup (~250 bytes), and one bound to its
+                    -- object, so it is this instance's own.
+                    Current.pulses[#Current.pulses + 1] = {
+                        mid = mid, set = mid.SetScalarParameterValue, param = FName(pulse.param), base = base,
+                        fn = pulse["function"] or 2, period = pulse.period or 1.0,
+                    }
+                end
             end
-        end)
+        end
     end
-    -- `static`: no vertex offset (wind) at all. A swaying mesh is rebuilt
-    -- for ray tracing every frame and re-renders its shadow pages; Ice
-    -- Fields' 506 fir pieces hung the GPU in Lumen's reflections and their
-    -- shadows jumped as the player walked (2026-10-13).
-    -- A swapped tree's piece (its sway calmed, scenery_swap.py TREE_CALM)
-    -- too: each piece bends about its own pivot, and a 10 m trunk piece's
-    -- tip moved far enough to part from the next, the trunk breaking apart
-    -- and joining again in the wind (Infinity, 2026-10-18). Its leaf
-    -- clusters (foliage) still flutter.
-    if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
-        pcall(function() actor.StaticMeshComponent:SetEvaluateWorldPositionOffset(false) end)
+    jobs[#jobs + 1] = function(comp)
+        -- `scalars`: values on the mesh's own materials (scalarMid), e.g. a
+        -- swapped tree's sway.
+        if type(item.scalars) == "table" then
+            pcall(function()
+                for i = 0, comp:GetNumMaterials() - 1 do
+                    local mid = scalarMid(world, comp:GetMaterial(i), item.scalars)
+                    if mid then comp:SetMaterial(i, mid) end
+                end
+            end)
+        end
+        -- `static`: no vertex offset (wind) at all. A swaying mesh is rebuilt
+        -- for ray tracing every frame and re-renders its shadow pages; Ice
+        -- Fields' 506 fir pieces hung the GPU in Lumen's reflections and their
+        -- shadows jumped as the player walked (2026-10-13).
+        -- A swapped tree's piece (its sway calmed, scenery_swap.py TREE_CALM)
+        -- too: each piece bends about its own pivot, and a 10 m trunk piece's
+        -- tip moved far enough to part from the next, the trunk breaking apart
+        -- and joining again in the wind (Infinity, 2026-10-18). Its leaf
+        -- clusters (foliage) still flutter.
+        if item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0) then
+            pcall(function() comp:SetEvaluateWorldPositionOffset(false) end)
+        end
+        -- After the materials: the strength is set on them.
+        if (TerrainShadows.cast or TerrainShadows.strength) and isTerrain(item) then
+            pcall(applyTerrainShadows, actor)
+        end
     end
-    -- After the materials: the strength is set on them.
-    if (TerrainShadows.cast or TerrainShadows.strength) and isTerrain(item) then
-        pcall(applyTerrainShadows, actor)
+    local function run(job)
+        if actor:IsValid() then job(actor.StaticMeshComponent) end
+    end
+    if Current.dressQueue then
+        Current.dressQueue.add(jobs, run)
+    else
+        for _, job in ipairs(jobs) do run(job) end
     end
     return actor
 end
@@ -3743,6 +3781,8 @@ function Foliage.dressBaked(world, foliage, quality)
     local reset = Current.foliageDressed
     local function dressMesh(w)
         local comp, group = w.comp, w.group
+        -- Found frames ago during a load (the queue).
+        if not comp:IsValid() then return end
         comp:SetVisibility(w.shown, false)
         if not w.shown then return end
         if reset then
@@ -3777,22 +3817,30 @@ end
 --- name read for each of thousands of actors. Kept on Current.meshScan for
 --- the load that made it, then dropped: no handle outlives the load.
 function Foliage.scanMeshActors()
-    local decor, rocks, nRocks = {}, {}, 0
-    for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
-        local name = a:GetFName():ToString()
-        local id = name:match("^MJDecor_(.+)$")
-        if id then
-            decor[id] = a
-        else
-            local g = tonumber(name:match("^MJClad_(%d+)_%d+$"))
-            if g then
-                local list = rocks[g] or {}
-                list[#list + 1] = a
-                rocks[g], nRocks = list, nRocks + 1
-            end
-        end
+    local scan = Foliage.newScan()
+    for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do Foliage.classify(scan, a) end
+    return scan
+end
+
+function Foliage.newScan() return { decor = {}, rocks = {}, nRocks = 0 } end
+
+--- One mesh actor into a scan, by its name. A load reads the names a
+--- slice a frame: thousands of actors (Timberland's 4,242 pieces and 2,070
+--- rocks), a name read each.
+function Foliage.classify(scan, a)
+    if not a:IsValid() then return end
+    local name = a:GetFName():ToString()
+    local id = name:match("^MJDecor_(.+)$")
+    if id then
+        scan.decor[id] = a
+        return
     end
-    return { decor = decor, rocks = rocks, nRocks = nRocks }
+    local g = tonumber(name:match("^MJClad_(%d+)_%d+$"))
+    if g then
+        local list = scan.rocks[g] or {}
+        list[#list + 1] = a
+        scan.rocks[g], scan.nRocks = list, scan.nRocks + 1
+    end
 end
 
 --- The cladding rocks a baked world carries (MJClad_<group>_<rock>, mesh
@@ -5181,10 +5229,20 @@ local function spawnDecor(world)
         -- lacks is spawned.
         local baked, nBaked, bakedMs, spawnedMs = {}, 0, 0, 0
         if type(level.landscape) == "table" then
+            -- The walk in a frame of its own, the names read after it.
+            local all, names = {}, nil
             step("mesh actor scan", function()
-                Current.meshScan = Foliage.scanMeshActors()
+                all = FindAllOf("StaticMeshActor") or {}
+                Current.meshScan = Foliage.newScan()
                 baked = Current.meshScan.decor
             end, true)
+            step("mesh actor names", function(deadline)
+                local scan = Current.meshScan
+                names = names or Dress.slices(all, function(a) Foliage.classify(scan, a) end)
+                local more = names(deadline)
+                if not more then all = {} end
+                return more
+            end)
         end
         step("decor", Dress.slices(decor, function(item, index)
             local id = (type(item) == "table" and item.id) or ("#" .. index)
@@ -5192,6 +5250,8 @@ local function spawnDecor(world)
             local itemAt = os.clock()
             if own then
                 nBaked = nBaked + 1
+                -- Found frames ago (the mesh actor scan).
+                if not own:IsValid() then return end
                 -- Still, as spawnDecorItem keeps them (a swapped tree's
                 -- piece), first and on its own: a material error below
                 -- skipped it, and Infinity's small trees swayed apart
@@ -5208,7 +5268,8 @@ local function spawnDecor(world)
                 -- a material of its own is not in the runtime decor): set
                 -- again only where an earlier dressing of this world (a
                 -- reload) gave it instances. Setting every slot of every
-                -- piece to what it had was most of Timberland's 1.5 s.
+                -- piece to what it had was thousands of calls on
+                -- Timberland, each changing nothing.
                 if scalars or Current.bakedMids[id] then
                     pcall(function()
                         local comp = own.StaticMeshComponent
@@ -5281,6 +5342,8 @@ local function spawnDecor(world)
             Log(string.format("decor '%s': %s", tostring(type(item) == "table" and item.id or ("#" .. index)),
                 tostring(err)))
         end))
+        -- What the spawned pieces handed on: their materials, a slot a job.
+        step("decor materials", Current.dressQueue.step)
         step("decor done", function()
             -- The world's pieces are dressed: their handles go.
             baked = {}
