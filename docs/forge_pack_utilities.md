@@ -36,18 +36,20 @@ rejected. Runtime discovery uses at most 16 class definitions, selected by
 sorted class path, and 64 active lift actors; additional definitions are ignored.
 
 `MJOLNIRLevelLoader/Scripts/pack_lifts.lua` converts these boxes to the existing
-Halo 2 phantom format. `lifts.lua` uses the same tested acceleration, gravity
-compensation and `object_set_velocity` script transport as Lockout's lifts.
-Each peer pushes only its own locally controlled Spartan bipeds, in Forge
-and Slayer. Saved-layout actors and later duplicates are discovered from their
-current Blam bindings; hidden or pooled actors without a binding do nothing.
+Halo 2 phantom format, and `lifts.lua` hands them to MJOLNIRLobby's DLL with
+the level's own phantoms. The DLL pushes with the same acceleration, gravity
+compensation and `object_set_velocity` as Lockout's lifts, once per
+simulation tick (`native/lobby/lifts_runtime.h`). Each peer pushes only its
+own players, on foot, in Forge and Slayer. Saved-layout actors and later
+duplicates are discovered from their current Blam bindings; hidden or pooled
+actors without a binding do nothing.
 
 Discovery uses Unreal's native actor-class lists and nonloading soft-class
-resolution, at 500 ms while idle and 50 ms near a lift. It never performs a
-periodic UE4SS global object scan or retains a Blueprint class/actor wrapper
-between calls. Travel clears the carried velocity and pending world state.
-The existing LevelLoader script writer remains shared with static Halo 2
-lifts and kill floors.
+resolution, every 500 ms while an installed pack has a lift block, and the
+DLL is sent the set again only when a lift moves, appears or goes. It never
+performs a periodic UE4SS global object scan or retains a Blueprint
+class/actor wrapper between calls. Travel sends an empty set, and the DLL
+drops each player's carried velocity on a new game.
 
 ## Automatic doors
 

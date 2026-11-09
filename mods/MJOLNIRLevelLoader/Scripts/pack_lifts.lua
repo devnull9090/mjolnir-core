@@ -2,7 +2,6 @@
 -- Only active namespaced actors count. Resolve classes without loading assets;
 -- retain no Blueprint classes, actors or components between game-thread calls.
 local PackLifts = { MAX_CLASSES = 16, MAX_ACTORS = 64 }
-local SPARTAN = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C"
 local function finite(n, lo, hi) return type(n) == "number" and n == n and n >= lo and n <= hi end
 -- Reflected integer properties can expose the same salted datum as signed
 -- int32 or uint32. Canonicalize before using it as an identity or player index.
@@ -104,26 +103,6 @@ local function engineAdapter()
         key=function(actor, datum) return actor:GetFullName()..":"..tostring(datum) end,
         pose=function(actor) return {position=xyz(actor:K2_GetActorLocation()), forward=xyz(actor:GetActorForwardVector()),
             right=xyz(actor:GetActorRightVector()), up=xyz(actor:GetActorUpVector())} end,
-        players=function(world)
-            local cls = object("/Script/BlamSynchronization.BlamUnitComponent")
-            if not cls then return {} end
-            local out = {}
-            for _, actor in ipairs(actors(world,SPARTAN)) do
-                if valid(actor) and not actor.bHidden then
-                    pcall(function()
-                        local unit = actor:GetComponentByClass(cls)
-                        if not valid(unit) or not unit:IsControlledByAnyPlayer() then return end
-                        local pawn = unit:TryAndGetControllingPlayerPawn()
-                        if not (valid(pawn) and pawn:IsLocallyControlled()) then return end
-                        local datum = PackLifts.datum32(unit:GetControllingPlayerDatumIndex())
-                        if datum ~= nil then
-                            out[#out+1]={actor=actor,index=math.floor(datum%65536),key=actor:GetFullName()..":"..tostring(datum)}
-                        end
-                    end)
-                end
-            end
-            return out
-        end,
     }
 end
 
@@ -190,7 +169,8 @@ function PackLifts.new(deps, adapter)
         table.sort(out,function(a,b) return a.key<b.key end)
         return out
     end
-    function lifts:players(world) return api.players(world) end
+    --- Whether any installed pack defines a lift block.
+    function lifts:active() return #self.paths > 0 end
     return lifts
 end
 return PackLifts

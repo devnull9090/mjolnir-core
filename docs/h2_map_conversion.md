@@ -301,8 +301,11 @@ units and axes, so every later step reads them unchanged:
   players to placement.json `lifts` (object space, whether or not the prop
   is drawn), `gen_ce_level.py` puts them in the level file in Unreal space
   (`lifts`: planes or a pill, a bounding sphere, the marker, the pushes in
-  cm), and MJOLNIRLevelLoader's `lifts.lua` sets the velocity of a player
-  inside one through `(object_set_velocity (player_get N) ...)` every 50 ms.
+  cm). MJOLNIRLevelLoader's `lifts.lua` hands them, in the simulation's
+  units, to MJOLNIRLobby's DLL once a map, and the DLL sets the velocity of
+  a player inside one through `(object_set_velocity (player_get N) ...)` on
+  every simulation tick (`native/lobby/lifts_runtime.h`,
+  [re/lift_push.md](re/lift_push.md)).
   Each game pushes its own players only: a joiner's motion is its own game's,
   and a push the host sends a joiner's unit does nothing (two PCs,
   2026-10-25). Maps with player lifts: Lockout, Midship, Cyclotron (Ivory
