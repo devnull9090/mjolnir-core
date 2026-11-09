@@ -115,5 +115,24 @@ for _, id in ipairs({ "koth", "crazy_king", "oddball", "juggernaut", "stalker", 
     eq(Teams.TEAM_GAMES[id], nil, id .. " is not")
 end
 
+-- The flag cloth loop's pace (CLOTH_MS): once a second with no flags to wave
+-- (a game type other than CTF or Assault), ten times a second while a CTF
+-- game has no flag near and on screen. Waving ones need UE4SS.
+FName = FName or function(s) return s end
+local variantNow = "slayer"
+Teams.init({
+    Current = { level = { ctf = { flag = { mesh = "/Game/Flag" } } } },
+    variant = function() return variantNow end,
+    getPawn = function() return nil end,
+})
+Teams.reset()
+eq(Teams.clothTick(), 1000, "cloth: no flags in Slayer, a second between passes")
+variantNow = "ctf"
+eq(Teams.clothTick(), 100, "cloth: CTF with no flag dressed yet only looks")
+variantNow = "assault"
+eq(Teams.clothTick(), 100, "cloth: Assault's bomb is a flag too")
+Teams.init({ Current = { level = {} }, variant = function() return "ctf" end })
+eq(Teams.clothTick(), 1000, "cloth: a level without a ctf block has no flags")
+
 print("Teams: flag teams from model variants, player teams, the first-person flag's enemy, the pin "
-    .. "rule, the Paks folder, the blue flag's container in the hub state")
+    .. "rule, the Paks folder, the blue flag's container in the hub state, the flag cloth's pace")
