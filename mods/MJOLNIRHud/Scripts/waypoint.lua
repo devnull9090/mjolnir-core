@@ -88,8 +88,27 @@ function Waypoint.opacity(x, y, width, height, pulse, now)
     return alpha
 end
 
+-- Engine objects by path, found once and kept (StaticFindObject costs about
+-- 1 ms a call); a kept handle is checked before each use.
+local found = {}
+local function object(path)
+    local o = found[path]
+    if o and o:IsValid() then return o end
+    o = StaticFindObject(path)
+    found[path] = o
+    return o
+end
+
+-- GetViewportSize's out tables, made once and emptied before each call: UE4SS
+-- keeps every table it writes an out parameter into, so a {} a call piled up.
+local SIZE, SIZE_Y = {}, {}
+local function emptied(t)
+    for k in pairs(t) do t[k] = nil end
+    return t
+end
+
 local function loadTexture(name)
-    local library = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local library = object("/Script/Engine.Default__KismetSystemLibrary")
     local ok, tex = pcall(function()
         local path = ICON_ROOT .. name .. ".T_MJMode_" .. name
         return library:LoadAsset_Blocking(library:Conv_SoftObjPathToSoftObjRef(library:MakeSoftObjectPath(path)))
@@ -98,7 +117,7 @@ local function loadTexture(name)
 end
 
 local function child(canvas, tree, class, name, x, y, width, height)
-    local w = StaticConstructObject(StaticFindObject("/Script/UMG." .. class), tree, FName(name))
+    local w = StaticConstructObject(object("/Script/UMG." .. class), tree, FName(name))
     local slot = canvas:AddChildToCanvas(w)
     slot:SetAlignment({ X = 0.5, Y = 0.5 })
     slot:SetPosition({ X = x, Y = y })
@@ -134,10 +153,10 @@ function Waypoint.new(log)
     end
 
     local function build(pc)
-        local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-        local w = library:Create(pc, StaticFindObject("/Script/UMG.UserWidget"), pc)
+        local library = object("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local w = library:Create(pc, object("/Script/UMG.UserWidget"), pc)
         local tree = w.WidgetTree
-        local canvas = StaticConstructObject(StaticFindObject("/Script/UMG.CanvasPanel"), tree, FName("MJOLNIRWaypoint"))
+        local canvas = StaticConstructObject(object("/Script/UMG.CanvasPanel"), tree, FName("MJOLNIRWaypoint"))
         tree.RootWidget = canvas
         local x = WIDTH / 2
         badge = child(canvas, tree, "Image", "MJOLNIRWaypointBadge", x, BADGE_Y, BADGE, BADGE)
@@ -165,9 +184,8 @@ function Waypoint.new(log)
         if now < sizeAt then return end
         sizeAt = now + SIZE_EVERY
         -- Both sizes come back in the first table.
-        local size = {}
-        pc:GetViewportSize(size, {})
-        width, height = size.SizeX or 0, size.SizeY or 0
+        pc:GetViewportSize(emptied(SIZE), emptied(SIZE_Y))
+        width, height = SIZE.SizeX or 0, SIZE.SizeY or 0
     end
 
     --- Hide, never remove: RemoveFromParent hung the game once.

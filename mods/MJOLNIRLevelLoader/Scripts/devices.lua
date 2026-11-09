@@ -25,11 +25,36 @@ local Devices = {}
 --- How far an actor can stand from its placement and still be that device.
 Devices.NEAR_CM = 30
 
---- How often the actors of unbound devices are scanned for, in seconds.
+--- How often the actors of unbound devices are scanned for, in seconds:
+--- SCAN_S at first, twice as long after each scan that binds nothing, up to
+--- SCAN_MAX_S, and no more after SCAN_TRIES such scans in a row. A scan is a
+--- FindAllOf, about 25 ms on a converted map: a device that never bound on
+--- Yoyorast was scanned for every 2 s for a whole match (2026-11-06, 24-27 ms
+--- each, the loader's 37 device hitches of 20 ms or more).
 Devices.SCAN_S = 2
+Devices.SCAN_MAX_S = 60
+Devices.SCAN_TRIES = 8
 
 local env
-local state = { bound = {}, level = nil, done = false, scanned = 0 }
+local state = { bound = {}, level = nil, done = false, scanned = 0, wait = Devices.SCAN_S, misses = 0 }
+
+--- The wait before the next scan, after one that waited `wait` and did or
+--- did not bind a device.
+function Devices.nextWait(wait, bound)
+    if bound then return Devices.SCAN_S end
+    return math.min(wait * 2, Devices.SCAN_MAX_S)
+end
+
+-- The component classes, found once and kept: StaticFindObject costs about
+-- 1 ms, and the shields asked for one each every 250 ms.
+local found = {}
+local function class(path)
+    local c = found[path]
+    if c and c:IsValid() then return c end
+    c = StaticFindObject(path)
+    found[path] = c
+    return c
+end
 
 --- `rest` moved by how far `part` is from `base`.
 function Devices.shifted(rest, part, base)
@@ -52,7 +77,7 @@ function Devices.shows(hidden, position)
 end
 
 local function bind(device, actor)
-    local mesh = StaticFindObject("/Script/Engine.StaticMeshComponent")
+    local mesh = class("/Script/Engine.StaticMeshComponent")
     local part = actor:K2_GetComponentsByClass(mesh)[1]:get()
     if not part or not part:IsValid() then return false end
     local p, b = part:K2_GetComponentLocation(), actor:K2_GetActorLocation()
@@ -72,8 +97,7 @@ end
 --- Show or hide a bound shield's mesh, when that changes.
 local function shield(device, bound)
     if not bound.actor:IsValid() then return end
-    local class = StaticFindObject("/Script/BlamSynchronization.BlamDeviceComponent")
-    local component = bound.actor:GetComponentByClass(class)
+    local component = bound.actor:GetComponentByClass(class("/Script/BlamSynchronization.BlamDeviceComponent"))
     local want = Devices.shows(bound.actor.bHidden, component:GetPositionFraction())
     if want == bound.shown then return end
     bound.shown = want
@@ -84,19 +108,23 @@ local function shield(device, bound)
 end
 
 --- Scan for the devices not bound yet, a class at a time, and stop once all
---- are: FindAllOf costs about 20 ms. Bound shields are polled every tick.
+--- are, or once SCAN_TRIES scans in a row bound none: FindAllOf costs about
+--- 25 ms. Bound shields are polled every tick.
 function Devices.tick()
     if not env then return end
     local level = env.Current.level
-    if level ~= state.level then state.level, state.bound, state.done, state.scanned = level, {}, false, 0 end
+    if level ~= state.level then
+        state.level, state.bound, state.done, state.scanned = level, {}, false, 0
+        state.wait, state.misses = Devices.SCAN_S, 0
+    end
     if type(level) ~= "table" or type(level.devices) ~= "table" then return end
     for i, device in ipairs(level.devices) do
         if device.shield and state.bound[i] then pcall(shield, device, state.bound[i]) end
     end
-    if state.done or os.time() - state.scanned < Devices.SCAN_S then return end
+    if state.done or os.time() - state.scanned < state.wait then return end
     state.scanned = os.time()
     local origin = (level.canvas and level.canvas.origin) or { 0, 0, 0 }
-    local scans, left, taken = {}, 0, {}
+    local scans, left, taken, newly = {}, 0, {}, 0
     for _, bound in pairs(state.bound) do
         if bound.actor:IsValid() then taken[bound.actor:GetAddress()] = true end
     end
@@ -118,12 +146,24 @@ function Devices.tick()
             local ok, done = pcall(function() return best and bind(device, best) end)
             if ok and done then
                 taken[best:GetAddress()] = true
-                state.bound[i], left = { actor = best }, left - 1
+                state.bound[i], left, newly = { actor = best }, left - 1, newly + 1
                 env.Log(string.format("device %s rides its machine", tostring(device.name)))
             end
         end
     end
     state.done = left == 0
+    if state.done then return end
+    state.misses = newly > 0 and 0 or state.misses + 1
+    state.wait = Devices.nextWait(state.wait, newly > 0)
+    if state.misses >= Devices.SCAN_TRIES then
+        state.done = true
+        local names = {}
+        for i, device in ipairs(level.devices) do
+            if not state.bound[i] then names[#names + 1] = tostring(device.name) end
+        end
+        env.Log(string.format("devices: no machine found for %s after %d scans; no more scans this map",
+            table.concat(names, ", "), state.misses))
+    end
 end
 
 function Devices.init(deps)
