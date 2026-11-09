@@ -31,7 +31,7 @@ the data-array header).
 | TLS `+0x118` | the player-to-local-user map | below |
 | map `+0x34 + 4p` | player p's input user, 0–3; `-1` when no local user controls it | below |
 | map `+0x74 + 4p` | player p's output user, likewise | below |
-| TLS `+0x20` | object table (`0x18` an entry: salt `+0`, type `+4`, datum size `+6`, own index `+0xC`, datum `+0x10`) | game_state_reader.md |
+| TLS `+0x20` | object table (`0x18` an entry: salt `+0`, type `+4`, datum size `+6`, the host's index `+0xC` (the entry's own only on a host), datum `+0x10`) | game_state_reader.md |
 | object `+0x14` | parent object handle, `-1` when free | game_state_reader.md |
 | object `+0x44` | position, world units; the parent's frame when attached | game_state_reader.md, the teleport tooling |
 | object `+0x50`, `+0x5C` | forward and up unit vectors | game_state_reader.md, `object_set_velocity` below |
@@ -114,6 +114,28 @@ game (ReadProcessMemory, the thread walk of `tools/remote/blam-players.py`):
   the player into the tube with the lifts off, wait 35 s, and hand the set
   back.
 
+### A fireteam client's own player
+
+On a fireteam client an object entry's `+0x0C` holds the object's index on
+the host, not the entry's own. Two test copies on 2026-11-09 showed it: the
+client's entries 84 and 88 read 139 and 140, the host's indices for the same
+two units. Until then `lift_biped` required `+0x0C` to equal the entry's
+index. That rejected every unit on a client, its own player's included, so a
+joiner was never pushed. It now checks the handle's salt, type 0 and the
+datum size (`lift_entry_is_biped`, with the host and client entries in
+`test_lifts.c`).
+
+The ride, on Lockout with two copies (`tools/remote/instances.mjs up 2`,
+copy 1 hosting):
+1. Turn copy 2's lifts off: an empty set through `mjolnir_sim_lifts`.
+2. Write its player into the lower tube at `(-1.497, 12.463, -11.753)`.
+3. Wait 35 s, then hand the set back.
+
+| | Main's DLL | With the fix |
+|---|---|---|
+| `fireteam.log` | the set arrived; no `in phantom` line | `player 1 in phantom 0 (lockout_lift_tube)`, then `left the lift at (-1.50, 11.26, -6.95) after 98 pushes (1 us mean, 3 us worst)` |
+| The player | still at the written point 6 s later | up the tube to z −6.94 within a second; landed on the upper floor at `(-1.497, 8.877, -8.101)` |
+
 ### Pushing every tick
 
 The first rides overshot the top speed: along Lockout's tube the speed
@@ -137,9 +159,10 @@ Xbox DLL alike. The evaluator stays as the fallback when they do not.
 ## After a game update
 
 The datum offsets are CU4's. A build that moves them is caught by the reads'
-own checks (data-array magic and element size, the object entry's salt, own
-index, type 0 and datum size, finite vectors), and a fault turns lifts off
-until the next set. To re-check: host a lift map, stand in a lift, and read
+own checks (data-array magic and element size, the object entry's salt,
+type 0 and datum size, finite vectors), and a fault turns lifts off until the
+next set. To re-check: host a lift map, stand in a lift, and read
 `fireteam.log` for `lifts: player N in phantom ...` and the `left the lift`
-line with its push count. The Forge editor test (`0x2fe810`) is used only on
+line with its push count. Check a joiner too
+([above](#a-fireteam-clients-own-player)). The Forge editor test (`0x2fe810`) is used only on
 the two builds the doors know.

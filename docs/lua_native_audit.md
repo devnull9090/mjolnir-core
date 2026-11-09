@@ -4,7 +4,10 @@
 lines) and the five shipped native DLLs, checked against PC 1's hitch history:
 73 sessions, 57 per-map summaries and 6,356 logged hitches from 2026-11-06 to
 2026-11-08 (RTX 5090, mostly 3840x2160 Epic). Nothing was changed. A cost
-marked *estimate* was read off the code, not measured in game.
+marked *estimate* was read off the code, not measured in game. Updated
+2026-11-09: [the Lua-to-native channel](#the-lua-to-native-channel) and the
+[roster's](#3-player-roster-from-the-simulation-for-the-hud) open questions,
+measured with two test copies on PC 1.
 
 ## Short answer
 
@@ -34,6 +37,10 @@ marked *estimate* was read off the code, not measured in game.
   - the bots' bookkeeping.
 
   A fourth, flag cloth, should leave the CPU altogether as a cloth material.
+- **Native code can take arguments and return values without files**
+  (2026-11-09). A call through UE4SS's exported `LuaMadeSimple` wrapper costs
+  about 0.3 µs; a file round trip costs about 1.3 ms in game. The roster is a
+  go: a fireteam client's simulation holds every player's unit.
 - **Everything else should stay Lua.** That covers the menus, lobby, chat,
   scoreboard, feed, match log, hub calls, map dressing and JSON. It is
   event-driven or runs at most once a second. It works on UMG and actor handles
@@ -261,6 +268,121 @@ Brutes and Marines never are.
   nor in the YOY run. Lua's `os.clock` is wall time on Windows, so a stall in
   the tick's file writes would read as Hud tick time.
 
+## The load frame (measured and fixed)
+
+**Measured on PC 1, 2026-11-09.** Private Slayer hosts, 1920x1080 borderless,
+the game window not in front (it then runs at about 20 frames a second, so
+every frame is 50 ms or more whatever the loader does). Each step of a load
+was timed with `os.clock` and logged as one `load timing` line (kept in
+MJOLNIRLevelLoader 0.13.3). A test copy of MJOLNIRHud's hitch log logged
+every frame of 50 ms or more, with the Lua that ran in it. Before is main
+at 0.13.2 plus that timing. After is 0.13.3: TMB, BGL and ZAN ran on its
+dressing code exactly. Its last commit, which only starts devices and
+turning machines once the world is dressed, was run on YOY and ASC.
+
+| | Before: the one frame | After: frames | After: our Lua in all | After: most of it in one frame |
+|---|---|---|---|---|
+| TMB | 1,716 ms (loader 1,658 ms) | 75 | 1,275 ms | 56 ms (the `StaticMeshActor` walk) |
+| BGL | loader 1,020 ms | 51 | 843 ms | 47 ms (foliage) |
+| ZAN | 1,429 ms (loader 1,386 ms) | 117 | 1,553 ms | 36 ms |
+| YOY | (not run) | 87 | 1,370 ms | 54 ms (terrain shadow proxy) |
+| ASC | (not run) | 44 | 519 ms | 18 ms |
+
+An earlier TMB run, of the build before the brush registration was
+sliced, took 1,033 ms of Lua over 65 frames, with the same walk at 40 ms:
+the later run was slower in every step, with other sessions building on
+the machine. BGL's 1,020 ms frame is the loader's own timing: the hitch
+log had not yet picked up the new world.
+
+**Where TMB's 1,658 ms went** (before):
+
+- **The decor loop, 704 ms, but not the baked pieces.** Its 4,242 baked
+  pieces took 133 ms. Its 26 spawned pieces took 569 ms: the CE terrain
+  (106 runtime materials on one mesh) and the flares. Zanzibar's 51 spawned
+  pieces took 1,178 ms.
+- **The level file, 210 ms,** decoded again 1–2 s after the travel's switch
+  had decoded it (232 ms).
+- **Whole-array scans, about 310 ms with the name reads after them:**
+  - five `FindFirstOf` for the deformation brushes' classes, 138 ms;
+  - `StaticMeshActor` twice, 52 ms each with a name read per actor;
+  - `Landscape` twice, 23 ms each (a third in the flux step);
+  - the scenario tag, 24 ms.
+- **The rest:**
+  - the baked foliage meshes, 85 ms, their
+    `HierarchicalInstancedStaticMeshComponent` walk included;
+  - the landscape's ground, cliffs and rocks, 136 ms;
+  - `foliage.bin` read whole, 15 MB, 41 ms.
+
+**The fix (MJOLNIRLevelLoader 0.13.3):**
+
+- **Redundant work dropped.**
+  - Baked pieces without `scalars` keep their mesh's materials: the bake
+    sets none on them (`BakeDecor`), so setting each slot to its own
+    material changed nothing. A reload still restores pieces that had
+    instances (`Current.bakedMids`). The baked foliage meshes' reset is
+    skipped the same way.
+  - One `StaticMeshActor` walk feeds the decor and the cladding rocks.
+  - One `Landscape` lookup a world, through `GetActorOfClass`.
+  - The deformation brushes' five `FindFirstOf` became one
+    `GetAllActorsOfClass` on `BlamObjectActor`. In the same TMB match both
+    routes listed the same 145 vehicles and bipeds.
+  - The travel's decode is handed to the load (`level_files.lua`) when the
+    file's text is unchanged.
+  - `foliage.bin` is read past its header only when a group needs its
+    clumps.
+- **The rest spread over frames** (`dress.lua`). The steps run in order,
+  about 12 ms of Lua a frame. Long lists are worked a slice a frame through
+  a queue:
+  - a spawned piece's material slots, one job each;
+  - the baked foliage meshes;
+  - the landscape's four parts;
+  - the cladding rocks (7,086 on BGL);
+  - the brush actors (1,364 on TMB).
+
+  The world counts as furnished, and fades in, after the last step.
+  Devices and turning machines start then too: a device binds only once its
+  decor exists. Gaps between load frames read 1–13 ms, and no logged frame
+  carried two slices: the deferred calls run once an engine tick
+  (`DefaultExecuteInGameThreadMethod = EngineTick`).
+- **Two full collections end the load,** a frame each, 6–23 ms. Item 11's
+  two collections were the `mjolnir_level_status` command's, not a load's.
+
+**Dressed the same.** Every dressing line in UE4SS.log matched before and
+after on TMB, BGL and ZAN: decor counts, materials, foliage clumps and
+meshes, rocks, effects, landscape slots, cliffs, lights and decals. Only a
+Lua line number in an error message and the brush count differed: brushes
+went 90 → 286, because the step now runs while the game is still filling
+its biped pools; later ones are caught by the existing watch either way.
+Screenshots from a fixed camera on TMB, BGL and ZAN differ by 1–6/255 on
+average, which is wind, clouds, water and Zanzibar's turning wheel. YOY's
+10 devices all bound, and ASC's three turning machines rode their
+simulation actors. On BGL, `mjolnir_foliage off`, `on` and
+`mjolnir_level_reload` each re-dressed the map as it was: the grass in its
+own colours (not the 2026-10-18 dark grey), and the cladding rocks hidden,
+then shown again.
+
+**What is left.**
+
+- **Single calls the loader cannot cut, 30–56 ms each.** These set a load
+  frame's ceiling:
+  - the `StaticMeshActor` walk;
+  - the foliage step's `HierarchicalInstancedStaticMeshComponent` walk
+    with its names;
+  - one terrain shadow proxy spawn;
+  - the landscape's cliff materials (19–25 slots in one function).
+- **The travel's own decode, 92–239 ms on the frame the map starts.** The
+  switch needs the level's variant and vehicle sets before the map loads.
+- **`mjolnir_foliage off` and `on`:** a frame of 71–78 ms on BGL, hiding or
+  showing its 7,086 rocks at once. Only that console command does it.
+- **More Lua in all on Zanzibar,** 1,553 ms against 1,386: the queue and its
+  closures cost a little per material slot.
+- **Engine frames of 100–330 ms** before the player is in, with none of our
+  Lua in them, on both builds: streaming, pipeline states and the Fluid
+  Flux capture.
+- **Untested:** whether the end-of-load collections end the 47–61 ms lifts
+  and footprints runs minutes into a TMB match (item 11); and a joiner's
+  load.
+
 ## Where native (or GPU) code pays
 
 Ranked by expected gain.
@@ -327,27 +449,95 @@ next two need: per-map data in, simulation reads out.
 
 ### 3. Player roster from the simulation, for the HUD
 
-- **Today:**
+**Status, 2026-11-09: go.** Both open questions are answered, with two test
+copies on PC 1 in a private Blood Gulch Slayer game (copy 1 hosting, copy 2
+joined):
+- A native function can return the whole roster without files, in 4–6 µs
+  ([below](#the-lua-to-native-channel)).
+- A fireteam client's simulation holds every remote player's unit, at the
+  host's position.
+
+- **Today, as audited:**
   - `playersOn`: about 12–14 reflection calls per player, 5 times a second, in
     King and Juggernaut ([markers.lua:56-85](../mods/MJOLNIRHud/Scripts/markers.lua)).
   - `refreshNames`: about 15–19 per player, every second and on every spawn,
     join and board redraw ([main.lua:409-452](../mods/MJOLNIRHud/Scripts/main.lua)).
   - The biped pool: two `FindAllOf` scans, about 30–46 ms, repeated every 2 s
     while no Spartan has been seen
-    ([main.lua:333-387](../mods/MJOLNIRHud/Scripts/main.lua)).
-  - *Estimate:* 2–6 ms/s in 16-player objective and team games.
-- **Design:** a `mjolnir_roster` export.
-  - On the simulation tick, under a lock, it copies each seat's team, unit,
-    alive flag and position (plus vehicle parent).
-  - Lua reads it at 5 Hz.
-  - Names stay in Lua.
-- **Gain:** the per-player reflection and the biped scans go away. So do the
-  stored-biped-handle crashes, because Lua stops holding biped handles at all.
+    ([main.lua:333-387](../mods/MJOLNIRHud/Scripts/main.lua)). Since replaced
+    by one `NotifyOnNewObject` (MJOLNIRHud 0.19.1, above).
+- **Today, measured.** Both functions' reads were timed in game, run over
+  `GameState.PlayerArray` 500 times in each copy:
+  - `playersOn`: 26 µs a player a pass, the array walk included;
+  - `refreshNames`: 23–25 µs a player a pass;
+  - the walk alone: 3 µs a player.
+
+  Two players took part, one of them the reader's own, which is the cheaper
+  path. At 16 players that is about 0.4 ms a pass for each function: about
+  2 ms/s for `playersOn` at 5 Hz, plus 0.4 ms/s or more for `refreshNames`. So
+  about 2.5 ms/s in a 16-player King or Juggernaut game and under 1 ms/s in
+  other modes, the low end of the 2–6 ms/s estimate.
+- **The file channel would have cost more than it saved.** A reply file that
+  Lua reads and parses costs 1.05–1.10 ms (median) in game. At 5 Hz that is
+  about 5.5 ms/s, more than the reads it would replace. Through
+  `lua_channel.h` the same 16 players cost:
+  - 3.8–5.6 µs as one packed string read with `string.unpack`;
+  - 8–9 µs as 16 tables of 8 fields;
+  - about 0.03 ms/s at 5 Hz.
+- **What a client's simulation holds.** Read from outside the game with
+  `tools/remote/blam-players.py`:
+  - **Both players and both units.** The client's players table lists the host
+    with local user -1 and its own player with 0. Each player's unit handle
+    names a live biped (type 0) in the client's object table.
+  - **The host's positions.** The host's unit read `(38.903, -81.087, 1.702)`
+    on the host and `(38.900, -81.090, 1.702)` on the client. After the host
+    walked 14 m (in-game input on copy 1) it read `(35.970, -84.614)` and
+    `(35.974, -84.611)`, within 2 cm.
+  - **Handles are per peer.** The host's `0xe2fa008b` is the client's
+    `0xe2c30054`. Each peer reads its own roster; handles are never compared
+    across machines.
+  - **Entry `+0x0C` is the host's index, not the entry's own.** On the client,
+    entries 84 and 88 read 139 and 140, the host's indices for the same units.
+    A check that it equals the entry's index rejects every unit on a client,
+    including the client's own. The lift push had that check until #375
+    ([below](#correctness-issues-found-along-the-way)).
+- **Correctness, not only cost.** In the same test the client's
+  `BP_SpartansBipedActor_C` for the host did not follow the host:
+  - It stayed where the host spawned, 3 m up, after the host walked 14 m, while
+    the client's simulation followed within 2 cm.
+  - The host's actor for the joiner sat 2.5 m above the joiner's unit too.
+  - Copy 2's window was in the background and its camera was not on the host.
+    So this may be engine relevance rather than a bug.
+
+  Either way, these are the actors the HUD's markers read for remote players.
+  The simulation is the better source.
+- **Design** (refined from the audit):
+  - **The export.** A `mjolnir_roster` export in the lobby DLL, called at 5 Hz
+    through `lua_channel.h`.
+  - **The read.** On the simulation tick, under an SRW lock, it copies each
+    seat:
+    - salt and team (player `+0x4a4`);
+    - unit handle and local user;
+    - alive (a live unit);
+    - position (`+0x44`), velocity (`+0x68`) and vehicle parent (`+0x14`).
+  - **Validation.** An object is checked by its salt and type, never by
+    `+0x0C`.
+  - **Return.** One packed string per call, read in Lua with `string.unpack`:
+    one push for 16 players instead of about 150 for a table of tables.
+  - **Errors.** It never raises. When the tables don't check out it returns
+    nil and a reason.
+  - **Names stay in Lua.**
+- **Gain:**
+  - about 2–2.5 ms/s in 16-player King and Juggernaut, less elsewhere;
+  - a client's markers drawn from its own simulation rather than from actors
+    that can sit where a player spawned;
+  - no stored biped handles in Lua, so no stored-handle crashes.
 - **Cost:**
-  - Positions are in simulation units (world units, Y flipped).
-  - It is unverified whether a client's simulation holds remote players' units.
-    That needs a two-PC check before building.
+  - Positions are in simulation units: world units, Y flipped, ×304.8 for
+    Unreal centimetres. On the client this matched the actors to 0.1 mm in x
+    and y: its own biped, and the host's before the host moved.
   - It needs a layout size check like the one the team code already does.
+  - The `LuaMadeSimple` exports become a dependency pinned to the UE4SS build.
 
 ### 4. Bots' bookkeeping (host only)
 
@@ -375,9 +565,12 @@ next two need: per-map data in, simulation reads out.
 - **The 1.5 s load frame.**
   - Its time is thousands of reflection calls on world actors: 611–692 ms in the
     decor loop over 4,242 baked pieces, and 11 whole-array scans, about 210 ms.
+    (Measured since: the decor loop's time was mostly the 26 spawned pieces'
+    runtime materials, not the baked pieces. See
+    [above](#the-load-frame-measured-and-fixed).)
   - Native code cannot hand those objects back to Lua.
   - Most of it is redundant work that Lua can drop, and the rest can be spread
-    over frames (below).
+    over frames: done in MJOLNIRLevelLoader 0.13.3.
 - **The HUD's per-frame hook**
   ([main.lua:1644-1663](../mods/MJOLNIRHud/Scripts/main.lua)).
   - About 20 reflection calls a frame on a Slayer client and 45 in CTF.
@@ -388,14 +581,19 @@ next two need: per-map data in, simulation reads out.
     reach most of it. Animating widgets from C would make the same calls.
 - **The Lobby, all of it.** Its costs are object scans, `StaticFindObject` and a
   JSON decode, each removed by a cache or an existing Blueprint hook. Its file
-  channel to the DLL measured 0.04–0.54 ms per operation outside the game,
-  under 1 ms/s in a match.
+  channel to the DLL measured 0.04–0.54 ms per operation outside the game. In
+  game a round trip costs about 1.3 ms
+  ([below](#the-lua-to-native-channel)), still under 1 ms/s at the Lobby's
+  rates.
 - **Forge, FlyCam, BlamConsole, Bridge, CTF, WorldBuilder and the rest.** No
   loop costs more than 1.5 ms/s, and each cost is waste that Lua can remove. Most
   are opt-in or dev tools; Core, LevelLoader, Lobby and Hud are the four the
   launcher installs with every map.
-- **JSON and level parsing.** Without the Lua C API, a native parser cannot
-  build the Lua table.
+- **JSON and level parsing.** As audited: without the Lua C API, a native
+  parser cannot build the Lua table. Since 2026-11-09 it could, through
+  `lua_channel.h` ([below](#the-lua-to-native-channel)). It is still not
+  needed: the one costly decode, `hub_state.json`, now runs only when the file
+  changes (MJOLNIRLobby 0.24.1).
 
 ## Lua fixes, ranked by what players feel
 
@@ -403,7 +601,7 @@ next two need: per-map data in, simulation reads out.
 |---|---|---|---|
 | 1 | **Done in MJOLNIRLobby 0.24.1:** the 5.1 s host hitch (above), plus generational GC in the Lobby | `net.lua` `Net.clients`, `maplive.lua` `MapLive.release`, `games.lua` `presenceTick` | 82 hitches to 1 in a 4-minute host test |
 | 2 | **Done in MJOLNIRHud 0.19.1** ([below](#the-huds-scans-and-lookups-measured-and-fixed)): one `NotifyOnNewObject` on the bipeds' native ancestor at mod load, so no match runs a whole-array scan; no 2 s biped rescan; a backstop rescan only of the slot's own class; `Relay.arm` and the bots start on different polls | `bipeds.lua`, `bots.lua`, `main.lua` `findBipeds` | Hud tick worst 308 ms to 10 ms with 8 bots on BGL |
-| 3 | Load frame: don't `SetMaterial(i, the same material)` on every slot of every baked piece unless it has `scalars`; share the `StaticMeshActor` scan; five `FindFirstOf` become `GetAllActorsOfClass`; decode `level.json` once per map (the travel hooks decode it again, about 124 ms each); read only `foliage.bin`'s header when foliage is baked; spread the steps over frames, then run two full collections | `main.lua:4945-4971`, `3669`, `4702-4710`, `5849-5855`, `3695` | *estimate* 0.5–0.8 s off TMB's 1.5 s frame, no frame over about 50 ms |
+| 3 | **Done in MJOLNIRLevelLoader 0.13.3** ([above](#the-load-frame-measured-and-fixed)): the load frame. No `SetMaterial(i, the same material)` on baked pieces without `scalars`; one `StaticMeshActor` scan; five `FindFirstOf` became one `GetAllActorsOfClass`; `level.json` decoded once per map; `foliage.bin` read past its header only when needed; the steps spread over frames, then two full collections | `main.lua` `spawnDecor`, `dress.lua`, `level_files.lua` | TMB 1,716 ms in one frame to 75 frames, at most 56 ms of Lua in any; BGL 1,020 ms to at most 47 ms; ZAN 1,429 ms to at most 36 ms |
 | 4 | **Done in MJOLNIRLevelLoader 0.13.1 and 0.13.2:** flag cloth throttle, then the GPU cloth material ([above](#1-flag-cloth-a-material-not-c)) | `teams.lua` `Teams.clothTick` | CHL facing a flag 12 → 5.5 ms/s (throttle) → 0.5 ms/s (material) |
 | 5 | **Libraries cached in MJOLNIRHud 0.19.1.** Hill and race redraw: 16–64 panels with 2 `StaticFindObject` each, per hill move. Spreading the panels over polls is not needed now | `hill.lua` | a 26-panel move: 55–62 ms to 2–5 ms (measured) |
 | 6 | **Done in MJOLNIRHud 0.19.1:** cache `syncClass` (one `StaticFindObject` per flag or ball every 0.2 s) | `flagmark.lua` | about 0.1 ms a lookup measured, so about 1 ms/s with two flags |
@@ -411,10 +609,22 @@ next two need: per-map data in, simulation reads out.
 | 8 | Post-game vote covers: keep the texture handle, redraw only on change | Lobby `main.lua:3485` | *estimate* about 32 ms/s while the vote is up |
 | 9 | Forge: leave `aim` out of the state comparison (it re-renders the HUD 10 times a second); scan pack lights and surfaces only in Forge or on a world change; generational GC | Forge `main.lua:527-541` | the 1.3 ms/s and 51 ms runs of Forge HUD |
 | 10 | Avatars: keep imported textures across maps, import at most one per poll | `hubnames.lua:72-94`, `main.lua:1249` | the first Tab press and final standings |
-| 11 | A full collection twice at the end of a load | LevelLoader `main.lua:5497-5501` | may explain the 47–61 ms lifts and footprints runs minutes after a TMB load (to test) |
+| 11 | A full collection twice at the end of a load. **Corrected in MJOLNIRLevelLoader 0.13.3:** those two were the `mjolnir_level_status` command's; a load ran none. A load now ends with two, a frame each, 6–23 ms | LevelLoader `main.lua` `status`, `spawnDecor` | may explain the 47–61 ms lifts and footprints runs minutes after a TMB load (still to test) |
 
 ## Correctness issues found along the way
 
+- **The native lift push skipped a fireteam client's own player** (found
+  2026-11-09; fixed in #375, before MJOLNIRLobby 0.25.0 ships).
+  - **Cause.** `lift_biped` required the object entry's `+0x0C` to equal the
+    entry's index. On a client that field is the host's index (above), so every
+    unit failed the check, the client's own included, and no joiner was ever
+    pushed.
+  - **Fix.** #375 checks the salt, type and datum size instead.
+  - **Proof.** On Lockout with two copies, a joiner in the lower tube got no
+    push with the old DLL and rode to the upper floor with the fix
+    ([re/lift_push.md](re/lift_push.md#a-fireteam-clients-own-player)).
+  - **The doors.** The Forge doors' `fd_object` has the same check, but they
+    return before it on a client.
 - **`LoopAsync` handing work to the game thread every second.** CTF
   (`main.lua:404-410`), WorldBuilder (`main.lua:352-358`) and Bridge
   (`main.lua:375-396`) do it, and BlamConsole does it per answer. LevelLoader
@@ -440,38 +650,101 @@ next two need: per-map data in, simulation reads out.
 ## The Lua-to-native channel
 
 **Today.**
-- UE4SS exports no `lua_*` C API, so a native function called through
-  `package.loadlib` takes no arguments. It exchanges request and reply files in
-  `native\`.
-- That costs 0.04–0.54 ms per file operation: fine at 1–5 calls a second, wrong
-  for per-frame work.
+- UE4SS exports no `lua_*` C API. So the lobby DLL's exports, called through
+  `package.loadlib`, take no arguments; they exchange request and reply files
+  in `native\`.
+- **In game that costs more than first measured.** Two test copies on PC 1 ran
+  500 round trips each (2026-11-09): Lua writes the request, the export reads
+  it and writes its reply through a temporary file and a rename, then Lua reads
+  the reply.
+  - Median 1.30 ms, mean 1.35–1.41 ms, worst 3.6–34 ms.
+  - A reply alone, read and parsed (16 lines): median 1.05–1.10 ms.
+  - Outside the game the same operations had measured 0.04–0.54 ms each.
+  - The copies keep their `native\` under `%LOCALAPPDATA%` rather than the
+    Steam install's folder; the install's own was not timed.
+
+  Fine once a second, wrong at 5 Hz.
 - A native function also cannot hand a UObject back to Lua. So native work must
   be self-contained: read simulation memory and act on it, as the lift, roster
   and bots designs do. Otherwise it returns plain numbers and strings.
 
-**Possible, unverified: real arguments and return values.** UE4SS 3.0.1
-(`d0107f63`) exports its `RC::LuaMadeSimple::Lua` wrapper:
+**Measured 2026-11-09: arguments and return values without files.** UE4SS
+3.0.1 (`d0107f63`) exports its `RC::LuaMadeSimple::Lua` wrapper, and its
+members work as a small Lua C API.
+[`native/lobby/lua_channel.h`](../native/lobby/lua_channel.h) calls them from
+C. No shipped code uses it yet. `native/lobby/test-lua-channel.ps1` runs in CI
+against a stand-in built from the same C++ declarations, so a wrong export
+name or calling convention fails the build.
 
-- the constructor `Lua(lua_State*)`;
-- `get_integer`, `get_number`, `get_bool` and `get_string`, each taking a stack
-  index;
-- `set_integer`, `set_number`, `set_bool` and `set_string`;
-- `get_stack_size`, `prepare_new_table` and the `Table` field setters.
+**How it was checked.** By disassembly, then with a throwaway probe DLL loaded
+from the bridge in both copies (host and client). The three open questions:
 
-`package.loadlib` already hands the DLL the `lua_State*`, and every one of these
-is callable from C:
+- **Size.** The `Lua` object is 0xa8 bytes, with no vtable:
+  - the `lua_State*` at `+0`;
+  - a vector at `+8`;
+  - an optional at `+0x38`, engaged flag `+0x98`;
+  - a pointer to itself at `+0xa0`.
 
-- They are MSVC x64 member functions, so `this` goes in `rcx`.
-- `get_string` returns a `std::string_view` through a hidden pointer.
+  The header builds it in 0x100 bytes on the stack, once per call. Its
+  constructor and destructor do no more than that.
+- **Pops: yes, the value at the index, not the top.** Every `get_*` reads with
+  `lua_to*` and then removes that value. None checks the type.
+  - `get_integer` at index 1 on `(2.5, "7", 9, 2.0)` took the stack from 4 to
+    3, 2, 1, 0 and returned 0, 7, 9, 2: a non-integral float reads as 0.
+  - `get_string` on anything but a string or number dereferences NULL.
+  - Any `get_*`, or `discard_value`, on an index past the top removes a value
+    that is there: `lua_rotate` does not check in this build.
+  - The header checks the index and the type before each read and removes
+    exactly one value, so arguments read in order from index 1. Extra
+    arguments stay on the stack, unread.
+- **Errors: a longjmp back to the caller's `pcall`.** UE4SS builds Lua as C:
+  `luaD_throw` longjmps to the protected call. A probe export raised through
+  `throw_error`, inside a `__try`/`__finally` inside a `__try`/`__except`:
+  - Lua's `pcall` got `false` and the message, with UE4SS's traceback appended;
+  - the code after the raise never ran;
+  - the `__finally` ran;
+  - the `__except` filter was never asked;
+  - the next calls worked normally, and so did a second raise.
 
-So a native function could take arguments and return values with no files. A
-spike has to settle three things before anything relies on it:
+  So a native function must never raise, and must never hold a lock or own
+  memory across a call that could. It reports a bad argument as nil and a
+  reason. None of the header's calls raise: they check first, and only running
+  out of memory would.
 
-- the size of the `Lua` object (allocate generously);
-- whether `get_*` pops the value;
-- how a Lua error unwinds through a C frame.
+Two more things the disassembly shows: `lua_lock` is a global critical section
+in this build, so every API call enters it; and `get_string`'s view points into
+a string its own removal just unanchored, so the header copies it at once.
 
-If it works, the roster and lift designs lose their file round trips.
+**Cost, in µs per call** (copy 1 hosting, copy 2 joined, both in the match;
+timed with a QPC clock read through the channel itself):
+
+| Call | Host | Client |
+|---|---|---|
+| A Lua function, 4 arguments and 4 results | 0.05 | 0.05 |
+| An export, no arguments or results | 0.014 | 0.020 |
+| An export, 4 arguments in, 5 results out | 0.29 | 0.36 |
+| A roster: 16 tables of 8 fields | 8.1 | 9.4 |
+| A roster: one 512-byte string, read with 16 `string.unpack` | 3.8 | 5.6 |
+| UE4SS reflection: `pc:IsValid()` | 0.15 | 0.23 |
+| UE4SS reflection: `pc.Pawn` | 0.82 | 1.07 |
+| File round trip: request, export, reply (median) | 1,302 | 1,309 |
+| File reply alone, read and parsed (median) | 1,102 | 1,054 |
+
+A first client run during the map load measured about twice as slow on every
+line, with a 51 ms worst file round trip.
+
+**What it means.**
+- **No more file round trips.** The roster and lift designs can drop theirs. A
+  call costs less than one UE4SS property read; a file round trip costs about
+  4,000 times as much.
+- **The exports are pinned to the UE4SS build,** like the AOB signatures. Once
+  shipped code uses the header, a UE4SS bump must check that `lc_resolve`
+  still finds every name (`lc_missing` names the first gone) and re-read the
+  getters' behaviour. Add that step to the bump notes in
+  `runtime/ue4ss.lock.json` then.
+- **Tables are cheap now.** The 16-table roster set 128 fields in 8–9 µs,
+  about 0.06 µs a field. So a native parser could build Lua tables, which the
+  audit had ruled out ("JSON and level parsing", above).
 
 **Possible, not needed yet: UE4SS's C++ hooks.** UE4SS also exports
 `Hook::RegisterEngineTickPreCallback` and `RegisterProcessEventPreCallback`,
@@ -493,8 +766,9 @@ If it works, the roster and lift designs lose their file round trips.
   Route them through `UI.reportSlow` and `every`.
 - **Each `FindAllOf`, by class.** One hosted bot match tells the 7-class bot
   scan from the rest.
-- **A two-PC check.** Does a client's simulation hold remote players' units?
-  The roster design depends on it.
+- **A two-PC check: done 2026-11-09, with two copies on PC 1.** A client's
+  simulation holds every remote player's unit, at the host's position
+  ([section 3](#3-player-roster-from-the-simulation-for-the-hud)).
 
 ## Suggested order
 
@@ -503,12 +777,16 @@ If it works, the roster and lift designs lose their file round trips.
 2. The HUD's scans moved to `NotifyOnNewObject`, plus `StaticFindObject` caching
    in hill, flagmark and devices: done in MJOLNIRHud 0.19.1 and
    MJOLNIRLevelLoader 0.13.2.
-3. The load-frame trims, then spreading the load over frames.
+3. The load-frame trims, then spreading the load over frames: done in
+   MJOLNIRLevelLoader 0.13.3.
 4. The flag cloth throttle, then the cloth material: done in
    MJOLNIRLevelLoader 0.13.1 and 0.13.2.
-5. Native lifts in the lobby DLL's simulation tick.
-6. The native roster, then the bots.
-7. Optionally, the `LuaMadeSimple` spike, before item 5 if it works.
+5. Native lifts in the lobby DLL's simulation tick: done (#370, MJOLNIRLobby
+   0.25.0, through a file). Fireteam clients needed the `+0x0C` fix, #375
+   ([above](#correctness-issues-found-along-the-way)).
+6. The native roster, then the bots. The roster is a go: build it on
+   `lua_channel.h`.
+7. The `LuaMadeSimple` spike: done 2026-11-09. It works (`lua_channel.h`).
 
 Steps 1–3 remove most of the hitches our mods cause. Step 4 removes the largest
 steady cost. Steps 5–6 are each worth about 1–6 ms/s, and also bring the lift
