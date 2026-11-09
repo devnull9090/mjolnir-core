@@ -5156,12 +5156,17 @@ pcall(collectgarbage, "generational", 5, 100)
 --- Each run that reads a millisecond or more is also handed to MJOLNIRHud's
 --- hitch log (its Scripts/hitches.lua), through a UE4SS shared variable, so
 --- a long frame there names the loops that ran in it.
-local function every(ms, name, fn)
+---
+--- With `paced`, `fn` returns how long to wait before its next run, in ms
+--- (`ms` when it returns nothing or fails): the flag cloth runs at 30 Hz
+--- only while a flag moves on screen.
+local function every(ms, name, fn, paced)
     local reportedAt = -100
     local function run()
         local started = os.clock()
         local ok, err = pcall(fn)
         if not ok then Log(name .. " error: " .. tostring(err)) end
+        local wait = paced and ok and type(err) == "number" and err > 0 and err or ms
         local took = os.clock() - started
         if took >= 0.001 then
             pcall(function()
@@ -5179,7 +5184,7 @@ local function every(ms, name, fn)
             reportedAt = started
             Log(string.format("slow: the %s loop held the game thread %.0f ms", name, took * 1000))
         end
-        ExecuteInGameThreadWithDelay(ms, run)
+        ExecuteInGameThreadWithDelay(wait, run)
     end
     ExecuteInGameThreadWithDelay(ms, run)
 end
@@ -5234,8 +5239,10 @@ local function watch()
     -- pass checks the Spartans for a tint undone. Both in teams.lua, which
     -- checks for a CTF level or a team game itself.
     every(1500, "CTF flags", Teams.flagTick)
-    -- The flags' cloth waves, and trails behind a carrier.
-    every(33, "flag cloth", Teams.clothTick)
+    -- The flags' cloth waves, and trails behind a carrier: 30 times a second
+    -- while a flag moves on screen, 15 at rest, once a second without flags
+    -- (teams.lua CLOTH_MS).
+    every(33, "flag cloth", Teams.clothTick, true)
     every(1500, "team armour", Teams.armorTick)
     -- A player below the map's kill floor dies (kill_floor.lua; host only).
     every(500, "kill floor", function() if Teams.KillFloor then Teams.KillFloor.tick() end end)

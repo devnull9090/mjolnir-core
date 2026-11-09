@@ -359,9 +359,12 @@ end
 --- and `height` 1.22 x 0.99 m, the attached edge at `edge` on the pole, its
 --- vertical centre at `z`, just under the finial. Found by eye on Blood
 --- Gulch (2026-10-24).
+--- Six strips, not eight: each strip is a component move every pass, and a
+--- move costs the game thread ~60 us of transform and render update
+--- (docs/lua_native_audit.md). Six still read as a ripple.
 local CLOTH = {
     mesh = "/Engine/BasicShapes/Plane.Plane",
-    strips = 8,
+    strips = 6,
     width = 39.7,
     height = 32.2,
     edge = { 0, -1.05 },
@@ -375,12 +378,23 @@ local CLOTH = {
 --- ripple (`idle` radians at the free edge, `idle_rate` rad/s); carried, it
 --- swings round to trail behind its motion (`swing` per second towards
 --- there) and ripples harder and faster with speed, up to `run` radians and
---- `run_rate` at `fast` cm/s. A crest travels `phase` radians a strip.
+--- `run_rate` at `fast` cm/s. A crest travels `crest` radians across the
+--- sheet (0.85 a strip when it had eight).
 --- Flags further than `near` cm from the local player are left as they
---- are: a pass costs ~2 ms of the game thread (16 component moves), and the
+--- are, and so are flags not drawn in the last `seen` seconds (off screen
+--- or behind a wall): every strip moved is a component move, and the
 --- ripple cannot be made out from across the map.
-local WAVE = { idle = 0.32, idle_rate = 3.2, run = 0.6, run_rate = 9.0, fast = 700, swing = 4.0, phase = 0.85,
-    near = 5000 }
+local WAVE = { idle = 0.32, idle_rate = 3.2, run = 0.6, run_rate = 9.0, fast = 700, swing = 4.0, crest = 6.8,
+    near = 5000, seen = 0.25 }
+
+--- How long the cloth loop waits before its next pass, in ms. It ran every
+--- 33 ms on every map, 30-35 ms of the game thread a second in CTF on Chill
+--- Out (MJOLNIRHud hitch log, 2026-11-08). A flag that moves (carried, or
+--- the one in first person) still waves 30 times a second, so its trail
+--- swings round smoothly; a flag at rest ripples slowly and needs 15.
+--- With flags on the map but none near and on screen, a pass only looks;
+--- with no flags (no CTF or Assault game) it waits a second.
+local CLOTH_MS = { moving = 33, rest = 66, unseen = 100, none = 1000 }
 
 --- The cloth's material spec for `team`, or nil with neither texture.
 local function clothMaterial(team)
@@ -483,22 +497,49 @@ local function turn(a, b)
     return (b - a + math.pi) % (2 * math.pi) - math.pi
 end
 
---- Wave every dressed flag's cloth (MJOLNIRLevelLoader's 33 ms loop on a
---- CTF level). Each flag's speed comes from its actor's travel since the
---- last pass, turned into the flag mesh's own frame, so a carried flag
---- streams out behind its carrier whichever way they face.
+--- Whether `strip` was drawn in the last WAVE.seen seconds (a pcall
+--- target, so the check makes no closure a pass).
+local function wasDrawn(strip)
+    return strip:WasRecentlyRendered(WAVE.seen)
+end
+
+--- Whether a flag's cloth is on screen: either end of the sheet drawn
+--- lately (the caller has checked that the first strip is valid). Without
+--- the engine's answer (the call failed on a valid strip: said once a
+--- world) every flag counts as drawn, as before the check.
+local DrawnCheck = { works = true }
+local function clothDrawn(strips)
+    if not DrawnCheck.works then return true end
+    local ok, seen = pcall(wasDrawn, strips[1])
+    local last = strips[#strips]
+    if ok and not seen and last ~= strips[1] and last:IsValid() then ok, seen = pcall(wasDrawn, last) end
+    if ok then return seen == true end
+    DrawnCheck.works = false
+    Log("CTF: WasRecentlyRendered failed (" .. tostring(seen) .. "): flag cloth waves on screen or not")
+    return true
+end
+
+--- Wave every dressed flag's cloth (MJOLNIRLevelLoader's flag cloth loop).
+--- Each flag's speed comes from its actor's travel since the last pass,
+--- turned into the flag mesh's own frame, so a carried flag streams out
+--- behind its carrier whichever way they face. Returns how long the loop
+--- waits before the next pass (CLOTH_MS), in ms.
 function Teams.clothTick()
-    if not (env and Teams.ctfLevel()) then return end
+    if not (env and Teams.ctfLevel()) then return CLOTH_MS.none end
     local now = os.clock()
     local pawn = env.getPawn()
     local me = pawn and pawn:IsValid() and pawn:K2_GetActorLocation()
+    local wait = CLOTH_MS.unseen
     for _, entry in pairs(Flags.known) do
         local strips, comp = entry.cloth, entry.comp
         local at = strips and strips[1] and comp and entry.actor:IsValid() and comp:IsValid() and strips[1]:IsValid()
             and entry.actor:K2_GetActorLocation()
         local near = at and (entry.fp or not me
             or (at.X - me.X) ^ 2 + (at.Y - me.Y) ^ 2 + (at.Z - me.Z) ^ 2 < WAVE.near * WAVE.near)
-        if near then
+        -- The flag in first person too: held, it is drawn before the camera;
+        -- after a score or a drop its actor lingers at the origin for ~35 s,
+        -- unseen, and is not waved (CHL, 2026-11-08).
+        if near and clothDrawn(strips) then
             local wave = entry.wave
             local dt = math.min(0.1, math.max(0.001, now - (wave.at or now - 0.033)))
             wave.at = now
@@ -507,6 +548,11 @@ function Teams.clothTick()
             wave.x, wave.y = at.X, at.Y
             local speed = math.sqrt(vx * vx + vy * vy)
             local f = math.min(1, speed / WAVE.fast)
+            if entry.fp or speed > 60 then
+                wait = CLOTH_MS.moving
+            elseif wait > CLOTH_MS.rest then
+                wait = CLOTH_MS.rest
+            end
             if speed > 60 then
                 -- The way the flag trails, in the mesh's frame, where 0 is
                 -- straight out along +Y.
@@ -521,7 +567,7 @@ function Teams.clothTick()
             wave.angles = wave.angles or {}
             local angles, n = wave.angles, CLOTH.strips
             for k = 1, n do
-                angles[k] = wave.swing + amp * (k / n) * math.sin(wave.t - k * WAVE.phase)
+                angles[k] = wave.swing + amp * (k / n) * math.sin(wave.t - k * WAVE.crest / n)
             end
             layCloth(entry, angles)
         elseif entry.wave then
@@ -529,6 +575,7 @@ function Teams.clothTick()
             entry.wave.x = nil
         end
     end
+    return wait
 end
 
 local function quenchSkull(actor)
@@ -1188,6 +1235,7 @@ end
 --- A new world: nothing of the last one's flags or Spartans carries over.
 function Teams.reset()
     Flags.known, Flags.homes, Flags.away = {}, {}, {}
+    DrawnCheck.works = true
     Armor.records, Armor.hidden, Armor.seeded = {}, {}, false
     Classes, Said = {}, {}
 end
