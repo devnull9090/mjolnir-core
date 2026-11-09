@@ -14,8 +14,14 @@ are described in [game_modes.md](game_modes.md#34-king-and-oddball-on-converted-
 
 ## Assets and reserved container
 
-**Shader chunk 966 is reserved for KOTH.** Its shared shader library must keep
-the `Meteorite_Chunk966` identity when packaging and installing.
+**Shader chunk 966 is reserved for KOTH and the CTF flag's cloth.** Its shared
+shader library must keep the `Meteorite_Chunk966` identity when packaging and
+installing. The cloth master (`/Game/MJOLNIR/Cloth/M_CE_FlagCloth`,
+`Scripts/build_flag_cloth.py`) shares the chunk rather than taking a number of
+its own: the launcher numbers other hub containers 900 + their load order, so
+a new 9NN number would collide with some player's map container. A 966 built
+by `build_koth.ps1` alone lacks the cloth master; MJOLNIRLevelLoader then
+moves the cloth's strips from Lua.
 
 | Asset | Purpose |
 |---|---|
