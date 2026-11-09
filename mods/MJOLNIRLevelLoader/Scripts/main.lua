@@ -3717,11 +3717,14 @@ end
 --- the level file each time (the components keep the last load's), as
 --- Foliage.spawn and BakeFoliage work them out. One FindAllOf, no handles
 --- kept. Returns the baked meshes found, then the meshes and clumps drawn.
+--- The meshes are found and counted here; during a load they are dressed
+--- a slice a frame (Current.dressQueue, the step after the foliage's):
+--- hundreds of them, a few calls each.
 Foliage.TIERS = { [4] = 0, [3] = 1, [2] = 2, [1] = 3 }
 function Foliage.dressBaked(world, foliage, quality)
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
     local top = quality and (Foliage.TIERS[quality.keep] or 3) or -1
-    local mids, found, comps, drawn = {}, 0, 0, 0
+    local mids, found, comps, drawn, work = {}, 0, 0, 0, {}
     for _, comp in ipairs(FindAllOf("HierarchicalInstancedStaticMeshComponent") or {}) do
         local g, b, tier = comp:GetFName():ToString():match("^MJFol_(%d+)_(%d+)_(%d+)$")
         g, b, tier = tonumber(g), tonumber(b), tonumber(tier)
@@ -3729,31 +3732,39 @@ function Foliage.dressBaked(world, foliage, quality)
         if type(group) == "table" then
             found = found + 1
             local shown = tier <= top
-            comp:SetVisibility(shown, false)
-            if shown then
-                -- Back to the mesh's own materials first: a reload dressed
-                -- the last load's tinted instances again, and the grass
-                -- drew dark grey (2026-10-18). Only after a dressing in
-                -- this world: BakeFoliage sets no materials, so a mesh
-                -- fresh from the world has its own.
-                if Current.foliageDressed then
-                    pcall(function()
-                        local mesh = comp.StaticMesh
-                        for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
-                    end)
-                end
-                mids[g] = Foliage.dress(world, kml, g, group, comp, mids[g])
-                local gc = type(group.cull) == "table" and group.cull
-                    or type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
-                gc = { gc[1] * quality.cull, gc[2] * quality.cull }
-                local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
-                local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * b / bands or gc[2]
-                comp:SetCullDistances(math.floor(math.min(gc[1], far)), math.floor(far))
-                local sway = not (group.static or quality.still)
-                pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
-                comps, drawn = comps + 1, drawn + comp:GetInstanceCount()
-            end
+            if shown then comps, drawn = comps + 1, drawn + comp:GetInstanceCount() end
+            work[#work + 1] = { comp = comp, g = g, b = b, group = group, shown = shown }
         end
+    end
+    -- Back to the mesh's own materials first: a reload dressed the last
+    -- load's tinted instances again, and the grass drew dark grey
+    -- (2026-10-18). Only after a dressing in this world: BakeFoliage sets
+    -- no materials, so a mesh fresh from the world has its own.
+    local reset = Current.foliageDressed
+    local function dressMesh(w)
+        local comp, group = w.comp, w.group
+        comp:SetVisibility(w.shown, false)
+        if not w.shown then return end
+        if reset then
+            pcall(function()
+                local mesh = comp.StaticMesh
+                for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
+            end)
+        end
+        mids[w.g] = Foliage.dress(world, kml, w.g, group, comp, mids[w.g])
+        local gc = type(group.cull) == "table" and group.cull
+            or type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
+        gc = { gc[1] * quality.cull, gc[2] * quality.cull }
+        local bands = math.max(1, math.floor(tonumber(group.bands) or 1))
+        local far = bands > 1 and gc[1] + (gc[2] - gc[1]) * w.b / bands or gc[2]
+        comp:SetCullDistances(math.floor(math.min(gc[1], far)), math.floor(far))
+        local sway = not (group.static or quality.still)
+        pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
+    end
+    if Current.dressQueue then
+        Current.dressQueue.add(work, dressMesh)
+    else
+        for _, w in ipairs(work) do dressMesh(w) end
     end
     if comps > 0 then Current.foliageDressed = true end
     return found, comps, drawn
@@ -5305,6 +5316,8 @@ local function spawnDecor(world)
             -- The rocks went to Foliage.cliffGroups (Land.cliffs).
             Current.meshScan = nil
         end, true)
+        -- What the foliage handed on: its baked meshes' dressing.
+        step("foliage meshes", Current.dressQueue.step)
         step("effects", function() Effects.spawn(world) end)
         step("waterfalls", function() Effects.waterfalls(world) end)
         step("flux", function() Effects.flux(world) end, true)
