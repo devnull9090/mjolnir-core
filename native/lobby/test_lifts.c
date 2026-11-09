@@ -264,6 +264,36 @@ static void test_fixture(const char *path) {
     CHECK(lift_inside(&scratch, &scratch.lifts[1], above));
 }
 
+/* An object table entry as the simulation lays it out. */
+static void entry(unsigned char out[0x18], unsigned short salt, unsigned short type, unsigned short size,
+                  unsigned short host_index) {
+    memset(out, 0, 0x18);
+    memcpy(out, &salt, 2);
+    out[2] = 0x87;
+    memcpy(out + 4, &type, 2);
+    memcpy(out + 6, &size, 2);
+    memcpy(out + 0x0c, &host_index, 2);
+}
+
+/* The same two units in a host's table and in a fireteam client's (two
+   copies, 2026-11-09): the client's entries 84 and 88 carry the host's
+   indices 139 and 140 at +0x0c. The old check (+0x0c equal to the entry's
+   own index) turned away both client entries, its own player's included. */
+static void test_entry(void) {
+    unsigned char e[0x18];
+    entry(e, 0xe2fa, 0, 0x600, 139); /* host: entry 139, the host's own player */
+    CHECK(lift_entry_is_biped(e, 0xe2fa008bu));
+    entry(e, 0xe2c3, 0, 0x600, 139); /* client: entry 84, the host's unit */
+    CHECK(lift_entry_is_biped(e, 0xe2c30054u));
+    entry(e, 0xe2c8, 0, 0x600, 140); /* client: entry 88, its own player's unit */
+    CHECK(lift_entry_is_biped(e, 0xe2c80058u));
+    CHECK(!lift_entry_is_biped(e, 0xe2c90058u)); /* a stale handle: another salt */
+    entry(e, 0xe2c8, 2, 0x600, 88);              /* a weapon */
+    CHECK(!lift_entry_is_biped(e, 0xe2c80058u));
+    entry(e, 0xe2c8, 0, 0x40, 88); /* too small a datum for a biped */
+    CHECK(!lift_entry_is_biped(e, 0xe2c80058u));
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: test_lifts <tools/tests/fixtures/lifts_lockout_midship.txt>\n");
@@ -275,6 +305,7 @@ int main(int argc, char **argv) {
     test_push();
     test_ratchet();
     test_frame();
+    test_entry();
     printf("test_lifts: %d checks ok\n", checks);
     return 0;
 }
