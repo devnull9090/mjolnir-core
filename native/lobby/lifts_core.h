@@ -174,6 +174,21 @@ static inline void lift_unit_frame(const float v[3], const float forward[3], con
     out[2] = lift_dot(v, up);
 }
 
+/* Whether an object table entry (0x18 bytes: salt +0, type +4, datum size +6)
+   holds the live biped `handle` names: the handle's salt, type 0 and a
+   biped-sized datum. Not its +0x0c: that is the object's index on the host,
+   the entry's own index only on a host. A fireteam client's entries 84 and 88
+   read 139 and 140 (two copies, 2026-11-09), so checking it there turned
+   away every unit, the client's own player included, and no joiner was ever
+   pushed. */
+static inline int lift_entry_is_biped(const unsigned char *entry, unsigned handle) {
+    unsigned short salt, type, size;
+    memcpy(&salt, entry, sizeof salt);
+    memcpy(&type, entry + 4, sizeof type);
+    memcpy(&size, entry + 6, sizeof size);
+    return salt == (unsigned short)(handle >> 16) && type == 0 && size >= 0x80;
+}
+
 /* --- The text form -------------------------------------------------------- */
 
 #define LIFT_TOKENS 32

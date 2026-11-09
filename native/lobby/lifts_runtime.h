@@ -76,13 +76,12 @@ static void lifts_forget_all(void) {
     for (int i = 0; i < LIFT_PLAYERS; i++) lifts_forget(i);
 }
 
-/* An object's datum when `handle` names a live biped (type 0) of the table. */
+/* An object's datum when `handle` names a live biped (type 0) of the table,
+   on a host or a fireteam client alike (lift_entry_is_biped). */
 static unsigned char *lift_biped(unsigned char *tls, uint32_t handle) {
     if (handle == UINT32_MAX || !(handle >> 16)) return NULL;
-    unsigned index = handle & 0xffff;
-    unsigned char *slot = fd_slot(*(unsigned char **)(tls + 0x20), index, 0x18, 4096);
-    if (!slot || *(uint16_t *)slot != (uint16_t)(handle >> 16) || *(uint16_t *)(slot + 0x0c) != index
-        || *(uint16_t *)(slot + 4) != 0 || *(uint16_t *)(slot + 6) < 0x80) return NULL;
+    unsigned char *slot = fd_slot(*(unsigned char **)(tls + 0x20), handle & 0xffff, 0x18, 4096);
+    if (!slot || !lift_entry_is_biped(slot, handle)) return NULL;
     return *(unsigned char **)(slot + 0x10);
 }
 
