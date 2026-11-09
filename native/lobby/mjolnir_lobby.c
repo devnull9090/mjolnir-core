@@ -45,7 +45,51 @@ static char dir[MAX_PATH];
 
 enum { FNAME_ADD = 1 };
 
+/* The one-time code searches, run on a worker thread (scans_worker, at the
+   end of this file). Each pass of a search reads the whole simulation DLL's
+   code (about 6 ms) or the exe's (about 110 ms). The mod's start ran nine of
+   the exe's on the game thread (mjolnir_fireteam_open, 1.2 s, and the first
+   keep_lobby, 0.11 s); the first pass of the games loop, the first bot start
+   and the simulation's first tick ran more (2026-11-09, PC 1: 121 ms at the
+   main menu, 24 ms at the first bot start, 130 ms on the simulation thread).
+   The worker only reads; every patch and hook is still made by the thread
+   that made it before, once the address is published. The exe's come first:
+   the worker starts when the mod loads (mjolnir_scans_start), five seconds
+   before the mod's start asks for them. */
+enum {
+    SCAN_PRESENCE,
+    SCAN_ONLINE_TICK,
+    SCAN_LEAVE_SESSION,
+    SCAN_SOLO_SESSION,
+    SCAN_PRE_LOGIN,
+    SCAN_PAWN_BEGIN_PLAY,
+    SCAN_NOTIFY_BEGIN_PLAY,
+    SCAN_PRE_CLIENT_TRAVEL,
+    SCAN_EXE_OBJECT_PLAY,
+    SCAN_TRACKER_TEST,
+    SCAN_SIM_SEND,
+    SCAN_MAIN_TICK,
+    SCAN_MAIN_TICK_PATCHED,
+    SCAN_LIFE_CYCLE,
+    SCAN_SIM_SESSIONS,
+    SCAN_PUBLISH_AT,
+    SCAN_PLAYER_NEW,
+    SCAN_MACHINES_UPDATE,
+    SCAN_MACHINE_ID,
+    SCAN_GAME_END,
+    SCAN_END_CHECK,
+    SCAN_HS_EVALUATE,
+    SCAN_AI_PLACE_GATE,
+    SCAN_TAG_TABLE_STORE,
+    SCAN_SEGMENT_DECODE,
+    SCAN_AI_UNIT_TEAM,
+    SCAN_LIFT_SET_VELOCITY,
+    SCAN_COUNT
+};
 static void scans_start(void);
+static int scan_ready(int id);
+static int scans_ready_all(void);
+static unsigned char *scan_get(int id, int *hits);
 
 /* The directory this DLL sits in, with a trailing backslash. Every export
    asks for it first, so this also starts the code searches' worker thread
@@ -327,26 +371,14 @@ static const char *swap_import(const char *dll, const char *name, void *hook, vo
    then the flag stores that follow them (exe RVA 0x6f2007b on CU4). */
 static const unsigned char PRESENCE[] = {0xC7, 0x45, 0xA8, 0x04, 0x00, 0x00, 0x00, 0xC7, 0x45, 0xAC, 0x04, 0x00,
                                          0x00, 0x00, 0xC6, 0x45, 0xBA, 0x01, 0x66, 0xC7, 0x45, 0xB7, 0x01, 0x01};
+/* Either the shipped 4s or an earlier patch in the immediates. */
+static const unsigned char PRESENCE_MASK[] = {1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
 static const char *patch_presence(void) {
-    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
-    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
-    unsigned char *found = NULL;
-    int hits = 0;
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
-        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
-        unsigned char *start = base + s->VirtualAddress, *end = start + s->Misc.VirtualSize - sizeof PRESENCE;
-        for (unsigned char *p = start; p <= end; p++) {
-            if (p[0] != PRESENCE[0] || p[3] == 0) continue;
-            /* Match with either the shipped 4s or an earlier patch in the immediates. */
-            if (memcmp(p, PRESENCE, 3) || memcmp(p + 4, PRESENCE + 4, 6) || memcmp(p + 11, PRESENCE + 11, sizeof PRESENCE - 11))
-                continue;
-            found = p;
-            hits++;
-        }
-    }
-    if (hits != 1) {
+    int hits;
+    unsigned char *found = scan_get(SCAN_PRESENCE, &hits);
+    if (found && found[3] == 0) found = NULL, hits = 0;
+    if (!found) {
         static char why[64];
         snprintf(why, sizeof why, "pattern matched %d times, left alone", hits);
         return why;
@@ -757,40 +789,6 @@ static const unsigned char LOCAL_IDENTITY_MASK[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1
 static unsigned char *find_in_module(unsigned char *base, const unsigned char *pattern, const unsigned char *mask,
                                      size_t size, int want, int *hits);
 
-/* The one-time code searches, run on a worker thread (scans_worker, at the
-   end of this file). Each pass of a search reads the whole simulation DLL's
-   code (about 6 ms) or the exe's (about 110 ms), and the first pass of the
-   games loop, the first bot start and the simulation's first tick each ran
-   several on their own thread (2026-11-09, PC 1: 121 ms at the main menu,
-   24 ms at the first bot start, 130 ms on the simulation thread). The worker
-   only reads; every patch and hook is still made by the thread that made it
-   before, once the address is published. */
-enum {
-    SCAN_MAIN_TICK,
-    SCAN_MAIN_TICK_PATCHED,
-    SCAN_LIFE_CYCLE,
-    SCAN_SIM_SESSIONS,
-    SCAN_PUBLISH_AT,
-    SCAN_PLAYER_NEW,
-    SCAN_MACHINES_UPDATE,
-    SCAN_MACHINE_ID,
-    SCAN_GAME_END,
-    SCAN_END_CHECK,
-    SCAN_HS_EVALUATE,
-    SCAN_AI_PLACE_GATE,
-    SCAN_TAG_TABLE_STORE,
-    SCAN_SEGMENT_DECODE,
-    SCAN_AI_UNIT_TEAM,
-    SCAN_LIFT_SET_VELOCITY,
-    SCAN_EXE_OBJECT_PLAY,
-    SCAN_TRACKER_TEST,
-    SCAN_COUNT
-};
-static void scans_start(void);
-static int scan_ready(int id);
-static int scans_ready_all(void);
-static unsigned char *scan_get(int id, int *hits);
-
 static const char *own_machine_identity(void) {
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return "simulation DLL not loaded";
@@ -1118,20 +1116,9 @@ static const char *hook_sim_send_routine(void) {
     HMODULE sim = GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return "simulation DLL not loaded";
     sim_base = (unsigned char *)sim;
-    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(sim_base + ((IMAGE_DOS_HEADER *)sim_base)->e_lfanew);
-    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
-    unsigned char *found = NULL;
-    int hits = 0;
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
-        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
-        unsigned char *p = sim_base + s->VirtualAddress, *end = p + s->Misc.VirtualSize - sizeof SIM_SEND;
-        for (; p <= end; p++)
-            if (p[0] == SIM_SEND[0] && memcmp(p, SIM_SEND, sizeof SIM_SEND) == 0) {
-                found = p;
-                hits++;
-            }
-    }
-    if (hits != 1) {
+    int hits;
+    unsigned char *found = scan_get(SCAN_SIM_SEND, &hits);
+    if (!found) {
         static char why[64];
         snprintf(why, sizeof why, "send pattern matched %d times, left alone", hits);
         return why;
@@ -1330,27 +1317,10 @@ static void __fastcall hook_online_tick(void *self) {
     real_online_tick(self);
 }
 
-/* The one place `pattern` occurs in the exe's code, or NULL (with the count in *hits). */
-static unsigned char *find_code(const unsigned char *pattern, size_t length, int *hits) {
-    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
-    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
-    unsigned char *found = NULL;
-    *hits = 0;
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
-        if (!(s->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
-        unsigned char *start = base + s->VirtualAddress, *end = start + s->Misc.VirtualSize - length;
-        for (unsigned char *p = start; p <= end; p++) {
-            if (p[0] == pattern[0] && memcmp(p, pattern, length) == 0) {
-                found = p;
-                (*hits)++;
-            }
-        }
-    }
-    return *hits == 1 ? found : NULL;
-}
-
-/* find_code with wildcards: mask byte 0 skips that position. */
+/* The one place `pattern` occurs in the exe's code, or NULL (with the count
+   in *hits); mask byte 0 skips that position. One pass reads the whole exe's
+   code (about 110 ms), so the searches made at the mod's start are the
+   worker's (scan_get); these are the rarer ones. */
 static unsigned char *find_code_masked(const unsigned char *pattern, const unsigned char *mask, size_t length,
                                        int *hits) {
     unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
@@ -1374,8 +1344,47 @@ static unsigned char *find_code_masked(const unsigned char *pattern, const unsig
     return *hits == 1 ? found : NULL;
 }
 
+/* The vtable slots of the functions the mod's start hooks through them,
+   found ahead. Each lookup below reads the exe's whole read-only data (about
+   4 ms), and mjolnir_fireteam_open made seven: 25 of its 29 ms on the game
+   thread (2026-11-09, PC 1). The code searches' worker finds those
+   functions' slots in one pass once their code is found (vtable_fns_find);
+   a lookup of one of them reads its slots from here, any other the whole
+   data, as before. */
+#define VTABLE_FNS 8
+#define VTABLE_FN_SLOTS 16
+struct vtable_fn {
+    void *fn;
+    void **slot[VTABLE_FN_SLOTS];
+    int count; /* every slot that held fn; past VTABLE_FN_SLOTS only counted */
+};
+static struct vtable_fn vtable_fns[VTABLE_FNS];
+static volatile LONG vtable_fns_count; /* published once the pass is done */
+
+static const struct vtable_fn *vtable_fn_of(const void *fn) {
+    LONG n = InterlockedCompareExchange(&vtable_fns_count, 0, 0);
+    for (LONG i = 0; i < n; i++)
+        if (vtable_fns[i].fn == fn) return &vtable_fns[i];
+    return NULL;
+}
+
 /* The one slot in the exe's read-only data that holds `fn`: a vtable entry. */
 static void **find_vtable_slot(void *fn, int *hits) {
+    const struct vtable_fn *known = vtable_fn_of(fn);
+    if (known) {
+        void **found = NULL;
+        *hits = 0;
+        if (known->count > VTABLE_FN_SLOTS) {
+            *hits = known->count;
+            return NULL;
+        }
+        for (int i = 0; i < known->count; i++)
+            if (*known->slot[i] == fn) {
+                found = known->slot[i];
+                (*hits)++;
+            }
+        return *hits == 1 ? found : NULL;
+    }
     unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
     IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
     IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
@@ -1394,27 +1403,36 @@ static void **find_vtable_slot(void *fn, int *hits) {
     return *hits == 1 ? found : NULL;
 }
 
+/* Slot `p` holding `fn` now holds `hook` (1); one that held `hook` already
+   counts in *already. */
+static int swap_held_slot(void **p, void *fn, void *hook, int *already) {
+    if (*p == hook) (*already)++;
+    if (*p != fn) return 0;
+    DWORD old;
+    if (!VirtualProtect(p, sizeof *p, PAGE_READWRITE, &old)) return 0;
+    *p = hook;
+    VirtualProtect(p, sizeof *p, old, &old);
+    return 1;
+}
+
 /* Point every read-only-data slot holding `fn` (each vtable of a class that
    inherits it) at `hook`; the count swapped, and in *already those that held
    `hook` before. */
 static int swap_vtable_slots(void *fn, void *hook, int *already) {
+    int swapped = 0;
+    *already = 0;
+    const struct vtable_fn *known = vtable_fn_of(fn);
+    if (known && known->count <= VTABLE_FN_SLOTS) {
+        for (int i = 0; i < known->count; i++) swapped += swap_held_slot(known->slot[i], fn, hook, already);
+        return swapped;
+    }
     unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
     IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
     IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
-    int swapped = 0;
-    *already = 0;
     for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
         if (s->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;
         void **p = (void **)(base + s->VirtualAddress), **end = (void **)(base + s->VirtualAddress + s->Misc.VirtualSize);
-        for (; p < end; p++) {
-            if (*p == hook) (*already)++;
-            if (*p != fn) continue;
-            DWORD old;
-            if (!VirtualProtect(p, sizeof *p, PAGE_READWRITE, &old)) continue;
-            *p = hook;
-            VirtualProtect(p, sizeof *p, old, &old);
-            swapped++;
-        }
+        for (; p < end; p++) swapped += swap_held_slot(p, fn, hook, already);
     }
     return swapped;
 }
@@ -1429,7 +1447,7 @@ static const unsigned char ONLINE_TICK_PROLOGUE[] = {0x40, 0x53, 0x48, 0x83, 0xE
 static const char *hook_online_tick_slot(void) {
     static char why[80];
     int hits;
-    unsigned char *body = find_code(ONLINE_TICK, sizeof ONLINE_TICK, &hits);
+    unsigned char *body = scan_get(SCAN_ONLINE_TICK, &hits);
     if (!body) {
         snprintf(why, sizeof why, "OnlineTick pattern matched %d times, left alone", hits);
         return why;
@@ -1836,7 +1854,7 @@ static void *__fastcall hook_create_session_public(void *self, void *out, unsign
 static const char *hook_leave_session_slot(void) {
     static char why[80];
     int hits;
-    unsigned char *body = find_code(LEAVE_SESSION, sizeof LEAVE_SESSION, &hits);
+    unsigned char *body = scan_get(SCAN_LEAVE_SESSION, &hits);
     if (!body) {
         snprintf(why, sizeof why, "LeaveSession pattern matched %d times, left alone", hits);
         return why;
@@ -1898,6 +1916,8 @@ static const char *hook_leave_session_slot(void) {
        0x7abba88: cmp eax, 1 / jg +6c (7F 6C) -> jmp +6c (EB 6C) */
 static const unsigned char SOLO_SESSION_BRANCH[] = {0x83, 0xF8, 0x01, 0x7F, 0x6C, 0x44, 0x8B, 0x87, 0xE8, 0x02,
                                                     0x00, 0x00, 0x48, 0x8D, 0x55, 0xC8, 0x80, 0xA7, 0x70, 0x02};
+/* The jg as shipped (7F), or the jmp an earlier load of this DLL left (EB). */
+static const unsigned char SOLO_SESSION_MASK[] = {1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static unsigned char *solo_session_branch;
 
 static const char *stay_online_alone(int on) {
@@ -1905,15 +1925,10 @@ static const char *stay_online_alone(int on) {
        many copies have joined: each match would start offline. */
     if (test_instance()) on = 1;
     if (!solo_session_branch) {
-        unsigned char pattern[sizeof SOLO_SESSION_BRANCH];
-        memcpy(pattern, SOLO_SESSION_BRANCH, sizeof pattern);
         int hits;
-        solo_session_branch = find_code(pattern, sizeof pattern, &hits);
-        if (!solo_session_branch) {
-            pattern[3] = 0xEB; /* patched by an earlier load of this DLL */
-            solo_session_branch = find_code(pattern, sizeof pattern, &hits);
-        }
-        if (!solo_session_branch) return "SetSessionRunning branch not found, left alone";
+        unsigned char *branch = scan_get(SCAN_SOLO_SESSION, &hits);
+        if (!branch || (branch[3] != 0x7F && branch[3] != 0xEB)) return "SetSessionRunning branch not found, left alone";
+        solo_session_branch = branch;
     }
     unsigned char want = on ? 0xEB : 0x7F;
     if (solo_session_branch[3] == want) return on ? "stays online alone" : "as shipped";
@@ -1972,7 +1987,7 @@ static const char *hook_pre_login_slots(void) {
     static char why[80];
     if (real_pre_login) return "already hooked";
     int hits;
-    unsigned char *fn = find_code(PRE_LOGIN, sizeof PRE_LOGIN, &hits);
+    unsigned char *fn = scan_get(SCAN_PRE_LOGIN, &hits);
     if (!fn) {
         snprintf(why, sizeof why, "PreLogin pattern matched %d times, left alone", hits);
         return why;
@@ -2077,7 +2092,7 @@ static void __fastcall hook_pawn_begin_play(void *self) {
 static unsigned char *find_pawn_begin_play(const char **why) {
     static char text[80];
     int hits;
-    unsigned char *fn = find_code(PAWN_BEGIN_PLAY, sizeof PAWN_BEGIN_PLAY, &hits);
+    unsigned char *fn = scan_get(SCAN_PAWN_BEGIN_PLAY, &hits);
     if (!fn) {
         snprintf(text, sizeof text, "pawn BeginPlay pattern matched %d times, left alone", hits);
         *why = text;
@@ -2162,7 +2177,7 @@ static const char *hook_pre_client_travel_slots(void) {
     static char why[80];
     if (real_pre_client_travel) return "already hooked";
     int hits;
-    unsigned char *fn = find_code(PRE_CLIENT_TRAVEL, sizeof PRE_CLIENT_TRAVEL, &hits);
+    unsigned char *fn = scan_get(SCAN_PRE_CLIENT_TRAVEL, &hits);
     if (!fn) {
         snprintf(why, sizeof why, "PreClientTravel pattern matched %d times, left alone", hits);
         return why;
@@ -2322,7 +2337,7 @@ static const char *hook_notify_begin_play_slots(void) {
     static char why[80];
     if (real_notify_begin_play) return "already hooked";
     int hits;
-    unsigned char *body = find_code(NOTIFY_BEGIN_PLAY_BODY, sizeof NOTIFY_BEGIN_PLAY_BODY, &hits);
+    unsigned char *body = scan_get(SCAN_NOTIFY_BEGIN_PLAY, &hits);
     if (!body) {
         snprintf(why, sizeof why, "NotifyBeginPlay pattern matched %d times, left alone", hits);
         return why;
@@ -5996,8 +6011,19 @@ __declspec(dllexport) int mjolnir_launcher(void *L) {
     return 0;
 }
 
+/* Called when the mod loads (main.lua), five seconds before its start: the
+   code searches' worker runs from here, so the hooks below find their
+   answers waiting. */
+__declspec(dllexport) int mjolnir_scans_start(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    scans_start();
+    return 0;
+}
+
 __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     (void)L;
+    LONGLONG started = qpc_now();
     if (!dir[0]) find_dir();
     char path[MAX_PATH];
     snprintf(path, sizeof path, "%sfireteam_request.txt", dir);
@@ -6061,6 +6087,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     fireteam_log("world NotifyBeginPlay (held for a joiner's Blam game): %s", hook_notify_begin_play_slots());
     fireteam_log("Blam shell commands (logged with their callers): %s", hook_shell_commands());
     fireteam_log("PreClientTravel (a client's Blam start): %s", hook_pre_client_travel_slots());
+    fireteam_log("setup: the fireteam and session hooks took %.2f ms on the game thread", qpc_ms(started));
     return 0;
 }
 
@@ -6735,11 +6762,14 @@ static void sound_trace_arm(void) {
 
 /* --- The one-time code searches' worker -------------------------------------
 
-   One thread, started on the DLL's first call (find_dir, mjolnir_jip_tick),
-   runs every search below once and publishes each answer with Interlocked
-   operations. It only reads code. The callers make their patches and hooks
-   on their own threads, as before:
+   One thread, started on the DLL's first call (mjolnir_scans_start when the
+   mod loads; find_dir from any other export), runs every search below once
+   and publishes each answer with Interlocked operations: the exe's first,
+   then the simulation DLL's once it has loaded. It only reads code. The
+   callers make their patches and hooks on their own threads, as before:
 
+   - mjolnir_fireteam_open and the first keep_lobby (the game thread, five
+     seconds after the mod loads) ask scan_get for the exe's;
    - mjolnir_jip_tick (the game thread, once a second) waits for the whole
      set (scans_ready_all) and tries again the next second;
    - tracker_teams_tick (the simulation thread) waits for its own answer;
@@ -6765,6 +6795,17 @@ struct scan {
 #define SCAN_SIM(id, name, pattern, mask) [id] = {name, 0, pattern, mask, sizeof pattern, NULL, 0, 0}
 #define SCAN_EXE(id, name, pattern, mask) [id] = {name, 1, pattern, mask, sizeof pattern, NULL, 0, 0}
 static struct scan scans[SCAN_COUNT] = {
+    SCAN_EXE(SCAN_PRESENCE, "presence session literals", PRESENCE, PRESENCE_MASK),
+    SCAN_EXE(SCAN_ONLINE_TICK, "OnlineTick", ONLINE_TICK, NULL),
+    SCAN_EXE(SCAN_LEAVE_SESSION, "LeaveSession", LEAVE_SESSION, NULL),
+    SCAN_EXE(SCAN_SOLO_SESSION, "SetSessionRunning branch", SOLO_SESSION_BRANCH, SOLO_SESSION_MASK),
+    SCAN_EXE(SCAN_PRE_LOGIN, "PreLogin", PRE_LOGIN, NULL),
+    SCAN_EXE(SCAN_PAWN_BEGIN_PLAY, "pawn BeginPlay", PAWN_BEGIN_PLAY, NULL),
+    SCAN_EXE(SCAN_NOTIFY_BEGIN_PLAY, "world NotifyBeginPlay", NOTIFY_BEGIN_PLAY_BODY, NULL),
+    SCAN_EXE(SCAN_PRE_CLIENT_TRAVEL, "PreClientTravel", PRE_CLIENT_TRAVEL, NULL),
+    SCAN_EXE(SCAN_EXE_OBJECT_PLAY, "exe object play", EXE_OBJECT_PLAY, NULL),
+    SCAN_EXE(SCAN_TRACKER_TEST, "motion tracker's team test", TRACKER_TEST, NULL),
+    SCAN_SIM(SCAN_SIM_SEND, "simulation send", SIM_SEND, NULL),
     SCAN_SIM(SCAN_MAIN_TICK, "main tick", MAIN_TICK, NULL),
     SCAN_SIM(SCAN_MAIN_TICK_PATCHED, "main tick (patched)", MAIN_TICK_PATCHED, MAIN_TICK_PATCHED_MASK),
     SCAN_SIM(SCAN_LIFE_CYCLE, "life-cycle request", LIFE_CYCLE_REQUEST, LIFE_CYCLE_REQUEST_MASK),
@@ -6781,14 +6822,14 @@ static struct scan scans[SCAN_COUNT] = {
     SCAN_SIM(SCAN_SEGMENT_DECODE, "segment decode", SEGMENT_DECODE, SEGMENT_DECODE_MASK),
     SCAN_SIM(SCAN_AI_UNIT_TEAM, "unit team store", AI_UNIT_TEAM, NULL),
     SCAN_SIM(SCAN_LIFT_SET_VELOCITY, "object_set_velocity", LIFT_SET_VELOCITY, LIFT_SET_VELOCITY_MASK),
-    SCAN_EXE(SCAN_EXE_OBJECT_PLAY, "exe object play", EXE_OBJECT_PLAY, NULL),
-    SCAN_EXE(SCAN_TRACKER_TEST, "motion tracker's team test", TRACKER_TEST, NULL),
 };
 #undef SCAN_SIM
 #undef SCAN_EXE
+/* A mask shorter than its pattern would be read past its end. */
+typedef char presence_mask_fits[sizeof PRESENCE_MASK == sizeof PRESENCE ? 1 : -1];
+typedef char solo_session_mask_fits[sizeof SOLO_SESSION_MASK == sizeof SOLO_SESSION_BRANCH ? 1 : -1];
 
-static volatile LONG scans_state;    /* 0 not started, 1 running, 2 finished, -1 no worker */
-static HANDLE volatile scans_finished; /* set once every search is published */
+static volatile LONG scans_state; /* 0 not started, 1 running, 2 finished, -1 no worker */
 
 /* Search for `s` here and publish the answer; 0 while its module is not loaded. */
 static int scan_one(struct scan *s) {
@@ -6802,19 +6843,68 @@ static int scan_one(struct scan *s) {
     return 1;
 }
 
+/* The functions the mod's start hooks through vtables, worked out from their
+   code as each hook does, and their slots in the exe's read-only data, in
+   one pass (find_vtable_slot, swap_vtable_slots). A function worked out
+   wrongly here is only looked up the slow way. */
+static int vtable_fns_find(void) {
+    void *fns[VTABLE_FNS];
+    int n = 0;
+    unsigned char *at;
+    if ((at = scans[SCAN_ONLINE_TICK].at)) fns[n++] = at - sizeof ONLINE_TICK_PROLOGUE;
+    if ((at = scans[SCAN_LEAVE_SESSION].at)) fns[n++] = at - LEAVE_SESSION_BODY;
+    if ((at = scans[SCAN_PRE_LOGIN].at)) {
+        fns[n++] = at;
+        /* The stock PreLogin it calls: rel32 at the pattern's end. */
+        fns[n++] = at + sizeof PRE_LOGIN + 4 + *(int *)(at + sizeof PRE_LOGIN);
+    }
+    if ((at = scans[SCAN_PAWN_BEGIN_PLAY].at)) fns[n++] = at;
+    if ((at = scans[SCAN_NOTIFY_BEGIN_PLAY].at)) fns[n++] = at - NOTIFY_BEGIN_PLAY_BODY_AT;
+    if ((at = scans[SCAN_PRE_CLIENT_TRAVEL].at)) fns[n++] = at;
+    if (!n) return 0;
+    unsigned char *base = (unsigned char *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    unsigned char *image_end = base + nt->OptionalHeader.SizeOfImage;
+    IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
+    for (int k = 0; k < n; k++) vtable_fns[k].fn = fns[k];
+    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, s++) {
+        if (s->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;
+        void **p = (void **)(base + s->VirtualAddress), **end = (void **)(base + s->VirtualAddress + s->Misc.VirtualSize);
+        for (; p < end; p++) {
+            unsigned char *v = (unsigned char *)*p;
+            if (v < base || v >= image_end) continue;
+            for (int k = 0; k < n; k++) {
+                struct vtable_fn *f = &vtable_fns[k];
+                if (v != f->fn) continue;
+                if (f->count < VTABLE_FN_SLOTS) f->slot[f->count] = p;
+                f->count++;
+            }
+        }
+    }
+    InterlockedExchange(&vtable_fns_count, n);
+    return n;
+}
+
 static DWORD WINAPI scans_worker(void *unused) {
     (void)unused;
-    /* The simulation DLL may load after this DLL's first call. */
-    while (!GetModuleHandleA(SIM_DLL)) Sleep(100);
+    /* The exe's first: the mod's start asks for them, and the simulation DLL
+       may load after this DLL's first call. */
     LONGLONG started = qpc_now();
     for (int i = 0; i < SCAN_COUNT; i++)
+        if (scans[i].exe && !InterlockedCompareExchange(&scans[i].done, 0, 0)) scan_one(&scans[i]);
+    double exe_ms = qpc_ms(started);
+    started = qpc_now();
+    int vtable_fns_found = vtable_fns_find();
+    double vtable_ms = qpc_ms(started);
+    while (!GetModuleHandleA(SIM_DLL)) Sleep(100);
+    started = qpc_now();
+    for (int i = 0; i < SCAN_COUNT; i++)
         if (!InterlockedCompareExchange(&scans[i].done, 0, 0)) scan_one(&scans[i]);
-    double ms = qpc_ms(started);
+    double sim_ms = qpc_ms(started);
     InterlockedExchange(&scans_state, 2);
-    SetEvent(scans_finished);
     /* The patched main tick is the other form of the main tick, counted with it. */
     int found = 0, wanted = 0;
-    char missing[256] = "";
+    char missing[384] = "";
     size_t at = 0;
     for (int i = 0; i < SCAN_COUNT; i++) {
         if (i == SCAN_MAIN_TICK_PATCHED) continue;
@@ -6824,22 +6914,19 @@ static DWORD WINAPI scans_worker(void *unused) {
             at += (size_t)snprintf(missing + at, sizeof missing - at, "%s%s (%ld)", at ? ", " : "", scans[i].name,
                                    scans[i].hits);
     }
-    fireteam_log("scans: %d of %d code searches matched once, %.0f ms on a worker thread%s%s", found, wanted, ms,
-                 missing[0] ? "; not found: " : "", missing);
+    fireteam_log("scans: %d of %d code searches matched once on a worker thread: the exe's in %.0f ms, %d hooked "
+                 "functions' vtable slots in %.0f ms, the simulation DLL's in %.0f ms%s%s",
+                 found, wanted, exe_ms, vtable_fns_found, vtable_ms, sim_ms, missing[0] ? "; not found: " : "", missing);
     return 0;
 }
 
 static void scans_start(void) {
     if (InterlockedCompareExchange(&scans_state, 1, 0) != 0) return;
-    /* The event first, so no caller sees a running worker without it. */
-    HANDLE finished = CreateEventA(NULL, TRUE, FALSE, NULL);
-    if (finished) InterlockedExchangePointer((void *volatile *)&scans_finished, finished);
-    HANDLE thread = finished ? CreateThread(NULL, 0, scans_worker, NULL, 0, NULL) : NULL;
+    HANDLE thread = CreateThread(NULL, 0, scans_worker, NULL, 0, NULL);
     if (!thread) {
         /* Every search then happens where it is asked for, as before. */
         DWORD error = GetLastError();
         InterlockedExchange(&scans_state, -1);
-        if (finished) SetEvent(finished);
         fireteam_log("scans: no worker thread (%lu); code searches run where they are needed", error);
         return;
     }
@@ -6858,15 +6945,16 @@ static int scans_ready_all(void) {
 }
 
 /* The one place search `id` matched, or NULL; *hits as find_in_module gives
-   it. Waits for the worker while it runs. */
+   it. Waits for the worker's answer to this one search while it runs. */
 static unsigned char *scan_get(int id, int *hits) {
     struct scan *s = &scans[id];
     scans_start();
     if (!InterlockedCompareExchange(&s->done, 0, 0)) {
-        HANDLE finished = scans_finished;
-        if (InterlockedCompareExchange(&scans_state, 0, 0) == 1 && finished) {
+        if (InterlockedCompareExchange(&scans_state, 0, 0) == 1) {
             LONGLONG started = qpc_now();
-            WaitForSingleObject(finished, SCAN_WAIT_MS);
+            while (!InterlockedCompareExchange(&s->done, 0, 0) && InterlockedCompareExchange(&scans_state, 0, 0) == 1 &&
+                   qpc_ms(started) < SCAN_WAIT_MS)
+                Sleep(1);
             fireteam_log("scans: waited %.0f ms for the worker's %s", qpc_ms(started), s->name);
         }
         if (!InterlockedCompareExchange(&s->done, 0, 0) && scan_one(s))

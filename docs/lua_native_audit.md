@@ -136,7 +136,7 @@ about 4 minutes.
 | Lobby games / presence | not timed | 0.5 / 0.6 ms/s, worst 4 / 2 ms |
 
 Timing the games loop also shows a one-off 109 ms run at the main menu, on its
-first pass after the game starts. **Checked and fixed in MJOLNIRLobby 0.25.1.**
+first pass after the game starts. **Checked and fixed in MJOLNIRLobby 0.25.2.**
 That pass is the lobby DLL's first `mjolnir_jip_tick`, timed with
 QueryPerformanceCounter on PC 1 (2026-11-09) at 121 ms. Nearly all of it was
 one search over the whole exe for the object-play hook, 107 ms. The main tick
@@ -147,14 +147,27 @@ The same run found two more one-off searches:
 - The simulation thread's first tick searched the exe for the motion
   tracker's team test, 130 ms.
 - At mod load, `mjolnir_fireteam_open` and the first `mjolnir_keep_lobby` took
-  1.2 s and 0.11 s on the game thread, about 110–220 ms per exe search.
+  1.2 s and 0.11 s on the game thread. That was about 110–220 ms per exe search,
+  plus seven 3–4 ms passes over the exe's read-only data for vtable slots.
 
 A worker thread now runs the searches the games loop, bots, lifts, scripts,
-join-in-progress injection and the tracker need (`scans: 17 of 17` in
-fireteam.log). It starts on the DLL's first call and takes about 0.45 s. The game thread only makes the patches, in
-0.85 ms. The first games pass now reads 7 ms (most of it the loop's own Lua),
-and `slow: the games loop` no longer appears. The mod-load searches still run
-on the game thread: they hook the lobby before the game creates one.
+join-in-progress injection and the tracker need. The game thread only makes the
+patches, in 0.5–0.85 ms. The first games pass now reads 7 ms (most of it the
+loop's own Lua), and `slow: the games loop` no longer appears.
+
+Since MJOLNIRLobby 0.25.2 the worker also runs the mod-load searches:
+- `main.lua` starts it when the mod loads (`mjolnir_scans_start`), five seconds
+  before `initialize` calls `mjolnir_fireteam_open`.
+- It searches the exe first: ten searches, 1.3 s on PC 1.
+- It then finds the seven hooked functions' vtable slots in one pass, 9 ms.
+- Last, once the DLL has loaded, it searches the simulation DLL: 0.1 s.
+
+The hooks are still made on the game thread at the same moment as before, so
+they still come before the game creates its lobby. Across 267 launches' logs,
+that came at least 3 s after `mjolnir_fireteam_open`, and usually 4–9 s. `mjolnir_fireteam_open` now
+takes 2.6 ms and the first `mjolnir_keep_lobby` 0.3 ms. fireteam.log shows
+`scans: 26 of 26` and `setup: the fireteam and session hooks took 2.58 ms`
+(2026-11-09).
 
 **Related, on the host.** The LevelLoader's incident relay also runs
 `FindAllOf("PlayerController")` at most every 5 s
@@ -225,7 +238,7 @@ Brutes and Marines never are.
   - the `ai_place` gate, 6 ms;
   - the unit team store, 6 ms.
 
-  Since MJOLNIRLobby 0.25.1 they come from the worker thread and the first
+  Since MJOLNIRLobby 0.25.2 they come from the worker thread and the first
   start's setup takes 0.4 ms. BGL with 8 bots logged no hitch at the start.
 - **The relay's `FindAllOf("PlayerController")`: 32–37 ms,** once a hosted
   match, now on its own poll.
