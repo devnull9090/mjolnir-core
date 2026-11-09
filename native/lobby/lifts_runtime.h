@@ -60,9 +60,8 @@ static void lifts_find_setter(void) {
     looked = 1;
     int hits = 0;
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
-    lift_set_velocity = sim ? (lift_set_velocity_t)find_in_module(sim, LIFT_SET_VELOCITY, LIFT_SET_VELOCITY_MASK,
-                                                                  sizeof LIFT_SET_VELOCITY, 1, &hits)
-                            : NULL;
+    /* Searched by the lobby's worker thread at startup (scans_worker). */
+    lift_set_velocity = sim ? (lift_set_velocity_t)scan_get(SCAN_LIFT_SET_VELOCITY, &hits) : NULL;
     fireteam_log("lifts: object_set_velocity's body %s (%d matches)%s", lift_set_velocity ? "found" : "not found", hits,
                  lift_set_velocity ? "" : "; pushes go through the script evaluator");
 }
@@ -235,7 +234,7 @@ __declspec(dllexport) int mjolnir_sim_lifts(void *L) {
         fireteam_log("lifts: %s is unreadable at line %d; the set in use is kept", path, bad);
         return 0;
     }
-    /* The one scan of the module, here at the map's start rather than in a tick. */
+    /* The setter, here at the map's start rather than in a tick. */
     if (lifts_scratch.count) lifts_find_setter();
     AcquireSRWLockExclusive(&lifts_lock);
     lifts_staged.count = lifts_scratch.count;

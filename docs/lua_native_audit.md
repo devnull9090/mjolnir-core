@@ -136,8 +136,25 @@ about 4 minutes.
 | Lobby games / presence | not timed | 0.5 / 0.6 ms/s, worst 4 / 2 ms |
 
 Timing the games loop also shows a one-off 109 ms run at the main menu, on its
-first pass after the game starts. It is probably the lobby DLL's one-time
-pattern scans; that has not been checked.
+first pass after the game starts. **Checked and fixed in MJOLNIRLobby 0.25.1.**
+That pass is the lobby DLL's first `mjolnir_jip_tick`, timed with
+QueryPerformanceCounter on PC 1 (2026-11-09) at 121 ms. Nearly all of it was
+one search over the whole exe for the object-play hook, 107 ms. The main tick
+and the players-list publish searches over the simulation DLL took about 6 ms
+each.
+
+The same run found two more one-off searches:
+- The simulation thread's first tick searched the exe for the motion
+  tracker's team test, 130 ms.
+- At mod load, `mjolnir_fireteam_open` and the first `mjolnir_keep_lobby` took
+  1.2 s and 0.11 s on the game thread, about 110–220 ms per exe search.
+
+A worker thread now runs the searches the games loop, bots, lifts, scripts,
+join-in-progress injection and the tracker need (`scans: 17 of 17` in
+fireteam.log). It starts on the DLL's first call and takes about 0.45 s. The game thread only makes the patches, in
+0.85 ms. The first games pass now reads 7 ms (most of it the loop's own Lua),
+and `slow: the games loop` no longer appears. The mod-load searches still run
+on the game thread: they hook the lobby before the game creates one.
 
 **Related, on the host.** The LevelLoader's incident relay also runs
 `FindAllOf("PlayerController")` at most every 5 s
@@ -202,9 +219,14 @@ Brutes and Marines never are.
   inflated by other work on the machine): Hud tick 11.6 ms/s, worst 20 ms,
   before; 5.0 ms/s, worst 9 ms, after (BGL, 8 bots, 4 min each).
 - **The first bot start of a session: about 43 ms,** timed around the whole
-  poll; later matches' starts stayed under 20 ms. Most of it is probably
-  `mjolnir_bots_enable`, which scans the simulation DLL's code for the
-  `ai_place` gate once per launch (read from the source, not timed on its own).
+  poll; later matches' starts stayed under 20 ms. The lobby DLL's part, timed
+  on its own (2026-11-09), was 24 ms over four searches of the simulation DLL:
+  - the elite capsule's tag table and segment decode, 12 ms;
+  - the `ai_place` gate, 6 ms;
+  - the unit team store, 6 ms.
+
+  Since MJOLNIRLobby 0.25.1 they come from the worker thread and the first
+  start's setup takes 0.4 ms. BGL with 8 bots logged no hitch at the start.
 - **The relay's `FindAllOf("PlayerController")`: 32–37 ms,** once a hosted
   match, now on its own poll.
 - **An unexplained cluster.** One un-instrumented after-run on BGL had a burst
