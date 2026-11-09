@@ -95,6 +95,11 @@ jobs:
       - name: Test a CE map's device helpers
         run: lua5.4 tools/tests/test_devices.lua
 
+      - name: Test a map's load spread over frames, and its level file decoded once
+        run: |
+          lua5.4 tools/tests/test_dress.lua
+          lua5.4 tools/tests/test_level_files.lua
+
       - name: Test a converted vehicle's sound helpers
         run: |
           lua5.4 tools/tests/test_vehicle_sounds.lua

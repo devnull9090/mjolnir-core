@@ -214,6 +214,116 @@ Brutes and Marines never are.
   nor in the YOY run. Lua's `os.clock` is wall time on Windows, so a stall in
   the tick's file writes would read as Hud tick time.
 
+## The load frame (measured and fixed)
+
+**Measured on PC 1, 2026-11-09.** Private Slayer hosts, 1920x1080 borderless,
+the game window not in front (it then runs at about 20 frames a second, so
+every frame is 50 ms or more whatever the loader does). Each step of a load
+was timed with `os.clock` and logged as one `load timing` line (kept in
+MJOLNIRLevelLoader 0.13.3). A test copy of MJOLNIRHud's hitch log logged
+every frame of 50 ms or more, with the Lua that ran in it. Before is main
+at 0.13.2 plus that timing. After is 0.13.3: TMB, BGL and ZAN ran on its
+dressing code exactly. Its last commit, which only starts devices and
+turning machines once the world is dressed, was run on YOY and ASC.
+
+| | Before: the one frame | After: frames | After: our Lua in all | After: most of it in one frame |
+|---|---|---|---|---|
+| TMB | 1,716 ms (loader 1,658 ms) | 75 | 1,275 ms | 56 ms (the `StaticMeshActor` walk) |
+| BGL | loader 1,020 ms | 51 | 843 ms | 47 ms (foliage) |
+| ZAN | 1,429 ms (loader 1,386 ms) | 117 | 1,553 ms | 36 ms |
+| YOY | (not run) | 87 | 1,370 ms | 54 ms (terrain shadow proxy) |
+| ASC | (not run) | 44 | 519 ms | 18 ms |
+
+An earlier TMB run, of the build before the brush registration was
+sliced, took 1,033 ms of Lua over 65 frames, with the same walk at 40 ms:
+the later run was slower in every step, with other sessions building on
+the machine. BGL's 1,020 ms frame is the loader's own timing: the hitch
+log had not yet picked up the new world.
+
+**Where TMB's 1,658 ms went** (before):
+
+- **The decor loop, 704 ms, but not the baked pieces.** Its 4,242 baked
+  pieces took 133 ms. Its 26 spawned pieces took 569 ms: the CE terrain
+  (106 runtime materials on one mesh) and the flares. Zanzibar's 51 spawned
+  pieces took 1,178 ms.
+- **The level file, 210 ms,** decoded again 1–2 s after the travel's switch
+  had decoded it (232 ms).
+- **Whole-array scans, about 310 ms with the name reads after them:**
+  - five `FindFirstOf` for the deformation brushes' classes, 138 ms;
+  - `StaticMeshActor` twice, 52 ms each with a name read per actor;
+  - `Landscape` twice, 23 ms each (a third in the flux step);
+  - the scenario tag, 24 ms.
+- **The rest:**
+  - the baked foliage meshes, 85 ms, their
+    `HierarchicalInstancedStaticMeshComponent` walk included;
+  - the landscape's ground, cliffs and rocks, 136 ms;
+  - `foliage.bin` read whole, 15 MB, 41 ms.
+
+**The fix (MJOLNIRLevelLoader 0.13.3):**
+
+- **Redundant work dropped.**
+  - Baked pieces without `scalars` keep their mesh's materials: the bake
+    sets none on them (`BakeDecor`), so setting each slot to its own
+    material changed nothing. A reload still restores pieces that had
+    instances (`Current.bakedMids`). The baked foliage meshes' reset is
+    skipped the same way.
+  - One `StaticMeshActor` walk feeds the decor and the cladding rocks.
+  - One `Landscape` lookup a world, through `GetActorOfClass`.
+  - The deformation brushes' five `FindFirstOf` became one
+    `GetAllActorsOfClass` on `BlamObjectActor`. In the same TMB match both
+    routes listed the same 145 vehicles and bipeds.
+  - The travel's decode is handed to the load (`level_files.lua`) when the
+    file's text is unchanged.
+  - `foliage.bin` is read past its header only when a group needs its
+    clumps.
+- **The rest spread over frames** (`dress.lua`). The steps run in order,
+  about 12 ms of Lua a frame. Long lists are worked a slice a frame through
+  a queue:
+  - a spawned piece's material slots, one job each;
+  - the baked foliage meshes;
+  - the landscape's four parts;
+  - the cladding rocks (7,086 on BGL);
+  - the brush actors (1,364 on TMB).
+
+  The world counts as furnished, and fades in, after the last step.
+  Devices and turning machines start then too: a device binds only once its
+  decor exists. Gaps between load frames read 1–13 ms, and no logged frame
+  carried two slices: the deferred calls run once an engine tick
+  (`DefaultExecuteInGameThreadMethod = EngineTick`).
+- **Two full collections end the load,** a frame each, 6–23 ms. Item 11's
+  two collections were the `mjolnir_level_status` command's, not a load's.
+
+**Dressed the same.** Every dressing line in UE4SS.log matched before and
+after on TMB, BGL and ZAN: decor counts, materials, foliage clumps and
+meshes, rocks, effects, landscape slots, cliffs, lights and decals. Only a
+Lua line number in an error message and the brush count differed: brushes
+went 90 → 286, because the step now runs while the game is still filling
+its biped pools; later ones are caught by the existing watch either way.
+Screenshots from a fixed camera on TMB, BGL and ZAN differ by 1–6/255 on
+average, which is wind, clouds, water and Zanzibar's turning wheel. YOY's
+10 devices all bound, and ASC's three turning machines rode their
+simulation actors.
+
+**What is left.**
+
+- **Single calls the loader cannot cut, 30–56 ms each.** These set a load
+  frame's ceiling:
+  - the `StaticMeshActor` walk;
+  - the foliage step's `HierarchicalInstancedStaticMeshComponent` walk
+    with its names;
+  - one terrain shadow proxy spawn;
+  - the landscape's cliff materials (19–25 slots in one function).
+- **The travel's own decode, 92–239 ms on the frame the map starts.** The
+  switch needs the level's variant and vehicle sets before the map loads.
+- **More Lua in all on Zanzibar,** 1,553 ms against 1,386: the queue and its
+  closures cost a little per material slot.
+- **Engine frames of 100–330 ms** before the player is in, with none of our
+  Lua in them, on both builds: streaming, pipeline states and the Fluid
+  Flux capture.
+- **Untested:** whether the end-of-load collections end the 47–61 ms lifts
+  and footprints runs minutes into a TMB match (item 11); and a joiner's
+  load.
+
 ## Where native (or GPU) code pays
 
 Ranked by expected gain.
@@ -328,9 +438,12 @@ next two need: per-map data in, simulation reads out.
 - **The 1.5 s load frame.**
   - Its time is thousands of reflection calls on world actors: 611–692 ms in the
     decor loop over 4,242 baked pieces, and 11 whole-array scans, about 210 ms.
+    (Measured since: the decor loop's time was mostly the 26 spawned pieces'
+    runtime materials, not the baked pieces. See
+    [above](#the-load-frame-measured-and-fixed).)
   - Native code cannot hand those objects back to Lua.
   - Most of it is redundant work that Lua can drop, and the rest can be spread
-    over frames (below).
+    over frames: done in MJOLNIRLevelLoader 0.13.3.
 - **The HUD's per-frame hook**
   ([main.lua:1644-1663](../mods/MJOLNIRHud/Scripts/main.lua)).
   - About 20 reflection calls a frame on a Slayer client and 45 in CTF.
@@ -356,7 +469,7 @@ next two need: per-map data in, simulation reads out.
 |---|---|---|---|
 | 1 | **Done in MJOLNIRLobby 0.24.1:** the 5.1 s host hitch (above), plus generational GC in the Lobby | `net.lua` `Net.clients`, `maplive.lua` `MapLive.release`, `games.lua` `presenceTick` | 82 hitches to 1 in a 4-minute host test |
 | 2 | **Done in MJOLNIRHud 0.19.1** ([below](#the-huds-scans-and-lookups-measured-and-fixed)): one `NotifyOnNewObject` on the bipeds' native ancestor at mod load, so no match runs a whole-array scan; no 2 s biped rescan; a backstop rescan only of the slot's own class; `Relay.arm` and the bots start on different polls | `bipeds.lua`, `bots.lua`, `main.lua` `findBipeds` | Hud tick worst 308 ms to 10 ms with 8 bots on BGL |
-| 3 | Load frame: don't `SetMaterial(i, the same material)` on every slot of every baked piece unless it has `scalars`; share the `StaticMeshActor` scan; five `FindFirstOf` become `GetAllActorsOfClass`; decode `level.json` once per map (the travel hooks decode it again, about 124 ms each); read only `foliage.bin`'s header when foliage is baked; spread the steps over frames, then run two full collections | `main.lua:4945-4971`, `3669`, `4702-4710`, `5849-5855`, `3695` | *estimate* 0.5–0.8 s off TMB's 1.5 s frame, no frame over about 50 ms |
+| 3 | **Done in MJOLNIRLevelLoader 0.13.3** ([above](#the-load-frame-measured-and-fixed)): the load frame. No `SetMaterial(i, the same material)` on baked pieces without `scalars`; one `StaticMeshActor` scan; five `FindFirstOf` became one `GetAllActorsOfClass`; `level.json` decoded once per map; `foliage.bin` read past its header only when needed; the steps spread over frames, then two full collections | `main.lua` `spawnDecor`, `dress.lua`, `level_files.lua` | TMB 1,716 ms in one frame to 75 frames, at most 56 ms of Lua in any; BGL 1,020 ms to at most 47 ms; ZAN 1,429 ms to at most 36 ms |
 | 4 | **Done in MJOLNIRLevelLoader 0.13.1 and 0.13.2:** flag cloth throttle, then the GPU cloth material ([above](#1-flag-cloth-a-material-not-c)) | `teams.lua` `Teams.clothTick` | CHL facing a flag 12 → 5.5 ms/s (throttle) → 0.5 ms/s (material) |
 | 5 | **Libraries cached in MJOLNIRHud 0.19.1.** Hill and race redraw: 16–64 panels with 2 `StaticFindObject` each, per hill move. Spreading the panels over polls is not needed now | `hill.lua` | a 26-panel move: 55–62 ms to 2–5 ms (measured) |
 | 6 | **Done in MJOLNIRHud 0.19.1:** cache `syncClass` (one `StaticFindObject` per flag or ball every 0.2 s) | `flagmark.lua` | about 0.1 ms a lookup measured, so about 1 ms/s with two flags |
@@ -364,7 +477,7 @@ next two need: per-map data in, simulation reads out.
 | 8 | Post-game vote covers: keep the texture handle, redraw only on change | Lobby `main.lua:3485` | *estimate* about 32 ms/s while the vote is up |
 | 9 | Forge: leave `aim` out of the state comparison (it re-renders the HUD 10 times a second); scan pack lights and surfaces only in Forge or on a world change; generational GC | Forge `main.lua:527-541` | the 1.3 ms/s and 51 ms runs of Forge HUD |
 | 10 | Avatars: keep imported textures across maps, import at most one per poll | `hubnames.lua:72-94`, `main.lua:1249` | the first Tab press and final standings |
-| 11 | A full collection twice at the end of a load | LevelLoader `main.lua:5497-5501` | may explain the 47–61 ms lifts and footprints runs minutes after a TMB load (to test) |
+| 11 | A full collection twice at the end of a load. **Corrected in MJOLNIRLevelLoader 0.13.3:** those two were the `mjolnir_level_status` command's; a load ran none. A load now ends with two, a frame each, 6–23 ms | LevelLoader `main.lua` `status`, `spawnDecor` | may explain the 47–61 ms lifts and footprints runs minutes after a TMB load (still to test) |
 
 ## Correctness issues found along the way
 
@@ -456,7 +569,8 @@ If it works, the roster and lift designs lose their file round trips.
 2. The HUD's scans moved to `NotifyOnNewObject`, plus `StaticFindObject` caching
    in hill, flagmark and devices: done in MJOLNIRHud 0.19.1 and
    MJOLNIRLevelLoader 0.13.2.
-3. The load-frame trims, then spreading the load over frames.
+3. The load-frame trims, then spreading the load over frames: done in
+   MJOLNIRLevelLoader 0.13.3.
 4. The flag cloth throttle, then the cloth material: done in
    MJOLNIRLevelLoader 0.13.1 and 0.13.2.
 5. Native lifts in the lobby DLL's simulation tick.
