@@ -87,7 +87,7 @@ references running past index 1471, far beyond the 260 globals in
 | `+0x04` | object type, u16: Reach's enum |
 | `+0x06` | datum size, u16 |
 | `+0x08` | datum offset in the object pool, u32. Consecutive datums sit `size + 0x10` apart |
-| `+0x0C` | the entry's own index, u16. The reader refuses the table if this does not match |
+| `+0x0C` | the object's index on the host, u16. On a host that is the entry's own index, and the reader refuses the table if it does not match. On a fireteam client it is not: two test copies on 2026-11-09 read 139 and 140 in the client's entries 84 and 88, the host's indices for the same two units. A check against it works only on a host ([lua_native_audit.md](lua_native_audit.md#3-player-roster-from-the-simulation-for-the-hud)) |
 | `+0x10` | datum pointer |
 
 Type codes seen with a matching tag group: 0 biped (`bipd`), 2 weapon (`weap`),
