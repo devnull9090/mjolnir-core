@@ -4950,20 +4950,29 @@ function Footprints.deformStart(world)
     -- are Blam objects, so one GetAllActorsOfClass on their native class
     -- lists them, and each class's name is read once. It was a FindFirstOf
     -- a class (a walk of every object, ~20 ms each) for a class to ask for.
-    local blam, names, wanted = {}, {}, Footprints.BRUSH_ACTORS
+    -- The actors are taken off the call's array now; their classes are read
+    -- (1,364 actors on Timberland) and their brushes registered after, a
+    -- slice a frame during a load (Current.dressQueue).
+    local blam, actors, names, wanted = {}, {}, {}, Footprints.BRUSH_ACTORS
     gs:GetAllActorsOfClass(world, findObject("/Script/BlamSynchronization.BlamObjectActor"), blam)
     for i = 1, #blam do
-        pcall(function()
-            local actor = blam[i]:get()
-            local class = actor:GetClass()
-            local key = class:GetAddress()
-            local name = names[key]
-            if not name then
-                name = class:GetFName():ToString()
-                names[key] = name
-            end
-            if wanted[name] then n = n + Footprints.actorBrushes(actor) end
-        end)
+        pcall(function() actors[#actors + 1] = blam[i]:get() end)
+    end
+    local function register(actor)
+        if not actor:IsValid() then return end
+        local class = actor:GetClass()
+        local key = class:GetAddress()
+        local name = names[key]
+        if not name then
+            name = class:GetFName():ToString()
+            names[key] = name
+        end
+        if wanted[name] then n = n + Footprints.actorBrushes(actor) end
+    end
+    local function registered()
+        Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
+            (Footprints.deform and Footprints.deform.fromMpc) and ", centre read by the sand"
+            or Footprints.hooked and ", recentres followed" or ""))
     end
     Current.lap("deformation vehicles and bipeds")
     -- Our own footprints give way to the game's.
@@ -4995,8 +5004,13 @@ function Footprints.deformStart(world)
     else
         Footprints.deformHook()
     end
-    Log(string.format("deformation: the game's manager, %d brush(es) registered%s", n,
-        Footprints.deform.fromMpc and ", centre read by the sand" or Footprints.hooked and ", recentres followed" or ""))
+    if Current.dressQueue then
+        Current.dressQueue.add(actors, register)
+        Current.dressQueue.add({ registered }, function(job) job() end)
+    else
+        for _, actor in ipairs(actors) do pcall(register, actor) end
+        registered()
+    end
 end
 
 --- The map's centre to the sand: FootRect on the landscape and the mesh's
@@ -5416,6 +5430,8 @@ local function spawnDecor(world)
         -- then the cladding rocks' material.
         step("landscape jobs", Current.dressQueue.step)
         step("deformation", function() Footprints.deformStart(world) end, true)
+        -- What it handed on: the vehicles and bipeds whose brushes it registers.
+        step("deformation jobs", Current.dressQueue.step)
         step("sky recapture", function() Current.recaptureSkyAfterDecor(world) end)
     end
     -- The load's garbage (the level file's text, thousands of handles),
