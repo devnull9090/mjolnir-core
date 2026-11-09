@@ -9,6 +9,12 @@ unit (+0x28, -1 = no biped) and
 team (the options entry's +0xa8). tools/remote/jip-test.mjs reads it to tell a
 joiner that spawned from one that did not. Read-only.
 
+Each player also gets its local user (TLS+0x118, +0x34 + 4p: 0-3 for a player
+this machine controls, -1 for another machine's) and, when its unit is a live
+object, the unit's position, velocity and parent from the object table
+(TLS+0x20; docs/re/lift_push.md). Positions are world units: Unreal's are
+these x 304.8 with y negated.
+
     python tools/remote/blam-players.py [--json] [--pid N]
 
 --pid picks one copy when several run (tools/remote/instances.mjs).
@@ -69,6 +75,37 @@ def main():
         raw = read(address, 8)
         return struct.unpack("<Q", raw)[0] if raw else 0
 
+    def unit_state(block, handle):
+        """Position, velocity and parent of the object `handle` names, or None
+        (lift_biped's checks: the table's magic and stride, the entry's salt
+        and own index)."""
+        if handle in (0, 0xffffffff) or not handle >> 16:
+            return None
+        index, salt = handle & 0xffff, (handle >> 16) & 0xffff
+        table = q(block + 0x20)
+        head = read(table, 0x60) if table else None
+        if (not head or struct.unpack_from("<I", head, 0x28)[0] != 0x64407440
+                or struct.unpack_from("<I", head, 0x20)[0] != 0x18):
+            return None
+        count = struct.unpack_from("<I", head, 0x44)[0]
+        data = struct.unpack_from("<Q", head, 0x50)[0]
+        if index >= count:
+            return None
+        entry = read(data + index * 0x18, 0x18)
+        if (not entry or struct.unpack_from("<H", entry, 0)[0] != salt
+                or struct.unpack_from("<H", entry, 0x0c)[0] != index):
+            return None
+        datum = struct.unpack_from("<Q", entry, 0x10)[0]
+        body = read(datum, 0x74) if datum else None
+        if not body:
+            return None
+        return {
+            "type": struct.unpack_from("<H", entry, 4)[0],
+            "parent": struct.unpack_from("<i", body, 0x14)[0],
+            "at": [round(v, 4) for v in struct.unpack_from("<3f", body, 0x44)],
+            "velocity": [round(v, 4) for v in struct.unpack_from("<3f", body, 0x68)],
+        }
+
     tls_dir = pefile.PE(sim_path, fast_load=True).OPTIONAL_HEADER.DATA_DIRECTORY[9]
     tls_index = struct.unpack("<I", read(q(sim + tls_dir.VirtualAddress + 0x10), 4))[0]
 
@@ -88,6 +125,7 @@ def main():
                 g = q(block + 0x60) if block else 0
                 head = read(g, 2) if g else None
                 if head and head[1]:
+                    users = q(block + 0x118)
                     players = q(block + 0x30)
                     data = q(players + 0x50)
                     capacity = struct.unpack("<i", read(players + 0x2c, 4))[0]
@@ -97,13 +135,17 @@ def main():
                         team_index = read(data + i * 0x4b0 + 0x4a4, 4)
                         salt = struct.unpack_from("<H", e, 0)[0]
                         if salt:
+                            unit = struct.unpack_from("<i", e, 0x28)[0]
+                            user = read(users + 0x34 + i * 4, 4) if users else None
                             # The game's options entry for this slot (0xb0 apart from
                             # game globals +0x2e0) holds the team at +0xa8.
                             team = read(g + 0x2e0 + i * 0xb0 + 0xa8, 1)
                             result["players"].append({
                                 "index": i, "salt": salt, "flags": struct.unpack_from("<I", e, 4)[0],
                                 "machine": struct.unpack_from("<h", e, 0x1a)[0],
-                                "unit": struct.unpack_from("<i", e, 0x28)[0],
+                                "unit": unit,
+                                "local_user": struct.unpack("<i", user)[0] if user else None,
+                                "unit_state": unit_state(block, unit & 0xffffffff),
                                 "team": struct.unpack("<b", team)[0] if team else None,
                                 # The player's own record: the team it asked for (+0xad)
                                 # and the team it is on (+0x4a4).
@@ -120,7 +162,10 @@ def main():
         if not result["players"]:
             print("no running game")
         for p in result["players"]:
-            print(f"player {p['index']}: salt {p['salt']:04x} flags {p['flags']:08x} machine {p['machine']} unit {p['unit']} team {p['team']} requested {p['requested']} on {p['on']}")
+            u = p["unit_state"]
+            where = (f" at ({u['at'][0]:.3f}, {u['at'][1]:.3f}, {u['at'][2]:.3f}) v ({u['velocity'][0]:.2f}, "
+                     f"{u['velocity'][1]:.2f}, {u['velocity'][2]:.2f}) type {u['type']} parent {u['parent']}") if u else ""
+            print(f"player {p['index']}: salt {p['salt']:04x} flags {p['flags']:08x} machine {p['machine']} unit {p['unit']} team {p['team']} requested {p['requested']} on {p['on']} user {p['local_user']}{where}")
     return 0
 
 
