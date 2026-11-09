@@ -133,6 +133,9 @@ function Dress.queue(onError, clock)
                 if not ok and onError then pcall(onError, err) end
                 if clock() >= deadline and (q.index <= #entry.list or q.at < #q.lists) then return true end
             end
+            -- A list done is let go: its handles and closures are garbage
+            -- for the collections that end the load, not one frame after.
+            entry.list, entry.each = {}, nil
             q.at, q.index = q.at + 1, 1
         end
         return false

@@ -188,6 +188,10 @@ do
     assert(#errors == 1 and errors[1]:find("no component"))
     assert(done.frames >= 3, "spread over frames, got " .. done.frames)
     assert(done.longest <= 0.0111, "no frame past its budget by more than one item")
+    -- Drained, it holds nothing: the load's collections can free it all.
+    for _, entry in ipairs(q.lists) do
+        assert(#entry.list == 0 and entry.each == nil, "a drained list is let go")
+    end
 end
 
 -- A queue nothing was added to is done at once.
