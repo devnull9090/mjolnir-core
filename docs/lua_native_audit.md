@@ -198,8 +198,10 @@ Brutes and Marines never are.
   `IsValid` and `K2_GetActorLocation` on all 271 pooled bipeds every 0.25 s,
   about 2,200 calls a second. Item 4 under native code covers it. A Lua stopgap
   would read only the actors off the origin between placements.
-- **The first bot start of a session: about 43 ms.** `mjolnir_bots_enable`
-  scans the simulation DLL's code for the `ai_place` gate, once per launch.
+- **The first bot start of a session: about 43 ms,** timed around the whole
+  poll; later matches' starts stayed under 20 ms. Most of it is probably
+  `mjolnir_bots_enable`, which scans the simulation DLL's code for the
+  `ai_place` gate once per launch (read from the source, not timed on its own).
 - **The relay's `FindAllOf("PlayerController")`: 32–37 ms,** once a hosted
   match, now on its own poll.
 - **An unexplained cluster.** One un-instrumented after-run on BGL had a burst
