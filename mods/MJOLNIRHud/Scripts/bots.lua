@@ -282,9 +282,11 @@ function Bots.begin(count, now, onSeat, opts)
         level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1],
         starts = map.starts, areas = map.areas, tasks = map.tasks, began = now, rescans = 0 }
     Bots.resize(count, now)
-    log(string.format("bots: %d bot(s) for this match%s; %s", count, opts.teams and ", on red and blue" or "",
+    log(string.format("bots: %d bot(s) for this match%s; %s; %d biped actors known%s", count,
+        opts.teams and ", on red and blue" or "",
         state.starts and string.format("each placed on the best of %d starts", #state.starts)
-            or "no bots.json: each keeps its squad's start"))
+            or "no bots.json: each keeps its squad's start",
+        Bipeds.count(), blind() and " (scanned: no watch)" or ""))
     return true
 end
 
