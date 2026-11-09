@@ -205,24 +205,50 @@ local function classesFor(s)
     return #have > 0 and have or Bipeds.CLASSES
 end
 
---- Every AI biped out of the pool (a pooled actor waits at the origin),
---- and where each stands.
-local function liveActors()
-    local out, where = {}, {}
-    for _, class in ipairs(Bipeds.CLASSES) do
+--- The actors out of the pool at the last read (a pooled actor waits at the
+--- origin), by address, each with its class's set. A scan reads these, and
+--- reads every actor only of the classes a placement needs (`liveActors`).
+local offOrigin = {}
+
+--- How often a scan reads every pooled actor of every class anyway, in
+--- seconds, in case one left the origin unread.
+local FULL_SECONDS = 5
+
+--- Read one kept actor: where it is when out of the pool. A gone actor leaves
+--- its set.
+local function read(set, at, a, out, where, outSets)
+    local ok, l = pcall(function()
+        if not a:IsValid() then return nil end
+        return a:K2_GetActorLocation()
+    end)
+    if ok and l == nil then
+        set[at] = nil
+    elseif ok and math.abs(l.X) + math.abs(l.Y) >= 1 then
+        out[at], where[at], outSets[at] = a, { l.X, l.Y, l.Z }, set
+    end
+end
+
+--- Every AI biped out of the pool, and where each stands. Only the actors out
+--- at the last read, and every actor of the classes in `full` (nil: none).
+--- The step's every use of these is an actor out of the pool, but a placement
+--- must see its bot's actor leave it: then its class is read in full. Reading
+--- every pooled actor each scan was about 2,200 calls a second for Blood
+--- Gulch's 271 bipeds, 13-14 ms/s of the HUD's tick (2026-11-08).
+local function liveActors(full)
+    local out, where, outSets = {}, {}, {}
+    local whole = {}
+    for _, class in ipairs(full or {}) do
         local set = Bipeds.of(class)
-        for at, a in pairs(set) do
-            local ok, l = pcall(function()
-                if not a:IsValid() then return nil end
-                return a:K2_GetActorLocation()
-            end)
-            if ok and l == nil then
-                set[at] = nil
-            elseif ok and math.abs(l.X) + math.abs(l.Y) >= 1 then
-                out[at], where[at] = a, { l.X, l.Y, l.Z }
-            end
+        if not whole[set] then
+            whole[set] = true
+            for at, a in pairs(set) do read(set, at, a, out, where, outSets) end
         end
     end
+    for at, set in pairs(offOrigin) do
+        local a = set[at]
+        if a and not whole[set] then read(set, at, a, out, where, outSets) end
+    end
+    offOrigin = outSets
     return out, where
 end
 
@@ -276,8 +302,10 @@ function Bots.begin(count, now, onSeat, opts)
     math.randomseed(os.time())
     local level = opts.level or Bots.LEGENDARY
     local map = readBotsFile(opts.map) or {}
+    -- The first scan reads every actor.
+    offOrigin = {}
     state = { slots = {}, onSeat = onSeat, onKill = opts.onKill or function() end, retired = {}, nextScan = 0,
-        placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
+        nextFull = 0, placing = nil, names = shuffled(Bots.NAMES), kind = opts.kind or 0,
         isPlayer = opts.isPlayer or function() return false end, teams = opts.teams and true or false,
         level = Bots.LEVELS[level + 1] or Bots.LEVELS[Bots.LEGENDARY + 1],
         starts = map.starts, areas = map.areas, tasks = map.tasks, began = now, rescans = 0 }
@@ -338,6 +366,7 @@ function Bots.stop()
         if state.teams then teamTable(false) end
     end
     state = nil
+    offOrigin = {}
 end
 
 function Bots.active()
@@ -812,10 +841,33 @@ end
 --- biped, dead }`: `player_get <nth>` is that player (it counts the players
 --- there are), `team` is "Red", "Blue" or nil, and `biped` their biped's actor
 --- since they last spawned.
+--- The classes a scan reads in full. A bot being placed: its own class, so
+--- its actor is seen leaving the pool. Nothing else changes while it is
+--- placed, so what the scan sees agrees with the actors out when it began
+--- (`before`), which is how a placement tells its actor from the others. A
+--- bot due to be placed: its class, so `before` holds every actor of it
+--- already out. Otherwise every class every FULL_SECONDS, and none between.
+local function fullClasses(now)
+    local p = state.placing
+    if p then return classesFor(p) end
+    if now >= state.nextFull then
+        state.nextFull = now + FULL_SECONDS
+        return Bipeds.CLASSES
+    end
+    local list = nil
+    for _, s in ipairs(state.slots) do
+        if (s.status == "waiting" or s.status == "dead") and now >= s.nextAt then
+            list = list or {}
+            for _, class in ipairs(classesFor(s)) do list[#list + 1] = class end
+        end
+    end
+    return list
+end
+
 function Bots.tick(now, humans)
     if not state or now < state.nextScan then return end
     state.nextScan = now + SCAN_SECONDS
-    local live, where = liveActors()
+    local live, where = liveActors(fullClasses(now))
     step(now, humans or {}, live, where)
     -- Where each actor stood this scan, for the next one's teleport test.
     if state then state.lastWhere = where end

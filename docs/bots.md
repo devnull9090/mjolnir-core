@@ -337,6 +337,15 @@ class in a match:
   up on: thirty-two AI with no seat on the board. A native class is never
   unloaded.
 
+A scan (every 0.25 s) reads only the actors out of the pool at the last read:
+the bots, their bodies left standing, and the players. Every pooled actor of a
+class is read only from the moment a bot of that class is due to be placed
+until it is seen, plus a full read every 5 s. The step uses only actors out
+of the pool, and a placement must see its actor leave the pool. Reading all of
+Blood Gulch's 271 pooled bipeds every scan was about 2,200 calls a second:
+with 8 bots, the Hud tick went from 11.6 to 5.0 ms/s (MJOLNIRHud 0.19.1,
+`tools/tests/test_bots_scan.lua`).
+
 As a backstop, if the watch could not be armed, bots start with one scan of
 each class, and a placement that times out scans its own kind's class once
 before placing again (three a match at most). A try that gives up erases its

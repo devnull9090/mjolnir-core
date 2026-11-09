@@ -194,10 +194,13 @@ Brutes and Marines never are.
   versions were timed in the same match: 55–62 ms before, 2–5 ms after.
 
 **What is left.**
-- **The steady 13–14 ms/s with bots.** It is `liveActors`, which calls
+- **The steady cost with bots: fixed in Lua too.** `liveActors` called
   `IsValid` and `K2_GetActorLocation` on all 271 pooled bipeds every 0.25 s,
-  about 2,200 calls a second. Item 4 under native code covers it. A Lua stopgap
-  would read only the actors off the origin between placements.
+  about 2,200 calls a second. It now reads only the actors off the origin,
+  plus a placing bot's class while it is placed and every class every 5 s.
+  The A/B ran back to back on a quiet PC 1 (the earlier runs' 13–14 ms/s were
+  inflated by other work on the machine): Hud tick 11.6 ms/s, worst 20 ms,
+  before; 5.0 ms/s, worst 9 ms, after (BGL, 8 bots, 4 min each).
 - **The first bot start of a session: about 43 ms,** timed around the whole
   poll; later matches' starts stayed under 20 ms. Most of it is probably
   `mjolnir_bots_enable`, which scans the simulation DLL's code for the
@@ -289,11 +292,12 @@ next two need: per-map data in, simulation reads out.
 
 ### 4. Bots' bookkeeping (host only)
 
-- **Today:**
+- **Today** (as audited; both bullets are fixed in Lua in MJOLNIRHud 0.19.1,
+  [above](#the-huds-scans-and-lookups-measured-and-fixed)):
   - `liveActors` runs `IsValid` and `K2_GetActorLocation` on every pooled actor
     of 7 classes, every 0.25 s
-    ([bots.lua:238-252](../mods/MJOLNIRHud/Scripts/bots.lua)). The pool size is
-    unmeasured; *estimate* 240–1,200 calls a second.
+    ([bots.lua:238-252](../mods/MJOLNIRHud/Scripts/bots.lua)). Measured since:
+    271 pooled bipeds on BGL, about 2,200 calls a second.
   - `fillPool` scans all 7 classes with `FindAllOf`. The file's own comment
     prices that at "about 160 ms each", allowed up to 3 rescans a match
     ([bots.lua:207-234](../mods/MJOLNIRHud/Scripts/bots.lua)). It runs 3 s into
