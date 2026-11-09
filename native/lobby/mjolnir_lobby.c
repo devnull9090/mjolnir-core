@@ -59,6 +59,8 @@ enum { FNAME_ADD = 1 };
 enum {
     SCAN_PRESENCE,
     SCAN_ONLINE_TICK,
+    SCAN_GDK_INVITE,
+    SCAN_GDK_TICK,
     SCAN_LEAVE_SESSION,
     SCAN_SOLO_SESSION,
     SCAN_PRE_LOGIN,
@@ -323,6 +325,10 @@ static long __stdcall hook_create_network(void *handle, void *user, void *config
     return real_create_network(handle, user, config, region_count, regions, invitation, context, descriptor, applied);
 }
 
+/* Whether this is the Xbox app's (Game Pass) build, which loads the GDK
+   build of PlayFab's DLL. */
+static int xbox_build(void) { return GetModuleHandleA("PlayFabMultiplayerGDK.dll") != NULL; }
+
 /* The exe's import address table slot for `name` from `dll`, or NULL. */
 /* The Xbox app's exe imports the same PlayFab and Party functions from the
    GDK builds of their DLLs (docs/game_pass.md); the Steam names are the ones
@@ -375,6 +381,7 @@ static const unsigned char PRESENCE[] = {0xC7, 0x45, 0xA8, 0x04, 0x00, 0x00, 0x0
 static const unsigned char PRESENCE_MASK[] = {1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
 static const char *patch_presence(void) {
+    if (xbox_build()) return "not in the Xbox app's build (docs/game_pass.md)";
     int hits;
     unsigned char *found = scan_get(SCAN_PRESENCE, &hits);
     if (found && found[3] == 0) found = NULL, hits = 0;
@@ -1351,7 +1358,7 @@ static unsigned char *find_code_masked(const unsigned char *pattern, const unsig
    functions' slots in one pass once their code is found (vtable_fns_find);
    a lookup of one of them reads its slots from here, any other the whole
    data, as before. */
-#define VTABLE_FNS 8
+#define VTABLE_FNS 10
 #define VTABLE_FN_SLOTS 16
 struct vtable_fn {
     void *fn;
@@ -1731,12 +1738,12 @@ static unsigned char __fastcall hook_gdk_tick(void *ticker, float delta) {
 static const char *hook_gdk_tick_slot(void) {
     static char why[80];
     int hits;
-    unsigned char *invite = find_code_masked(GDK_INVITE, GDK_INVITE_MASK, sizeof GDK_INVITE, &hits);
+    unsigned char *invite = scan_get(SCAN_GDK_INVITE, &hits);
     if (!invite) {
         snprintf(why, sizeof why, "invite handler pattern matched %d times, left alone", hits);
         return why;
     }
-    unsigned char *fn = find_code_masked(GDK_TICK, GDK_TICK_MASK, sizeof GDK_TICK, &hits);
+    unsigned char *fn = scan_get(SCAN_GDK_TICK, &hits);
     if (!fn) {
         snprintf(why, sizeof why, "subsystem tick pattern matched %d times, left alone", hits);
         return why;
@@ -6077,7 +6084,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
             publish_own_endpoints();
         }
     }
-    if (GetModuleHandleA("PlayFabMultiplayerGDK.dll"))
+    if (xbox_build())
         fireteam_log("GDK subsystem tick (joins by connection string): %s", hook_gdk_tick_slot());
     else
         fireteam_log("OnlineTick (joins by connection string): %s", hook_online_tick_slot());
@@ -6787,16 +6794,22 @@ struct scan {
     int exe; /* 1: the game exe; 0: the simulation DLL */
     const unsigned char *pattern, *mask;
     size_t length;
+    int store; /* 0: both builds; STORE_STEAM or STORE_XBOX: only that one's exe has it */
     unsigned char *volatile at; /* the one match, or NULL */
     volatile LONG hits;
     volatile LONG done;
 };
 
-#define SCAN_SIM(id, name, pattern, mask) [id] = {name, 0, pattern, mask, sizeof pattern, NULL, 0, 0}
-#define SCAN_EXE(id, name, pattern, mask) [id] = {name, 1, pattern, mask, sizeof pattern, NULL, 0, 0}
+#define STORE_STEAM 1
+#define STORE_XBOX 2
+#define SCAN_SIM(id, name, pattern, mask) [id] = {name, 0, pattern, mask, sizeof pattern, 0, NULL, 0, 0}
+#define SCAN_EXE(id, name, pattern, mask) [id] = {name, 1, pattern, mask, sizeof pattern, 0, NULL, 0, 0}
+#define SCAN_STORE(id, store, name, pattern, mask) [id] = {name, 1, pattern, mask, sizeof pattern, store, NULL, 0, 0}
 static struct scan scans[SCAN_COUNT] = {
-    SCAN_EXE(SCAN_PRESENCE, "presence session literals", PRESENCE, PRESENCE_MASK),
-    SCAN_EXE(SCAN_ONLINE_TICK, "OnlineTick", ONLINE_TICK, NULL),
+    SCAN_STORE(SCAN_PRESENCE, STORE_STEAM, "presence session literals", PRESENCE, PRESENCE_MASK),
+    SCAN_STORE(SCAN_ONLINE_TICK, STORE_STEAM, "OnlineTick", ONLINE_TICK, NULL),
+    SCAN_STORE(SCAN_GDK_INVITE, STORE_XBOX, "GDK invite handler", GDK_INVITE, GDK_INVITE_MASK),
+    SCAN_STORE(SCAN_GDK_TICK, STORE_XBOX, "GDK subsystem tick", GDK_TICK, GDK_TICK_MASK),
     SCAN_EXE(SCAN_LEAVE_SESSION, "LeaveSession", LEAVE_SESSION, NULL),
     SCAN_EXE(SCAN_SOLO_SESSION, "SetSessionRunning branch", SOLO_SESSION_BRANCH, SOLO_SESSION_MASK),
     SCAN_EXE(SCAN_PRE_LOGIN, "PreLogin", PRE_LOGIN, NULL),
@@ -6825,6 +6838,7 @@ static struct scan scans[SCAN_COUNT] = {
 };
 #undef SCAN_SIM
 #undef SCAN_EXE
+#undef SCAN_STORE
 /* A mask shorter than its pattern would be read past its end. */
 typedef char presence_mask_fits[sizeof PRESENCE_MASK == sizeof PRESENCE ? 1 : -1];
 typedef char solo_session_mask_fits[sizeof SOLO_SESSION_MASK == sizeof SOLO_SESSION_BRANCH ? 1 : -1];
@@ -6852,6 +6866,7 @@ static int vtable_fns_find(void) {
     int n = 0;
     unsigned char *at;
     if ((at = scans[SCAN_ONLINE_TICK].at)) fns[n++] = at - sizeof ONLINE_TICK_PROLOGUE;
+    if ((at = scans[SCAN_GDK_TICK].at)) fns[n++] = at;
     if ((at = scans[SCAN_LEAVE_SESSION].at)) fns[n++] = at - LEAVE_SESSION_BODY;
     if ((at = scans[SCAN_PRE_LOGIN].at)) {
         fns[n++] = at;
@@ -6885,13 +6900,21 @@ static int vtable_fns_find(void) {
     return n;
 }
 
+/* Whether `s` is this build's: the Xbox app's exe imports the GDK build of
+   PlayFab's DLL (xbox_build). A search left out here is still made, on the
+   caller's thread, if anything asks for it. */
+static int scan_for_this_build(const struct scan *s) {
+    return !s->store || s->store == (xbox_build() ? STORE_XBOX : STORE_STEAM);
+}
+
 static DWORD WINAPI scans_worker(void *unused) {
     (void)unused;
     /* The exe's first: the mod's start asks for them, and the simulation DLL
        may load after this DLL's first call. */
     LONGLONG started = qpc_now();
     for (int i = 0; i < SCAN_COUNT; i++)
-        if (scans[i].exe && !InterlockedCompareExchange(&scans[i].done, 0, 0)) scan_one(&scans[i]);
+        if (scans[i].exe && scan_for_this_build(&scans[i]) && !InterlockedCompareExchange(&scans[i].done, 0, 0))
+            scan_one(&scans[i]);
     double exe_ms = qpc_ms(started);
     started = qpc_now();
     int vtable_fns_found = vtable_fns_find();
@@ -6899,7 +6922,7 @@ static DWORD WINAPI scans_worker(void *unused) {
     while (!GetModuleHandleA(SIM_DLL)) Sleep(100);
     started = qpc_now();
     for (int i = 0; i < SCAN_COUNT; i++)
-        if (!InterlockedCompareExchange(&scans[i].done, 0, 0)) scan_one(&scans[i]);
+        if (scan_for_this_build(&scans[i]) && !InterlockedCompareExchange(&scans[i].done, 0, 0)) scan_one(&scans[i]);
     double sim_ms = qpc_ms(started);
     InterlockedExchange(&scans_state, 2);
     /* The patched main tick is the other form of the main tick, counted with it. */
@@ -6907,7 +6930,7 @@ static DWORD WINAPI scans_worker(void *unused) {
     char missing[384] = "";
     size_t at = 0;
     for (int i = 0; i < SCAN_COUNT; i++) {
-        if (i == SCAN_MAIN_TICK_PATCHED) continue;
+        if (i == SCAN_MAIN_TICK_PATCHED || !scan_for_this_build(&scans[i])) continue;
         wanted++;
         if (scans[i].at || (i == SCAN_MAIN_TICK && scans[SCAN_MAIN_TICK_PATCHED].at)) found++;
         else if (at + 48 < sizeof missing)

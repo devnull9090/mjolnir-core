@@ -164,10 +164,22 @@ Since MJOLNIRLobby 0.25.2 the worker also runs the mod-load searches:
 
 The hooks are still made on the game thread at the same moment as before, so
 they still come before the game creates its lobby. Across 267 launches' logs,
-that came at least 3 s after `mjolnir_fireteam_open`, and usually 4–9 s. `mjolnir_fireteam_open` now
-takes 2.6 ms and the first `mjolnir_keep_lobby` 0.3 ms. fireteam.log shows
-`scans: 26 of 26` and `setup: the fireteam and session hooks took 2.58 ms`
-(2026-11-09).
+that came at least 3 s after `mjolnir_fireteam_open`, and usually 4–9 s.
+`mjolnir_fireteam_open` now takes 2.6–3 ms and the first `mjolnir_keep_lobby`
+0.3 ms. fireteam.log shows `scans: 26 of 26` and `setup: the fireteam and
+session hooks took 2.58 ms` (2026-11-09).
+
+The Xbox app's build (Game Pass, on PC 1 too) gets the same worker. Some
+searches belong to one build only:
+- the GDK join hook's two searches (the invite handler and the subsystem
+  tick) are the Xbox app's;
+- OnlineTick and the presence session literal are Steam's (that literal
+  doesn't exist on the Xbox app, docs/game_pass.md).
+
+The worker leaves out the other build's searches. There,
+`mjolnir_fireteam_open` takes 6 ms, also with `scans: 26 of 26`, and a
+dummy connection-string join still goes through the GDK tick hook to
+`PFMultiplayerJoinLobby`.
 
 **Related, on the host.** The LevelLoader's incident relay also runs
 `FindAllOf("PlayerController")` at most every 5 s
