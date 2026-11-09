@@ -5643,8 +5643,10 @@ local function watch()
     every(500, "kill floor", function() if Teams.KillFloor then Teams.KillFloor.tick() end end)
     -- Halo 2's lifts push this game's own players (lifts.lua).
     every(500, "lifts", function() if Teams.Lifts then Teams.Lifts.tick() end end)
-    -- A CE map's gates and shields ride their machines (devices.lua).
-    every(250, "devices", function() if Teams.Devices then Teams.Devices.tick() end end)
+    -- A CE map's gates and shields ride their machines (devices.lua), once
+    -- the world is dressed: a device binds only once its decor is spawned,
+    -- and the dressing spawns it over several frames (spawnDecor).
+    every(250, "devices", function() if Teams.Devices and Current.furnished then Teams.Devices.tick() end end)
     -- A converted vehicle's own sounds (vehicle_sounds.lua).
     every(100, "vehicle sounds", function() if Teams.VehicleSounds then Teams.VehicleSounds.tick() end end)
     -- Health packs: new pack actors are reported as they are made
@@ -5686,7 +5688,8 @@ local function watch()
     -- it: the yaw between the keys at t mod period, the actor swung about
     -- its pivot to it. Its tables are its own, refilled: nothing per run.
     every(33, "turning machines", function()
-        if #Current.turning == 0 then return end
+        -- Once the world is dressed: its machines are spawned over frames.
+        if #Current.turning == 0 or not Current.furnished then return end
         local world = Current.world
         if not (world and world:IsValid()) then return end
         KismetSystem = KismetSystem or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
