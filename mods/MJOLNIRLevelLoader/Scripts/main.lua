@@ -465,30 +465,9 @@ local function landscapeLight(level)
     end
 end
 
---- The last level file decoded, with the path and text it came from. A
---- travel reads the map's level file (the multiplayer switch, on the host
---- and on every client) and the load that follows read it again: decoding
---- Timberland's 2.2 MB took 120-200 ms each time. The load takes the
---- switch's table when the file's text is unchanged (read again and
---- compared: under a millisecond), and takes it for itself, since loading
---- changes it (landscapeLight scales its lights): the next reader decodes
---- afresh. `take` false leaves it for the load.
-local LevelFiles = { path = nil, raw = nil, level = nil }
-
-function LevelFiles.decode(path, raw, take)
-    if LevelFiles.level and LevelFiles.path == path and LevelFiles.raw == raw then
-        local level = LevelFiles.level
-        if take then LevelFiles.path, LevelFiles.raw, LevelFiles.level = nil, nil, nil end
-        return true, level
-    end
-    local ok, level = pcall(Json.decode, raw)
-    if take or not ok then
-        LevelFiles.path, LevelFiles.raw, LevelFiles.level = nil, nil, nil
-    else
-        LevelFiles.path, LevelFiles.raw, LevelFiles.level = path, raw, level
-    end
-    return ok, level
-end
+--- The level file a travel decoded, kept for the load that follows
+--- (level_files.lua): one decode a map, not two.
+local LevelFiles = dofile(MOD_DIR .. "\\Scripts\\level_files.lua").new(Json.decode)
 
 --- Decode and sanity-check a level file. Full validation is the CLI's job
 --- (`mjolnir level validate`); the loader checks only what it consumes.
