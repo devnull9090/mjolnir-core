@@ -4626,33 +4626,58 @@ function Land.apply(world)
         return
     end
     if type(spec.pbr) == "table" then
-        local ok, missing = pcall(Land.pbr, Land.landSetter(land), spec.pbr)
-        Log("landscape: " .. (ok and string.format("B30 ground applied (%d surface map(s) missing)", missing)
-            or tostring(missing)))
-        Current.lap("landscape pbr")
-        local gok, slots = pcall(Land.ground, world, spec)
-        Log("landscape: " .. (gok and string.format("%d mesh ground slot(s) in the same look", slots) or tostring(slots)))
-        Current.lap("landscape ground")
-        -- The cliffs' fill (the sand's bounce) on the landscape too, its share
-        -- on flat ground GroundSlope.w (pbr.slope[4]).
-        local f = type(spec.cliff) == "table" and spec.cliff.fill
-        if type(f) == "table" then
-            pcall(function()
-                land:SetLandscapeMaterialVectorParameterValue(FName("CliffFill"),
-                    { R = f[1], G = f[2], B = f[3], A = (f[4] or 0) * lightScale() })
-            end)
+        -- Four jobs, in order: during a load each goes to the load's queue
+        -- (Current.dressQueue), and none shares a frame with another once
+        -- the frame's budget is spent; together they were a 90 ms frame on
+        -- Timberland. Otherwise they run now.
+        local jobs = {
+            function()
+                local ok, missing = pcall(Land.pbr, Land.landSetter(land), spec.pbr)
+                Log("landscape: " .. (ok and string.format("B30 ground applied (%d surface map(s) missing)", missing)
+                    or tostring(missing)))
+                Current.lap("landscape pbr")
+            end,
+            function()
+                local gok, slots = pcall(Land.ground, world, spec)
+                Log("landscape: " .. (gok and string.format("%d mesh ground slot(s) in the same look", slots)
+                    or tostring(slots)))
+                Current.lap("landscape ground")
+            end,
+            function()
+                -- The cliffs' fill (the sand's bounce) on the landscape too,
+                -- its share on flat ground GroundSlope.w (pbr.slope[4]).
+                local f = type(spec.cliff) == "table" and spec.cliff.fill
+                if type(f) == "table" then
+                    pcall(function()
+                        land:SetLandscapeMaterialVectorParameterValue(FName("CliffFill"),
+                            { R = f[1], G = f[2], B = f[3], A = (f[4] or 0) * lightScale() })
+                    end)
+                end
+                local cok, cliffs = pcall(Land.cliffs, world, spec)
+                Log("landscape: " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs)
+                    or tostring(cliffs)))
+                Current.lap("landscape cliffs")
+            end,
+            function()
+                pcall(function()
+                    local comps = land.LandscapeComponents
+                    for i = 1, #comps do
+                        comps[i]:SetCastShadow(false)
+                        -- Out of Lumen's bounce, as the cladding: lit by the
+                        -- fill (emissive), the ground flooded the whole scene
+                        -- orange.
+                        comps[i]:SetAffectDynamicIndirectLighting(false)
+                    end
+                end)
+                Current.lap("landscape components")
+            end,
+        }
+        local function run(job) if land:IsValid() then job() end end
+        if Current.dressQueue then
+            Current.dressQueue.add(jobs, run)
+        else
+            for _, job in ipairs(jobs) do run(job) end
         end
-        local cok, cliffs = pcall(Land.cliffs, world, spec)
-        Log("landscape: " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs) or tostring(cliffs)))
-        pcall(function()
-            local comps = land.LandscapeComponents
-            for i = 1, #comps do
-                comps[i]:SetCastShadow(false)
-                -- Out of Lumen's bounce, as the cladding: lit by the fill
-                -- (emissive), the ground flooded the whole scene orange.
-                comps[i]:SetAffectDynamicIndirectLighting(false)
-            end
-        end)
         return
     end
     if type(spec.material) ~= "table" then return end
@@ -5387,8 +5412,9 @@ local function spawnDecor(world)
         step("lights", function() Placed.lights(world) end)
         step("decals", function() Placed.decals(world) end)
         step("landscape", function() Land.apply(world) end, true)
-        -- What the landscape handed on: the cladding rocks' material.
-        step("cladding rocks", Current.dressQueue.step)
+        -- What the landscape handed on: its ground, cliffs and components,
+        -- then the cladding rocks' material.
+        step("landscape jobs", Current.dressQueue.step)
         step("deformation", function() Footprints.deformStart(world) end, true)
         step("sky recapture", function() Current.recaptureSkyAfterDecor(world) end)
     end
@@ -5405,7 +5431,13 @@ local function spawnDecor(world)
         defer = function(fn) ExecuteInGameThreadWithDelay(1, fn) end,
         alive = function() return Current.dressGen == gen and Current.level == level and world:IsValid() end,
         onError = function(name, err) Log(name .. ": " .. tostring(err)) end,
-        onFrame = function(started, took) Current.reportWork("load", started, took) end,
+        onFrame = function(started, took, names)
+            Current.reportWork("load", started, took)
+            -- A frame the load could not cut finer, named.
+            if took >= 0.03 then
+                Log(string.format("load timing: a frame of %.0f ms (%s)", took * 1000, table.concat(names, " + ")))
+            end
+        end,
         onDone = function(stats)
             Current.dressing = false
             Current.furnished = true
