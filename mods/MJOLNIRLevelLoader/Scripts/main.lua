@@ -74,6 +74,8 @@ local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
 -- CTF flags and team armour in their team's colours (Teams.init in
 -- initialize, once main.lua's helpers exist).
 local Teams = dofile(MOD_DIR .. "\\Scripts\\teams.lua")
+-- A load's steps spread over frames (spawnDecor).
+local Dress = dofile(MOD_DIR .. "\\Scripts\\dress.lua")
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -248,6 +250,15 @@ local Current = {
     -- source material, shared by every decor piece and foliage group that
     -- asks for the same values.
     scalarMids = {},
+    -- Baked decor pieces (MJDecor_<id>) given scalar instances in this
+    -- world, by id: a reload puts back the mesh's own materials on these
+    -- alone. A piece fresh from the world has its mesh's own already.
+    bakedMids = {},
+    -- The dressing under way (spawnDecor): its number, raised by every new
+    -- dressing and by anything that makes the one under way stale (another
+    -- world, a reload, a clear), and whether one is running.
+    dressGen = 0,
+    dressing = false,
     -- The world the level was furnished in (spawnDecor), for the loops that
     -- need a world context: getWorld() reads a dozen properties and leaves
     -- ~1.5 KB of handles behind a call.
@@ -280,6 +291,29 @@ function Current.emptyHit()
     return hit
 end
 
+--- The world's Landscape, looked up once a world. Four steps of a load
+--- each asked FindFirstOf("Landscape"), a walk of every object in the game
+--- (~20 ms on a converted map); GameplayStatics' GetActorOfClass looks only
+--- at the world's actors of that class. FindFirstOf stays as the fallback
+--- should that call fail. Nil when the world has none.
+function Current.landscapeActor(world)
+    local land = Current.landscape
+    if land and land:IsValid() then return land end
+    land = nil
+    local ok = pcall(function()
+        local gs = findObject("/Script/Engine.Default__GameplayStatics")
+        local cls = findObject("/Script/Landscape.Landscape")
+        if not (gs and cls and world) then error("no class") end
+        land = gs:GetActorOfClass(world, cls)
+    end)
+    if not ok then land = FindFirstOf("Landscape") end
+    if land and land:IsValid() then
+        Current.landscape = land
+        return land
+    end
+    return nil
+end
+
 --- A load's steps, timed (os.clock: wall time on Windows). A converted
 --- map's dressing held the game thread 1.5 s on Timberland, and which step
 --- took it was a guess (docs/lua_native_audit.md). Current.lapStart() as a
@@ -299,17 +333,24 @@ function Current.lap(name)
     laps.at = now
 end
 
-function Current.lapDone()
+function Current.lapDone(frames)
     local laps = Current.laps
     if not laps then return end
     Current.laps = nil
-    local parts, longest = {}, { name = "none", ms = 0 }
+    -- A step done a slice a frame laps once a slice: summed by name, in
+    -- the order the steps first ran.
+    local order, sums, longest = {}, {}, { name = "none", ms = 0 }
     for _, l in ipairs(laps) do
-        if l.ms >= 1 then parts[#parts + 1] = string.format("%s %.0f", l.name, l.ms) end
+        if not sums[l.name] then order[#order + 1] = l.name end
+        sums[l.name] = (sums[l.name] or 0) + l.ms
         if l.ms > longest.ms then longest = l end
     end
-    Log(string.format("load timing on %s: %.0f ms from the world to dressed, longest step %s %.0f ms; ms: %s",
-        tostring(Current.scenario), (os.clock() - laps.started) * 1000, longest.name, longest.ms,
+    local parts = {}
+    for _, name in ipairs(order) do
+        if sums[name] >= 1 then parts[#parts + 1] = string.format("%s %.0f", name, sums[name]) end
+    end
+    Log(string.format("load timing on %s: %.0f ms from the world to dressed%s, longest single run %s %.0f ms; ms: %s",
+        tostring(Current.scenario), (os.clock() - laps.started) * 1000, frames or "", longest.name, longest.ms,
         table.concat(parts, ", ")))
 end
 
@@ -333,6 +374,13 @@ local function resetState()
     Current.volumed = {}
     Current.sunMids = {}
     Current.scalarMids = {}
+    Current.bakedMids = {}
+    Current.foliageDressed = nil
+    Current.rocksHidden = nil
+    Current.dressGen = Current.dressGen + 1
+    Current.dressing = false
+    Current.meshScan = nil
+    Current.landscape = nil
     Current.water = nil
     Current.weatherHidden = nil
     Current.weatherAt = nil
@@ -358,6 +406,12 @@ local function clearActors()
     -- Reloads keep the world but replace its actors. Invalidate any pending
     -- capture before destroying them, and allow the replacement sky to capture.
     Current.skyRecapture = nil
+    -- A dressing under way stops at its next step; a cleared world counts
+    -- as dressed, so the watcher does not dress it again.
+    Current.dressGen = Current.dressGen + 1
+    if Current.dressing then Current.furnished = true end
+    Current.dressing = false
+    Current.meshScan = nil
     for _, actor in pairs(Current.actors) do
         if actor and actor:IsValid() then
             -- Sounds are components, not actors.
@@ -409,6 +463,31 @@ local function landscapeLight(level)
     end
 end
 
+--- The last level file decoded, with the path and text it came from. A
+--- travel reads the map's level file (the multiplayer switch, on the host
+--- and on every client) and the load that follows read it again: decoding
+--- Timberland's 2.2 MB took 120-200 ms each time. The load takes the
+--- switch's table when the file's text is unchanged (read again and
+--- compared: under a millisecond), and takes it for itself, since loading
+--- changes it (landscapeLight scales its lights): the next reader decodes
+--- afresh. `take` false leaves it for the load.
+local LevelFiles = { path = nil, raw = nil, level = nil }
+
+function LevelFiles.decode(path, raw, take)
+    if LevelFiles.level and LevelFiles.path == path and LevelFiles.raw == raw then
+        local level = LevelFiles.level
+        if take then LevelFiles.path, LevelFiles.raw, LevelFiles.level = nil, nil, nil end
+        return true, level
+    end
+    local ok, level = pcall(Json.decode, raw)
+    if take or not ok then
+        LevelFiles.path, LevelFiles.raw, LevelFiles.level = nil, nil, nil
+    else
+        LevelFiles.path, LevelFiles.raw, LevelFiles.level = path, raw, level
+    end
+    return ok, level
+end
+
 --- Decode and sanity-check a level file. Full validation is the CLI's job
 --- (`mjolnir level validate`); the loader checks only what it consumes.
 local function loadLevelFile(scenario, fileKey)
@@ -416,7 +495,7 @@ local function loadLevelFile(scenario, fileKey)
     local raw = readFile(path)
     if not raw then return nil, "no file: " .. path end
 
-    local ok, level = pcall(Json.decode, raw)
+    local ok, level = LevelFiles.decode(path, raw, true)
     if not ok then return nil, "parse failed: " .. tostring(level) end
 
     if type(level) ~= "table" or level.schema_version ~= 1 then
@@ -2598,9 +2677,10 @@ local function rebuild(world, s)
 end
 
 --- Draw the level's CE water in the style asked for (waterStyle), once the
---- decor is up; again whenever `mjolnir_water` changes it.
+--- decor is up (a step of the dressing); again whenever `mjolnir_water`
+--- changes it.
 local function applyWater(world)
-    if not (Current.level and Current.furnished) then return end
+    if not (Current.level and (Current.furnished or Current.dressing)) then return end
     local slots, foam = ceWaterSlots()
     if #slots == 0 then return end
     local style = waterStyle()
@@ -2973,7 +3053,7 @@ function Effects.fluxCoast(w, k, origin, cls, gs, tag)
     -- shore) keeps it too: the shelf is what the surf breaks on.
     pcall(function()
         if k.seabed then return end
-        local land = FindFirstOf("Landscape")
+        local land = Current.landscapeActor(w)
         if land and land:IsValid() then
             local t = land.Tags
             t[#t + 1] = tag
@@ -3672,11 +3752,15 @@ function Foliage.dressBaked(world, foliage, quality)
             if shown then
                 -- Back to the mesh's own materials first: a reload dressed
                 -- the last load's tinted instances again, and the grass
-                -- drew dark grey (2026-10-18).
-                pcall(function()
-                    local mesh = comp.StaticMesh
-                    for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
-                end)
+                -- drew dark grey (2026-10-18). Only after a dressing in
+                -- this world: BakeFoliage sets no materials, so a mesh
+                -- fresh from the world has its own.
+                if Current.foliageDressed then
+                    pcall(function()
+                        local mesh = comp.StaticMesh
+                        for i = 0, comp:GetNumMaterials() - 1 do comp:SetMaterial(i, mesh:GetMaterial(i)) end
+                    end)
+                end
                 mids[g] = Foliage.dress(world, kml, g, group, comp, mids[g])
                 local gc = type(group.cull) == "table" and group.cull
                     or type(foliage.cull) == "table" and foliage.cull or Foliage.CULL
@@ -3690,26 +3774,52 @@ function Foliage.dressBaked(world, foliage, quality)
             end
         end
     end
+    if comps > 0 then Current.foliageDressed = true end
     return found, comps, drawn
 end
 
+--- The world's mesh actors the loader dresses, by name, from one walk:
+--- the swapped scenery (MJDecor_<id>, by id) and the cladding rocks
+--- (MJClad_<group>_<rock>, by group). spawnDecor and Foliage.bakedRocks
+--- each made a FindAllOf("StaticMeshActor") of their own, ~20 ms and a
+--- name read for each of thousands of actors. Kept on Current.meshScan for
+--- the load that made it, then dropped: no handle outlives the load.
+function Foliage.scanMeshActors()
+    local decor, rocks, nRocks = {}, {}, 0
+    for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
+        local name = a:GetFName():ToString()
+        local id = name:match("^MJDecor_(.+)$")
+        if id then
+            decor[id] = a
+        else
+            local g = tonumber(name:match("^MJClad_(%d+)_%d+$"))
+            if g then
+                local list = rocks[g] or {}
+                list[#list + 1] = a
+                rocks[g], nRocks = list, nRocks + 1
+            end
+        end
+    end
+    return { decor = decor, rocks = rocks, nRocks = nRocks }
+end
+
 --- The cladding rocks a baked world carries (MJClad_<group>_<rock>, mesh
---- actors: BakeFoliage's flag 8), by group, from one FindAllOf. `shown`
---- false hides them (`mjolnir_foliage off`). The lists go to
+--- actors: BakeFoliage's flag 8), by group: the load's scan when it made
+--- one, else a scan of its own. `shown` false hides them (`mjolnir_foliage
+--- off`), true shows them again; rocks fresh from the world are shown
+--- already, so only after a hiding in this world. The lists go to
 --- Foliage.cliffGroups for Land.cliffs, which drops them once the rocks
 --- have their material: the loader keeps no handle a rock.
 function Foliage.bakedRocks(shown)
-    local rocks, found = {}, 0
-    for _, actor in ipairs(FindAllOf("StaticMeshActor") or {}) do
-        local g = tonumber(actor:GetFName():ToString():match("^MJClad_(%d+)_%d+$"))
-        if g then
-            local list = rocks[g] or {}
-            list[#list + 1] = actor
-            rocks[g], found = list, found + 1
-            if shown ~= nil then actor:SetActorHiddenInGame(not shown) end
+    local scan = Current.meshScan or Foliage.scanMeshActors()
+    local set = shown == false or (shown == true and Current.rocksHidden)
+    if set then
+        for _, list in pairs(scan.rocks) do
+            for _, actor in ipairs(list) do actor:SetActorHiddenInGame(not shown) end
         end
+        Current.rocksHidden = shown == false
     end
-    return rocks, found
+    return scan.rocks, scan.nRocks
 end
 
 function Foliage.spawn(world)
@@ -3727,10 +3837,14 @@ function Foliage.spawn(world)
         return
     end
     Current.lap("before foliage")
-    local raw = readFile((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file)
-    Current.lap("foliage file")
-    local magic = raw and raw:sub(1, 4)
+    -- The header first (magic, version, group count). The clumps follow,
+    -- read only when a group needs them (one the world does not carry):
+    -- a baked world needs none, and Timberland's file is 15 MB.
+    local file = io.open((Current.level._dir or MOD_DIR) .. "\\" .. foliage.file, "rb")
+    local raw = file and file:read(12)
+    local magic = raw and #raw == 12 and raw:sub(1, 4)
     if magic ~= Foliage.MAGIC and magic ~= Foliage.MAGIC2 and magic ~= Foliage.MAGIC3 then
+        if file then file:close() end
         Log("foliage: " .. foliage.file .. " missing or not a foliage file")
         return
     end
@@ -3769,9 +3883,23 @@ function Foliage.spawn(world)
     local rocks, rocked = {}, 0
     if landWorld and coloured then rocks, rocked = Foliage.bakedRocks(true) end
     Current.lap("foliage baked rocks")
+    -- The clumps: needed for a group spawned here, that is any group of an
+    -- unbaked world, and a baked world's cladding the world lacks.
+    local need = not baked
     for g = 1, count do
-        local size
-        size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
+        local group = foliage.groups[g] or {}
+        if group.cliff == true and coloured and not rocks[g] then need = true end
+    end
+    if need then raw = raw .. (file:read("a") or "") end
+    file:close()
+    Current.lap("foliage file")
+    for g = 1, count do
+        -- Without the clumps, only the two branches that skip a group's
+        -- clumps are taken: its size is not needed.
+        local size = 0
+        if need then
+            size, pos = string.unpack("<I", raw, pos)  -- luacheck: ignore 143 (Lua 5.4's string.unpack)
+        end
         local group = foliage.groups[g] or {}
         if baked and not (group.cliff == true and coloured) then
             pos = pos + size * (coloured and 19 or tilted and 16 or 14)
@@ -4444,7 +4572,7 @@ function Land.apply(world)
         return
     end
     Current.lap("before landscape")
-    local land = FindFirstOf("Landscape")
+    local land = Current.landscapeActor(world)
     Current.lap("landscape scan")
     if not (land and land:IsValid()) then
         Log("landscape: the level names one but the world has none")
@@ -4539,7 +4667,7 @@ function Footprints.targets(world)
     local name = world:GetFullName()
     if Footprints.world == name and Footprints.rt and Footprints.rt:IsValid() then return Footprints.rt end
     Footprints.world, Footprints.rt, Footprints.walkers = name, nil, {}
-    local land = FindFirstOf("Landscape")
+    local land = Current.landscapeActor(world)
     if not (land and land:IsValid()) then return nil end
     local rt = Footprints.newTarget(world)
     if not rt then return nil end
@@ -4666,6 +4794,9 @@ Footprints.DEFORM_BRUSH = "/Script/HaloLandscapeDeformations.LandscapeDeformatio
 Footprints.DEFORM_MPC = "/HaloLandscapeDeformations/Toolkit/MPC_DeformationGlobals.MPC_DeformationGlobals"
 Footprints.DEFORM_SPAN = 15360
 Footprints.brushProps = {}
+--- The Blam object classes whose actors carry brushes and are not pawns.
+Footprints.BRUSH_ACTORS = { BP_WarthogVehicleActor_C = true, BP_ScorpionVehicleActor_C = true,
+    BP_GhostVehicleActor_C = true, BP_SpartansBipedActor_C = true, BP_EliteBipedActor_C = true }
 
 --- Register one brush with the manager, once.
 function Footprints.addBrush(b)
@@ -4717,7 +4848,7 @@ function Footprints.deformStart(world)
     if not (type(land) == "table" and type(land.pbr) == "table" and land.deform ~= false) then return end
     if Current.actors["__deform_manager"] and Current.actors["__deform_manager"]:IsValid() then return end
     Current.lap("before deformation")
-    local ldl = FindFirstOf("Landscape")
+    local ldl = Current.landscapeActor(world)
     Current.lap("deformation landscape scan")
     if not (ldl and ldl:IsValid()) then return end
     local ksl = findObject("/Script/Engine.Default__KismetSystemLibrary")
@@ -4743,15 +4874,24 @@ function Footprints.deformStart(world)
         pcall(function() n = n + Footprints.actorBrushes(out[i]:get()) end)
     end
     Current.lap("deformation manager and pawns")
-    -- Vehicles and bipeds are not pawns: the actors of their classes.
-    for _, path in ipairs({ "BP_WarthogVehicleActor_C", "BP_ScorpionVehicleActor_C", "BP_GhostVehicleActor_C",
-        "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }) do
-        local one = FindFirstOf(path)
-        if one and one:IsValid() then
-            local all = {}
-            gs:GetAllActorsOfClass(world, one:GetClass(), all)
-            for i = 1, #all do pcall(function() n = n + Footprints.actorBrushes(all[i]:get()) end) end
-        end
+    -- Vehicles and bipeds are not pawns: the actors of their classes. All
+    -- are Blam objects, so one GetAllActorsOfClass on their native class
+    -- lists them, and each class's name is read once. It was a FindFirstOf
+    -- a class (a walk of every object, ~20 ms each) for a class to ask for.
+    local blam, names, wanted = {}, {}, Footprints.BRUSH_ACTORS
+    gs:GetAllActorsOfClass(world, findObject("/Script/BlamSynchronization.BlamObjectActor"), blam)
+    for i = 1, #blam do
+        pcall(function()
+            local actor = blam[i]:get()
+            local class = actor:GetClass()
+            local key = class:GetAddress()
+            local name = names[key]
+            if not name then
+                name = class:GetFName():ToString()
+                names[key] = name
+            end
+            if wanted[name] then n = n + Footprints.actorBrushes(actor) end
+        end)
     end
     Current.lap("deformation vehicles and bipeds")
     -- Our own footprints give way to the game's.
@@ -4969,159 +5109,246 @@ function Current.recaptureSkyAfterDecor(world)
     return true
 end
 
+--- A run of ours on the game thread, for MJOLNIRHud's hitch log (its
+--- Scripts/hitches.lua): a run reading a millisecond or more goes through
+--- a UE4SS shared variable, so a long frame there names the loops that ran
+--- in it. The timed loops (`every`) and the load's frames report here.
+function Current.reportWork(name, started, took)
+    if took < 0.001 then return end
+    pcall(function()
+        local mod = rawget(_G, "ModRef")
+        local work = mod:GetSharedVariable("MJOLNIR.work")
+        work = type(work) == "string" and work or ""
+        -- Nothing reads it without the HUD: it stops growing.
+        if #work < 4000 then
+            mod:SetSharedVariable("MJOLNIR.work",
+                string.format("%s%.3f|LevelLoader|%s|%.0f;", work, started, name, took * 1000))
+        end
+    end)
+end
+
+--- The fade, once the level is dressed and the player is in the world:
+--- from the watcher, and from the dressing's last step. The opening spawn
+--- raises no player_spawn (only respawns do), so the game type is
+--- announced once the player is in the world.
+function Current.tryFade()
+    if not (Current.level and Current.furnished) or Current.faded then return end
+    if not getPawn() then return end -- still loading
+    Current.faded = true
+    fadeIn()
+    if next(EventWaves) and #EventQueue < 32 then
+        refreshLocalPlayer()
+        EventQueue[#EventQueue + 1] = { "player_spawn", LOCAL_PLAYER }
+    end
+end
+
+--- Dress the world from its level file: the sky and lights, the decor, the
+--- water, foliage, effects, landscape and footprints, in that order.
+--- Each is a step for Dress.run, which spreads them over frames (dress.lua):
+--- made in one go they held Timberland's game thread 1.5 s in one frame
+--- (docs/lua_native_audit.md). The world counts as furnished, and fades in,
+--- once the last step has run; Current.dressing says one is under way.
 local function spawnDecor(world)
     local level = Current.level
     Current.world = world
-    spawnEnvironment(world)
-    Current.lap("environment")
-    spawnSounds(world)
-    Current.lap("sounds")
-    preloadEventSounds()
-    Current.lap("event sounds")
+    Current.dressGen = Current.dressGen + 1
+    Current.dressing = true
+    local gen = Current.dressGen
+    local steps = {}
+    -- Each step's time lapped under its name (Current.lap), from when it
+    -- starts, not from the frame before.
+    local function step(name, fn, alone)
+        steps[#steps + 1] = { name = name, alone = alone, fn = function(deadline)
+            if Current.laps then Current.laps.at = os.clock() end
+            local more = fn(deadline)
+            Current.lap(name)
+            return more
+        end }
+    end
+    step("environment", function() spawnEnvironment(world) end)
+    step("sounds", function() spawnSounds(world) end)
+    step("event sounds", function() preloadEventSounds() end)
     local decor = level and level.decor
     if type(decor) ~= "table" or #decor == 0 then
         Log("level '" .. tostring(level and level.name) .. "': no decor to spawn")
-        Current.recaptureSkyAfterDecor(world)
-        return
-    end
-    local origin = level.canvas.origin
-    -- Swapped scenery baked into a landscape world (BakeDecor, MJDecor_<id>):
-    -- the world's own. It gets its `scalars` and `static` here, back from
-    -- the mesh's own materials (a reload would stack instances), and no
-    -- handle is kept. One FindAllOf; what the world lacks is spawned.
-    local baked, nBaked = {}, 0
-    if type(level.landscape) == "table" then
-        for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
-            local id = a:GetFName():ToString():match("^MJDecor_(.+)$")
-            if id then baked[id] = a end
+        step("sky recapture", function() Current.recaptureSkyAfterDecor(world) end)
+    else
+        local origin = level.canvas.origin
+        -- Swapped scenery baked into a landscape world (BakeDecor,
+        -- MJDecor_<id>): the world's own. It gets its `scalars` and `static`
+        -- here, and no handle is kept. One walk of the mesh actors, shared
+        -- with the baked rocks (Foliage.scanMeshActors); what the world
+        -- lacks is spawned.
+        local baked, nBaked, bakedMs, spawnedMs = {}, 0, 0, 0
+        if type(level.landscape) == "table" then
+            step("mesh actor scan", function()
+                Current.meshScan = Foliage.scanMeshActors()
+                baked = Current.meshScan.decor
+            end, true)
         end
-    end
-    Current.lap("baked decor scan")
-    local bakedMs, spawnedMs = 0, 0
-    for index, item in ipairs(decor) do
-        local id = (type(item) == "table" and item.id) or ("#" .. index)
-        local own = baked[id]
-        local itemAt = os.clock()
-        if own then
-            nBaked = nBaked + 1
-            -- Still, as spawnDecorItem keeps them (a swapped tree's piece),
-            -- first and on its own: a material error below skipped it, and
-            -- Infinity's small trees swayed apart (2026-10-19). Worlds baked
-            -- since carry it themselves (foliage_bake.py `still`).
-            -- Either way: a world baked still follows a level file that
-            -- lets the piece move, and the other way round.
-            local still = item.static or (type(item.scalars) == "table" and item.scalars["Wind Sway Max Angle"] == 0)
-            pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(not still) end)
-            pcall(function()
-                local comp = own.StaticMeshComponent
-                local mesh = comp.StaticMesh
-                for i = 0, comp:GetNumMaterials() - 1 do
-                    local src = mesh:GetMaterial(i)
-                    local mid = type(item.scalars) == "table" and scalarMid(world, src, item.scalars) or src
-                    if mid then comp:SetMaterial(i, mid) end
-                end
-            end)
-        elseif not (Current.actors[id] and Current.actors[id]:IsValid()) then
-            local actor, err = spawnDecorItem(world, origin, item)
-            if actor then
-                Current.actors[id] = actor
-                Current.spawned = Current.spawned + 1
-                -- A turning machine: turned from its rest by the "turning
-                -- machines" loop (motion: pivot_cm from the actor, period
-                -- in seconds, keys { seconds, yaw degrees }), which also
-                -- plays the sounds its turn raises (events: { t seconds,
-                -- wave, gain, inner, falloff cm }) at its pivot.
-                local mo = item.motion
-                if type(mo) == "table" and type(mo.keys) == "table" and #mo.keys >= 2
-                    and type(mo.pivot_cm) == "table" and (tonumber(mo.period) or 0) > 0 then
-                    local l = actor:K2_GetActorLocation()
-                    local m = {
-                        actor = actor, rest = { l.X, l.Y, l.Z }, period = mo.period, keys = mo.keys,
-                        pivot = { l.X + mo.pivot_cm[1], l.Y + mo.pivot_cm[2], l.Z + mo.pivot_cm[3] },
-                        loc = { X = 0, Y = 0, Z = 0 }, rot = { Pitch = 0, Yaw = 0, Roll = 0 }, events = {},
-                    }
-                    -- Paths, not waves or attenuation objects: nothing in the
-                    -- engine holds what Lua alone made or loaded, and the
-                    -- garbage collector freed them under the next play (a
-                    -- null access 41 s into Ascension). Each is made as it
-                    -- plays, and the sound holds it.
-                    for _, e in ipairs(type(mo.events) == "table" and mo.events or {}) do
-                        if type(e.wave) == "string" and type(e.t) == "number" and resolveMesh(e.wave) then
-                            m.events[#m.events + 1] = { t = e.t, wave = e.wave, gain = e.gain or 1.0,
-                                inner = e.inner or 150.0, falloff = e.falloff or 600.0 }
+        step("decor", Dress.slices(decor, function(item, index)
+            local id = (type(item) == "table" and item.id) or ("#" .. index)
+            local own = baked[id]
+            local itemAt = os.clock()
+            if own then
+                nBaked = nBaked + 1
+                -- Still, as spawnDecorItem keeps them (a swapped tree's
+                -- piece), first and on its own: a material error below
+                -- skipped it, and Infinity's small trees swayed apart
+                -- (2026-10-19). Worlds baked since carry it themselves
+                -- (foliage_bake.py `still`). Either way: a world baked still
+                -- follows a level file that lets the piece move, and the
+                -- other way round.
+                local scalars = type(item.scalars) == "table" and item.scalars
+                local still = item.static or (scalars and scalars["Wind Sway Max Angle"] == 0)
+                pcall(function() own.StaticMeshComponent:SetEvaluateWorldPositionOffset(not still) end)
+                -- `scalars`: instances of the mesh's own materials. A piece
+                -- without them keeps the mesh's own, which a piece fresh
+                -- from the world has (BakeDecor sets none, and a piece with
+                -- a material of its own is not in the runtime decor): set
+                -- again only where an earlier dressing of this world (a
+                -- reload) gave it instances. Setting every slot of every
+                -- piece to what it had was most of Timberland's 1.5 s.
+                if scalars or Current.bakedMids[id] then
+                    pcall(function()
+                        local comp = own.StaticMeshComponent
+                        local mesh = comp.StaticMesh
+                        for i = 0, comp:GetNumMaterials() - 1 do
+                            local src = mesh:GetMaterial(i)
+                            local mid = scalars and scalarMid(world, src, scalars) or src
+                            if mid then comp:SetMaterial(i, mid) end
                         end
-                    end
-                    m.at = { X = m.pivot[1], Y = m.pivot[2], Z = m.pivot[3] }
-                    -- A turn about another axis than +Z (Zanzibar's wheels):
-                    -- its unit vector, the keys' degrees about it.
-                    if type(mo.axis) == "table" and #mo.axis == 3 then
-                        m.axis = { X = mo.axis[1], Y = mo.axis[2], Z = mo.axis[3] }
-                    end
-                    -- A machine of the simulation's own turns its collision
-                    -- (follow: the Blueprint class the game draws it with,
-                    -- its position from the canvas origin): the mesh rides
-                    -- on that actor's turning part instead of the clock.
-                    local f = mo.follow
-                    if type(f) == "table" and type(f.class) == "string" and type(f.pos) == "table" then
-                        m.follow = { class = f.class, pos = { origin[1] + f.pos[1], origin[2] + f.pos[2], origin[3] + f.pos[3] } }
-                        m.entry = mo.entry
-                    end
-                    Current.turning[#Current.turning + 1] = m
+                    end)
+                    Current.bakedMids[id] = scalars and true or nil
                 end
-            else
-                Current.failed = Current.failed + 1
-                Log(string.format("decor '%s': %s", tostring(id), tostring(err)))
+                bakedMs = bakedMs + (os.clock() - itemAt)
+                return
             end
+            if not (Current.actors[id] and Current.actors[id]:IsValid()) then
+                local actor, err = spawnDecorItem(world, origin, item)
+                if actor then
+                    Current.actors[id] = actor
+                    Current.spawned = Current.spawned + 1
+                    -- A turning machine: turned from its rest by the "turning
+                    -- machines" loop (motion: pivot_cm from the actor, period
+                    -- in seconds, keys { seconds, yaw degrees }), which also
+                    -- plays the sounds its turn raises (events: { t seconds,
+                    -- wave, gain, inner, falloff cm }) at its pivot.
+                    local mo = item.motion
+                    if type(mo) == "table" and type(mo.keys) == "table" and #mo.keys >= 2
+                        and type(mo.pivot_cm) == "table" and (tonumber(mo.period) or 0) > 0 then
+                        local l = actor:K2_GetActorLocation()
+                        local m = {
+                            actor = actor, rest = { l.X, l.Y, l.Z }, period = mo.period, keys = mo.keys,
+                            pivot = { l.X + mo.pivot_cm[1], l.Y + mo.pivot_cm[2], l.Z + mo.pivot_cm[3] },
+                            loc = { X = 0, Y = 0, Z = 0 }, rot = { Pitch = 0, Yaw = 0, Roll = 0 }, events = {},
+                        }
+                        -- Paths, not waves or attenuation objects: nothing in the
+                        -- engine holds what Lua alone made or loaded, and the
+                        -- garbage collector freed them under the next play (a
+                        -- null access 41 s into Ascension). Each is made as it
+                        -- plays, and the sound holds it.
+                        for _, e in ipairs(type(mo.events) == "table" and mo.events or {}) do
+                            if type(e.wave) == "string" and type(e.t) == "number" and resolveMesh(e.wave) then
+                                m.events[#m.events + 1] = { t = e.t, wave = e.wave, gain = e.gain or 1.0,
+                                    inner = e.inner or 150.0, falloff = e.falloff or 600.0 }
+                            end
+                        end
+                        m.at = { X = m.pivot[1], Y = m.pivot[2], Z = m.pivot[3] }
+                        -- A turn about another axis than +Z (Zanzibar's wheels):
+                        -- its unit vector, the keys' degrees about it.
+                        if type(mo.axis) == "table" and #mo.axis == 3 then
+                            m.axis = { X = mo.axis[1], Y = mo.axis[2], Z = mo.axis[3] }
+                        end
+                        -- A machine of the simulation's own turns its collision
+                        -- (follow: the Blueprint class the game draws it with,
+                        -- its position from the canvas origin): the mesh rides
+                        -- on that actor's turning part instead of the clock.
+                        local f = mo.follow
+                        if type(f) == "table" and type(f.class) == "string" and type(f.pos) == "table" then
+                            m.follow = { class = f.class, pos = { origin[1] + f.pos[1], origin[2] + f.pos[2], origin[3] + f.pos[3] } }
+                            m.entry = mo.entry
+                        end
+                        Current.turning[#Current.turning + 1] = m
+                    end
+                else
+                    Current.failed = Current.failed + 1
+                    Log(string.format("decor '%s': %s", tostring(id), tostring(err)))
+                end
+            end
+            spawnedMs = spawnedMs + (os.clock() - itemAt)
+        end, function(item, index, err)
+            Log(string.format("decor '%s': %s", tostring(type(item) == "table" and item.id or ("#" .. index)),
+                tostring(err)))
+        end))
+        step("decor done", function()
+            -- The world's pieces are dressed: their handles go.
+            baked = {}
+            if Current.meshScan then Current.meshScan.decor = {} end
+            Log(string.format("level '%s': %d decor spawned, %d failed%s",
+                tostring(level.name), Current.spawned, Current.failed,
+                nBaked > 0 and string.format(", %d baked in the world", nBaked) or ""))
+            Log(string.format("load timing: decor %.0f ms on %d baked piece(s), %.0f ms on %d spawned",
+                bakedMs * 1000, nBaked, spawnedMs * 1000, #decor - nBaked))
+        end)
+        if type(level.slot_meshes) == "table" then
+            step("slot meshes", function()
+                local sok, sn = pcall(Land.slotMeshes, world, level)
+                Log("slot meshes: " .. tostring(sok and sn or sn))
+            end)
         end
-        if own then bakedMs = bakedMs + (os.clock() - itemAt) else spawnedMs = spawnedMs + (os.clock() - itemAt) end
+        step("terrain shadow proxy", function()
+            if proxyWanted() then
+                Log(string.format("terrain shadow proxy: %d spawned", applyShadowProxies(world)))
+            end
+        end)
+        step("sun mask", function()
+            if TerrainLights.on then
+                local ok, done, err = pcall(applySunMask, world)
+                Log("sun mask: " .. tostring(ok and (done or err) or done))
+            end
+        end)
+        -- An error in one of these is logged under its name ("water: ...")
+        -- and the next step runs, as each ran under its own pcall.
+        step("water", function() applyWater(world) end)
+        step("foliage", function()
+            Foliage.spawn(world)
+            -- The rocks went to Foliage.cliffGroups (Land.cliffs).
+            Current.meshScan = nil
+        end, true)
+        step("effects", function() Effects.spawn(world) end)
+        step("waterfalls", function() Effects.waterfalls(world) end)
+        step("flux", function() Effects.flux(world) end, true)
+        step("lights", function() Placed.lights(world) end)
+        step("decals", function() Placed.decals(world) end)
+        step("landscape", function() Land.apply(world) end, true)
+        step("deformation", function() Footprints.deformStart(world) end, true)
+        step("sky recapture", function() Current.recaptureSkyAfterDecor(world) end)
     end
-    Log(string.format("level '%s': %d decor spawned, %d failed%s",
-        tostring(level.name), Current.spawned, Current.failed,
-        nBaked > 0 and string.format(", %d baked in the world", nBaked) or ""))
-    Log(string.format("load timing: decor loop %.0f ms on %d baked piece(s), %.0f ms on %d spawned",
-        bakedMs * 1000, nBaked, spawnedMs * 1000, #decor - nBaked))
-    Current.lap("decor loop")
-    if type(level.slot_meshes) == "table" then
-        local sok, sn = pcall(Land.slotMeshes, world, level)
-        Log("slot meshes: " .. tostring(sok and sn or sn))
-    end
-    Current.lap("slot meshes")
-    if proxyWanted() then
-        Log(string.format("terrain shadow proxy: %d spawned", applyShadowProxies(world)))
-    end
-    if TerrainLights.on then
-        local ok, done, err = pcall(applySunMask, world)
-        Log("sun mask: " .. tostring(ok and (done or err) or done))
-    end
-    Current.lap("shadow proxy and sun mask")
-    local ok, err = pcall(applyWater, world)
-    if not ok then Log("water: " .. tostring(err)) end
-    Current.lap("water")
-    ok, err = pcall(Foliage.spawn, world)
-    if not ok then Log("foliage: " .. tostring(err)) end
-    Current.lap("foliage")
-    ok, err = pcall(Effects.spawn, world)
-    if not ok then Log("effects: " .. tostring(err)) end
-    Current.lap("effects")
-    ok, err = pcall(Effects.waterfalls, world)
-    if not ok then Log("waterfalls: " .. tostring(err)) end
-    Current.lap("waterfalls")
-    ok, err = pcall(Effects.flux, world)
-    if not ok then Log("flux: " .. tostring(err)) end
-    Current.lap("flux")
-    ok, err = pcall(Placed.lights, world)
-    if not ok then Log("lights: " .. tostring(err)) end
-    Current.lap("lights")
-    ok, err = pcall(Placed.decals, world)
-    if not ok then Log("decals: " .. tostring(err)) end
-    Current.lap("decals")
-    Land.apply(world)
-    Current.lap("landscape")
-    ok, err = pcall(Footprints.deformStart, world)
-    if not ok then Log("deformation: " .. tostring(err)) end
-    Current.lap("deformation")
-    Current.recaptureSkyAfterDecor(world)
-    Current.lap("sky recapture")
+    -- The load's garbage (the level file's text, thousands of handles),
+    -- collected now, behind the loading screen, not in a match minutes on:
+    -- two full collections, as a finalized UE4SS handle survives one
+    -- (docs/performance.md), a frame each, then back to generational.
+    step("collect", function() collectgarbage("collect") end, true)
+    step("collect again", function()
+        collectgarbage("collect")
+        pcall(collectgarbage, "generational", 5, 100)
+    end, true)
+    Dress.run(steps, {
+        defer = function(fn) ExecuteInGameThreadWithDelay(1, fn) end,
+        alive = function() return Current.dressGen == gen and Current.level == level and world:IsValid() end,
+        onError = function(name, err) Log(name .. ": " .. tostring(err)) end,
+        onFrame = function(started, took) Current.reportWork("load", started, took) end,
+        onDone = function(stats)
+            Current.dressing = false
+            Current.furnished = true
+            Current.meshScan = nil
+            Current.lapDone(string.format(" over %d frame(s), %.0f ms of it ours, the longest frame's share %.0f ms (%s), "
+                .. "the shortest gap between frames %.1f ms", stats.frames, stats.busy * 1000, stats.longest * 1000,
+                stats.longestSteps, (stats.minGap or 0) * 1000))
+            Current.tryFade()
+        end,
+    })
 end
 
 --------------------------------------------------------------------------------
@@ -5183,23 +5410,13 @@ local function tick()
 
     -- Terrain and sky need only the world, so they are in place behind the
     -- loading screen; waiting for the player left converted maps black for
-    -- 20-30 s after it.
-    if Current.level and not Current.furnished then
-        Current.furnished = true
+    -- 20-30 s after it. The dressing runs over the next frames (spawnDecor)
+    -- and fades in when it is done; this pass fades in a dressed world
+    -- whose player came later.
+    if Current.level and not Current.furnished and not Current.dressing then
         spawnDecor(world)
-        Current.lapDone()
     end
-    if Current.level and not Current.faded then
-        if not getPawn() then return end -- still loading
-        Current.faded = true
-        fadeIn()
-        -- The opening spawn raises no player_spawn (only respawns do), so
-        -- the game type is announced once the player is in the world.
-        if next(EventWaves) and #EventQueue < 32 then
-            refreshLocalPlayer()
-            EventQueue[#EventQueue + 1] = { "player_spawn", LOCAL_PLAYER }
-        end
-    end
+    Current.tryFade()
 end
 
 -- The Lua collector in generational mode. Incremental, it let ~40 MB of
@@ -5241,18 +5458,7 @@ local function every(ms, name, fn, paced)
         if not ok then Log(name .. " error: " .. tostring(err)) end
         local wait = paced and ok and type(err) == "number" and err > 0 and err or ms
         local took = os.clock() - started
-        if took >= 0.001 then
-            pcall(function()
-                local mod = rawget(_G, "ModRef")
-                local work = mod:GetSharedVariable("MJOLNIR.work")
-                work = type(work) == "string" and work or ""
-                -- Nothing reads it without the HUD: it stops growing.
-                if #work < 4000 then
-                    mod:SetSharedVariable("MJOLNIR.work",
-                        string.format("%s%.3f|LevelLoader|%s|%.0f;", work, started, name, took * 1000))
-                end
-            end)
-        end
+        Current.reportWork(name, started, took)
         if took > 0.05 and started - reportedAt > 30 then
             reportedAt = started
             Log(string.format("slow: the %s loop held the game thread %.0f ms", name, took * 1000))
@@ -5597,7 +5803,10 @@ local function reload()
     Current.level = level
     Current.fileMissing = false
     local world = getWorld()
-    if world then spawnDecor(world) end
+    if world then
+        Current.lapStart()
+        spawnDecor(world)
+    end
 end
 
 --- `mjolnir_terrain_shadows [on|off] [strength]`: see TerrainShadows. No
@@ -5927,9 +6136,11 @@ end
 --- A level file opts in with `"multiplayer": true`; the level's codename is
 --- the ScenarioName the campaign flow is asked to begin.
 local function multiplayerLevel(code)
-    local raw = code and readFile(levelPathFor(code))
+    local path = code and levelPathFor(code)
+    local raw = path and readFile(path)
     if not raw then return nil end
-    local ok, level = pcall(Json.decode, raw)
+    -- Kept for the load that follows (LevelFiles), which reads it again.
+    local ok, level = LevelFiles.decode(path, raw, false)
     if ok and type(level) == "table" and level.multiplayer == true then return level end
     return nil
 end
