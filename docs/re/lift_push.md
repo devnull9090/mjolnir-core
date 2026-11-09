@@ -31,7 +31,7 @@ the data-array header).
 | TLS `+0x118` | the player-to-local-user map | below |
 | map `+0x34 + 4p` | player p's input user, 0–3; `-1` when no local user controls it | below |
 | map `+0x74 + 4p` | player p's output user, likewise | below |
-| TLS `+0x20` | object table (`0x18` an entry: salt `+0`, type `+4`, datum size `+6`, own index `+0xC`, datum `+0x10`) | game_state_reader.md |
+| TLS `+0x20` | object table (`0x18` an entry: salt `+0`, type `+4`, datum size `+6`, the host's index `+0xC` (the entry's own only on a host), datum `+0x10`) | game_state_reader.md |
 | object `+0x14` | parent object handle, `-1` when free | game_state_reader.md |
 | object `+0x44` | position, world units; the parent's frame when attached | game_state_reader.md, the teleport tooling |
 | object `+0x50`, `+0x5C` | forward and up unit vectors | game_state_reader.md, `object_set_velocity` below |

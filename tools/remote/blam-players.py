@@ -77,8 +77,7 @@ def main():
 
     def unit_state(block, handle):
         """Position, velocity and parent of the object `handle` names, or None
-        (lift_biped's checks: the table's magic and stride, the entry's salt
-        and own index)."""
+        (checked: the table's magic and stride, the entry's salt)."""
         if handle in (0, 0xffffffff) or not handle >> 16:
             return None
         index, salt = handle & 0xffff, (handle >> 16) & 0xffff
@@ -91,9 +90,10 @@ def main():
         data = struct.unpack_from("<Q", head, 0x50)[0]
         if index >= count:
             return None
+        # The salt alone: +0x0c is the object's index on the host, which is
+        # this table's own index only on the host (a client's 84 read 139).
         entry = read(data + index * 0x18, 0x18)
-        if (not entry or struct.unpack_from("<H", entry, 0)[0] != salt
-                or struct.unpack_from("<H", entry, 0x0c)[0] != index):
+        if not entry or struct.unpack_from("<H", entry, 0)[0] != salt:
             return None
         datum = struct.unpack_from("<Q", entry, 0x10)[0]
         body = read(datum, 0x74) if datum else None
