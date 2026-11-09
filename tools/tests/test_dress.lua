@@ -150,4 +150,50 @@ do
     assert(done and done.frames == 1)
 end
 
+-- A queue: a step hands lists to a later step, which works through them a
+-- slice a frame, in the order they came, lists added mid-run included.
+do
+    local h = harness()
+    local errors = {}
+    local q = Dress.queue(function(err) errors[#errors + 1] = tostring(err) end, h.clock)
+    local seen = {}
+    local function each(item)
+        if item == "bad" then error("no component") end
+        seen[#seen + 1] = item
+        h.now = h.now + 0.001
+    end
+    local a, b = {}, {}
+    for i = 1, 15 do a[i] = "a" .. i end
+    for i = 1, 6 do b[i] = "b" .. i end
+    b[3] = "bad"
+    local done
+    Dress.run({
+        { name = "hand on", fn = function()
+            q.add(a, each)
+            q.add({}, each)
+        end },
+        { name = "work", fn = function(deadline)
+            -- One more list arrives while the work runs.
+            if #q.lists == 2 then q.add(b, each) end
+            return q.step(deadline)
+        end },
+        h.step("after", 1),
+    }, { defer = h.defer, clock = h.clock, budget = 10, alive = function() return true end,
+         onDone = function(stats) done = stats end })
+    h.drain()
+    assert(done, "the load finished")
+    assert(q.count == 21, "21 items queued")
+    assert(#seen == 20 and seen[1] == "a1" and seen[15] == "a15" and seen[16] == "b1" and seen[20] == "b6",
+        "every item, in order, the bad one skipped")
+    assert(#errors == 1 and errors[1]:find("no component"))
+    assert(done.frames >= 3, "spread over frames, got " .. done.frames)
+    assert(done.longest <= 0.0111, "no frame past its budget by more than one item")
+end
+
+-- A queue nothing was added to is done at once.
+do
+    local q = Dress.queue()
+    assert(q.step(math.huge) == false)
+end
+
 print("test_dress: ok")

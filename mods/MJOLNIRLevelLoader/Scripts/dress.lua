@@ -109,4 +109,35 @@ function Dress.slices(list, each, onError, clock)
     end
 end
 
+--- Work one step hands to a later one, done a slice a frame: a list of
+--- thousands of actors met inside a step that cannot be cut itself (the
+--- landscape's cladding rocks, each given the cliffs' material).
+--- `q.add(list, each)` queues `each(item)` for every item of `list`;
+--- `q.step` is the later step's fn for Dress.run, true while work is left.
+--- Lists added while it runs are taken in turn. `each` errors go to
+--- `onError(err)` and the next item runs.
+function Dress.queue(onError, clock)
+    clock = clock or os.clock
+    local q = { lists = {}, at = 1, index = 1, count = 0 }
+    function q.add(list, each)
+        q.lists[#q.lists + 1] = { list = list, each = each }
+        q.count = q.count + #list
+    end
+    function q.step(deadline)
+        while q.at <= #q.lists do
+            local entry = q.lists[q.at]
+            while q.index <= #entry.list do
+                local item = entry.list[q.index]
+                q.index = q.index + 1
+                local ok, err = pcall(entry.each, item)
+                if not ok and onError then pcall(onError, err) end
+                if clock() >= deadline and (q.index <= #entry.list or q.at < #q.lists) then return true end
+            end
+            q.at, q.index = q.at + 1, 1
+        end
+        return false
+    end
+    return q
+end
+
 return Dress

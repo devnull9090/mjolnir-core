@@ -379,6 +379,7 @@ local function resetState()
     Current.rocksHidden = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
+    Current.dressQueue = nil
     Current.meshScan = nil
     Current.landscape = nil
     Current.water = nil
@@ -411,6 +412,7 @@ local function clearActors()
     Current.dressGen = Current.dressGen + 1
     if Current.dressing then Current.furnished = true end
     Current.dressing = false
+    Current.dressQueue = nil
     Current.meshScan = nil
     for _, actor in pairs(Current.actors) do
         if actor and actor:IsValid() then
@@ -4454,10 +4456,17 @@ function Land.cliffs(world, spec)
             else
                 vec(mid, "CladLight", group.light)
             end
-            for _, actor in ipairs(group.actors) do
+            -- Thousands of rocks (7,086 on Blood Gulch): during a load, a
+            -- slice a frame (Current.dressQueue, the step after this one).
+            local function dressRock(actor)
                 if actor:IsValid() then
                     pcall(function() actor.StaticMeshComponent:SetMaterial(0, mid) end)
                 end
+            end
+            if Current.dressQueue then
+                Current.dressQueue.add(group.actors, dressRock)
+            else
+                for _, actor in ipairs(group.actors) do dressRock(actor) end
             end
             -- Baked rocks are the world's: no handle kept once dressed.
             if group.baked then group.actors = {} end
@@ -5153,6 +5162,7 @@ local function spawnDecor(world)
     Current.world = world
     Current.dressGen = Current.dressGen + 1
     Current.dressing = true
+    Current.dressQueue = Dress.queue(function(err) Log("dressing: " .. tostring(err)) end)
     local gen = Current.dressGen
     local steps = {}
     -- Each step's time lapped under its name (Current.lap), from when it
@@ -5322,6 +5332,8 @@ local function spawnDecor(world)
         step("lights", function() Placed.lights(world) end)
         step("decals", function() Placed.decals(world) end)
         step("landscape", function() Land.apply(world) end, true)
+        -- What the landscape handed on: the cladding rocks' material.
+        step("cladding rocks", Current.dressQueue.step)
         step("deformation", function() Footprints.deformStart(world) end, true)
         step("sky recapture", function() Current.recaptureSkyAfterDecor(world) end)
     end
@@ -5343,6 +5355,7 @@ local function spawnDecor(world)
             Current.dressing = false
             Current.furnished = true
             Current.meshScan = nil
+            Current.dressQueue = nil
             Current.lapDone(string.format(" over %d frame(s), %.0f ms of it ours, the longest frame's share %.0f ms (%s), "
                 .. "the shortest gap between frames %.1f ms", stats.frames, stats.busy * 1000, stats.longest * 1000,
                 stats.longestSteps, (stats.minGap or 0) * 1000))
