@@ -67,6 +67,7 @@ jobs:
       - name: Test the lobby after a match (Quit, missing worlds, a joiner told why)
         run: |
           lua5.4 tools/tests/test_lobby_postgame.lua
+          lua5.4 tools/tests/test_postgame_view.lua
           lua5.4 tools/tests/test_map_worlds.lua
 
       - name: Test host-to-client messages (controller walks only when players change)

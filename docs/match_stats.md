@@ -136,6 +136,13 @@ tables (`lib/api/player-record.ts`), read on each view; no rollup table yet.
 - **Medal case**: only the incidents in `MEDAL_TYPES`. A kill raises a run of
   sibling incidents (`sniper_kill`, `precision_comm`, ...), so a new medal has
   to be added to that list and to `MEDALS` in `players/_components/record.ts`.
+  A medal the game sends together with one that stands for it (a headshot
+  beside a sniper headshot, `MEDAL_HIDDEN_BY`) is counted once.
+
+A match's page (`/matches/<id>`) shows the same medals for that match: a
+Medals column on the scoreboard and, under it, each player's medals by kind
+(`matches/_components/medals.ts`, from the match's own events, with the same
+list and the same hiding).
 
 Win rate counts finished matches only: an abandoned match has no outcome. A
 name page links a hub profile only when every linked seat under that name is

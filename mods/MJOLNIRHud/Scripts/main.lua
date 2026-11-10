@@ -574,6 +574,10 @@ local function announceMedals(awards)
     for _, a in ipairs(awards) do
         local colour = FEED[a.colour] or FEED.medal
         if type(a.cause) == "number" and a.cause >= 0 then
+            -- The tally the results carry to the post-game screen.
+            local p = stats(a.cause)
+            p.medals = p.medals or {}
+            p.medals[a.name] = (p.medals[a.name] or 0) + 1
             if a.show == Medals.FEED then eventLine(a.cause, a.glyph, colour, a.title, colour) end
             if a.show ~= Medals.HIDDEN and a.cause == LOCAL_PLAYER and #callouts < 3 then
                 callouts[#callouts + 1] = { title = string.upper(a.title), glyph = a.glyph, color = colour }
@@ -736,6 +740,7 @@ local function finishMatch(how)
     end
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
+    Scoreboard.sample(Match, now(), true)
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
     -- The match's id, which the post-game screen's reports cite: the host's
     -- own record's, or the one the host told this client.
@@ -1899,6 +1904,8 @@ local function tick()
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
     drain()
+    -- The match over time, for the post-game charts (Scoreboard.sample).
+    if not Match.over then Scoreboard.sample(Match, now()) end
     publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then

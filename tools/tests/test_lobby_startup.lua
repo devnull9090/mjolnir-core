@@ -36,6 +36,7 @@ local modules = {
     presence = { init = function() end },
     class_lifetime = { new = function() return function() end end },
     gametype = { new = function() return {} end },
+    postgame = { new = function() return {} end },
     games = {
         setPublic = function(on) calls[#calls+1] = "public:" .. tostring(on) end,
         isPublic = function() return false end, status = function() return "" end,
