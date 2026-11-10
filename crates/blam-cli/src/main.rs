@@ -23,6 +23,7 @@ mod jmad;
 mod level;
 mod level_collision;
 mod level_lightmaps;
+mod level_navmesh;
 mod live;
 mod map;
 mod megalo;

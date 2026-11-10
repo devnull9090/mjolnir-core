@@ -129,6 +129,9 @@ jobs:
           lua5.4 tools/tests/test_forge_lights.lua
           lua5.4 tools/tests/test_forge_materials.lua
 
+      - name: Test the bot (routes, steering, decisions, the simulation reader) and the in-game input script
+        run: node --test tools/bot/test_brain.mjs tools/bot/test_steer.mjs tools/bot/test_navmesh.mjs tools/mcp/game/test_in_game_input.mjs
+
       - name: Lint Lua scripts
         run: |
           if command -v luacheck &> /dev/null; then

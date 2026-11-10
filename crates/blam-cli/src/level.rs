@@ -68,6 +68,9 @@ pub enum LevelCommand {
     /// maps installed by `bake --install-test` (docs/map_distribution.md).
     /// What the launcher runs after a map install or removal.
     Register(RegisterArgs),
+    /// Write a map's walkable ground as navmesh JSON: the AI pathfinding the
+    /// bake builds, as areas and the doorways between them (tools/bot).
+    Navmesh(crate::level_navmesh::NavmeshArgs),
 }
 
 #[derive(Args)]
@@ -178,6 +181,7 @@ pub fn run(a: LevelArgs) -> Result<()> {
         LevelCommand::MachineCollision(a) => crate::level_collision::run_machine(a),
         LevelCommand::Lightmaps(a) => crate::level_lightmaps::run(a),
         LevelCommand::Register(a) => register(a),
+        LevelCommand::Navmesh(a) => crate::level_navmesh::run(a),
     }
 }
 

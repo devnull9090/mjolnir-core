@@ -1712,3 +1712,95 @@ mod tests {
         assert_eq!(pf.vertices[flipped.v2 as usize], [1.0, 1.0, 0.0]);
     }
 }
+
+/// A surface in world space: its corners and outward normal.
+pub type WorldSurface = (Vec<[f32; 3]>, [f32; 3]);
+
+/// Every collision surface of the instanced geometry that is not a copy of
+/// the shell, in world space: each as its corners and outward normal.
+///
+/// A converted map's shell is its ground; what stands on it (trees, rocks
+/// the converter split out) can live only in instances, which the pathfinding
+/// never sees. A navmesh that has to keep walkers out of them reads these.
+/// An instance places its definition at `position + scale * (x forward + y
+/// left + z up)`.
+pub fn instance_surfaces(sbsp: &[u8], shell: &Collision) -> Result<Vec<WorldSurface>, String> {
+    use blam_tag::blockedit::find_block;
+    let copies = shell_copies(sbsp, shell)?;
+    let tag = blam_tag::TagFile::parse(sbsp, None).map_err(|e| e.to_string())?;
+    let layout = tag.layout().map_err(|e| e.to_string())?;
+    let root = tag.read_data(&layout).map_err(|e| e.to_string())?;
+    let found = find_block(&layout, sbsp, &root, "instanced geometry instances")
+        .map_err(|e| format!("{e:?}"))?;
+    let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let mut out = Vec::new();
+    for i in 0..found.block.count as usize {
+        if copies.get(i).copied().unwrap_or(false) {
+            continue;
+        }
+        let b = found
+            .block
+            .element(i)
+            .ok_or_else(|| format!("instance {i}"))?;
+        let scale = f(b, 0);
+        let fwd = [f(b, 4), f(b, 8), f(b, 12)];
+        let left = [f(b, 16), f(b, 20), f(b, 24)];
+        let up = [f(b, 28), f(b, 32), f(b, 36)];
+        let pos = [f(b, 40), f(b, 44), f(b, 48)];
+        let def = i16::from_le_bytes([b[52], b[53]]);
+        if def < 0 {
+            continue;
+        }
+        let base = crate::transplant::definition(def as usize);
+        let get = |n: &str| -> &[u8] {
+            find_block(&layout, sbsp, &root, &format!("{base}.{n}"))
+                .map(|f| f.block.elements)
+                .unwrap_or(&[])
+        };
+        let t = crate::unpack16::Tables {
+            bsp3d_nodes: get("bsp3d nodes"),
+            planes: get("planes"),
+            leaves: get("leaves"),
+            bsp2d_references: get("bsp2d references"),
+            bsp2d_nodes: get("bsp2d nodes"),
+            surfaces: get("surfaces"),
+            edges: get("edges"),
+            vertices: get("vertices"),
+        };
+        let Ok((d, _)) = crate::unpack16::unpack(&t) else {
+            continue;
+        };
+        let place = |p: [f32; 3]| -> [f32; 3] {
+            [0, 1, 2].map(|k| pos[k] + scale * (p[0] * fwd[k] + p[1] * left[k] + p[2] * up[k]))
+        };
+        let turn = |n: [f32; 3]| -> [f32; 3] {
+            [0, 1, 2].map(|k| n[0] * fwd[k] + n[1] * left[k] + n[2] * up[k])
+        };
+        for s in 0..d.surfaces.len() {
+            let mut ring = Vec::new();
+            let first = d.surfaces[s].first_edge;
+            let mut e = first;
+            for _ in 0..d.edges.len() {
+                if e < 0 {
+                    break;
+                }
+                let edge = &d.edges[e as usize];
+                let next = if edge.left as usize == s {
+                    ring.push(place(d.vertices[edge.start as usize].point));
+                    edge.forward
+                } else {
+                    ring.push(place(d.vertices[edge.end as usize].point));
+                    edge.reverse
+                };
+                if next == first {
+                    break;
+                }
+                e = next;
+            }
+            if ring.len() >= 3 {
+                out.push((ring, turn(surface_normal(&d, s))));
+            }
+        }
+    }
+    Ok(out)
+}

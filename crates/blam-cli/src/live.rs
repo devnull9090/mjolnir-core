@@ -216,6 +216,18 @@ const MP_TYPE: usize = 0x11;
 const MP_OWNER: usize = 0x19;
 const MP_LABEL: usize = 0x84;
 
+/// A weapon's magazine in its object datum, CU4: the rounds in reserve and,
+/// four bytes on, the rounds loaded (i16 each). Found by experiment
+/// (2026-11-10): an assault rifle read 144 and 31, then 27 after a burst. A
+/// weapon with no magazine (plasma) does not keep counts here.
+const WEAPON_RESERVE: u64 = 0x2ba;
+const WEAPON_LOADED: u64 = 0x2be;
+/// A unit's weapons, CU4: the slot in use (a byte) and four weapon handles.
+/// With a rifle and a magnum held the byte read 1 with the magnum out and 0
+/// after the switch key.
+const UNIT_WEAPON_SLOT: u64 = 0x33e;
+const UNIT_WEAPONS: u64 = 0x344;
+
 fn objects(
     process: &blam_live::Process,
     attached: tagtable::Attached,
@@ -309,8 +321,36 @@ fn objects(
                 })
                 .unwrap_or_default(),
         };
+        // Column 16: a weapon's `ammo <loaded>/<reserve>`, a biped's
+        // `weapon 0x<handle>` in hand.
+        let i16_at = |at: u64| {
+            process
+                .read(o.datum + at, 2)
+                .ok()
+                .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        };
+        let extra = match o.kind {
+            world::ObjectKind::Weapon => match (i16_at(WEAPON_LOADED), i16_at(WEAPON_RESERVE)) {
+                (Some(loaded), Some(reserve)) => format!("ammo {loaded}/{reserve}"),
+                _ => String::new(),
+            },
+            world::ObjectKind::Biped => process
+                .read(o.datum + UNIT_WEAPON_SLOT, 1)
+                .ok()
+                .filter(|slot| slot[0] < 4)
+                .and_then(|slot| {
+                    process
+                        .read(o.datum + UNIT_WEAPONS + 4 * u64::from(slot[0]), 4)
+                        .ok()
+                })
+                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                .filter(|&h| h != u32::MAX)
+                .map(|h| format!("weapon 0x{h:08X}"))
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
         out.push_str(&format!(
-            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\t{yaw:.1}\t{:#x}\t{team}\n",
+            "{}\t0x{:08X}\t{}\t{grp}\t{name}\t{x:.2}\t{y:.2}\t{z:.2}\t{}\t{}\t{parent}\t{player}\t{yaw:.1}\t{:#x}\t{team}\t{extra}\n",
             o.index,
             o.handle,
             o.kind.name(),

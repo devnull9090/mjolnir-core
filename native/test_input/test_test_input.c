@@ -68,6 +68,12 @@ static void worker_round_trip(void) {
     CHECK(key_down[87] == 0); /* `off` lets everything go */
 }
 
+/* The glide's clock, in milliseconds. */
+static LONGLONG fake_time;
+static LONGLONG fake_now(void) { return fake_time; }
+static LONGLONG fake_ms(void) { return 1; }
+static int close_to(float a, float b) { return a - b < 0.001f && b - a < 0.001f; }
+
 static void run(const char *text) {
     char script[512], ack[192];
     strcpy(script, text);
@@ -130,6 +136,37 @@ int main(int argc, char **argv) {
     read_input_hook(NULL, 0, block);
     CHECK(*(float *)(block + BLOCK_LOOK_X) == 120 * LOOK_PER_COUNT);
     CHECK(*(float *)(block + BLOCK_LOOK_Y) == -40 * LOOK_PER_COUNT);
+    read_input_hook(NULL, 0, block);
+    CHECK(*(float *)(block + BLOCK_LOOK_X) == 0);
+
+    /* A glide is spent by the time between reads, then stops. */
+    now_ticks = fake_now;
+    ms_ticks = fake_ms;
+    fake_time = 1000;
+    run("id 9\nglide 100 -50 100\n");
+    fake_time = 1025; /* a quarter of the way */
+    read_input_hook(NULL, 0, block);
+    CHECK(close_to(*(float *)(block + BLOCK_LOOK_X), 25 * LOOK_PER_COUNT));
+    CHECK(close_to(*(float *)(block + BLOCK_LOOK_Y), -12.5f * LOOK_PER_COUNT));
+    fake_time = 1075;
+    read_input_hook(NULL, 0, block);
+    CHECK(close_to(*(float *)(block + BLOCK_LOOK_X), 50 * LOOK_PER_COUNT));
+    fake_time = 1500; /* past the end: what is left, once */
+    read_input_hook(NULL, 0, block);
+    CHECK(close_to(*(float *)(block + BLOCK_LOOK_X), 25 * LOOK_PER_COUNT));
+    read_input_hook(NULL, 0, block);
+    CHECK(*(float *)(block + BLOCK_LOOK_X) == 0);
+    /* A new glide replaces what is left of the last. */
+    run("id 10\nglide 100 0 100\n");
+    fake_time = 1550;
+    read_input_hook(NULL, 0, block);
+    run("id 11\nglide -40 0 40\n");
+    fake_time = 1570;
+    read_input_hook(NULL, 0, block);
+    CHECK(close_to(*(float *)(block + BLOCK_LOOK_X), -20 * LOOK_PER_COUNT));
+    /* release drops it. */
+    run("id 12\nrelease\n");
+    fake_time = 1600;
     read_input_hook(NULL, 0, block);
     CHECK(*(float *)(block + BLOCK_LOOK_X) == 0);
 
