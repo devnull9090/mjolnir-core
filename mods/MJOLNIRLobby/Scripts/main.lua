@@ -3463,6 +3463,8 @@ local function drawResults()
             setText(s["Score" .. i], p and p.score or (item.total and tostring(item.total) or ""))
             setText(s["Kills" .. i], p and p.kills or "")
             setText(s["Deaths" .. i], p and p.deaths or "")
+            -- A column a UI container from before the pages does not have.
+            setText(s["Medals" .. i], p and ((p.medalCount or 0) > 0 and tostring(p.medalCount) or "-") or "")
             local color
             if not p then
                 local t = TEAM_TINT[item.team] or TEAM_TINT.Unassigned

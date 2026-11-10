@@ -50,8 +50,9 @@ reaches `game_over`, and the host ends the match itself.
      deaths).
    - **Scoreboard**: every player, as before; a row still opens the report
      panel.
-   - **Timeline**: the top four players' scores over the match as lines of
-     dots, and the kills of every minute as bars.
+   - **Timeline**: the top four players' scores over the match as lines,
+     each ending in its final score, and the kills of every minute as bars
+     with the busiest minute in gold.
 
    A medal is drawn as a disc and a notched rim in its colour with one of
    the feed's glyphs on it, or a numeral for a multi-kill (x2) or a spree

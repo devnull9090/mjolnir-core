@@ -70,25 +70,43 @@ eq(#View.bests({ players = { player("Solo", 0, 0, 0) } }), 0, "nothing to boast 
 -- The clock.
 eq(View.clock(0), "0:00"); eq(View.clock(75), "1:15"); eq(View.clock(3599.6), "60:00")
 
--- The chart: the top players' lines, scaled to the highest score, each dot
--- inside the plot; the first point at the left edge and the last at the right.
+-- The chart: the top players' lines, scaled to the highest score, each
+-- point inside the plot; the first at the left edge and the last at the right.
 local chart = View.chart(r)
 eq(chart.max, 12); eq(#chart.series, 4)
-eq(chart.series[1].name, "Noble Six"); eq(chart.series[2].name, "Kat")
+eq(chart.series[1].name, "Noble Six"); eq(chart.series[2].name, "Kat"); eq(chart.series[1].final, 12)
 local line = chart.series[1].points
-eq(#line, 4); eq(line[1][1], 0); eq(line[4][1], View.CHART[1] - View.DOT)
-eq(line[4][2], 0, "the top score sits at the top"); eq(line[1][2] > line[4][2], true, "lower scores lower down")
+eq(#line, 4); eq(line[1][1], 0); eq(line[4][1], View.CHART[1])
+eq(line[4][2], View.PAD, "the top score sits at the top, clear of the edge")
+eq(line[1][2] > line[4][2], true, "lower scores lower down")
 for _, s in ipairs(chart.series) do
     for _, at in ipairs(s.points) do
-        assert(at[1] >= 0 and at[1] <= View.CHART[1] - View.DOT and at[2] >= 0 and at[2] <= View.CHART[2] - View.DOT)
+        assert(at[1] >= 0 and at[1] <= View.CHART[1] and at[2] >= View.PAD and at[2] <= View.CHART[2] - View.PAD)
         checks = checks + 1
     end
 end
+-- A line is its segments: each from one point to the next, as long as the
+-- gap and turned to face it (a rising score turns it up: a negative angle).
+local segs = chart.series[1].segments
+eq(#segs, 3); eq(segs[1][1], line[1][1]); eq(segs[1][2], line[1][2])
+for k, seg in ipairs(segs) do
+    local a, b = line[k], line[k + 1]
+    local rad = math.rad(seg[4])
+    assert(math.abs(a[1] + seg[3] * math.cos(rad) - b[1]) < 1e-6 and math.abs(a[2] + seg[3] * math.sin(rad) - b[2]) < 1e-6,
+        "segment " .. k .. " ends at the next point")
+    checks = checks + 1
+    eq(seg[4] <= 0, true, "a score that does not fall never points down")
+end
+-- A flat stretch lies flat.
+eq(View.chart({ players = { player("x", 1, 1, 0, { series = { 1, 1, 1 } }) } }).series[1].segments[1][4], 0)
 eq(View.chart({ players = { player("x", 1, 1, 0) } }), nil, "no series, no chart")
 
 -- The bars: every minute's kills across all players; they add up to the total.
 local bars = View.bars(r)
 eq(bars.minutes, 1); eq(bars.bars, 5)
+-- They span the plot, and the busiest is marked.
+eq(bars.width * bars.bars + View.BAR_GAP * (bars.bars - 1) <= View.CHART[1], true)
+eq(bars.values[bars.peak], bars.max)
 local sum = 0
 for _, v in ipairs(bars.values) do sum = sum + v end
 eq(sum, 9 + 2 + 12 + 8, "every kill is in a bar")
@@ -108,6 +126,10 @@ local function widget(name)
     function w:SetColorAndOpacity(c) self.colour = c end
     function w:SetHeightOverride(h) self.height = h end
     function w.Slot:SetPosition(at) w.at = at end
+    function w.Slot:SetSize(size) w.size = size end
+    function w:SetRenderTransformAngle(a) self.angle = a end
+    function w:SetWidthOverride(v) self.width = v end
+    function w:SetBrushColor(c) self.brush = c end
     return w
 end
 local screen = setmetatable({}, { __index = function(t, k)
@@ -148,10 +170,15 @@ eq(screen.PodMedal1_0Size.visibility, 1, "Kat's medals are a count only: none to
 -- Your medals, named.
 eq(screen.MineCell0.visibility, 0); eq(screen.Mine0Cap.text, "DOUBLE KILL"); eq(screen.MineCell2.visibility, 1)
 eq(screen.MineKicker.text, "YOUR MEDALS   /   7")
--- The chart's dots are placed, and the unused ones hidden.
-eq(screen.Dot0_0.visibility, 0); eq(screen.Dot0_3.at.X, View.CHART[1] - View.DOT); eq(screen.Dot0_4.visibility, 1)
+-- The chart's lines are laid out, the unused segments hidden, and each
+-- line ends in a dot with the final score.
+eq(screen.Seg0_0.visibility, 0); eq(screen.Seg0_0.at.X, 0); eq(screen.Seg0_0.size.Y, View.LINE)
+eq(screen.Seg0_0.angle < 0, true); eq(screen.Seg0_3.visibility, 1)
+eq(screen.End0.visibility, 0); eq(screen.EndLabel0.text, "12"); eq(screen.End0.at.X, View.CHART[1] - View.END)
 eq(screen.Legend0.text, "Noble Six"); eq(screen.ChartMax.text, "12"); eq(screen.ChartEnd.text, "5:00")
 eq(screen.Bar0Size.visibility, 0); eq(screen.Bar5Size.visibility, 1); eq(screen.Bar0Size.height >= 2, true)
+eq(screen.Bar0Size.width, View.bars(r).width); eq(screen.BarsEnd.text, "5:00")
+eq(screen["Bar" .. (View.bars(r).peak - 1)].brush.G, 0.80, "the busiest minute is gold")
 -- A tab click turns the page.
 view.choose(screen, 2)
 eq(screen.PageTimeline.visibility, 0); eq(screen.PageOverview.visibility, 1); eq(screen.TabInk2.visibility, 3)

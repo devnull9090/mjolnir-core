@@ -19,12 +19,15 @@ local M = {}
 M.TABS = 3
 M.POD_MEDALS = 5
 M.MINE_MEDALS = 9
-M.CHART = { 1096, 230 }
-M.DOT = 6
+M.CHART = { 1096, 290 }
+M.PAD = 12      -- kept clear above the highest point and below the lowest
+M.LINE = 3      -- a line's thickness
+M.END = 10      -- the dot at a line's end
 M.SERIES = 4
 M.POINTS = 48
 M.BARS = 30
-M.BAR = 96
+M.BAR = 100
+M.BAR_GAP = 6
 
 local ICON_ROOT = "/Game/MJOLNIR/UI/Icons/T_MJHud_"
 -- A medal's colour, by the key the DLL gives (MJOLNIRHud's FEED colours).
@@ -43,6 +46,7 @@ local GLYPHS = {
 local WHITE = { R = 0.88, G = 0.95, B = 1, A = 1 }
 local GREY = { R = 0.46, G = 0.61, B = 0.70, A = 1 }
 local GOLD = { R = 1, G = 0.80, B = 0.35, A = 1 }
+local CYAN = { R = 0.46, G = 0.79, B = 0.94, A = 1 }
 
 --- The numeral a medal shows in place of a glyph: a multi-kill's "x2", a
 --- spree's "5"; nil for the rest.
@@ -135,9 +139,11 @@ function M.clock(seconds)
     return string.format("%d:%02d", seconds // 60, seconds % 60)
 end
 
---- The score chart: { max, series = { { name, points = { { x, y } } } } },
---- the top SERIES players who have a series, each point a dot's top left on
---- the plot (0, 0 at its top left). nil when the results carry none.
+--- The score chart: { max, series = { { name, final, points = { { x, y } },
+--- segments = { { x, y, length, angle } } } } }, the top SERIES players who
+--- have a series. A point is a place on the plot (0, 0 at its top left); a
+--- segment joins two points, from (x, y), `length` long, turned `angle`
+--- degrees clockwise. nil when the results carry none.
 function M.chart(r)
     local lines = {}
     for _, p in ipairs(M.podium({ players = r.players })) do
@@ -154,23 +160,28 @@ function M.chart(r)
     for _, p in ipairs(lines) do
         for _, v in ipairs(p.series) do max = math.max(max, v) end
     end
-    local w, h = M.CHART[1] - M.DOT, M.CHART[2] - M.DOT
+    local w, h = M.CHART[1], M.CHART[2] - 2 * M.PAD
     local out = { max = max, series = {} }
     for i, p in ipairs(lines) do
-        local points = {}
+        local points, segments = {}, {}
         local n = math.min(#p.series, M.POINTS)
         for k = 1, n do
-            points[k] = { math.floor(w * (k - 1) / math.max(n - 1, 1) + 0.5),
-                math.floor(h * (1 - p.series[k] / max) + 0.5) }
+            points[k] = { w * (k - 1) / math.max(n - 1, 1), M.PAD + h * (1 - p.series[k] / max) }
         end
-        out.series[i] = { name = p.hubName or p.name, points = points }
+        for k = 1, n - 1 do
+            local a, b = points[k], points[k + 1]
+            local dx, dy = b[1] - a[1], b[2] - a[2]
+            segments[k] = { a[1], a[2], math.sqrt(dx * dx + dy * dy), math.deg(math.atan(dy, dx)) }
+        end
+        out.series[i] = { name = p.hubName or p.name, final = p.series[n], points = points, segments = segments }
     end
     return out
 end
 
 --- The kills of every stretch of the match: { values, max, minutes (a bar's
---- length), bars }, at most BARS bars, each `minutes` long (1 until the
---- match is longer than BARS minutes). nil when the results carry none.
+--- length), bars, width (a bar's, so they span the plot), peak (the first
+--- bar with the most) }, at most BARS bars, each `minutes` long (1 until
+--- the match is longer than BARS minutes). nil when the results carry none.
 function M.bars(r)
     local total
     for _, p in ipairs(r.players) do
@@ -189,13 +200,15 @@ function M.bars(r)
         local i = math.floor(t / clock * #total + 1e-6)
         return i >= 1 and total[math.min(i, #total)] or 0
     end
-    local values, max = {}, 1
+    local values, max, peak = {}, 1, nil
     for b = 1, bars do
         local from, to = (b - 1) * 60 * minutes, math.min(clock, b * 60 * minutes)
         values[b] = math.max(0, at(to) - at(from))
+        if values[b] > max or (peak == nil and values[b] >= max) then peak = b end
         max = math.max(max, values[b])
     end
-    return { values = values, max = max, minutes = minutes, bars = bars }
+    local width = math.floor((M.CHART[1] - M.BAR_GAP * (bars - 1)) / bars)
+    return { values = values, max = max, minutes = minutes, bars = bars, width = math.min(width, 120), peak = peak }
 end
 
 --- The view over a screen. deps: setText, setShown, valid, info (the DLL's
@@ -276,10 +289,13 @@ function M.new(deps)
             medal(s, "Mine" .. j, m)
             deps.setText(s["Mine" .. j .. "Cap"], m and string.upper(m.title) or "")
         end
+        -- The kinds past the row are a count on the heading: a line of
+        -- their own under the medals pushes the bests off the page.
         deps.setText(s.MineKicker, "YOUR MEDALS" .. (you and (you.medalCount or 0) > 0 and
-            ("   /   " .. tostring(you.medalCount)) or ""))
-        deps.setText(s.MineNote, #mine == 0 and "NONE THIS MATCH." or
-            (#mine > M.MINE_MEDALS and ("AND " .. tostring(#mine - M.MINE_MEDALS) .. " MORE KINDS") or ""))
+            ("   /   " .. tostring(you.medalCount)) or "") ..
+            (#mine > M.MINE_MEDALS and ("   /   +" .. tostring(#mine - M.MINE_MEDALS) .. " MORE") or ""))
+        deps.setText(s.MineNote, #mine == 0 and "NONE THIS MATCH." or "")
+        deps.setShown(s.MineNote, #mine == 0)
         local bests = M.bests(r)
         for k = 0, 3 do
             local b = bests[k + 1]
@@ -298,10 +314,28 @@ function M.new(deps)
             local line = chart and chart.series[i + 1]
             deps.setShown(s["LegendSize" .. i], line ~= nil)
             if line then deps.setText(s["Legend" .. i], line.name) end
-            for k = 0, M.POINTS - 1 do
-                local dot, at = s["Dot" .. i .. "_" .. k], line and line.points[k + 1]
-                deps.setShown(dot, at ~= nil)
-                if at then pcall(function() dot.Slot:SetPosition({ X = at[1], Y = at[2] }) end) end
+            for k = 0, M.POINTS - 2 do
+                local seg, at = s["Seg" .. i .. "_" .. k], line and line.segments[k + 1]
+                deps.setShown(seg, at ~= nil)
+                if at then
+                    pcall(function()
+                        seg.Slot:SetPosition({ X = at[1], Y = at[2] - M.LINE / 2 })
+                        seg.Slot:SetSize({ X = at[3] + 1, Y = M.LINE })
+                        seg:SetRenderTransformAngle(at[4])
+                    end)
+                end
+            end
+            -- The line's end: a dot, and the final score beside it, kept inside the plot.
+            local last = line and line.points[#line.points]
+            deps.setShown(s["End" .. i], last ~= nil)
+            deps.setShown(s["EndLabel" .. i], last ~= nil)
+            if last then
+                deps.setText(s["EndLabel" .. i], tostring(line.final))
+                pcall(function()
+                    s["End" .. i].Slot:SetPosition({ X = math.min(last[1], M.CHART[1]) - M.END, Y = last[2] - M.END / 2 })
+                    s["EndLabel" .. i].Slot:SetPosition({ X = math.min(last[1], M.CHART[1]) - M.END - 40,
+                        Y = math.max(0, last[2] - 26) })
+                end)
             end
         end
         deps.setText(s.ChartKicker, chart and "SCORE OVER TIME" or "SCORE OVER TIME   /   NOT RECORDED FOR THIS MATCH")
@@ -314,9 +348,13 @@ function M.new(deps)
             if v then
                 pcall(function()
                     s["Bar" .. i .. "Size"]:SetHeightOverride(math.max(2, math.floor(M.BAR * v / bars.max + 0.5)))
+                    s["Bar" .. i .. "Size"]:SetWidthOverride(bars.width)
+                    -- The busiest stretch in gold.
+                    s["Bar" .. i]:SetBrushColor(i + 1 == bars.peak and GOLD or CYAN)
                 end)
             end
         end
+        deps.setText(s.BarsEnd, (tonumber(r.clock) or 0) > 0 and M.clock(r.clock) or "")
         deps.setText(s.BarsKicker, bars and bars.minutes > 1 and ("KILLS EVERY " .. bars.minutes .. " MINUTES") or
             "KILLS A MINUTE")
         deps.setText(s.BarsNote, bars and ("PEAK  " .. tostring(bars.max)) or "")
