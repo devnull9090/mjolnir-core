@@ -49,6 +49,7 @@ local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
 local Bipeds = dofile(MOD_DIR .. "\\Scripts\\bipeds.lua")
 local Roster = dofile(MOD_DIR .. "\\Scripts\\roster.lua")
+local Medals = dofile(MOD_DIR .. "\\Scripts\\medals.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
@@ -66,6 +67,11 @@ Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log, Bipeds)
 -- (Scripts/roster.lua): the markers read it in place of actors when it is there.
 local PlayerRoster = Roster.new((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll",
     package and package.loadlib, Log)
+-- Medals: which incidents are medals, what hides what and how each is shown
+-- are decided in the same DLL (Scripts/medals.lua, native/lobby/medals_core.h).
+local MedalBook = Medals.new((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll",
+    package and package.loadlib, Log)
+Relay.isMedal = MedalBook.known
 
 --- The match log must never break the HUD: a failure in it is logged, and
 --- the feed, the board and the end of the match go on.
@@ -261,8 +267,7 @@ end
 
 --- The match in progress: { code, variant, title, mode, players = { [index] =
 --- stats }, feed (Scripts/feed.lua), anim (Scripts/anim.lua), deaths =
---- { {victim, at, damage} }, medals (lines waiting for the end of a drain),
---- teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
+--- { {victim, at, damage} }, teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
 local Match = nil
 
 --- Each seat's team as the host told it (Relay.TEAMS), on a fireteam client;
@@ -560,36 +565,22 @@ HANDLERS.suicide = function(inc)
     boardDirty = true
 end
 
---- Medals: everyone's go to the feed after the kill line that earned them
---- (they arrive before it in the same tick); the local player's also come
---- up in the middle of the screen. Multi-kills and sprees are relayed by the
---- host to fireteam clients (MJOLNIRLevelLoader plays their sounds).
-local MEDALS = { first_blood = { "First Blood", "FirstBlood", FEED.blood } }
-for i, title in ipairs({ "Double Kill", "Triple Kill", "Overkill", "Killtacular", "Killtrocity",
-    "Killimanjaro", "Killtastrophe", "Killpocalypse", "Killionaire" }) do
-    MEDALS["multikill_x" .. (i + 1)] = { title, "Medal", FEED.medal }
-end
-for n, title in pairs({ [5] = "Killing Spree", [10] = "Killing Frenzy", [15] = "Running Riot", [20] = "Rampage",
-    [25] = "Untouchable", [30] = "Invincible" }) do
-    MEDALS[n .. "_in_a_row"] = { title, "Spree", FEED.spree }
-end
-
-local function medal(inc)
-    local m = MEDALS[inc.name]
-    if not m or type(inc.cause) ~= "number" or inc.cause < 0 then return end
-    Match.medals[#Match.medals + 1] = { index = inc.cause, medal = m }
-end
-for name in pairs(MEDALS) do HANDLERS[name] = medal end
-
-local function announceMedals()
-    for _, waiting in ipairs(Match.medals) do
-        local m = waiting.medal
-        eventLine(waiting.index, m[2], m[3], m[1], m[3])
-        if waiting.index == LOCAL_PLAYER then
-            Anim.callout(Match.anim, { title = string.upper(m[1]), glyph = m[2], color = m[3] }, now())
+--- Medals (Scripts/medals.lua): the DLL settles them once a drain, after
+--- the kill lines that earned them (they arrive before those, in the same
+--- tick), best first. A feed medal is a line for everyone; the local
+--- player's own come up in the middle of the screen, three from one burst.
+local function announceMedals(awards)
+    local callouts = {}
+    for _, a in ipairs(awards) do
+        local colour = FEED[a.colour] or FEED.medal
+        if type(a.cause) == "number" and a.cause >= 0 then
+            if a.show == Medals.FEED then eventLine(a.cause, a.glyph, colour, a.title, colour) end
+            if a.show ~= Medals.HIDDEN and a.cause == LOCAL_PLAYER and #callouts < 3 then
+                callouts[#callouts + 1] = { title = string.upper(a.title), glyph = a.glyph, color = colour }
+            end
         end
     end
-    Match.medals = {}
+    for _, c in ipairs(callouts) do Anim.callout(Match.anim, c, now()) end
 end
 
 HANDLERS.death = function(inc)
@@ -921,8 +912,13 @@ local function drain()
         end
         if not skip and Relay.carried(inc.name) then
             skip = Relay.seen(Match.recent, inc)
-            if not skip and not inc.relayed and Match.host and not Match.over then outgoing[#outgoing + 1] = inc end
+            -- A medal crosses once settled (below); a capture as it comes.
+            if not skip and not inc.relayed and Match.host and not Match.over
+                and (Relay.raw(inc.name) or not MedalBook.known(inc.name)) then
+                outgoing[#outgoing + 1] = inc
+            end
         end
+        if not skip and not Match.over then MedalBook.add(inc) end
         -- After the end the tallies are final: the round the game resets in
         -- place behind the standings must not score.
         if not skip and not Match.over and not inc.relayed then logSafely("incident", MatchLog.incident, inc) end
@@ -945,6 +941,15 @@ local function drain()
     end
     for _, inc in ipairs(held) do Queue[#Queue + 1] = inc end
     if not Match then return end
+    local awards = MedalBook.take(now())
+    if Match.over then awards = {} end
+    if Match.host then
+        for _, a in ipairs(awards) do
+            if not Relay.raw(a.name) then
+                outgoing[#outgoing + 1] = { name = a.name, cause = a.cause, effect = a.effect, value = 0 }
+            end
+        end
+    end
     if #outgoing > 0 then
         -- A joiner has the bots' names before the first line that needs them.
         syncBotNames()
@@ -956,7 +961,7 @@ local function drain()
             Log("relay: the feed to " .. tostring(sent) .. " player(s)")
         end
     end
-    if #Match.medals > 0 then announceMedals() end
+    if #awards > 0 then announceMedals(awards) end
     if botScoreReached() then finishMatch("round over") end
     -- Deaths no kill or suicide line explained: a fall, the guardians.
     local t = now()
@@ -1029,7 +1034,7 @@ local function relayed(text)
         return
     end
     local name, cause, value, effect = text:match("^MJOLNIR|event|([%w_]+)|(-?%d+)|(-?%d+)|(-?%d+)$")
-    if not name or not MEDALS[name] or #Queue >= 64 then return end
+    if not name or not MedalBook.known(name) or #Queue >= 64 then return end
     Queue[#Queue + 1] = { name = name, cause = tonumber(cause), value = tonumber(value), effect = tonumber(effect),
         at = now(), relayed = true, source = "sound" }
 end
@@ -1498,6 +1503,8 @@ local function modeFor(variant)
 end
 
 local function startMatch(running, world)
+    -- Nothing the DLL held from the last match (it outlives a Lua reload).
+    MedalBook.reset()
     Match = {
         code = running.code,
         variant = running.variant,
@@ -1506,7 +1513,6 @@ local function startMatch(running, world)
         players = {},
         feed = Rows.new(),
         anim = Anim.new(),
-        medals = {},
         recent = {},
         deaths = {},
         teams = { [0] = 0, [1] = 0 },

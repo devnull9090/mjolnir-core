@@ -34,6 +34,7 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
+local FakeMedals = dofile("tools/tests/fake_medals.lua")
 local function runHUD(variant, client, variantFile, listing, identities, legacy)
     local time, scheduled, held = 5, nil, true
     local written, commands = {}, {}
@@ -119,6 +120,7 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
     -- The input modes the chat set (UI-only while typing).
     local modes = {}
     local pumps = { 0 }
+    local medalExports = FakeMedals.new()
     env = setmetatable({ FText = function(v) return v end, FName = function(v) return v end,
         EObjectFlags = { RF_Transient = 64 }, EInternalObjectFlags = { RootSet = 1073741824 },
         StaticConstructObject = function(cls, outer, name, flags, internal)
@@ -130,8 +132,12 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
             return pin
         end,
         Key = setmetatable({}, { __index = function(_, k) return k end }),
-        -- MJOLNIRBlamConsole's native half: each pump counted.
-        package = { loadlib = function() return function() pumps[1] = pumps[1] + 1 end end },
+        -- MJOLNIRBlamConsole's native half: each pump counted. MJOLNIRLobby's
+        -- medal exports are a stand-in over the real catalogue.
+        package = { loadlib = function(_, name)
+            if medalExports[name] then return medalExports[name] end
+            return function() pumps[1] = pumps[1] + 1 end
+        end },
         RegisterKeyBind = function(key, _, fn) binds[key] = fn end,
         -- The HUD's own modules run in this environment too, as in the game.
         dofile = function(path) return assert(loadfile((path:gsub("\\", "/")), "t", env))() end,
@@ -556,6 +562,9 @@ print("Multiplayer UI: hub avatars in the feed")
 -- Fireteam clients (Scripts/relay.lua): the host sends the feed's incidents
 -- to every remote player, one message per drain.
 local Relay = dofile("mods/MJOLNIRHud/Scripts/relay.lua")
+-- Medals are whatever the catalogue says (the HUD points this at the DLL).
+local catalogue = FakeMedals.catalogue()
+Relay.isMedal = function(name) return catalogue[name] ~= nil end
 -- Keep spawn-state updates and objective ownership when merging game-mode work.
 for _, name in ipairs({ "player_spawn", "ball_taken", "hill_controlled", "hill_moved" }) do
     local events = Relay.decode(Relay.encode({ { name = name, cause = 2, effect = -1, value = 1 } }), 7)
@@ -569,6 +578,16 @@ local back = Relay.decode(wire, 7)
 eq(#back, 2); eq(back[1].name, "kill"); eq(back[1].damage, "SniperRifle"); eq(back[1].modifier, 1)
 eq(back[2].damage, nil); eq(back[2].relayed, true)
 eq(Relay.decode("MJOLNIR|clock|30.0", 7), nil)
+-- Every medal crosses, not only the multi-kills; a capture crosses as it
+-- comes (it scores), a medal once settled.
+eq(Relay.carried("sniper_headshot_kill"), true); eq(Relay.carried("technician_comm"), false)
+eq(Relay.raw("flag_scored"), true); eq(Relay.raw("headshot_kill"), false)
+-- A burst longer than one message is split, never cut short.
+local burst = {}
+for i = 1, Relay.MAX + 3 do burst[i] = { name = "kill", cause = i % 16, effect = 0, value = 0 } end
+local parts = Relay.encodeAll(burst)
+eq(#parts, 2)
+eq(#Relay.decode(parts[1], 7) + #Relay.decode(parts[2], 7), Relay.MAX + 3)
 -- The objectives' own incidents cross, with their values.
 for _, name in ipairs({ "checkpoint_reached", "final_lap", "new_juggernaut" }) do
     local moved = Relay.decode(Relay.encode({ { name = name, cause = -1, effect = -1, value = 3 } }), 7)
@@ -617,6 +636,27 @@ local charlieKills = 0
 for i = 0, 2 do if relayHost.board["Name" .. i].text == "Charlie" then charlieKills = relayHost.board["Kills" .. i].text end end
 eq(charlieKills, "1")
 print("Multiplayer UI: the feed's relay to fireteam clients")
+
+-- Medals the DLL settles (Scripts/medals.lua): the local player's sniper headshot
+-- comes up as SNIPER HEADSHOT, the plain headshot that came with it hidden;
+-- it is the earner's callout, not a feed line; and it crosses to the
+-- fireteam once settled, after the kill line.
+local medalHost = runHUD("slayer")
+for _ = 1, 3 do medalHost.poll() end
+medalHost.burst({ { "headshot_kill", 1, 2, 0 }, { "sniper_headshot_kill", 1, 2, 0 }, { "revenge_kill", 1, 2, 0 },
+    { "Kill", 1, 2, 0, { modifier = 1, damage = DT .. "SniperRifle" } } })
+eq(medalHost.feed.Callout.visibility, 3); eq(medalHost.feed.CalloutTitle.text, "SNIPER HEADSHOT")
+eq(feedRow(medalHost, "Bravo", "Sniper Headshot"), nil)
+assert(feedRow(medalHost, "Bravo", "Charlie"), "the kill line")
+local medalWire = medalHost.remote.sent[#medalHost.remote.sent]
+assert(medalWire:find("|feed|kill,1,2,0,1,SniperRifle;sniper_headshot_kill,1,2,0,0,;revenge_kill,1,2,0,0,", 1, true),
+    "the medals after the kill: " .. medalWire)
+assert(not medalWire:find("[|;]headshot_kill,"), "the hidden headshot stays home: " .. medalWire)
+-- A client shows a relayed feed medal as a line.
+local medalJoiner = runHUD("slayer", true)
+hear(medalJoiner, "MJOLNIR|feed|kill,2,0,0,0,;multikill_x2,2,-1,0,0,")
+assert(feedRow(medalJoiner, "Charlie", "Double Kill"), "the relayed Double Kill")
+print("Multiplayer UI: medals from the DLL: hidden, shown, relayed")
 
 -- Teams on a fireteam client come from the host (#347, #349). A client's own
 -- reads of Unreal's team component show what each player record asked for:
