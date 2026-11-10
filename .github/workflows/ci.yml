@@ -201,6 +201,10 @@ jobs:
         shell: pwsh
         run: .\native\lobby\test-roster.ps1
 
+      - name: Test the medals (catalogue, what hides what, their order)
+        shell: pwsh
+        run: .\native\lobby\test-medals.ps1
+
       - name: Build mjolnir_frame_times.dll
         shell: pwsh
         run: .\native\frame_times\build.ps1
