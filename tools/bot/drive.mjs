@@ -1,53 +1,60 @@
-// A test bot that plays the local player: it walks the navmesh to the closest
-// living enemy, turns smoothly, and fires while the reticle is locked on.
+// A bot that plays the local player (tools/bot/README.md): it walks the
+// navmesh, fights at the skill its preset sets, dives out of the way, picks
+// up better weapons, and keeps count of what it did.
 //
-//   node tools/bot/drive.mjs --navmesh <map.navmesh.json> [--seconds 120]
-//        [--bone Head_M] [--engage 30] [--stop 6] [--goto x,y,z] [--log]
+//   node tools/bot/drive.mjs --navmesh <map.navmesh.json> [--skill regular]
+//        [--set field=value ...] [--seconds 120] [--player 0] [--no-dive]
+//        [--goto x,y,z] [--log]
 //
-// --goto walks to a point (wu) instead of hunting: a route test.
+// --skill is a preset of presets.mjs (recruit, regular, heroic, legendary);
+// --set overrides one of its fields. --goto walks to a point (wu) instead of
+// hunting: a route test. The last line printed is the run's tally as JSON.
 //
 // The navmesh comes from `mjolnir level navmesh` on the map's structure BSP.
 // The game needs MJOLNIRBridge with mjolnir_test_input.dll (game_input's
 // in-game route); nothing here touches the desktop's mouse or keyboard.
 //
 // Each tick (about 10 a second):
-//   - the simulation's bipeds (`mjolnir live objects`, refreshed in the
-//     background every second) give where every enemy is and who is alive:
-//     an actor far away is hidden, and a dead biped stays an object;
+//   - world.mjs's latest read of the simulation (about two a second): the
+//     bot's shield and body, every living enemy and where it faces, weapons
+//     on the ground and in hand. A dead biped stays an object and an actor
+//     far away is hidden, so the simulation picks the target;
 //   - one game_lua call reads the camera, whether the reticle is locked on
-//     an enemy (MyHUD.AimAssistInfo.FullyTargetedActor), and, when the
-//     target's actor is showing, the bone to aim at;
-//   - the target is the enemy closest by route; the view turns toward the
-//     route's next corner, or the bone once engaged, through the input DLL's
-//     `glide` (spread over the frames, so it never snaps); W stays down while
-//     walking, Shift too on a straight stretch (sprint); fire is held while
-//     the reticle is locked.
+//     an enemy (MyHUD.AimAssistInfo.FullyTargetedActor), and the target's
+//     bone once its actor shows;
+//   - brain.mjs decides the fight (aim wander, trigger, side-steps, melee,
+//     grenades, dives, weapon swaps); this file walks routes, steers past
+//     what stands in the way, and sends the keys. The view turns through the
+//     input DLL's `glide`, spread over the frames, so it never snaps.
 //
-// Obstacles: what stands on the ground (trees, rocks) is collision the AI
-// pathfinding does not see; the navmesh export marks the areas it stands in
-// as blocked, so routes go around, and lists its sides as walls, which the
-// driver steers past close in.
-import { execFile } from "node:child_process";
+// A dive is the AI's own animation (`combat:rifle:dive_left` and the like in
+// the Spartan's graph), played on the player's unit with the simulation's
+// `custom_animation`; it moves the unit about 4 m.
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bridgeCall, callTool, paths } from "../mcp/game/game.mjs";
 import { parseAck } from "../mcp/game/in_game_input.mjs";
+import { chooseTarget, chooseWeapon, fight, M_PER_WU, newMemory, onBody, turnTo } from "./brain.mjs";
 import { Navmesh } from "./navmesh.mjs";
+import { KEYS, preset } from "./presets.mjs";
+import { World } from "./world.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const WU = 304.8; // Unreal cm per world unit; Unreal y is the simulation's -y
 const EYE = 0.62; // the camera above a standing biped's feet, wu
 const DEG_PER_COUNT = 0.104; // one look count turns the view this far
+const SPARTAN_GRAPH = "objects\\characters\\spartans\\spartans";
 
 function args() {
-  const a = { seconds: 120, bone: "Head_M", engage: 30, stop: 6, log: false, navmesh: null, goto: null };
+  const a = { seconds: 120, skill: "regular", set: [], player: 0, log: false, dive: true, navmesh: null, goto: null };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i].replace(/^--/, "");
     if (k === "log") a.log = true;
+    else if (k === "no-dive") a.dive = false;
+    else if (k === "set") a.set.push(argv[++i]);
     else a[k] = typeof a[k] === "number" ? Number(argv[++i]) : argv[++i];
   }
   if (!a.navmesh) throw new Error("--navmesh <file> is required (mjolnir level navmesh)");
@@ -56,40 +63,13 @@ function args() {
 
 const toUE = (p) => [p[0] * WU, -p[1] * WU, p[2] * WU];
 const toWU = (p) => [p[0] / WU, -p[1] / WU, p[2] / WU];
-const wrap = (deg) => ((deg + 540) % 360) - 180;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-
-// --- The simulation's bipeds, in the background -------------------------
-
-class Enemies {
-  constructor() {
-    this.list = []; // { pos: [x, y, z] wu }
-    this.tsv = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mjolnir-bot-")), "bipd.tsv");
-    this.busy = false;
-    this.exe = path.join(REPO, "target", "debug", "mjolnir.exe");
-  }
-  refresh() {
-    if (this.busy) return;
-    this.busy = true;
-    execFile(this.exe, ["live", "objects", "--group", "bipd", "--tsv", this.tsv], () => {
-      this.busy = false;
-      try {
-        // Columns: 6-8 position, 9 body vitality ("100% of 105"), 12 "player N"
-        // for a player's own biped.
-        this.list = fs.readFileSync(this.tsv, "utf8").trim().split("\n").slice(1)
-          .map((line) => line.split("\t"))
-          .filter((f) => !/player/.test(f[11] ?? "") && /^[1-9][0-9]*%/.test(f[8] ?? ""))
-          .map((f) => ({ pos: [Number(f[5]), Number(f[6]), Number(f[7])] }));
-      } catch { /* the next refresh */ }
-    });
-  }
-}
 
 // --- What the game shows ---------------------------------------------------
 
 // One call a tick. MJ_BOT keeps the controller and the biped actors between
 // calls; the actors are found again every 3 s (FindAllOf costs ~20 ms).
-function perceive(bone, target) {
+function perceive(bone, target, reach = 600) {
   const t = target ? `{${toUE(target).map((v) => v.toFixed(1)).join(",")}}` : "nil";
   return `
 local TARGET = ${t}
@@ -117,16 +97,22 @@ if TARGET then
         B.actors = FindAllOf("BP_SpartansBipedActor_C") or {}
         B.listed = os.clock()
     end
+    -- The showing actor nearest where the target was last known, and not
+    -- this player's own (under the camera).
+    local best, bestD
     for _, b in ipairs(B.actors) do
         local ok, l = pcall(function() return b:K2_GetActorLocation() end)
-        if ok and b:IsValid() and not b.bHidden
-            and math.sqrt((l.X - TARGET[1]) ^ 2 + (l.Y - TARGET[2]) ^ 2) < 150 then
-            local mesh = b:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.SkeletalMeshComponent"))[1]
-            if type(mesh) ~= "userdata" or not mesh.GetFName then mesh = mesh:get() end
-            local p = mesh:GetSocketLocation(FName("${bone}"))
-            aim = string.format("%.1f,%.1f,%.1f", p.X, p.Y, p.Z)
-            break
+        if ok and b:IsValid() and not b.bHidden then
+            local d = math.sqrt((l.X - TARGET[1]) ^ 2 + (l.Y - TARGET[2]) ^ 2)
+            local own = math.sqrt((l.X - at.X) ^ 2 + (l.Y - at.Y) ^ 2) < 120
+            if d < ${reach} and not own and (not bestD or d < bestD) then best, bestD = b, d end
         end
+    end
+    if best then
+        local mesh = best:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.SkeletalMeshComponent"))[1]
+        if type(mesh) ~= "userdata" or not mesh.GetFName then mesh = mesh:get() end
+        local p = mesh:GetSocketLocation(FName("${bone}"))
+        aim = string.format("%.1f,%.1f,%.1f", p.X, p.Y, p.Z)
     end
 end
 return string.format("%.1f %.1f %.1f %.3f %.3f %d %s", at.X, at.Y, at.Z, rot.Yaw, rot.Pitch, locked, aim)`;
@@ -204,7 +190,7 @@ class Hands {
     this.keys = new Map(); // vk -> down
     this.fire = false;
   }
-  // One script a tick: key and button changes, then the glide.
+  // One script a tick: held keys that changed, taps, the trigger, the glide.
   async send(want) {
     const lines = [];
     for (const [vk, down] of want.keys) {
@@ -212,6 +198,10 @@ class Hands {
         lines.push(`key ${vk} ${down ? 1 : 0}`);
         this.keys.set(vk, down);
       }
+    }
+    // A press that ends between two reads is still delivered once.
+    for (const vk of want.taps ?? []) {
+      if (!this.keys.get(vk)) lines.push(`key ${vk} 1`, `key ${vk} 0`);
     }
     if (want.fire !== this.fire) {
       lines.push(`button 1 ${want.fire ? 1 : 0}`);
@@ -247,144 +237,283 @@ class Hands {
     }
   }
   async release() {
+    this.keys.clear();
+    this.fire = false;
     await this.script(["release"]);
   }
 }
 
-// --- The brain ---------------------------------------------------------------
+/** The AI's dive, on this player's unit. Not waited for. */
+function dive(side, player) {
+  const command = `blam (custom_animation (unit (list_get (players) ${player})) ${SPARTAN_GRAPH} "combat:rifle:dive_${side}" true)`;
+  callTool("game_console", { command }).catch(() => {});
+}
 
-const VK_W = 87;
-const VK_SPACE = 32;
-const VK_D = 68;
-const VK_SHIFT = 160; // left Shift: the simulation tracks the two sides apart
+// --- The loop ----------------------------------------------------------------
 
 async function main() {
   const a = args();
+  const skill = preset(a.skill, a.set);
   const mesh = Navmesh.load(fs.readFileSync(a.navmesh, "utf8"));
-  const enemies = new Enemies();
-  enemies.refresh();
-  const refresher = setInterval(() => enemies.refresh(), 1000);
+  const world = new World(path.join(REPO, "target", "debug", "mjolnir.exe"), a.player);
+  world.start();
   // The input worker: game_input starts it once (its first call waits ~3 s).
   await callTool("game_input", { steps: [{ wait: 1 }] });
   const hands = new Hands();
+  const mem = newMemory();
+  const rng = Math.random;
   const say = (...m) => a.log && console.log(new Date().toISOString().slice(11, 23), ...m);
-  say(`navmesh: ${mesh.sectors.length} areas, ${mesh.sectors.filter((x) => x.blocked).length} blocked, ${mesh.walls.length} wall sides`);
+  say(`skill ${skill.name}; navmesh: ${mesh.sectors.length} areas, ${mesh.sectors.filter((x) => x.blocked).length} blocked, ${mesh.walls.length} wall sides`);
 
   let feet = null;
   let last = { at: Date.now(), pos: null };
   let unstickUntil = 0;
-  const end = Date.now() + a.seconds * 1000;
+  let crouchUntil = 0;
+  let dead = false;
+  let lastFire = { at: -1e9, handle: null };
+  let aimed = { handle: null, bone: null, at: 0, velocity: [0, 0, 0] };
+  let eye = { camera: null, at: 0, velocity: [0, 0, 0] };
+  let seen = { handle: null, at: 0, pos: null };
+  let foughtAt = -1e9;
+  let going = { key: null, since: 0 };
+  const givenUp = new Set();
+  let heldBefore = null;
+  let seq = -1;
+  const started = Date.now();
+  const end = started + a.seconds * 1000;
   let tick = Date.now();
+
+  const routeLength = (from, to) => {
+    const r = mesh.route(from, to);
+    if (!r) return Math.hypot(to[0] - from[0], to[1] - from[1]) * 3; // off the mesh: a last resort
+    let length = 0;
+    let at = from;
+    for (const p of r.points) {
+      length += Math.hypot(p[0] - at[0], p[1] - at[1]);
+      at = p;
+    }
+    return length;
+  };
+
+  // The end of the match. MJOLNIRHud writes the results the moment a match
+  // ends, seconds before it takes everyone back to the lobby; the level's
+  // actors are freed on the way, and a call on one of the handles the Lua
+  // keeps crashed the game (2026-11-10). So the bot stops at the results.
+  const results = path.join(paths().bridge, "..", "Mods", "MJOLNIRHud", "last_match.txt");
+  const resultsAt = () => {
+    try { return fs.statSync(results).mtimeMs; } catch { return 0; }
+  };
+  const resultsBefore = resultsAt();
+
   try {
     while (Date.now() < end) {
       const t0 = Date.now();
+      if (resultsAt() !== resultsBefore) {
+        say("the match is over: stopping");
+        break;
+      }
+      const now = (t0 - started) / 1000;
       const dt = Math.min(0.3, (t0 - tick) / 1000);
       tick = t0;
+      const w = world.now;
 
-      // Who: the living enemy closest by route (a straight line can be a
-      // wall), from where the last tick saw this player.
+      // The tally: a death once per life; a kill when the enemy just fired on is gone.
+      if (w.seq !== seq) {
+        seq = w.seq;
+        const alive = Boolean(w.me && w.me.alive);
+        if (!alive && !dead && w.me) mem.stats.deaths++;
+        dead = !alive && Boolean(w.me);
+        if (lastFire.handle && now - lastFire.at < 3 && !w.enemies.some((e) => e.handle === lastFire.handle)) {
+          mem.stats.kills++;
+          say(`kill ${mem.stats.kills}`);
+          lastFire = { at: -1e9, handle: null };
+        }
+        if (heldBefore && alive) {
+          for (const kind of w.held) if (!heldBefore.includes(kind)) { mem.stats.pickups++; say(`picked up ${kind}`); }
+        }
+        if (alive) heldBefore = w.held;
+      }
+
+      // Who and what, from where the last tick saw this player.
       let target = null;
+      let weapon = null;
       if (a.goto) {
         const g = String(a.goto).split(",").map(Number);
         // No height given: the floor there is about this player's own.
-        target = { pos: [g[0], g[1], Number.isFinite(g[2]) ? g[2] : feet ? feet[2] : 0], length: 0 };
+        target = { handle: "goto", pos: [g[0], g[1], Number.isFinite(g[2]) ? g[2] : feet ? feet[2] : 0], yaw: 0, body: 1 };
       } else if (feet) {
-        for (const e of enemies.list) {
-          const r = mesh.route(feet, e.pos);
-          const length = r
-            ? r.points.reduce((sum, p, i) => sum + Math.hypot(p[0] - (i ? r.points[i - 1][0] : feet[0]),
-              p[1] - (i ? r.points[i - 1][1] : feet[1])), 0)
-            : Math.hypot(e.pos[0] - feet[0], e.pos[1] - feet[1]) * 3; // off the mesh: a last resort
-          if (!target || length < target.length) target = { pos: e.pos, length, route: r };
+        const pick = chooseTarget(w.enemies, (e) => routeLength(feet, e.pos), skill);
+        if (pick) target = pick.enemy;
+        if (now - foughtAt > 4) { // not in, or just out of, a fight
+          const key = (g) => `${g.kind}@${g.pos[0].toFixed(1)},${g.pos[1].toFixed(1)}`;
+          const found = chooseWeapon(w.ground.filter((g) => !givenUp.has(key(g))), w.held,
+            (g) => routeLength(feet, g.pos), skill);
+          if (found) {
+            weapon = found.weapon;
+            // One it cannot get (out of reach, or hands full): 10 s, then never again.
+            if (going.key !== key(weapon)) going = { key: key(weapon), since: now };
+            else if (now - going.since > 10) {
+              givenUp.add(going.key);
+              say(`gave up on ${going.key}`);
+              weapon = null;
+            }
+          }
         }
       }
-      const reply = await lua(perceive(a.bone, target ? target.pos : null));
+
+      // The simulation's read is up to half a second old, and a runner covers
+      // metres in that: look for the target where it was last seen.
+      const fresh = target && seen.handle === target.handle && t0 - seen.at < 1500;
+      const reply = await lua(perceive(mem.bone, target ? (fresh ? seen.pos : target.pos) : null, fresh ? 400 : 700));
       const view = parseView(reply.body);
-      if (!view) {
-        say("no view:", String(reply.body).slice(0, 80));
+      if (!view || dead) {
+        if (hands.keys.size || hands.fire) await hands.release();
+        say(dead ? "dead" : `no view: ${String(reply.body).slice(0, 80)}`);
         await new Promise((r) => setTimeout(r, 300));
         continue;
       }
       const me = toWU(view.camera);
       const before = feet;
       feet = [me[0], me[1], me[2] - EYE];
+      // This player's own motion (UE cm/s): the view swings as it side-steps.
+      if (eye.camera && t0 > eye.at) {
+        const k = (t0 - eye.at) / 1000;
+        const v = [0, 1, 2].map((i) => (view.camera[i] - eye.camera[i]) / k);
+        eye.velocity = [0, 1, 2].map((i) => eye.velocity[i] * 0.5 + v[i] * 0.5);
+      }
+      eye.camera = view.camera;
+      eye.at = t0;
       const speed = before && dt > 0 ? (Math.hypot(feet[0] - before[0], feet[1] - before[1]) * WU) / 100 / dt : 0; // m/s
-      const route = target ? mesh.route(feet, target.pos) : null;
-      const dist = target ? Math.hypot(target.pos[0] - feet[0], target.pos[1] - feet[1]) * WU / 100 : Infinity; // m
-      const engaged = Boolean(!a.goto && target && view.bone && dist < a.engage);
 
-      // Where to look.
-      let look;
+      // The target's bone, and how it is moving (for the lead).
+      const visible = Boolean(!a.goto && target && view.bone);
+      if (visible) {
+        if (aimed.handle === target.handle && aimed.bone && t0 > aimed.at) {
+          const k = (t0 - aimed.at) / 1000;
+          const v = [0, 1, 2].map((i) => (view.bone[i] - aimed.bone[i]) / k);
+          aimed.velocity = [0, 1, 2].map((i) => aimed.velocity[i] * 0.5 + v[i] * 0.5);
+        } else {
+          aimed.velocity = [0, 0, 0];
+        }
+        aimed = { ...aimed, handle: target.handle, bone: view.bone, at: t0 };
+        seen = { handle: target.handle, at: t0, pos: toWU(view.bone) };
+      }
+      const targetAt = visible ? toWU(view.bone) : target ? target.pos : null;
+      const distance = targetAt ? Math.hypot(targetAt[0] - feet[0], targetAt[1] - feet[1]) * M_PER_WU : Infinity;
+
+      // Room to dive: nothing standing within a dive's length to that side.
+      const forward = [Math.cos((view.yaw * Math.PI) / 180), -Math.sin((view.yaw * Math.PI) / 180)]; // plan, wu
+      const leftward = [-forward[1], forward[0]];
+      const room = (sign) => !mesh.firstWall(feet, [feet[0] + leftward[0] * 1.6 * sign, feet[1] + leftward[1] * 1.6 * sign], feet[2], CLEAR);
+      // The aim point: the bone, led by how it and this player are moving.
+      const aimPoint = visible
+        ? [0, 1, 2].map((i) => view.bone[i] + (aimed.velocity[i] - eye.velocity[i]) * skill.lead)
+        : null;
+      const offBone = visible ? turnTo(view.camera, view.yaw, view.pitch, view.bone) : [180, 180];
+      const f = fight({
+        now, dt, worldSeq: w.seq, onTarget: visible && onBody(offBone, distance), me: { pos: feet, shield: w.me ? w.me.shield : 1, body: w.me ? w.me.body : 1 },
+        target: a.goto ? null : target, visible, locked: view.locked, distance,
+        canDive: { left: room(1), right: room(-1) },
+      }, mem, skill, rng);
+
+      // Where to look, and where to walk.
+      let look = null;
       let around = false;
-      if (engaged) {
-        look = view.bone;
-      } else if (route && route.points.length) {
-        // The next corner a little way ahead, at eye height.
-        let next = route.points[0];
-        if (Math.hypot(next[0] - feet[0], next[1] - feet[1]) < 0.4 && route.points[1]) next = route.points[1];
+      let walking = false;
+      let using = false;
+      const toward = (point) => {
+        const r = mesh.route(feet, point);
+        let next = point;
+        if (r && r.points.length) {
+          next = r.points[0];
+          if (Math.hypot(next[0] - feet[0], next[1] - feet[1]) < 0.4 && r.points[1]) next = r.points[1];
+        }
         const way = steer(mesh, feet, next, feet[2]);
         around = way.around;
-        const far = Math.hypot(next[0] - feet[0], next[1] - feet[1]);
+        const far = Math.max(1, Math.hypot(next[0] - feet[0], next[1] - feet[1]));
         const h = (way.heading * Math.PI) / 180;
-        look = toUE([feet[0] + Math.cos(h) * far, feet[1] + Math.sin(h) * far, next[2] + EYE]);
+        return toUE([feet[0] + Math.cos(h) * far, feet[1] + Math.sin(h) * far, next[2] + EYE]);
+      };
+      let mode = "idle";
+      if (f.engaged) {
+        mode = f.retreating ? "retreat" : "engage";
+        look = aimPoint;
+      } else if (weapon) {
+        mode = "weapon";
+        const gap = Math.hypot(weapon.pos[0] - feet[0], weapon.pos[1] - feet[1]);
+        look = toward(weapon.pos);
+        walking = gap > 0.25;
+        using = gap < 1.0; // hold the pick-up key over it
       } else if (target) {
-        // Off the mesh: straight at it, still past what stands in the way.
-        const way = steer(mesh, feet, target.pos, feet[2]);
-        around = way.around;
-        const far = Math.hypot(target.pos[0] - feet[0], target.pos[1] - feet[1]);
-        const h = (way.heading * Math.PI) / 180;
-        look = toUE([feet[0] + Math.cos(h) * far, feet[1] + Math.sin(h) * far, target.pos[2] + EYE]);
+        mode = "hunt";
+        look = toward(target.pos);
+        walking = true;
       }
-      let dyaw = 0;
-      let dpitch = 0;
-      if (look) {
-        const d = [look[0] - view.camera[0], look[1] - view.camera[1], look[2] - view.camera[2]];
-        dyaw = wrap((Math.atan2(d[1], d[0]) * 180) / Math.PI - view.yaw);
-        dpitch = (Math.atan2(d[2], Math.hypot(d[0], d[1])) * 180) / Math.PI - view.pitch;
-        if (!engaged) dpitch = clamp(dpitch, -20, 20);
-      }
+      let [dyaw, dpitch] = look ? turnTo(view.camera, view.yaw, view.pitch, look, f.engaged ? f.noise : [0, 0]) : [0, 0];
+      if (!f.engaged) dpitch = clamp(dpitch, -20, 20);
       // Turn at a limited rate, spread over the next ticks: smooth, and a
       // newer tick takes over what is left.
-      const rate = engaged ? 360 : 200; // deg/s
-      const span = engaged ? 0.12 : 0.25; // s: tight on a target, easy on a route
+      const rate = f.engaged ? skill.turnRate : 200; // deg/s
+      const span = f.engaged ? 0.12 : 0.25; // s: tight on a target, easy on a route
       const turnYaw = clamp(dyaw, -rate * span, rate * span);
       const turnPitch = clamp(dpitch, -rate * span, rate * span);
 
-      // Walk unless engaged and close; stuck walking means a jump and a step aside.
-      const walking = Boolean(target) && !(engaged && dist < a.stop);
+      // Stuck walking: whatever is ahead is not walkable after all (a wall the
+      // navmesh missed, a vehicle). The ground there is blocked for the rest
+      // of the run, so the next route goes another way, and the bot backs
+      // out with a jump and a step aside.
       if (walking && last.pos && t0 - last.at > 1500) {
         if (Math.hypot(feet[0] - last.pos[0], feet[1] - last.pos[1]) < 0.3) {
-          unstickUntil = t0 + 500;
-          say("stuck: jump and step aside");
+          unstickUntil = t0 + 600;
+          const blocked = mesh.block([feet[0] + forward[0] * 0.8, feet[1] + forward[1] * 0.8], 0.6);
+          say(`stuck: ${blocked} area(s) ahead blocked; backing out`);
         }
         last = { at: t0, pos: feet };
       } else if (!last.pos || !walking) {
         last = { at: t0, pos: feet };
       }
       const unsticking = t0 < unstickUntil;
+      if (f.hold.crouch) crouchUntil = t0 + 350;
+      if (f.dive && a.dive) {
+        dive(f.dive, a.player);
+        say(`dive ${f.dive}`);
+      }
+      if (f.fire) lastFire = { at: now, handle: target.handle };
+      if (f.engaged) foughtAt = now;
 
+      const straight = Math.abs(dyaw) < 60;
       await hands.send({
         keys: [
-          [VK_W, walking && Math.abs(dyaw) < 60],
+          [KEYS.forward, !unsticking && ((walking && straight) || f.hold.forward)],
+          [KEYS.back, f.hold.back || unsticking],
+          [KEYS.left, f.hold.left],
+          [KEYS.right, f.hold.right || unsticking],
           // Sprint on a straight stretch; not while turning hard or fighting.
-          [VK_SHIFT, walking && !engaged && Math.abs(dyaw) < 20],
-          [VK_SPACE, unsticking],
-          [VK_D, unsticking],
+          [KEYS.sprint, skill.sprint && walking && !f.engaged && Math.abs(dyaw) < 20],
+          [KEYS.jump, unsticking],
+          [KEYS.crouch, t0 < crouchUntil],
+          [KEYS.use, using],
         ],
-        fire: view.locked, // red reticle: an enemy is under it
+        taps: f.taps.map((name) => KEYS[name]),
+        fire: f.fire,
         look: [turnYaw / DEG_PER_COUNT, -turnPitch / DEG_PER_COUNT],
         glideMs: Math.round(span * 1000),
       });
-      say(engaged ? "engage" : walking ? "walk" : "idle", target ? `${dist.toFixed(1)} m` : "-",
-        `yaw ${dyaw.toFixed(1)} pitch ${dpitch.toFixed(1)}`, view.locked ? "LOCKED" : "",
-        route ? `${route.points.length} corners` : "no route", around ? "AROUND" : "", `${speed.toFixed(1)} m/s`, `at ${feet[0].toFixed(2)},${feet[1].toFixed(2)}`, `${Date.now() - t0} ms`, `dt ${dt.toFixed(2)}`);
+      say(mode, Number.isFinite(distance) ? `${distance.toFixed(1)} m` : "-",
+        `yaw ${dyaw.toFixed(1)} pitch ${dpitch.toFixed(1)}`, view.locked ? "LOCKED" : "", f.fire ? "FIRE" : "",
+        f.taps.join("+"), around ? "AROUND" : "",
+        visible ? `off ${offBone[0].toFixed(1)}` : "", `shield ${(w.me ? w.me.shield : 1).toFixed(2)}`,
+        `${speed.toFixed(1)} m/s`, `at ${feet[0].toFixed(2)},${feet[1].toFixed(2)}`, `${Date.now() - t0} ms`);
       // About 10 a second.
       const wait = 100 - (Date.now() - t0);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
   } finally {
-    clearInterval(refresher);
-    await hands.release();
+    world.stop();
+    // Nothing kept in the game's Lua outlives the run.
+    await lua("MJ_BOT = nil return 1").catch(() => {});
+    await hands.release().catch(() => {});
+    console.log(JSON.stringify({ skill: skill.name, seconds: Math.round((Date.now() - started) / 1000), ...mem.stats }));
   }
 }
 
