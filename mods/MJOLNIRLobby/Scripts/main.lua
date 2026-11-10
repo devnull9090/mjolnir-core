@@ -3186,25 +3186,60 @@ local function readResults()
             if known then p.userId, p.hubName, p.reports = known.id, known.name, known.reports end
             r.players[#r.players + 1] = p
         elseif f[1] == "medals" and #r.players > 0 then
-            -- The player just above's medals: { { title, count } }, most
-            -- earned first (a HUD from before the medals writes none).
+            -- The player just above's medals: { { name, count } } by the
+            -- medal's incident name, most earned first (a HUD from before
+            -- the medals writes none).
             local p = r.players[#r.players]
             p.medals, p.medalCount = {}, 0
             for i = 2, #f do
-                local title, count = f[i]:match("^(.-)=(%d+)$")
-                if title and title ~= "" then
-                    p.medals[#p.medals + 1] = { title = title, count = tonumber(count) }
+                local name, count = f[i]:match("^([%w_]+)=(%d+)$")
+                if name then
+                    p.medals[#p.medals + 1] = { name = name, count = tonumber(count) }
                     p.medalCount = p.medalCount + tonumber(count)
                 end
             end
+        elseif (f[1] == "series" or f[1] == "killsat") and #r.players > 0 then
+            -- The player just above's score, or kills, at evenly spaced
+            -- moments of the match (Scripts/postgame.lua draws them).
+            local points = {}
+            for v in (f[2] or ""):gmatch("-?%d+") do points[#points + 1] = tonumber(v) end
+            r.players[#r.players][f[1] == "series" and "series" or "killsAt"] = points
+        elseif f[1] == "clock" then
+            r.clock = tonumber(f[2])
         end
     end
     return r.code and r or nil
 end
 
+--- A medal by its incident name, from this mod's DLL (native/lobby/
+--- medals_core.h): title, glyph, colour key, show, class, rank; nothing for
+--- a name it does not know, or with no DLL.
+function Report.medalInfo(name)
+    if Report.medalInfoFn == nil then
+        Report.medalInfoFn = package and package.loadlib and
+            package.loadlib(MOD_DIR .. "\\native\\mjolnir_lobby.dll", "mjolnir_medal_info") or false
+    end
+    if not Report.medalInfoFn then return nil end
+    local ok, title, glyph, colour, show, class, rank = pcall(Report.medalInfoFn, name)
+    if ok and title then return title, glyph, colour, show, class, rank end
+    return nil
+end
+
+--- The post-game screen's pages (Scripts/postgame.lua): the podium, the
+--- medals and the match over time.
+Report.view = dofile(MOD_DIR .. "\\Scripts\\postgame.lua").new({
+    setText = setText, setShown = setShown, valid = UI.valid,
+    info = function(name) return Report.medalInfo(name) end,
+    avatar = function(image, userId) return Report.showAvatar(image, userId) end,
+    tint = function(block, colour)
+        pcall(function() block:SetColorAndOpacity({ SpecifiedColor = colour, ColorUseRule = 0 }) end)
+    end,
+})
+
 --- What the post-game summary says about medals: the local player's own
 --- (the most earned first, `limit` kinds at most, then how many more), and
---- who earned the most. "" when nobody earned one.
+--- who earned the most. "" when nobody earned one. For a UI container from
+--- before the overview page.
 function Report.medalSummary(r, limit)
     local lines = {}
     local you, top
@@ -3216,7 +3251,8 @@ function Report.medalSummary(r, limit)
         local parts = {}
         for i = 1, math.min(#you.medals, limit) do
             local m = you.medals[i]
-            parts[#parts + 1] = string.upper(m.title) .. (m.count > 1 and (" x" .. tostring(m.count)) or "")
+            local title = Report.medalInfo(m.name) or (m.name:gsub("_", " "))
+            parts[#parts + 1] = string.upper(title) .. (m.count > 1 and (" x" .. tostring(m.count)) or "")
         end
         if #you.medals > limit then parts[#parts + 1] = "+" .. tostring(#you.medals - limit) .. " MORE" end
         lines[#lines + 1] = "YOUR MEDALS   " .. table.concat(parts, "   /   ")
@@ -3378,9 +3414,14 @@ local function drawResults()
         for _, t in ipairs(r.teams) do totals[#totals + 1] = string.upper(t.team) .. " " .. tostring(t.total) end
         summary = summary .. "   /   " .. table.concat(totals, "  -  ")
     end
-    -- Medals have no column of their own on this screen: under the summary.
-    local medals = Report.medalSummary(r, 5)
-    if medals ~= "" then summary = summary .. "\n" .. medals end
+    -- The overview and timeline pages, when this UI container has them;
+    -- one from before them gets the medals as text under the summary.
+    if Report.view.available(s) then
+        Report.view.draw(s, r)
+    else
+        local medals = Report.medalSummary(r, 5)
+        if medals ~= "" then summary = summary .. "\n" .. medals end
+    end
     setText(s.Summary, summary)
     setText(s.ScoreH, (MODES.byId(r.variant) or {}).scoreHeading or "SCORE")
     local rows = {}
@@ -3757,6 +3798,10 @@ local function hookPostGame()
                         v.endsAt = os.clock()
                     elseif event == "lobby" and Net.isHost() then
                         Post.cancel = true
+                    elseif event:match("^tab:%d+$") then
+                        if Post and alive(Post.screen) then
+                            Report.view.choose(Post.screen, tonumber(event:match("%d+")))
+                        end
                     elseif event:match("^row:%d+$") then
                         Report.open(Post and Post.rowPlayers and Post.rowPlayers[tonumber(event:match("%d+"))])
                     elseif event:match("^reason:%d+$") and Post and Post.report and not Post.report.done then

@@ -1779,7 +1779,191 @@ def vote_tile(bp, i, parent, events):
     return ring
 
 
-def build_post_game():
+POST_TABS = ("OVERVIEW", "SCOREBOARD", "TIMELINE")
+POST_PAGE = 560            # the height of the page under the tabs
+POD_MEDALS = 5             # medals on a podium card
+MINE_MEDALS = 9            # the local player's own, in a row
+CHART = (1096, 230)        # the score chart's plot (MJOLNIRLobby postgame.lua CHART)
+CHART_SERIES = 4           # lines on it
+CHART_POINTS = 48          # dots a line (MJOLNIRHud scoreboard.lua Board.POINTS)
+CHART_DOT = 6
+BARS = 30                  # kills-a-minute bars
+BAR_HEIGHT = 96            # the tallest one (postgame.lua BAR)
+SERIES_INK = ((1.0, 0.80, 0.35, 1.0), (0.46, 0.79, 0.94, 1.0), (1.0, 0.45, 0.40, 1.0), (0.55, 0.90, 0.60, 1.0))
+
+
+def overlay_slot(w, horizontal, vertical):
+    slot = w.get_editor_property("slot")
+    slot.set_horizontal_alignment(horizontal)
+    slot.set_vertical_alignment(vertical)
+    return slot
+
+
+def medal_slot(bp, name, parent, size):
+    """A medal: `<name>Size` (collapsed until Lua fills it) holding the disc
+    `<name>Disc` and rim `<name>Ring` (tinted with the medal's colour), then
+    either the glyph `<name>Glyph` or the numeral `<name>Mark` (a multi-kill's
+    x2, a spree's 5), and `<name>Count` at the corner when it was earned more
+    than once."""
+    centre = (unreal.HorizontalAlignment.H_ALIGN_CENTER, unreal.VerticalAlignment.V_ALIGN_CENTER)
+    box = sized(bp, name + "Size", parent, width=size, height=size)
+    box.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    over = widget(bp, unreal.Overlay, name + "Over", box.get_name())
+    for layer in ("Disc", "Ring"):
+        image = widget(bp, unreal.Image, name + layer, over.get_name())
+        overlay_slot(image, unreal.HorizontalAlignment.H_ALIGN_FILL, unreal.VerticalAlignment.V_ALIGN_FILL)
+    glyph = sized(bp, name + "GlyphSize", over.get_name(), width=size * 0.46, height=size * 0.46)
+    overlay_slot(glyph, *centre)
+    widget(bp, unreal.Image, name + "Glyph", glyph.get_name())
+    mark = widget(bp, unreal.TextBlock, name + "Mark", over.get_name())
+    text_style(mark, "", int(size * 0.30), WHITE, face="Bold")
+    overlay_slot(mark, *centre)
+    count = widget(bp, unreal.TextBlock, name + "Count", over.get_name())
+    text_style(count, "", max(12, int(size * 0.24)), WHITE, face="Bold")
+    shadowed(count)
+    overlay_slot(count, unreal.HorizontalAlignment.H_ALIGN_RIGHT, unreal.VerticalAlignment.V_ALIGN_BOTTOM)
+    return box
+
+
+def post_overview(bp):
+    """The overview page: the top three as cards (`Pod<k>`: avatar, place,
+    name, score, a line of kills and deaths, their medals), the local
+    player's medals with their names (`Mine<j>`), and the match's bests
+    (`Best<k>`)."""
+    page = widget(bp, unreal.VerticalBox, "PageOverview", "Pages")
+    page.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    podium = widget(bp, unreal.HorizontalBox, "Podium", "PageOverview")
+    for k in range(3):
+        card = rounded(widget(bp, unreal.Border, f"Pod{k}", "Podium"), 10, (0.03, 0.09, 0.13, 0.85), 18)
+        fill(card, 1)
+        card.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 0 if k == 2 else 14, 0))
+        card.set_visibility(unreal.SlateVisibility.HIDDEN)
+        widget(bp, unreal.VerticalBox, f"PodStack{k}", f"Pod{k}")
+        top = widget(bp, unreal.HorizontalBox, f"PodTop{k}", f"PodStack{k}")
+        face = sized(bp, f"PodAvatarSize{k}", top.get_name(), width=60, height=60)
+        middle(face)
+        face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+        round_image(widget(bp, unreal.Image, f"PodAvatar{k}", face.get_name()), 60)
+        words = widget(bp, unreal.VerticalBox, f"PodWords{k}", top.get_name())
+        fill(words, 1)
+        middle(words)
+        text_style(widget(bp, unreal.TextBlock, f"PodPlace{k}", words.get_name()), "", 16, GOLD if k == 0 else GREY)
+        name = widget(bp, unreal.TextBlock, f"PodName{k}", words.get_name())
+        text_style(name, "", 25, WHITE)
+        name.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        score = widget(bp, unreal.TextBlock, f"PodScore{k}", f"PodStack{k}")
+        text_style(score, "", 52, WHITE, face="Bold")
+        gap(score, top=10)
+        text_style(widget(bp, unreal.TextBlock, f"PodLine{k}", f"PodStack{k}"), "", 17, GREY)
+        medals = widget(bp, unreal.HorizontalBox, f"PodMedals{k}", f"PodStack{k}")
+        gap(medals, top=14)
+        for j in range(POD_MEDALS):
+            slot = medal_slot(bp, f"PodMedal{k}_{j}", medals.get_name(), 52)
+            slot.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 8, 0))
+
+    kicker = widget(bp, unreal.TextBlock, "MineKicker", "PageOverview")
+    text_style(kicker, "YOUR MEDALS", 18, ACCENT)
+    gap(kicker, top=24, bottom=12)
+    mine = widget(bp, unreal.HorizontalBox, "MineRow", "PageOverview")
+    for j in range(MINE_MEDALS):
+        cell = sized(bp, f"MineCell{j}", mine.get_name(), width=116)
+        cell.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        stack = widget(bp, unreal.VerticalBox, f"MineStack{j}", cell.get_name())
+        disc = medal_slot(bp, f"Mine{j}", stack.get_name(), 64)
+        disc.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+        caption = widget(bp, unreal.TextBlock, f"Mine{j}Cap", stack.get_name())
+        text_style(caption, "", 13, GREY)
+        caption.set_editor_property("justification", unreal.TextJustify.CENTER)
+        wrapped(caption)
+        gap(caption, top=6)
+    note = widget(bp, unreal.TextBlock, "MineNote", "PageOverview")
+    text_style(note, "", 17, GREY)
+
+    gap(rule(bp, "BestsRule", "PageOverview"), top=22, bottom=16)
+    bests = widget(bp, unreal.HorizontalBox, "Bests", "PageOverview")
+    for k in range(4):
+        tile = widget(bp, unreal.VerticalBox, f"Best{k}", "Bests")
+        fill(tile, 1)
+        text_style(widget(bp, unreal.TextBlock, f"Best{k}Label", tile.get_name()), "", 15, ACCENT)
+        value = widget(bp, unreal.TextBlock, f"Best{k}Value", tile.get_name())
+        text_style(value, "", 30, WHITE, face="Bold")
+        who = widget(bp, unreal.TextBlock, f"Best{k}Name", tile.get_name())
+        text_style(who, "", 17, GREY)
+        who.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+
+
+def post_timeline(bp):
+    """The match over time: each of the top players' scores as a line of
+    dots (`Dot<s>_<i>`, placed by Lua on the `Chart` canvas), then the kills
+    of every minute as bars (`Bar<i>Size`, their heights set by Lua)."""
+    page = widget(bp, unreal.VerticalBox, "PageTimeline", "Pages")
+    page.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    head = widget(bp, unreal.HorizontalBox, "ChartHead", "PageTimeline")
+    kicker = widget(bp, unreal.TextBlock, "ChartKicker", "ChartHead")
+    text_style(kicker, "SCORE OVER TIME", 18, ACCENT)
+    fill(kicker, 1)
+    middle(kicker)
+    for s in range(CHART_SERIES):
+        key = sized(bp, f"LegendSize{s}", "ChartHead")
+        key.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        key.get_editor_property("slot").set_padding(unreal.Margin(18, 0, 0, 0))
+        middle(key)
+        row = widget(bp, unreal.HorizontalBox, f"LegendRow{s}", key.get_name())
+        middle(swatch(bp, f"LegendInk{s}", row.get_name(), 14, 14, SERIES_INK[s]))
+        label = widget(bp, unreal.TextBlock, f"Legend{s}", row.get_name())
+        text_style(label, "", 17, WHITE)
+        label.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
+        middle(label)
+    plot = sized(bp, "ChartSize", "PageTimeline", width=CHART[0], height=CHART[1])
+    gap(plot, top=12)
+    widget(bp, unreal.CanvasPanel, "Chart", "ChartSize")
+    back = widget(bp, unreal.Border, "ChartBack", "Chart")
+    back.set_editor_property("brush_color", unreal.LinearColor(0.02, 0.06, 0.09, 0.55))
+    stretch(back)
+    for g in range(4):
+        line = widget(bp, unreal.Border, f"ChartGrid{g}", "Chart")
+        line.set_editor_property("brush_color", unreal.LinearColor(*LINE))
+        slot = line.get_editor_property("slot")
+        slot.set_position(unreal.Vector2D(0, CHART[1] * g / 4))
+        slot.set_size(unreal.Vector2D(CHART[0], 1))
+    top = widget(bp, unreal.TextBlock, "ChartMax", "Chart")
+    text_style(top, "", 15, GREY)
+    top.get_editor_property("slot").set_position(unreal.Vector2D(8, 4))
+    top.get_editor_property("slot").set_auto_size(True)
+    for s in range(CHART_SERIES):
+        for i in range(CHART_POINTS):
+            dot = rounded(widget(bp, unreal.Border, f"Dot{s}_{i}", "Chart"), CHART_DOT / 2, SERIES_INK[s])
+            dot.set_visibility(unreal.SlateVisibility.COLLAPSED)
+            slot = dot.get_editor_property("slot")
+            slot.set_position(unreal.Vector2D(0, 0))
+            slot.set_size(unreal.Vector2D(CHART_DOT, CHART_DOT))
+    axis = widget(bp, unreal.HorizontalBox, "ChartAxis", "PageTimeline")
+    gap(axis, top=6)
+    start = widget(bp, unreal.TextBlock, "ChartStart", "ChartAxis")
+    text_style(start, "0:00", 15, GREY)
+    fill(start, 1)
+    text_style(widget(bp, unreal.TextBlock, "ChartEnd", "ChartAxis"), "", 15, GREY)
+
+    bars_head = widget(bp, unreal.HorizontalBox, "BarsHead", "PageTimeline")
+    gap(bars_head, top=22, bottom=10)
+    kicker = widget(bp, unreal.TextBlock, "BarsKicker", "BarsHead")
+    text_style(kicker, "KILLS A MINUTE", 18, ACCENT)
+    fill(kicker, 1)
+    text_style(widget(bp, unreal.TextBlock, "BarsNote", "BarsHead"), "", 17, GREY)
+    tray = sized(bp, "BarsSize", "PageTimeline", height=BAR_HEIGHT)
+    widget(bp, unreal.HorizontalBox, "Bars", "BarsSize")
+    for i in range(BARS):
+        bar = sized(bp, f"Bar{i}Size", "Bars", width=CHART[0] / BARS - 6, height=2)
+        bar.set_visibility(unreal.SlateVisibility.COLLAPSED)
+        slot = bar.get_editor_property("slot")
+        slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_BOTTOM)
+        slot.set_padding(unreal.Margin(0, 0, 6, 0))
+        ink = widget(bp, unreal.Border, f"Bar{i}", bar.get_name())
+        ink.set_editor_property("brush_color", unreal.LinearColor(*ACCENT))
+        ink.set_editor_property("padding", unreal.Margin(0))
+
+
+def build_post_game(icons):
     """After a match, on the menu: the final standings, and the vote on the
     next game. Every fireteam member votes; the host can start the leader
     at once or go back to the lobby (docs/multiplayer_postgame.md)."""
@@ -1802,14 +1986,48 @@ def build_post_game():
     summary = widget(bp, unreal.TextBlock, "Summary", "ResultsStack")
     text_style(summary, "", 24, GREY)
     wrapped(summary)
-    gap(summary, top=10, bottom=26)
+    gap(summary, top=10, bottom=18)
+
+    # Hard references keep every glyph in the cook and load them with this
+    # screen; Lua finds the textures by path (a medal is a disc, a rim and
+    # one of the feed's glyphs).
+    palette = widget(bp, unreal.HorizontalBox, "IconPalette", "Root")
+    place(palette, (0.0, 0.0), (0.0, 0.0))
+    palette.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for icon_name, texture in icons.items():
+        image = widget(bp, unreal.Image, "Palette" + icon_name, palette.get_name())
+        image.set_brush_from_texture(texture, False)
+
+    # Three pages under the winner (Tab<i>, MJ_Event "tab:<i>"): the overview
+    # (the podium, your medals, the match's bests), the scoreboard, and the
+    # match over time. The tabs and the two new pages start collapsed: an
+    # older MJOLNIRLobby knows only the scoreboard, which stays as it was.
+    events = []
+    tabs = widget(bp, unreal.HorizontalBox, "Tabs", "ResultsStack")
+    gap(tabs, bottom=14)
+    tabs.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for i, label in enumerate(POST_TABS):
+        button = widget(bp, unreal.Button, f"Tab{i}", "Tabs")
+        flat_style(button, (0, 0, 0, 0), (0.46, 0.79, 0.94, 0.16), (0.46, 0.79, 0.94, 0.28), padding=(18, 8, 18, 6))
+        button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 6, 0))
+        widget(bp, unreal.VerticalBox, f"TabStack{i}", f"Tab{i}")
+        text = widget(bp, unreal.TextBlock, f"TabLabel{i}", f"TabStack{i}")
+        text_style(text, label, 20, GREY)
+        gap(swatch(bp, f"TabInk{i}", f"TabStack{i}", None, 3, ACCENT), top=6)
+        events.append((f"Tab{i}", "OnClicked", f"tab:{i}"))
     gap(rule(bp, "TableRule", "ResultsStack"), bottom=14)
-    header = widget(bp, unreal.HorizontalBox, "TableHeader", "ResultsStack")
+    sized(bp, "PagesSize", "ResultsStack", height=POST_PAGE)
+    widget(bp, unreal.VerticalBox, "Pages", "PagesSize")
+
+    post_overview(bp)
+
+    # The scoreboard: every player, as before.
+    board = widget(bp, unreal.VerticalBox, "PageBoard", "Pages")
+    header = widget(bp, unreal.HorizontalBox, "TableHeader", "PageBoard")
     header.get_editor_property("slot").set_padding(unreal.Margin(16, 0, 16, 10))
     columns(bp, "TableHeader", "H", 18, True, avatar=RESULT_AVATAR)
-    sized(bp, "RowsSize", "ResultsStack", height=470)
+    sized(bp, "RowsSize", "PageBoard", height=POST_PAGE - 80)
     widget(bp, unreal.ScrollBox, "Rows", "RowsSize")
-    events = []
     for i in range(RESULT_ROWS):
         row = widget(bp, unreal.Border, f"Row{i}", "Rows")
         row.set_editor_property("padding", unreal.Margin(0))
@@ -1831,9 +2049,11 @@ def build_post_game():
         content.get_editor_property("slot").set_size(unreal.SlateChildSize(1, unreal.SlateSizeRule.FILL))
         content.get_editor_property("slot").set_padding(unreal.Margin(13, 5, 16, 5))
         columns(bp, f"Cols{i}", str(i), 24, False, avatar=RESULT_AVATAR)
-    hint = widget(bp, unreal.TextBlock, "ResultsHint", "ResultsStack")
+    hint = widget(bp, unreal.TextBlock, "ResultsHint", "PageBoard")
     text_style(hint, "SELECT A PLAYER TO REPORT THEM", 17, GREY)
     gap(hint, top=12)
+
+    post_timeline(bp)
 
     # The vote: what it is doing (VoteTimer) and who has voted (VoteTally),
     # the seconds left on a disc (VoteClockSize, VoteSeconds) over a bar
@@ -2633,13 +2853,14 @@ def build_label():
 
 BRAND.update(import_hud_icons("Brand", f"{ROOT}/Brand", "T_MJBrand_", mips=True))
 build_hello()
-build_kill_feed(import_hud_icons())
+HUD_ICONS = import_hud_icons()
+build_kill_feed(HUD_ICONS)
 build_scoreboard()
 build_lobby()
 build_map_select()
 build_game_type_select(import_hud_icons("GameTypeIcons", f"{ROOT}/ModeIcons", "T_MJMode_"))
 build_find_games()
-build_post_game()
+build_post_game(HUD_ICONS)
 build_map_download()
 build_game_settings()
 build_chat()

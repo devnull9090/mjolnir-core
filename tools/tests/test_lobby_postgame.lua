@@ -241,23 +241,44 @@ end
 -------------------------------------------------------------------------------
 
 local readResults = upvalue(hostPostGame, "readResults")
-local medalSummary = upvalue(postTick, "Report").medalSummary
+local Report = upvalue(postTick, "Report")
+local medalSummary = Report.medalSummary
+-- The DLL's medal titles, stood in for.
+local TITLES = { headshot_kill = "Headshot", multikill_x2 = "Double Kill", revenge_kill = "Revenge",
+    ["5_in_a_row"] = "Killing Spree", melee_kill = "Pummel" }
+Report.medalInfoFn = function(name)
+    if TITLES[name] then return TITLES[name], "Medal", "medal", 2, 3, 1 end
+end
 results = table.concat({ "match", "BGL", "slayer", "Blood Gulch", "Slayer", "devnull", tostring(os.time()), "-" }, "\t")
     .. "\nplayer\tdevnull\t9\t9\t2\t-\t1\n"
-    .. "medals\tHeadshot=4\tDouble Kill=2\tRevenge=1\tKilling Spree=1\n"
+    .. "medals\theadshot_kill=4\tmultikill_x2=2\trevenge_kill=1\t5_in_a_row=1\n"
+    .. "series\t0,2,5,9\n"
+    .. "killsat\t0,2,5,9\n"
     .. "player\tKat\t5\t5\t6\t-\t0\n"
-    .. "medals\tPummel=11\n"
+    .. "medals\tmelee_kill=11\n"
+    .. "series\t1,1,3,5\n"
+    .. "killsat\t1,1,3,5\n"
     .. "player\tJun\t1\t1\t7\t-\t0\n"
+    .. "clock\t240\n"
 local withMedals = readResults()
 eq(#withMedals.players, 3, "three players")
 eq(withMedals.players[1].medalCount, 8)
-eq(withMedals.players[1].medals[1].title, "Headshot"); eq(withMedals.players[1].medals[1].count, 4)
+eq(withMedals.players[1].medals[1].name, "headshot_kill"); eq(withMedals.players[1].medals[1].count, 4)
 eq(withMedals.players[2].medalCount, 11)
 eq(withMedals.players[3].medals, nil, "a player with no medals line has none")
+eq(#withMedals.players[1].series, 4); eq(withMedals.players[1].series[4], 9)
+eq(withMedals.players[2].killsAt[3], 3)
+eq(withMedals.players[3].series, nil)
+eq(withMedals.clock, 240)
+-- For a UI container from before the overview page: the medals as text.
 eq(medalSummary(withMedals, 5),
     "YOUR MEDALS   HEADSHOT x4   /   DOUBLE KILL x2   /   REVENGE   /   KILLING SPREE\nMOST MEDALS   KAT  (11)")
 eq(medalSummary(withMedals, 2),
     "YOUR MEDALS   HEADSHOT x4   /   DOUBLE KILL x2   /   +2 MORE\nMOST MEDALS   KAT  (11)")
+-- A medal the DLL does not know keeps its incident name.
+Report.medalInfoFn = function() end
+has(medalSummary(withMedals, 1), "YOUR MEDALS   HEADSHOT KILL x4", "the name when there is no title")
+Report.medalInfoFn = nil
 -- Results from a HUD before the medals: nothing to say.
 results = table.concat({ "match", "BGL", "slayer", "Blood Gulch", "Slayer", "devnull", tostring(os.time()), "-" }, "\t")
     .. "\nplayer\tdevnull\t3\t3\t0\t-\t1\n"

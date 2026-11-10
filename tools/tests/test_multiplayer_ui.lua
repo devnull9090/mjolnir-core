@@ -663,8 +663,18 @@ medalHost.burst({ { "headshot_kill", 1, 2, 0 }, { "multikill_x2", 1, -1, 0 },
 medalHost.burst({ { "headshot_kill", 1, 0, 0 }, { "Kill", 1, 0, 0, { damage = DT .. "Pistol" } } })
 medalHost.incident("round_over", -1, -1, 0)
 local medalResults = medalHost.written()
-assert(medalResults:find("\nplayer\tBravo\t[^\n]*\nmedals\tHeadshot=2\tDouble Kill=1\tRevenge=1\tSniper Headshot=1\n"),
+assert(medalResults:find("\nplayer\tBravo\t[^\n]*\nmedals\theadshot_kill=2\tmultikill_x2=1\trevenge_kill=1\tsniper_headshot_kill=1\n"),
     medalResults)
+-- And the match over time: each player's score and kills at evenly spaced
+-- moments, and how long it ran.
+local series = medalResults:match("\nplayer\tBravo\t[^\n]*\nmedals[^\n]*\nseries\t([%d,]+)\n")
+assert(series, medalResults)
+local points = {}
+for v in series:gmatch("%d+") do points[#points + 1] = tonumber(v) end
+eq(#points, 48); eq(points[#points], 3, "the last point is the final score")
+for i = 2, #points do assert(points[i] >= points[i - 1], "a score never falls here") end
+assert(medalResults:find("\nkillsat\t[%d,]+\n"), medalResults)
+assert(medalResults:find("\nclock\t%d+\n$"), medalResults)
 assert(not medalResults:find("\nplayer\tAlpha\t[^\n]*\nmedals"), "no line for a player with none")
 print("Multiplayer UI: medals from the DLL: hidden, shown, relayed, and in the results")
 
