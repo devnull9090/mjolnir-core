@@ -68,7 +68,7 @@ in 100 s.
 | Decisions | `brain.mjs` (pure functions) | which enemy, which weapon to fetch, and each tick of a fight: aim wander, trigger, side-steps, crouch and jump, melee, grenades, dives, weapon swap, backing off |
 | Input | `mjolnir_test_input.dll` (native/test_input) | keys change only when they should, so W stays down; `glide dx dy ms` spreads each turn over the frames so the view never snaps |
 
-Tests: `node --test tools/bot/test_brain.mjs tools/bot/test_drive.mjs tools/bot/test_navmesh.mjs`.
+Tests: `node --test tools/bot/test_brain.mjs tools/bot/test_steer.mjs tools/bot/test_navmesh.mjs`.
 
 **Firing.** The reticle only reddens inside the weapon's auto-aim range
 (about 30 m with the assault rifle), so the bot fires on the red reticle or

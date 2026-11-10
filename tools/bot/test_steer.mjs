@@ -1,7 +1,7 @@
-// node --test tools/bot/test_drive.mjs
+// node --test tools/bot/test_steer.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { steer } from "./drive.mjs";
+import { steer } from "./steer.mjs";
 import { Navmesh } from "./navmesh.mjs";
 
 // No areas, only walls: what steering reads.
