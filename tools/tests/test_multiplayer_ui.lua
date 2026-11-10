@@ -656,7 +656,17 @@ assert(not medalWire:find("[|;]headshot_kill,"), "the hidden headshot stays home
 local medalJoiner = runHUD("slayer", true)
 hear(medalJoiner, "MJOLNIR|feed|kill,2,0,0,0,;multikill_x2,2,-1,0,0,")
 assert(feedRow(medalJoiner, "Charlie", "Double Kill"), "the relayed Double Kill")
-print("Multiplayer UI: medals from the DLL: hidden, shown, relayed")
+-- The results carry each player's medals to the post-game screen: a line
+-- after the player's, most earned first, and none for a player without any.
+medalHost.burst({ { "headshot_kill", 1, 2, 0 }, { "multikill_x2", 1, -1, 0 },
+    { "Kill", 1, 2, 0, { damage = DT .. "Pistol" } } })
+medalHost.burst({ { "headshot_kill", 1, 0, 0 }, { "Kill", 1, 0, 0, { damage = DT .. "Pistol" } } })
+medalHost.incident("round_over", -1, -1, 0)
+local medalResults = medalHost.written()
+assert(medalResults:find("\nplayer\tBravo\t[^\n]*\nmedals\tHeadshot=2\tDouble Kill=1\tRevenge=1\tSniper Headshot=1\n"),
+    medalResults)
+assert(not medalResults:find("\nplayer\tAlpha\t[^\n]*\nmedals"), "no line for a player with none")
+print("Multiplayer UI: medals from the DLL: hidden, shown, relayed, and in the results")
 
 -- Teams on a fireteam client come from the host (#347, #349). A client's own
 -- reads of Unreal's team component show what each player record asked for:

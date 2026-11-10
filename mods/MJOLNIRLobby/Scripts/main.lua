@@ -3185,9 +3185,47 @@ local function readResults()
             local known = not p.userId and Identity.lookup(p.name)
             if known then p.userId, p.hubName, p.reports = known.id, known.name, known.reports end
             r.players[#r.players + 1] = p
+        elseif f[1] == "medals" and #r.players > 0 then
+            -- The player just above's medals: { { title, count } }, most
+            -- earned first (a HUD from before the medals writes none).
+            local p = r.players[#r.players]
+            p.medals, p.medalCount = {}, 0
+            for i = 2, #f do
+                local title, count = f[i]:match("^(.-)=(%d+)$")
+                if title and title ~= "" then
+                    p.medals[#p.medals + 1] = { title = title, count = tonumber(count) }
+                    p.medalCount = p.medalCount + tonumber(count)
+                end
+            end
         end
     end
     return r.code and r or nil
+end
+
+--- What the post-game summary says about medals: the local player's own
+--- (the most earned first, `limit` kinds at most, then how many more), and
+--- who earned the most. "" when nobody earned one.
+function Report.medalSummary(r, limit)
+    local lines = {}
+    local you, top
+    for _, p in ipairs(r.players) do
+        if p.you and p.medals and #p.medals > 0 then you = p end
+        if (p.medalCount or 0) > 0 and (not top or p.medalCount > top.medalCount) then top = p end
+    end
+    if you then
+        local parts = {}
+        for i = 1, math.min(#you.medals, limit) do
+            local m = you.medals[i]
+            parts[#parts + 1] = string.upper(m.title) .. (m.count > 1 and (" x" .. tostring(m.count)) or "")
+        end
+        if #you.medals > limit then parts[#parts + 1] = "+" .. tostring(#you.medals - limit) .. " MORE" end
+        lines[#lines + 1] = "YOUR MEDALS   " .. table.concat(parts, "   /   ")
+    end
+    if top and not (you == top and #r.players == 1) then
+        lines[#lines + 1] = "MOST MEDALS   " .. string.upper(top.hubName or top.name) .. "  (" ..
+            tostring(top.medalCount) .. ")"
+    end
+    return table.concat(lines, "\n")
 end
 
 --- The host: whether every member here who said which maps they have has
@@ -3340,6 +3378,9 @@ local function drawResults()
         for _, t in ipairs(r.teams) do totals[#totals + 1] = string.upper(t.team) .. " " .. tostring(t.total) end
         summary = summary .. "   /   " .. table.concat(totals, "  -  ")
     end
+    -- Medals have no column of their own on this screen: under the summary.
+    local medals = Report.medalSummary(r, 5)
+    if medals ~= "" then summary = summary .. "\n" .. medals end
     setText(s.Summary, summary)
     setText(s.ScoreH, (MODES.byId(r.variant) or {}).scoreHeading or "SCORE")
     local rows = {}

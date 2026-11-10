@@ -35,7 +35,11 @@ reaches `game_over`, and the host ends the match itself.
    machine freezes its tallies, shows the scoreboard as the final standings
    (winner, game type, map, "RETURNING TO THE LOBBY"), and writes them to
    `MJOLNIRHud\last_match.txt` (`Scoreboard.results`). The round the game
-   resets behind the standings does not score.
+   resets behind the standings does not score. Each player's medals go with
+   them (a `medals` line after the player's: `Headshot=4`, `Double Kill=2`
+   ..., most earned first), and the post-game screen says under the winner
+   which the local player earned and who earned the most. The screen has no
+   medal column of its own: that needs a new UI container.
 2. **The host** waits 7 s (`FINAL_SECONDS`), then runs the seamless
    `servertravel` to the frontend. A `game_over` (an older 1-round variant)
    makes it travel at once, before the game's own return.

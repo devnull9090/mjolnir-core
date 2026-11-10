@@ -237,6 +237,34 @@ local function reset()
 end
 
 -------------------------------------------------------------------------------
+-- 0. The standings carry medals: read, and summed up under the winner
+-------------------------------------------------------------------------------
+
+local readResults = upvalue(hostPostGame, "readResults")
+local medalSummary = upvalue(postTick, "Report").medalSummary
+results = table.concat({ "match", "BGL", "slayer", "Blood Gulch", "Slayer", "devnull", tostring(os.time()), "-" }, "\t")
+    .. "\nplayer\tdevnull\t9\t9\t2\t-\t1\n"
+    .. "medals\tHeadshot=4\tDouble Kill=2\tRevenge=1\tKilling Spree=1\n"
+    .. "player\tKat\t5\t5\t6\t-\t0\n"
+    .. "medals\tPummel=11\n"
+    .. "player\tJun\t1\t1\t7\t-\t0\n"
+local withMedals = readResults()
+eq(#withMedals.players, 3, "three players")
+eq(withMedals.players[1].medalCount, 8)
+eq(withMedals.players[1].medals[1].title, "Headshot"); eq(withMedals.players[1].medals[1].count, 4)
+eq(withMedals.players[2].medalCount, 11)
+eq(withMedals.players[3].medals, nil, "a player with no medals line has none")
+eq(medalSummary(withMedals, 5),
+    "YOUR MEDALS   HEADSHOT x4   /   DOUBLE KILL x2   /   REVENGE   /   KILLING SPREE\nMOST MEDALS   KAT  (11)")
+eq(medalSummary(withMedals, 2),
+    "YOUR MEDALS   HEADSHOT x4   /   DOUBLE KILL x2   /   +2 MORE\nMOST MEDALS   KAT  (11)")
+-- Results from a HUD before the medals: nothing to say.
+results = table.concat({ "match", "BGL", "slayer", "Blood Gulch", "Slayer", "devnull", tostring(os.time()), "-" }, "\t")
+    .. "\nplayer\tdevnull\t3\t3\t0\t-\t1\n"
+eq(medalSummary(readResults(), 5), "")
+results = nil
+
+-------------------------------------------------------------------------------
 -- 1. A real end votes and starts; the host's Quit opens the lobby
 -------------------------------------------------------------------------------
 

@@ -574,6 +574,10 @@ local function announceMedals(awards)
     for _, a in ipairs(awards) do
         local colour = FEED[a.colour] or FEED.medal
         if type(a.cause) == "number" and a.cause >= 0 then
+            -- The tally the results carry to the post-game screen.
+            local p = stats(a.cause)
+            p.medals = p.medals or {}
+            p.medals[a.title] = (p.medals[a.title] or 0) + 1
             if a.show == Medals.FEED then eventLine(a.cause, a.glyph, colour, a.title, colour) end
             if a.show ~= Medals.HIDDEN and a.cause == LOCAL_PLAYER and #callouts < 3 then
                 callouts[#callouts + 1] = { title = string.upper(a.title), glyph = a.glyph, color = colour }

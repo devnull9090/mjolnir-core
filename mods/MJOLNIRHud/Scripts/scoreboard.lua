@@ -152,9 +152,23 @@ end
 ---   team   <Red|Blue> <total>
 ---   player <name> <score> <kills> <deaths> <team or -> <1 if local>
 ---          <hub account id or -> <hub name or -> <reports>
+---   medals <title>=<count> ...   the player just above's, most earned first
+---          (only when they earned any; an older MJOLNIRLobby skips the line)
 --- Players in standing order. The name is the in-game one; the account is
 --- the hub's (docs/player_identity.md), which the post-game screen shows and
 --- reports cite, with the match id.
+--- A player's medals as { { title, count } }, most earned first, then by
+--- title.
+function Board.medals(p)
+    local out = {}
+    for title, count in pairs(p.medals or {}) do out[#out + 1] = { title = title, count = count } end
+    table.sort(out, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return a.title < b.title
+    end)
+    return out
+end
+
 function Board.results(match, localPlayer, endedAt, matchId)
     local lines = { table.concat({ "match", field(match.code), field(match.variant), field(match.title),
         field(match.mode.title), field(Board.winner(match)), field(endedAt), field(matchId or "-") }, "\t") }
@@ -171,6 +185,12 @@ function Board.results(match, localPlayer, endedAt, matchId)
                 field(Board.score(p, match.mode)), field(p.kills), field(p.deaths),
                 field(Board.team(p.team) or "-"), p.index == localPlayer and "1" or "0",
                 field(p.userId or "-"), field(p.display or "-"), field(p.reports or 0) }, "\t")
+            local medals = Board.medals(p)
+            if #medals > 0 then
+                local parts = { "medals" }
+                for _, m in ipairs(medals) do parts[#parts + 1] = field(m.title) .. "=" .. tostring(m.count) end
+                lines[#lines + 1] = table.concat(parts, "\t")
+            end
         end
     end
     return table.concat(lines, "\n") .. "\n"
