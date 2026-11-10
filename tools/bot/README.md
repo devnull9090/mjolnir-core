@@ -37,6 +37,7 @@ skill is hard-coded anywhere else. The four presets differ like this:
 | Turn speed onto a target | 140°/s | 220°/s | 320°/s | 540°/s |
 | Aim wander (one sigma) | 3.5° | 1.8° | 0.8° | 0.15° |
 | Leads a moving target by | 0 | 0.05 s | 0.1 s | 0.15 s |
+| Locks onto the bone within | never | never | 2° | 8° |
 | Aims for the head | 10% | 35% | 65% | 95% |
 | Engages out to | 22 m | 30 m | 40 m | 60 m |
 | Trigger | 0.5 s bursts | 0.9 s bursts | held | held |
@@ -72,8 +73,28 @@ Tests: `node --test tools/bot/test_brain.mjs tools/bot/test_drive.mjs tools/bot/
 (about 30 m with the assault rifle), so the bot fires on the red reticle or
 when its aim is within a body's width of the bone.
 
+**Line of sight.** The navmesh export lists every collision polygon of the
+map (the shell and the instanced geometry: 37,613 on Blood Gulch), and
+`mesh.sight(eye, bone)` casts the line between them. A target counts as
+visible only when its actor shows and that line is clear, so the bot neither
+fights nor fires through a hill, a wall or a tree trunk.
+
+**Turning.** Each tick's turn is spread over the frames by `glide`. The
+camera reading a turn is computed from is already tens of milliseconds old,
+and the last turn has gone on since; that part is taken off the new turn, or
+it is applied twice and the aim swings past the target. A preset with
+`lockOn` then sticks to the bone once it is that close: the whole remaining
+error in one short glide, with no rate limit.
+
 **Leading.** The aim point is the bone moved by `lead` seconds of the
-target's motion less the bot's own (its side-steps swing the view too).
+target's motion less the bot's own (its side-steps swing the view too). Both
+velocities are a line fitted through the last half second of positions, so
+one noisy reading does not swing the aim.
+
+**No way there.** An enemy somewhere the navmesh does not reach (a roof)
+is approached as far as the nearest ground the bot can walk to, never in a
+straight line at a wall; with nowhere nearer to go it faces the enemy and
+waits.
 
 **Dives.** The Spartan's animation graph has the AI's dives
 (`combat:rifle:dive_left`, `_right`, `_front`, `_back`, and pistol, missile
@@ -112,8 +133,12 @@ swap 1, reload R, sprint Left Shift.
   copies players from the object table each tick) removes both limits, and
   is how these become real bot players rather than a driver for the local
   one.
-- **No line of sight.** A target whose actor shows counts as visible, wall or
-  not. `blam_sbsp::raytest` can answer it from the same collision.
+- **Sight is against the map only.** Vehicles, doors and other objects do
+  not block it, and neither do thin things the collision leaves out.
+- **Leading is for bullets that arrive at once.** Rockets, plasma and
+  needles need the shot's flight time added, which needs the weapon in hand.
+  The simulation's own velocity for the target (it keeps one per object)
+  would beat a fit through positions.
 - **No magazine or weapon-in-hand read.** The weapon and unit datums hold
   them; their offsets are not mapped. Until then: the damage test above.
 - **No cover.** Backing off is straight back with side-steps, not to a spot

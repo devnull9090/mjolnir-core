@@ -82,3 +82,31 @@ test("a route goes around a blocked area, and through it when it must", () => {
   lane.block([1.5, 0.5], 0.3);
   assert.ok(lane.route([0.5, 0.5, 0.6], [2.5, 0.5, 0.6]));
 });
+
+test("sight: a wall or a hill between two points blocks the line", () => {
+  // Flat ground, a wall across x = 2 from the ground up to z = 2, and a hill
+  // (a ridge) across x = 6 that peaks at z = 1.5.
+  const surfaces = [
+    [[0, -5, 0], [10, -5, 0], [10, 5, 0], [0, 5, 0]],
+    [[2, -1, 0], [2, 1, 0], [2, 1, 2], [2, -1, 2]],
+    [[5, -5, 0], [6, -5, 1.5], [6, 5, 1.5], [5, 5, 0]],
+    [[6, -5, 1.5], [7, -5, 0], [7, 5, 0], [6, 5, 1.5]],
+  ];
+  const mesh = Navmesh.load({ version: 1, sectors: [], doors: [], main_component: 0, surfaces });
+  const eye = (x, y) => [x, y, 0.6];
+  assert.equal(mesh.sight(eye(1, 0), eye(3, 0)), false, "through the wall");
+  assert.equal(mesh.sight(eye(1, 3), eye(3, 3)), true, "past its end");
+  assert.equal(mesh.sight([1, 0, 2.5], [3, 0, 2.5]), true, "over its top");
+  assert.equal(mesh.sight(eye(4, 0), eye(8, 0)), false, "through the hill");
+  assert.equal(mesh.sight([4, 0, 2], [8, 0, 2]), true, "over the hill");
+  assert.equal(mesh.sight(eye(3, 0), eye(4.5, 0)), true, "standing on the ground does not block");
+  // No surfaces exported: nothing to block.
+  assert.equal(Navmesh.load({ version: 1, sectors: [], doors: [], main_component: 0 }).sight(eye(1, 0), eye(3, 0)), true);
+});
+
+test("reachableNear: the nearest ground this side of a gap", () => {
+  const mesh = grid([[0, 0], [1, 0], [2, 0], [8, 0]]);
+  const near = mesh.reachableNear([0.5, 0.5, 0.6], [8.5, 0.5, 0]);
+  assert.ok(near[0] > 2 && near[0] < 3, `x ${near[0]}`);
+  assert.equal(mesh.reachableNear([20, 20, 0], [8.5, 0.5, 0]), null);
+});

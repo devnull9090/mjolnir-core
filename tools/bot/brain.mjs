@@ -206,6 +206,37 @@ export function fight(p, mem, skill, rng) {
   return out;
 }
 
+/** The velocity (units of `pos` a second) of a point from its recent
+ *  `samples` ([{ t (s), pos: [x, y, z] }], oldest first): a least-squares
+ *  line through them, so one noisy reading does not swing it. Zero with
+ *  fewer than two samples or no time between them. */
+export function fitVelocity(samples) {
+  const n = samples.length;
+  if (n < 2) return [0, 0, 0];
+  const tMean = samples.reduce((sum, x) => sum + x.t, 0) / n;
+  const spread = samples.reduce((sum, x) => sum + (x.t - tMean) ** 2, 0);
+  if (spread < 1e-9) return [0, 0, 0];
+  return [0, 1, 2].map((i) => {
+    const pMean = samples.reduce((sum, x) => sum + x.pos[i], 0) / n;
+    return samples.reduce((sum, x) => sum + (x.t - tMean) * (x.pos[i] - pMean), 0) / spread;
+  });
+}
+
+/** Adds a sample and drops those older than `window` seconds. */
+export function track(samples, t, pos, window = 0.45) {
+  samples.push({ t, pos });
+  while (samples.length && t - samples[0].t > window) samples.shift();
+  return samples;
+}
+
+/** How much of a turn `glide` ({ amount, at, span }, seconds) was applied
+ *  between `from` and `to`: what a reading taken at `from` has not seen. */
+export function appliedSince(glide, from, to) {
+  if (!glide || glide.span <= 0) return 0;
+  const overlap = Math.min(to, glide.at + glide.span) - Math.max(from, glide.at);
+  return overlap > 0 ? (glide.amount * overlap) / glide.span : 0;
+}
+
 /** Whether an aim `error` (yaw, pitch, deg) off a bone `distance` m away is
  *  still on a body `halfWidth` m wide. */
 export function onBody(error, distance, halfWidth = 0.28) {

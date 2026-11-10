@@ -20,6 +20,7 @@ const base = {
   aimError: 1.8,       // how far the aim wanders off the bone (one sigma), deg
   aimWander: 0.4,      // how often the wander picks a new offset
   lead: 0.05,          // how far ahead of a moving target to aim, s of its motion
+  lockOn: 0,           // once the aim is within this of the bone it sticks to it, deg (0: never)
   headshots: 0.35,     // the share of targets aimed at the head (else the chest)
   engage: 30,          // a showing target this close is fought, m
   hold: 8,             // stops closing in at this range, m
@@ -58,14 +59,14 @@ export const PRESETS = {
   regular: { ...base },
   // Strafes hard, aims for the head, dives when shot, throws grenades.
   heroic: {
-    ...base, reaction: 0.22, turnRate: 320, aimError: 0.8, aimWander: 0.3, lead: 0.1, headshots: 0.65,
+    ...base, reaction: 0.22, turnRate: 320, aimError: 0.8, aimWander: 0.3, lead: 0.1, lockOn: 2, headshots: 0.65,
     engage: 40, burst: [1, 0], strafe: 0.85, strafeEvery: [0.5, 1.1], crouch: 0.15, jump: 0.08,
     dodgeOnHit: 0.5, dodgeAware: 0.25, dodgeCooldown: 5, retreat: 0.3, grenadeEvery: 10, seekRange: 40,
     finisher: 0.3,
   },
   // Near-instant, near-perfect, never still: dives the moment it is aimed at.
   legendary: {
-    ...base, reaction: 0.08, turnRate: 540, aimError: 0.15, aimWander: 0.2, lead: 0.15, headshots: 0.95,
+    ...base, reaction: 0.08, turnRate: 540, aimError: 0.15, aimWander: 0.2, lead: 0.15, lockOn: 8, headshots: 0.95,
     engage: 60, hold: 10, burst: [1, 0], strafe: 1, strafeEvery: [0.3, 0.8], crouch: 0.3, jump: 0.12,
     dodgeOnHit: 0.9, dodgeAware: 0.8, dodgeAimed: 18, dodgeCooldown: 2.5, retreat: 0.4,
     grenadeEvery: 6, seekRange: 60, swapAfter: 2.5, finisher: 0.6,

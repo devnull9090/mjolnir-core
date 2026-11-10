@@ -13,7 +13,8 @@
 //!   "sectors": [{ "ring": [[x, y, z], ...], "floor": true, "component": 7, "blocked": false }, ...],
 //!   "doors": [[a, b, [x, y, z], [x, y, z]], ...],
 //!   "main_component": 7,
-//!   "walls": [[x1, y1, x2, y2, z low, z high], ...]
+//!   "walls": [[x1, y1, x2, y2, z low, z high], ...],
+//!   "surfaces": [[[x, y, z], ...], ...]
 //! }
 //! ```
 //!
@@ -31,6 +32,8 @@
 //! sector's edge, as a cliff meets the ground beside it, does not block it.
 //! `walls` lists the sides of those surfaces that stand in a walkable area,
 //! in plan with their height range: what a walker steers around close in.
+//! `surfaces` is every collision polygon of the shell and the instances: what
+//! a line of sight is tested against.
 use anyhow::{Context, Result};
 use blam_sbsp::pathfinding::{shell_collision, Pathfinding};
 use clap::Args;
@@ -284,6 +287,19 @@ pub fn build(sbsp: &[u8]) -> Result<serde_json::Value> {
     let extra = blam_sbsp::pathfinding::instance_surfaces(sbsp, &shell)
         .map_err(|e| anyhow::anyhow!("navmesh: {e}"))?;
     let (blocked, walls) = blocked(&pf, &shell, &rings, &extra);
+    // Everything solid, for line of sight: the shell's surfaces, walkable or
+    // not, and the instances'. Rounded to a millimetre to keep the file small.
+    let round = |ring: &[[f32; 3]]| -> Vec<[f32; 3]> {
+        ring.iter()
+            .map(|p| p.map(|v| (v * 1000.0).round() / 1000.0))
+            .collect()
+    };
+    let mut solid: Vec<Vec<[f32; 3]>> = (0..shell.surfaces.len())
+        .map(|s| surface_ring(&shell, s))
+        .filter(|r| r.len() >= 3)
+        .map(|r| round(&r))
+        .collect();
+    solid.extend(extra.iter().map(|(ring, _)| round(ring)));
     let sectors: Vec<serde_json::Value> = (0..pf.sectors.len())
         .map(|s| {
             serde_json::json!({
@@ -313,6 +329,7 @@ pub fn build(sbsp: &[u8]) -> Result<serde_json::Value> {
         "doors": doors,
         "main_component": main,
         "walls": walls,
+        "surfaces": solid,
     }))
 }
 

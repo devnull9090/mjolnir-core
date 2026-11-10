@@ -35,7 +35,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bridgeCall, callTool, paths } from "../mcp/game/game.mjs";
 import { parseAck } from "../mcp/game/in_game_input.mjs";
-import { chooseTarget, chooseWeapon, fight, M_PER_WU, newMemory, onBody, turnTo } from "./brain.mjs";
+import {
+  appliedSince, chooseTarget, chooseWeapon, fight, fitVelocity, M_PER_WU, newMemory, onBody, track, turnTo,
+} from "./brain.mjs";
 import { Navmesh } from "./navmesh.mjs";
 import { KEYS, preset } from "./presets.mjs";
 import { World } from "./world.mjs";
@@ -271,8 +273,9 @@ async function main() {
   let crouchUntil = 0;
   let dead = false;
   let lastFire = { at: -1e9, handle: null };
-  let aimed = { handle: null, bone: null, at: 0, velocity: [0, 0, 0] };
-  let eye = { camera: null, at: 0, velocity: [0, 0, 0] };
+  let aimed = { handle: null, samples: [], velocity: [0, 0, 0] };
+  const eye = { samples: [], velocity: [0, 0, 0] };
+  let glide = { yaw: null, pitch: null };
   let seen = { handle: null, at: 0, pos: null };
   let foughtAt = -1e9;
   let going = { key: null, since: 0 };
@@ -365,6 +368,8 @@ async function main() {
       // metres in that: look for the target where it was last seen.
       const fresh = target && seen.handle === target.handle && t0 - seen.at < 1500;
       const reply = await lua(perceive(mem.bone, target ? (fresh ? seen.pos : target.pos) : null, fresh ? 400 : 700));
+      // When the game read its camera: just before the reply came back.
+      const readAt = Date.now() - 15;
       const view = parseView(reply.body);
       if (!view || dead) {
         if (hands.keys.size || hands.fire) await hands.release();
@@ -376,28 +381,20 @@ async function main() {
       const before = feet;
       feet = [me[0], me[1], me[2] - EYE];
       // This player's own motion (UE cm/s): the view swings as it side-steps.
-      if (eye.camera && t0 > eye.at) {
-        const k = (t0 - eye.at) / 1000;
-        const v = [0, 1, 2].map((i) => (view.camera[i] - eye.camera[i]) / k);
-        eye.velocity = [0, 1, 2].map((i) => eye.velocity[i] * 0.5 + v[i] * 0.5);
-      }
-      eye.camera = view.camera;
-      eye.at = t0;
+      eye.velocity = fitVelocity(track(eye.samples, readAt / 1000, view.camera));
       const speed = before && dt > 0 ? (Math.hypot(feet[0] - before[0], feet[1] - before[1]) * WU) / 100 / dt : 0; // m/s
 
       // The target's bone, and how it is moving (for the lead).
-      const visible = Boolean(!a.goto && target && view.bone);
-      if (visible) {
-        if (aimed.handle === target.handle && aimed.bone && t0 > aimed.at) {
-          const k = (t0 - aimed.at) / 1000;
-          const v = [0, 1, 2].map((i) => (view.bone[i] - aimed.bone[i]) / k);
-          aimed.velocity = [0, 1, 2].map((i) => aimed.velocity[i] * 0.5 + v[i] * 0.5);
-        } else {
-          aimed.velocity = [0, 0, 0];
-        }
-        aimed = { ...aimed, handle: target.handle, bone: view.bone, at: t0 };
+      // Its actor shows: where it is, and (a line fitted through its last
+      // half second) how it is moving.
+      const showing = Boolean(!a.goto && target && view.bone);
+      if (showing) {
+        if (aimed.handle !== target.handle) aimed = { handle: target.handle, samples: [], velocity: [0, 0, 0] };
+        aimed.velocity = fitVelocity(track(aimed.samples, readAt / 1000, view.bone));
         seen = { handle: target.handle, at: t0, pos: toWU(view.bone) };
       }
+      // Visible: showing, with nothing solid between the eye and the bone.
+      const visible = showing && mesh.sight(me, toWU(view.bone));
       const targetAt = visible ? toWU(view.bone) : target ? target.pos : null;
       const distance = targetAt ? Math.hypot(targetAt[0] - feet[0], targetAt[1] - feet[1]) * M_PER_WU : Infinity;
 
@@ -422,7 +419,15 @@ async function main() {
       let walking = false;
       let using = false;
       const toward = (point) => {
-        const r = mesh.route(feet, point);
+        let r = mesh.route(feet, point);
+        if (!r) {
+          // Nowhere this player can walk to (a roof, a ledge): the nearest
+          // ground it can reach, never a straight line at a wall.
+          const near = mesh.reachableNear(feet, point);
+          if (!near || Math.hypot(near[0] - feet[0], near[1] - feet[1]) < 0.5) return null;
+          point = near;
+          r = mesh.route(feet, point);
+        }
         let next = point;
         if (r && r.points.length) {
           next = r.points[0];
@@ -442,21 +447,36 @@ async function main() {
         mode = "weapon";
         const gap = Math.hypot(weapon.pos[0] - feet[0], weapon.pos[1] - feet[1]);
         look = toward(weapon.pos);
-        walking = gap > 0.25;
+        walking = gap > 0.25 && look !== null;
         using = gap < 1.0; // hold the pick-up key over it
       } else if (target) {
         mode = "hunt";
         look = toward(target.pos);
-        walking = true;
+        walking = look !== null;
+        // Nowhere nearer to walk: face it and wait for it to show.
+        if (!look) look = toUE([target.pos[0], target.pos[1], target.pos[2] + EYE]);
       }
       let [dyaw, dpitch] = look ? turnTo(view.camera, view.yaw, view.pitch, look, f.engaged ? f.noise : [0, 0]) : [0, 0];
       if (!f.engaged) dpitch = clamp(dpitch, -20, 20);
       // Turn at a limited rate, spread over the next ticks: smooth, and a
       // newer tick takes over what is left.
-      const rate = f.engaged ? skill.turnRate : 200; // deg/s
-      const span = f.engaged ? 0.12 : 0.25; // s: tight on a target, easy on a route
-      const turnYaw = clamp(dyaw, -rate * span, rate * span);
-      const turnPitch = clamp(dpitch, -rate * span, rate * span);
+      // The camera was read a moment ago, and the last turn has gone on
+      // since: that part is already done, and asking for it again is what
+      // swung the aim past the target.
+      const sendAt = Date.now();
+      dyaw -= appliedSince(glide.yaw, readAt / 1000, sendAt / 1000);
+      dpitch -= appliedSince(glide.pitch, readAt / 1000, sendAt / 1000);
+      // Close enough, a skilled aim sticks to the bone: no rate limit, one
+      // frame's glide.
+      const locking = f.engaged && skill.lockOn > 0 && Math.hypot(dyaw, dpitch) <= skill.lockOn;
+      const rate = locking ? Infinity : f.engaged ? skill.turnRate : 200; // deg/s
+      const span = locking ? 0.05 : f.engaged ? 0.12 : 0.25; // s: tight on a target, easy on a route
+      const turnYaw = locking ? dyaw : clamp(dyaw, -rate * span, rate * span);
+      const turnPitch = locking ? dpitch : clamp(dpitch, -rate * span, rate * span);
+      glide = {
+        yaw: { amount: turnYaw, at: sendAt / 1000, span },
+        pitch: { amount: turnPitch, at: sendAt / 1000, span },
+      };
 
       // Stuck walking: whatever is ahead is not walkable after all (a wall the
       // navmesh missed, a vehicle). The ground there is blocked for the rest
@@ -502,7 +522,7 @@ async function main() {
       say(mode, Number.isFinite(distance) ? `${distance.toFixed(1)} m` : "-",
         `yaw ${dyaw.toFixed(1)} pitch ${dpitch.toFixed(1)}`, view.locked ? "LOCKED" : "", f.fire ? "FIRE" : "",
         f.taps.join("+"), around ? "AROUND" : "",
-        visible ? `off ${offBone[0].toFixed(1)}` : "", `shield ${(w.me ? w.me.shield : 1).toFixed(2)}`,
+        visible ? `off ${offBone[0].toFixed(1)}` : showing ? "NO-SIGHT" : "", locking ? "LOCK" : "", `shield ${(w.me ? w.me.shield : 1).toFixed(2)}`,
         `${speed.toFixed(1)} m/s`, `at ${feet[0].toFixed(2)},${feet[1].toFixed(2)}`, `${Date.now() - t0} ms`);
       // About 10 a second.
       const wait = 100 - (Date.now() - t0);

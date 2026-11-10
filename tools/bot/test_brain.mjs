@@ -1,7 +1,9 @@
 // node --test tools/bot/test_brain.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aimedAt, aimNoise, chooseTarget, chooseWeapon, fight, newMemory, onBody, turnTo } from "./brain.mjs";
+import {
+  aimedAt, aimNoise, appliedSince, chooseTarget, chooseWeapon, fight, fitVelocity, newMemory, onBody, track, turnTo,
+} from "./brain.mjs";
 import { PRESETS, preset } from "./presets.mjs";
 import { parseObjects } from "./world.mjs";
 
@@ -230,4 +232,38 @@ test("world: the simulation's rows become the bot, enemies, and weapons", () => 
   assert.equal(w.enemies[0].yaw, 58.9);
   assert.deepEqual(w.held, ["magnum"]);
   assert.deepEqual(w.ground, [{ kind: "sniper_rifle", pos: [43.19, -82.23, 1.74] }]);
+});
+
+test("fitVelocity: a steady runner's speed, through a noisy reading", () => {
+  const samples = [];
+  for (let i = 0; i < 5; i++) samples.push({ t: i * 0.1, pos: [i * 0.1 * 600, 100, 0] }); // 600 cm/s along x
+  const v = fitVelocity(samples);
+  assert.ok(Math.abs(v[0] - 600) < 1e-6 && Math.abs(v[1]) < 1e-6);
+  // One reading 40 cm out: two-point differences would say 1000 or 200.
+  samples[4].pos = [4 * 60 + 40, 100, 0];
+  assert.ok(Math.abs(fitVelocity(samples)[0] - 600) < 90, `fit ${fitVelocity(samples)[0]}`);
+  assert.deepEqual(fitVelocity([{ t: 0, pos: [1, 2, 3] }]), [0, 0, 0]);
+  assert.deepEqual(fitVelocity([{ t: 1, pos: [1, 2, 3] }, { t: 1, pos: [9, 9, 9] }]), [0, 0, 0]);
+});
+
+test("track: keeps the last half second", () => {
+  const samples = [];
+  for (let i = 0; i < 20; i++) track(samples, i * 0.1, [i, 0, 0]);
+  assert.ok(samples.length >= 4 && samples.length <= 6);
+  assert.equal(samples[samples.length - 1].pos[0], 19);
+});
+
+test("appliedSince: the part of a turn a stale reading has not seen", () => {
+  const glide = { amount: 12, at: 1.0, span: 0.12 };
+  assert.ok(Math.abs(appliedSince(glide, 1.0, 1.12) - 12) < 1e-9, "all of it");
+  assert.ok(Math.abs(appliedSince(glide, 1.06, 1.12) - 6) < 1e-9, "the second half");
+  assert.ok(Math.abs(appliedSince(glide, 1.06, 1.09) - 3) < 1e-9, "a slice");
+  assert.equal(appliedSince(glide, 1.2, 1.3), 0, "already over");
+  assert.equal(appliedSince(null, 0, 1), 0);
+});
+
+test("presets: only the skilled lock on", () => {
+  assert.equal(PRESETS.recruit.lockOn, 0);
+  assert.equal(PRESETS.regular.lockOn, 0);
+  assert.ok(PRESETS.heroic.lockOn > 0 && PRESETS.legendary.lockOn > PRESETS.heroic.lockOn);
 });

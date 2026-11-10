@@ -11,6 +11,11 @@
 //   mesh.firstWall(p, q, z, clear)     the nearest wall within `clear` of the
 //                                     line p -> q at a walker's height
 //   mesh.wallsAlong(p, q, z, clear)    all of them
+//   mesh.sight(a, b)                   whether nothing solid lies between two
+//                                     points (3D): the map's collision, shell
+//                                     and instances, as the exporter lists it
+//   mesh.reachableNear(from, to)       the walkable point nearest `to` that
+//                                     `from` can reach
 //
 // `walls` are the sides of collision standing in walkable areas (trees,
 // rocks), as the exporter found them: plan ends and a height range.
@@ -58,6 +63,27 @@ function distanceToPolygon(ring, p) {
     best = Math.min(best, Math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1]));
   }
   return inside ? 0 : best;
+}
+
+const SIGHT_CELL = 4; // the line-of-sight grid's cell, wu
+
+/** Whether the segment from `a` along `d` (its whole length) crosses triangle
+ *  `t`, either side, away from both ends (Moller-Trumbore). */
+function segmentHitsTriangle(a, d, t) {
+  const e1 = [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]];
+  const e2 = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
+  const h = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]];
+  const det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2];
+  if (Math.abs(det) < 1e-12) return false;
+  const inv = 1 / det;
+  const s = [a[0] - t[0][0], a[1] - t[0][1], a[2] - t[0][2]];
+  const u = (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]) * inv;
+  if (u < 0 || u > 1) return false;
+  const q = [s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2], s[0] * e1[1] - s[1] * e1[0]];
+  const v = (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]) * inv;
+  if (v < 0 || u + v > 1) return false;
+  const along = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+  return along > 0.01 && along < 0.99;
 }
 
 /** Closest approach of plan segments p-q and a-b: the distance, and how far
@@ -114,6 +140,17 @@ export class Navmesh {
       this.next[a].push({ to: b, left: v2, right: v1 });
       this.next[b].push({ to: a, left: v1, right: v2 });
     }
+    // Which areas join which, from the doorways themselves.
+    const parent = this.sectors.map((_, i) => i);
+    const find = (i) => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+      }
+      return i;
+    };
+    for (const [a, b] of data.doors) parent[find(a)] = find(b);
+    this.sectors.forEach((sector, i) => { sector.component = find(i); });
     this.walls = (data.walls ?? []).map((w) => ({ a: [w[0], w[1]], b: [w[2], w[3]], lo: w[4], hi: w[5] }));
     this.wallGrid = new Map();
     this.walls.forEach((w, i) => {
@@ -125,6 +162,26 @@ export class Navmesh {
         }
       }
     });
+    // Line of sight: every collision polygon as triangles, in a plan grid.
+    this.triangles = [];
+    this.sightGrid = new Map();
+    for (const ring of data.surfaces ?? []) {
+      for (let i = 1; i + 1 < ring.length; i++) {
+        const t = [ring[0], ring[i], ring[i + 1]];
+        const index = this.triangles.length;
+        this.triangles.push(t);
+        const xs = t.map((p) => p[0]);
+        const ys = t.map((p) => p[1]);
+        for (let gx = Math.floor(Math.min(...xs) / SIGHT_CELL); gx <= Math.floor(Math.max(...xs) / SIGHT_CELL); gx++) {
+          for (let gy = Math.floor(Math.min(...ys) / SIGHT_CELL); gy <= Math.floor(Math.max(...ys) / SIGHT_CELL); gy++) {
+            const key = gx * 65536 + gy;
+            let cell = this.sightGrid.get(key);
+            if (!cell) this.sightGrid.set(key, (cell = []));
+            cell.push(index);
+          }
+        }
+      }
+    }
     this.grid = new Map();
     for (const s of this.sectors) {
       for (let gx = Math.floor(s.box[0] / CELL); gx <= Math.floor(s.box[2] / CELL); gx++) {
@@ -197,6 +254,48 @@ export class Navmesh {
       }
     }
     return n;
+  }
+
+  /** Whether the straight line a -> b (3D, wu) is clear of the map's
+   *  collision. With no surfaces exported, every line is clear. */
+  sight(a, b) {
+    if (!this.triangles.length) return true;
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const plan = Math.hypot(d[0], d[1]);
+    const steps = Math.max(1, Math.ceil(plan / (SIGHT_CELL * 0.5)));
+    const seen = new Set();
+    let lastKey = null;
+    for (let i = 0; i <= steps; i++) {
+      const k = i / steps;
+      const key = Math.floor((a[0] + d[0] * k) / SIGHT_CELL) * 65536 + Math.floor((a[1] + d[1] * k) / SIGHT_CELL);
+      if (key === lastKey) continue;
+      lastKey = key;
+      for (const index of this.sightGrid.get(key) ?? []) {
+        if (seen.has(index)) continue;
+        seen.add(index);
+        if (segmentHitsTriangle(a, d, this.triangles[index])) return false;
+      }
+    }
+    return true;
+  }
+
+  /** The centre of the walkable area nearest `to` (plan) among those joined
+   *  to where `from` stands; null when `from` is off the mesh. */
+  reachableNear(from, to) {
+    const start = this.locate(from);
+    if (start < 0) return null;
+    const component = this.sectors[start].component;
+    let best = null;
+    let bestD = Infinity;
+    for (const s of this.sectors) {
+      if (s.component !== component || s.blocked || !s.floor) continue;
+      const dd = Math.hypot(s.center[0] - to[0], s.center[1] - to[1]) + Math.abs(s.center[2] - to[2]) * 2;
+      if (dd < bestD) {
+        bestD = dd;
+        best = s.center;
+      }
+    }
+    return best;
   }
 
   /** The wall nearest along p -> q (plan) that comes within `clear` of the
