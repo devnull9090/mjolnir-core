@@ -18,11 +18,11 @@ export function newMemory() {
     noise: [0, 0], noiseFrom: [0, 0], noiseTo: [0, 0], noiseAt: -1e9,
     strafeDir: 0, strafeUntil: -1e9,
     burstAt: 0,
-    lastDodge: -1e9, lastGrenade: -1e9, lastMelee: -1e9, lastSwap: -1e9,
+    lastDodge: -1e9, lastGrenade: -1e9, lastMelee: -1e9, lastSwap: -1e9, lastAmmoTap: -1e9,
     shield: 1, worldSeq: -1, hitAt: -1e9,
     firingSince: null, targetBodyAtFire: null,
     wasEngaged: false, lostAt: null,
-    stats: { kills: 0, deaths: 0, dives: 0, grenades: 0, melees: 0, swaps: 0, pickups: 0 },
+    stats: { kills: 0, deaths: 0, dives: 0, grenades: 0, melees: 0, swaps: 0, reloads: 0, pickups: 0, ammo: 0 },
   };
 }
 
@@ -44,18 +44,59 @@ export function chooseTarget(enemies, routeLength, skill) {
   return best;
 }
 
-/** The weapon on the ground worth walking to: better than anything held,
- *  within the preset's reach by `routeLength(weapon)` (wu); the best, then
- *  the nearest. Null when none, or the preset does not look. */
-export function chooseWeapon(ground, held, routeLength, skill) {
-  if (!skill.seekWeapons) return null;
-  const rank = (kind) => WEAPON_RANK[kind] ?? 1;
-  const best = Math.max(0, ...held.map(rank));
+/** Whether a weapon has nothing left to fire: its rounds are counted and
+ *  both the magazine and the reserve are empty. */
+export const spent = (w) => Boolean(w && w.counted && w.loaded <= 0 && w.reserve <= 0);
+/** Whether a weapon is on its last magazine (or spent). */
+export const low = (w) => Boolean(w && w.counted && w.reserve <= 0);
+
+/** What to do about the weapon in hand, from the rounds the simulation
+ *  counts: "swap" when it is spent and another held weapon is not, "reload"
+ *  when the magazine is empty with rounds in reserve, else null. */
+export function ammoAction(inHand, held) {
+  if (!inHand || !inHand.counted) return null;
+  if (spent(inHand)) return held.some((w) => w !== inHand && !spent(w)) ? "swap" : null;
+  if (inHand.loaded <= 0) return "reload";
+  return null;
+}
+
+/** Ammunition worth walking to: a weapon on the ground of a kind the bot
+ *  holds and is low on, with rounds in it, within reach by `routeLength`
+ *  (wu). Walking over it takes its rounds. The nearest; null for none. */
+export function chooseAmmo(ground, held, routeLength, skill) {
+  if (!skill.seekAmmo) return null;
+  const wanted = new Set(held.filter(low).map((w) => w.kind));
+  if (!wanted.size) return null;
+  // With nothing left to fire it will go much further for it.
+  const reach = skill.seekRange * (held.every(spent) ? 4 : 1.5);
   let pick = null;
   for (const w of ground) {
-    if (rank(w.kind) <= best || held.includes(w.kind)) continue;
+    if (!wanted.has(w.kind) || !w.counted || w.loaded + w.reserve <= 0) continue;
     const length = routeLength(w);
-    if (length * M_PER_WU > skill.seekRange) continue;
+    if (length * M_PER_WU > reach) continue;
+    if (!pick || length < pick.length) pick = { weapon: w, length };
+  }
+  return pick;
+}
+
+/** The weapon on the ground worth walking to: better than anything held that
+ *  still fires, with rounds in it, within the preset's reach by
+ *  `routeLength(weapon)` (wu); the best, then the nearest. Null when none, or
+ *  the preset does not look (unless everything held is spent). */
+export function chooseWeapon(ground, held, routeLength, skill) {
+  const desperate = held.length > 0 && held.every(spent);
+  if (!skill.seekWeapons && !desperate) return null;
+  // Only weapons it knows are fetched (a skull or a flag is a weapon to the
+  // simulation too); with nothing left to fire, anything with rounds in it.
+  const rank = (kind) => WEAPON_RANK[kind] ?? (desperate ? 0.5 : 0);
+  const best = Math.max(0, ...held.filter((w) => !spent(w)).map((w) => rank(w.kind)));
+  const reach = skill.seekRange * (desperate ? 4 : 1);
+  let pick = null;
+  for (const w of ground) {
+    if (spent(w) || !w.counted && !WEAPON_RANK[w.kind] || rank(w.kind) <= best
+      || held.some((h) => h.kind === w.kind)) continue;
+    const length = routeLength(w);
+    if (length * M_PER_WU > reach) continue;
     if (!pick || rank(w.kind) > rank(pick.weapon.kind)
       || (rank(w.kind) === rank(pick.weapon.kind) && length < pick.length)) pick = { weapon: w, length };
   }
@@ -87,7 +128,8 @@ export function aimedAt(enemy, me, within) {
  *          target: { handle, pos, yaw, body } | null,
  *          visible (the target's actor shows), locked (red reticle),
  *          onTarget (the aim is within the target's width of the bone),
- *          distance (m, plan), canDive: { left, right } }
+ *          distance (m, plan), canDive: { left, right },
+ *          held, inHand (world.mjs: the weapons carried, the one in use) }
  *   mem  newMemory()
  * Returns { engaged, fire, hold: { forward, back, left, right, crouch },
  *   taps: [key names], dive: "left" | "right" | null, bone, noise: [yaw, pitch],
@@ -140,8 +182,23 @@ export function fight(p, mem, skill, rng) {
   const phase = (p.now - mem.burstAt) % (on + off || 1);
   out.fire = reacted && (p.locked || p.onTarget === true) && (off <= 0 || phase < on);
 
-  // Out of ammunition, or the wrong tool: on target and nothing happens.
-  if (out.fire) {
+  // The rounds the simulation counts: swap off a spent weapon, reload an
+  // empty magazine. With nothing left to fire it closes in to melee.
+  const todo = ammoAction(p.inHand, p.held ?? []);
+  if (todo && p.now - mem.lastAmmoTap >= 1.2) {
+    out.taps.push(todo);
+    mem.lastAmmoTap = p.now;
+    if (todo === "swap") mem.stats.swaps++;
+    else mem.stats.reloads++;
+  }
+  out.dry = Boolean(p.held && p.held.length && p.held.every(spent));
+  if (spent(p.inHand)) out.fire = false;
+
+  // The rounds cannot be read (a battery, an older reader): on target and
+  // nothing happens means the wrong tool or an empty one.
+  if (p.inHand && p.inHand.counted) {
+    mem.firingSince = null;
+  } else if (out.fire) {
     if (mem.firingSince === null) {
       mem.firingSince = p.now;
       mem.targetBodyAtFire = t.body;
@@ -159,9 +216,9 @@ export function fight(p, mem, skill, rng) {
   }
 
   // Feet.
-  out.retreating = p.me.shield < skill.retreat;
+  out.retreating = p.me.shield < skill.retreat && !out.dry;
   if (out.retreating) out.hold.back = true;
-  else if (p.distance > skill.hold) out.hold.forward = true;
+  else if (p.distance > (out.dry ? 1.5 : skill.hold)) out.hold.forward = true;
   else if (p.distance < 3 && skill.melee <= 0) out.hold.back = true;
   if (skill.strafe > 0 || out.retreating) {
     if (p.now >= mem.strafeUntil) {
@@ -177,7 +234,7 @@ export function fight(p, mem, skill, rng) {
   if (rng() < skill.jump * p.dt) out.taps.push("jump");
 
   // Hands.
-  if (skill.melee > 0 && p.distance <= skill.melee && p.now - mem.lastMelee >= 0.9) {
+  if ((skill.melee > 0 || out.dry) && p.distance <= Math.max(skill.melee, 2.2) && p.now - mem.lastMelee >= 0.9) {
     out.taps.push("melee");
     mem.lastMelee = p.now;
     mem.stats.melees++;

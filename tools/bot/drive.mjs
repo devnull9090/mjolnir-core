@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { bridgeCall, callTool, paths } from "../mcp/game/game.mjs";
 import { parseAck } from "../mcp/game/in_game_input.mjs";
 import {
-  appliedSince, chooseTarget, chooseWeapon, fight, fitVelocity, M_PER_WU, newMemory, onBody, track, turnTo,
+  appliedSince, chooseAmmo, chooseTarget, chooseWeapon, fight, fitVelocity, M_PER_WU, newMemory, onBody, track, turnTo,
 } from "./brain.mjs";
 import { Navmesh } from "./navmesh.mjs";
 import { KEYS, preset } from "./presets.mjs";
@@ -279,6 +279,8 @@ async function main() {
   let seen = { handle: null, at: 0, pos: null };
   let foughtAt = -1e9;
   let going = { key: null, since: 0 };
+  let fetching = "weapon";
+  let roundsBefore = null;
   const givenUp = new Set();
   let heldBefore = null;
   let seq = -1;
@@ -332,9 +334,19 @@ async function main() {
           lastFire = { at: -1e9, handle: null };
         }
         if (heldBefore && alive) {
-          for (const kind of w.held) if (!heldBefore.includes(kind)) { mem.stats.pickups++; say(`picked up ${kind}`); }
+          for (const h of w.held) {
+            if (!heldBefore.includes(h.kind)) { mem.stats.pickups++; say(`picked up ${h.kind}`); }
+          }
+          // Rounds taken from a weapon walked over: a reserve that grew.
+          for (const h of w.held) {
+            const was = roundsBefore?.[h.handle];
+            if (h.counted && was !== undefined && h.reserve > was) { mem.stats.ammo++; say(`ammo for ${h.kind}: ${was} -> ${h.reserve}`); }
+          }
         }
-        if (alive) heldBefore = w.held;
+        if (alive) {
+          heldBefore = w.held.map((h) => h.kind);
+          roundsBefore = Object.fromEntries(w.held.map((h) => [h.handle, h.reserve]));
+        }
       }
 
       // Who and what, from where the last tick saw this player.
@@ -347,10 +359,16 @@ async function main() {
       } else if (feet) {
         const pick = chooseTarget(w.enemies, (e) => routeLength(feet, e.pos), skill);
         if (pick) target = pick.enemy;
-        if (now - foughtAt > 4) { // not in, or just out of, a fight
+        // Rounds first: with nothing left to fire it goes even mid-fight;
+        // on its last magazine, or for a better weapon, between fights.
+        const dry = w.held.length > 0 && w.held.every((h) => h.counted && h.loaded <= 0 && h.reserve <= 0);
+        if (dry || now - foughtAt > 4) {
           const key = (g) => `${g.kind}@${g.pos[0].toFixed(1)},${g.pos[1].toFixed(1)}`;
-          const found = chooseWeapon(w.ground.filter((g) => !givenUp.has(key(g))), w.held,
-            (g) => routeLength(feet, g.pos), skill);
+          const reachable = w.ground.filter((g) => !givenUp.has(key(g)));
+          const length = (g) => routeLength(feet, g.pos);
+          const rounds = chooseAmmo(reachable, w.held, length, skill);
+          const found = rounds ?? chooseWeapon(reachable, w.held, length, skill);
+          fetching = rounds ? "ammo" : "weapon";
           if (found) {
             weapon = found.weapon;
             // One it cannot get (out of reach, or hands full): 10 s, then never again.
@@ -410,7 +428,7 @@ async function main() {
       const f = fight({
         now, dt, worldSeq: w.seq, onTarget: visible && onBody(offBone, distance), me: { pos: feet, shield: w.me ? w.me.shield : 1, body: w.me ? w.me.body : 1 },
         target: a.goto ? null : target, visible, locked: view.locked, distance,
-        canDive: { left: room(1), right: room(-1) },
+        canDive: { left: room(1), right: room(-1) }, held: w.held, inHand: w.inHand,
       }, mem, skill, rng);
 
       // Where to look, and where to walk.
@@ -440,15 +458,16 @@ async function main() {
         return toUE([feet[0] + Math.cos(h) * far, feet[1] + Math.sin(h) * far, next[2] + EYE]);
       };
       let mode = "idle";
-      if (f.engaged) {
-        mode = f.retreating ? "retreat" : "engage";
+      if (f.engaged && !(f.dry && weapon)) {
+        mode = f.retreating ? "retreat" : f.dry ? "rush" : "engage";
         look = aimPoint;
       } else if (weapon) {
-        mode = "weapon";
+        mode = fetching;
         const gap = Math.hypot(weapon.pos[0] - feet[0], weapon.pos[1] - feet[1]);
         look = toward(weapon.pos);
         walking = gap > 0.25 && look !== null;
-        using = gap < 1.0; // hold the pick-up key over it
+        // A new weapon is taken with the pick-up key; rounds by walking over it.
+        using = fetching === "weapon" && gap < 1.0;
       } else if (target) {
         mode = "hunt";
         look = toward(target.pos);
@@ -523,6 +542,7 @@ async function main() {
         `yaw ${dyaw.toFixed(1)} pitch ${dpitch.toFixed(1)}`, view.locked ? "LOCKED" : "", f.fire ? "FIRE" : "",
         f.taps.join("+"), around ? "AROUND" : "",
         visible ? `off ${offBone[0].toFixed(1)}` : showing ? "NO-SIGHT" : "", locking ? "LOCK" : "", `shield ${(w.me ? w.me.shield : 1).toFixed(2)}`,
+        w.inHand ? `${w.inHand.kind} ${w.inHand.counted ? `${w.inHand.loaded}/${w.inHand.reserve}` : "-"}` : "",
         `${speed.toFixed(1)} m/s`, `at ${feet[0].toFixed(2)},${feet[1].toFixed(2)}`, `${Date.now() - t0} ms`);
       // About 10 a second.
       const wait = 100 - (Date.now() - t0);

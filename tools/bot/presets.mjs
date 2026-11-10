@@ -44,7 +44,8 @@ const base = {
   grenadeRange: [6, 20],
   seekWeapons: true,   // walks to a better weapon when no fight is on
   seekRange: 25,       // how far it will go for one, m of route
-  swapAfter: 3.5,      // firing on target this long with no damage: next weapon
+  seekAmmo: true,      // walks to ammunition (a weapon of a kind it holds) when on its last magazine
+  swapAfter: 3.5,      // firing on target this long with no damage: next weapon (when the rounds cannot be read)
   // --- Choosing a target ---
   finisher: 0,         // 0..1: how much a wounded enemy outweighs a nearer one
 };
@@ -54,7 +55,7 @@ export const PRESETS = {
   recruit: {
     ...base, reaction: 0.75, turnRate: 140, aimError: 3.5, aimWander: 0.55, lead: 0, headshots: 0.1,
     engage: 22, burst: [0.5, 0.7], strafe: 0, crouch: 0, jump: 0, sprint: false,
-    dodgeOnHit: 0, dodgeAware: 0, retreat: 0, grenadeEvery: Infinity, seekWeapons: false,
+    dodgeOnHit: 0, dodgeAware: 0, retreat: 0, grenadeEvery: Infinity, seekWeapons: false, seekAmmo: false,
   },
   regular: { ...base },
   // Strafes hard, aims for the head, dives when shot, throws grenades.

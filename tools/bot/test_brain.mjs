@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  aimedAt, aimNoise, appliedSince, chooseTarget, chooseWeapon, fight, fitVelocity, newMemory, onBody, track, turnTo,
+  aimedAt, aimNoise, ammoAction, appliedSince, chooseAmmo, chooseTarget, chooseWeapon, fight, fitVelocity, low,
+  newMemory, onBody, spent, track, turnTo,
 } from "./brain.mjs";
 import { PRESETS, preset } from "./presets.mjs";
 import { parseObjects } from "./world.mjs";
@@ -18,6 +19,10 @@ function seeded(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+// A weapon as world.mjs reports it.
+const gun = (kind, loaded, reserve, over = {}) => ({ handle: `h-${kind}`, kind, counted: true, loaded, reserve, ...over });
+const battery = (kind) => ({ handle: `h-${kind}`, kind, counted: false, loaded: 0, reserve: 0 });
 
 const enemy = (over = {}) => ({ handle: "0xE1", pos: [10, 0, 0], yaw: 180, body: 1, ...over });
 const percept = (over = {}) => ({
@@ -198,13 +203,24 @@ test("chooseTarget: the nearest, unless a finisher sees a wounded one", () => {
 
 test("chooseWeapon: the best one in reach that beats what is held", () => {
   const ground = [
-    { kind: "magnum", pos: [2, 0, 0] }, { kind: "sniper_rifle", pos: [6, 0, 0] },
-    { kind: "rocket_launcher", pos: [500, 0, 0] }, { kind: "plasma_pistol", pos: [1, 0, 0] },
+    gun("magnum", 12, 48, { pos: [2, 0, 0] }), gun("sniper_rifle", 4, 8, { pos: [6, 0, 0] }),
+    gun("rocket_launcher", 2, 2, { pos: [500, 0, 0] }), { ...battery("plasma_pistol"), pos: [1, 0, 0] },
+    gun("shotgun", 0, 0, { pos: [3, 0, 0] }),
   ];
   const len = (w) => w.pos[0];
-  assert.equal(chooseWeapon(ground, ["assault_rifle"], len, preset("regular")).weapon.kind, "sniper_rifle");
-  assert.equal(chooseWeapon(ground, ["assault_rifle", "sniper_rifle"], len, preset("regular")), null);
-  assert.equal(chooseWeapon(ground, ["assault_rifle"], len, preset("recruit")), null, "a recruit does not look");
+  const rifle = gun("assault_rifle", 36, 144);
+  assert.equal(chooseWeapon(ground, [rifle], len, preset("regular")).weapon.kind, "sniper_rifle");
+  assert.equal(chooseWeapon(ground, [rifle, gun("sniper_rifle", 4, 8)], len, preset("regular")), null);
+  assert.equal(chooseWeapon(ground, [rifle], len, preset("recruit")), null, "a recruit does not look");
+  // Nor is something it has no rank for: an Oddball skull is a weapon to the simulation.
+  assert.equal(chooseWeapon([{ ...battery("skull"), pos: [1, 0, 0] }, gun("flak_cannon", 5, 10, { pos: [1, 0, 0] })],
+    [rifle], len, preset("regular")), null);
+  // An empty weapon on the ground is never worth the walk.
+  assert.notEqual(chooseWeapon(ground, [gun("magnum", 12, 48)], len, preset("regular")).weapon.kind, "shotgun");
+  // With everything held spent, anything that fires will do, even for a recruit, and from far away.
+  const dry = [gun("assault_rifle", 0, 0)];
+  assert.equal(chooseWeapon(ground, dry, len, preset("recruit")).weapon.kind, "sniper_rifle");
+  assert.equal(chooseWeapon([gun("magnum", 12, 48, { pos: [25, 0, 0] })], dry, len, preset("regular")).weapon.kind, "magnum");
 });
 
 test("turnTo: angles from the camera to a point, with an offset", () => {
@@ -219,9 +235,9 @@ test("world: the simulation's rows become the bot, enemies, and weapons", () => 
     "index\thandle\ttype\tgroup\ttag\tx\ty\tz\tbody\tshield\tparent\towner\tyaw\taddress\tteam",
     "24\t0xE4F10018\tbiped\tbipd\tobjects\\characters\\spartans\\spartans\t90.09\t-157.35\t0.12\t100% of 105\t-\t-\t\t58.9\t0x1\tteam 3/-1",
     "25\t0xE4F10019\tbiped\tbipd\tobjects\\characters\\spartans\\spartans\t80\t-150\t0.1\t0% of 105\t-\t-\t\t10\t0x2\tteam 3/-1",
-    "142\t0xE4DC008E\tbiped\tbipd\tobjects\\characters\\spartans\\spartans\t43.43\t-75.90\t1.70\t100% of 45\t40% of 70\t-\tplayer 0\t-60.0\t0x3\tteam -1/0",
-    "30\t0xE2000030\tweapon\tweap\tobjects\\weapons\\pistol\\magnum\\magnum\t0\t0\t0\t-\t-\t0xE4DC008E\t\t0\t0x4\t",
-    "31\t0xE2000031\tweapon\tweap\tobjects\\weapons\\rifle\\sniper_rifle\\sniper_rifle\t43.19\t-82.23\t1.74\t-\t-\t-\t\t0\t0x5\t",
+    "142\t0xE4DC008E\tbiped\tbipd\tobjects\\characters\\spartans\\spartans\t43.43\t-75.90\t1.70\t100% of 45\t40% of 70\t-\tplayer 0\t-60.0\t0x3\tteam -1/0\tweapon 0xE2000030",
+    "30\t0xE2000030\tweapon\tweap\tobjects\\weapons\\pistol\\magnum\\magnum\t0\t0\t0\t-\t-\t0xE4DC008E\t\t0\t0x4\t\tammo 7/24",
+    "31\t0xE2000031\tweapon\tweap\tobjects\\weapons\\rifle\\sniper_rifle\\sniper_rifle\t43.19\t-82.23\t1.74\t-\t-\t-\t\t0\t0x5\t\tammo 4/8",
     "32\t0xE2000032\tweapon\tweap\tobjects\\vehicles\\human\\warthog\\weapons\\warthog_chaingun\\weapon\\warthog_chaingun\t0\t0\t0\t-\t-\t0xE2700001\t\t0\t0x6\t",
   ].join("\n");
   const w = parseObjects(tsv, 0);
@@ -230,8 +246,10 @@ test("world: the simulation's rows become the bot, enemies, and weapons", () => 
   assert.equal(w.me.alive, true);
   assert.equal(w.enemies.length, 1, "the dead one is not an enemy");
   assert.equal(w.enemies[0].yaw, 58.9);
-  assert.deepEqual(w.held, ["magnum"]);
-  assert.deepEqual(w.ground, [{ kind: "sniper_rifle", pos: [43.19, -82.23, 1.74] }]);
+  assert.deepEqual(w.held, [{ handle: "0xE2000030", kind: "magnum", counted: true, loaded: 7, reserve: 24 }]);
+  assert.deepEqual(w.ground, [{ kind: "sniper_rifle", pos: [43.19, -82.23, 1.74], counted: true, loaded: 4, reserve: 8 }]);
+  assert.equal(w.me.weapon, "0xE2000030");
+  assert.equal(w.inHand.kind, "magnum");
 });
 
 test("fitVelocity: a steady runner's speed, through a noisy reading", () => {
@@ -266,4 +284,82 @@ test("presets: only the skilled lock on", () => {
   assert.equal(PRESETS.recruit.lockOn, 0);
   assert.equal(PRESETS.regular.lockOn, 0);
   assert.ok(PRESETS.heroic.lockOn > 0 && PRESETS.legendary.lockOn > PRESETS.heroic.lockOn);
+});
+
+test("ammo: spent, low, and what to do about the weapon in hand", () => {
+  assert.equal(spent(gun("magnum", 0, 0)), true);
+  assert.equal(spent(gun("magnum", 0, 12)), false);
+  assert.equal(spent(battery("plasma_rifle")), false, "a battery is taken to be usable");
+  assert.equal(low(gun("magnum", 5, 0)), true);
+  assert.equal(low(gun("magnum", 5, 12)), false);
+  const rifle = gun("assault_rifle", 36, 144);
+  const empty = gun("magnum", 0, 0);
+  assert.equal(ammoAction(empty, [empty, rifle]), "swap");
+  assert.equal(ammoAction(empty, [empty, gun("assault_rifle", 0, 0)]), null, "nothing better to swap to");
+  const dryMag = gun("magnum", 0, 24);
+  assert.equal(ammoAction(dryMag, [dryMag, rifle]), "reload");
+  assert.equal(ammoAction(rifle, [rifle]), null);
+  assert.equal(ammoAction(null, []), null);
+  assert.equal(ammoAction(battery("plasma_rifle"), []), null);
+});
+
+test("ammo: on its last magazine it goes for rounds of a kind it holds", () => {
+  const len = (w) => w.pos[0];
+  const ground = [
+    gun("magnum", 12, 48, { pos: [9, 0, 0] }), gun("magnum", 0, 0, { pos: [1, 0, 0] }),
+    gun("sniper_rifle", 4, 8, { pos: [2, 0, 0] }), gun("magnum", 12, 48, { pos: [5, 0, 0] }),
+  ];
+  const held = [gun("magnum", 6, 0), gun("assault_rifle", 36, 144)];
+  const pick = chooseAmmo(ground, held, len, preset("regular"));
+  assert.equal(pick.weapon.kind, "magnum");
+  assert.equal(pick.weapon.pos[0], 5, "the nearest with rounds in it");
+  assert.equal(chooseAmmo(ground, [gun("magnum", 6, 24)], len, preset("regular")), null, "not low");
+  assert.equal(chooseAmmo(ground, held, len, preset("recruit")), null, "a recruit does not look");
+  // Further than it would walk on a last magazine, but not with nothing left.
+  const far = [gun("magnum", 12, 48, { pos: [20, 0, 0] })];
+  assert.equal(chooseAmmo(far, [gun("magnum", 6, 0)], len, preset("regular")), null);
+  assert.equal(chooseAmmo(far, [gun("magnum", 0, 0)], len, preset("regular")).weapon.kind, "magnum");
+});
+
+test("fight: a spent weapon is swapped, an empty magazine reloaded, and it never clicks on empty", () => {
+  const skill = preset("regular", { burst: "1,0", grenadeEvery: Infinity });
+  const empty = gun("magnum", 0, 0);
+  const rifle = gun("assault_rifle", 36, 144);
+  const mem = newMemory();
+  fight(percept({ now: 0 }), mem, skill, seeded(1));
+  const f = fight(percept({ now: 1, held: [empty, rifle], inHand: empty }), mem, skill, seeded(1));
+  assert.ok(f.taps.includes("swap"));
+  assert.equal(f.fire, false);
+  assert.ok(!fight(percept({ now: 1.5, held: [empty, rifle], inHand: empty }), mem, skill, seeded(1)).taps.includes("swap"),
+    "not every tick");
+  const dryMag = gun("magnum", 0, 24);
+  const m2 = newMemory();
+  fight(percept({ now: 0 }), m2, skill, seeded(1));
+  assert.ok(fight(percept({ now: 1, held: [dryMag], inHand: dryMag }), m2, skill, seeded(1)).taps.includes("reload"));
+  assert.equal(m2.stats.reloads, 1);
+});
+
+test("fight: with nothing left to fire it rushes in to melee and does not back off", () => {
+  const skill = preset("heroic", { grenadeEvery: Infinity });
+  const a = gun("magnum", 0, 0);
+  const b = gun("assault_rifle", 0, 0);
+  const mem = newMemory();
+  fight(percept({ now: 0 }), mem, skill, seeded(1));
+  const far = fight(percept({ now: 1, distance: 6, held: [a, b], inHand: a, me: { pos: [0, 0, 0], shield: 0.1, body: 1 } }),
+    mem, skill, seeded(1));
+  assert.equal(far.dry, true);
+  assert.equal(far.hold.forward, true);
+  assert.equal(far.retreating, false);
+  const close = fight(percept({ now: 2, distance: 1.8, held: [a, b], inHand: a }), mem, skill, seeded(1));
+  assert.ok(close.taps.includes("melee"));
+});
+
+test("fight: with the rounds counted, the no-damage swap is not used", () => {
+  const skill = preset("regular", { burst: "1,0", swapAfter: 1, grenadeEvery: Infinity });
+  const rifle = gun("assault_rifle", 36, 144);
+  const mem = newMemory();
+  for (let i = 0; i <= 40; i++) {
+    const f = fight(percept({ now: i * 0.1, held: [rifle], inHand: rifle }), mem, skill, seeded(1));
+    assert.ok(!f.taps.includes("swap"));
+  }
 });

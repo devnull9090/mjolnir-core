@@ -19,16 +19,29 @@ function fraction(text) {
 /** The last name of a tag path: `objects\weapons\pistol\magnum\magnum` -> magnum. */
 const kindOf = (tag) => String(tag).split("\\").pop();
 
+/** A weapon's rounds from column 16 (`ammo <loaded>/<reserve>`). A weapon
+ *  with no magazine (plasma, a sword) reads 0/0 there: `counted` is false and
+ *  it is taken to be usable. */
+const BATTERY = /plasma|beam|sentinel|sword|focus|repeater|hammer|skull|flag|ball/;
+function ammo(kind, text) {
+  const m = /^ammo (-?\d+)\/(-?\d+)/.exec(text ?? "");
+  if (!m || BATTERY.test(kind)) return { counted: false, loaded: 0, reserve: 0 };
+  return { counted: true, loaded: Math.max(0, Number(m[1])), reserve: Math.max(0, Number(m[2])) };
+}
+
 /** The rows of a `live objects --tsv` file as
- *  { me, enemies, ground, held }:
- *   me       { handle, pos, yaw, shield, body, alive } for player `player`
+ *  { me, enemies, ground, held, inHand }:
+ *   me       { handle, pos, yaw, shield, body, alive, weapon } for player `player`
  *   enemies  [{ handle, pos, yaw, body }] every other living biped
- *   ground   [{ kind, pos }] weapons nothing holds
- *   held     [kind] weapons whose parent is `me`
+ *   ground   [{ kind, pos, counted, loaded, reserve }] weapons nothing holds
+ *   held     [{ handle, kind, counted, loaded, reserve }] weapons whose parent is `me`
+ *   inHand   the one of `held` in use, or null
  *  Columns (1-based): 2 handle, 4 group, 5 tag, 6-8 position, 9 body, 10
- *  shield, 11 parent, 12 "player N", 13 yaw. */
+ *  shield, 11 parent, 12 "player N", 13 yaw, 16 a weapon's `ammo L/R` or a
+ *  biped's `weapon 0x<handle>` in hand. */
 export function parseObjects(tsv, player = 0) {
-  const rows = String(tsv).trim().split("\n").slice(1).map((line) => line.split("\t"));
+  // No header row; a line that does not start with an object index is skipped.
+  const rows = String(tsv).trim().split("\n").map((line) => line.split("\t")).filter((f) => /^\d+$/.test(f[0]));
   const pos = (f) => [Number(f[5]), Number(f[6]), Number(f[7])];
   let me = null;
   const enemies = [];
@@ -38,7 +51,7 @@ export function parseObjects(tsv, player = 0) {
     const owner = /player (\d+)/.exec(f[11] ?? "");
     if (owner && Number(owner[1]) === player) {
       me = { handle: f[1], pos: pos(f), yaw: Number(f[12]) || 0, shield: fraction(f[9]) ?? 0, body: body ?? 0,
-        alive: (body ?? 0) > 0 };
+        alive: (body ?? 0) > 0, weapon: (/^weapon (0x[0-9A-Fa-f]+)/.exec(f[15] ?? "") ?? [])[1] ?? null };
     } else if ((body ?? 0) > 0) {
       enemies.push({ handle: f[1], pos: pos(f), yaw: Number(f[12]) || 0, body });
     }
@@ -48,12 +61,14 @@ export function parseObjects(tsv, player = 0) {
   for (const f of rows) {
     if (f[3] !== "weap") continue;
     const parent = (f[10] ?? "").trim();
-    if (me && parent === me.handle) held.push(kindOf(f[4]));
+    const kind = kindOf(f[4]);
+    if (me && parent === me.handle) held.push({ handle: f[1], kind, ...ammo(kind, f[15]) });
     else if ((parent === "" || parent === "-") && (Number(f[5]) !== 0 || Number(f[6]) !== 0)) {
-      ground.push({ kind: kindOf(f[4]), pos: pos(f) });
+      ground.push({ kind, pos: pos(f), ...ammo(kind, f[15]) });
     }
   }
-  return { me, enemies, ground, held };
+  const inHand = me ? held.find((w) => w.handle === me.weapon) ?? null : null;
+  return { me, enemies, ground, held, inHand };
 }
 
 /** Reads the simulation over and over in the background; `now` is the latest
@@ -63,7 +78,7 @@ export class World {
     this.exe = exe;
     this.player = player;
     this.tsv = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mjolnir-bot-")), "objects.tsv");
-    this.now = { me: null, enemies: [], ground: [], held: [], at: 0, seq: 0 };
+    this.now = { me: null, enemies: [], ground: [], held: [], inHand: null, at: 0, seq: 0 };
     this.running = false;
   }
   start() {

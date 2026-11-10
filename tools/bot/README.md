@@ -49,6 +49,7 @@ skill is hard-coded anywhere else. The four presets differ like this:
 | Backs off below shields | never | 15% | 30% | 40% |
 | Grenades | never | every 20 s | every 10 s | every 6 s |
 | Goes for better weapons | no | within 25 m | within 40 m | within 60 m |
+| Goes for ammunition | only when empty | yes | yes | yes |
 | Prefers a wounded enemy | no | no | a little | strongly |
 
 Measured on Blood Gulch against three AI bots (one run each, so indicative
@@ -111,13 +112,27 @@ sides as `walls`, which the driver steers past close in. Walking that makes
 no progress for 1.5 s blocks the ground just ahead for the rest of the run
 and backs out, so the next route goes another way.
 
-**Weapons.** A weapon on the ground is worth fetching when it outranks
-everything held (`WEAPON_RANK` in presets.mjs: rocket launcher, sniper rifle,
-fuel rod, shotgun, magnum ...) and is within the preset's reach by route. The
-bot walks onto it holding the pick-up key, and gives up on one it cannot get
-after 10 s. It reloads when a fight ends, and swaps weapons when it has been
-on target for a few seconds and the enemy's body has not dropped: the best
-"out of ammunition" test available without reading the magazine.
+**Weapons and ammunition.** `mjolnir live objects` reads each weapon's
+rounds (magazine and reserve) and which weapon a player has in hand, so the
+bot knows what it can fire:
+
+- the weapon in hand is spent (nothing loaded, nothing in reserve): it swaps
+  to one that is not, and never pulls the trigger on empty;
+- the magazine is empty with rounds in reserve: it reloads;
+- a held weapon is on its last magazine: between fights it walks to a weapon
+  of the same kind on the ground (walking over it takes its rounds), further
+  the lower it is, and at once, even mid-fight, when nothing held can fire;
+- nothing held can fire and no ammunition is in reach: it takes any weapon
+  with rounds in it, and failing that closes in to melee.
+
+A weapon on the ground is worth fetching when it outranks everything held
+that still fires (`WEAPON_RANK` in presets.mjs: rocket launcher, sniper
+rifle, fuel rod, shotgun, magnum ...), has rounds in it, and is within the
+preset's reach by route. Only ranked weapons are fetched: an Oddball skull is
+a weapon to the simulation too. The bot walks onto it holding the pick-up
+key, and gives up on one it cannot get after 10 s. Plasma weapons keep a
+battery, not rounds, and are taken to be usable; for those the old test
+stands (on target for a few seconds with no damage: next weapon).
 
 **Keys** are in `presets.mjs` (`KEYS`), set to the test PC's bindings
 (`HaloGlobalGameUserSettings.ini`): melee F, grenade C, crouch Left Ctrl,
@@ -137,10 +152,11 @@ swap 1, reload R, sprint Left Shift.
   not block it, and neither do thin things the collision leaves out.
 - **Leading is for bullets that arrive at once.** Rockets, plasma and
   needles need the shot's flight time added, which needs the weapon in hand.
-  The simulation's own velocity for the target (it keeps one per object)
-  would beat a fit through positions.
-- **No magazine or weapon-in-hand read.** The weapon and unit datums hold
-  them; their offsets are not mapped. Until then: the damage test above.
+  The weapon in hand is known now; shot speeds per weapon are not. The
+  simulation's own velocity for the target (it keeps one per object) would
+  beat a fit through positions.
+- **No battery read.** Plasma weapons' charge is not mapped, so an empty
+  one is found out by doing no damage.
 - **No cover.** Backing off is straight back with side-steps, not to a spot
   out of the enemy's sight.
 - **Dives use the rifle set** whatever is held, and their look in third
