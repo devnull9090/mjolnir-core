@@ -7,10 +7,22 @@
 local Markers = {}
 
 --- `deps`: Hill, Race, Juggernaut, FlagMark, Board, Waypoint (the modules), readLevel(map),
---- log(text).
+--- log(text), and Roster (Scripts/roster.lua's reader; optional).
 function Markers.new(deps)
     local self = {}
     deps.Hill.Waypoint, deps.Hill.log = deps.Waypoint, deps.log
+    local roster = deps.Roster
+    -- One follower a seat, made once: a marker that follows a player every
+    -- frame calls it for their place (Hill's track).
+    local followers = {}
+    local function follower(index)
+        local f = followers[index]
+        if not f then
+            f = function() return roster.at(index) end
+            followers[index] = f
+        end
+        return f
+    end
 
     local unitClass
 
@@ -53,8 +65,48 @@ function Markers.new(deps)
     --- hid a contested hill and put a remote Juggernaut's marker at the
     --- origin), so they are read from their biped, and left out while it is
     --- unknown.
-    local function playersOn(match, pc)
+    --- playersOn's list from the simulation's roster (Scripts/roster.lua):
+    --- every player alive, their place their unit's or, seated, their
+    --- vehicle's; `actor` is a function that reads the seat's place again,
+    --- for the markers that follow them every frame. Every peer reads its
+    --- own simulation, so a remote player is where this machine's game has
+    --- them, not where an actor was left.
+    --- `me` is this machine's player: the seat its own game marks as local
+    --- user 0, or the HUD's index (`me`) when no seat is marked. Two copies
+    --- of the game on one PC read index 0 from every PlayerState (2026-11-09),
+    --- so the index alone made a joiner take the host's seat for its own.
+    local function fromRoster(match, r, me)
+        local mine
+        for index = 0, 15 do
+            local seat = r.seats[index]
+            if seat and seat.here and seat.user == 0 then
+                mine = index
+                break
+            end
+        end
+        if mine == nil then mine = me end
+        local players = {}
+        for index = 0, 15 do
+            local seat = r.seats[index]
+            if seat and seat.alive then
+                local p = match.players[index]
+                players[#players + 1] = {
+                    index = index,
+                    at = seat.at,
+                    team = match.mode.teams and p and p.team or nil,
+                    me = index == mine,
+                    actor = follower(index),
+                }
+            end
+        end
+        return players
+    end
+    self.fromRoster = fromRoster
+
+    local function playersOn(match, pc, myIndex)
         return function()
+            local r = roster and roster.read()
+            if r then return fromRoster(match, r, myIndex) end
             local players = {}
             local mine = pc.Pawn
             local myAddress = mine and mine:IsValid() and mine:GetAddress() or nil
@@ -113,9 +165,9 @@ function Markers.new(deps)
 
     function self.tick(match, now, pc, hidden, me)
         made(match)
-        if match.hill then match.hill.tick(now, pc, hidden, playersOn(match, pc)) end
+        if match.hill then match.hill.tick(now, pc, hidden, playersOn(match, pc, me)) end
         if match.race then match.race.tick(now, pc, hidden, lapsDone(match, me), match.mode.toWin or 0) end
-        if match.juggernaut then match.juggernaut.tick(now, pc, hidden, me, playersOn(match, pc)) end
+        if match.juggernaut then match.juggernaut.tick(now, pc, hidden, me, playersOn(match, pc, me)) end
         if match.flags then
             local mine = match.players[me]
             match.flags.tick(now, pc, hidden, mine and mine.team)
@@ -139,13 +191,15 @@ function Markers.new(deps)
 
     --- What the markers know, as one line (`mjolnir_markers` logs it): the
     --- live hill or the Juggernaut, and where each player stands for them.
-    function self.describe(match, pc)
+    function self.describe(match, pc, me)
         if not match then return "no match" end
         local parts = { "family " .. tostring(match.mode and match.mode.family) }
         if match.hill then parts[#parts + 1] = "hill " .. tostring(match.hill.live) end
         if match.juggernaut then parts[#parts + 1] = "it " .. tostring(match.juggernaut.it) end
+        local r = roster and roster.read()
+        parts[#parts + 1] = r and "from the simulation" or "from actors"
         local seen = {}
-        for _, p in ipairs(playersOn(match, pc)()) do
+        for _, p in ipairs(playersOn(match, pc, me)()) do
             seen[p.index] = true
             parts[#parts + 1] = string.format("p%d%s at %.0f %.0f %.0f", p.index, p.me and " (me)" or "",
                 p.at.X, p.at.Y, p.at.Z)

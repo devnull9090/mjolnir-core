@@ -449,7 +449,57 @@ next two need: per-map data in, simulation reads out.
 
 ### 3. Player roster from the simulation, for the HUD
 
-**Status, 2026-11-09: go.** Both open questions are answered, with two test
+**Built, 2026-11-09: MJOLNIRLobby 0.26.0 and MJOLNIRHud 0.20.0.**
+- **The native side.** `native/lobby/roster_core.h` reads the tables and
+  packs the result; `test_roster.c` runs it over fake tables.
+  `roster_runtime.h` copies it on every simulation tick, but only while the
+  HUD has asked in the last 5 s, and serves two exports through
+  `lua_channel.h`:
+  - `mjolnir_roster`: the packed roster;
+  - `mjolnir_roster_at(i)`: one seat, for a marker that follows a player
+    every frame.
+- **The HUD side.** `Scripts/roster.lua` reads the roster. `markers.lua`
+  uses it for the hill and Juggernaut whenever there is one, and reads
+  actors as before when there is none (an older DLL, or the simulation not
+  ticking). The HUD logs the first roster it reads, and each reason it has
+  none.
+- **Measured** with two copies on PC 1, in private Blood Gulch Slayer and
+  King, copy 1 hosting and copy 2 joined:
+  - **Each player's own seat** matches their pawn exactly, on host and
+    client.
+  - **A remote player's seat** is within 1–2.4 cm of where their own game
+    has them. The actor the HUD read before sat 2.5–2.8 m above them, on
+    both copies.
+  - **A dead player** has no unit while they wait to respawn, so they are
+    listed as not alive and the one-seat read returns nil. No corpse holds
+    the hill.
+  - **Velocity is in world units per second.** A walking player read
+    318 cm/s.
+  - **The hill holder.** With the host's player put on hill 1, the HUD's
+    own `fromRoster` and `Hill.holder` gave "you" on the host and "other"
+    on the client.
+  - **Cost, 5,000 passes with two players.** The actor path took 62–63 µs a
+    pass; the roster, call, decode and list together, took 4.6–4.8 µs. One
+    seat took 0.6–0.8 µs. A 16-player game was not run.
+  - **The first call after 5 s without one** says "stale" (or "no copy yet"
+    at a match's start), and that one pass reads actors.
+  - **This machine's player.** On these copies every PlayerState read index
+    0, so the HUD's `LOCAL_PLAYER` was 0 on the joiner too. The actor path
+    took "me" from the pawn and was not fooled. The roster path takes it
+    from the seat its own game marks as local user 0, and uses the index
+    only when no seat is marked. `mjolnir_markers` then gave "p0 (me)" on
+    the host and "p1 (me)" on the joiner (Blood Gulch Juggernaut).
+- **Not run in game: the Juggernaut follow.** The beacon's per-frame read
+  of one seat, its carry by velocity, and the heights over a remote player
+  are tested in `test_hill_marker.lua` only. Nobody became the Juggernaut:
+  the in-game input route sent no fire button.
+- **Seated players.** The parent walk is tested on fake tables only:
+  a driver, and a gunner on a turret on a vehicle. The live object table
+  confirms the layout it relies on (each Warthog's chaingun has its
+  parent's handle at `+0x14` and a position relative to it), but no player
+  was put in a seat in game.
+
+**Status before the build, 2026-11-09: go.** Both open questions are answered, with two test
 copies on PC 1 in a private Blood Gulch Slayer game (copy 1 hosting, copy 2
 joined):
 - A native function can return the whole roster without files, in 4–6 µs
@@ -784,8 +834,9 @@ line, with a 51 ms worst file round trip.
 5. Native lifts in the lobby DLL's simulation tick: done (#370, MJOLNIRLobby
    0.25.0, through a file). Fireteam clients needed the `+0x0C` fix, #375
    ([above](#correctness-issues-found-along-the-way)).
-6. The native roster, then the bots. The roster is a go: build it on
-   `lua_channel.h`.
+6. The native roster, then the bots. The roster is built (MJOLNIRLobby
+   0.26.0, MJOLNIRHud 0.20.0, [above](#3-player-roster-from-the-simulation-for-the-hud));
+   the bots are still to do.
 7. The `LuaMadeSimple` spike: done 2026-11-09. It works (`lua_channel.h`).
 
 Steps 1–3 remove most of the hitches our mods cause. Step 4 removes the largest

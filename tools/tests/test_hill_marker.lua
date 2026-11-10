@@ -392,6 +392,24 @@ body.valid = false
 body.at = { X = 900, Y = 200, Z = 300 }
 jug.frame(js.pc, 3.5)
 eq(jug.beacon.location.X, 500, "a freed biped is never read")
+-- From the simulation's roster (markers.lua's fromRoster): the place comes
+-- from a function each frame, and nil stops following.
+local place = { X = 600, Y = 200, Z = 300 }
+local seatGone = false
+bodies[2] = { index = 2, at = place, actor = function() if not seatGone then return place end end }
+jug.tick(3.6, js.pc, false, 0, list)
+eq(jug.beacon.location.X, 600, "the roster's place")
+place = { X = 700, Y = 200, Z = 300 }
+jug.frame(js.pc, 3.7)
+eq(jug.beacon.location.X, 700, "a roster seat followed every frame")
+seatGone = true
+place = { X = 800, Y = 200, Z = 300 }
+jug.frame(js.pc, 3.8)
+eq(jug.beacon.location.X, 700, "a seat with no place stops the follow")
+seatGone = false
+jug.frame(js.pc, 3.9)
+eq(jug.beacon.location.X, 700, "until the next update follows again")
+bodies[2] = { index = 2, at = body.at, actor = body }
 body.valid = true
 local beacon = jug.beacon
 beacon.valid = false

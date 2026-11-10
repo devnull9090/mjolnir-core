@@ -48,6 +48,7 @@ local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
 local Bipeds = dofile(MOD_DIR .. "\\Scripts\\bipeds.lua")
+local Roster = dofile(MOD_DIR .. "\\Scripts\\roster.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 
@@ -61,6 +62,10 @@ local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
 -- findBipeds read them without walking the object array (Scripts/bipeds.lua).
 Bipeds.arm(Log)
 Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log, Bipeds)
+-- Every player's place from the simulation, through MJOLNIRLobby's DLL
+-- (Scripts/roster.lua): the markers read it in place of actors when it is there.
+local PlayerRoster = Roster.new((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll",
+    package and package.loadlib, Log)
 
 --- The match log must never break the HUD: a failure in it is logged, and
 --- the feed, the board and the end of the match go on.
@@ -148,6 +153,7 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     FlagMark = dofile(MOD_DIR .. "\\Scripts\\flagmark.lua"),
     Board = Scoreboard,
     log = Log,
+    Roster = PlayerRoster,
     readLevel = function(map)
         local root = MOD_DIR:match("^(.*)\\Mods\\[^\\]*$") or MOD_DIR
         return readFile(root .. "\\MJOLNIRMaps\\" .. map .. "\\level.json")
@@ -1968,7 +1974,7 @@ end)
 -- UE4SS.log: a two-PC test reads it on a client.
 pcall(RegisterConsoleCommandHandler, "mjolnir_markers", function(_, _, ar)
     ExecuteInGameThread(function()
-        local okD, said = pcall(Markers.describe, Match, playerController())
+        local okD, said = pcall(Markers.describe, Match, playerController(), LOCAL_PLAYER)
         Log(okD and ("markers: " .. tostring(said)) or ("mjolnir_markers: " .. tostring(said)))
     end)
     pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)

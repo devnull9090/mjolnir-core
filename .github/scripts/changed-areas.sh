@@ -96,9 +96,10 @@ changed rust       '^(crates/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.car
 changed tag_editor '^(crates/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/|apps/tag-editor/src-tauri/)'
 changed launcher   '^(crates/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/|apps/launcher/)'
 # native/map_registry links the mjolnir-mglo-cabi staticlib from crates/, the
-# lobby's Discord test drives tools/tests/test_discord_rpc.py, and its lift
-# test reads the file lifts.lua writes (tools/tests/fixtures/lifts_*.txt).
-changed native     '^(native/|crates/|Cargo\.(toml|lock)$|tools/tests/test_discord_rpc\.py$|tools/tests/fixtures/lifts_)'
+# lobby's Discord test drives tools/tests/test_discord_rpc.py, its lift test
+# reads the file lifts.lua writes (tools/tests/fixtures/lifts_*.txt), and its
+# roster test checks the packed roster MJOLNIRHud reads (fixtures/roster_*).
+changed native     '^(native/|crates/|Cargo\.(toml|lock)$|tools/tests/test_discord_rpc\.py$|tools/tests/fixtures/(lifts|roster)_)'
 # The hub snapshots docs/, defs/, changelog/ and blog/ at build time
 # (scripts/sync-*.mjs), and its tests read tools/fixtures/.
 changed hub        '^(hub|docs|defs|changelog|blog)/|^tools/fixtures/'
