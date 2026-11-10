@@ -2950,6 +2950,7 @@ static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
 static void forge_doors_tick(void);
 static void lifts_tick(void);
+static void roster_tick(void);
 static unsigned char *watch_globals;
 static unsigned char *sim_game_globals(void);
 static void inject_players(void);
@@ -2969,6 +2970,7 @@ static void __fastcall hook_main_tick(void) {
     if (fade_in_pending) fade_in_tick();
     if (script_pending) script_tick();
     lifts_tick();
+    roster_tick();
     __try {
         client_teams_tick();
         tracker_teams_tick();
@@ -6766,6 +6768,7 @@ static void sound_trace_arm(void) {
    second install. */
 #include "forge_doors_runtime.h"
 #include "lifts_runtime.h"
+#include "roster_runtime.h"
 
 /* --- The one-time code searches' worker -------------------------------------
 

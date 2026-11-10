@@ -56,4 +56,54 @@ place, body = at({ biped = walker }, 1)
 eq(place.X, 500, "on foot, their own place")
 eq(body, walker, "and their biped")
 
+-- From the simulation's roster (Scripts/roster.lua): every player alive, in
+-- seat order, at their unit's or vehicle's place; nobody dead; `me` by the
+-- local player's index; team only in a team game; `actor` reads the seat
+-- again for the markers that follow every frame.
+local asked = {}
+local fakeRoster = { at = function(index) asked[#asked + 1] = index; return { X = index * 10, Y = 0, Z = 0 } end }
+local withRoster = dofile("mods/MJOLNIRHud/Scripts/markers.lua").new({ Hill = {}, Roster = fakeRoster })
+local r = { seats = {
+    [5] = { alive = true, at = { X = 500, Y = 1, Z = 2 } },
+    [0] = { alive = true, at = { X = 0, Y = 0, Z = 0 } },
+    [3] = { alive = false, at = { X = 300, Y = 0, Z = 0 } },
+} }
+local match = { mode = { teams = true }, players = { [0] = { team = "red" }, [5] = { team = "blue" } } }
+local list = withRoster.fromRoster(match, r, 5)
+eq(#list, 2, "two alive")
+eq(list[1].index, 0, "in seat order")
+eq(list[2].index, 5, "then the next")
+eq(list[2].me, true, "the local player by index")
+eq(list[1].me, false, "another")
+eq(list[2].at.X, 500, "their place")
+eq(list[2].team, "blue", "their team")
+eq(list[2].actor().X, 50, "the follower reads their seat")
+eq(asked[1], 5, "by index")
+eq(list[2].actor, withRoster.fromRoster(match, r, 5)[2].actor, "one follower a seat, made once")
+match.mode.teams = false
+eq(withRoster.fromRoster(match, r, 5)[2].team, nil, "no team in free for all")
+eq(#withRoster.fromRoster(match, { seats = {} }, 0), 0, "nobody")
+
+-- `me` is the seat this machine's game marks as local user 0, whatever index
+-- the HUD read: a joiner whose PlayerStates all said 0 (two copies on one PC)
+-- took the host's seat 0 for its own.
+local joiner = { seats = {
+    [0] = { alive = true, here = false, user = -1, at = { X = 0, Y = 0, Z = 0 } },
+    [1] = { alive = true, here = true, user = 0, at = { X = 100, Y = 0, Z = 0 } },
+} }
+list = withRoster.fromRoster(match, joiner, 0)
+eq(list[1].me, false, "the host's seat is not the joiner's")
+eq(list[2].me, true, "the joiner's own seat, by its local user")
+-- A splitscreen player (local user 1) is this machine's but not the HUD's player.
+local split = { seats = {
+    [0] = { alive = true, here = true, user = 1, at = { X = 0, Y = 0, Z = 0 } },
+    [2] = { alive = true, here = true, user = 0, at = { X = 0, Y = 0, Z = 0 } },
+} }
+list = withRoster.fromRoster(match, split, 0)
+eq(list[1].me, false, "local user 1 is not me")
+eq(list[2].me, true, "local user 0 is")
+-- No seat marked local (no users map): the HUD's index.
+local unmarked = { seats = { [3] = { alive = true, at = { X = 0, Y = 0, Z = 0 } } } }
+eq(withRoster.fromRoster(match, unmarked, 3)[1].me, true, "the index when no seat is marked")
+
 print("ok")

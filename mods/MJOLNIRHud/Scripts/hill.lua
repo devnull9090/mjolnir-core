@@ -357,7 +357,9 @@ function Hill.field(name)
     --- and, when `beaconUp` is given, the beacon's foot that far above it.
     --- The update that marks it runs a few times a second, so without this a
     --- moving player's beacon and marker jumped behind them (#351). The actor
-    --- is checked before each use, and nil stops following.
+    --- is checked before each use, and nil stops following. `actor` can also
+    --- be a function that gives the place ({ X, Y, Z }, or nil to stop): a
+    --- player read from the simulation's roster (markers.lua).
     function self.track(actor, up, beaconUp)
         self.tracked, self.trackUp, self.beaconUp = actor, up or 0, beaconUp
     end
@@ -367,6 +369,7 @@ function Hill.field(name)
         local actor = self.tracked
         if actor then
             local ok, at = pcall(function()
+                if type(actor) == "function" then return actor() end
                 if actor:IsValid() then return actor:K2_GetActorLocation() end
             end)
             if ok and at then

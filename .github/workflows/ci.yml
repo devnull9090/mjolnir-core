@@ -58,6 +58,7 @@ jobs:
           lua5.4 tools/tests/test_hill_marker.lua
           lua5.4 tools/tests/test_flag_marker.lua
           lua5.4 tools/tests/test_markers_players.lua
+          lua5.4 tools/tests/test_roster.lua
           lua5.4 tools/tests/test_match_report.lua
           lua5.4 tools/tests/test_bipeds.lua
           lua5.4 tools/tests/test_bots_scan.lua
@@ -195,6 +196,10 @@ jobs:
       - name: Test the Lua channel against a stand-in for UE4SS's LuaMadeSimple
         shell: pwsh
         run: .\native\lobby\test-lua-channel.ps1
+
+      - name: Test the players' roster (its table reads and packed form)
+        shell: pwsh
+        run: .\native\lobby\test-roster.ps1
 
       - name: Build mjolnir_frame_times.dll
         shell: pwsh

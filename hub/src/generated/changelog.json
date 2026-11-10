@@ -41,6 +41,28 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.50.0",
+      "tag": "mods-v0.50.0",
+      "title": "Markers that read the game itself",
+      "date": "2026-11-09",
+      "summary": "King of the Hill and Juggernaut now read every player's place straight from the game rather than from the character models on screen, at a fraction of the cost.",
+      "body": "### Changed\n\nIn MJOLNIRHud 0.20.0 and MJOLNIRLobby 0.26.0.\n\n- **Markers that know where everyone is.** Who holds the hill, who contests\n  it, and where the Juggernaut's beacon stands are now read from the game's\n  own simulation, not from the character models the HUD draws. In our tests,\n  with two copies of the game on one PC, each copy's model for the other\n  player sat about 2.5 m above where that player really was, and the\n  markers followed the model. From the simulation, each player is placed\n  within a couple of centimetres of where their own game has them, on the\n  host and on the copy that joined. A player waiting to respawn neither\n  holds nor contests the hill.\n- **Cheaper to find.** Reading two players' places took 62 µs from the models\n  and under 5 µs from the game. King and Juggernaut do it five times a\n  second, and the beacon that follows the Juggernaut reads them every frame.\n  With an older MJOLNIRLobby the markers read the models as before.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Markers that know where everyone is. Who holds the hill, who contests it, and where the Juggernaut's beacon stands are now read from the game's own simulation, not from the character models the HUD draws. In our tests, with two copies of the game on one PC, each copy's model for the other player sat about 2.5 m above where that player really was, and the markers followed the model. From the simulation, each player is placed within a couple of centimetres of where their own game has them, on the host and on the copy that joined. A player waiting to respawn neither holds nor contests the hill.",
+            "Cheaper to find. Reading two players' places took 62 µs from the models and under 5 µs from the game. King and Juggernaut do it five times a second, and the beacon that follows the Juggernaut reads them every frame. With an older MJOLNIRLobby the markers read the models as before."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.50.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.50.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.50.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.49.0",
       "tag": "mods-v0.49.0",
       "title": "Smoother hosting, lighter flags, and spawns by game type",
