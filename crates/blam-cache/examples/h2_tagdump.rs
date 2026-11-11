@@ -23,8 +23,13 @@ fn main() {
                 for (i, el) in root.block(bo, sz).iter().enumerate() {
                     let fl: Vec<String> = (0..sz / 4).map(|k| format!("{:.3}", el.f32(k * 4))).collect();
                     let words: Vec<String> = (0..sz / 4).map(|k| format!("{:08x}", el.u32(k * 4))).collect();
+                    let sids: Vec<String> = (0..sz / 4)
+                        .map(|k| file.string(el.u32(k * 4)))
+                        .map(|t| if t.is_empty() || t.len() > 48 { "-".to_string() } else { t.to_string() })
+                        .collect();
                     println!("  [{i}] {}
-      {}", fl.join(" "), words.join(" "));
+      {}
+      sids {}", fl.join(" "), words.join(" "), sids.join(" "));
                 }
                 continue;
             }

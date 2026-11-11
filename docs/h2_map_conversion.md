@@ -422,16 +422,39 @@ units and axes, so every later step reads them unchanged:
 
 ## Specular
 
-Halo 2's `tex_bump` lightmap pass writes the base map's alpha, times the
-light, to the frame's alpha. Its
-`default_light_combined_tangentspace_specular_sphere` pass then adds
-sat(R.L)^8 through that alpha, where R is the view reflected about the bumped
-normal and L the light's direction. The colour runs from pixel constant 0
-facing to constant 1 glancing. That is CE's lightmap specular (`SpecLightmap`,
-the lobe from the lightmap's incident direction, masked by the base map's
-alpha), so the shader takes it with those colours. Turf's door frames and
-posts (`metal_grey_dark` on `matte_grey`, brushed streaks in its alpha) drew
-flat grey without it; Lockout's frozen and tech panels gain it too.
+A Halo 2 template's postprocess definition (stem +0x58) lists its passes,
+each pass's implementations and what each implementation feeds its shaders
+(`specular_constants` in render.rs reads it; the example
+`h2_template_blocks` prints it). Most opaque templates draw
+`default_light_combined_tangentspace_specular_sphere`. Its vertex shader
+passes vertex registers 10 and 11, fed from two of the shader's vertex
+constants, to the pixel shader, which adds sat(R.L)^8 x the light x
+lerp(register 11, register 10, sat(N.L)) through the frame's alpha (R the
+view reflected about the bumped normal, L the light's direction). The
+template's lightmap pass wrote that alpha first:
+
+- min(1, 2 x base alpha x the light) for `lightmap_tex_detail` and nearly
+  every other lightmap pass (`tex`, the detail blends, two and three detail,
+  illum, shiny, tiling, change colour, honor guard), so the base map's alpha
+  is a specular mask;
+- 0 for the env passes, `detail_overlay` and `detail_no_specular`: those
+  surfaces never shine, whatever their passes;
+- the cut-out or other terms for the alpha-tested passes. Only
+  `alpha_test_no_bump`'s (the cut-out, which is the base alpha) matches
+  what staging writes; the others are left without.
+
+That is CE's lightmap specular (`SpecLightmap`: the lobe from the
+lightmap's incident direction, masked by the base map's alpha), its colour
+going from parallel to perpendicular by N.V rather than N.L: perpendicular
+takes register 10's constant, parallel register 11's. A template that cuts
+out on another map's alpha has the cut staged in the base's alpha, so it
+would shine all over; it gets none. Turf's door frames and posts
+(`metal_grey_dark` on `matte_grey`, brushed streaks in the alpha: vertex
+constants 7 and 8, 1.0 and 0.75 grey) drew flat grey without it. Placed objects (lit from the object lighting
+page) are left without: they have no incident direction per texel, so a
+flat face took one and saturated white (Turf's dumpster). 25
+templates take it, 61% of the multiplayer maps' triangles
+(docs/h2_shader_census.md).
 
 ## Breakable glass
 
@@ -477,11 +500,9 @@ hard, then breaks and lets players through, as in Halo 2.
 - Only BSP 0 is converted (every multiplayer map has one).
 - Placed object models take each region's first permutation at its most
   detailed level.
-- Specular is drawn for `tex_bump`, `tex_bump_shiny` and
-  `tex_bump_alpha_test_single_pass` only (see Specular). The other
-  templates with the specular pass (the env, illum and change-colour
-  families) keep other things in pixel constants 0 and 1, so they have
-  none yet.
+- Specular's colour blends by the view (N.V) where Halo 2's blends by the
+  light (N.L), and alpha-tested templates other than `tex_alpha_test` have
+  none (see Specular).
 - The sun shafts' fade towards edge-on (the vertex colour going from the
   facing colour to black as (N.V)^2) has no CE chicago equivalent; they draw
   at their facing colour.

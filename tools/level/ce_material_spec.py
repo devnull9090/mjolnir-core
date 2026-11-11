@@ -929,6 +929,13 @@ def main():
             sc["Overbright"] = 1.0 if sf & 1 else 0.0
             sc["ExtraShiny"] = 1.0 if sf & 2 else 0.0
             sc["SpecLightmap"] = 1.0 if sf & 4 else 0.0
+            # A Halo 2 placed object (lit from the object lighting page)
+            # has no incident direction per texel to aim the lobe with: a
+            # flat face takes one direction and the whole face saturates
+            # (Turf's dumpster end drew solid white, 2026-11-10). Halo 2's
+            # specular stays on the BSP until objects carry one.
+            if s.get("h2_template") and halo.get("lightmap_index") == "objects":
+                sc["SpecLightmap"] = 0.0
             sc["SpecBrightness"] = spec.get("brightness", 0.0)
             vec = entry["vectors"]
             vec["SpecPerpendicular"] = list(spec.get("perpendicular_color") or [1, 1, 1]) + [1.0]

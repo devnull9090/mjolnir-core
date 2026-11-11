@@ -977,22 +977,20 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "specular": {"flags": 0, "brightness": 0.0},
         });
         let mut s = s;
-        // Specular: tex_bump's lightmap pass writes the base map's alpha
-        // (times the light) to the frame's alpha, and its
-        // `default_light_combined_tangentspace_specular_sphere` pass adds
-        // sat(R.L)^8 in its colour through it; Turf's door frames and
-        // posts (`matte_grey`, brushed streaks in the alpha) drew flat
-        // grey without it. CE's lightmap specular is the same lobe, masked
-        // by the base map's alpha: facing colour pixel constant 0,
-        // glancing pixel constant 1 (metal_grey_dark: 1.0 and 0.75).
-        // Only the templates whose constants are known to be those.
-        if specular_template(&template_name) {
-            let c = |i: usize| pixel.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
-            let (facing, glancing) = (c(0), c(1));
+        // Specular (see `specular_constants`): CE's lightmap specular is
+        // Halo 2's lobe, masked by the base map's alpha; Turf's door
+        // frames and posts (`matte_grey`, brushed streaks in the alpha)
+        // drew flat grey without it. A template that cuts out on another
+        // map's alpha has that cut staged in the base's alpha, which would
+        // make the whole surface shine; it is left without.
+        let cut_elsewhere = tpl.alpha_tested && tpl.alpha_from != "base";
+        let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+        if let Some((a, b)) = stem.as_ref().filter(|_| !cut_elsewhere).and_then(specular_constants) {
+            let c = |i: usize| constants.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
+            let (facing, glancing) = (c(a), c(b));
             if facing.iter().chain(glancing.iter()).any(|&v| v > 0.0) {
                 s["specular"] = json!({
-                    "flags": 4 | if template_name == "tex_bump_shiny" { 2 } else { 0 },
-                    "brightness": 1.0,
+                    "flags": 4, "brightness": 1.0,
                     "perpendicular_color": facing, "parallel_color": glancing,
                 });
             }
@@ -1043,12 +1041,75 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     Shader { key, class, alpha_mode, double_sided, base, base_scale, unlit, drawn, summary }
 }
 
-/// Opaque templates that draw the specular pass
-/// (`default_light_combined_tangentspace_specular_sphere`) with the facing
-/// and glancing colours in pixel constants 0 and 1. Its other users (the
-/// env and change-colour families) keep other things there.
-fn specular_template(name: &str) -> bool {
-    name == "tex_bump" || name == "tex_bump_shiny" || name.starts_with("tex_bump_alpha_test_single_pass")
+/// A template's passes, in order: its postprocess definition (stem +0x58,
+/// 0x28) holds five {count, address} blocks; +0x10 the passes (10 bytes: the
+/// `spas` reference, then a u16 range of implementations), +0x18 the
+/// implementations (6 bytes: u16 ranges of remappings for the bitmaps, the
+/// pixel constants and the vertex constants) and +0x20 the remappings (4
+/// bytes: u16 descriptor, u8, u8 source). A range is its start in the low
+/// 9 bits and its count above. Each pass comes with the shader vertex
+/// constants it feeds vertex registers 10 and 11 (source slot 7), if any.
+fn template_passes(stem: &Tag<'_>) -> Vec<(String, Option<(usize, usize)>)> {
+    let Some(d) = stem.root.block(0x58, 0x28).get(0) else { return Vec::new() };
+    let imps = d.block(0x18, 6);
+    let remaps = d.block(0x20, 4);
+    let range = |v: u16| ((v & 0x1FF) as usize, (v >> 9) as usize);
+    let mut out = Vec::new();
+    for pass in d.block(0x10, 10).iter() {
+        let name = stem.file.entry(pass.u32(4)).map(|t| t.name.rsplit('\\').next().unwrap_or("").to_string()).unwrap_or_default();
+        let (start, count) = range(pass.u16(8));
+        let mut regs = [None, None];
+        for im in (start..start + count).filter_map(|i| imps.get(i)) {
+            let (s, n) = range(im.u16(4));
+            for r in (s..s + n).filter_map(|r| remaps.get(r)) {
+                let v = r.u16(0);
+                if (v >> 10) & 7 == 7 && matches!(v & 31, 10 | 11) {
+                    regs[(v & 31) as usize - 10] = Some(r.u8(3) as usize);
+                }
+            }
+        }
+        let vc = match regs {
+            [Some(a), Some(b)] => Some((a, b)),
+            _ => None,
+        };
+        out.push((name, vc));
+    }
+    out
+}
+
+/// Whether a template's lightmap passes leave a specular mask: Halo 2's
+/// `default_light_combined_tangentspace_specular_sphere` adds its light
+/// through the frame's alpha, which the lightmap pass writes. Nearly every
+/// lightmap pass writes min(1, 2 x base alpha x the light) (tex_detail,
+/// tex, the detail blends, two and three detail, illum, shiny, tiling,
+/// change colour, honor guard); the env ones, `detail_overlay` and
+/// `detail_no_specular` write 0, so those surfaces never shine; the
+/// alpha-tested ones write the cut-out or other terms, of which only
+/// `alpha_test_no_bump`'s (the cut-out, base alpha) is the staged alpha.
+fn specular_mask(lightmaps: &[&str]) -> bool {
+    !lightmaps.is_empty()
+        && lightmaps.iter().all(|n| {
+            !n.contains("env")
+                && !n.ends_with("detail_overlay")
+                && !n.ends_with("no_specular")
+                && (!n.contains("alpha_test") || n.ends_with("alpha_test_no_bump"))
+        })
+}
+
+/// The shader vertex constants holding a template's specular colours, when
+/// it draws specular: the `specular_sphere` pass's vertex shader
+/// (`stencil_light_specular_tangentspace_sphere`) passes registers 10 and
+/// 11 through, and its pixel shader adds sat(R.L)^8 x the light x
+/// lerp(register 11, register 10, sat(N.L)), R the view reflected about the
+/// bumped normal. CE's lightmap specular is that lobe from the lightmap's
+/// incident direction, its colour going from parallel to perpendicular by
+/// N.V instead: perpendicular register 10, parallel 11 (metal_grey_dark's
+/// vertex constants 7 and 8, 1.0 and 0.75 grey).
+fn specular_constants(stem: &Tag<'_>) -> Option<(usize, usize)> {
+    let passes = template_passes(stem);
+    let vc = passes.iter().find(|(n, _)| n.ends_with("specular_sphere")).and_then(|(_, vc)| *vc)?;
+    let lightmaps: Vec<&str> = passes.iter().map(|(n, _)| n.as_str()).filter(|n| n.starts_with("lightmap")).collect();
+    specular_mask(&lightmaps).then_some(vc)
 }
 
 /// The tint of a template's self-illumination pass as a CE channel
@@ -2048,15 +2109,27 @@ impl Gltf {
 mod tests {
     use super::*;
 
-    /// Specular only for the templates whose constants 0 and 1 are its
-    /// colours: not the self-illuminated, env or change-colour ones.
+    /// Specular where the lightmap passes write the base alpha mask: not
+    /// through the env, overlay, no-specular or alpha-tested ones.
     #[test]
-    fn specular_templates() {
-        for t in ["tex_bump", "tex_bump_shiny", "tex_bump_alpha_test_single_pass"] {
-            assert!(specular_template(t), "{t}");
+    fn specular_masks() {
+        for l in [
+            &["lightmap_tex_detail"][..],
+            &["lightmap_tex", "lightmap_tex_detail_blend_detail"],
+            &["lightmap_tex_detail_alpha_test_no_bump"],
+            &["lightmap_tex_one_change_color"],
+        ] {
+            assert!(specular_mask(l), "{l:?}");
         }
-        for t in ["tex_bump_illum", "tex_bump_env", "tex_bump_one_change_color", "tex_bump_alpha_test", "two_alpha_env_illum"] {
-            assert!(!specular_template(t), "{t}");
+        for l in [
+            &[][..],
+            &["lightmap_tex_env", "lightmap_tex_env_detail"],
+            &["lightmap_tex", "lightmap_tex_detail_overlay"],
+            &["lightmap_tex_detail_no_specular"],
+            &["lightmap_tex_detail_alpha_test"],
+            &["lightmap_tex_env_detail_alpha_test"],
+        ] {
+            assert!(!specular_mask(l), "{l:?}");
         }
     }
 
