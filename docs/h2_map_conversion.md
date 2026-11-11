@@ -420,6 +420,19 @@ units and axes, so every later step reads them unchanged:
   the battle rifle the assault rifle, the brute shot the fuel rod gun, the
   carbine, brute plasma rifle and sentinel beam the plasma rifle.
 
+## Specular
+
+Halo 2's `tex_bump` lightmap pass writes the base map's alpha, times the
+light, to the frame's alpha. Its
+`default_light_combined_tangentspace_specular_sphere` pass then adds
+sat(R.L)^8 through that alpha, where R is the view reflected about the bumped
+normal and L the light's direction. The colour runs from pixel constant 0
+facing to constant 1 glancing. That is CE's lightmap specular (`SpecLightmap`,
+the lobe from the lightmap's incident direction, masked by the base map's
+alpha), so the shader takes it with those colours. Turf's door frames and
+posts (`metal_grey_dark` on `matte_grey`, brushed streaks in its alpha) drew
+flat grey without it; Lockout's frozen and tech panels gain it too.
+
 ## Breakable glass
 
 Halo 2's glass (Turf's stairwell doors) is solid until shot, meleed or hit
@@ -464,10 +477,11 @@ hard, then breaks and lets players through, as in Halo 2.
 - Only BSP 0 is converted (every multiplayer map has one).
 - Placed object models take each region's first permutation at its most
   detailed level.
-- Opaque shaders' specular from dynamic lights is not drawn. In the static
-  scene, Halo 2's `tex_bump` (Lockout's frozen panels) has none either: its
-  lightmap pass is diffuse only and its specular pass has no
-  implementation, so the panels' look is their albedo and light.
+- Specular is drawn for `tex_bump`, `tex_bump_shiny` and
+  `tex_bump_alpha_test_single_pass` only (see Specular). The other
+  templates with the specular pass (the env, illum and change-colour
+  families) keep other things in pixel constants 0 and 1, so they have
+  none yet.
 - The sun shafts' fade towards edge-on (the vertex colour going from the
   facing colour to black as (N.V)^2) has no CE chicago equivalent; they draw
   at their facing colour.

@@ -977,6 +977,26 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "specular": {"flags": 0, "brightness": 0.0},
         });
         let mut s = s;
+        // Specular: tex_bump's lightmap pass writes the base map's alpha
+        // (times the light) to the frame's alpha, and its
+        // `default_light_combined_tangentspace_specular_sphere` pass adds
+        // sat(R.L)^8 in its colour through it; Turf's door frames and
+        // posts (`matte_grey`, brushed streaks in the alpha) drew flat
+        // grey without it. CE's lightmap specular is the same lobe, masked
+        // by the base map's alpha: facing colour pixel constant 0,
+        // glancing pixel constant 1 (metal_grey_dark: 1.0 and 0.75).
+        // Only the templates whose constants are known to be those.
+        if specular_template(&template_name) {
+            let c = |i: usize| pixel.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
+            let (facing, glancing) = (c(0), c(1));
+            if facing.iter().chain(glancing.iter()).any(|&v| v > 0.0) {
+                s["specular"] = json!({
+                    "flags": 4 | if template_name == "tex_bump_shiny" { 2 } else { 0 },
+                    "brightness": 1.0,
+                    "perpendicular_color": facing, "parallel_color": glancing,
+                });
+            }
+        }
         // The change colour as CE's shader_model takes it (MCC's
         // ShaderModel): the mask in the multipurpose map's alpha, the
         // object's colour A from its block of the object lighting page.
@@ -1021,6 +1041,14 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     // plane at sea level fading the infinite water, drawn white without it.
     let drawn = template_name != "water_edge_blend";
     Shader { key, class, alpha_mode, double_sided, base, base_scale, unlit, drawn, summary }
+}
+
+/// Opaque templates that draw the specular pass
+/// (`default_light_combined_tangentspace_specular_sphere`) with the facing
+/// and glancing colours in pixel constants 0 and 1. Its other users (the
+/// env and change-colour families) keep other things there.
+fn specular_template(name: &str) -> bool {
+    name == "tex_bump" || name == "tex_bump_shiny" || name.starts_with("tex_bump_alpha_test_single_pass")
 }
 
 /// The tint of a template's self-illumination pass as a CE channel
@@ -2019,6 +2047,18 @@ impl Gltf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Specular only for the templates whose constants 0 and 1 are its
+    /// colours: not the self-illuminated, env or change-colour ones.
+    #[test]
+    fn specular_templates() {
+        for t in ["tex_bump", "tex_bump_shiny", "tex_bump_alpha_test_single_pass"] {
+            assert!(specular_template(t), "{t}");
+        }
+        for t in ["tex_bump_illum", "tex_bump_env", "tex_bump_one_change_color", "tex_bump_alpha_test", "two_alpha_env_illum"] {
+            assert!(!specular_template(t), "{t}");
+        }
+    }
 
     /// The slot tables put the base map where Lockout's shaders have it.
     #[test]
