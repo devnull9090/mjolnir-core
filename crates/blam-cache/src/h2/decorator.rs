@@ -212,6 +212,8 @@ pub struct Decal {
     /// 13-15, v/7), for [`Permutation::colour`].
     pub tint: [f32; 3],
     pub tint_blend: f32,
+    /// The placement's lightmap colour (its fourth word), 0..1.
+    pub lightmap: [f32; 3],
 }
 
 /// Every decal and sprite decorator of a structure BSP (its root): the
@@ -237,7 +239,10 @@ pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
                     0x00 => {
                         words = bytes
                             .chunks_exact(0x18)
-                            .map(|p| (u32::from_le_bytes(p[0..4].try_into().unwrap()), u32::from_le_bytes(p[8..12].try_into().unwrap())))
+                            .map(|p| {
+                                let w = |o: usize| u32::from_le_bytes(p[o..o + 4].try_into().unwrap());
+                                (w(0), w(8), w(12))
+                            })
                             .collect()
                     }
                     0x08 => verts = bytes.chunks_exact(0x20).map(|v| v.to_vec()).collect(),
@@ -266,13 +271,13 @@ pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
             let per_v = vcount / count.max(1);
             let per_i = icount / count.max(1);
             for k in 0..count {
-                let Some(&(internal, tint)) = words.get(first + k) else { continue };
+                let Some(&(internal, tint, light)) = words.get(first + k) else { continue };
                 let v0 = vstart + k * per_v;
                 let (class, permutation) = ((internal & 7) as usize, ((internal >> 3) & 0x3F) as usize);
                 let base = Decal {
                     group: gi, set: g.u8(0) as usize, class, permutation,
                     positions: Vec::new(), uvs: Vec::new(), colors: Vec::new(), triangles: Vec::new(),
-                    tint: rgb(tint), tint_blend: ((internal >> 13) & 7) as f32 / 7.0,
+                    tint: rgb(tint), tint_blend: ((internal >> 13) & 7) as f32 / 7.0, lightmap: rgb(light),
                 };
                 if sprite {
                     let Some(vs) = sverts.get(v0..v0 + per_v) else { continue };
@@ -355,6 +360,15 @@ impl Permutation {
     pub fn colour(&self, tint: [f32; 3], blend: f32) -> [f32; 3] {
         let pct = self.base_map_tint.clamp(0.0, 1.0);
         [0, 1, 2].map(|k| (self.tint[0][k] * (1.0 - blend) + self.tint[1][k] * blend) * (pct * tint[k] + 1.0 - pct))
+    }
+
+    /// A placement's light as `halo2.dll` builds it (0x7fa1d0): its
+    /// lightmap colour by the permutation's lightmap tint percentage, grey
+    /// (0.5) for the rest. The decorator pixel shaders double the vertex
+    /// colour, so 0.5 is unlit-neutral, as in the lightmaps.
+    pub fn light(&self, lightmap: [f32; 3]) -> [f32; 3] {
+        let pct = self.lightmap_tint.clamp(0.0, 1.0);
+        lightmap.map(|v| pct * v + (1.0 - pct) * 0.5)
     }
 }
 

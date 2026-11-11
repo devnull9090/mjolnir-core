@@ -497,7 +497,20 @@ Model decorators are staged as scenery: each set's model
 (`models/<set>__decorator<k>.gltf`, its run of the set's indices, double
 sided, `decorator_tex` cut out on its base map's alpha), one placement entry
 each with its rotation as `basis` (forward, left, up) and `scale`, which
-merge_ce_scene.py places like any object (lit from the object page).
+merge_ce_scene.py places like any object, and its `light`.
+
+Every decorator is lit and coloured as Halo 2 colours its vertices
+(`halo2.dll` 0x7fa1d0): the permutation's tint 1 to tint 2 by the
+placement's blend, times the placement's tint by the base map tint
+percentage; times its light, the placement's lightmap colour by the
+lightmap tint percentage, grey (0.5) for the rest. The decorator pixel
+shaders draw 2 x texture x that colour. A model's entry carries the doubled
+product as `light`; a decal's or sprite's vertices already hold the product
+(their stored colour equals it on Turf and Coagulation to 8-bit rounding),
+doubled into the mesh's `_LIGHT`. merge_ce_scene.py lights each from that
+in place of the ground under it: one object page block a distinct colour
+(in 32nds), the incident direction along the normal so it draws flat, as
+Halo 2's does.
 
 Decal decorators need no decode: the map stores them as geometry. Each
 cache block carries decal vertices (locator 0x08: 0x20 each, position,
@@ -526,8 +539,8 @@ draws from the sprite buffer when its block has one and its type says
 quad, or it has no decal buffer. Zanzibar's "screen-facing quads" (group
 type 3) are `foliage_earth` models by their class, and are placed as models.
 
-Not done: the placements' own tint and lightmap colours, and a lighter path for the maps with thousands (Coagulation's
-16,800: one object page texel and one merged copy each).
+Not done: a lighter path for the maps with thousands of model
+decorators (each is one merged copy).
 
 ## Breakable glass
 

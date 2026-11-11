@@ -1489,6 +1489,11 @@ struct Prim {
     uv0: Vec<[f32; 2]>,
     uv1: Vec<[f32; 2]>,
     incident: Vec<[f32; 3]>,
+    /// A decorator's own light per vertex (`_LIGHT`, linear, 1 = unlit
+    /// white), when it has one.
+    light: Vec<[f32; 3]>,
+    /// Each vertex's index in the section it came from.
+    order: Vec<u32>,
     indices: Vec<u32>,
 }
 
@@ -1557,6 +1562,7 @@ impl Prim {
                     self.tangents.push([tg[0], tg[1], tg[2], w]);
                     self.uv0.push([v.uv[0] * base_scale[0], v.uv[1] * base_scale[1]]);
                     self.uv1.push(uv1.unwrap_or(v.lightmap_uv));
+                    self.order.push(i);
                     self.incident.push(match incident.and_then(|inc| inc.get(i as usize)) {
                         Some(&world) => to_gltf(world),
                         None if section.has_incident => to_gltf(frame.dir(v.incident)),
@@ -1722,8 +1728,6 @@ pub struct Renderer<'c> {
     shaders: Vec<Shader>,
     shader_index: BTreeMap<(usize, u32), usize>,
     models: BTreeMap<String, Option<Value>>,
-    /// Tinted copies of shaders (`Renderer::tinted`): key -> (shader, base).
-    tinted: BTreeMap<String, (usize, String)>,
     pub notes: Vec<String>,
 }
 
@@ -1736,7 +1740,6 @@ impl<'c> Renderer<'c> {
             shaders: Vec::new(),
             shader_index: BTreeMap::new(),
             models: BTreeMap::new(),
-            tinted: BTreeMap::new(),
             notes: Vec::new(),
         }
     }
@@ -1987,45 +1990,6 @@ impl<'c> Renderer<'c> {
         Ok(Some(record))
     }
 
-    /// The material key and base map of shader `sh` multiplied by `gain`
-    /// (a decorator's colour, `decorator::Permutation::colour`), quantised
-    /// to twentieths so placements share copies: a tinted copy of the staged
-    /// PNG, `<stem>__t<rrggbb>.png`, and the key with the same suffix.
-    fn tinted(&mut self, sh: usize, gain: [f32; 3]) -> (String, Option<String>) {
-        let s = &self.shaders[sh];
-        let gain = gain.map(|g| (g * 20.0).round() / 20.0);
-        let suffix = tint_suffix(gain);
-        let Some(base) = s.base.clone().filter(|_| !suffix.is_empty()) else { return (s.key.clone(), s.base.clone()) };
-        let stem = base.trim_end_matches(".png");
-        let name = format!("{stem}{suffix}.png");
-        let out = self.dir.join("textures").join(&name);
-        if !out.exists() {
-            let read = || -> Option<crate::h2::bitmap::Image> {
-                let file = std::fs::File::open(self.dir.join("textures").join(&base)).ok()?;
-                let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().ok()?;
-                let mut buf = vec![0; reader.output_buffer_size()];
-                let info = reader.next_frame(&mut buf).ok()?;
-                if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-                    return None;
-                }
-                buf.truncate(info.buffer_size());
-                Some(crate::h2::bitmap::Image { width: info.width, height: info.height, rgba: buf })
-            };
-            let Some(mut img) = read() else { return (s.key.clone(), s.base.clone()) };
-            for p in img.rgba.chunks_exact_mut(4) {
-                for (c, g) in p[..3].iter_mut().zip(gain) {
-                    *c = (*c as f32 * g).round().clamp(0.0, 255.0) as u8;
-                }
-            }
-            if crate::h2::bitmap::write_png(&out, &img).is_err() {
-                return (s.key.clone(), s.base.clone());
-            }
-        }
-        let key = format!("{}{suffix}", s.key);
-        self.tinted.insert(key.clone(), (sh, name.clone()));
-        (key, Some(name))
-    }
-
     /// A decorator set's model as a glTF of its own
     /// (`models/<set>__decorator<k>.gltf`, in the set's units, z up as the
     /// BSP's) drawn with `shader`: the model's run of the set's indices, a
@@ -2037,12 +2001,10 @@ impl<'c> Renderer<'c> {
         set: &crate::h2::decorator::Set,
         model: usize,
         shader: Option<Tag<'c>>,
-        gain: [f32; 3],
     ) -> Result<Option<String>, Error> {
         let sh = self.shader(shader);
-        let (key, base) = self.tinted(sh, gain);
-        let suffix = key.strip_prefix(self.shaders[sh].key.as_str()).unwrap_or("").to_string();
-        let rel = format!("models/{}__decorator{model}{suffix}.gltf", sanitize(set_name));
+        let (key, base) = (self.shaders[sh].key.clone(), self.shaders[sh].base.clone());
+        let rel = format!("models/{}__decorator{model}.gltf", sanitize(set_name));
         if let Some(done) = self.models.get(&rel) {
             return Ok(done.as_ref().map(|_| rel.clone()));
         }
@@ -2079,18 +2041,20 @@ impl<'c> Renderer<'c> {
 
     /// Decal decorators as a glTF of their own (`models/<name>.gltf`): their
     /// quads, moved by `-origin` (world units, Halo axes), drawn with
-    /// `shader`, double sided. Its relative path, or `None` when nothing is
-    /// drawn.
+    /// `shader`, double sided, each vertex's stored colour (its placement's
+    /// tint times its light, `decorator::Decal::colors`) doubled as the
+    /// decorator shaders double it, as its light (`_LIGHT`). Its relative
+    /// path, or `None` when nothing is drawn.
     pub fn decal_mesh(
         &mut self,
         name: &str,
         decals: &[&crate::h2::decorator::Decal],
         origin: [f32; 3],
         shader: Option<Tag<'c>>,
-        gain: [f32; 3],
     ) -> Result<Option<String>, Error> {
         let rel = format!("models/{}.gltf", sanitize(name));
         let mut section = Section::default();
+        let mut light = Vec::new();
         for d in decals {
             let base = section.vertices.len() as u32;
             let p = &d.positions;
@@ -2111,6 +2075,10 @@ impl<'c> Renderer<'c> {
                     ..Default::default()
                 });
             }
+            light.extend((0..p.len()).map(|k| {
+                let c = d.colors.get(k).copied().unwrap_or([0.5; 4]);
+                [c[0] * 2.0, c[1] * 2.0, c[2] * 2.0]
+            }));
             for t in &d.triangles {
                 // Wound to face the normal taken from corners 0, 1, 2.
                 section.indices.extend(t.iter().map(|&i| (base + i) as u16));
@@ -2124,9 +2092,11 @@ impl<'c> Renderer<'c> {
         if !self.shaders[sh].drawn {
             return Ok(None);
         }
-        let (key, base) = self.tinted(sh, gain);
+        let (key, base) = (self.shaders[sh].key.clone(), self.shaders[sh].base.clone());
         let mut prim = Prim::default();
         prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
+        // Prim::add keeps the section's vertex order through its indices.
+        prim.light = prim.order.iter().map(|&i| light[i as usize]).collect();
         let mut gltf = Gltf::default();
         let s = &self.shaders[sh];
         let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key}});
@@ -2187,15 +2157,6 @@ impl<'c> Renderer<'c> {
                        "double_sided": sh.double_sided, "base_map": sh.base, "shader": sh.summary})
             });
         }
-        for (key, (sh, base)) in &self.tinted {
-            let sh = &self.shaders[*sh];
-            let mut summary = sh.summary.clone();
-            summary["base_map"] = json!(base);
-            materials.entry(key.clone()).or_insert_with(|| {
-                json!({"tag_path": sh.summary["tag_path"], "shader_class": sh.class, "alpha_mode": sh.alpha_mode,
-                       "double_sided": sh.double_sided, "base_map": base, "shader": summary})
-            });
-        }
         let text = serde_json::to_string_pretty(&Value::Object(materials)).map_err(|e| Error::Format(e.to_string()))?;
         let path = self.dir.join("materials.json");
         std::fs::write(&path, text + "\n").map_err(|e| Error::Io(path, e))?;
@@ -2253,14 +2214,16 @@ impl Gltf {
         let uv0 = self.floats(&p.uv0, "VEC2", false);
         let uv1 = self.floats(&p.uv1, "VEC2", false);
         let inc = self.floats(&p.incident, "VEC3", false);
+        let light = (!p.light.is_empty()).then(|| self.floats(&p.light, "VEC3", false));
         let idx_bytes: Vec<u8> = p.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
         let view = self.view(&idx_bytes, 34963);
         self.accessors.push(json!({"bufferView": view, "componentType": 5125, "count": p.indices.len(), "type": "SCALAR"}));
         let idx = self.accessors.len() - 1;
-        json!({
-            "attributes": {"POSITION": pos, "NORMAL": nrm, "TANGENT": tan, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "_INCIDENT": inc},
-            "indices": idx, "material": material, "mode": 4,
-        })
+        let mut attributes = json!({"POSITION": pos, "NORMAL": nrm, "TANGENT": tan, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "_INCIDENT": inc});
+        if let Some(light) = light {
+            attributes["_LIGHT"] = json!(light);
+        }
+        json!({"attributes": attributes, "indices": idx, "material": material, "mode": 4})
     }
 
     fn material(&mut self, name: &str, base: Option<&str>, alpha: &str, double_sided: bool, extras: Value) -> usize {

@@ -108,6 +108,9 @@ def primitives(g, buf):
                 # The node each vertex hangs on most (a skinned model's bones
                 # are its nodes, by index), for machines' moving parts.
                 "joint": accessor(g, buf, at["JOINTS_0"])[:, 0] if "JOINTS_0" in at else None,
+                # A Halo 2 decorator's own light per vertex (mjolnir cache
+                # stage: its placement's tint times its light, doubled).
+                "light": accessor(g, buf, at["_LIGHT"]) if "_LIGHT" in at else None,
                 "idx": accessor(g, buf, p["indices"]).reshape(-1),
                 "material": mat["name"], "extras": mat.get("extras", {}),
             })
@@ -446,6 +449,20 @@ def main():
     # (the environment master reads them at fixed offsets of 1/8).
     BLOCK, PER_ROW, COLUMNS = 4, 16, 8
     object_texels, object_prims = [], []
+    # Halo 2 decorators carry their own light (decorator_light): one block
+    # per distinct colour, in 32nds, shared by every placement that has it.
+    decorator_blocks = {}
+
+    def decorator_light(colours):
+        """Each vertex's block for a decorator's own light colours."""
+        keys = np.round(np.clip(colours, 0.0, 1.0) * 32.0).astype(np.int64)
+        out = np.empty(len(keys), dtype=np.int64)
+        for k, key in enumerate(map(tuple, keys)):
+            if key not in decorator_blocks:
+                decorator_blocks[key] = len(object_texels)
+                object_texels.append([np.array(key) / 32.0, np.ones(3)] + [np.ones(3)] * 4)
+            out[k] = decorator_blocks[key]
+        return out
 
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
     # Beacons that would rock on one edge of their base sit on the ground
@@ -494,6 +511,24 @@ def main():
                 rn = swap @ np.array(e["basis"], dtype=np.float64).T @ swap.T
                 r = rn * float(e.get("scale", 1.0))
             t = ce_to_gltf(e["pos"])
+            own = e.get("light") is not None or any(p.get("light") is not None for p in cache[path])
+            if own:
+                # A Halo 2 decorator lit as Halo 2 lights it: by its own
+                # light, flat (its incident direction along its normal, so
+                # the master's sat(N.L) is 1), not the ground under it.
+                for p in cache[path]:
+                    n = len(p["pos"])
+                    light = p["light"] if p.get("light") is not None else np.tile(np.array(e["light"], dtype=np.float64), (n, 1))
+                    nrm = p["nrm"] @ rn.T
+                    halo = {**p["extras"].get("halo", {}), "lightmap_index": "objects",
+                            "lightmap_texture": OBJECT_LIGHTING_PAGE}
+                    q = {"pos": p["pos"] @ r.T + t, "nrm": nrm, "uv0": p["uv0"], "idx": p["idx"],
+                         "tan": tangents_for(nrm), "inc": nrm.copy(), "material": f"{p['material']}__lmobj",
+                         "extras": {"halo": halo}, "block": decorator_light(light)}
+                    out.append(q)
+                    object_prims.append(q)
+                placed += 1
+                continue
             # The bounding sphere, which CE samples the ground under.
             ext = np.concatenate([p["pos"] @ r.T for p in cache[path]])
             centre = (ext.min(axis=0) + ext.max(axis=0)) / 2 if len(ext) else np.zeros(3)
@@ -581,10 +616,12 @@ def main():
                 page[y * BLOCK:(y + 1) * BLOCK, x0:x0 + BLOCK] = np.round(np.clip(colour, 0.0, 1.0) * 255.0)
         Image.fromarray(page, "RGB").save(os.path.join(a.staging, "textures", OBJECT_LIGHTING_PAGE))
         for q in object_prims:
-            y, x = divmod(q.pop("block"), PER_ROW)
-            uv = ((x + 0.5) * BLOCK / wid, (y + 0.5) * BLOCK / hgt)
-            q["uv1"] = np.tile(uv, (len(q["pos"]), 1))
-        print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt})")
+            # One block for the placement, or one per vertex (a decorator's).
+            block = np.broadcast_to(np.asarray(q.pop("block")), (len(q["pos"]),))
+            y, x = np.divmod(block, PER_ROW)
+            q["uv1"] = np.stack([(x + 0.5) * BLOCK / wid, (y + 0.5) * BLOCK / hgt], axis=1)
+        print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt}), "
+              f"{len(decorator_blocks)} of them decorators' own light")
 
     out = with_passes(out, shaders)
     out = with_decal_offset(out, shaders)

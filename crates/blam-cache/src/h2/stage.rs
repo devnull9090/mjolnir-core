@@ -931,8 +931,12 @@ fn decorator_entries<'c>(
             continue;
         }
         let shader = set.shaders.get(perm.shader).and_then(|&d| cache.tag(tag.file, d));
-        let gain = perm.colour(p.tint, p.tint_blend);
-        let Some(model) = render.decorator_model(tag.name(), set, perm.index, shader, gain)? else { continue };
+        let Some(model) = render.decorator_model(tag.name(), set, perm.index, shader)? else { continue };
+        // Its colour and light as halo2.dll builds the vertex colour
+        // (0x7fa1d0), doubled as the decorator shader doubles it: the light
+        // merge_ce_scene.py gives it in place of the ground's.
+        let (colour, light) = (perm.colour(p.tint, p.tint_blend), perm.light(p.lightmap));
+        let light: [f32; 3] = [0, 1, 2].map(|k| 2.0 * colour[k] * light[k]);
         let (s, c) = p.yaw.sin_cos();
         let (up, p0) = if perm.flags & 1 != 0 {
             let u = p.up;
@@ -964,7 +968,7 @@ fn decorator_entries<'c>(
             "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
             "pos": p.position, "rot": [p.yaw, 0.0, 0.0],
             "basis": [forward, left, up], "scale": if scale > 0.0 { scale } else { 1.0 },
-            "decorator": true,
+            "decorator": true, "light": light,
         }));
         models += 1;
     }
@@ -996,16 +1000,7 @@ fn decorator_entries<'c>(
         }
         let shader_tag = cache.tag(tag.file, *shader);
         let name = format!("{}__decals{group}_{shader:08x}", tag.name());
-        // The run's colour: its placements' mean (decorator::Permutation::colour).
-        let Some(Some((_, set))) = sets.get(set_index) else { continue };
-        let mut gain = [0.0f32; 3];
-        for d in list {
-            let c = set.classes.get(d.class).and_then(|c| c.permutations.get(d.permutation)).map(|p| p.colour(d.tint, d.tint_blend)).unwrap_or([1.0; 3]);
-            for k in 0..3 {
-                gain[k] += c[k] / list.len() as f32;
-            }
-        }
-        let Some(model) = render.decal_mesh(&name, list, origin, shader_tag, gain)? else { continue };
+        let Some(model) = render.decal_mesh(&name, list, origin, shader_tag)? else { continue };
         entries.push(json!({
             "kind": "scenery", "asset": format!("{}:decals", tag.name()), "tag_class": "DECR",
             "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
