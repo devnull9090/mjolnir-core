@@ -30,6 +30,7 @@ fn main() {
         let Some(t) = r.tagref(0).and_then(|r| cache.follow(r)) else { continue };
         let s = decorator::set(&cache, t.root).expect("set");
         println!("set {i}: {} ({} shader(s), {} model(s), {} vertices, {} indices)", t.name(), s.shaders.len(), s.models.len(), s.vertices.len(), s.indices.len());
+        println!("  models: {:?}", s.models.iter().map(|m| (m.name.as_str(), m.first, m.count)).collect::<Vec<_>>());
         for (k, c) in s.classes.iter().enumerate() {
             println!("  class {k} {} type {} scale {}: {:?}", c.name, c.kind, c.scale,
                 c.permutations.iter().map(|p| (p.name.as_str(), p.index, p.flags, p.scale)).collect::<Vec<_>>());

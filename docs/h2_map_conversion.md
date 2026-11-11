@@ -480,6 +480,12 @@ surface (median 0.1 units). The 20 maps with decorators hold 38,600:
 (Zanzibar's, all). A group's own type byte disagrees with its class's on
 Turf, so the class's (`DECR` class +0x04) decides.
 
+DXT1 bitmaps decode with their one-bit alpha (a three-colour block's
+index 3 is transparent black, as D3D samples it). Read opaque, the debris
+atlas drew each piece in a black box where Halo 2 cuts it out; elsewhere
+one to five textures a map gain transparent texels (Coagulation's light
+bands, Ascension's light strips, Zanzibar's hazard strips).
+
 Model decorators are staged as scenery: each set's model
 (`models/<set>__decorator<k>.gltf`, its run of the set's indices, double
 sided, `decorator_tex` cut out on its base map's alpha), one placement entry
