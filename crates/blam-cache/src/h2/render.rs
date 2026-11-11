@@ -90,6 +90,16 @@ pub fn template(name: &str) -> Template {
         n if n.starts_with("tex_bump_alpha_test") => {
             t(&["bump", "", "", "base", "detail"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, true)
         }
+        // Cuts out on the base map's alpha times bitmap 1's (an alpha map
+        // of its own): Turf's damaged stucco has a solid door base and the
+        // stairwell's opening in `base_stucco1_damaged_01_alpha`; the
+        // chainlink fence keeps its holes in the base, alpha_white in slot
+        // 1; the lilypads have the same map in both. Read with
+        // tex_bump_env's slots, slot 1 was skipped and Turf's stairwell
+        // was walled off by a door with no collision behind it.
+        n if n.starts_with("tex_bump_env") && n.ends_with("alpha_test_combined") => {
+            Template { alpha_from: "alpha", ..t(&["bump", "alpha", "base", "detail"], BUMP_FIRST, 0, true) }
+        }
         "tex_bump_detail_blend" => t(&["bump", "base", "detail", "detail2"], DETAIL_FIRST, 0, false),
         n if n.starts_with("tex_bump_detail_blend_detail") => {
             t(&["bump", "base", "detail", "detail2", ""], BUMP_FIRST, 0, false)
@@ -147,6 +157,14 @@ pub fn template(name: &str) -> Template {
             t(&["env", "mask", "base", "", "self_illum"], &[], 1, false)
         }
         n if n.ends_with("one_alpha_env_illum") => t(&["env", "mask", "base", "self_illum"], &[], 1, false),
+        // The two-layer glass (Turf's storefront and stairwell doors,
+        // Triplicate's glass rails, the medical tent's panels): the same
+        // slots and pixel constants as one_alpha_env (0 env tint, 1 albedo
+        // tint), a second glass layer in slot 4. `two_alpha_env_detail` is
+        // the Forerunner "invisible" glass, placeholders but for its cube.
+        // Through the alpha catch-all, the reflection cube in slot 0 was
+        // drawn as a picture: a dark sheet filling Turf's stairwell door.
+        "two_alpha_env_illum" | "two_alpha_env_detail" => t(&["env", "mask", "base", "self_illum", ""], &[], 1, false),
         // Plasma: two scrolling noise maps banded against each other, through
         // the mask's alpha, added to the frame.
         "plasma_alpha" => t(&["noise_a", "noise_b", "mask"], &[], 4, false),
@@ -432,8 +450,20 @@ impl Textures {
     /// Stage `base` with its alpha replaced by `alpha`'s (resampled to each
     /// mip), as `<stem>__cut.png`: the cut-out an alpha-tested template
     /// reads from another map.
-    fn stage_cutout(&mut self, cache: &Cache, base: &Tag<'_>, alpha: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Option<String> {
-        let key = format!("__cut{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
+    /// With `combine`, the base keeps its own alpha times the cut-out's
+    /// (`tex_bump_env_alpha_test_combined`); otherwise the cut-out's alpha
+    /// replaces it.
+    fn stage_cutout(
+        &mut self,
+        cache: &Cache,
+        base: &Tag<'_>,
+        alpha: &Tag<'_>,
+        combine: bool,
+        dir: &Path,
+        notes: &mut Vec<String>,
+    ) -> Option<String> {
+        let mode = if combine { "x" } else { "" };
+        let key = format!("__cut{mode}{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
         self.stage_mapped(cache, base, 0, dir, notes, "__cut", &key, &mut |mips| {
             let a = decode_bitmap(cache, alpha, 0)?.into_iter().next().ok_or_else(|| Error::Format("no image".into()))?;
             // A base smaller than the cut-out (a placeholder colour) is
@@ -456,7 +486,9 @@ impl Textures {
                     for x in 0..m.width {
                         let u = (x as f32 + 0.5) / m.width as f32;
                         let v = (y as f32 + 0.5) / m.height as f32;
-                        m.rgba[((y * m.width + x) * 4 + 3) as usize] = sample_alpha(&a, u, v);
+                        let at = ((y * m.width + x) * 4 + 3) as usize;
+                        let cut = sample_alpha(&a, u, v);
+                        m.rgba[at] = if combine { ((m.rgba[at] as u32 * cut as u32 + 127) / 255) as u8 } else { cut };
                     }
                 }
             }
@@ -619,7 +651,7 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     }
     if tpl.alpha_tested && tpl.alpha_from != "base" {
         if let (Some(b), Some(a)) = (tags.get("base"), tags.get(tpl.alpha_from)) {
-            let cut = tex.stage_cutout(cache, b, a, dir, notes);
+            let cut = tex.stage_cutout(cache, b, a, tpl.alpha_from == "alpha", dir, notes);
             roles.insert("base", cut);
         }
     }
@@ -652,7 +684,8 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     let key = sanitize(shader.name());
     let base = role("base");
     let mut unlit = false;
-    let (class, alpha_mode, double_sided, base, summary) = if template_name.contains("one_alpha_env") && !template_name.starts_with("sky_") {
+    let glass = template_name.contains("one_alpha_env") || template_name == "two_alpha_env_illum" || template_name == "two_alpha_env_detail";
+    let (class, alpha_mode, double_sided, base, summary) = if glass && !template_name.starts_with("sky_") {
         // Glass (one_alpha_env, one_alpha_env_illum; the compiled MCC shader
         // read back): colour = base.rgb * albedo tint * base.a + cube(R) *
         // env tint * specular mask, both scaled by a tint between the facing
@@ -1905,6 +1938,7 @@ mod tests {
         assert_eq!(template("tex_bump_alpha_test").slots[3], "base");
         assert!(template("tex_bump_alpha_test").alpha_tested);
         assert_eq!(template("one_alpha_env").transparent, 1);
+        assert_eq!(template("two_alpha_env_illum").slots[..3], ["env", "mask", "base"]);
         assert_eq!(template("plasma_alpha").transparent, 4);
         assert_eq!(template("one_add_two_plus_two").transparent, 1, "a product of its maps, alpha blended");
         // Ascension's sky: the cloud cover's cloud map is bitmap 0 and its
@@ -1937,6 +1971,8 @@ mod tests {
         assert_eq!(template("tex_bump_alpha_test_single_pass").alpha_from, "bump");
         assert_eq!(template("tex_bump_alpha_test_clamped_single_pass").alpha_from, "bump");
         assert_eq!(template("tex_bump_alpha_test").alpha_from, "base");
+        let combined = template("tex_bump_env_alpha_test_combined");
+        assert_eq!((combined.alpha_from, combined.slots[1], combined.alpha_tested), ("alpha", "alpha", true));
         assert_eq!(template("tex_bump_plasma_one_channel_illum").slots, &["bump", "base", "detail", "plasma"]);
         assert_eq!(template("overlay").transparent, 1, "a double multiply, baked for alpha blending");
     }

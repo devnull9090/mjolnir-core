@@ -258,6 +258,11 @@ pub struct LevelFile {
     /// reads; opaque to the bake.
     #[serde(default)]
     pub race_flags: Option<serde_json::Value>,
+    /// Each game type's spawn filters (tools/level/gen_ce_level.py
+    /// `spawn_sets`), which the loader applies at match start; opaque to
+    /// the bake.
+    #[serde(default)]
+    pub spawn_sets: Option<serde_json::Value>,
     /// The game's grass, tufts and stones on the map's ground
     /// (tools/level/scatter_foliage.py), which the loader spawns; opaque to
     /// the bake.

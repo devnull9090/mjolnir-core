@@ -152,7 +152,18 @@ units and axes, so every later step reads them unchanged:
   and the emblems solid bars. Glass (`one_alpha_env`) becomes CE's glass shader: the base
   map tinted by the albedo and facing tints, blended by its alpha, unlit, and
   the environment cube map reflected through the specular mask with the
-  environment tint; the cube's six faces are staged in D3D order. The "two
+  environment tint; the cube's six faces are staged in D3D order. The
+  two-layer glass (`two_alpha_env_illum`: Turf's storefront and stairwell
+  doors, Triplicate's glass rails, the medical tent's panels) has the same
+  slots and pixel constants, a second glass layer in slot 4, and goes in
+  the same way; `two_alpha_env_detail` (the Forerunner "invisible" glass)
+  has only placeholders and draws nothing. Read through the transparent
+  catch-all, slot 0's reflection cube was drawn as a picture: Turf's
+  stairwell door was an opaque dark sheet with nothing behind it to stop
+  a player. `tex_bump_env_alpha_test_combined` cuts out on the base's
+  alpha times bitmap 1's (Turf's damaged stucco: a solid door base, the
+  splintered boards in `base_stucco1_damaged_01_alpha`; the chainlink
+  fence keeps its holes in the base, alpha_white in slot 1). The "two
   plus two" shaders (the sky's cloud banks, the containment gas) are mask x
   layer x layer, tiled and scrolling as the shader animates them, alpha
   blended; the plasma shaders (`plasma_alpha`: Zanzibar's flywheel
