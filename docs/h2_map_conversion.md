@@ -456,6 +456,39 @@ flat face took one and saturated white (Turf's dumpster). 25
 templates take it, 61% of the multiplayer maps' triangles
 (docs/h2_shader_census.md).
 
+## Decorators
+
+Halo 2 scatters grass, rocks, debris, litter and decals from its scenario's
+decorator sets (`DECR`) over each structure BSP (`crates/blam-cache/src/h2/decorator.rs`;
+the example `h2_decorators` prints a map's). The BSP's decorators block
+(+0x234) is an octree of 8-unit cells around a centre (cells per side x 8
+units across); each leaf names groups, and a group a run of placements in a
+raw cache block, six words each. MCC's `halo2.dll` decodes them (0x979eeb;
+no tag carries the finished geometry, so the decode was read from there):
+
+- position: the leaf cell's corner + (bits 0-9 x 8/1023, bits 10-19 x
+  8/1023, bits 20-31 x 8/4095) world units;
+- internal word: bits 0-2 the class, 3-8 the permutation, 9-12 the yaw
+  (v/15 of a turn), 13-15 the tint blend, 16-19 the scale (v/15 across the
+  permutation's range), 20-31 an up vector the "align to normal"
+  permutations turn to;
+- tint and lightmap colours, two light directions.
+
+On Zanzibar, Turf and Beaver Creek the decoded placements lie on the BSP's
+surface (median 0.1 units). The 20 maps with decorators hold 38,600:
+31,000 models, 6,300 floating decals and 1,300 camera-facing sprites
+(Zanzibar's, all). A group's own type byte disagrees with its class's on
+Turf, so the class's (`DECR` class +0x04) decides.
+
+Model decorators are staged as scenery: each set's model
+(`models/<set>__decorator<k>.gltf`, its run of the set's indices, double
+sided, `decorator_tex` cut out on its base map's alpha), one placement entry
+each with its rotation as `basis` (forward, left, up) and `scale`, which
+merge_ce_scene.py places like any object (lit from the object page). Not
+done: the decals and sprites, the placements' own tint and lightmap
+colours, and a lighter path for the maps with thousands (Coagulation's
+16,800: one object page texel and one merged copy each).
+
 ## Breakable glass
 
 Halo 2's glass (Turf's stairwell doors) is solid until shot, meleed or hit

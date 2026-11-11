@@ -140,6 +140,9 @@ pub fn template(name: &str) -> Template {
         }
         n if n.starts_with("tex_bump") => t(&["bump", "", "base", "detail"], BUMP_FIRST, 0, false),
         n if n.starts_with("tex_alpha_test") => t(&["", "base", "detail"], &[], 0, true),
+        // Decorator models (grass, debris piles, cans): one base map, cut
+        // out on its alpha (the `decorator` pass).
+        "decorator_tex" => t(&["base"], &[], 0, true),
         "tex_env" => t(&["base", "detail"], &[], 0, false),
         n if n.starts_with("illum") => t(&["self_illum"], &[], 0, false),
         // A base, a detail and a glow map (Backwash's fungus: the weeds
@@ -1932,6 +1935,54 @@ impl<'c> Renderer<'c> {
         let record = json!({"tag_path": object, "tag_class": class, "gltf": rel, "skeletal": false, "triangles": triangles});
         self.models.insert(rel, Some(record.clone()));
         Ok(Some(record))
+    }
+
+    /// A decorator set's model as a glTF of its own
+    /// (`models/<set>__decorator<k>.gltf`, in the set's units, z up as the
+    /// BSP's) drawn with `shader`: the model's run of the set's indices, a
+    /// triangle list, double sided (decorator geometry is thin: leaves,
+    /// paper, cans). Its relative path, or `None` when it has no triangles.
+    pub fn decorator_model(
+        &mut self,
+        set_name: &str,
+        set: &crate::h2::decorator::Set,
+        model: usize,
+        shader: Option<Tag<'c>>,
+    ) -> Result<Option<String>, Error> {
+        let rel = format!("models/{}__decorator{model}.gltf", sanitize(set_name));
+        if let Some(done) = self.models.get(&rel) {
+            return Ok(done.as_ref().map(|_| rel.clone()));
+        }
+        let Some(m) = set.models.get(model) else { return Ok(None) };
+        let section = Section {
+            vertices: set
+                .vertices
+                .iter()
+                .map(|v| geometry::Vertex { position: v.position, normal: v.normal, uv: v.uv, ..Default::default() })
+                .collect(),
+            parts: vec![geometry::Part { kind: 3, flags: 8, material: 0, first: m.first, count: m.count }],
+            indices: set.indices.clone(),
+            has_lightmap_uv: false,
+            has_incident: false,
+        };
+        let sh = self.shader(shader);
+        let mut prim = Prim::default();
+        prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
+        if prim.indices.is_empty() || !self.shaders[sh].drawn {
+            self.models.insert(rel, None);
+            return Ok(None);
+        }
+        let mut gltf = Gltf::default();
+        let s = &self.shaders[sh];
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": s.key}});
+        let material = gltf.material(&s.key, s.base.as_deref(), s.alpha_mode, true, extras);
+        let triangles = prim.indices.len() / 3;
+        let primitives = vec![gltf.primitive(&prim, material)];
+        let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
+        gltf.write(&self.dir.join("models"), &stem, primitives)?;
+        let record = json!({"tag_path": set_name, "tag_class": "DECR", "gltf": rel, "skeletal": false, "triangles": triangles});
+        self.models.insert(rel.clone(), Some(record));
+        Ok(Some(rel))
     }
 
     /// Write `materials.json` (every shader the BSP and models used, keyed by

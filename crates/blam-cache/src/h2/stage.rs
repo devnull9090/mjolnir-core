@@ -892,6 +892,82 @@ fn planar_fog(cache: &Cache, scnr: &Tag<'_>, sbsp: &Tag<'_>, notes: &mut Vec<Str
     }]}))
 }
 
+/// The BSP's model decorators as scenery entries (crate::h2::decorator): each
+/// placement of a model class (`DECR` class type 0) is its set's model at
+/// the placement's position, turned by its yaw (about its up vector when
+/// the permutation aligns to the normal, as Halo 2 builds it: forward =
+/// cos(yaw) p + sin(yaw) (up x p), p perpendicular to up), its scale across
+/// the permutation's range times the class's. The entry carries its
+/// rotation as `basis` (forward, left, up in world units, Halo axes) and
+/// `scale`; tools/level/merge_ce_scene.py places it by those. The set
+/// index is the scenario's decorator palette (+0x378, tag references).
+fn decorator_entries<'c>(
+    cache: &'c Cache,
+    scnr: &Tag<'c>,
+    sbsp: &Tag<'c>,
+    render: &mut Renderer<'c>,
+    summary: &mut Summary,
+) -> Result<Vec<Value>, Error> {
+    use crate::h2::decorator;
+    let placements = decorator::placements(cache, sbsp.root)?;
+    if placements.is_empty() {
+        return Ok(Vec::new());
+    }
+    let palette: Vec<Option<Tag<'c>>> = scnr.root.block(0x378, 8).iter().map(|r| r.tagref(0).and_then(|r| cache.follow(r))).collect();
+    let mut sets: BTreeMap<usize, Option<(Tag<'c>, decorator::Set)>> = BTreeMap::new();
+    let mut entries = Vec::new();
+    let (mut models, mut other) = (0usize, 0usize);
+    for p in &placements {
+        let set = sets.entry(p.set).or_insert_with(|| {
+            let tag = palette.get(p.set).cloned().flatten()?;
+            let s = decorator::set(cache, tag.root).ok()?;
+            Some((tag, s))
+        });
+        let Some((tag, set)) = set.as_ref() else { continue };
+        let Some(class) = set.classes.get(p.class) else { continue };
+        let Some(perm) = class.permutations.get(p.permutation) else { continue };
+        if class.kind != 0 {
+            other += 1;
+            continue;
+        }
+        let shader = set.shaders.get(perm.shader).and_then(|&d| cache.tag(tag.file, d));
+        let Some(model) = render.decorator_model(tag.name(), set, perm.index, shader)? else { continue };
+        let (s, c) = p.yaw.sin_cos();
+        let (up, p0) = if perm.flags & 1 != 0 {
+            let u = p.up;
+            // Any unit vector perpendicular to up.
+            let r = if u[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+            let mut q = cross(r, u);
+            let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt();
+            q = q.map(|v| v / n);
+            (u, q)
+        } else {
+            ([0.0, 0.0, 1.0], [1.0, 0.0, 0.0])
+        };
+        let side = cross(up, p0);
+        let forward = [0, 1, 2].map(|k| c * p0[k] + s * side[k]);
+        let left = [0, 1, 2].map(|k| c * side[k] - s * p0[k]);
+        let scale = class.scale * (perm.scale[0] + (perm.scale[1] - perm.scale[0]) * p.scale);
+        entries.push(json!({
+            "kind": "scenery", "asset": format!("{}:{}", tag.name(), perm.name), "tag_class": "DECR",
+            "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
+            "pos": p.position, "rot": [p.yaw, 0.0, 0.0],
+            "basis": [forward, left, up], "scale": if scale > 0.0 { scale } else { 1.0 },
+            "decorator": true,
+        }));
+        models += 1;
+    }
+    summary.notes.push(format!(
+        "{} decorator placement(s): {models} model(s) placed as scenery, {other} decal/sprite(s) left out",
+        placements.len()
+    ));
+    Ok(entries)
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+}
+
 pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
     for sub in ["bsp", "collision", "models", "textures"] {
         std::fs::create_dir_all(dir.join(sub)).map_err(|e| Error::Io(dir.join(sub), e))?;
@@ -920,7 +996,11 @@ pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
     let mut renderer = Renderer::new(cache, dir);
     let render = renderer.bsp(&sbsp, first)?;
     let mut sounds = Sounds::new(cache, &dir.join("sounds_out"));
-    let placement = placements(cache, &scnr, dir, &mut summary, &mut renderer, &mut sounds)?;
+    let mut placement = placements(cache, &scnr, dir, &mut summary, &mut renderer, &mut sounds)?;
+    let decorators = decorator_entries(cache, &scnr, &sbsp, &mut renderer, &mut summary)?;
+    if let Some(list) = placement["entries"].as_array_mut() {
+        list.extend(decorators);
+    }
     sounds.scenario(&scnr, &sbsp);
     let (staged, notes) = sounds.finish()?;
     summary.notes.extend(notes);

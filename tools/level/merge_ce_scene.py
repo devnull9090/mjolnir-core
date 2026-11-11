@@ -486,6 +486,13 @@ def main():
             models[path] = g
         if e["kind"] in ("scenery", "light_fixture", "machine"):
             r = ce_rotation(*e.get("rot", [0, 0, 0]))
+            rn = r
+            if e.get("basis"):
+                # A Halo 2 decorator (mjolnir cache stage): its rotation as
+                # forward, left and up in Halo axes, and its scale.
+                swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)
+                rn = swap @ np.array(e["basis"], dtype=np.float64).T @ swap.T
+                r = rn * float(e.get("scale", 1.0))
             t = ce_to_gltf(e["pos"])
             # The bounding sphere, which CE samples the ground under.
             ext = np.concatenate([p["pos"] @ r.T for p in cache[path]])
@@ -498,7 +505,7 @@ def main():
             prims = []
             for p in cache[path]:
                 pos = p["pos"] @ r.T + t
-                nrm = p["nrm"] @ r.T
+                nrm = p["nrm"] @ rn.T
                 halo = {**p["extras"].get("halo", {}), "lightmap_index": "objects",
                         "lightmap_texture": OBJECT_LIGHTING_PAGE}
                 material = f"{p['material']}__lmobj"
