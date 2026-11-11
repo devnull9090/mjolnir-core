@@ -549,8 +549,17 @@ draws from the sprite buffer when its block has one and its type says
 quad, or it has no decal buffer. Zanzibar's "screen-facing quads" (group
 type 3) are `foliage_earth` models by their class, and are placed as models.
 
-Not done: a lighter path for the maps with thousands of model
-decorators (each is one merged copy).
+merge_ce_scene.py merges every decorator primitive of a material into
+one: each glTF primitive becomes a section of the terrain mesh, drawn in
+every pass, and Coagulation's 2,639 pieces as their own sections drew
+14,808 draws a frame (1,623 merged). Measured on PC 1 (RTX 5090, 3840x2160,
+Epic, `mjolnir_bench` at a held view over the grass, 2026-11-11):
+Coagulation without decorators 9.21 ms (GPU 6.53); with them as sections
+10.34 ms; merged 9.63 to 9.84 ms (GPU 7.02), so the decorators cost about
+0.5 ms, on the GPU. Their World Position Offset costs nothing measurable
+(off: same frame, GPU -0.2 ms). A control build must keep the level's own
+name: one renamed (`coa_nodeco`) read 7.80 ms, the loader not taking it for
+the map's level.
 
 ## Breakable glass
 

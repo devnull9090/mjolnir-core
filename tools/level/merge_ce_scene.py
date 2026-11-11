@@ -455,6 +455,9 @@ def main():
     # Halo 2 decorators carry their own light (decorator_light): one block
     # per distinct colour, in 32nds, shared by every placement that has it.
     decorator_blocks = {}
+    # The decorators' primitives by material: the first, which stands in
+    # `out` for them all, and every one (merged into it below).
+    decorator_groups = {}
 
     def decorator_light(colours):
         """Each vertex's block for a decorator's own light colours."""
@@ -537,8 +540,16 @@ def main():
                         way = p["billboard"][:, :3] @ rn.T * scale
                         q["uv2"] = way[:, [0, 2]]
                         q["uv3"] = np.stack([way[:, 1], p["billboard"][:, 3] * scale], axis=1)
-                    out.append(q)
-                    object_prims.append(q)
+                    # One primitive per material for all of them: each glTF
+                    # primitive becomes a section of the mesh, drawn in every
+                    # pass; Coagulation's 2,639 pieces drew 14,808 draws a
+                    # frame as sections, 1,623 merged (0.5 ms of frame).
+                    group = decorator_groups.get(q["material"])
+                    if group is None:
+                        decorator_groups[q["material"]] = group = (q, [])
+                        out.append(q)
+                        object_prims.append(q)
+                    group[1].append(q)
                 placed += 1
                 continue
             # The bounding sphere, which CE samples the ground under.
@@ -614,6 +625,21 @@ def main():
                                                 "lightmap_texture": None, "sky": True}}})
             print(f"  sky {os.path.basename(path)}: scale {scale:.4f}, nearest layer {a.sky_radius:.0f} m, "
                   f"farthest {np.max(np.linalg.norm(allpos, axis=1)) * scale:.0f} m")
+
+    for first, parts in decorator_groups.values():
+        if len(parts) < 2:
+            continue
+        base = np.cumsum([0] + [len(q["pos"]) for q in parts[:-1]])
+        merged = {k: np.concatenate([q[k] for q in parts]) for k in ("pos", "nrm", "uv0", "tan", "inc", "block")
+                  if k in first}
+        for k in ("uv2", "uv3"):
+            if first.get(k) is not None:
+                merged[k] = np.concatenate([q[k] for q in parts])
+        merged["idx"] = np.concatenate([np.asarray(q["idx"]) + b for q, b in zip(parts, base)])
+        first.update(merged)
+    if decorator_groups:
+        print(f"  {sum(len(g[1]) for g in decorator_groups.values())} decorator primitive(s) merged into "
+              f"{len(decorator_groups)} by material")
 
     if object_texels:
         column = BLOCK * PER_ROW
