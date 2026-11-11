@@ -111,6 +111,9 @@ def primitives(g, buf):
                 # A Halo 2 decorator's own light per vertex (mjolnir cache
                 # stage: its placement's tint times its light, doubled).
                 "light": accessor(g, buf, at["_LIGHT"]) if "_LIGHT" in at else None,
+                # A camera-facing sprite's way to its base point on its axis
+                # and offset across it, glTF metres (its normal is the axis).
+                "billboard": accessor(g, buf, at["_BILLBOARD"]) if "_BILLBOARD" in at else None,
                 "idx": accessor(g, buf, p["indices"]).reshape(-1),
                 "material": mat["name"], "extras": mat.get("extras", {}),
             })
@@ -525,6 +528,15 @@ def main():
                     q = {"pos": p["pos"] @ r.T + t, "nrm": nrm, "uv0": p["uv0"], "idx": p["idx"],
                          "tan": tangents_for(nrm), "inc": nrm.copy(), "material": f"{p['material']}__lmobj",
                          "extras": {"halo": halo}, "block": decorator_light(light)}
+                    if p.get("billboard") is not None:
+                        # For the billboard master (build_h2_materials.py):
+                        # the way to the base point in Unreal centimetres
+                        # (glTF (x, y, z) metres are Unreal (x, z, y) x 100)
+                        # as TEXCOORD_2 (x, y) and TEXCOORD_3 (z, offset).
+                        scale = float(e.get("scale", 1.0)) * 100.0
+                        way = p["billboard"][:, :3] @ rn.T * scale
+                        q["uv2"] = way[:, [0, 2]]
+                        q["uv3"] = np.stack([way[:, 1], p["billboard"][:, 3] * scale], axis=1)
                     out.append(q)
                     object_prims.append(q)
                 placed += 1
@@ -890,6 +902,9 @@ def write_gltf(prims, path):
             "TEXCOORD_1": add(f32(p["uv1"]), "VEC2", 5126, 34962),
             "_INCIDENT": add(f32(p["inc"]), "VEC3", 5126, 34962),
         }
+        for k in (2, 3):
+            if p.get(f"uv{k}") is not None:
+                attrs[f"TEXCOORD_{k}"] = add(f32(p[f"uv{k}"]), "VEC2", 5126, 34962)
         idx = add(np.asarray(p["idx"], dtype=np.uint32), "SCALAR", 5125, 34963)
         meshes_prims.append({"attributes": attrs, "indices": idx, "material": mat_index[name], "mode": 4})
 

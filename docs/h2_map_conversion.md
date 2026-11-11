@@ -532,9 +532,19 @@ Creek's, Containment's) are stored the same way, in the block's sprite
 vertices (locator 0x48: 0x30 each, base position, the corner's offset
 across and along the axis, the axis, texture coordinate, colour) and
 sprite indices (0x50), 4 and 6 a placement. Halo 2 turns each about its
-axis to face the camera; a static mesh can't, so each comes out as two
-crossed cards about the axis (the first across Halo 2's perpendicular to
-it turned by the placement's yaw), drawn as its `decorator_tex`. A group
+axis to face the camera, and so does ours: each comes out as one card in
+its rest pose (across Halo 2's perpendicular to the axis turned by the
+placement's yaw) on `M_H2_Billboard`
+(unreal/MJOLNIRMaterials/Scripts/build_h2_materials.py, chunk 981), the
+masked two-sided environment master with a World Position Offset that
+turns it. The vertex normal is the axis (the card draws flat lit, so it
+needs no face normal), and two extra UV channels carry, in Unreal
+centimetres, the way from the vertex to its base point on the axis
+(TEXCOORD_2 x, y and TEXCOORD_3 x) and its offset across (TEXCOORD_3 y):
+`_BILLBOARD` in the staged mesh, converted by merge_ce_scene.py, written by
+mesh_rewrite as channels 2 and 3 when a mesh has them. A runtime pack
+without the master draws the cards unturned (the level loader falls back
+to `M_CE_EnvironmentMaskedTwoSided`). A group
 draws from the sprite buffer when its block has one and its type says
 quad, or it has no decal buffer. Zanzibar's "screen-facing quads" (group
 type 3) are `foliage_earth` models by their class, and are placed as models.

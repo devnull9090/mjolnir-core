@@ -927,6 +927,11 @@ local function runtimeMaterial(world, spec, name, target)
         local leaf = spec.parent:match("^/Game/MJOLNIR/CE/([%w_]+%.[%w_]+)$")
         if leaf then parent = resolveMesh(TRIAL_MASTERS .. leaf) end
     end
+    -- Halo 2's camera-facing sprites (M_H2_Billboard, chunk 981) on a
+    -- runtime pack from before it: still cards, drawn unturned.
+    if not parent and spec.parent == "/Game/MJOLNIR/H2/M_H2_Billboard.M_H2_Billboard" then
+        parent = resolveMesh("/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided")
+    end
     local mid = target
     if not mid then
         if not kml or not parent then return nil, "parent material not found: " .. tostring(spec.parent) end

@@ -214,6 +214,11 @@ pub struct Decal {
     pub tint_blend: f32,
     /// The placement's lightmap colour (its fourth word), 0..1.
     pub lightmap: [f32; 3],
+    /// A sprite's axis (world, unit) and each vertex's base point on it
+    /// (world units) and offset across it (signed, world units): what turns
+    /// it to face the camera. Empty for a decal.
+    pub axis: Option<[f32; 3]>,
+    pub billboard: Vec<([f32; 3], f32)>,
 }
 
 /// Every decal and sprite decorator of a structure BSP (its root): the
@@ -222,10 +227,11 @@ pub struct Decal {
 /// (locator 0x48: 0x30 each, the base position, the corner's offset
 /// across and along the axis, the axis, texture coordinate, colour) and 6
 /// sprite indices (locator 0x50) that Halo 2 turns about the axis to face
-/// the camera. A static mesh can't, so each comes out as two crossed cards
-/// about its axis, the first across Halo 2's perpendicular to the axis
-/// turned by the placement's yaw (bits 9-12 of its internal word, as a
-/// model's), the second at right angles. A group draws from the sprite
+/// the camera. Each comes out as one card in its rest pose, across Halo
+/// 2's perpendicular to the axis turned by the placement's yaw (bits 9-12
+/// of its internal word, as a model's), with its axis and each vertex's
+/// base point and offset across (`billboard`) for a material that turns it
+/// as Halo 2 does. A group draws from the sprite
 /// buffer when its block has one and its type says quad (3-5) or it has no
 /// decal buffer, else from the decal buffer.
 pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
@@ -278,6 +284,7 @@ pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
                     group: gi, set: g.u8(0) as usize, class, permutation,
                     positions: Vec::new(), uvs: Vec::new(), colors: Vec::new(), triangles: Vec::new(),
                     tint: rgb(tint), tint_blend: ((internal >> 13) & 7) as f32 / 7.0, lightmap: rgb(light),
+                    axis: None, billboard: Vec::new(),
                 };
                 if sprite {
                     let Some(vs) = sverts.get(v0..v0 + per_v) else { continue };
@@ -298,20 +305,19 @@ pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
                     let q = [axis[1] * p[2] - axis[2] * p[1], axis[2] * p[0] - axis[0] * p[2], axis[0] * p[1] - axis[1] * p[0]];
                     let yaw = ((internal >> 9) & 0xF) as f32 / 15.0 * std::f32::consts::TAU;
                     let (sn, cs) = yaw.sin_cos();
-                    let across = [0, 1, 2].map(|i| cs * p[i] + sn * q[i]);
-                    let other = [0, 1, 2].map(|i| cs * q[i] - sn * p[i]);
-                    for r in [across, other] {
-                        let mut card = base.clone();
-                        for v in vs.iter().take(4) {
-                            let pos = [f(v, 0), f(v, 4), f(v, 8)];
-                            let (o_across, o_up) = (f(v, 0x10), f(v, 0x14));
-                            card.positions.push([0, 1, 2].map(|i| pos[i] + r[i] * o_across + axis[i] * o_up));
-                            card.uvs.push([f(v, 0x24), f(v, 0x28)]);
-                            card.colors.push(colour(u32::from_le_bytes(v[0x2C..0x30].try_into().unwrap())));
-                        }
-                        card.triangles = vec![[0, 2, 1], [2, 0, 3]];
-                        out.push(card);
+                    let r = [0, 1, 2].map(|i| cs * p[i] + sn * q[i]);
+                    let mut card = base;
+                    card.axis = Some(axis);
+                    for v in vs.iter().take(4) {
+                        let pos = [f(v, 0), f(v, 4), f(v, 8)];
+                        let (o_across, o_up) = (f(v, 0x10), f(v, 0x14));
+                        card.positions.push([0, 1, 2].map(|i| pos[i] + r[i] * o_across + axis[i] * o_up));
+                        card.uvs.push([f(v, 0x24), f(v, 0x28)]);
+                        card.colors.push(colour(u32::from_le_bytes(v[0x2C..0x30].try_into().unwrap())));
+                        card.billboard.push((pos, o_across));
                     }
+                    card.triangles = vec![[0, 2, 1], [2, 0, 3]];
+                    out.push(card);
                     continue;
                 }
                 let Some(vs) = verts.get(v0..v0 + per_v) else { continue };

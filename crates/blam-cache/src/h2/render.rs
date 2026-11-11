@@ -1492,6 +1492,10 @@ struct Prim {
     /// A decorator's own light per vertex (`_LIGHT`, linear, 1 = unlit
     /// white), when it has one.
     light: Vec<[f32; 3]>,
+    /// A camera-facing sprite's (`_BILLBOARD`, glTF metres): the vector from
+    /// the vertex to its base point on the sprite's axis, and its offset
+    /// across the axis. The vertex normal is then the axis.
+    billboard: Vec<[f32; 4]>,
     /// Each vertex's index in the section it came from.
     order: Vec<u32>,
     indices: Vec<u32>,
@@ -2055,6 +2059,7 @@ impl<'c> Renderer<'c> {
         let rel = format!("models/{}.gltf", sanitize(name));
         let mut section = Section::default();
         let mut light = Vec::new();
+        let mut billboard = Vec::new();
         for d in decals {
             let base = section.vertices.len() as u32;
             let p = &d.positions;
@@ -2068,6 +2073,19 @@ impl<'c> Renderer<'c> {
                 [0.0, 0.0, 1.0]
             };
             for (k, pos) in p.iter().enumerate() {
+                // A sprite's vertex: its normal is its axis, and it carries
+                // the way to its base point and its offset across.
+                let n = match (d.axis, d.billboard.get(k)) {
+                    (Some(axis), Some(&(base, across))) => {
+                        let to = to_gltf([base[0] - pos[0], base[1] - pos[1], base[2] - pos[2]]);
+                        billboard.push([to[0] * WU_TO_M, to[1] * WU_TO_M, to[2] * WU_TO_M, across * WU_TO_M]);
+                        axis
+                    }
+                    _ => {
+                        billboard.push([0.0; 4]);
+                        n
+                    }
+                };
                 section.vertices.push(geometry::Vertex {
                     position: [pos[0] - origin[0], pos[1] - origin[1], pos[2] - origin[2]],
                     normal: n,
@@ -2097,10 +2115,17 @@ impl<'c> Renderer<'c> {
         prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
         // Prim::add keeps the section's vertex order through its indices.
         prim.light = prim.order.iter().map(|&i| light[i as usize]).collect();
+        let sprites = decals.iter().any(|d| d.axis.is_some());
+        if sprites {
+            prim.billboard = prim.order.iter().map(|&i| billboard[i as usize]).collect();
+        }
         let mut gltf = Gltf::default();
         let s = &self.shaders[sh];
-        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key}});
-        let material = gltf.material(&key, base.as_deref(), s.alpha_mode, true, extras);
+        // Sprites draw on a master that turns them (ce_material_spec.py
+        // `billboard`): a material of their own.
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key, "billboard": sprites}});
+        let name = if sprites { format!("{key}__billboard") } else { key.clone() };
+        let material = gltf.material(&name, base.as_deref(), s.alpha_mode, true, extras);
         let triangles = prim.indices.len() / 3;
         let primitives = vec![gltf.primitive(&prim, material)];
         let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
@@ -2215,6 +2240,7 @@ impl Gltf {
         let uv1 = self.floats(&p.uv1, "VEC2", false);
         let inc = self.floats(&p.incident, "VEC3", false);
         let light = (!p.light.is_empty()).then(|| self.floats(&p.light, "VEC3", false));
+        let billboard = (!p.billboard.is_empty()).then(|| self.floats(&p.billboard, "VEC4", false));
         let idx_bytes: Vec<u8> = p.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
         let view = self.view(&idx_bytes, 34963);
         self.accessors.push(json!({"bufferView": view, "componentType": 5125, "count": p.indices.len(), "type": "SCALAR"}));
@@ -2222,6 +2248,9 @@ impl Gltf {
         let mut attributes = json!({"POSITION": pos, "NORMAL": nrm, "TANGENT": tan, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "_INCIDENT": inc});
         if let Some(light) = light {
             attributes["_LIGHT"] = json!(light);
+        }
+        if let Some(billboard) = billboard {
+            attributes["_BILLBOARD"] = json!(billboard);
         }
         json!({"attributes": attributes, "indices": idx, "material": material, "mode": 4})
     }
