@@ -216,6 +216,11 @@ pub fn template(name: &str) -> Template {
         // on Chill Out), so it goes in alpha blended, the multiply baked
         // into the map (`overlay_texel`).
         "overlay" => t(&["base", "detail"], &[("base", 0), ("detail", 1)], 1, false),
+        // Decorator decals (Turf's posters, rubble): the map blended by its
+        // alpha; the multiply ones (stains, blast scorches) darken the frame
+        // by the map where its alpha covers, baked into an alpha blend as
+        // the overlay's is (`decal_multiply_texel`).
+        "decorator_decal_paint" | "decorator_decal_paint_multiply" => t(&["base"], &[], 1, false),
         n if n.contains("alpha") && !n.contains("alpha_test") => t(&["base"], &[], 1, false),
         // Anything else: the runtime properties' diffuse map, opaque.
         _ => t(&[], &[], 0, false),
@@ -349,6 +354,14 @@ fn overlay_texel(c: [f32; 3]) -> ([f32; 3], f32) {
 fn multiply_texel(c: [f32; 3], gain: f32) -> ([f32; 3], f32) {
     let m = gain * (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]);
     ([0.0; 3], (1.0 - m).max(0.0))
+}
+
+/// A texel of a multiply decal (`decorator_decal_paint_multiply`): the
+/// frame times the map's colour where its alpha covers (white elsewhere),
+/// as a colour and alpha to blend over it (`multiply_texel`).
+fn decal_multiply_texel(c: [f32; 4]) -> ([f32; 3], f32) {
+    let covered = [0, 1, 2].map(|k| 1.0 - c[3] * (1.0 - c[k]));
+    multiply_texel(covered, 1.0)
 }
 
 /// Whether a role was staged.
@@ -865,6 +878,18 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                             for p in m.rgba.chunks_exact_mut(4) {
                                 let texel = std::array::from_fn(|k| p[k] as f32 / 255.0 * tint[k]);
                                 let (c, a) = overlay_texel(texel);
+                                p.copy_from_slice(&[(c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8,
+                                                    (c[2] * 255.0).round() as u8, (a * 255.0).round() as u8]);
+                            }
+                        }
+                        Ok(())
+                    })
+                }
+                (Some(t), _) if template_name == "decorator_decal_paint_multiply" => {
+                    tex.stage_mapped(cache, t, 0, dir, notes, "__multiply", "__multiply", &mut |mips| {
+                        for m in mips.iter_mut() {
+                            for p in m.rgba.chunks_exact_mut(4) {
+                                let (c, a) = decal_multiply_texel([p[0], p[1], p[2], p[3]].map(|v| v as f32 / 255.0));
                                 p.copy_from_slice(&[(c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8,
                                                     (c[2] * 255.0).round() as u8, (a * 255.0).round() as u8]);
                             }
@@ -1981,6 +2006,67 @@ impl<'c> Renderer<'c> {
         let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
         gltf.write(&self.dir.join("models"), &stem, primitives)?;
         let record = json!({"tag_path": set_name, "tag_class": "DECR", "gltf": rel, "skeletal": false, "triangles": triangles});
+        self.models.insert(rel.clone(), Some(record));
+        Ok(Some(rel))
+    }
+
+    /// Decal decorators as a glTF of their own (`models/<name>.gltf`): their
+    /// quads, moved by `-origin` (world units, Halo axes), drawn with
+    /// `shader`, double sided. Its relative path, or `None` when nothing is
+    /// drawn.
+    pub fn decal_mesh(
+        &mut self,
+        name: &str,
+        decals: &[&crate::h2::decorator::Decal],
+        origin: [f32; 3],
+        shader: Option<Tag<'c>>,
+    ) -> Result<Option<String>, Error> {
+        let rel = format!("models/{}.gltf", sanitize(name));
+        let mut section = Section::default();
+        for d in decals {
+            let base = section.vertices.len() as u32;
+            let p = &d.positions;
+            // The quad's facing, for its normal.
+            let n = if p.len() >= 3 {
+                let (a, b) = ([0, 1, 2].map(|k| p[1][k] - p[0][k]), [0, 1, 2].map(|k| p[2][k] - p[0][k]));
+                let c = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+                let l = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt().max(1e-9);
+                c.map(|v| v / l)
+            } else {
+                [0.0, 0.0, 1.0]
+            };
+            for (k, pos) in p.iter().enumerate() {
+                section.vertices.push(geometry::Vertex {
+                    position: [pos[0] - origin[0], pos[1] - origin[1], pos[2] - origin[2]],
+                    normal: n,
+                    uv: d.uvs.get(k).copied().unwrap_or_default(),
+                    ..Default::default()
+                });
+            }
+            for t in &d.triangles {
+                // Wound to face the normal taken from corners 0, 1, 2.
+                section.indices.extend(t.iter().map(|&i| (base + i) as u16));
+            }
+        }
+        if section.indices.is_empty() || section.vertices.len() > u16::MAX as usize {
+            return Ok(None);
+        }
+        section.parts.push(geometry::Part { kind: 4, flags: 8, material: 0, first: 0, count: section.indices.len() });
+        let sh = self.shader(shader);
+        if !self.shaders[sh].drawn {
+            return Ok(None);
+        }
+        let mut prim = Prim::default();
+        prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
+        let mut gltf = Gltf::default();
+        let s = &self.shaders[sh];
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": s.key}});
+        let material = gltf.material(&s.key, s.base.as_deref(), s.alpha_mode, true, extras);
+        let triangles = prim.indices.len() / 3;
+        let primitives = vec![gltf.primitive(&prim, material)];
+        let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
+        gltf.write(&self.dir.join("models"), &stem, primitives)?;
+        let record = json!({"tag_path": name, "tag_class": "DECR", "gltf": rel, "skeletal": false, "triangles": triangles});
         self.models.insert(rel.clone(), Some(record));
         Ok(Some(rel))
     }

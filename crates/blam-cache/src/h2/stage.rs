@@ -957,9 +957,49 @@ fn decorator_entries<'c>(
         }));
         models += 1;
     }
+    // The decals: the map's own quads (decorator::decals), one mesh a group
+    // and shader, placed at its quads' centre.
+    let decals = decorator::decals(cache, sbsp.root)?;
+    let mut runs: BTreeMap<(usize, usize, u32), Vec<&decorator::Decal>> = BTreeMap::new();
+    for d in &decals {
+        let Some(Some((tag, set))) = sets.get(&d.set).map(|s| s.as_ref()).or_else(|| None) else {
+            // A set no model placement opened yet.
+            continue;
+        };
+        let _ = tag;
+        let Some(perm) = set.classes.get(d.class).and_then(|c| c.permutations.get(d.permutation)) else { continue };
+        let Some(&shader) = set.shaders.get(perm.shader) else { continue };
+        runs.entry((d.group, d.set, shader)).or_default().push(d);
+    }
+    let mut placed_decals = 0usize;
+    for ((group, set_index, shader), list) in &runs {
+        let Some(Some((tag, _))) = sets.get(set_index) else { continue };
+        let n = list.iter().map(|d| d.positions.len()).sum::<usize>().max(1) as f32;
+        let mut origin = [0.0f32; 3];
+        for d in list {
+            for p in &d.positions {
+                for k in 0..3 {
+                    origin[k] += p[k] / n;
+                }
+            }
+        }
+        let shader_tag = cache.tag(tag.file, *shader);
+        let name = format!("{}__decals{group}_{shader:08x}", tag.name());
+        let Some(model) = render.decal_mesh(&name, list, origin, shader_tag)? else { continue };
+        entries.push(json!({
+            "kind": "scenery", "asset": format!("{}:decals", tag.name()), "tag_class": "DECR",
+            "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
+            "pos": origin, "rot": [0.0, 0.0, 0.0],
+            "basis": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "scale": 1.0,
+            "decorator": true,
+        }));
+        placed_decals += list.len();
+    }
     summary.notes.push(format!(
-        "{} decorator placement(s): {models} model(s) placed as scenery, {other} decal/sprite(s) left out",
-        placements.len()
+        "{} decorator placement(s): {models} model(s) placed as scenery, {placed_decals} of {} decal(s) as meshes, {} left out",
+        placements.len(),
+        decals.len(),
+        other.saturating_sub(placed_decals)
     ));
     Ok(entries)
 }

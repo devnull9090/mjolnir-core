@@ -490,9 +490,25 @@ Model decorators are staged as scenery: each set's model
 (`models/<set>__decorator<k>.gltf`, its run of the set's indices, double
 sided, `decorator_tex` cut out on its base map's alpha), one placement entry
 each with its rotation as `basis` (forward, left, up) and `scale`, which
-merge_ce_scene.py places like any object (lit from the object page). Not
-done: the decals and sprites, the placements' own tint and lightmap
-colours, and a lighter path for the maps with thousands (Coagulation's
+merge_ce_scene.py places like any object (lit from the object page).
+
+Decal decorators need no decode: the map stores them as geometry. Each
+cache block carries decal vertices (locator 0x08: 0x20 each, position,
+texture coordinate, a second coordinate, colour) and indices (0x10), 4
+vertices and 6 indices a placement over its group's run (+0x0C vertex
+start and count, +0x10 index start and count); `halo2.dll` draws them as
+they are (0x9795c0). Their coordinates already point into the decal
+bitmap's atlas. `decorator::decals` reads them; staging writes one mesh a
+group and shader (`models/<set>__decals<group>_<shader>.gltf`, at the
+quads' centre): `decorator_decal_paint` alpha blended,
+`decorator_decal_paint_multiply` (stains, blast scorches) multiplying the
+frame by the map where its alpha covers, baked into an alpha blend as the
+overlay's is. Turf's 322 (posters, rubble, stains) draw in game. A group's
+own type byte calls Turf's posters and rubble models; their class and
+their decal vertices say decals.
+
+Not done: the camera-facing sprites (Zanzibar's), the placements' own tint
+and lightmap colours, and a lighter path for the maps with thousands (Coagulation's
 16,800: one object page texel and one merged copy each).
 
 ## Breakable glass

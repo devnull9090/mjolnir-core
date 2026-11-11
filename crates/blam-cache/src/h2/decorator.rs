@@ -182,6 +182,94 @@ pub fn placements(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Placement>, Erro
     Ok(out)
 }
 
+/// A decal decorator as the map stores it: Halo 2 builds no decal
+/// geometry at run time, it draws the cache block's decal vertices
+/// (locator 0x08: 0x20 each, position, texture coordinate, a second
+/// coordinate, colour) through its decal indices (locator 0x10, u16), each
+/// group's run given by its vertex start and count (+0x0C, +0x0E) and index
+/// start and count (+0x10, +0x12); 4 vertices and 6 indices a placement,
+/// in placement order (`halo2.dll` 0x9795c0 draws them).
+#[derive(Debug, Clone)]
+pub struct Decal {
+    /// The decorator group it was drawn with (its index in the BSP's).
+    pub group: usize,
+    pub set: usize,
+    pub class: usize,
+    pub permutation: usize,
+    /// World units.
+    pub positions: Vec<[f32; 3]>,
+    pub uvs: Vec<[f32; 2]>,
+    /// The vertex colour, 0..1 (alpha last).
+    pub colors: Vec<[f32; 4]>,
+    /// Triangles into this decal's own vertices.
+    pub triangles: Vec<[u32; 3]>,
+}
+
+/// Every decal decorator of a structure BSP (its root): the groups whose
+/// placements carry decal geometry.
+pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
+    let mut out = Vec::new();
+    for d in bsp.block(0x234, 0x30).iter() {
+        let mut blocks = Vec::new();
+        for b in d.block(0x10, 0x34).iter() {
+            let (mut words, mut verts, mut idx) = (Vec::new(), Vec::new(), Vec::new());
+            for (locator, bytes) in raw_resources(cache, bsp.file, b)? {
+                match locator {
+                    0x00 => words = bytes.chunks_exact(0x18).map(|p| u32::from_le_bytes(p[0..4].try_into().unwrap())).collect(),
+                    0x08 => verts = bytes.chunks_exact(0x20).map(|v| v.to_vec()).collect(),
+                    0x10 => idx = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect(),
+                    _ => {}
+                }
+            }
+            blocks.push((words, verts, idx));
+        }
+        let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        for (gi, g) in d.block(0x18, 0x18).iter().enumerate() {
+            let (vstart, vcount) = (g.u16(0x0C) as usize, g.u16(0x0E) as usize);
+            let (istart, icount) = (g.u16(0x10) as usize, g.u16(0x12) as usize);
+            if vcount == 0 || icount == 0 {
+                continue;
+            }
+            let Some((words, verts, idx)) = blocks.get(g.i16(6).max(0) as usize) else { continue };
+            let (first, count) = (g.u16(8) as usize, g.u16(0x0A) as usize);
+            let per_v = vcount / count.max(1);
+            let per_i = icount / count.max(1);
+            for k in 0..count {
+                let Some(&internal) = words.get(first + k) else { continue };
+                let v0 = vstart + k * per_v;
+                let Some(vs) = verts.get(v0..v0 + per_v) else { continue };
+                let Some(is) = idx.get(istart + k * per_i..istart + (k + 1) * per_i) else { continue };
+                // Indices count from the block's first decal vertex.
+                let triangles: Vec<[u32; 3]> = is
+                    .chunks_exact(3)
+                    .filter_map(|t| {
+                        let r = |i: u16| (i as usize).checked_sub(v0).filter(|&x| x < per_v).map(|x| x as u32);
+                        Some([r(t[0])?, r(t[1])?, r(t[2])?])
+                    })
+                    .collect();
+                out.push(Decal {
+                    group: gi,
+                    set: g.u8(0) as usize,
+                    class: (internal & 7) as usize,
+                    permutation: ((internal >> 3) & 0x3F) as usize,
+                    positions: vs.iter().map(|v| [f(v, 0), f(v, 4), f(v, 8)]).collect(),
+                    uvs: vs.iter().map(|v| [f(v, 0x0C), f(v, 0x10)]).collect(),
+                    colors: vs
+                        .iter()
+                        .map(|v| {
+                            let c = u32::from_le_bytes(v[0x1C..0x20].try_into().unwrap());
+                            let [r, g, b] = rgb(c);
+                            [r, g, b, ((c >> 24) & 0xFF) as f32 / 255.0]
+                        })
+                        .collect(),
+                    triangles,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// One permutation of a decorator class (`DECR` class +0x0C, 0x28).
 #[derive(Debug, Clone)]
 pub struct Permutation {
