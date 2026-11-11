@@ -263,6 +263,12 @@ pub struct LevelFile {
     /// the bake.
     #[serde(default)]
     pub spawn_sets: Option<serde_json::Value>,
+    /// Halo 2's lifts, jump pads and vents (tools/level/gen_ce_level.py
+    /// `h2_lifts`), which the loader's lifts.lua pushes players with;
+    /// opaque to the bake. Without it Coagulation's level file (its grav
+    /// lifts) did not bake.
+    #[serde(default)]
+    pub lifts: Option<serde_json::Value>,
     /// The game's grass, tufts and stones on the map's ground
     /// (tools/level/scatter_foliage.py), which the loader spawns; opaque to
     /// the bake.

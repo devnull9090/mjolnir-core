@@ -116,6 +116,11 @@ pub(crate) fn raw_resources<'a>(cache: &'a Cache, owner: &'a CacheFile, info: St
     Ok(out)
 }
 
+/// `raw_resources`, for the examples.
+pub fn raw_resources_pub<'a>(cache: &'a Cache, owner: &'a CacheFile, info: Struct<'_>) -> Result<Vec<(u16, &'a [u8])>, Error> {
+    raw_resources(cache, owner, info)
+}
+
 /// Every decorator placement of a structure BSP (its root).
 pub fn placements(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Placement>, Error> {
     let mut out = Vec::new();
@@ -203,40 +208,107 @@ pub struct Decal {
     pub colors: Vec<[f32; 4]>,
     /// Triangles into this decal's own vertices.
     pub triangles: Vec<[u32; 3]>,
+    /// The placement's tint (its third word) and tint blend (internal bits
+    /// 13-15, v/7), for [`Permutation::colour`].
+    pub tint: [f32; 3],
+    pub tint_blend: f32,
 }
 
-/// Every decal decorator of a structure BSP (its root): the groups whose
-/// placements carry decal geometry.
+/// Every decal and sprite decorator of a structure BSP (its root): the
+/// groups whose placements carry geometry. A sprite (the axis-rotating
+/// grass cards: Coagulation's 14,362) is stored as 4 sprite vertices
+/// (locator 0x48: 0x30 each, the base position, the corner's offset
+/// across and along the axis, the axis, texture coordinate, colour) and 6
+/// sprite indices (locator 0x50) that Halo 2 turns about the axis to face
+/// the camera. A static mesh can't, so each comes out as two crossed cards
+/// about its axis, the first across Halo 2's perpendicular to the axis
+/// turned by the placement's yaw (bits 9-12 of its internal word, as a
+/// model's), the second at right angles. A group draws from the sprite
+/// buffer when its block has one and its type says quad (3-5) or it has no
+/// decal buffer, else from the decal buffer.
 pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
     let mut out = Vec::new();
     for d in bsp.block(0x234, 0x30).iter() {
         let mut blocks = Vec::new();
         for b in d.block(0x10, 0x34).iter() {
-            let (mut words, mut verts, mut idx) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut words, mut verts, mut idx, mut sverts, mut sidx) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
             for (locator, bytes) in raw_resources(cache, bsp.file, b)? {
                 match locator {
-                    0x00 => words = bytes.chunks_exact(0x18).map(|p| u32::from_le_bytes(p[0..4].try_into().unwrap())).collect(),
+                    0x00 => {
+                        words = bytes
+                            .chunks_exact(0x18)
+                            .map(|p| (u32::from_le_bytes(p[0..4].try_into().unwrap()), u32::from_le_bytes(p[8..12].try_into().unwrap())))
+                            .collect()
+                    }
                     0x08 => verts = bytes.chunks_exact(0x20).map(|v| v.to_vec()).collect(),
                     0x10 => idx = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect(),
+                    0x48 => sverts = bytes.chunks_exact(0x30).map(|v| v.to_vec()).collect(),
+                    0x50 => sidx = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<u16>>(),
                     _ => {}
                 }
             }
-            blocks.push((words, verts, idx));
+            blocks.push((words, verts, idx, sverts, sidx));
         }
         let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        let colour = |c: u32| {
+            let [r, g, b] = rgb(c);
+            [r, g, b, ((c >> 24) & 0xFF) as f32 / 255.0]
+        };
         for (gi, g) in d.block(0x18, 0x18).iter().enumerate() {
             let (vstart, vcount) = (g.u16(0x0C) as usize, g.u16(0x0E) as usize);
             let (istart, icount) = (g.u16(0x10) as usize, g.u16(0x12) as usize);
             if vcount == 0 || icount == 0 {
                 continue;
             }
-            let Some((words, verts, idx)) = blocks.get(g.i16(6).max(0) as usize) else { continue };
+            let Some((words, verts, idx, sverts, sidx)) = blocks.get(g.i16(6).max(0) as usize) else { continue };
+            let sprite = !sverts.is_empty() && (matches!(g.u8(1), 3..=5) || verts.is_empty());
             let (first, count) = (g.u16(8) as usize, g.u16(0x0A) as usize);
             let per_v = vcount / count.max(1);
             let per_i = icount / count.max(1);
             for k in 0..count {
-                let Some(&internal) = words.get(first + k) else { continue };
+                let Some(&(internal, tint)) = words.get(first + k) else { continue };
                 let v0 = vstart + k * per_v;
+                let (class, permutation) = ((internal & 7) as usize, ((internal >> 3) & 0x3F) as usize);
+                let base = Decal {
+                    group: gi, set: g.u8(0) as usize, class, permutation,
+                    positions: Vec::new(), uvs: Vec::new(), colors: Vec::new(), triangles: Vec::new(),
+                    tint: rgb(tint), tint_blend: ((internal >> 13) & 7) as f32 / 7.0,
+                };
+                if sprite {
+                    let Some(vs) = sverts.get(v0..v0 + per_v) else { continue };
+                    if vs.len() < 4 || sidx.is_empty() {
+                        continue;
+                    }
+                    let axis = [f(&vs[0], 0x18), f(&vs[0], 0x1C), f(&vs[0], 0x20)];
+                    let (ax, ay, az) = (axis[0].abs(), axis[1].abs(), axis[2].abs());
+                    let mut p = if ax <= ay && ax <= az {
+                        [0.0, axis[2], -axis[1]]
+                    } else if ay <= az {
+                        [-axis[2], 0.0, axis[0]]
+                    } else {
+                        [axis[1], -axis[0], 0.0]
+                    };
+                    let n = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt().max(1e-9);
+                    p = p.map(|v| v / n);
+                    let q = [axis[1] * p[2] - axis[2] * p[1], axis[2] * p[0] - axis[0] * p[2], axis[0] * p[1] - axis[1] * p[0]];
+                    let yaw = ((internal >> 9) & 0xF) as f32 / 15.0 * std::f32::consts::TAU;
+                    let (sn, cs) = yaw.sin_cos();
+                    let across = [0, 1, 2].map(|i| cs * p[i] + sn * q[i]);
+                    let other = [0, 1, 2].map(|i| cs * q[i] - sn * p[i]);
+                    for r in [across, other] {
+                        let mut card = base.clone();
+                        for v in vs.iter().take(4) {
+                            let pos = [f(v, 0), f(v, 4), f(v, 8)];
+                            let (o_across, o_up) = (f(v, 0x10), f(v, 0x14));
+                            card.positions.push([0, 1, 2].map(|i| pos[i] + r[i] * o_across + axis[i] * o_up));
+                            card.uvs.push([f(v, 0x24), f(v, 0x28)]);
+                            card.colors.push(colour(u32::from_le_bytes(v[0x2C..0x30].try_into().unwrap())));
+                        }
+                        card.triangles = vec![[0, 2, 1], [2, 0, 3]];
+                        out.push(card);
+                    }
+                    continue;
+                }
                 let Some(vs) = verts.get(v0..v0 + per_v) else { continue };
                 let Some(is) = idx.get(istart + k * per_i..istart + (k + 1) * per_i) else { continue };
                 // Indices count from the block's first decal vertex.
@@ -247,23 +319,12 @@ pub fn decals(cache: &Cache, bsp: Struct<'_>) -> Result<Vec<Decal>, Error> {
                         Some([r(t[0])?, r(t[1])?, r(t[2])?])
                     })
                     .collect();
-                out.push(Decal {
-                    group: gi,
-                    set: g.u8(0) as usize,
-                    class: (internal & 7) as usize,
-                    permutation: ((internal >> 3) & 0x3F) as usize,
-                    positions: vs.iter().map(|v| [f(v, 0), f(v, 4), f(v, 8)]).collect(),
-                    uvs: vs.iter().map(|v| [f(v, 0x0C), f(v, 0x10)]).collect(),
-                    colors: vs
-                        .iter()
-                        .map(|v| {
-                            let c = u32::from_le_bytes(v[0x1C..0x20].try_into().unwrap());
-                            let [r, g, b] = rgb(c);
-                            [r, g, b, ((c >> 24) & 0xFF) as f32 / 255.0]
-                        })
-                        .collect(),
-                    triangles,
-                });
+                let mut decal = base;
+                decal.positions = vs.iter().map(|v| [f(v, 0), f(v, 4), f(v, 8)]).collect();
+                decal.uvs = vs.iter().map(|v| [f(v, 0x0C), f(v, 0x10)]).collect();
+                decal.colors = vs.iter().map(|v| colour(u32::from_le_bytes(v[0x1C..0x20].try_into().unwrap()))).collect();
+                decal.triangles = triangles;
+                out.push(decal);
             }
         }
     }
@@ -283,6 +344,18 @@ pub struct Permutation {
     pub tint: [[f32; 3]; 2],
     pub base_map_tint: f32,
     pub lightmap_tint: f32,
+}
+
+impl Permutation {
+    /// A placement's colour multiplier as `halo2.dll` builds it (0x7fa1d0):
+    /// the permutation's tint 1 to tint 2 by the placement's blend, times
+    /// the placement's own tint (the ground colour the tool sampled) by the
+    /// permutation's base map tint percentage. Coagulation's grass: tints
+    /// white, 100%, so the blade takes its ground's olive.
+    pub fn colour(&self, tint: [f32; 3], blend: f32) -> [f32; 3] {
+        let pct = self.base_map_tint.clamp(0.0, 1.0);
+        [0, 1, 2].map(|k| (self.tint[0][k] * (1.0 - blend) + self.tint[1][k] * blend) * (pct * tint[k] + 1.0 - pct))
+    }
 }
 
 #[derive(Debug, Clone)]

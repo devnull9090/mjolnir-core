@@ -1012,8 +1012,14 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         // map's alpha has that cut staged in the base's alpha, which would
         // make the whole surface shine; it is left without.
         let cut_elsewhere = tpl.alpha_tested && tpl.alpha_from != "base";
+        // A base map with no authored mask (alpha 1 everywhere: DXT1 with
+        // no transparent texels, Coagulation's cliffs, Turf's stucco garage
+        // doors, Backwash's tree trunks) shone all over like plastic: Halo
+        // 2's surfaces read flat there. Only an authored mask (Turf's
+        // brushed door frames, alpha 0.42 on average) takes specular.
+        let masked = base.as_deref().is_some_and(|b| !alpha_is_flat(&dir.join("textures").join(b)));
         let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
-        if let Some((a, b)) = stem.as_ref().filter(|_| !cut_elsewhere).and_then(specular_constants) {
+        if let Some((a, b)) = stem.as_ref().filter(|_| !cut_elsewhere && masked).and_then(specular_constants) {
             let c = |i: usize| constants.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
             let (facing, glancing) = (c(a), c(b));
             if facing.iter().chain(glancing.iter()).any(|&v| v > 0.0) {
@@ -1564,6 +1570,22 @@ impl Prim {
     }
 }
 
+/// Whether a staged PNG's alpha is 1 (above 0.97) everywhere, or it can't
+/// be read: no specular mask authored.
+fn alpha_is_flat(path: &Path) -> bool {
+    let read = || -> Option<bool> {
+        let file = std::fs::File::open(path).ok()?;
+        let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().ok()?;
+        let mut buf = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).ok()?;
+        if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+            return Some(true);
+        }
+        Some(buf[..info.buffer_size()].chunks_exact(4).all(|p| p[3] >= 248))
+    };
+    read().unwrap_or(true)
+}
+
 /// The mean colour of the staged lightmap pages, as the flat page for
 /// vertex-lit geometry.
 fn average_light(dir: &Path, pages: &[String]) -> Option<[u8; 3]> {
@@ -1700,6 +1722,8 @@ pub struct Renderer<'c> {
     shaders: Vec<Shader>,
     shader_index: BTreeMap<(usize, u32), usize>,
     models: BTreeMap<String, Option<Value>>,
+    /// Tinted copies of shaders (`Renderer::tinted`): key -> (shader, base).
+    tinted: BTreeMap<String, (usize, String)>,
     pub notes: Vec<String>,
 }
 
@@ -1712,6 +1736,7 @@ impl<'c> Renderer<'c> {
             shaders: Vec::new(),
             shader_index: BTreeMap::new(),
             models: BTreeMap::new(),
+            tinted: BTreeMap::new(),
             notes: Vec::new(),
         }
     }
@@ -1962,6 +1987,45 @@ impl<'c> Renderer<'c> {
         Ok(Some(record))
     }
 
+    /// The material key and base map of shader `sh` multiplied by `gain`
+    /// (a decorator's colour, `decorator::Permutation::colour`), quantised
+    /// to twentieths so placements share copies: a tinted copy of the staged
+    /// PNG, `<stem>__t<rrggbb>.png`, and the key with the same suffix.
+    fn tinted(&mut self, sh: usize, gain: [f32; 3]) -> (String, Option<String>) {
+        let s = &self.shaders[sh];
+        let gain = gain.map(|g| (g * 20.0).round() / 20.0);
+        let suffix = tint_suffix(gain);
+        let Some(base) = s.base.clone().filter(|_| !suffix.is_empty()) else { return (s.key.clone(), s.base.clone()) };
+        let stem = base.trim_end_matches(".png");
+        let name = format!("{stem}{suffix}.png");
+        let out = self.dir.join("textures").join(&name);
+        if !out.exists() {
+            let read = || -> Option<crate::h2::bitmap::Image> {
+                let file = std::fs::File::open(self.dir.join("textures").join(&base)).ok()?;
+                let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().ok()?;
+                let mut buf = vec![0; reader.output_buffer_size()];
+                let info = reader.next_frame(&mut buf).ok()?;
+                if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+                    return None;
+                }
+                buf.truncate(info.buffer_size());
+                Some(crate::h2::bitmap::Image { width: info.width, height: info.height, rgba: buf })
+            };
+            let Some(mut img) = read() else { return (s.key.clone(), s.base.clone()) };
+            for p in img.rgba.chunks_exact_mut(4) {
+                for (c, g) in p[..3].iter_mut().zip(gain) {
+                    *c = (*c as f32 * g).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+            if crate::h2::bitmap::write_png(&out, &img).is_err() {
+                return (s.key.clone(), s.base.clone());
+            }
+        }
+        let key = format!("{}{suffix}", s.key);
+        self.tinted.insert(key.clone(), (sh, name.clone()));
+        (key, Some(name))
+    }
+
     /// A decorator set's model as a glTF of its own
     /// (`models/<set>__decorator<k>.gltf`, in the set's units, z up as the
     /// BSP's) drawn with `shader`: the model's run of the set's indices, a
@@ -1973,8 +2037,12 @@ impl<'c> Renderer<'c> {
         set: &crate::h2::decorator::Set,
         model: usize,
         shader: Option<Tag<'c>>,
+        gain: [f32; 3],
     ) -> Result<Option<String>, Error> {
-        let rel = format!("models/{}__decorator{model}.gltf", sanitize(set_name));
+        let sh = self.shader(shader);
+        let (key, base) = self.tinted(sh, gain);
+        let suffix = key.strip_prefix(self.shaders[sh].key.as_str()).unwrap_or("").to_string();
+        let rel = format!("models/{}__decorator{model}{suffix}.gltf", sanitize(set_name));
         if let Some(done) = self.models.get(&rel) {
             return Ok(done.as_ref().map(|_| rel.clone()));
         }
@@ -1990,7 +2058,6 @@ impl<'c> Renderer<'c> {
             has_lightmap_uv: false,
             has_incident: false,
         };
-        let sh = self.shader(shader);
         let mut prim = Prim::default();
         prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
         if prim.indices.is_empty() || !self.shaders[sh].drawn {
@@ -1999,8 +2066,8 @@ impl<'c> Renderer<'c> {
         }
         let mut gltf = Gltf::default();
         let s = &self.shaders[sh];
-        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": s.key}});
-        let material = gltf.material(&s.key, s.base.as_deref(), s.alpha_mode, true, extras);
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key}});
+        let material = gltf.material(&key, base.as_deref(), s.alpha_mode, true, extras);
         let triangles = prim.indices.len() / 3;
         let primitives = vec![gltf.primitive(&prim, material)];
         let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
@@ -2020,6 +2087,7 @@ impl<'c> Renderer<'c> {
         decals: &[&crate::h2::decorator::Decal],
         origin: [f32; 3],
         shader: Option<Tag<'c>>,
+        gain: [f32; 3],
     ) -> Result<Option<String>, Error> {
         let rel = format!("models/{}.gltf", sanitize(name));
         let mut section = Section::default();
@@ -2056,12 +2124,13 @@ impl<'c> Renderer<'c> {
         if !self.shaders[sh].drawn {
             return Ok(None);
         }
+        let (key, base) = self.tinted(sh, gain);
         let mut prim = Prim::default();
         prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
         let mut gltf = Gltf::default();
         let s = &self.shaders[sh];
-        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": s.key}});
-        let material = gltf.material(&s.key, s.base.as_deref(), s.alpha_mode, true, extras);
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key}});
+        let material = gltf.material(&key, base.as_deref(), s.alpha_mode, true, extras);
         let triangles = prim.indices.len() / 3;
         let primitives = vec![gltf.primitive(&prim, material)];
         let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
@@ -2116,6 +2185,15 @@ impl<'c> Renderer<'c> {
             materials.entry(sh.key.clone()).or_insert_with(|| {
                 json!({"tag_path": sh.summary["tag_path"], "shader_class": sh.class, "alpha_mode": sh.alpha_mode,
                        "double_sided": sh.double_sided, "base_map": sh.base, "shader": sh.summary})
+            });
+        }
+        for (key, (sh, base)) in &self.tinted {
+            let sh = &self.shaders[*sh];
+            let mut summary = sh.summary.clone();
+            summary["base_map"] = json!(base);
+            materials.entry(key.clone()).or_insert_with(|| {
+                json!({"tag_path": sh.summary["tag_path"], "shader_class": sh.class, "alpha_mode": sh.alpha_mode,
+                       "double_sided": sh.double_sided, "base_map": base, "shader": summary})
             });
         }
         let text = serde_json::to_string_pretty(&Value::Object(materials)).map_err(|e| Error::Format(e.to_string()))?;

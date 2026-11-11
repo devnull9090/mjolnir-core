@@ -34,6 +34,9 @@ fn main() {
         for (k, c) in s.classes.iter().enumerate() {
             println!("  class {k} {} type {} scale {}: {:?}", c.name, c.kind, c.scale,
                 c.permutations.iter().map(|p| (p.name.as_str(), p.index, p.flags, p.scale)).collect::<Vec<_>>());
+            for p in &c.permutations {
+                println!("    {} tint {:?} -> {:?} base map tint {} lightmap tint {}", p.name, p.tint[0], p.tint[1], p.base_map_tint, p.lightmap_tint);
+            }
         }
     }
     if let Some(out) = std::env::var_os("JSON") {

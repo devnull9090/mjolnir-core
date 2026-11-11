@@ -931,7 +931,8 @@ fn decorator_entries<'c>(
             continue;
         }
         let shader = set.shaders.get(perm.shader).and_then(|&d| cache.tag(tag.file, d));
-        let Some(model) = render.decorator_model(tag.name(), set, perm.index, shader)? else { continue };
+        let gain = perm.colour(p.tint, p.tint_blend);
+        let Some(model) = render.decorator_model(tag.name(), set, perm.index, shader, gain)? else { continue };
         let (s, c) = p.yaw.sin_cos();
         let (up, p0) = if perm.flags & 1 != 0 {
             let u = p.up;
@@ -995,7 +996,16 @@ fn decorator_entries<'c>(
         }
         let shader_tag = cache.tag(tag.file, *shader);
         let name = format!("{}__decals{group}_{shader:08x}", tag.name());
-        let Some(model) = render.decal_mesh(&name, list, origin, shader_tag)? else { continue };
+        // The run's colour: its placements' mean (decorator::Permutation::colour).
+        let Some(Some((_, set))) = sets.get(set_index) else { continue };
+        let mut gain = [0.0f32; 3];
+        for d in list {
+            let c = set.classes.get(d.class).and_then(|c| c.permutations.get(d.permutation)).map(|p| p.colour(d.tint, d.tint_blend)).unwrap_or([1.0; 3]);
+            for k in 0..3 {
+                gain[k] += c[k] / list.len() as f32;
+            }
+        }
+        let Some(model) = render.decal_mesh(&name, list, origin, shader_tag, gain)? else { continue };
         entries.push(json!({
             "kind": "scenery", "asset": format!("{}:decals", tag.name()), "tag_class": "DECR",
             "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
@@ -1006,11 +1016,11 @@ fn decorator_entries<'c>(
         placed_decals += list.len();
     }
     summary.notes.push(format!(
-        "{} decorator placement(s): {models} model(s) placed as scenery, {placed_decals} of {} decal(s) as meshes, {} left out",
+        "{} decorator placement(s): {models} model(s) placed as scenery; {placed_decals} of {} decal quad(s) and sprite card(s) as meshes",
         placements.len(),
         decals.len(),
-        other.saturating_sub(placed_decals)
     ));
+    let _ = other;
     Ok(entries)
 }
 

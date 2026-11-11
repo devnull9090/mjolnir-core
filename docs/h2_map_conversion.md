@@ -448,7 +448,11 @@ lightmap's incident direction, masked by the base map's alpha), its colour
 going from parallel to perpendicular by N.V rather than N.L: perpendicular
 takes register 10's constant, parallel register 11's. A template that cuts
 out on another map's alpha has the cut staged in the base's alpha, so it
-would shine all over; it gets none. Turf's door frames and posts
+would shine all over; it gets none. Nor does a base map with no authored
+mask (alpha 1 everywhere): 157 of 552 specular shaders on the 25 maps,
+Coagulation's cliffs, Turf's stucco garage doors, Backwash's tree trunks,
+shone all over like plastic where Halo 2's surfaces read flat; the shaders
+with an authored mask (Turf's brushed door frames) keep it. Turf's door frames and posts
 (`metal_grey_dark` on `matte_grey`, brushed streaks in the alpha: vertex
 constants 7 and 8, 1.0 and 0.75 grey) drew flat grey without it. Placed objects (lit from the object lighting
 page) are left without: they have no incident direction per texel, so a
@@ -510,8 +514,19 @@ overlay's is. Turf's 322 (posters, rubble, stains) draw in game. A group's
 own type byte calls Turf's posters and rubble models; their class and
 their decal vertices say decals.
 
-Not done: the camera-facing sprites (Zanzibar's), the placements' own tint
-and lightmap colours, and a lighter path for the maps with thousands (Coagulation's
+The axis-rotating sprites (grass: Coagulation's 14,362, Relic's, Beaver
+Creek's, Containment's) are stored the same way, in the block's sprite
+vertices (locator 0x48: 0x30 each, base position, the corner's offset
+across and along the axis, the axis, texture coordinate, colour) and
+sprite indices (0x50), 4 and 6 a placement. Halo 2 turns each about its
+axis to face the camera; a static mesh can't, so each comes out as two
+crossed cards about the axis (the first across Halo 2's perpendicular to
+it turned by the placement's yaw), drawn as its `decorator_tex`. A group
+draws from the sprite buffer when its block has one and its type says
+quad, or it has no decal buffer. Zanzibar's "screen-facing quads" (group
+type 3) are `foliage_earth` models by their class, and are placed as models.
+
+Not done: the placements' own tint and lightmap colours, and a lighter path for the maps with thousands (Coagulation's
 16,800: one object page texel and one merged copy each).
 
 ## Breakable glass
