@@ -935,10 +935,20 @@ fn decorator_entries<'c>(
         let (s, c) = p.yaw.sin_cos();
         let (up, p0) = if perm.flags & 1 != 0 {
             let u = p.up;
-            // Any unit vector perpendicular to up.
-            let r = if u[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
-            let mut q = cross(r, u);
-            let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt();
+            // Halo 2's perpendicular (halo2.dll 0x6fcf30), which the yaw
+            // turns from: zero the smallest component and swap the other
+            // two, one negated. Any other perpendicular turns every aligned
+            // decorator by a fixed angle (a hand-picked one put Turf's cans
+            // 180 degrees round, 2026-11-11).
+            let (ax, ay, az) = (u[0].abs(), u[1].abs(), u[2].abs());
+            let mut q = if ax <= ay && ax <= az {
+                [0.0, u[2], -u[1]]
+            } else if ay <= az {
+                [-u[2], 0.0, u[0]]
+            } else {
+                [u[1], -u[0], 0.0]
+            };
+            let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt().max(1e-9);
             q = q.map(|v| v / n);
             (u, q)
         } else {

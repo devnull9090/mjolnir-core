@@ -471,7 +471,10 @@ no tag carries the finished geometry, so the decode was read from there):
 - internal word: bits 0-2 the class, 3-8 the permutation, 9-12 the yaw
   (v/15 of a turn), 13-15 the tint blend, 16-19 the scale (v/15 across the
   permutation's range), 20-31 an up vector the "align to normal"
-  permutations turn to;
+  permutations turn to: the yaw then turns from Halo 2's own perpendicular
+  to it (0x6fcf30: the smallest component zeroed, the other two swapped,
+  one negated), and any other perpendicular turns every aligned piece by a
+  fixed angle (Turf's cans lay 180 degrees round);
 - tint and lightmap colours, two light directions.
 
 On Zanzibar, Turf and Beaver Creek the decoded placements lie on the BSP's
