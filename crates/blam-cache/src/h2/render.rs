@@ -964,15 +964,54 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         // unevenly goes in as a copy repeated to the ratio (`repeats`), at
         // the smaller scale. Read as u alone, the palm's detail was
         // stretched six times along the trunk.
-        let mut tiled = |r: &str| -> (Option<String>, f32) {
+        // Specular (see `specular_constants`): CE's lightmap specular is
+        // Halo 2's lobe, masked by the base map's alpha; Turf's door
+        // frames and posts (`matte_grey`, brushed streaks in the alpha)
+        // drew flat grey without it. A template that cuts out on another
+        // map's alpha has that cut staged in the base's alpha, which would
+        // make the whole surface shine; it is left without.
+        let cut_elsewhere = tpl.alpha_tested && tpl.alpha_from != "base";
+        // A base map with no authored mask (alpha 1 everywhere: DXT1 with
+        // no transparent texels, Coagulation's cliffs, Turf's stucco garage
+        // doors, Backwash's tree trunks) shone all over like plastic: Halo
+        // 2's surfaces read flat there. Only an authored mask (Turf's
+        // brushed door frames, alpha 0.42 on average) takes specular.
+        let masked = base.as_deref().is_some_and(|b| !alpha_is_flat(&dir.join("textures").join(b)));
+        let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+        let specular = stem.as_ref().filter(|_| !cut_elsewhere && masked).and_then(specular_constants).and_then(|(a, b)| {
+            let c = |i: usize| constants.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
+            let (facing, glancing) = (c(a), c(b));
+            facing.iter().chain(glancing.iter()).any(|&v| v > 0.0).then_some((facing, glancing))
+        });
+        // CE's mask is not the base's alpha alone: the masters multiply the
+        // bump map's alpha in and, for the blended type, take the two
+        // details' alphas blended by the base's (lerp(secondary, primary,
+        // base)). With specular, the maps go in with the alpha that leaves
+        // Halo 2's mask: the bump and primary detail at 1, a second detail
+        // at 0. Coagulation's ground had details at alpha 1, so its mask
+        // was 1 everywhere and the pebble bump glinted white over the grass
+        // its base alpha leaves unmasked.
+        let mut tiled = |r: &str, alpha: Option<u8>| -> (Option<String>, f32) {
             let s = scale(r);
             let (ru, rv) = (s[0] / base_scale[0], s[1] / base_scale[1]);
-            match (tags.get(r), repeats(ru, rv)) {
-                (Some(t), Some((nu, nv))) => {
-                    let suffix = format!("__x{nu}y{nv}");
+            let rep = repeats(ru, rv);
+            match tags.get(r) {
+                Some(t) if rep.is_some() || alpha.is_some() => {
+                    let (nu, nv) = rep.unwrap_or((1, 1));
+                    let mut suffix = if rep.is_some() { format!("__x{nu}y{nv}") } else { String::new() };
+                    if let Some(a) = alpha {
+                        suffix.push_str(&format!("__a{a}"));
+                    }
                     let file = tex.stage_mapped(cache, t, 0, dir, notes, &suffix, &suffix, &mut |mips| {
                         for m in mips.iter_mut() {
-                            *m = tile_image(m, nu, nv);
+                            if rep.is_some() {
+                                *m = tile_image(m, nu, nv);
+                            }
+                            if let Some(a) = alpha {
+                                for p in m.rgba.chunks_exact_mut(4) {
+                                    p[3] = a;
+                                }
+                            }
                         }
                         Ok(())
                     });
@@ -981,11 +1020,12 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                 _ => (role(r), ru),
             }
         };
-        let (detail, detail_scale) = tiled("detail");
-        let (bump, bump_scale) = tiled("bump");
+        let one = specular.map(|_| 255u8);
+        let zero = specular.map(|_| 0u8);
+        let (bump, bump_scale) = tiled("bump", one);
         let ((primary, primary_scale), (secondary, secondary_scale)) = match detail2 {
-            Some(_) => (tiled("detail2"), (detail, detail_scale)),
-            None => ((detail, detail_scale), (None, 1.0)),
+            Some(_) => (tiled("detail2", one), tiled("detail", zero)),
+            None => (tiled("detail", one), (None, 1.0)),
         };
         let s = json!({
             "tag_path": shader.name(), "shader_class": "shad", "h2_template": template_name,
@@ -1005,24 +1045,8 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "specular": {"flags": 0, "brightness": 0.0},
         });
         let mut s = s;
-        // Specular (see `specular_constants`): CE's lightmap specular is
-        // Halo 2's lobe, masked by the base map's alpha; Turf's door
-        // frames and posts (`matte_grey`, brushed streaks in the alpha)
-        // drew flat grey without it. A template that cuts out on another
-        // map's alpha has that cut staged in the base's alpha, which would
-        // make the whole surface shine; it is left without.
-        let cut_elsewhere = tpl.alpha_tested && tpl.alpha_from != "base";
-        // A base map with no authored mask (alpha 1 everywhere: DXT1 with
-        // no transparent texels, Coagulation's cliffs, Turf's stucco garage
-        // doors, Backwash's tree trunks) shone all over like plastic: Halo
-        // 2's surfaces read flat there. Only an authored mask (Turf's
-        // brushed door frames, alpha 0.42 on average) takes specular.
-        let masked = base.as_deref().is_some_and(|b| !alpha_is_flat(&dir.join("textures").join(b)));
-        let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
-        if let Some((a, b)) = stem.as_ref().filter(|_| !cut_elsewhere && masked).and_then(specular_constants) {
-            let c = |i: usize| constants.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
-            let (facing, glancing) = (c(a), c(b));
-            if facing.iter().chain(glancing.iter()).any(|&v| v > 0.0) {
+        if let Some((facing, glancing)) = specular {
+            {
                 s["specular"] = json!({
                     "flags": 4, "brightness": 1.0,
                     "perpendicular_color": facing, "parallel_color": glancing,
