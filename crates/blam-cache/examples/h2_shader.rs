@@ -23,6 +23,21 @@ fn main() {
                 for (k, c) in p.block(0x0C, 4).iter().enumerate() {
                     println!("  pc{k} rgba: {:?}", [c.u8(2), c.u8(1), c.u8(0), c.u8(3)]);
                 }
+                for (k, o) in p.block(0x3C, 0x14).iter().enumerate() {
+                    let n = o.u32(0x0C) as usize;
+                    let f = p.file.offset(o.u32(0x10)).map(|at| p.file.data[at..at + n.min(48)].to_vec()).unwrap_or_default();
+                    println!("  overlay{k}: period {} fn[{n}] {:02x?}", o.f32(8), f);
+                }
+                for (k, r) in p.block(0x44, 4).iter().enumerate() {
+                    println!("  overlay-ref{k}: overlay {} type {}", r.i16(0), r.i16(2));
+                }
+                for (k, r) in p.block(0x4C, 2).iter().enumerate() {
+                    let v = r.u16(0);
+                    println!("  anim-param{k}: count {} first {}", v >> 9, v & 0x1FF);
+                }
+                for (k, r) in p.block(0x54, 4).iter().enumerate() {
+                    println!("  anim-ref{k}: descriptor {:#06x} b {} param {}", r.u16(0), r.u8(2), r.u8(3) as i8);
+                }
                 for (k, c) in p.block(0x14, 0x10).iter().enumerate() {
                     println!("  vc{k}: {:?}", [c.f32(0), c.f32(4), c.f32(8), c.f32(12)]);
                 }

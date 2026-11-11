@@ -938,6 +938,10 @@ def main():
                     vec[f"SelfOn{i}"] = list(ch.get("on", [0, 0, 0])) + [1.0]
                     vec[f"SelfOff{i}"] = list(ch.get("off", [0, 0, 0])) + [1.0]
                     vec[f"SelfAnim{i}"] = [ch.get("function", 0), ch.get("period", 0.0), ch.get("phase", 0.0), 0.0]
+                if si.get("additive"):
+                    # Halo 2's self-illumination pass: the glow map's colour
+                    # times channel 0, added over the lit surface.
+                    sc["SelfIllumAdd"] = 1.0
             refl = s.get("reflection") or {}
             cube_map = cube(refl.get("cube_map"))
             if cube_map and (refl.get("perp_brightness", 0) > 0 or refl.get("para_brightness", 0) > 0):
@@ -954,7 +958,9 @@ def main():
                 lbs = refl.get("lightmap_brightness_scale")
                 if lbs is not None and 0.0 <= lbs < 1.0:
                     sc["LightmapReflScale"] = lbs
-            if cls == "soso":
+            # A Halo 2 shader with a change colour carries shader_model's
+            # terms (`model`); only a placed object has the colour.
+            if cls == "soso" or (s.get("model") and halo.get("lightmap_index") == "objects"):
                 model_shader(entry, s, texture)
             environment_tag(entry, s, cls)
         motion = halo.get("device")

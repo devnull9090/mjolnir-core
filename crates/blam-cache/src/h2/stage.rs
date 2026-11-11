@@ -78,6 +78,14 @@ const MATERIAL_ALIASES: &[(&str, &str)] = &[
     ("tough_terrain", "tough_terrain_dirt"),
     ("hard_metal", "hard_metal_thick"),
     ("brittle_glass_unbreakable", "brittle_glass_reinforced"),
+    // Turf's storefront doors (`windows_basic_glass`): glass a shot or a
+    // melee shatters in Halo 2 and a player cannot walk through. Shortened a
+    // word at a time it reached brittle_glass_for, the game's Forerunner
+    // glass, whose impacts spark like an energy shield. brittle_glass's
+    // shatter (globals\glass) breaks on any touch (collision impulse
+    // threshold 0: a player walking in shattered it); brittle_glass_reinforced's
+    // (globals\glass_walkable) takes an impulse of 500, any shot still breaks it.
+    ("brittle_glass_for_unbreakable", "brittle_glass_reinforced"),
 ];
 
 /// The game material a Halo 2 global material name becomes: itself when the
@@ -244,6 +252,9 @@ fn add_instances(sbsp: &Tag<'_>, col: &mut Collision, summary: &mut Summary) {
         let world = |v: [f32; 3]| -> [f32; 3] {
             std::array::from_fn(|k| p[k] + scale * (v[0] * f[k] + v[1] * l[k] + v[2] * u[k]))
         };
+        // Breakable panes keep both of Halo 2's faces (the quad once each way
+        // round), as shipped glass has its front and back
+        // (blam_sbsp::pack16::pack_breakable stitches them closed).
         for s in 0..def.surfaces.len() {
             let pts: Vec<[f32; 3]> = def.polygon(s).into_iter().map(world).collect();
             let (_, _, flags, _, material) = def.surfaces[s];
@@ -506,6 +517,11 @@ fn placements<'c>(
             if let Some(c) = collision {
                 entry["collision"] = json!(c);
             }
+            if group != "mach" {
+                if let Some(cc) = change_colors(&object, &e) {
+                    entry["change_colors"] = cc;
+                }
+            }
             if let Some(model) = object_model(cache, &object, &mut notes) {
                 if let Some(record) = render.model(&model, object.name(), group, scale)? {
                     entry["model"] = record["gltf"].clone();
@@ -736,6 +752,58 @@ fn quat_pose([x, y, z, w]: [f32; 4], t: [f32; 3], parent: Option<&Pose>) -> Pose
     }
 }
 
+/// A placed object's change colours A-D in halo2ue's terms
+/// (`[{permutations: [{weight, lower, upper}]}]`), each already chosen, as
+/// the engine chooses it at spawn (`object_choose_random_change_colors`,
+/// the same in Halo 1): not at random but by the object's position, a
+/// draw of fmod(|315.89313 x + 587.12946 y + 744.12415 z + 431.12894 k|, 1)
+/// against the permutations' running cut-offs, and a blend of
+/// fmod(|y| + 0.71211 k, 1) between the chosen one's lower and upper colour.
+/// The object's permutations (obje +0xAC, 0x10 each: permutations 0x00 of
+/// 0x20: weight, lower RGB 0x04, upper RGB 0x10, variant string id 0x1C)
+/// carry Halo 2's weights as shares (the panel truck: off-white 0.4, red
+/// 0.2, tan 0.2), summed into cut-offs over their total: both of Turf's
+/// trucks draw 0.96 and 0.83, tan, as MCC paints them every game. A
+/// placement that sets a colour itself (its active change colours, bits at
+/// +0x38 after the 0x34-byte header, ARGB at +0x3C) keeps it. Each slot
+/// goes out as one permutation of weight 1, so
+/// tools/level/merge_ce_scene.py's own draw takes it as it is. `None` when
+/// there is no colour.
+fn change_colors(object: &Tag<'_>, placement: &Struct<'_>) -> Option<Value> {
+    let slots = object.root.block(0xAC, 0x10);
+    let active = placement.u32(0x38);
+    let [x, y, z] = placement.vec3(0x08);
+    let fixed = |rgb: [f32; 3]| json!({"permutations": [{"weight": 1.0, "lower": rgb, "upper": rgb}]});
+    let mut out = Vec::new();
+    for k in 0..4usize {
+        if active & (1 << k) != 0 {
+            let at = 0x3C + 4 * k;
+            out.push(fixed([placement.u8(at + 2), placement.u8(at + 1), placement.u8(at)].map(|c| c as f32 / 255.0)));
+            continue;
+        }
+        let perms: Vec<Struct<'_>> = slots.get(k).map(|s| s.block(0x00, 0x20).iter().collect()).unwrap_or_default();
+        let total: f32 = perms.iter().map(|p| p.f32(0).max(0.0)).sum();
+        let draw = ((x * 315.89313 + y * 587.12946 + z * 744.12415 + k as f32 * 431.12894).abs()) % 1.0;
+        let blend = (y.abs() + k as f32 * 0.71211) % 1.0;
+        let mut running = 0.0;
+        let chosen = perms.iter().find(|p| {
+            running += if total > 0.0 { p.f32(0).max(0.0) / total } else { 1.0 / perms.len() as f32 };
+            draw <= running + 1e-6
+        });
+        match chosen {
+            Some(p) => {
+                let (lo, hi) = (p.vec3(0x04), p.vec3(0x10));
+                out.push(fixed(std::array::from_fn(|i| (lo[i] + (hi[i] - lo[i]) * blend).clamp(0.0, 1.0))));
+            }
+            None => out.push(json!({"permutations": []})),
+        }
+    }
+    while out.last().is_some_and(|s| s["permutations"].as_array().is_some_and(|a| a.is_empty())) {
+        out.pop();
+    }
+    (!out.is_empty()).then(|| json!(out))
+}
+
 /// A placed object's collision model as `collision/<name>.json`: every
 /// region's first permutation, each BSP's polygons placed by its node's rest
 /// pose (the BSP's vertices are node-local) and fan-split into a flat
@@ -919,7 +987,7 @@ mod tests {
         assert_eq!(game_material("hard_metal_thick_for"), ("hard_metal_thick_for".into(), true));
         assert_eq!(game_material("hard_metal_solid_for").0, "hard_metal_solid");
         assert_eq!(game_material("hard_metal_thin_hum_grating").0, "hard_metal_thin");
-        assert_eq!(game_material("brittle_glass_for_unbreakable").0, "brittle_glass_for");
+        assert_eq!(game_material("brittle_glass_for_unbreakable").0, "brittle_glass_reinforced");
         assert_eq!(game_material("hard_terrain_concrete").0, "hard_terrain_stone");
         assert_eq!(game_material("energy").0, "energy_hologram");
         assert_eq!(game_material("").0, "default_material");

@@ -377,6 +377,8 @@ local function resetState()
     Current.bakedMids = {}
     Current.foliageDressed = nil
     Current.rocksHidden = nil
+    Current.broken = nil
+    Current.breakPreloaded = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
     Current.dressQueue = nil
@@ -424,6 +426,7 @@ local function clearActors()
         end
     end
     Current.actors = {}
+    Current.broken = nil
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.movingSounds = {}
@@ -2435,6 +2438,155 @@ local function hookIncidents()
         end)
     end)
     if incidentHooked then Log("event sounds: incident hook armed") end
+end
+
+--------------------------------------------------------------------------------
+-- Breakable glass (converted Halo 2 maps)
+--------------------------------------------------------------------------------
+
+--- The sim breaks a sheet of glass (blam_sbsp::convert::rebuild_breakable)
+--- and lets players through, but the glass is our mesh: a decor item lists
+--- each sheet's mesh slots and its box in centimetres (`breakables`, from
+--- tools/level/split_breakable_glass.py). The game's break effect names the
+--- point it broke at; the sheet there loses its slots (M_CE_Hidden) and
+--- throws glass chips. Sheets stay broken until the world is rebuilt.
+local BREAK_EVENT = "/Game/Blueprints/FX/Breakable/Data/BP_BaseBreakableSurfaceEffect.BP_BaseBreakableSurfaceEffect_C:Spawn"
+local BREAK_FX = "/Game/FX/Library/Sandbox/Weapons/Impacts/Glass/NS_Impact_Glass_Lrg.NS_Impact_Glass_Lrg"
+local BREAK_PAD = 30.0 -- cm around a sheet's box: a melee or a body touches off its plane
+local breakHooked = false
+
+local function levelHasBreakables()
+    for _, item in ipairs(Current.level and Current.level.decor or {}) do
+        if type(item) == "table" and type(item.breakables) == "table" and #item.breakables > 0 then return true end
+    end
+    return false
+end
+
+--- The sheet whose padded box holds `p` (nearest centre wins), and its actor.
+local function sheetAt(p)
+    local best, bestActor, bestKey, bestD
+    for index, item in ipairs(Current.level and Current.level.decor or {}) do
+        if type(item) == "table" and type(item.breakables) == "table" then
+            local actor = Current.actors[item.id or ("#" .. index)]
+            for _, s in ipairs(item.breakables) do
+                local lo, hi = s.min, s.max
+                if type(lo) == "table" and type(hi) == "table"
+                    and p.X >= lo[1] - BREAK_PAD and p.X <= hi[1] + BREAK_PAD
+                    and p.Y >= lo[2] - BREAK_PAD and p.Y <= hi[2] + BREAK_PAD
+                    and p.Z >= lo[3] - BREAK_PAD and p.Z <= hi[3] + BREAK_PAD then
+                    local cx, cy, cz = (lo[1] + hi[1]) / 2 - p.X, (lo[2] + hi[2]) / 2 - p.Y, (lo[3] + hi[3]) / 2 - p.Z
+                    local d = cx * cx + cy * cy + cz * cz
+                    if not bestD or d < bestD then
+                        best, bestActor, bestKey, bestD = s, actor, tostring(item.id or index) .. "/" .. tostring(s.sheet), d
+                    end
+                end
+            end
+        end
+    end
+    return best, bestActor, bestKey
+end
+
+local function shatter(world, sheet)
+    local okF, nfl = pcall(findObject, "/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local fx = resolveMesh(BREAK_FX)
+    if not (okF and nfl and fx) then return end
+    local lo, hi = sheet.min, sheet.max
+    -- Chips over the sheet: a 3 x 3 grid across its two long axes.
+    local span = { hi[1] - lo[1], hi[2] - lo[2], hi[3] - lo[3] }
+    for a = 0, 2 do
+        for b = 0, 2 do
+            local u, v = (a + 0.5) / 3, (b + 0.5) / 3
+            local p
+            if span[1] <= span[2] and span[1] <= span[3] then
+                p = { X = (lo[1] + hi[1]) / 2, Y = lo[2] + span[2] * u, Z = lo[3] + span[3] * v }
+            elseif span[2] <= span[3] then
+                p = { X = lo[1] + span[1] * u, Y = (lo[2] + hi[2]) / 2, Z = lo[3] + span[3] * v }
+            else
+                p = { X = lo[1] + span[1] * u, Y = lo[2] + span[2] * v, Z = (lo[3] + hi[3]) / 2 }
+            end
+            -- Spawned inactive so its crack decal (Crack_Masked_Dithered) is
+            -- off before the first frame: nine cracks on a grid stayed
+            -- hanging where the glass had been, nowhere near the shots.
+            pcall(function()
+                local c = nfl:SpawnSystemAtLocation(world, fx, p, { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, false, 0, true)
+                c:SetEmitterEnable(FName("Crack_Masked_Dithered"), false)
+                c:Activate(false)
+            end)
+        end
+    end
+end
+
+--- A break, on the game thread's next pass: never in the break effect's own
+--- call. The sim waits on that call, and a blocking load inside it (the
+--- chips or the hide material, after a map reload emptied the asset cache)
+--- deadlocked the game for good (2026-11-10).
+local function breakAt(p)
+    local sheet, actor, key = sheetAt(p)
+    if not sheet or not actor or not actor:IsValid() then return end
+    Current.broken = Current.broken or {}
+    if Current.broken[key] then return end
+    Current.broken[key] = true
+    local hidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    if hidden then
+        for _, slot in ipairs(sheet.slots or {}) do
+            pcall(function() actor.StaticMeshComponent:SetMaterial(slot, hidden) end)
+        end
+    end
+    shatter(Current.world or getWorld(), sheet)
+    Log(string.format("glass: sheet %s broke at (%.0f, %.0f, %.0f)", key, p.X, p.Y, p.Z))
+end
+
+local BreakQueue = {}
+local breakDrainPending = false
+
+local function drainBreaks()
+    breakDrainPending = false
+    local queued = BreakQueue
+    BreakQueue = {}
+    for _, p in ipairs(queued) do
+        local ok, err = pcall(breakAt, p)
+        if not ok then Log("glass: " .. tostring(err)) end
+    end
+end
+
+--- The hook itself only reads the point and queues it.
+local function onBreak(ev)
+    local okP, p = pcall(function()
+        local t = ev:get().Transform.Translation
+        return { X = t.X, Y = t.Y, Z = t.Z }
+    end)
+    -- The effect's first call names no point (all zero).
+    if not okP or not p or (p.X == 0 and p.Y == 0 and p.Z == 0) then return end
+    if #BreakQueue >= 32 then return end
+    BreakQueue[#BreakQueue + 1] = p
+    if not breakDrainPending then
+        breakDrainPending = true
+        ExecuteInGameThread(drainBreaks)
+    end
+end
+
+--- Each level with glass loads the chips and the hide material as it comes
+--- up (the asset cache empties with every world), and hooks the break
+--- effect once (its Blueprint is loaded by then); retried each tick until
+--- the hook holds.
+local function hookBreakables()
+    local level = Current.level
+    if not level then return end
+    if level.hasBreakables == nil then level.hasBreakables = levelHasBreakables() end
+    if not level.hasBreakables then return end
+    if not Current.breakPreloaded then
+        Current.breakPreloaded = true
+        resolveMesh(BREAK_FX)
+        resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    end
+    if breakHooked then return end
+    breakHooked = pcall(function()
+        RegisterHook(BREAK_EVENT, function(_, ev)
+            local ok, err = pcall(onBreak, ev)
+            if not ok then Log("glass: " .. tostring(err)) end
+        end)
+    end)
+    if breakHooked then Log("glass: break hook armed") end
 end
 
 local function fadeIn()
@@ -5488,6 +5640,7 @@ local function tick()
         EventQueue = {}
         NativeIncidents = {}
         Resolved, Unresolved = {}, {}
+        BreakQueue = {}
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
@@ -5532,6 +5685,7 @@ local function tick()
     if Current.level and not Current.furnished and not Current.dressing then
         spawnDecor(world)
     end
+    hookBreakables()
     Current.tryFade()
 end
 

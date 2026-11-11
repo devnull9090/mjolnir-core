@@ -333,15 +333,37 @@ pub fn run(a: CollisionArgs) -> Result<()> {
             }
         }
         let scenario_bsp = a.bsp_index.unwrap_or(canvas.bsp_index as u8);
-        let (mut out, r) = convert::convert_own(
+        // Halo 2's glass breaks (its breakable surfaces keep their bit and
+        // get sets, a key table and a MOPP); CE's outputs stay as they were.
+        let breakable = staged.manifest.source_layout == "h2_mcc";
+        let (mut out, r) = convert::convert_own_with(
             &donor,
             collision,
             scenery,
             delta,
             scenario_bsp,
             !materials.is_empty(),
+            breakable,
         )
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+        if r.breakable_panes > 0 {
+            println!(
+                "  breakable {} pane(s) in {} sheet(s), in the key table and its MOPP",
+                r.breakable_panes,
+                r.breakable_sheets.len()
+            );
+            // The sheets in staged world units, for tools/level/
+            // split_breakable_glass.py and the level loader.
+            let back = |v: [f32; 3]| [v[0] - delta[0], v[1] - delta[1], v[2] - delta[2]];
+            let sheets: Vec<serde_json::Value> = r
+                .breakable_sheets
+                .iter()
+                .map(|s| serde_json::json!({"instance": s.instance, "set": s.set, "min": back(s.min), "max": back(s.max)}))
+                .collect();
+            let path = a.out.with_extension("sbsp.breakables.json");
+            std::fs::write(&path, serde_json::to_string_pretty(&serde_json::json!({"units": "halo_wu", "sheets": sheets}))?)
+                .with_context(|| format!("writing {}", path.display()))?;
+        }
         if a.bsp_index.is_some() {
             // The donor's own headers and shapes still name its index.
             let (o, n) =
@@ -437,6 +459,7 @@ pub fn run(a: CollisionArgs) -> Result<()> {
         shell,
         bsp_index: canvas.bsp_index as u8,
         keep_materials: false,
+        breakable: false,
     };
     if let Some(p) = &a.anchor {
         if p.len() != 3 {

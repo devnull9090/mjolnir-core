@@ -131,7 +131,10 @@ pub fn template(name: &str) -> Template {
             t(&["bump", "", "base", "detail", "", "self_illum"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, false)
         }
         n if n.starts_with("tex_bump_env_no_detail") => t(&["bump", "", "base"], BUMP_FIRST, 0, false),
-        n if n.starts_with("tex_bump_one_change_color") => t(&["bump", "base"], BUMP_FIRST, 0, false),
+        // Compiled (`lightmap_tex_one_change_color`): base x lerp(1, the
+        // object's change colour, bitmap 2), lit; the panel trucks' tan,
+        // red or off-white paint through `panel_truck_change_color`.
+        n if n.starts_with("tex_bump_one_change_color") => t(&["bump", "base", "change"], BUMP_FIRST, 0, false),
         n if n.starts_with("tex_bump_env") || n.starts_with("tex_bump_dprs_env") => {
             t(&["bump", "", "base", "detail"], BUMP_FIRST, 0, false)
         }
@@ -974,6 +977,38 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "specular": {"flags": 0, "brightness": 0.0},
         });
         let mut s = s;
+        // The change colour as CE's shader_model takes it (MCC's
+        // ShaderModel): the mask in the multipurpose map's alpha, the
+        // object's colour A from its block of the object lighting page.
+        // Only placed objects have one; tools/level/ce_material_spec.py
+        // leaves the BSP's copies of the shader without it.
+        if let Some(t) = tags.get("change") {
+            let mp = tex.stage_mapped(cache, t, 0, dir, notes, "__mp", "__mp", &mut |mips| {
+                for m in mips.iter_mut() {
+                    for p in m.rgba.chunks_exact_mut(4) {
+                        let mask = ((p[0] as u32 + p[1] as u32 + p[2] as u32) / 3) as u8;
+                        p.copy_from_slice(&[0, 0, 255, mask]);
+                    }
+                }
+                Ok(())
+            });
+            if mp.is_some() {
+                s["model"] = json!({"multipurpose": mp, "change_color_source": 1, "detail_mask": 0});
+            }
+        }
+        // Halo 2's self-illumination pass: the glow map times a tint (pass
+        // constant 1, which the template takes from one of the shader's
+        // pixel constants, or an animation drives), added over the lit
+        // surface, not lit with it: the light fixtures' maps are black
+        // where they glow.
+        if role_is_set(&roles, "self_illum") && glow_channels.is_null() {
+            let glow_slot = tpl.slots.iter().position(|r| *r == "self_illum");
+            let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+            if let Some(g) = glow_slot.and_then(|b| illum_tint(stem.as_ref(), b, post, &pixel)) {
+                s["self_illum"]["additive"] = json!(true);
+                s["self_illum"]["channels"] = json!([g]);
+            }
+        }
         if template_name.contains("env") {
             if let Some(r) = env_reflection(cache, &shader, post, &pixel, dir, tex, notes) {
                 s["reflection"] = r;
@@ -986,6 +1021,62 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     // plane at sea level fading the infinite water, drawn white without it.
     let drawn = template_name != "water_edge_blend";
     Shader { key, class, alpha_mode, double_sided, base, base_scale, unlit, drawn, summary }
+}
+
+/// The tint of a template's self-illumination pass as a CE channel
+/// (`{on, off, function, period}`): the pass samples the glow map
+/// (`default_self_illumination`: saturate(map.rgb x cb0[1])), its pass
+/// constant 1 (descriptor 0x81) taken from the shader pixel constant the
+/// template's remapping table names in the run where texture 0 is the glow
+/// map (tex_bump_illum: 2; tex_bump_illum_no_specular: 0). An animated
+/// parameter on 0x81 drives it instead: a periodic colour function (byte 1
+/// flags 0x30, wave at byte 2, colours as BGRA at 4..0x14, frequency at
+/// 0x14) goes in as its wave between the darkest and brightest colour;
+/// Turf's storefront signs jitter between 0.46 and 0.5 grey.
+fn illum_tint(stem: Option<&Tag<'_>>, glow_bitmap: usize, post: Option<Struct<'_>>, pixel: &[[f32; 4]]) -> Option<Value> {
+    let table: Vec<(u16, usize)> = stem?
+        .root
+        .block(0x58, 0x28)
+        .get(0)?
+        .block(0x20, 4)
+        .iter()
+        .map(|e| (e.u16(0), e.u8(3) as usize))
+        .collect();
+    let at = table.iter().position(|&(d, src)| d == 0 && src == glow_bitmap)?;
+    let constant = table[at + 1..].iter().take(4).find(|&&(d, _)| d == 0x81).map(|&(_, src)| src)?;
+    let rgb = |c: &[f32; 4]| [c[0], c[1], c[2]];
+    let fixed = pixel.get(constant).map(rgb).unwrap_or([1.0; 3]);
+    let mut out = json!({"on": fixed, "off": fixed, "function": 0, "period": 1.0, "phase": 0.0});
+    if let Some(p) = post {
+        let refs = p.block(0x54, 4);
+        let params = p.block(0x4C, 2);
+        let overlay_refs = p.block(0x44, 4);
+        let overlays = p.block(0x3C, 0x14);
+        for r in refs.iter().filter(|r| r.u16(0) == 0x81) {
+            let Some(param) = params.get(r.u8(3) as usize) else { continue };
+            let first = (param.u16(0) & 0x1FF) as usize;
+            let Some(o) = overlay_refs.get(first).and_then(|or| overlays.get(or.i16(0).max(0) as usize)) else { continue };
+            let Some(at) = p.file.offset(o.u32(0x10)) else { continue };
+            let f = &p.file.data[at..(at + o.u32(0x0C) as usize).min(p.file.data.len())];
+            if f.len() < 0x18 || f[0] != 3 || f[1] & 0x30 == 0 {
+                continue;
+            }
+            // An all-zero entry is an unused slot: the signs' function holds
+            // 0x80, 0x80, 0, 0x76 around their static 0x7B.
+            let colours: Vec<[f32; 3]> = (0..4)
+                .map(|k| [f[4 + 4 * k + 2], f[4 + 4 * k + 1], f[4 + 4 * k]].map(|c| c as f32 / 255.0))
+                .filter(|c| c.iter().any(|&v| v > 0.0))
+                .collect();
+            let luma = |c: &[f32; 3]| c[0] + c[1] + c[2];
+            let lo = colours.iter().copied().min_by(|a, b| luma(a).total_cmp(&luma(b)))?;
+            let hi = colours.iter().copied().max_by(|a, b| luma(a).total_cmp(&luma(b)))?;
+            let freq = f32::from_le_bytes(f[0x14..0x18].try_into().ok()?);
+            let period = o.f32(8) / if freq > 0.0 { freq } else { 1.0 };
+            out = json!({"on": hi, "off": lo, "function": f[2], "period": period, "phase": 0.0});
+            break;
+        }
+    }
+    Some(out)
 }
 
 /// A bitmap's first image's values in one channel, as a histogram of 64

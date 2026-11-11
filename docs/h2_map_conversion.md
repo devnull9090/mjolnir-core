@@ -163,7 +163,26 @@ units and axes, so every later step reads them unchanged:
   a player. `tex_bump_env_alpha_test_combined` cuts out on the base's
   alpha times bitmap 1's (Turf's damaged stucco: a solid door base, the
   splintered boards in `base_stucco1_damaged_01_alpha`; the chainlink
-  fence keeps its holes in the base, alpha_white in slot 1). The "two
+  fence keeps its holes in the base, alpha_white in slot 1).
+  Change colours (`tex_bump_one_change_color`: Turf's panel trucks and
+  crates) are base x lerp(1, the object's colour, bitmap 2) in the compiled
+  lightmap pass; the mask goes in as CE's shader_model multipurpose alpha
+  (`<stem>__mp.png`) and each prop placement carries its object's colour
+  permutations (obje +0xAC) as `change_colors`, Halo 2's weights (shares:
+  the truck's off-white 0.4, red 0.2, tan 0.2) summed into CE's running
+  cut-offs, so tools/level/merge_ce_scene.py draws one per placement into
+  the object lighting page as it does for CE scenery; a placement's own
+  colours (active bits at +0x38, ARGB at +0x3C) win. Read without the mask,
+  every truck drew its untinted off-white base.
+  Self-illumination (`tex_bump_illum` and its kin) is a pass of its own,
+  `default_self_illumination`: saturate(glow map x pass constant 1),
+  added over the lit surface, not lit with it (Turf's light fixtures are
+  black where they glow). The template's remapping table names the pixel
+  constant (2 for tex_bump_illum, 0 for tex_bump_illum_no_specular); an
+  animated parameter on descriptor 0x81 drives it instead, a periodic
+  colour function going in as its wave between its darkest and brightest
+  non-zero colour (the storefront signs jitter between 0.46 and 0.5). The
+  environment master adds it after the fog when `SelfIllumAdd` is set. The "two
   plus two" shaders (the sky's cloud banks, the containment gas) are mask x
   layer x layer, tiled and scrolling as the shader animates them, alpha
   blended; the plasma shaders (`plasma_alpha`: Zanzibar's flywheel
@@ -400,6 +419,30 @@ units and axes, so every later step reads them unchanged:
 - **Weapons the game lacks** take the nearest role (`defs/level/h2-tag-map.json`):
   the battle rifle the assault rifle, the brute shot the fuel rod gun, the
   carbine, brute plasma rifle and sentinel beam the plasma rifle.
+
+## Breakable glass
+
+Halo 2's glass (Turf's stairwell doors) is solid until shot, meleed or hit
+hard, then breaks and lets players through, as in Halo 2.
+
+- **Collision.** `mjolnir level collision` (Halo 2 sources only) makes the
+  glass breakable surfaces of the sim's own kind
+  (`blam_sbsp::convert::rebuild_breakable`): each polygon is a pane (its
+  front and back), each connected sheet a set, closed at its edges so the
+  sim's flood fill never reads a missing surface. `brittle_glass` takes the
+  `brittle_glass_reinforced` material: plain `globals\glass` breaks at any
+  touch, so walking into it broke it.
+- **Drawing.** The sheets go beside the BSP (`<map>.sbsp.breakables.json`,
+  world units); `tools/level/split_breakable_glass.py` moves each sheet's
+  transparent triangles into mesh slots of their own, and the level entry
+  lists them (`breakables`: sheet, box in cm, slots). The level loader
+  hooks the game's break effect (`BP_BaseBreakableSurfaceEffect_C:Spawn`,
+  which names the point it broke at): the sheet there loses its slots
+  (`M_CE_Hidden`) and throws glass chips (`NS_Impact_Glass_Lrg` without its crack decal, over a 3 x 3
+  grid). A sheet stays broken until the map loads again.
+- Not done: the break's sound (the game's `HaloAudioSound` has no script
+  call to play it), and glass in the structure BSP itself (the world shell's
+  packing drops the breakable bit; Turf's is all instanced geometry).
 
 ## How the open items were closed
 
