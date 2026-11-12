@@ -1,0 +1,39 @@
+{
+  "about": [
+    "Containers of ours whose chunk number is named somewhere: by Lua, a build tool, a",
+    "shader library name or the launcher itself. Every other container the launcher",
+    "mounts takes a local number from 10000 up when it is written into Paks, with its",
+    "shader library renamed to match (docs/chunk_numbering.md). These keep the number",
+    "they were cooked with. A container matches an entry when its cached name starts",
+    "pakchunk<number>-<name> and the next character is '-', '_' or nothing.",
+    "No two entries share a name, and no two entries with a shader library share a",
+    "number: the launcher's tests fail on either (chunk_numbers.rs)."
+  ],
+  "fixed": [
+    { "number": 966, "name": "MJOLNIRKOTH", "library": true, "named_by": "tools/ue/build_koth.ps1, tools/level/build_ce_runtime.sh, unreal/MJOLNIRMaterials/Scripts/build_flag_cloth.py" },
+    { "number": 980, "name": "MJOLNIRFORGEUI", "library": false, "named_by": "mods/MJOLNIRForge/Scripts/hud.lua, unreal/MJOLNIRMaterials/Scripts/build_mjolnir_ui.py" },
+    { "number": 981, "name": "MJOLNIRH2", "library": true, "named_by": "tools/ue/install_cook.sh, tools/level/build_ce_runtime.sh" },
+    { "number": 982, "name": "MJOLNIRWATER", "library": true, "named_by": "tools/level/upgrade_ce_map.py, mods/MJOLNIRLevelLoader/Scripts/main.lua" },
+    { "number": 983, "name": "MJOLNIRCETRIAL", "library": true, "named_by": "tools/level/upgrade_ce_map.py" },
+    { "number": 984, "name": "MJOLNIRUI", "library": false, "named_by": "mods/MJOLNIRHud, mods/MJOLNIRLobby, unreal/MJOLNIRMaterials/Scripts/build_mjolnir_ui.py" },
+    { "number": 985, "name": "MJOLNIRMENU", "library": false, "named_by": "mods/MJOLNIRLobby/Scripts/main.lua, crates/blam-cli/src/ue.rs" },
+    { "number": 988, "name": "MJOLNIRMAT", "library": true, "named_by": "unreal/MJOLNIRMaterials/Scripts/build_ce_materials.py, tools/ue/install_cook.sh" },
+    { "number": 990, "name": "MJOLNIRCTFMESH", "library": false, "named_by": "tools/level/build_ce_runtime.sh" },
+    { "number": 990, "name": "MJOLNIRFLAG", "library": false, "named_by": "tools/level/build_ctf_flag.sh, tools/tests/test_teams.lua" },
+    { "number": 990, "name": "MJOLNIRFLAGB", "library": false, "named_by": "mods/MJOLNIRLevelLoader/Scripts/teams.lua, mods/MJOLNIRLobby/Scripts/modes.lua, crates/blam-megalo/src/ctf.rs" },
+    { "number": 990, "name": "MJOLNIRFLUX", "library": false, "named_by": "tools/level/build_ce_runtime.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 990, "name": "MJOLNIRFORGEMON", "library": false, "named_by": "mods/MJOLNIRLobby/Scripts/modes.lua" },
+    { "number": 990, "name": "MJOLNIRHPACK", "library": false, "named_by": "tools/level/build_ctf_flag.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 990, "name": "MJOLNIRHPMESH", "library": false, "named_by": "tools/level/build_ce_runtime.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 990, "name": "MJOLNIRHPSPOT", "library": false, "named_by": "tools/level/build_ctf_flag.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 990, "name": "MJOLNIRMOTL", "library": false, "named_by": "tools/level/build_ctf_flag.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 990, "name": "MJOLNIRSPARTAN", "library": false, "named_by": "tools/level/build_ce_runtime.sh" },
+    { "number": 990, "name": "MJOLNIRSTAND", "library": false, "named_by": "tools/level/build_ctf_flag.sh" },
+    { "number": 991, "name": "MJOLNIRTELE2", "library": false, "named_by": "tools/level/build_spawn_point.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 992, "name": "MJOLNIRTELER", "library": false, "named_by": "tools/level/build_spawn_point.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 993, "name": "MJOLNIRTELES", "library": false, "named_by": "tools/level/build_spawn_point.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 994, "name": "MJOLNIRSPAWN", "library": false, "named_by": "tools/level/build_spawn_point.sh, tools/level/upgrade_ce_map.py" },
+    { "number": 995, "name": "MJOLNIRBOT", "library": false, "named_by": "tools/level/build_bot_characters.sh" },
+    { "number": 996, "name": "MJOLNIRREG", "library": false, "named_by": "apps/launcher/src-tauri/src/maps.rs (REG_CONTAINER), crates/blam-pack/src/scenario.rs" }
+  ]
+}

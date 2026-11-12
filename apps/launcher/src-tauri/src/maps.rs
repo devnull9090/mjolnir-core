@@ -28,7 +28,7 @@ const MARKER: &str = ".mjolnirhub";
 const RECORD: &str = ".mjolnirhub-registered.json";
 
 /// The registration container `blam_pack` writes in `Paks`.
-const REG_CONTAINER: &str = "pakchunk996-MJOLNIRREG_P";
+pub(crate) const REG_CONTAINER: &str = "pakchunk996-MJOLNIRREG_P";
 
 /// The property layout the registration edit needs. The CLI bundles the same
 /// file (`crates/blam-cli/src/mesh.rs`).

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 mod changelog;
+mod chunk_numbers;
 mod crash;
 mod discord_launch;
 mod forge_packs;
