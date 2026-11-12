@@ -278,8 +278,19 @@ units and axes, so every later step reads them unchanged:
   The level generator places them by game type ([ce_map_conversion.md](ce_map_conversion.md),
   "Spawn sets"); spawn types are not used yet. Props are
   scenery and crates (`bloc`), staged with their
-  render and collision models. Game-type props (the CTF and territory flag
-  bases) are left out: the level's own CTF stands replace them.
+  render and collision models. A prop with no collision model collides in
+  Halo 2 by its physics model's solid shapes alone (the boxes, polyhedra
+  and pills whose material is not a phantom's): Burial Mounds' and
+  Elongation's and Gemini's invisible boxes, Zanzibar's beach bushes. The
+  stage writes those as its collision (`crate::h2::phantom::solid_triangles`,
+  each shape's planes closed into a triangle mesh; a pill as the box round
+  it). The surfaces are in the built level (Elongation gains 96), but
+  no difference has been shown in play: dropped on Elongation's first box
+  a player lands on a real surface 0.2 world units above its top, with or
+  without it. A prop with both keeps its
+  collision model, which is what projectiles hit in Halo 2. Game-type props
+  (the CTF and territory flag bases) are left out: the level's own CTF
+  stands replace them.
 - **Planar fog.** A BSP's fog plane (Ascension's cloud deck, Lockout's
   haze below the map, the water of Dune, Needle and Zanzibar) goes to
   `fog.json` as `ce_fog.py` writes a CE map's, so the masters fog what lies
@@ -405,7 +416,19 @@ units and axes, so every later step reads them unchanged:
   sound's playback gain (dB) and random pitch bounds (cents) become the
   entry's `gain` and `pitch` (Ascension's humming light plays 5 semitones
   down); a loop's distance bounds come from its `lsnd` (most loop samples
-  carry none) unless the sound scenery overrides them. An attachment scaled
+  carry none) unless the sound scenery overrides them. Halo 2 adds its
+  sound class's gain to the sound's own (halo2.dll 0x6e5bd0: the class's
+  upper gain bound and the sound's scale bound at scale 1; -7 dB for the
+  ambient classes, -11 dB for machinery), so the entry's `gain` carries
+  it. The class also caps how many of one sound play at once ("max sounds
+  per tag", 4 for these classes), which becomes the emitter's `max`: the
+  loader gives each such sound a concurrency group that keeps the nearest
+  playing (Elongation places its belt hum 100 times with two tracks; all
+  200 played, at the tag's gain, with every cluster's background on top).
+  A background loop belongs to BSP clusters: `zones` are the clusters'
+  bounds with the set of loops each plays, and the loader fades to the set
+  of the box the camera is in or nearest to, the smallest when boxes
+  overlap (the clusters themselves are not boxes). An attachment scaled
   by an object function (the jump pads' launch loop, `phantom_power`) is
   left out: it sounds only while the object drives it.
 - **Lightmaps.** Halo 2 keeps its pages at half their light and doubles

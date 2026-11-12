@@ -372,6 +372,7 @@ local function resetState()
     Current.turning = {}
     Current.claimed = {}
     Current.volumed = {}
+    Current.soundSet = nil
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.bakedMids = {}
@@ -433,6 +434,7 @@ local function clearActors()
     Current.turning = {}
     Current.claimed = {}
     Current.volumed = {}
+    Current.soundSet = nil
     Current.spawned = 0
     Current.failed = 0
 end
@@ -1909,7 +1911,45 @@ end
 local function syncVolumes()
     if #Current.volumed == 0 then return end
     local volumes, changed = {}, {}
+    -- Halo 2's background loops belong to BSP clusters (`zones`: bounds and
+    -- the set of loops each plays): the set of the zone the camera is in,
+    -- or nearest to, is heard and the others fade out.
+    local env = Current.level and Current.level.environment
+    local zones = type(env) == "table" and type(env.sounds) == "table" and env.sounds.zones
+    local active
+    if type(zones) == "table" and #zones > 0 then
+        local ok, cam = pcall(function()
+            return getPlayerController().PlayerCameraManager:GetCameraLocation()
+        end)
+        if ok and cam then
+            local o = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+            local p = { cam.X - o[1], cam.Y - o[2], cam.Z - o[3] }
+            local best, bestSize = math.huge, math.huge
+            for _, z in ipairs(zones) do
+                local d, size = 0, 1
+                for k = 1, 3 do
+                    local gap = math.max(z.min[k] - p[k], 0, p[k] - z.max[k])
+                    d = d + gap * gap
+                    size = size * math.max(z.max[k] - z.min[k], 1)
+                end
+                if d < best or (d == best and size < bestSize) then
+                    best, bestSize, active = d, size, z.set
+                end
+            end
+        end
+    end
+    if active and active ~= Current.soundSet then
+        Current.soundSet = active
+        Log("background sound: set " .. tostring(active))
+    end
     for _, v in ipairs(Current.volumed) do
+        if v.set and active and v.comp:IsValid() then
+            local heard = v.set == active
+            if heard ~= v.heard then
+                pcall(function() v.comp:AdjustVolume(1.0, heard and 1.0 or 0.0, 0) end)
+                v.heard = heard
+            end
+        end
         volumes[v.category] = volumes[v.category] or gameVolume(v.category)
         local volume = volumes[v.category]
         if volume ~= v.volume and v.comp:IsValid() then
@@ -1930,26 +1970,51 @@ end
 --- The level's ambient sound (environment.sounds, from the CE map's BSP
 --- background sound and sound scenery: tools/level/ce_sounds.py), played
 --- through Unreal's own audio engine, which the game runs beside its own.
---- Background loops are 2D and map-wide; emitters are 3D loops that fall off
+--- Background loops are 2D and map-wide (a Halo 2 map's follow the BSP
+--- cluster the camera is in, `zones`); emitters are 3D loops that fall off
 --- linearly from `inner` to `inner + falloff` centimetres, as CE's distance
---- bounds do.
+--- bounds do, at most `max` of one sound at a time.
 local function spawnSounds(world)
     local env = Current.level and Current.level.environment
     local sounds = type(env) == "table" and env.sounds
     if type(sounds) ~= "table" then return end
     local gs = findObject("/Script/Engine.Default__GameplayStatics")
     local attClass = findObject("/Script/Engine.SoundAttenuation")
+    local limitClass = findObject("/Script/Engine.SoundConcurrency")
     if not gs then return end
     local playing, failed = 0, 0
+    -- `max` (Halo 2's sound class: how many of one sound play at once): one
+    -- concurrency group a sound, which keeps the nearest playing and lets
+    -- the engine bring a stopped loop back as the listener nears it.
+    local limits, limitCount = {}, 0
+    local function limit(s)
+        if not (limitClass and type(s.max) == "number" and s.max > 0) then return nil end
+        local key = s.wave .. "#" .. s.max
+        if limits[key] == nil then
+            limits[key] = false
+            pcall(function()
+                limitCount = limitCount + 1
+                local c = StaticConstructObject(limitClass, world, FName("MJOLNIR_Limit_" .. limitCount))
+                c.Concurrency.MaxCount = math.floor(s.max)
+                c.Concurrency.ResolutionRule = 3     -- stop the farthest, then the oldest
+                limits[key] = c
+            end)
+        end
+        return limits[key] or nil
+    end
 
     -- Spawned at the sliders' volume (gameVolume), kept there by syncVolumes.
-    local function keep(key, comp, fade, gain, category, volume)
+    local function keep(key, comp, fade, gain, category, volume, set)
         if not (comp and comp:IsValid()) then
             failed = failed + 1
             return
         end
         Current.actors[key] = comp
-        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume }
+        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume,
+                                                  set = set, heard = set and false or nil }
+        -- A zoned background starts silent; syncVolumes fades in the set
+        -- of the zone the camera is in.
+        if set then pcall(function() comp:AdjustVolume(0.0, 0.0, 0) end) end
         if fade and fade > 0 then pcall(function() comp:FadeIn(fade, 1.0, 0.0, 0) end) end
         playing = playing + 1
     end
@@ -1960,12 +2025,16 @@ local function spawnSounds(world)
             -- A CE music loop (class music) follows the music slider.
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            local set = type(sounds.zones) == "table" and s.set or nil
+            -- A loop faded to nothing has to keep playing to be faded back
+            -- (PlayWhenSilent, as the moving emitters below).
+            if set then pcall(function() wave.VirtualizationMode = 1 end) end
             -- `pitch`: Halo 2's pitched loops (the humming lights, 5
             -- semitones down).
             local ok, comp = pcall(function()
                 return gs:SpawnSound2D(world, wave, gain * volume, s.pitch or 1.0, 0.0, nil, false, false)
             end)
-            keep("__bg" .. i, ok and comp, s.fade_in, gain, category, volume)
+            keep("__bg" .. i, ok and comp, not set and s.fade_in or nil, gain, category, volume, set)
         else
             failed = failed + 1
             Log("sound not found: " .. tostring(s.wave))
@@ -2001,7 +2070,7 @@ local function spawnSounds(world)
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, nil, false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, limit(s), false)
             end)
             keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
             -- On a machine's moving part (Infinity's beams): moved with it
