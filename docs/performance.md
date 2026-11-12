@@ -50,6 +50,15 @@ nothing.
   `r.ScreenPercentage 200`.
 - **Draws and Prims miss instanced geometry.** Hiding all 535,000 grass
   clumps changed Draws by about 140 and Prims not at all. Use frame time.
+- **PC 1's game thread runs at one of two speeds.** PC 1 is a Ryzen 9
+  7950X3D. Coagulation at a held view read 9.1-9.5 ms in some sessions and
+  7.4-7.8 ms in others (2026-11-11), all of it the Game figure, GPU
+  unchanged. Pinning the running game to the V-Cache cores (0-15) read
+  9.48 ms; to the other cores (16-31), 7.61 ms. Windows picks per session
+  and can move the thread mid-session, so a comparison across sessions is
+  only valid on the same cores. Compare within one session (`mjolnir_bench`
+  does), or pin the game first: `(Get-Process HaloCampaignEvolved)
+  .ProcessorAffinity = [IntPtr][int64]4294901760` for cores 16-31.
 - **Alternate conditions with the baseline.** Single `stat unit` snapshots
   vary by about ±0.5 ms. `mjolnir_bench` alternates base / condition /
   base over 6-second windows, and its baselines repeat within ±0.1 ms.

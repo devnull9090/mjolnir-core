@@ -1252,21 +1252,33 @@ def ambient_sounds(sounds_dir, root, to_ue):
         return {"category": "music"} if not halo2 and snd.get("class") in CE_MUSIC_CLASSES else {}
 
     def tuned(track, snd):
-        """The track's gain times the sound's own (Halo 2's playback gain;
-        CE's sounds carry none), and its pitch when it is not 1 (Halo 2's
+        """The track's gain times the sound's own (Halo 2's playback gain
+        and its sound class's, crate::h2::sound; CE's sounds carry none),
+        and its pitch when it is not 1 (Halo 2's
         random pitch bounds, as a multiplier)."""
         out = {"gain": round(track["gain"] * snd.get("gain", 1.0), 3)}
         if abs(snd.get("pitch", 1.0) - 1.0) > 1e-3:
             out["pitch"] = round(snd["pitch"], 3)
         return out
 
+    # Halo 2 plays the background of the BSP cluster the camera is in: each
+    # of its loops carries the set it belongs to, and `zones` are the
+    # clusters' bounds with their set (the loader fades between sets).
+    zoned = manifest.get("background_zones") or []
     background, emitters = [], []
-    for lsnd in manifest["background"]:
+    for k, lsnd in enumerate(manifest["background"]):
         for track, snd in loops(lsnd):
             background.append({"wave": wave(snd["loop"]), **tuned(track, snd),
                                "fade_in": round(track["fade_in"], 2), "source": lsnd,
+                               **({"set": k} if zoned else {}),
                                **category(snd)})
     origin = to_ue([0.0, 0.0, 0.0])
+    zones = []
+    for z in zoned:
+        a, b = to_ue(z["min"]), to_ue(z["max"])
+        zones.append({"min": [round(min(a[i], b[i]), 1) for i in range(3)],
+                      "max": [round(max(a[i], b[i]), 1) for i in range(3)],
+                      "set": manifest["background"].index(z["sound"])})
 
     def vector(v):
         """A CE offset in Unreal's axes and centimetres (no translation)."""
@@ -1288,6 +1300,10 @@ def ambient_sounds(sounds_dir, root, to_ue):
                        "inner": round(near * WU_CM, 1),
                        "falloff": round(max(far - near, 0.1) * WU_CM, 1),
                        "source": e["sound"], **category(snd)}
+            # Halo 2's sound class caps how many of one sound play at once
+            # (Elongation places its belt hum 100 times; four play).
+            if snd.get("max_instances", 0) > 0:
+                emitter["max"] = snd["max_instances"]
             m = e.get("motion")
             if m:
                 # On a machine's moving part (ce_sounds.py marker_motion): the
@@ -1297,7 +1313,7 @@ def ambient_sounds(sounds_dir, root, to_ue):
                                      "s0": m["s0"], "s1": m["s1"], "period": m["period"],
                                      "position": m["position"]}
             emitters.append(emitter)
-    return {"background": background, "emitters": emitters}
+    return {"background": background, "emitters": emitters, **({"zones": zones} if zones else {})}
 
 
 def machine_sounds(decor, sounds_dir, root):

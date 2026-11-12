@@ -401,15 +401,19 @@ fn swap_one(
         println!("  preview  {}", path.display());
     }
 
-    let chunk = t
-        .ubulk
-        .context("this texture keeps every mip inline, so it has no bulk chunk to replace")?;
-    let mut edits = vec![blam_pack::ChunkEdit {
-        label: format!("{}.ubulk", t.path),
-        chunk,
-        original_len: ubulk.len(),
-        patched: out.ubulk,
-    }];
+    // A texture with every mip inline (converted maps' small uncompressed
+    // maps) has no bulk chunk: the export alone carries its pixels.
+    let mut edits = Vec::new();
+    match t.ubulk {
+        Some(chunk) => edits.push(blam_pack::ChunkEdit {
+            label: format!("{}.ubulk", t.path),
+            chunk,
+            original_len: ubulk.len(),
+            patched: out.ubulk,
+        }),
+        None if out.export.is_some() => {}
+        None => anyhow::bail!("{}: no bulk chunk and no inline mips to replace", t.path),
+    }
     if let Some(body) = out.export {
         // Same length as the shipped export, so nothing in the zen header
         // moves: the package is the shipped bytes with new pixels in the tail.

@@ -152,7 +152,37 @@ units and axes, so every later step reads them unchanged:
   and the emblems solid bars. Glass (`one_alpha_env`) becomes CE's glass shader: the base
   map tinted by the albedo and facing tints, blended by its alpha, unlit, and
   the environment cube map reflected through the specular mask with the
-  environment tint; the cube's six faces are staged in D3D order. The "two
+  environment tint; the cube's six faces are staged in D3D order. The
+  two-layer glass (`two_alpha_env_illum`: Turf's storefront and stairwell
+  doors, Triplicate's glass rails, the medical tent's panels) has the same
+  slots and pixel constants, a second glass layer in slot 4, and goes in
+  the same way; `two_alpha_env_detail` (the Forerunner "invisible" glass)
+  has only placeholders and draws nothing. Read through the transparent
+  catch-all, slot 0's reflection cube was drawn as a picture: Turf's
+  stairwell door was an opaque dark sheet with nothing behind it to stop
+  a player. `tex_bump_env_alpha_test_combined` cuts out on the base's
+  alpha times bitmap 1's (Turf's damaged stucco: a solid door base, the
+  splintered boards in `base_stucco1_damaged_01_alpha`; the chainlink
+  fence keeps its holes in the base, alpha_white in slot 1).
+  Change colours (`tex_bump_one_change_color`: Turf's panel trucks and
+  crates) are base x lerp(1, the object's colour, bitmap 2) in the compiled
+  lightmap pass; the mask goes in as CE's shader_model multipurpose alpha
+  (`<stem>__mp.png`) and each prop placement carries its object's colour
+  permutations (obje +0xAC) as `change_colors`, Halo 2's weights (shares:
+  the truck's off-white 0.4, red 0.2, tan 0.2) summed into CE's running
+  cut-offs, so tools/level/merge_ce_scene.py draws one per placement into
+  the object lighting page as it does for CE scenery; a placement's own
+  colours (active bits at +0x38, ARGB at +0x3C) win. Read without the mask,
+  every truck drew its untinted off-white base.
+  Self-illumination (`tex_bump_illum` and its kin) is a pass of its own,
+  `default_self_illumination`: saturate(glow map x pass constant 1),
+  added over the lit surface, not lit with it (Turf's light fixtures are
+  black where they glow). The template's remapping table names the pixel
+  constant (2 for tex_bump_illum, 0 for tex_bump_illum_no_specular); an
+  animated parameter on descriptor 0x81 drives it instead, a periodic
+  colour function going in as its wave between its darkest and brightest
+  non-zero colour (the storefront signs jitter between 0.46 and 0.5). The
+  environment master adds it after the fog when `SelfIllumAdd` is set. The "two
   plus two" shaders (the sky's cloud banks, the containment gas) are mask x
   layer x layer, tiled and scrolling as the shader animates them, alpha
   blended; the plasma shaders (`plasma_alpha`: Zanzibar's flywheel
@@ -248,8 +278,19 @@ units and axes, so every later step reads them unchanged:
   The level generator places them by game type ([ce_map_conversion.md](ce_map_conversion.md),
   "Spawn sets"); spawn types are not used yet. Props are
   scenery and crates (`bloc`), staged with their
-  render and collision models. Game-type props (the CTF and territory flag
-  bases) are left out: the level's own CTF stands replace them.
+  render and collision models. A prop with no collision model collides in
+  Halo 2 by its physics model's solid shapes alone (the boxes, polyhedra
+  and pills whose material is not a phantom's): Burial Mounds' and
+  Elongation's and Gemini's invisible boxes, Zanzibar's beach bushes. The
+  stage writes those as its collision (`crate::h2::phantom::solid_triangles`,
+  each shape's planes closed into a triangle mesh; a pill as the box round
+  it). The surfaces are in the built level (Elongation gains 96), but
+  no difference has been shown in play: dropped on Elongation's first box
+  a player lands on a real surface 0.2 world units above its top, with or
+  without it. A prop with both keeps its
+  collision model, which is what projectiles hit in Halo 2. Game-type props
+  (the CTF and territory flag bases) are left out: the level's own CTF
+  stands replace them.
 - **Planar fog.** A BSP's fog plane (Ascension's cloud deck, Lockout's
   haze below the map, the water of Dune, Needle and Zanzibar) goes to
   `fog.json` as `ce_fog.py` writes a CE map's, so the masters fog what lies
@@ -375,7 +416,19 @@ units and axes, so every later step reads them unchanged:
   sound's playback gain (dB) and random pitch bounds (cents) become the
   entry's `gain` and `pitch` (Ascension's humming light plays 5 semitones
   down); a loop's distance bounds come from its `lsnd` (most loop samples
-  carry none) unless the sound scenery overrides them. An attachment scaled
+  carry none) unless the sound scenery overrides them. Halo 2 adds its
+  sound class's gain to the sound's own (halo2.dll 0x6e5bd0: the class's
+  upper gain bound and the sound's scale bound at scale 1; -7 dB for the
+  ambient classes, -11 dB for machinery), so the entry's `gain` carries
+  it. The class also caps how many of one sound play at once ("max sounds
+  per tag", 4 for these classes), which becomes the emitter's `max`: the
+  loader gives each such sound a concurrency group that keeps the nearest
+  playing (Elongation places its belt hum 100 times with two tracks; all
+  200 played, at the tag's gain, with every cluster's background on top).
+  A background loop belongs to BSP clusters: `zones` are the clusters'
+  bounds with the set of loops each plays, and the loader fades to the set
+  of the box the camera is in or nearest to, the smallest when boxes
+  overlap (the clusters themselves are not boxes). An attachment scaled
   by an object function (the jump pads' launch loop, `phantom_power`) is
   left out: it sounds only while the object drives it.
 - **Lightmaps.** Halo 2 keeps its pages at half their light and doubles
@@ -389,6 +442,172 @@ units and axes, so every later step reads them unchanged:
 - **Weapons the game lacks** take the nearest role (`defs/level/h2-tag-map.json`):
   the battle rifle the assault rifle, the brute shot the fuel rod gun, the
   carbine, brute plasma rifle and sentinel beam the plasma rifle.
+
+## Specular
+
+A Halo 2 template's postprocess definition (stem +0x58) lists its passes,
+each pass's implementations and what each implementation feeds its shaders
+(`specular_constants` in render.rs reads it; the example
+`h2_template_blocks` prints it). Most opaque templates draw
+`default_light_combined_tangentspace_specular_sphere`. Its vertex shader
+passes vertex registers 10 and 11, fed from two of the shader's vertex
+constants, to the pixel shader, which adds sat(R.L)^8 x the light x
+lerp(register 11, register 10, sat(N.L)) through the frame's alpha (R the
+view reflected about the bumped normal, L the light's direction). The
+template's lightmap pass wrote that alpha first:
+
+- min(1, 2 x base alpha x the light) for `lightmap_tex_detail` and nearly
+  every other lightmap pass (`tex`, the detail blends, two and three detail,
+  illum, shiny, tiling, change colour, honor guard), so the base map's alpha
+  is a specular mask;
+- 0 for the env passes, `detail_overlay` and `detail_no_specular`: those
+  surfaces never shine, whatever their passes;
+- the cut-out or other terms for the alpha-tested passes. Only
+  `alpha_test_no_bump`'s (the cut-out, which is the base alpha) matches
+  what staging writes; the others are left without.
+
+That is CE's lightmap specular (`SpecLightmap`: the lobe from the
+lightmap's incident direction, masked by the base map's alpha), its colour
+going from parallel to perpendicular by N.V rather than N.L: perpendicular
+takes register 10's constant, parallel register 11's. A template that cuts
+out on another map's alpha has the cut staged in the base's alpha, so it
+would shine all over; it gets none. Nor does a base map with no authored
+mask (alpha 1 everywhere): 157 of 552 specular shaders on the 25 maps,
+Coagulation's cliffs, Turf's stucco garage doors, Backwash's tree trunks,
+shone all over like plastic where Halo 2's surfaces read flat; the shaders
+with an authored mask (Turf's brushed door frames) keep it. Turf's door frames and posts
+(`metal_grey_dark` on `matte_grey`, brushed streaks in the alpha: vertex
+constants 7 and 8, 1.0 and 0.75 grey) drew flat grey without it. Placed objects (lit from the object lighting
+page) are left without: they have no incident direction per texel, so a
+flat face took one and saturated white (Turf's dumpster). 25
+templates take it, 61% of the multiplayer maps' triangles
+(docs/h2_shader_census.md).
+
+## Decorators
+
+Halo 2 scatters grass, rocks, debris, litter and decals from its scenario's
+decorator sets (`DECR`) over each structure BSP (`crates/blam-cache/src/h2/decorator.rs`;
+the example `h2_decorators` prints a map's). The BSP's decorators block
+(+0x234) is an octree of 8-unit cells around a centre (cells per side x 8
+units across); each leaf names groups, and a group a run of placements in a
+raw cache block, six words each. MCC's `halo2.dll` decodes them (0x979eeb;
+no tag carries the finished geometry, so the decode was read from there):
+
+- position: the leaf cell's corner + (bits 0-9 x 8/1023, bits 10-19 x
+  8/1023, bits 20-31 x 8/4095) world units;
+- internal word: bits 0-2 the class, 3-8 the permutation, 9-12 the yaw
+  (v/15 of a turn), 13-15 the tint blend, 16-19 the scale (v/15 across the
+  permutation's range), 20-31 an up vector the "align to normal"
+  permutations turn to: the yaw then turns from Halo 2's own perpendicular
+  to it (0x6fcf30: the smallest component zeroed, the other two swapped,
+  one negated), and any other perpendicular turns every aligned piece by a
+  fixed angle (Turf's cans lay 180 degrees round);
+- tint and lightmap colours, two light directions.
+
+On Zanzibar, Turf and Beaver Creek the decoded placements lie on the BSP's
+surface (median 0.1 units). The 20 maps with decorators hold 38,600:
+31,000 models, 6,300 floating decals and 1,300 camera-facing sprites
+(Zanzibar's, all). A group's own type byte disagrees with its class's on
+Turf, so the class's (`DECR` class +0x04) decides.
+
+DXT1 bitmaps decode with their one-bit alpha (a three-colour block's
+index 3 is transparent black, as D3D samples it). Read opaque, the debris
+atlas drew each piece in a black box where Halo 2 cuts it out; elsewhere
+one to five textures a map gain transparent texels (Coagulation's light
+bands, Ascension's light strips, Zanzibar's hazard strips).
+
+Model decorators are staged as scenery: each set's model
+(`models/<set>__decorator<k>.gltf`, its run of the set's indices, double
+sided, `decorator_tex` cut out on its base map's alpha), one placement entry
+each with its rotation as `basis` (forward, left, up) and `scale`, which
+merge_ce_scene.py places like any object, and its `light`.
+
+Every decorator is lit and coloured as Halo 2 colours its vertices
+(`halo2.dll` 0x7fa1d0): the permutation's tint 1 to tint 2 by the
+placement's blend, times the placement's tint by the base map tint
+percentage; times its light, the placement's lightmap colour by the
+lightmap tint percentage, grey (0.5) for the rest. The decorator pixel
+shaders draw 2 x texture x that colour. A model's entry carries the doubled
+product as `light`; a decal's or sprite's vertices already hold the product
+(their stored colour equals it on Turf and Coagulation to 8-bit rounding),
+doubled into the mesh's `_LIGHT`. merge_ce_scene.py lights each from that
+in place of the ground under it: one object page block a distinct colour
+(in 32nds), the incident direction along the normal so it draws flat, as
+Halo 2's does.
+
+Decal decorators need no decode: the map stores them as geometry. Each
+cache block carries decal vertices (locator 0x08: 0x20 each, position,
+texture coordinate, a second coordinate, colour) and indices (0x10), 4
+vertices and 6 indices a placement over its group's run (+0x0C vertex
+start and count, +0x10 index start and count); `halo2.dll` draws them as
+they are (0x9795c0). Their coordinates already point into the decal
+bitmap's atlas. `decorator::decals` reads them; staging writes one mesh a
+group and shader (`models/<set>__decals<group>_<shader>.gltf`, at the
+quads' centre): `decorator_decal_paint` alpha blended,
+`decorator_decal_paint_multiply` (stains, blast scorches) multiplying the
+frame by the map where its alpha covers, baked into an alpha blend as the
+overlay's is. Turf's 322 (posters, rubble, stains) draw in game. A group's
+own type byte calls Turf's posters and rubble models; their class and
+their decal vertices say decals.
+
+The axis-rotating sprites (grass: Coagulation's 14,362, Relic's, Beaver
+Creek's, Containment's) are stored the same way, in the block's sprite
+vertices (locator 0x48: 0x30 each, base position, the corner's offset
+across and along the axis, the axis, texture coordinate, colour) and
+sprite indices (0x50), 4 and 6 a placement. Halo 2 turns each about its
+axis to face the camera, and so does ours: each comes out as one card in
+its rest pose (across Halo 2's perpendicular to the axis turned by the
+placement's yaw) on `M_H2_Billboard`
+(unreal/MJOLNIRMaterials/Scripts/build_h2_materials.py, chunk 981), the
+masked two-sided environment master with a World Position Offset that
+turns it. The vertex normal is the axis (the card draws flat lit, so it
+needs no face normal), and two extra UV channels carry, in Unreal
+centimetres, the way from the vertex to its base point on the axis
+(TEXCOORD_2 x, y and TEXCOORD_3 x) and its offset across (TEXCOORD_3 y):
+`_BILLBOARD` in the staged mesh, converted by merge_ce_scene.py, written by
+mesh_rewrite as channels 2 and 3 when a mesh has them. A runtime pack
+without the master draws the cards unturned (the level loader falls back
+to `M_CE_EnvironmentMaskedTwoSided`). A group
+draws from the sprite buffer when its block has one and its type says
+quad, or it has no decal buffer. Zanzibar's "screen-facing quads" (group
+type 3) are `foliage_earth` models by their class, and are placed as models.
+
+merge_ce_scene.py merges every decorator primitive of a material into
+one: each glTF primitive becomes a section of the terrain mesh, drawn in
+every pass, and Coagulation's 2,639 pieces as their own sections drew
+14,808 draws a frame (1,623 merged). Measured on PC 1 (RTX 5090, 3840x2160,
+Epic, `mjolnir_bench` at a held view over the grass, 2026-11-11):
+Coagulation without decorators 9.21 ms (GPU 6.53); with them as sections
+10.34 ms; merged 9.63 to 9.84 ms (GPU 7.02), so the decorators cost about
+0.5 ms, on the GPU. Their World Position Offset costs nothing measurable
+(off: same frame, GPU -0.2 ms). All three were benched in sessions in PC 1's
+slower state (the game thread on its V-Cache cores, by the 9 ms baseline;
+docs/performance.md, "Reading the numbers"); a control in the faster state
+read 7.80 ms.
+
+## Breakable glass
+
+Halo 2's glass (Turf's stairwell doors) is solid until shot, meleed or hit
+hard, then breaks and lets players through, as in Halo 2.
+
+- **Collision.** `mjolnir level collision` (Halo 2 sources only) makes the
+  glass breakable surfaces of the sim's own kind
+  (`blam_sbsp::convert::rebuild_breakable`): each polygon is a pane (its
+  front and back), each connected sheet a set, closed at its edges so the
+  sim's flood fill never reads a missing surface. `brittle_glass` takes the
+  `brittle_glass_reinforced` material: plain `globals\glass` breaks at any
+  touch, so walking into it broke it.
+- **Drawing.** The sheets go beside the BSP (`<map>.sbsp.breakables.json`,
+  world units); `tools/level/split_breakable_glass.py` moves each sheet's
+  transparent triangles into mesh slots of their own, and the level entry
+  lists them (`breakables`: sheet, box in cm, slots). The level loader
+  hooks the game's break effect (`BP_BaseBreakableSurfaceEffect_C:Spawn`,
+  which names the point it broke at): the sheet there loses its slots
+  (`M_CE_Hidden`) and throws glass chips (`NS_Impact_Glass_Lrg` without its crack decal, over a 3 x 3
+  grid). A sheet stays broken until the map loads again.
+- Not done: the break's sound (the game's `HaloAudioSound` has no script
+  call to play it), and glass in the structure BSP itself (the world shell's
+  packing drops the breakable bit; Turf's is all instanced geometry).
 
 ## How the open items were closed
 
@@ -410,10 +629,9 @@ units and axes, so every later step reads them unchanged:
 - Only BSP 0 is converted (every multiplayer map has one).
 - Placed object models take each region's first permutation at its most
   detailed level.
-- Opaque shaders' specular from dynamic lights is not drawn. In the static
-  scene, Halo 2's `tex_bump` (Lockout's frozen panels) has none either: its
-  lightmap pass is diffuse only and its specular pass has no
-  implementation, so the panels' look is their albedo and light.
+- Specular's colour blends by the view (N.V) where Halo 2's blends by the
+  light (N.L), and alpha-tested templates other than `tex_alpha_test` have
+  none (see Specular).
 - The sun shafts' fade towards edge-on (the vertex colour going from the
   facing colour to black as (N.V)^2) has no CE chicago equivalent; they draw
   at their facing colour.

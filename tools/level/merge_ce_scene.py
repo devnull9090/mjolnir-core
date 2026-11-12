@@ -108,6 +108,12 @@ def primitives(g, buf):
                 # The node each vertex hangs on most (a skinned model's bones
                 # are its nodes, by index), for machines' moving parts.
                 "joint": accessor(g, buf, at["JOINTS_0"])[:, 0] if "JOINTS_0" in at else None,
+                # A Halo 2 decorator's own light per vertex (mjolnir cache
+                # stage: its placement's tint times its light, doubled).
+                "light": accessor(g, buf, at["_LIGHT"]) if "_LIGHT" in at else None,
+                # A camera-facing sprite's way to its base point on its axis
+                # and offset across it, glTF metres (its normal is the axis).
+                "billboard": accessor(g, buf, at["_BILLBOARD"]) if "_BILLBOARD" in at else None,
                 "idx": accessor(g, buf, p["indices"]).reshape(-1),
                 "material": mat["name"], "extras": mat.get("extras", {}),
             })
@@ -446,6 +452,23 @@ def main():
     # (the environment master reads them at fixed offsets of 1/8).
     BLOCK, PER_ROW, COLUMNS = 4, 16, 8
     object_texels, object_prims = [], []
+    # Halo 2 decorators carry their own light (decorator_light): one block
+    # per distinct colour, in 32nds, shared by every placement that has it.
+    decorator_blocks = {}
+    # The decorators' primitives by material: the first, which stands in
+    # `out` for them all, and every one (merged into it below).
+    decorator_groups = {}
+
+    def decorator_light(colours):
+        """Each vertex's block for a decorator's own light colours."""
+        keys = np.round(np.clip(colours, 0.0, 1.0) * 32.0).astype(np.int64)
+        out = np.empty(len(keys), dtype=np.int64)
+        for k, key in enumerate(map(tuple, keys)):
+            if key not in decorator_blocks:
+                decorator_blocks[key] = len(object_texels)
+                object_texels.append([np.array(key) / 32.0, np.ones(3)] + [np.ones(3)] * 4)
+            out[k] = decorator_blocks[key]
+        return out
 
     placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
     # Beacons that would rock on one edge of their base sit on the ground
@@ -486,7 +509,49 @@ def main():
             models[path] = g
         if e["kind"] in ("scenery", "light_fixture", "machine"):
             r = ce_rotation(*e.get("rot", [0, 0, 0]))
+            rn = r
+            if e.get("basis"):
+                # A Halo 2 decorator (mjolnir cache stage): its rotation as
+                # forward, left and up in Halo axes, and its scale.
+                swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)
+                rn = swap @ np.array(e["basis"], dtype=np.float64).T @ swap.T
+                r = rn * float(e.get("scale", 1.0))
             t = ce_to_gltf(e["pos"])
+            own = e.get("light") is not None or any(p.get("light") is not None for p in cache[path])
+            if own:
+                # A Halo 2 decorator lit as Halo 2 lights it: by its own
+                # light, flat (its incident direction along its normal, so
+                # the master's sat(N.L) is 1), not the ground under it.
+                for p in cache[path]:
+                    n = len(p["pos"])
+                    light = p["light"] if p.get("light") is not None else np.tile(np.array(e["light"], dtype=np.float64), (n, 1))
+                    nrm = p["nrm"] @ rn.T
+                    halo = {**p["extras"].get("halo", {}), "lightmap_index": "objects",
+                            "lightmap_texture": OBJECT_LIGHTING_PAGE}
+                    q = {"pos": p["pos"] @ r.T + t, "nrm": nrm, "uv0": p["uv0"], "idx": p["idx"],
+                         "tan": tangents_for(nrm), "inc": nrm.copy(), "material": f"{p['material']}__lmobj",
+                         "extras": {"halo": halo}, "block": decorator_light(light)}
+                    if p.get("billboard") is not None:
+                        # For the billboard master (build_h2_materials.py):
+                        # the way to the base point in Unreal centimetres
+                        # (glTF (x, y, z) metres are Unreal (x, z, y) x 100)
+                        # as TEXCOORD_2 (x, y) and TEXCOORD_3 (z, offset).
+                        scale = float(e.get("scale", 1.0)) * 100.0
+                        way = p["billboard"][:, :3] @ rn.T * scale
+                        q["uv2"] = way[:, [0, 2]]
+                        q["uv3"] = np.stack([way[:, 1], p["billboard"][:, 3] * scale], axis=1)
+                    # One primitive per material for all of them: each glTF
+                    # primitive becomes a section of the mesh, drawn in every
+                    # pass; Coagulation's 2,639 pieces drew 14,808 draws a
+                    # frame as sections, 1,623 merged (0.5 ms of frame).
+                    group = decorator_groups.get(q["material"])
+                    if group is None:
+                        decorator_groups[q["material"]] = group = (q, [])
+                        out.append(q)
+                        object_prims.append(q)
+                    group[1].append(q)
+                placed += 1
+                continue
             # The bounding sphere, which CE samples the ground under.
             ext = np.concatenate([p["pos"] @ r.T for p in cache[path]])
             centre = (ext.min(axis=0) + ext.max(axis=0)) / 2 if len(ext) else np.zeros(3)
@@ -498,7 +563,7 @@ def main():
             prims = []
             for p in cache[path]:
                 pos = p["pos"] @ r.T + t
-                nrm = p["nrm"] @ r.T
+                nrm = p["nrm"] @ rn.T
                 halo = {**p["extras"].get("halo", {}), "lightmap_index": "objects",
                         "lightmap_texture": OBJECT_LIGHTING_PAGE}
                 material = f"{p['material']}__lmobj"
@@ -561,6 +626,21 @@ def main():
             print(f"  sky {os.path.basename(path)}: scale {scale:.4f}, nearest layer {a.sky_radius:.0f} m, "
                   f"farthest {np.max(np.linalg.norm(allpos, axis=1)) * scale:.0f} m")
 
+    for first, parts in decorator_groups.values():
+        if len(parts) < 2:
+            continue
+        base = np.cumsum([0] + [len(q["pos"]) for q in parts[:-1]])
+        merged = {k: np.concatenate([q[k] for q in parts]) for k in ("pos", "nrm", "uv0", "tan", "inc", "block")
+                  if k in first}
+        for k in ("uv2", "uv3"):
+            if first.get(k) is not None:
+                merged[k] = np.concatenate([q[k] for q in parts])
+        merged["idx"] = np.concatenate([np.asarray(q["idx"]) + b for q, b in zip(parts, base)])
+        first.update(merged)
+    if decorator_groups:
+        print(f"  {sum(len(g[1]) for g in decorator_groups.values())} decorator primitive(s) merged into "
+              f"{len(decorator_groups)} by material")
+
     if object_texels:
         column = BLOCK * PER_ROW
         wid = column * COLUMNS
@@ -574,10 +654,12 @@ def main():
                 page[y * BLOCK:(y + 1) * BLOCK, x0:x0 + BLOCK] = np.round(np.clip(colour, 0.0, 1.0) * 255.0)
         Image.fromarray(page, "RGB").save(os.path.join(a.staging, "textures", OBJECT_LIGHTING_PAGE))
         for q in object_prims:
-            y, x = divmod(q.pop("block"), PER_ROW)
-            uv = ((x + 0.5) * BLOCK / wid, (y + 0.5) * BLOCK / hgt)
-            q["uv1"] = np.tile(uv, (len(q["pos"]), 1))
-        print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt})")
+            # One block for the placement, or one per vertex (a decorator's).
+            block = np.broadcast_to(np.asarray(q.pop("block")), (len(q["pos"]),))
+            y, x = np.divmod(block, PER_ROW)
+            q["uv1"] = np.stack([(x + 0.5) * BLOCK / wid, (y + 0.5) * BLOCK / hgt], axis=1)
+        print(f"  {len(object_texels)} object lighting texel(s) -> textures/{OBJECT_LIGHTING_PAGE} ({wid}x{hgt}), "
+              f"{len(decorator_blocks)} of them decorators' own light")
 
     out = with_passes(out, shaders)
     out = with_decal_offset(out, shaders)
@@ -846,6 +928,9 @@ def write_gltf(prims, path):
             "TEXCOORD_1": add(f32(p["uv1"]), "VEC2", 5126, 34962),
             "_INCIDENT": add(f32(p["inc"]), "VEC3", 5126, 34962),
         }
+        for k in (2, 3):
+            if p.get(f"uv{k}") is not None:
+                attrs[f"TEXCOORD_{k}"] = add(f32(p[f"uv{k}"]), "VEC2", 5126, 34962)
         idx = add(np.asarray(p["idx"], dtype=np.uint32), "SCALAR", 5125, 34963)
         meshes_prims.append({"attributes": attrs, "indices": idx, "material": mat_index[name], "mode": 4})
 
