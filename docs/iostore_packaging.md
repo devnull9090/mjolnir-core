@@ -109,6 +109,11 @@ These are the real unknowns, in the order they need answering.
    Whether this build does that, and what priority a new container would need, has not been
    checked. If it does not, everything below is moot and the route is a loader mod instead.
    The `Paks/LogicMods` directory exists and is **empty**, so it gives no evidence either way.
+   **Order settled 2026-11-11:** a name ending `_<v>_P` mounts at `100 × (v + 1)` above the
+   folder's base (plain `_P` is `v = 0`), and the higher value wins. Between equal values the
+   name that sorts *lower* wins. The chunk number plays no part. The hub launcher now writes
+   `pakchunk<N>-MJOLNIRHUB-<slug>-<j>_<v>_P` with `v` from the profile order and `N` a local
+   number with the shader library renamed to it. See [chunk_numbering.md](chunk_numbering.md).
 
 2. **Does an override container need its own `ContainerHeader` (type 6)?** That chunk carries
    the package store. A container replacing only *bulk data* for a package that already exists

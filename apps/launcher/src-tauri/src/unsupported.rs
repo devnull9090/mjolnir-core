@@ -10,9 +10,9 @@
 //!
 //!   the game's own   `pakchunk<N>[optional]-Windows|WinGDK.pak/utoc/ucas/sig`
 //!                    and `global.utoc/ucas`, in Paks itself
-//!   MJOLNIR's        `pakchunk9NN-MJOLNIR…`: hub containers
-//!                    (`pakchunk9NN-MJOLNIRHUB-<slug>-<j>_P`) and the ones
-//!                    MJOLNIR's own tools place (MJOLNIRREG, MJOLNIRMENU, …)
+//!   MJOLNIR's        `pakchunk<N>-MJOLNIR…`, any number: hub containers
+//!                    (`pakchunk<N>-MJOLNIRHUB-<slug>-<j>_<v>_P`) and the
+//!                    ones MJOLNIR's own tools place (MJOLNIRREG, …)
 //!
 //! Anything else with a container extension, anywhere under Paks (the engine
 //! mounts subfolders such as `~mods` and `LogicMods` too), is unsupported.
@@ -188,15 +188,15 @@ fn is_game_container(stem: &str, ext: &str) -> bool {
     rest == "-windows" || rest == "-wingdk"
 }
 
-/// A container MJOLNIR put there: `pakchunk9NN-MJOLNIR…`.
+/// A container MJOLNIR put there: `pakchunk<N>-MJOLNIR…`, with any chunk
+/// number. The number is no longer ours to reserve (the launcher hands out
+/// local numbers from 10000 up, docs/chunk_numbering.md), so the marker is
+/// what says whose a container is.
 fn is_mjolnir_container(stem: &str) -> bool {
-    let Some((digits, rest)) = after_chunk_number(stem) else {
+    let Some((_, rest)) = after_chunk_number(stem) else {
         return false;
     };
-    digits.len() == 3
-        && digits.starts_with('9')
-        && rest.len() >= 8
-        && rest[..8].eq_ignore_ascii_case("-MJOLNIR")
+    rest.len() >= 8 && rest[..8].eq_ignore_ascii_case("-MJOLNIR")
 }
 
 /// Whether a container file is unsupported. `rel` is its path below Paks,
@@ -505,6 +505,10 @@ mod tests {
             "pakchunk969-MJOLNIRLAND-Windows.pak",
             "pakchunk985-MJOLNIRCOOK-ASC_P.ucas",
             "pakchunk996-MJOLNIRREG_P.utoc",
+            "pakchunk9001-MJOLNIRFAKE.pak",
+            "pakchunk800-MJOLNIRX_P.pak",
+            "pakchunk10042-MJOLNIRHUB-ce-blood-gulch-0_2000_P.ucas",
+            "pakchunk20001-mjolnirtst_P.utoc",
             "readme.txt",
             "LogicMods/notes.md",
         ] {
@@ -518,8 +522,9 @@ mod tests {
             "z_BetterHUD_P.pak",
             "pakchunk99-Mod_P.utoc",
             "pakchunk42-Windows_P.pak",
-            "pakchunk9001-MJOLNIRFAKE.pak",
-            "pakchunk800-MJOLNIRX_P.pak",
+            "pakchunk10042-MJOLNI_P.pak",
+            "pakchunk10042MJOLNIRHUB_P.pak",
+            "pakchunk-MJOLNIRHUB_P.pak",
             "~mods/CoolMod.pak",
             "~mods/pakchunk0-Windows.pak",
             "LogicMods/SomeBlueprint.pak",

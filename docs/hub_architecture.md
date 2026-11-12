@@ -127,12 +127,21 @@ a profile is the active one.
 
 ### Load order is free
 
-Mount priority is expressed by container filename. The launcher owns the `pakchunk900` to
-`pakchunk999` band (`pakchunk9NN-MJOLNIRHUB-<slug>-<j>_P`), and reordering a profile is
-*renaming files*. No repacking, no re-download, instant. A container carrying a shader library
-keeps its own number, because UE finds that library by the number in the file name. Ordering
-is deterministic and matches what the engine will actually do, so the launcher's conflict
-preview is a prediction it cannot get wrong.
+Mount priority is expressed by container filename: `pakchunk<N>-MJOLNIRHUB-<slug>-<j>_<v>_P`.
+The `_<v>_P` suffix is the engine's own priority field (`100 × (v + 1)`, proven in game
+2026-11-11), so a later entry in the profile wins a shared chunk over an earlier one, and within
+one entry a later container over an earlier one. Every hub container sits above loose `_P`
+containers such as the registration. `N` is a local chunk number from 10000 up, one per
+container; a container's shader library is renamed to that number as it is copied
+(`ue_iostore::shader_library::renumber`), so two mods cooked under the same number keep both
+libraries. The containers listed in `config/fixed_chunks.json` keep their cooked number.
+Reordering a profile is still *renaming files* (plus rewriting one chunk ID in each library's
+`.utoc`); no repacking, no re-download. Details, numbers and evidence:
+[chunk_numbering.md](chunk_numbering.md).
+
+Until 2026-11-11 the launcher wrote `pakchunk9NN-…_P` with `NN` the list position, assuming a
+higher number wins. With equal priority the name that sorts lower wins, so in practice the
+**first** entry won, the reverse of what the UI said.
 
 ### Later: merge instead of shadow
 
@@ -564,6 +573,9 @@ for soft conflicts. Per-build compatibility signals and automatic revalidation o
    without it. No commit records the test, and the launcher's notes still call the ordering
    unconfirmed; the assumption lives in one function (`order_number` in
    `apps/launcher/src-tauri/src/hub.rs`), so reversing it is a one-line change.
+   **Answered 2026-11-11:** priority is the `_<v>_P` suffix; between equal suffixes the name
+   that sorts lower wins, so the 9NN scheme was backwards. The launcher now orders by suffix
+   (`chunk_numbers.rs`), see [chunk_numbering.md](chunk_numbering.md).
 2. **Where does moderation capacity come from?** Every code mod needs a human reviewer. One
    person is a bottleneck and a bus factor; the process should name at least two from the start.
 3. **What is the policy on mods that redistribute base-game assets wholesale?** The delta

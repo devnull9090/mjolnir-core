@@ -8,16 +8,16 @@
 //! container into `Meteorite/Content/Paks` as the verified override triple —
 //! stub `.pak` (an empty archive written by `ue_iostore::pak`; a bare
 //! `.utoc`/`.ucas` pair does not mount, see docs/iostore_packaging.md),
-//! `.utoc`, `.ucas` — named `pakchunk9NN-MJOLNIRHUB-<slug>…_P`.
+//! `.utoc`, `.ucas` — named `pakchunk<N>-MJOLNIRHUB-<slug>-<j>_<v>_P`.
 //!
-//! Load order maps list position to that 9NN number, on the assumption that a
-//! higher pakchunk number mounts later and wins shared chunks. UE mounts
-//! `pakchunkN` by priority and one `_P` override winning its chunks is
-//! verified; the relative order of *several* `_P` containers is the one
-//! assumption not yet confirmed in game (docs/iostore_packaging.md, open
-//! question 1). It is kept in exactly one place — `order_number` — so
-//! flipping the direction is a one-line change if the experiment says
-//! otherwise.
+//! Load order is the `_<v>_P` suffix, the engine's own priority field: a
+//! later entry in the profile wins shared chunks over an earlier one, and
+//! within one entry a later container over an earlier one. `N` is a local
+//! chunk number from 10000 up, one per container, with the container's
+//! shader library renamed to it as it is copied, so two mods cooked under
+//! the same number both keep their shaders. Both numbers, the fixed ones
+//! that keep their cooked number, and the evidence from the game are in
+//! `chunk_numbers` and docs/chunk_numbering.md.
 //!
 //! Code mods (UE4SS Lua) are different on purpose: they only ever install
 //! from the signed set that mjolnir-core CI publishes. The manifest signature
@@ -257,30 +257,47 @@ fn sanitize(slug: &str) -> String {
         .collect()
 }
 
-/// List position → pakchunk number. The single point carrying the "higher
-/// number wins" assumption described in the module docs.
-fn order_number(index: usize) -> usize {
-    900 + index.min(99)
+/// The project name UE builds shader library names from.
+const PROJECT: &str = "Meteorite";
+
+/// A container's shader library: the chunk number it was cooked under, and
+/// the one it takes in Paks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Library {
+    cooked: u32,
+    number: u32,
 }
 
-/// The chunk number a container has to keep in its file name, when it has
-/// one to keep. UE opens a mounted pak's shader library by the number it
-/// reads off the file name (`pakchunk988…` opens
-/// `ShaderArchive-Meteorite_Chunk988-…`; ShaderCodeLibrary.cpp,
-/// `OnPakFileMounted`), so a container carrying a shader library renamed to
-/// its load-order number would mount with none of its shaders. The CE
-/// runtime pack's material masters are one. Everything else takes its
-/// number from the load order.
-fn shader_chunk(stem: &str, utoc: &Path) -> Option<usize> {
-    let digits: String = stem
-        .strip_prefix("pakchunk")?
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    let number: usize = digits.parse().ok()?;
+/// The shader library of the cached container `stem`, when it has one, and
+/// the number it goes into Paks under: its cooked number when it is one of
+/// the fixed ones (`chunk_numbers::fixed_number`), otherwise `local`.
+///
+/// UE opens a mounted pak's library by the number in the pak's file name
+/// (ShaderCodeLibrary.cpp, `OnPakFileMounted`), and the library chunk's ID
+/// is derived from that number, so a new number needs the ID rewritten
+/// (`Mount::utoc`). A library that is not named for the number in its own
+/// file name cannot be renamed; it keeps that number, as every library did
+/// before local numbers.
+fn library_of(stem: &str, utoc: &Path, local: u32) -> Option<Library> {
     let toc = ue_iostore::toc::Toc::read(utoc).ok()?;
-    // Chunk type 8 is ShaderCodeLibrary (ue_iostore::chunk_type_name).
-    toc.chunk_ids.iter().any(|c| c.kind == 8).then_some(number)
+    if !ue_iostore::shader_library::has_library(&toc) {
+        return None;
+    }
+    let (cooked, _) = crate::chunk_numbers::split_number(stem)?;
+    if crate::chunk_numbers::fixed_number(stem).is_some() {
+        return Some(Library { cooked, number: cooked });
+    }
+    let named_for_cooked = toc
+        .chunk_ids
+        .iter()
+        .filter(|c| c.kind == ue_iostore::shader_library::LIBRARY)
+        .all(|id| {
+            ue_iostore::shader_library::FORMATS
+                .iter()
+                .any(|f| ue_iostore::shader_library::library_id(PROJECT, cooked, f) == *id)
+        });
+    let number = if named_for_cooked { local } else { cooked };
+    Some(Library { cooked, number })
 }
 
 /// One container the active profile mounts: where the cache holds it, and
@@ -291,8 +308,10 @@ struct Mount {
     cache: PathBuf,
     /// The container's basename in the cache.
     container: String,
-    /// `pakchunk<n>-MJOLNIRHUB-<slug>-<j>_P`, its basename in Paks.
+    /// `pakchunk<N>-MJOLNIRHUB-<slug>-<j>_<v>_P`, its basename in Paks.
     base: String,
+    /// Its shader library, when it has one.
+    library: Option<Library>,
 }
 
 impl Mount {
@@ -302,6 +321,39 @@ impl Mount {
 
     fn in_paks(&self, paks: &Path, ext: &str) -> PathBuf {
         paks.join(format!("{}.{ext}", self.base))
+    }
+
+    /// The `.utoc` as it goes into Paks: the cached one, with its shader
+    /// library renamed when the container takes a number other than the one
+    /// it was cooked under. Only the library chunk's ID changes; the `.ucas`
+    /// is copied as it is, and the cache keeps the bytes the hub shipped
+    /// (`verify_installed` hashes the cache, never Paks).
+    fn utoc(&self) -> Result<Vec<u8>, String> {
+        let bytes = fs::read(self.cached("utoc")).map_err(|e| format!("{}: {e}", self.slug))?;
+        let Some(lib) = self.library.filter(|l| l.cooked != l.number) else {
+            return Ok(bytes);
+        };
+        let mut toc = ue_iostore::toc::Toc::parse(&bytes).map_err(|e| format!("{}: {e}", self.slug))?;
+        ue_iostore::shader_library::renumber(&mut toc, PROJECT, lib.cooked, lib.number)
+            .map_err(|e| format!("{}: {e}", self.slug))?;
+        Ok(toc.write())
+    }
+
+    /// Write the container into Paks under `base`: `.ucas` first (the file
+    /// the engine holds open), then `.utoc`, then the `.pak` it is found by.
+    /// Returns the bytes written.
+    fn write(&self, paks: &Path, base: &str) -> Result<u64, String> {
+        let at = |ext: &str| paks.join(format!("{base}.{ext}"));
+        let utoc = self.utoc()?;
+        let mut written =
+            fs::copy(self.cached("ucas"), at("ucas")).map_err(|e| format!("{}: {e}", self.slug))?;
+        fs::write(at("utoc"), &utoc).map_err(|e| format!("{}: {e}", self.slug))?;
+        written += utoc.len() as u64;
+        // A container without a `.pak` sibling is never discovered, so one
+        // rides along, empty unless the container has banks.
+        let pak = self.pak(base)?;
+        fs::write(at("pak"), &pak).map_err(|e| format!("{}: {e}", self.slug))?;
+        Ok(written + pak.len() as u64)
     }
 
     /// The `.pak` this container goes in with under `base`: its banks when it
@@ -340,23 +392,34 @@ fn mount_plan(state: &HubState) -> Result<Vec<Mount>, String> {
         .find(|p| p.name == state.active)
         .ok_or("Active profile missing")?;
 
+    // Every container's place in the profile, counting disabled entries too,
+    // so enabling a mod or appending one renames nothing already mounted.
+    let mut position = 0usize;
     let mut out = Vec::new();
-    for (i, entry) in profile.entries.iter().filter(|e| e.enabled).enumerate() {
-        let inst = state
-            .installed
-            .iter()
-            .find(|m| m.slug == entry.slug)
-            .ok_or_else(|| format!("{} is in the profile but not installed", entry.slug))?;
+    for entry in &profile.entries {
+        let inst = state.installed.iter().find(|m| m.slug == entry.slug);
+        if !entry.enabled {
+            position += inst.map_or(0, |m| m.containers.len());
+            continue;
+        }
+        let inst = inst.ok_or_else(|| format!("{} is in the profile but not installed", entry.slug))?;
         let release_cache = cache_dir().join(&inst.release_id);
         for (j, container) in inst.containers.iter().enumerate() {
-            let number = shader_chunk(container, &release_cache.join(format!("{container}.utoc")))
-                .unwrap_or_else(|| order_number(i));
+            let local = crate::chunk_numbers::local_number(position);
+            let library = library_of(container, &release_cache.join(format!("{container}.utoc")), local);
+            let number = library
+                .map(|l| l.number)
+                .or_else(|| crate::chunk_numbers::fixed_number(container))
+                .unwrap_or(local);
+            let v = crate::chunk_numbers::suffix(position);
             out.push(Mount {
                 slug: inst.slug.clone(),
                 cache: release_cache.clone(),
                 container: container.clone(),
-                base: format!("pakchunk{number}-{MARKER}-{}-{j}_P", sanitize(&inst.slug)),
+                base: format!("pakchunk{number}-{MARKER}-{}-{j}_{v}_P", sanitize(&inst.slug)),
+                library,
             });
+            position += 1;
         }
     }
     Ok(out)
@@ -364,7 +427,7 @@ fn mount_plan(state: &HubState) -> Result<Vec<Mount>, String> {
 
 fn check_forge_shader_mounts(paks: &Path, mounts: &[Mount], replacing_hub_files: bool) -> Result<(), String> {
     let planned: Vec<_> = mounts.iter().map(|m| crate::forge_shaders::Planned {
-        slug: &m.slug, source: &m.container, target: &m.base,
+        slug: &m.slug, source: &m.container, target: &m.base, library: m.library.map(|l| l.number),
     }).collect();
     crate::forge_shaders::check(paks, &planned, replacing_hub_files)
 }
@@ -404,15 +467,7 @@ fn materialize(state: &HubState) -> Result<(), String> {
     }
 
     for m in &mounts {
-        for ext in ["utoc", "ucas"] {
-            let copied = fs::copy(m.cached(ext), m.in_paks(&paks, ext))
-                .map_err(|e| format!("{}: {e}", m.slug))?;
-            crate::transfer::wrote(copied);
-        }
-        // A container without a `.pak` sibling is never discovered, so one
-        // rides along, empty unless the container has banks.
-        fs::write(m.in_paks(&paks, "pak"), m.pak(&m.base)?)
-            .map_err(|e| format!("{}: {e}", m.slug))?;
+        crate::transfer::wrote(m.write(&paks, &m.base)?);
     }
 
     sync_maps(state, &paks)
@@ -1520,13 +1575,23 @@ fn engine_pak(base: &str) -> String {
     format!("../../../Meteorite/Content/Paks/{base}.pak")
 }
 
-/// `<stem>_P` as `<stem>_<n>_P`. The engine mounts a `_<n>_P` pak above a
-/// plain `_P` one (FPakPlatformFile::Mount adds 100 per patch number), so an
-/// update written beside a container the game holds open wins even where a
-/// later launch mounts both; the next launch from the launcher removes it
-/// (`paks_strays`) and copies the release under its usual name.
+/// `<stem>_<v>_P` as `<stem>_<v + n>_P`, for `n` from 1. The engine orders a
+/// pak by the last `_<v>_P` in its name (FPakPlatformFile::Mount adds 100 per
+/// step), so an update written beside a container the game holds open wins
+/// over it even where a later launch mounts both; `chunk_numbers::STEP`
+/// leaves room for three before the next container's suffix. The next launch
+/// from the launcher removes it (`paks_strays`) and copies the release under
+/// its usual name. A name with no suffix (`<stem>_P`, written by launchers
+/// before suffixes) becomes `<stem>_<n>_P`, also above it.
 fn patch_name(base: &str, n: u32) -> String {
-    format!("{}_{n}_P", base.strip_suffix("_P").unwrap_or(base))
+    let stem = base.strip_suffix("_P").unwrap_or(base);
+    match stem.rsplit_once('_') {
+        Some((head, v)) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
+            let v: u32 = v.parse().unwrap_or(u32::MAX);
+            format!("{head}_{}_P", v.saturating_add(n))
+        }
+        _ => format!("{stem}_{n}_P"),
+    }
 }
 
 /// Install the hub's map `code` for a game that is running, and put its
@@ -1633,26 +1698,32 @@ pub fn install_live(
                 }
             }
         }
+        // A library mounted while the game runs must not share its number
+        // with one the game already has open under another mod's name: the
+        // second would never open. Paks written for another profile than this
+        // one can hold that; a restart through the launcher rewrites it.
+        if let Some(lib) = m.library {
+            if let Err(error) = crate::forge_shaders::library_free(&paks, &m.slug, lib.number) {
+                save_state(&before_state)?;
+                return Err(format!("{error} Restart through the launcher before joining."));
+            }
+        }
         // All of a container or none of it: the engine holds a mounted
         // `.ucas` open (its `.utoc` it reads once), so the `.ucas` is tried
         // for writing before anything is copied, and copied first.
-        let write = |base: &str| -> std::io::Result<()> {
+        let write = |base: &str| -> Result<(), String> {
             let ucas = paks.join(format!("{base}.ucas"));
             if ucas.exists() {
-                fs::OpenOptions::new().write(true).open(&ucas)?;
+                fs::OpenOptions::new().write(true).open(&ucas).map_err(|e| e.to_string())?;
             }
-            for ext in ["ucas", "utoc"] {
-                fs::copy(m.cached(ext), paks.join(format!("{base}.{ext}")))?;
-            }
-            let pak = m.pak(base).map_err(std::io::Error::other)?;
-            fs::write(paks.join(format!("{base}.pak")), pak)
+            m.write(&paks, base).map(|_| ())
         };
         // Its usual name, unless the game holds the old release there open.
         if write(&m.base).is_ok() {
             mount.push(engine_pak(&m.base));
             continue;
         }
-        let mut n = 2;
+        let mut n = 1;
         while paks.join(format!("{}.utoc", patch_name(&m.base, n))).exists() {
             n += 1;
         }
@@ -1660,7 +1731,7 @@ pub fn install_live(
         write(&base).map_err(|e| format!("{}: {e}", m.slug))?;
         mount.push(engine_pak(&base));
         unmount.push(engine_pak(&m.base));
-        for older in 2..n {
+        for older in 1..n {
             unmount.push(engine_pak(&patch_name(&m.base, older)));
         }
     }
@@ -3618,7 +3689,8 @@ mod tests {
             slug: slug.into(),
             cache: cache.clone(),
             container: format!("{slug}-c"),
-            base: format!("pakchunk900-{MARKER}-{slug}-0_P"),
+            base: format!("pakchunk10000-{MARKER}-{slug}-0_1000_P"),
+            library: None,
         };
         let mounts = [mount("bloodgulch"), mount("sidewinder")];
         for m in &mounts {
@@ -3642,6 +3714,12 @@ mod tests {
         );
 
         let stray = format!("pakchunk901-{MARKER}-old-0_P.utoc");
+        fs::write(paks.join(&stray), b"").unwrap();
+        assert_eq!(paks_strays(&mounts, &paks).unwrap(), std::slice::from_ref(&stray));
+        fs::remove_file(paks.join(&stray)).unwrap();
+        // A live update's patch name is a stray too: the next launch puts
+        // the release back under its usual name.
+        let stray = format!("{}.utoc", patch_name(&mounts[0].base, 1));
         fs::write(paks.join(&stray), b"").unwrap();
         fs::write(paks.join("pakchunk0-Meteorite.utoc"), b"").unwrap();
         assert_eq!(paks_strays(&mounts, &paks).unwrap(), [stray]);
@@ -3770,15 +3848,209 @@ mod tests {
         assert!(base64_decode("!!!").is_none());
     }
 
+    /// The engine's priority for a pak named `base`: the last `_<v>_P` in
+    /// it, as FPakPlatformFile::Mount reads it (a plain `_P` counts as 0).
+    fn engine_version(base: &str) -> u32 {
+        let stem = base.strip_suffix("_P").expect("a patch name");
+        stem.rsplit_once('_')
+            .and_then(|(_, v)| v.parse::<u32>().ok())
+            .unwrap_or(0)
+    }
+
+    fn plan_state(entries: &[(&str, bool, usize)]) -> HubState {
+        let installed: Vec<_> = entries
+            .iter()
+            .map(|(slug, _, n)| {
+                let containers: Vec<String> =
+                    (0..*n).map(|j| format!("pakchunk98{j}-MJOLNIRTEST-{slug}_P")).collect();
+                serde_json::json!({"slug": slug, "name": slug, "release_id": format!("plan-{slug}"),
+                    "version": "1.0.0", "sha256": "", "containers": containers})
+            })
+            .collect();
+        let profile: Vec<_> = entries
+            .iter()
+            .map(|(slug, enabled, _)| serde_json::json!({"slug": slug, "enabled": enabled}))
+            .collect();
+        serde_json::from_value(serde_json::json!({"active": "Default",
+            "profiles": [{"name": "Default", "entries": profile}], "installed": installed}))
+        .unwrap()
+    }
+
     #[test]
-    fn order_numbers_stay_inside_the_managed_band() {
-        assert_eq!(order_number(0), 900);
-        assert_eq!(order_number(42), 942);
+    fn later_entries_and_later_containers_win() {
+        let state = plan_state(&[("runtime", true, 2), ("off", false, 3), ("map", true, 2)]);
+        let plan = mount_plan(&state).unwrap();
+        let names: Vec<&str> = plan.iter().map(|m| m.base.as_str()).collect();
         assert_eq!(
-            order_number(500),
-            999,
-            "clamped, never colliding with shipped chunks"
+            names,
+            [
+                "pakchunk10000-MJOLNIRHUB-runtime-0_1000_P",
+                "pakchunk10001-MJOLNIRHUB-runtime-1_1004_P",
+                "pakchunk10005-MJOLNIRHUB-map-0_1020_P",
+                "pakchunk10006-MJOLNIRHUB-map-1_1024_P",
+            ]
         );
+        let versions: Vec<u32> = names.iter().map(|n| engine_version(n)).collect();
+        assert!(versions.windows(2).all(|w| w[0] < w[1]), "{versions:?}");
+        // Above a loose `_P` override and the registration, as today.
+        assert!(versions[0] > engine_version(crate::maps::REG_CONTAINER));
+
+        // Enabling the disabled entry renames nothing already mounted.
+        let enabled = plan_state(&[("runtime", true, 2), ("off", true, 3), ("map", true, 2)]);
+        let after = mount_plan(&enabled).unwrap();
+        for m in &plan {
+            assert!(after.iter().any(|a| a.base == m.base), "{} moved", m.base);
+        }
+        // Nor does installing one at the end.
+        let appended = plan_state(&[("runtime", true, 2), ("off", false, 3), ("map", true, 2), ("new", true, 1)]);
+        let after = mount_plan(&appended).unwrap();
+        for m in &plan {
+            assert!(after.iter().any(|a| a.base == m.base), "{} moved", m.base);
+        }
+    }
+
+    #[test]
+    fn a_live_update_beats_the_container_it_replaces_and_not_the_next() {
+        let state = plan_state(&[("map", true, 2)]);
+        let plan = mount_plan(&state).unwrap();
+        let (first, next) = (&plan[0].base, &plan[1].base);
+        for n in 1..crate::chunk_numbers::STEP {
+            let patch = patch_name(first, n);
+            assert!(engine_version(&patch) > engine_version(first), "{patch}");
+            assert!(engine_version(&patch) < engine_version(next), "{patch}");
+            assert_ne!(&patch, next);
+        }
+        assert_eq!(
+            patch_name("pakchunk10000-MJOLNIRHUB-map-0_1000_P", 1),
+            "pakchunk10000-MJOLNIRHUB-map-0_1001_P"
+        );
+        // A name from a launcher before suffixes still gets one above it.
+        assert_eq!(patch_name("pakchunk902-MJOLNIRHUB-map-0_P", 1), "pakchunk902-MJOLNIRHUB-map-0_1_P");
+        assert!(engine_version("pakchunk902-MJOLNIRHUB-map-0_1_P") > engine_version("pakchunk902-MJOLNIRHUB-map-0_P"));
+    }
+
+    /// A container holding one package and a shader library named for
+    /// `number`, as a cook writes it.
+    fn library_container(dir: &Path, stem: &str, number: u32) {
+        use ue_iostore::pack::{build_indexed, Entry};
+        let template = ue_iostore::toc::Toc {
+            version: 8,
+            reserved0: [0; 3],
+            header_size: 144,
+            block_entry_size: 12,
+            method_name_length: 32,
+            compression_block_size: 65536,
+            partition_count: 1,
+            container_id: 0,
+            encryption_guid: [0; 16],
+            flags: ue_iostore::FLAG_INDEXED,
+            reserved1: [0; 3],
+            perfect_hash_seed_count: 0,
+            partition_size: u64::MAX,
+            chunks_without_perfect_hash: 0,
+            header_tail: vec![0; 44],
+            chunk_ids: Vec::new(),
+            chunk_offsets: Vec::new(),
+            perfect_hash: Vec::new(),
+            blocks: Vec::new(),
+            methods: Vec::new(),
+            signature: Vec::new(),
+            directory_index: Vec::new(),
+            chunk_meta: Vec::new(),
+            trailing: Vec::new(),
+        };
+        let library = ue_iostore::shader_library::library_id(PROJECT, number, "PCD3D_SM6-PCD3D_SM6");
+        let package = ue_iostore::toc::ChunkId { id: 0x1234_5678_9abc_def0, index: 0, pad: 0, kind: 1 };
+        let entries = [
+            Entry { id: package, data: vec![7; 300], meta: vec![0; 24] },
+            Entry { id: library, data: vec![9; 100], meta: vec![0; 24] },
+        ];
+        let names = [("M_Test.uasset".to_string(), 0usize), ("ShaderArchive.ushaderbytecode".to_string(), 1)];
+        let built = build_indexed(&template, 5, &entries, Some(("../../../Meteorite/Content/", &names)));
+        fs::write(dir.join(format!("{stem}.utoc")), &built.utoc).unwrap();
+        fs::write(dir.join(format!("{stem}.ucas")), &built.ucas).unwrap();
+    }
+
+    #[test]
+    fn a_library_takes_the_local_number_and_the_cache_keeps_its_bytes() {
+        use ue_iostore::shader_library::{library_id, LIBRARY};
+        let root = std::env::temp_dir().join(format!("mjolnir-renumber-{}", std::process::id()));
+        let (cache, paks) = (root.join("cache"), root.join("paks"));
+        fs::create_dir_all(&cache).unwrap();
+        fs::create_dir_all(&paks).unwrap();
+        let stem = "pakchunk968-MJOLNIRCOOK-TST_P";
+        library_container(&cache, stem, 968);
+        let cached = fs::read(cache.join(format!("{stem}.utoc"))).unwrap();
+
+        let library = library_of(stem, &cache.join(format!("{stem}.utoc")), 10042);
+        assert_eq!(library, Some(Library { cooked: 968, number: 10042 }));
+        let m = Mount {
+            slug: "tst".into(),
+            cache: cache.clone(),
+            container: stem.into(),
+            base: format!("pakchunk10042-{MARKER}-tst-0_1168_P"),
+            library,
+        };
+        m.write(&paks, &m.base).unwrap();
+        let toc = ue_iostore::toc::Toc::read(m.in_paks(&paks, "utoc")).unwrap();
+        let sm6 = |n| library_id(PROJECT, n, "PCD3D_SM6-PCD3D_SM6");
+        assert!(toc.find_chunk_by_hash(&sm6(10042)).is_some(), "opens as Meteorite_Chunk10042");
+        assert!(toc.find_chunk_by_hash(&sm6(968)).is_none());
+        assert_eq!(toc.chunk_ids.iter().filter(|c| c.kind == LIBRARY).count(), 1);
+        assert_eq!(
+            fs::read(m.in_paks(&paks, "ucas")).unwrap(),
+            fs::read(cache.join(format!("{stem}.ucas"))).unwrap(),
+            "the data file is copied as it is"
+        );
+        assert_eq!(fs::read(cache.join(format!("{stem}.utoc"))).unwrap(), cached, "the cache is untouched");
+        assert!(m.in_paks(&paks, "pak").is_file());
+
+        // A fixed container keeps its cooked number, and its .utoc as cooked.
+        let fixed = "pakchunk988-MJOLNIRMAT-Windows";
+        library_container(&cache, fixed, 988);
+        let library = library_of(fixed, &cache.join(format!("{fixed}.utoc")), 10043);
+        assert_eq!(library, Some(Library { cooked: 988, number: 988 }));
+        let m = Mount { container: fixed.into(), base: format!("pakchunk988-{MARKER}-rt-7_1028_P"), library, ..m };
+        assert_eq!(m.utoc().unwrap(), fs::read(cache.join(format!("{fixed}.utoc"))).unwrap());
+
+        // A library not named for the number in its own file name cannot be
+        // renamed from it, so it keeps that number as before.
+        let odd = "pakchunk970-MJOLNIRROCK-TST_P";
+        library_container(&cache, odd, 969);
+        let library = library_of(odd, &cache.join(format!("{odd}.utoc")), 10044);
+        assert_eq!(library, Some(Library { cooked: 970, number: 970 }));
+
+        // No library, nothing to rename; nothing readable, nothing at all.
+        assert_eq!(library_of("MJOLNIRMAP-BGL_P", Path::new("does-not-exist.utoc"), 10045), None);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The real thing, on a cooked container: what `materialize` writes for a
+    /// library at a local number names the same chunks and opens under it.
+    ///
+    /// MJOLNIR_TEST_SHADER_UTOC=<hub-cache>/<release>/pakchunk968-MJOLNIRCOOK-TST_P.utoc
+    ///   cargo test a_cooked_library_renumbers -- --ignored
+    #[test]
+    #[ignore = "needs a cooked container with a shader library (see doc comment)"]
+    fn a_cooked_library_renumbers() {
+        let utoc = PathBuf::from(std::env::var("MJOLNIR_TEST_SHADER_UTOC").expect("MJOLNIR_TEST_SHADER_UTOC"));
+        let stem = utoc.file_stem().unwrap().to_string_lossy().into_owned();
+        let library = library_of(&stem, &utoc, 20001).expect("a library");
+        assert_eq!(library.number, 20001);
+        let m = Mount {
+            slug: "t".into(),
+            cache: utoc.parent().unwrap().into(),
+            container: stem.clone(),
+            base: String::new(),
+            library: Some(library),
+        };
+        let before = ue_iostore::toc::Toc::read(&utoc).unwrap();
+        let after = ue_iostore::toc::Toc::parse(&m.utoc().unwrap()).unwrap();
+        assert_eq!(after.blocks, before.blocks);
+        assert_eq!(after.chunk_ids.len(), before.chunk_ids.len());
+        for id in before.chunk_ids.iter().filter(|c| c.kind != ue_iostore::shader_library::LIBRARY) {
+            assert!(after.find_chunk_by_hash(id).is_some());
+        }
     }
 
     #[test]
@@ -4187,7 +4459,7 @@ mod tests {
         let in_game = |state: &HubState| {
             let plan = mounts(state).unwrap();
             let m = plan.iter().find(|m| m.slug == "banks").unwrap();
-            assert!(m.base.starts_with("pakchunk9") && m.base.ends_with("-MJOLNIRHUB-banks-0_P"), "{}", m.base);
+            assert!(m.base.starts_with("pakchunk1") && m.base.contains("-MJOLNIRHUB-banks-0_") && m.base.ends_with("_P"), "{}", m.base);
             let pak = ue_iostore::pak::load_pak(&m.in_paks(&paks, "pak")).unwrap();
             let mut ids: Vec<u32> = Vec::new();
             for (rel, entry) in &pak.files {
@@ -4232,7 +4504,8 @@ mod tests {
             slug: slug.into(),
             cache: cache_dir().join(format!("{slug}-1")),
             container: "test".into(),
-            base: format!("pakchunk900-{MARKER}-{slug}-0_P"),
+            base: format!("pakchunk10000-{MARKER}-{slug}-0_1000_P"),
+            library: None,
         };
         let m = mount("banks");
         let dir = cache_dir().join("pak-check");
@@ -4354,26 +4627,12 @@ mod tests {
     }
 
     #[test]
-    fn only_a_pakchunk_name_can_keep_its_number() {
+    fn only_a_pakchunk_name_with_a_library_has_one() {
         let nowhere = Path::new("does-not-exist.utoc");
-        assert_eq!(shader_chunk("MJOLNIRMAP-BGL_P", nowhere), None);
-        assert_eq!(shader_chunk("pakchunkX-MJOLNIR", nowhere), None);
-        // A pakchunk name whose index cannot be read keeps nothing either.
-        assert_eq!(
-            shader_chunk("pakchunk988-MJOLNIRMAT-Windows", nowhere),
-            None
-        );
-    }
-
-    /// MJOLNIR_TEST_SHADER_UTOC=C:/haloce/ce_runtime/pakchunk988-MJOLNIRMAT-Windows.utoc
-    ///   cargo test a_shader_library_keeps -- --ignored
-    #[test]
-    #[ignore = "needs a cooked container with a shader library (see doc comment)"]
-    fn a_shader_library_keeps_its_chunk_number() {
-        let utoc = std::env::var("MJOLNIR_TEST_SHADER_UTOC").expect("MJOLNIR_TEST_SHADER_UTOC");
-        let path = Path::new(&utoc);
-        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
-        assert_eq!(shader_chunk(&stem, path), Some(988));
+        assert_eq!(library_of("MJOLNIRMAP-BGL_P", nowhere, 10000), None);
+        assert_eq!(library_of("pakchunkX-MJOLNIR", nowhere, 10000), None);
+        // A container that cannot be read has no library to rename.
+        assert_eq!(library_of("pakchunk988-MJOLNIRMAT-Windows", nowhere, 10000), None);
     }
 
     #[test]
