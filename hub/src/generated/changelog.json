@@ -39,6 +39,35 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.24.0",
+      "tag": "launcher-v0.24.0",
+      "title": "Load order that does what the list says",
+      "date": "2026-11-12",
+      "summary": "Later mods in your list now really win, maps can bring shader libraries under any number, and the launcher refuses content that needs a newer launcher.",
+      "body": "### Changed\n\n- **Load order follows your list.** The list always said later mods win when two\n  of them change the same thing, but the launcher's file names made the first one\n  win for most mods. Each mod now loads by its place in the list, so the one lower\n  down wins, as the list says. If you ordered mods to work around the old\n  behaviour, check that order.\n- **Maps can use any shader library number.** The launcher gives each installed\n  container a number of its own and renames its shader library to match, so two\n  maps built under the same number both draw correctly. This is what Halo 2 and\n  later remasters need.\n\n### Added\n\n- **A newer launcher, when content needs one.** A map or mod that needs this\n  launcher or a later one tells you to update the launcher, instead of failing\n  quietly. Older launchers are kept on the releases they can use.\n- **Local builds, for people making maps.** Builds installed with\n  `mjolnir dev install` load above everything from the hub. They show under\n  *Local builds* on the My Mods page with a Remove button. The page also lists\n  any container in your game folder that loses to a copy from the hub, so a test\n  build that never loads is easy to spot.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Load order follows your list. The list always said later mods win when two of them change the same thing, but the launcher's file names made the first one win for most mods. Each mod now loads by its place in the list, so the one lower down wins, as the list says. If you ordered mods to work around the old behaviour, check that order.",
+            "Maps can use any shader library number. The launcher gives each installed container a number of its own and renames its shader library to match, so two maps built under the same number both draw correctly. This is what Halo 2 and later remasters need."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "A newer launcher, when content needs one. A map or mod that needs this launcher or a later one tells you to update the launcher, instead of failing quietly. Older launchers are kept on the releases they can use.",
+            "Local builds, for people making maps. Builds installed with mjolnir dev install load above everything from the hub. They show under Local builds on the My Mods page with a Remove button. The page also lists any container in your game folder that loses to a copy from the hub, so a test build that never loads is easy to spot."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.0"
+    },
+    {
       "product": "cli",
       "productName": "MJOLNIR CLI",
       "version": "0.12.0",
