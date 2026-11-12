@@ -129,8 +129,13 @@ def bash():
             return b
 
 
-def sea_height(level):
-    """The sea's height (cm) from the level's water decor, as the loader finds it."""
+def sea_height(level, m=None):
+    """The sea's height (cm) from the level's water decor, as the loader finds
+    it. None for a map whose config says `"sea": false`: its water is a pond
+    (Coagulation's pool by the cave, 7 m up), not a sea the ground shelves
+    into, and nothing is kept above it or dressed as a beach beside it."""
+    if m is not None and m.get("sea") is False:
+        return None
     origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
     for item in level.get("decor") or []:
         if isinstance(item, dict) and "_Water." in str(item.get("mesh", "")) and item.get("pos"):
@@ -556,12 +561,14 @@ def stage_foliage(code, m, p):
         if not os.path.isfile(policy):
             raise FileNotFoundError(f"Missing authored PCG permissions: {policy}")
         cmd += ["--surface-policy", policy]
-    sea = sea_height(level)
+    sea = sea_height(level, m)
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
     cmd += ["--staging", staging(p)]
     for name, cls in (m.get("details") or {}).items():
         cmd += ["--detail", f"{name}={cls}"]
+    if m.get("foliage_ceiling") is not None:
+        cmd += ["--ceiling", str(m["foliage_ceiling"])]
     for rule, tint in (m.get("tints") or {}).items():
         cmd += ["--rule-tint", f"{rule}={tint}"]
     for field, option in (("foliage_scale", "--rule-scale"), ("foliage_density", "--rule-density")):
@@ -587,15 +594,25 @@ def stage_foliage(code, m, p):
 def stage_swap(code, m, p):
     data = os.path.join(HERE, "data")
     with open(p["level"], encoding="utf-8") as f:
-        sea = sea_height(json.load(f))
+        sea = sea_height(json.load(f), m)
     # A snow map (`biome: snow`) takes B40's trees and rocks: its own
     # recipes and bounds (scenery_swap.py recipes, `mjolnir mesh list`).
     source = "b40" if m.get("biome") == "snow" else "b30"
+    # `instance_swap` {shader token: rule}: a Halo 2 map's instanced geometry
+    # (its trees are pieces of the BSP, not scenery) as scenery entries in a
+    # staging folder of their own (instance_scenery.py), which the swap then
+    # reads in place of the conversion's.
+    swap_staging = staging(p)
+    if m.get("instance_swap"):
+        swap_staging = os.path.join(p["work"], "instance_staging")
+        out = run([sys.executable, os.path.join(HERE, "instance_scenery.py"), staging(p), swap_staging]
+                  + [f"{token}={rule}" for token, rule in m["instance_swap"].items()])
+        print("  " + out.strip().splitlines()[-1][:200])
     out = run([sys.executable, os.path.join(HERE, "scenery_swap.py"), "swap", p["scene"],
                os.path.join(p["scene"], "materials.spec.json"), os.path.join(data, f"{source}_tree_recipes.json"),
                os.path.join(data, f"{source}_scenery_bounds.json"), os.path.join(p["work"], "swap.json"),
                "--rocks", m.get("rocks", "beach"), "--foliage", os.path.join(p["foliage"], "foliage.json"),
-               "--staging", staging(p)]
+               "--staging", swap_staging]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
               + (["--authored-decor", os.path.join(REPO,m["authored_decor"])] if m.get("authored_decor") else [])
@@ -606,7 +623,7 @@ def stage_swap(code, m, p):
     fol = os.path.join(p["foliage"], "foliage.bin")
     if os.path.exists(fol):
         out = run([sys.executable, os.path.join(HERE, "rock_foliage.py"), fol, os.path.join(p["work"], "swap.json"),
-                   staging(p)] + (["--biome", m["biome"]] if m.get("biome") else []))
+                   swap_staging] + (["--biome", m["biome"]] if m.get("biome") else []))
         print(f"  {code}: " + out.strip().splitlines()[-1][:200])
 
 
@@ -1491,6 +1508,22 @@ def stage_assemble(code, m, p):
         if surf:
             fx = level.setdefault("effects", {"placed": [], "camera": []})
             fx.setdefault("placed", []).extend(surf)
+    # `"sea": false`: the loader takes no sea from the level's water mesh.
+    if m.get("sea") is False and isinstance(level.get("landscape"), dict):
+        level["landscape"]["sea"] = False
+    # `hide_materials`: slots drawn by a material whose parent or textures
+    # carry one of these tokens are hidden (Coagulation's Halo 2 grass
+    # sprites, which the scattered grass replaces).
+    tokens = [t.lower() for t in m.get("hide_materials") or []]
+    if tokens:
+        dropped = 0
+        for item in level.get("decor") or []:
+            mats = item.get("materials") if isinstance(item, dict) else None
+            for i, entry in enumerate(mats or []):
+                if entry != HIDDEN and any(t in json.dumps(entry).lower() for t in tokens):
+                    mats[i] = HIDDEN
+                    dropped += 1
+        print(f"  {code}: {dropped} slot(s) hidden by hide_materials")
     swap_path = os.path.join(p["work"], "swap.json")
     if os.path.exists(swap_path):
         swap = json.load(open(swap_path, encoding="utf-8"))

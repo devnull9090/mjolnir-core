@@ -4288,8 +4288,12 @@ Land.SURFACES = {
     GravO = "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_ORHG",
 }
 
---- The sea's height (cm), from the level's water mesh, or nil.
+--- The sea's height (cm), from the level's water mesh, or nil. Nil too for
+--- a level whose landscape says `sea = false`: its water is a pond, not a
+--- sea (Coagulation's pool sits 7 m above the valley floor, which drew as a
+--- beach under it).
 function Land.seaHeight()
+    if type(Current.level.landscape) == "table" and Current.level.landscape.sea == false then return nil end
     for _, item in ipairs(Current.level.decor or {}) do
         if type(item) == "table" and type(item.mesh) == "string" and item.mesh:find("_Water%.")
             and type(item.pos) == "table" then

@@ -395,6 +395,10 @@ def swap_rule(entry, staging, snow=False):
     is "protected\\scen\\175", its shader still the stock boulder's)."""
     if entry.get("kind") != "scenery" or not entry.get("model"):
         return None
+    # A Halo 2 decorator (`model_rock:rock_small`, by the thousand) is not
+    # scenery to stand a boulder in for.
+    if entry.get("decorator"):
+        return None
     rules = SNOW["rules"] if snow else RULES
     asset = entry["asset"].lower()
     rule = next((r for k, r in rules if k in asset), None)

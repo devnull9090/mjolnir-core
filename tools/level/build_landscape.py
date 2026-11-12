@@ -333,6 +333,10 @@ MAP_LOOKS["LSW"]["pbr"]["surfaces"].update({
 # Gephyrophobia (LGP, 2026-10-16): Ice Fields' snow on its plateaus and the
 # chasm floor; no ice (its base map paints no pond). Without a look of its
 # own it took the beach's sand and grass.
+# Coagulation (LCO) is Halo 2's Blood Gulch: the same packed earth, stones
+# on soil and red cliffs, so Blood Gulch's look as it stands. The default
+# is Death Island's beach (grey sand, ripples, a wet band by a sea).
+MAP_LOOKS["LCO"] = _copy.deepcopy(MAP_LOOKS["LBG"])
 MAP_LOOKS["LGP"] = _copy.deepcopy(MAP_LOOKS["LIF"])
 MAP_LOOKS["LGP"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
 

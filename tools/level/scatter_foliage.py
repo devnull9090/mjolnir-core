@@ -351,6 +351,11 @@ def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
     for e in placement.get("entries", []):
         if e.get("kind") != "scenery" or not e.get("model"):
             continue
+        # A Halo 2 decorator (a field of grass decals 20 m across, a pebble)
+        # is ground cover, not an object the grass stands clear of:
+        # Coagulation's 218 decal fields left its valley floor bare.
+        if e.get("decorator"):
+            continue
         if skip_rocks and (swap_rule(e, staging, snow) or ("",))[0] in ("rock", "bigrock"):
             continue
         model = os.path.join(staging, e["model"])
@@ -997,6 +1002,9 @@ def main():
                     help="a detail bitmap (substring of its name) and its class, sand or grass; repeatable")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
+    ap.add_argument("--ceiling", type=float,
+                    help="cm: nothing is scattered on ground above this height (a plateau no player sees: "
+                         "Coagulation's, 50 to 107 m up, took 1.8 of its 2.2 million grass clumps)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--cliff-shaders", default="", help="substrings of the cliff shaders' names, comma-separated")
     ap.add_argument("--ground-shaders", default="",
@@ -1224,6 +1232,8 @@ def main():
                         if a.surface_policy and not a.surface_policy.allows(x-off[0], y-off[1], z-a.lift-off[2], "ground"):
                             continue
                         if center and math.hypot(x - center[0], y - center[1]) > a.radius:
+                            continue
+                        if a.ceiling is not None and z - a.lift > a.ceiling:
                             continue
                         if a.sea is not None:
                             low, high = rule["above"]
