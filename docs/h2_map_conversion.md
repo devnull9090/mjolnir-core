@@ -711,6 +711,12 @@ and the level takes the map's name.
   same two shader maps as every CE remaster's, so a textured landscape on
   a machine with a CE remaster installed does not prove library 1001
   opened.
+- **Desert biome** (`"biome": "desert"`). Coagulation's dirt and cliff feet
+  are dressed from the game's dry-country plants and Poly Haven's
+  Namaqualand pack (flowers, succulents, granite stones) instead of the
+  beach's shells and driftwood: docs/remaster_asset_inventory.md. The pack
+  cooks into the map's landscape container, so the map needs it in the
+  editor project and a credit when published.
 - **Still CE-runtime bound.** The cliffs' tessellated meshes cook into the
   trial masters' container (983), as for the CE remasters, and Halo 2's
   masters are in 981: publishing a Halo 2 remaster needs a runtime release

@@ -140,7 +140,10 @@ def sea_height(level, m=None):
     for item in level.get("decor") or []:
         if isinstance(item, dict) and "_Water." in str(item.get("mesh", "")) and item.get("pos"):
             return item["pos"][2] + origin[2]
-    return None
+    # No water mesh (Halo 2's Zanzibar draws its sea as fog over the seabed
+    # alone): a Flux coast's own height.
+    coast = ((m or {}).get("flux") or {}).get("coast") or {}
+    return float(coast["water"]) if coast.get("water") is not None else None
 
 
 def generated_mesh(code, m, suffix):

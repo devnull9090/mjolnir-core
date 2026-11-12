@@ -702,7 +702,7 @@ def main():
     s.add_argument("scene"); s.add_argument("spec"); s.add_argument("recipes"); s.add_argument("bounds")
     s.add_argument("out")
     s.add_argument("--rocks", default="beach", choices=sorted(ROCKS))
-    s.add_argument("--biome", default="b30", choices=["b30", "snow"],
+    s.add_argument("--biome", default="b30", choices=["b30", "snow", "desert"],
                    help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
     s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree, or comma-separated names in turn")
     s.add_argument("--authored-decor",help="Source JSON of explicitly placed native meshes in Unreal cm")

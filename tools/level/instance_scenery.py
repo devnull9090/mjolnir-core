@@ -7,9 +7,12 @@ the BSP, not scenery, so the conversion draws them into the terrain mesh and
 `placement.json` never names them. scenery_swap.py swaps what
 `placement.json` names. This writes, from the staging's `bsp/instances.json`
 (`mjolnir cache stage`), a second staging folder holding only those
-instances as scenery entries:
+instances as scenery entries, after the conversion's own:
 
-    <out dir>/placement.json    entries of kind scenery, one an instance
+    <out dir>/placement.json    the staging's entries (their models by full
+                                path, so each keeps its place in the list
+                                and the id the swap gives it), then one
+                                entry of kind scenery an instance
     <out dir>/models/*.gltf     a stub a model: its shaders and its bounds
 
 An instance is taken when one of its shaders' names holds a token; its
@@ -38,7 +41,17 @@ def main():
         sys.exit(f"{listing} is missing: stage the map again with a current `mjolnir cache stage`")
     doc = json.load(open(listing, encoding="utf-8"))
     os.makedirs(os.path.join(out, "models"), exist_ok=True)
+    # The conversion's own placements first, as they stand: a map with
+    # placed scenery and instances (Zanzibar's bushes and its palms) swaps
+    # both, and the grass keeps clear of both.
     entries, taken = [], {}
+    own = os.path.join(staging, "placement.json")
+    if os.path.exists(own):
+        for e in json.load(open(own, encoding="utf-8"))["entries"]:
+            if e.get("model"):
+                e = dict(e, model=os.path.join(os.path.abspath(staging), e["model"]).replace("\\", "/"))
+            entries.append(e)
+    placed = len(entries)
     for inst in doc["instances"]:
         shaders = [s.lower() for s in inst["shaders"]]
         rule = next((r for token, r in rules if any(token.lower() in s for s in shaders)), None)
@@ -62,7 +75,7 @@ def main():
         taken[rule] = taken.get(rule, 0) + 1
     json.dump({"world_unit_meters": WU_M, "rotation_convention": "halo_yaw_pitch_roll_radians", "entries": entries},
               open(os.path.join(out, "placement.json"), "w", encoding="utf-8"), indent=1)
-    print(f"{len(entries)} instance(s) as scenery {taken} -> {out}")
+    print(f"{len(entries) - placed} instance(s) as scenery {taken}, after {placed} placement(s) -> {out}")
 
 
 if __name__ == "__main__":
