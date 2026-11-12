@@ -816,7 +816,18 @@ fn stage_object_collision(
     scale: f32,
 ) -> Result<Option<String>, Error> {
     let Some(model) = follow(cache, object.root, 0x34, notes) else { return Ok(None) };
-    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else { return Ok(None) };
+    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else {
+        // No collision model: the physics model's solid shapes are what
+        // Halo 2 collides with (crate::h2::phantom::solid_triangles).
+        let solid = crate::h2::phantom::solid_triangles(cache, object);
+        if solid.is_empty() {
+            return Ok(None);
+        }
+        let tris: Vec<f32> = solid.iter().flat_map(|v| v.map(|x| x * scale)).collect();
+        let rel = format!("collision/{}{}.json", sanitize(object.name()), scale_suffix(scale));
+        write_json(&dir.join(&rel), &json!({"tag_path": object.name(), "units": "halo_wu", "triangles": tris, "source": "phmo"}))?;
+        return Ok(Some(rel));
+    };
     let poses = follow(cache, model.root, 0x00, notes).map(|mode| rest_pose(&mode)).unwrap_or_default();
     // The collision model's own node list matches the render model's by
     // index (158 of 159 models with both; the odd one is single-node).
