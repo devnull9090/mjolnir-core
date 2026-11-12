@@ -90,6 +90,11 @@ pub struct Options {
     /// the `collision materials` block it writes). Otherwise every surface
     /// lands on the donor's material 0, as a canvas host's must.
     pub keep_materials: bool,
+    /// Keep breakable surfaces breakable ([`pack16::pack_breakable`]): each
+    /// definition gets its sets, and `structure_physics` the key table and
+    /// MOPP the simulation finds the panes by ([`rebuild_breakable`]).
+    /// Halo 2's glass; off for CE, whose outputs stay as they were.
+    pub breakable: bool,
 }
 
 /// The world shell rewrite: a pass-through kd supernode, with the root kd
@@ -112,6 +117,7 @@ impl Options {
             shell: None,
             bsp_index: 8,
             keep_materials: false,
+            breakable: false,
         }
     }
 }
@@ -147,6 +153,20 @@ pub struct Report {
     pub structure: StructureMopp,
     /// Scenery collision behind instances of its own ([`convert_own`]).
     pub scenery: Scenery,
+    /// Breakable panes in `structure_physics`' key table ([`rebuild_breakable`]).
+    pub breakable_panes: usize,
+    /// Each breakable sheet (instance, set) and its world box, canvas
+    /// space: what the level loader hides when the game breaks it.
+    pub breakable_sheets: Vec<BreakableSheet>,
+}
+
+/// A breakable sheet ([`rebuild_breakable`]): one set of one instance.
+#[derive(Debug, Clone, Copy)]
+pub struct BreakableSheet {
+    pub instance: u16,
+    pub set: u8,
+    pub min: [f32; 3],
+    pub max: [f32; 3],
 }
 
 /// Run the whole recipe. `collision` is the CE BSP in CE world coordinates.
@@ -170,8 +190,14 @@ pub fn convert(
         }
         None => donor,
     };
-    let (file, t) =
-        transplant_definition(donor, collision, opts.host, opts.delta, opts.keep_materials)?;
+    let (file, t) = transplant_definition_with(
+        donor,
+        collision,
+        opts.host,
+        opts.delta,
+        opts.keep_materials,
+        opts.breakable,
+    )?;
     let (center, radius) = bounding_sphere(t.bounds);
     let file = set_group_sphere(&file, opts.host.group, center, radius)?;
     let (file, def_codes) = compile_definition_mopps(&file, &[opts.host.definition])?;
@@ -220,6 +246,8 @@ pub fn convert(
             kd_roots,
             structure,
             scenery: Scenery::default(),
+            breakable_panes: 0,
+            breakable_sheets: Vec::new(),
         },
     ))
 }
@@ -417,10 +445,24 @@ pub struct Transplanted {
 /// frame; its position is pre-subtracted from the geometry.
 pub fn transplant_definition(
     donor: &[u8],
+    collision: Collision,
+    host: Host,
+    delta: [f32; 3],
+    keep_materials: bool,
+) -> Result<(Vec<u8>, Transplanted), Error> {
+    transplant_definition_with(donor, collision, host, delta, keep_materials, false)
+}
+
+/// [`transplant_definition`], keeping breakable surfaces breakable when
+/// `breakable` is set: the definition's `breakable surface sets` get one
+/// zeroed 256-bit set per 256 panes (the "broken" bits the simulation flips).
+pub fn transplant_definition_with(
+    donor: &[u8],
     mut collision: Collision,
     host: Host,
     delta: [f32; 3],
     keep_materials: bool,
+    breakable: bool,
 ) -> Result<(Vec<u8>, Transplanted), Error> {
     let p = format!("{INSTANCES}[{}]", host.instance);
     let inst_pos = with_tag(donor, |layout, root| {
@@ -460,9 +502,22 @@ pub fn transplant_definition(
         ],
     };
 
-    let packed = pack16::pack(&collision, &material_map(keep_materials))?;
+    let packed = if breakable {
+        pack16::pack_breakable(&collision, &material_map(keep_materials))?
+    } else {
+        pack16::pack(&collision, &material_map(keep_materials))?
+    };
     let base = transplant::definition(host.definition);
     let mut edits = transplant::tables_at(&base, &packed);
+    if breakable {
+        // A definition cloned from another keeps its sets: always rewrite.
+        edits.push(NestedReplace {
+            path: format!("{}.breakable surface sets", base.trim_end_matches(".collision info")),
+            count: packed.breakable_sets as u32,
+            elements: vec![0u8; 32 * packed.breakable_sets],
+            wrappers: None,
+        });
+    }
 
     // One pass-through supernode built on the definition's own first one:
     // every cell names the root, so the whole tree is searched. Zero
@@ -1540,6 +1595,20 @@ pub fn convert_own(
     bsp_index: u8,
     keep_materials: bool,
 ) -> Result<(Vec<u8>, Report), Error> {
+    convert_own_with(donor, collision, scenery, delta, bsp_index, keep_materials, false)
+}
+
+/// [`convert_own`], keeping breakable surfaces breakable (Halo 2's glass):
+/// see [`Options::breakable`].
+pub fn convert_own_with(
+    donor: &[u8],
+    collision: Collision,
+    scenery: Vec<Collision>,
+    delta: [f32; 3],
+    bsp_index: u8,
+    keep_materials: bool,
+    breakable: bool,
+) -> Result<(Vec<u8>, Report), Error> {
     const HOST: Host = Host {
         definition: 0,
         instance: 0,
@@ -1580,13 +1649,17 @@ pub fn convert_own(
         }),
         bsp_index,
         keep_materials,
+        breakable,
     };
     let (file, mut report) = convert(donor, collision, &opts)?;
     if scenery.is_empty() {
+        let (file, panes, sheets) = if breakable { rebuild_breakable(&file)? } else { (file, 0, Vec::new()) };
+        report.breakable_panes = panes;
+        report.breakable_sheets = sheets;
         return Ok((file, report));
     }
     let (file, added) =
-        add_scenery_instances(&file, scenery, HOST, delta, bsp_index, keep_materials)?;
+        add_scenery_instances_with(&file, scenery, HOST, delta, bsp_index, keep_materials, breakable)?;
     if let Some(b) = added.bounds {
         let t = report.bounds;
         report.bounds = Bounds {
@@ -1605,6 +1678,9 @@ pub fn convert_own(
     // a pawn's query there came back with 10,000-20,000 candidates, and
     // players fell through the terrain (2026-10-12).
     let (file, structure) = rebuild_structure_mopp(&file, &hosts, &[], &added.instances)?;
+    let (file, panes, sheets) = if breakable { rebuild_breakable(&file)? } else { (file, 0, Vec::new()) };
+    report.breakable_panes = panes;
+    report.breakable_sheets = sheets;
     report.sphere_center = center;
     report.sphere_radius = radius;
     report.group_code = group.groups.first().copied().unwrap_or(0);
@@ -1612,6 +1688,112 @@ pub fn convert_own(
     report.structure = structure;
     report.scenery = added;
     Ok((file, report))
+}
+
+/// `structure_physics`' breakable surface key table and its MOPP, over every
+/// instance whose definition names breakable panes ([`pack16::pack_breakable`]),
+/// as A15's cryo BSP carries them: one 32-byte key a pane (i16 instance, u8
+/// set, u8 index in the set, i32 seed surface: its first surface in the
+/// definition, then x0 x1 y0 y1 z0 z1 of its world box), and a MOPP whose
+/// terminals are key indices (cryo: 248 keys, 248 terminals 0..247). The
+/// element is cloned from the structure body's, the same struct. Returns the
+/// number of panes and each sheet (set) with its box; a BSP with none is
+/// returned as it is.
+pub fn rebuild_breakable(file: &[u8]) -> Result<(Vec<u8>, usize, Vec<BreakableSheet>), Error> {
+    const KEYS: &str = "structure_physics.breakable surfaace key table";
+    const BLOCK: &str = "structure_physics.breakable surfaces mopp code block";
+    let keys = with_tag(file, |layout, root| {
+        let inst = find_block(layout, file, root, INSTANCES)?;
+        let mut keys: Vec<(u16, u8, u8, u32, [f32; 3], [f32; 3])> = Vec::new();
+        for i in 0..inst.block.count as usize {
+            let Some(fr) = inst.block.element(i).and_then(frame_of) else { continue };
+            let base = transplant::definition(fr.3);
+            let get = |name: &str| -> &[u8] {
+                find_block(layout, file, root, &format!("{base}.{name}"))
+                    .map(|f| f.block.elements)
+                    .unwrap_or(&[])
+            };
+            let t = Tables {
+                bsp3d_nodes: get("bsp3d nodes"),
+                planes: get("planes"),
+                leaves: get("leaves"),
+                bsp2d_references: get("bsp2d references"),
+                bsp2d_nodes: get("bsp2d nodes"),
+                surfaces: get("surfaces"),
+                edges: get("edges"),
+                vertices: get("vertices"),
+            };
+            let (c, x) = unpack16::unpack(&t)?;
+            // (set, index) -> key slot, in order of the pane's first surface.
+            let mut panes: std::collections::BTreeMap<(u8, u8), usize> = std::collections::BTreeMap::new();
+            for s in 0..c.surfaces.len() {
+                if c.surfaces[s].flags & 0x08 == 0 || x.breakable_set[s] < 0 || x.breakable[s] < 0 {
+                    continue;
+                }
+                // +6 is the pane's index in its set, +8 the set (cryo).
+                let id = (x.breakable[s] as u8, x.breakable_set[s] as u8);
+                let Some((lo, hi)) = surface_box(&c, s, Some(&fr)) else { continue };
+                match panes.get(&id) {
+                    Some(&k) => {
+                        let e = &mut keys[k];
+                        for a in 0..3 {
+                            e.4[a] = e.4[a].min(lo[a]);
+                            e.5[a] = e.5[a].max(hi[a]);
+                        }
+                    }
+                    None => {
+                        panes.insert(id, keys.len());
+                        keys.push((i as u16, id.0, id.1, s as u32, lo, hi));
+                    }
+                }
+            }
+        }
+        Ok(keys)
+    })?;
+    if keys.is_empty() {
+        return Ok((file.to_vec(), 0, Vec::new()));
+    }
+    let mut sheets: Vec<BreakableSheet> = Vec::new();
+    for (inst, set, _, _, lo, hi) in &keys {
+        match sheets.iter_mut().find(|s| s.instance == *inst && s.set == *set) {
+            Some(s) => {
+                for a in 0..3 {
+                    s.min[a] = s.min[a].min(lo[a]);
+                    s.max[a] = s.max[a].max(hi[a]);
+                }
+            }
+            None => sheets.push(BreakableSheet { instance: *inst, set: *set, min: *lo, max: *hi }),
+        }
+    }
+    let mut table = Vec::with_capacity(keys.len() * 32);
+    for (inst, set, index, seed, lo, hi) in &keys {
+        table.extend_from_slice(&(*inst as i16).to_le_bytes());
+        table.push(*set);
+        table.push(*index);
+        table.extend_from_slice(&(*seed as i32).to_le_bytes());
+        for v in [lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]] {
+            table.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    let prims: Vec<(u32, [f32; 3], [f32; 3])> =
+        keys.iter().enumerate().map(|(k, e)| (k as u32, e.4, e.5)).collect();
+    let (code, q) = fit_and_build(&prims, "breakable surfaces")?;
+    let (mut element, _) = transplant::donor_element(file, "structure_physics.mopp code block", 0)?;
+    mopp::patch_element(&mut element, q, code.len());
+    let out = replace_nested(
+        file,
+        &[
+            NestedReplace { path: KEYS.to_string(), count: keys.len() as u32, elements: table, wrappers: None },
+            NestedReplace {
+                path: BLOCK.to_string(),
+                count: 1,
+                elements: element,
+                wrappers: Some(vec![mopp::wrapper(&code)]),
+            },
+        ],
+    )?;
+    check_walks(&out)?;
+    Ok((out, keys.len(), sheets))
 }
 
 /// Append a copy of the last element of the block at `path`, nested blocks
@@ -1690,6 +1872,19 @@ pub fn add_scenery_instances(
     bsp_index: u8,
     keep_materials: bool,
 ) -> Result<(Vec<u8>, Scenery), Error> {
+    add_scenery_instances_with(file, pieces, host, delta, bsp_index, keep_materials, false)
+}
+
+/// [`add_scenery_instances`], keeping breakable surfaces breakable.
+pub fn add_scenery_instances_with(
+    file: &[u8],
+    pieces: Vec<Collision>,
+    host: Host,
+    delta: [f32; 3],
+    bsp_index: u8,
+    keep_materials: bool,
+    breakable: bool,
+) -> Result<(Vec<u8>, Scenery), Error> {
     const DEFINITIONS: &str =
         "resource interface.raw_resources[0].raw_items.instanced geometries definitions";
     let mut file = file.to_vec();
@@ -1709,7 +1904,7 @@ pub fn add_scenery_instances(
             instance: i,
             group: host.group,
         };
-        let (f, t) = transplant_definition(&f, piece, at, delta, keep_materials)?;
+        let (f, t) = transplant_definition_with(&f, piece, at, delta, keep_materials, breakable)?;
         let (f, _) = compile_definition_mopps(&f, &[d])?;
         let f = append_index(
             &f,

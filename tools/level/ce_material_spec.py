@@ -374,6 +374,11 @@ def water(entry, s, texture, cube, halo):
 # Halo 2's plasma_alpha as its compiled shader draws it (the translucent
 # mesh; unreal/MJOLNIRMaterials/Scripts/build_h2_materials.py's master, chunk 981 beside the runtime pack).
 H2_PLASMA_ALPHA = "/Game/MJOLNIR/H2/M_H2_PlasmaAlpha.M_H2_PlasmaAlpha"
+# Halo 2's camera-facing sprites (Coagulation's grass): the environment
+# master, masked and two-sided, turning each card about its axis to face the
+# camera (build_h2_materials.py, chunk 981; the way to each vertex's pivot
+# and its offset across ride TEXCOORD_2 and _3, merge_ce_scene.py).
+H2_BILLBOARD = "/Game/MJOLNIR/H2/M_H2_Billboard.M_H2_Billboard"
 
 
 def h2_plasma(entry, p, texture):
@@ -929,6 +934,13 @@ def main():
             sc["Overbright"] = 1.0 if sf & 1 else 0.0
             sc["ExtraShiny"] = 1.0 if sf & 2 else 0.0
             sc["SpecLightmap"] = 1.0 if sf & 4 else 0.0
+            # A Halo 2 placed object (lit from the object lighting page)
+            # has no incident direction per texel to aim the lobe with: a
+            # flat face takes one direction and the whole face saturates
+            # (Turf's dumpster end drew solid white, 2026-11-10). Halo 2's
+            # specular stays on the BSP until objects carry one.
+            if s.get("h2_template") and halo.get("lightmap_index") == "objects":
+                sc["SpecLightmap"] = 0.0
             sc["SpecBrightness"] = spec.get("brightness", 0.0)
             vec = entry["vectors"]
             vec["SpecPerpendicular"] = list(spec.get("perpendicular_color") or [1, 1, 1]) + [1.0]
@@ -938,6 +950,10 @@ def main():
                     vec[f"SelfOn{i}"] = list(ch.get("on", [0, 0, 0])) + [1.0]
                     vec[f"SelfOff{i}"] = list(ch.get("off", [0, 0, 0])) + [1.0]
                     vec[f"SelfAnim{i}"] = [ch.get("function", 0), ch.get("period", 0.0), ch.get("phase", 0.0), 0.0]
+                if si.get("additive"):
+                    # Halo 2's self-illumination pass: the glow map's colour
+                    # times channel 0, added over the lit surface.
+                    sc["SelfIllumAdd"] = 1.0
             refl = s.get("reflection") or {}
             cube_map = cube(refl.get("cube_map"))
             if cube_map and (refl.get("perp_brightness", 0) > 0 or refl.get("para_brightness", 0) > 0):
@@ -954,9 +970,14 @@ def main():
                 lbs = refl.get("lightmap_brightness_scale")
                 if lbs is not None and 0.0 <= lbs < 1.0:
                     sc["LightmapReflScale"] = lbs
-            if cls == "soso":
+            # A Halo 2 shader with a change colour carries shader_model's
+            # terms (`model`); only a placed object has the colour.
+            if cls == "soso" or (s.get("model") and halo.get("lightmap_index") == "objects"):
                 model_shader(entry, s, texture)
             environment_tag(entry, s, cls)
+        if halo.get("billboard") and entry.get("parent", "").rsplit(".", 1)[-1].startswith("M_CE_Environment"):
+            entry["parent"] = H2_BILLBOARD
+            entry["scalars"]["AlphaFromBase"] = 1.0
         motion = halo.get("device")
         leaf = entry.get("parent", "").rsplit(".", 1)[-1]
         if motion and leaf.startswith("M_CE_Transparent") and mat["name"] in boxes:
@@ -976,7 +997,7 @@ def main():
             entry["scalars"].update(fog.get("scalars", {}))
             entry["vectors"].update(fog.get("vectors", {}))
             # The planar fog (ce_fog.py): the masters that draw it.
-            if leaf.startswith(("M_CE_Environment", "M_CE_Transparent")):
+            if leaf.startswith(("M_CE_Environment", "M_CE_Transparent", "M_H2_Billboard")):
                 entry["vectors"].update(planar)
         # (An object path is a texture of the masters' own: DEFAULT_WHITE.)
         entry["textures"] = {k: v if v.startswith("/") else f"{root}/Textures/{v}.{v}"

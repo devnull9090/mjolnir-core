@@ -391,6 +391,15 @@ if (HasSelfIllum > 0.5)
     float q = pr * pr >= 0.5 ? (2.0 * pr * pr - 1.0) * (2.0 * pr * pr - 1.0) : 0.0;
     S = SelfIllum.r * primary + SelfIllum.g * secondary + SelfIllum.b * (q * SelfOn2 + SelfOff2);
 }
+// Halo 2's self-illumination pass: the glow map's colour times channel 0,
+// added over the lit, fogged surface rather than lit with it (its light
+// fixtures are black where they glow).
+float3 G = 0.0.xxx;
+if (HasSelfIllum > 0.5 && SelfIllumAdd > 0.5)
+{
+    G = saturate(SelfIllum.rgb * lerp(SelfOff0, SelfOn0, CE_WAVE(SelfAnim0.x, CE_PHASE(SelfAnim0, Time))));
+    S = 0.0.xxx;
+}
 if (model && HasModelSelfIllum > 0.5)
     S = MP.g * lerp(SelfOff1, SelfOn1, CE_WAVE(SelfAnim1.x, CE_PHASE(SelfAnim1, Time)))
         * (HasSICC > 0.5 ? SICC.rgb : 1.0.xxx);
@@ -457,6 +466,7 @@ if (FogDensity > 0.0)
     float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
     frame = lerp(frame, FogColor, f);
 }
+frame = saturate(frame + G);
 """ + SRGB_TO_LINEAR + WAVE_END
 
 # A transparent map's texture coordinates (chicago and generic maps, and the
@@ -1714,7 +1724,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False, offse
                            ("ReflPerp", 0.0), ("ReflPara", 0.0), ("HasMulti", 0.0), ("ModelShader", 0.0),
                            ("DetailMask", 0.0), ("DetailAfter", 0.0), ("ModelCC", 0.0),
                            ("HasModelSelfIllum", 0.0), ("ObjectPage", 0.0), ("ReflFalloff", 0.0),
-                           ("ReflCutoff", 0.0)):
+                           ("ReflCutoff", 0.0), ("SelfIllumAdd", 0.0)):
         inputs.append((pname, g.scalar(pname, default), ""))
     for pname, default in (("MaterialColor", (1, 1, 1, 1)), ("SpecParallel", (1, 1, 1, 1)),
                            ("SpecPerpendicular", (1, 1, 1, 1)),

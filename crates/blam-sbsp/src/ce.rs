@@ -29,6 +29,10 @@ pub struct Manifest {
     /// [`crate::scenery::place`] links it.
     #[serde(default)]
     pub scenery_surfaces: Option<ScenerySurfaces>,
+    /// The staging's own layout before CE's (`h2_mcc` for a Halo 2 map);
+    /// empty for halo2ue's CE stagings.
+    #[serde(default)]
+    pub source_layout: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]

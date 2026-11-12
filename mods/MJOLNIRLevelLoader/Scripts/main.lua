@@ -372,11 +372,14 @@ local function resetState()
     Current.turning = {}
     Current.claimed = {}
     Current.volumed = {}
+    Current.soundSet = nil
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.bakedMids = {}
     Current.foliageDressed = nil
     Current.rocksHidden = nil
+    Current.broken = nil
+    Current.breakPreloaded = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
     Current.dressQueue = nil
@@ -424,12 +427,14 @@ local function clearActors()
         end
     end
     Current.actors = {}
+    Current.broken = nil
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.movingSounds = {}
     Current.turning = {}
     Current.claimed = {}
     Current.volumed = {}
+    Current.soundSet = nil
     Current.spawned = 0
     Current.failed = 0
 end
@@ -923,6 +928,11 @@ local function runtimeMaterial(world, spec, name, target)
     if not parent and type(spec.parent) == "string" then
         local leaf = spec.parent:match("^/Game/MJOLNIR/CE/([%w_]+%.[%w_]+)$")
         if leaf then parent = resolveMesh(TRIAL_MASTERS .. leaf) end
+    end
+    -- Halo 2's camera-facing sprites (M_H2_Billboard, chunk 981) on a
+    -- runtime pack from before it: still cards, drawn unturned.
+    if not parent and spec.parent == "/Game/MJOLNIR/H2/M_H2_Billboard.M_H2_Billboard" then
+        parent = resolveMesh("/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided")
     end
     local mid = target
     if not mid then
@@ -1901,7 +1911,45 @@ end
 local function syncVolumes()
     if #Current.volumed == 0 then return end
     local volumes, changed = {}, {}
+    -- Halo 2's background loops belong to BSP clusters (`zones`: bounds and
+    -- the set of loops each plays): the set of the zone the camera is in,
+    -- or nearest to, is heard and the others fade out.
+    local env = Current.level and Current.level.environment
+    local zones = type(env) == "table" and type(env.sounds) == "table" and env.sounds.zones
+    local active
+    if type(zones) == "table" and #zones > 0 then
+        local ok, cam = pcall(function()
+            return getPlayerController().PlayerCameraManager:GetCameraLocation()
+        end)
+        if ok and cam then
+            local o = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+            local p = { cam.X - o[1], cam.Y - o[2], cam.Z - o[3] }
+            local best, bestSize = math.huge, math.huge
+            for _, z in ipairs(zones) do
+                local d, size = 0, 1
+                for k = 1, 3 do
+                    local gap = math.max(z.min[k] - p[k], 0, p[k] - z.max[k])
+                    d = d + gap * gap
+                    size = size * math.max(z.max[k] - z.min[k], 1)
+                end
+                if d < best or (d == best and size < bestSize) then
+                    best, bestSize, active = d, size, z.set
+                end
+            end
+        end
+    end
+    if active and active ~= Current.soundSet then
+        Current.soundSet = active
+        Log("background sound: set " .. tostring(active))
+    end
     for _, v in ipairs(Current.volumed) do
+        if v.set and active and v.comp:IsValid() then
+            local heard = v.set == active
+            if heard ~= v.heard then
+                pcall(function() v.comp:AdjustVolume(1.0, heard and 1.0 or 0.0, 0) end)
+                v.heard = heard
+            end
+        end
         volumes[v.category] = volumes[v.category] or gameVolume(v.category)
         local volume = volumes[v.category]
         if volume ~= v.volume and v.comp:IsValid() then
@@ -1922,26 +1970,51 @@ end
 --- The level's ambient sound (environment.sounds, from the CE map's BSP
 --- background sound and sound scenery: tools/level/ce_sounds.py), played
 --- through Unreal's own audio engine, which the game runs beside its own.
---- Background loops are 2D and map-wide; emitters are 3D loops that fall off
+--- Background loops are 2D and map-wide (a Halo 2 map's follow the BSP
+--- cluster the camera is in, `zones`); emitters are 3D loops that fall off
 --- linearly from `inner` to `inner + falloff` centimetres, as CE's distance
---- bounds do.
+--- bounds do, at most `max` of one sound at a time.
 local function spawnSounds(world)
     local env = Current.level and Current.level.environment
     local sounds = type(env) == "table" and env.sounds
     if type(sounds) ~= "table" then return end
     local gs = findObject("/Script/Engine.Default__GameplayStatics")
     local attClass = findObject("/Script/Engine.SoundAttenuation")
+    local limitClass = findObject("/Script/Engine.SoundConcurrency")
     if not gs then return end
     local playing, failed = 0, 0
+    -- `max` (Halo 2's sound class: how many of one sound play at once): one
+    -- concurrency group a sound, which keeps the nearest playing and lets
+    -- the engine bring a stopped loop back as the listener nears it.
+    local limits, limitCount = {}, 0
+    local function limit(s)
+        if not (limitClass and type(s.max) == "number" and s.max > 0) then return nil end
+        local key = s.wave .. "#" .. s.max
+        if limits[key] == nil then
+            limits[key] = false
+            pcall(function()
+                limitCount = limitCount + 1
+                local c = StaticConstructObject(limitClass, world, FName("MJOLNIR_Limit_" .. limitCount))
+                c.Concurrency.MaxCount = math.floor(s.max)
+                c.Concurrency.ResolutionRule = 3     -- stop the farthest, then the oldest
+                limits[key] = c
+            end)
+        end
+        return limits[key] or nil
+    end
 
     -- Spawned at the sliders' volume (gameVolume), kept there by syncVolumes.
-    local function keep(key, comp, fade, gain, category, volume)
+    local function keep(key, comp, fade, gain, category, volume, set)
         if not (comp and comp:IsValid()) then
             failed = failed + 1
             return
         end
         Current.actors[key] = comp
-        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume }
+        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume,
+                                                  set = set, heard = set and false or nil }
+        -- A zoned background starts silent; syncVolumes fades in the set
+        -- of the zone the camera is in.
+        if set then pcall(function() comp:AdjustVolume(0.0, 0.0, 0) end) end
         if fade and fade > 0 then pcall(function() comp:FadeIn(fade, 1.0, 0.0, 0) end) end
         playing = playing + 1
     end
@@ -1952,12 +2025,16 @@ local function spawnSounds(world)
             -- A CE music loop (class music) follows the music slider.
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            local set = type(sounds.zones) == "table" and s.set or nil
+            -- A loop faded to nothing has to keep playing to be faded back
+            -- (PlayWhenSilent, as the moving emitters below).
+            if set then pcall(function() wave.VirtualizationMode = 1 end) end
             -- `pitch`: Halo 2's pitched loops (the humming lights, 5
             -- semitones down).
             local ok, comp = pcall(function()
                 return gs:SpawnSound2D(world, wave, gain * volume, s.pitch or 1.0, 0.0, nil, false, false)
             end)
-            keep("__bg" .. i, ok and comp, s.fade_in, gain, category, volume)
+            keep("__bg" .. i, ok and comp, not set and s.fade_in or nil, gain, category, volume, set)
         else
             failed = failed + 1
             Log("sound not found: " .. tostring(s.wave))
@@ -1993,7 +2070,7 @@ local function spawnSounds(world)
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, nil, false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, limit(s), false)
             end)
             keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
             -- On a machine's moving part (Infinity's beams): moved with it
@@ -2435,6 +2512,155 @@ local function hookIncidents()
         end)
     end)
     if incidentHooked then Log("event sounds: incident hook armed") end
+end
+
+--------------------------------------------------------------------------------
+-- Breakable glass (converted Halo 2 maps)
+--------------------------------------------------------------------------------
+
+--- The sim breaks a sheet of glass (blam_sbsp::convert::rebuild_breakable)
+--- and lets players through, but the glass is our mesh: a decor item lists
+--- each sheet's mesh slots and its box in centimetres (`breakables`, from
+--- tools/level/split_breakable_glass.py). The game's break effect names the
+--- point it broke at; the sheet there loses its slots (M_CE_Hidden) and
+--- throws glass chips. Sheets stay broken until the world is rebuilt.
+local BREAK_EVENT = "/Game/Blueprints/FX/Breakable/Data/BP_BaseBreakableSurfaceEffect.BP_BaseBreakableSurfaceEffect_C:Spawn"
+local BREAK_FX = "/Game/FX/Library/Sandbox/Weapons/Impacts/Glass/NS_Impact_Glass_Lrg.NS_Impact_Glass_Lrg"
+local BREAK_PAD = 30.0 -- cm around a sheet's box: a melee or a body touches off its plane
+local breakHooked = false
+
+local function levelHasBreakables()
+    for _, item in ipairs(Current.level and Current.level.decor or {}) do
+        if type(item) == "table" and type(item.breakables) == "table" and #item.breakables > 0 then return true end
+    end
+    return false
+end
+
+--- The sheet whose padded box holds `p` (nearest centre wins), and its actor.
+local function sheetAt(p)
+    local best, bestActor, bestKey, bestD
+    for index, item in ipairs(Current.level and Current.level.decor or {}) do
+        if type(item) == "table" and type(item.breakables) == "table" then
+            local actor = Current.actors[item.id or ("#" .. index)]
+            for _, s in ipairs(item.breakables) do
+                local lo, hi = s.min, s.max
+                if type(lo) == "table" and type(hi) == "table"
+                    and p.X >= lo[1] - BREAK_PAD and p.X <= hi[1] + BREAK_PAD
+                    and p.Y >= lo[2] - BREAK_PAD and p.Y <= hi[2] + BREAK_PAD
+                    and p.Z >= lo[3] - BREAK_PAD and p.Z <= hi[3] + BREAK_PAD then
+                    local cx, cy, cz = (lo[1] + hi[1]) / 2 - p.X, (lo[2] + hi[2]) / 2 - p.Y, (lo[3] + hi[3]) / 2 - p.Z
+                    local d = cx * cx + cy * cy + cz * cz
+                    if not bestD or d < bestD then
+                        best, bestActor, bestKey, bestD = s, actor, tostring(item.id or index) .. "/" .. tostring(s.sheet), d
+                    end
+                end
+            end
+        end
+    end
+    return best, bestActor, bestKey
+end
+
+local function shatter(world, sheet)
+    local okF, nfl = pcall(findObject, "/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local fx = resolveMesh(BREAK_FX)
+    if not (okF and nfl and fx) then return end
+    local lo, hi = sheet.min, sheet.max
+    -- Chips over the sheet: a 3 x 3 grid across its two long axes.
+    local span = { hi[1] - lo[1], hi[2] - lo[2], hi[3] - lo[3] }
+    for a = 0, 2 do
+        for b = 0, 2 do
+            local u, v = (a + 0.5) / 3, (b + 0.5) / 3
+            local p
+            if span[1] <= span[2] and span[1] <= span[3] then
+                p = { X = (lo[1] + hi[1]) / 2, Y = lo[2] + span[2] * u, Z = lo[3] + span[3] * v }
+            elseif span[2] <= span[3] then
+                p = { X = lo[1] + span[1] * u, Y = (lo[2] + hi[2]) / 2, Z = lo[3] + span[3] * v }
+            else
+                p = { X = lo[1] + span[1] * u, Y = lo[2] + span[2] * v, Z = (lo[3] + hi[3]) / 2 }
+            end
+            -- Spawned inactive so its crack decal (Crack_Masked_Dithered) is
+            -- off before the first frame: nine cracks on a grid stayed
+            -- hanging where the glass had been, nowhere near the shots.
+            pcall(function()
+                local c = nfl:SpawnSystemAtLocation(world, fx, p, { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, false, 0, true)
+                c:SetEmitterEnable(FName("Crack_Masked_Dithered"), false)
+                c:Activate(false)
+            end)
+        end
+    end
+end
+
+--- A break, on the game thread's next pass: never in the break effect's own
+--- call. The sim waits on that call, and a blocking load inside it (the
+--- chips or the hide material, after a map reload emptied the asset cache)
+--- deadlocked the game for good (2026-11-10).
+local function breakAt(p)
+    local sheet, actor, key = sheetAt(p)
+    if not sheet or not actor or not actor:IsValid() then return end
+    Current.broken = Current.broken or {}
+    if Current.broken[key] then return end
+    Current.broken[key] = true
+    local hidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    if hidden then
+        for _, slot in ipairs(sheet.slots or {}) do
+            pcall(function() actor.StaticMeshComponent:SetMaterial(slot, hidden) end)
+        end
+    end
+    shatter(Current.world or getWorld(), sheet)
+    Log(string.format("glass: sheet %s broke at (%.0f, %.0f, %.0f)", key, p.X, p.Y, p.Z))
+end
+
+local BreakQueue = {}
+local breakDrainPending = false
+
+local function drainBreaks()
+    breakDrainPending = false
+    local queued = BreakQueue
+    BreakQueue = {}
+    for _, p in ipairs(queued) do
+        local ok, err = pcall(breakAt, p)
+        if not ok then Log("glass: " .. tostring(err)) end
+    end
+end
+
+--- The hook itself only reads the point and queues it.
+local function onBreak(ev)
+    local okP, p = pcall(function()
+        local t = ev:get().Transform.Translation
+        return { X = t.X, Y = t.Y, Z = t.Z }
+    end)
+    -- The effect's first call names no point (all zero).
+    if not okP or not p or (p.X == 0 and p.Y == 0 and p.Z == 0) then return end
+    if #BreakQueue >= 32 then return end
+    BreakQueue[#BreakQueue + 1] = p
+    if not breakDrainPending then
+        breakDrainPending = true
+        ExecuteInGameThread(drainBreaks)
+    end
+end
+
+--- Each level with glass loads the chips and the hide material as it comes
+--- up (the asset cache empties with every world), and hooks the break
+--- effect once (its Blueprint is loaded by then); retried each tick until
+--- the hook holds.
+local function hookBreakables()
+    local level = Current.level
+    if not level then return end
+    if level.hasBreakables == nil then level.hasBreakables = levelHasBreakables() end
+    if not level.hasBreakables then return end
+    if not Current.breakPreloaded then
+        Current.breakPreloaded = true
+        resolveMesh(BREAK_FX)
+        resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    end
+    if breakHooked then return end
+    breakHooked = pcall(function()
+        RegisterHook(BREAK_EVENT, function(_, ev)
+            local ok, err = pcall(onBreak, ev)
+            if not ok then Log("glass: " .. tostring(err)) end
+        end)
+    end)
+    if breakHooked then Log("glass: break hook armed") end
 end
 
 local function fadeIn()
@@ -5488,6 +5714,7 @@ local function tick()
         EventQueue = {}
         NativeIncidents = {}
         Resolved, Unresolved = {}, {}
+        BreakQueue = {}
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
@@ -5532,6 +5759,7 @@ local function tick()
     if Current.level and not Current.furnished and not Current.dressing then
         spawnDecor(world)
     end
+    hookBreakables()
     Current.tryFade()
 end
 

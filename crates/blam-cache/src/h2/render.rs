@@ -90,6 +90,16 @@ pub fn template(name: &str) -> Template {
         n if n.starts_with("tex_bump_alpha_test") => {
             t(&["bump", "", "", "base", "detail"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, true)
         }
+        // Cuts out on the base map's alpha times bitmap 1's (an alpha map
+        // of its own): Turf's damaged stucco has a solid door base and the
+        // stairwell's opening in `base_stucco1_damaged_01_alpha`; the
+        // chainlink fence keeps its holes in the base, alpha_white in slot
+        // 1; the lilypads have the same map in both. Read with
+        // tex_bump_env's slots, slot 1 was skipped and Turf's stairwell
+        // was walled off by a door with no collision behind it.
+        n if n.starts_with("tex_bump_env") && n.ends_with("alpha_test_combined") => {
+            Template { alpha_from: "alpha", ..t(&["bump", "alpha", "base", "detail"], BUMP_FIRST, 0, true) }
+        }
         "tex_bump_detail_blend" => t(&["bump", "base", "detail", "detail2"], DETAIL_FIRST, 0, false),
         n if n.starts_with("tex_bump_detail_blend_detail") => {
             t(&["bump", "base", "detail", "detail2", ""], BUMP_FIRST, 0, false)
@@ -121,12 +131,18 @@ pub fn template(name: &str) -> Template {
             t(&["bump", "", "base", "detail", "", "self_illum"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, false)
         }
         n if n.starts_with("tex_bump_env_no_detail") => t(&["bump", "", "base"], BUMP_FIRST, 0, false),
-        n if n.starts_with("tex_bump_one_change_color") => t(&["bump", "base"], BUMP_FIRST, 0, false),
+        // Compiled (`lightmap_tex_one_change_color`): base x lerp(1, the
+        // object's change colour, bitmap 2), lit; the panel trucks' tan,
+        // red or off-white paint through `panel_truck_change_color`.
+        n if n.starts_with("tex_bump_one_change_color") => t(&["bump", "base", "change"], BUMP_FIRST, 0, false),
         n if n.starts_with("tex_bump_env") || n.starts_with("tex_bump_dprs_env") => {
             t(&["bump", "", "base", "detail"], BUMP_FIRST, 0, false)
         }
         n if n.starts_with("tex_bump") => t(&["bump", "", "base", "detail"], BUMP_FIRST, 0, false),
         n if n.starts_with("tex_alpha_test") => t(&["", "base", "detail"], &[], 0, true),
+        // Decorator models (grass, debris piles, cans): one base map, cut
+        // out on its alpha (the `decorator` pass).
+        "decorator_tex" => t(&["base"], &[], 0, true),
         "tex_env" => t(&["base", "detail"], &[], 0, false),
         n if n.starts_with("illum") => t(&["self_illum"], &[], 0, false),
         // A base, a detail and a glow map (Backwash's fungus: the weeds
@@ -147,6 +163,14 @@ pub fn template(name: &str) -> Template {
             t(&["env", "mask", "base", "", "self_illum"], &[], 1, false)
         }
         n if n.ends_with("one_alpha_env_illum") => t(&["env", "mask", "base", "self_illum"], &[], 1, false),
+        // The two-layer glass (Turf's storefront and stairwell doors,
+        // Triplicate's glass rails, the medical tent's panels): the same
+        // slots and pixel constants as one_alpha_env (0 env tint, 1 albedo
+        // tint), a second glass layer in slot 4. `two_alpha_env_detail` is
+        // the Forerunner "invisible" glass, placeholders but for its cube.
+        // Through the alpha catch-all, the reflection cube in slot 0 was
+        // drawn as a picture: a dark sheet filling Turf's stairwell door.
+        "two_alpha_env_illum" | "two_alpha_env_detail" => t(&["env", "mask", "base", "self_illum", ""], &[], 1, false),
         // Plasma: two scrolling noise maps banded against each other, through
         // the mask's alpha, added to the frame.
         "plasma_alpha" => t(&["noise_a", "noise_b", "mask"], &[], 4, false),
@@ -192,6 +216,11 @@ pub fn template(name: &str) -> Template {
         // on Chill Out), so it goes in alpha blended, the multiply baked
         // into the map (`overlay_texel`).
         "overlay" => t(&["base", "detail"], &[("base", 0), ("detail", 1)], 1, false),
+        // Decorator decals (Turf's posters, rubble): the map blended by its
+        // alpha; the multiply ones (stains, blast scorches) darken the frame
+        // by the map where its alpha covers, baked into an alpha blend as
+        // the overlay's is (`decal_multiply_texel`).
+        "decorator_decal_paint" | "decorator_decal_paint_multiply" => t(&["base"], &[], 1, false),
         n if n.contains("alpha") && !n.contains("alpha_test") => t(&["base"], &[], 1, false),
         // Anything else: the runtime properties' diffuse map, opaque.
         _ => t(&[], &[], 0, false),
@@ -327,6 +356,14 @@ fn multiply_texel(c: [f32; 3], gain: f32) -> ([f32; 3], f32) {
     ([0.0; 3], (1.0 - m).max(0.0))
 }
 
+/// A texel of a multiply decal (`decorator_decal_paint_multiply`): the
+/// frame times the map's colour where its alpha covers (white elsewhere),
+/// as a colour and alpha to blend over it (`multiply_texel`).
+fn decal_multiply_texel(c: [f32; 4]) -> ([f32; 3], f32) {
+    let covered = [0, 1, 2].map(|k| 1.0 - c[3] * (1.0 - c[k]));
+    multiply_texel(covered, 1.0)
+}
+
 /// Whether a role was staged.
 fn role_is_set(roles: &BTreeMap<&str, Option<String>>, role: &str) -> bool {
     roles.get(role).is_some_and(|r| r.is_some())
@@ -432,8 +469,20 @@ impl Textures {
     /// Stage `base` with its alpha replaced by `alpha`'s (resampled to each
     /// mip), as `<stem>__cut.png`: the cut-out an alpha-tested template
     /// reads from another map.
-    fn stage_cutout(&mut self, cache: &Cache, base: &Tag<'_>, alpha: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Option<String> {
-        let key = format!("__cut{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
+    /// With `combine`, the base keeps its own alpha times the cut-out's
+    /// (`tex_bump_env_alpha_test_combined`); otherwise the cut-out's alpha
+    /// replaces it.
+    fn stage_cutout(
+        &mut self,
+        cache: &Cache,
+        base: &Tag<'_>,
+        alpha: &Tag<'_>,
+        combine: bool,
+        dir: &Path,
+        notes: &mut Vec<String>,
+    ) -> Option<String> {
+        let mode = if combine { "x" } else { "" };
+        let key = format!("__cut{mode}{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
         self.stage_mapped(cache, base, 0, dir, notes, "__cut", &key, &mut |mips| {
             let a = decode_bitmap(cache, alpha, 0)?.into_iter().next().ok_or_else(|| Error::Format("no image".into()))?;
             // A base smaller than the cut-out (a placeholder colour) is
@@ -456,7 +505,9 @@ impl Textures {
                     for x in 0..m.width {
                         let u = (x as f32 + 0.5) / m.width as f32;
                         let v = (y as f32 + 0.5) / m.height as f32;
-                        m.rgba[((y * m.width + x) * 4 + 3) as usize] = sample_alpha(&a, u, v);
+                        let at = ((y * m.width + x) * 4 + 3) as usize;
+                        let cut = sample_alpha(&a, u, v);
+                        m.rgba[at] = if combine { ((m.rgba[at] as u32 * cut as u32 + 127) / 255) as u8 } else { cut };
                     }
                 }
             }
@@ -619,7 +670,7 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     }
     if tpl.alpha_tested && tpl.alpha_from != "base" {
         if let (Some(b), Some(a)) = (tags.get("base"), tags.get(tpl.alpha_from)) {
-            let cut = tex.stage_cutout(cache, b, a, dir, notes);
+            let cut = tex.stage_cutout(cache, b, a, tpl.alpha_from == "alpha", dir, notes);
             roles.insert("base", cut);
         }
     }
@@ -652,7 +703,8 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     let key = sanitize(shader.name());
     let base = role("base");
     let mut unlit = false;
-    let (class, alpha_mode, double_sided, base, summary) = if template_name.contains("one_alpha_env") && !template_name.starts_with("sky_") {
+    let glass = template_name.contains("one_alpha_env") || template_name == "two_alpha_env_illum" || template_name == "two_alpha_env_detail";
+    let (class, alpha_mode, double_sided, base, summary) = if glass && !template_name.starts_with("sky_") {
         // Glass (one_alpha_env, one_alpha_env_illum; the compiled MCC shader
         // read back): colour = base.rgb * albedo tint * base.a + cube(R) *
         // env tint * specular mask, both scaled by a tint between the facing
@@ -833,6 +885,18 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                         Ok(())
                     })
                 }
+                (Some(t), _) if template_name == "decorator_decal_paint_multiply" => {
+                    tex.stage_mapped(cache, t, 0, dir, notes, "__multiply", "__multiply", &mut |mips| {
+                        for m in mips.iter_mut() {
+                            for p in m.rgba.chunks_exact_mut(4) {
+                                let (c, a) = decal_multiply_texel([p[0], p[1], p[2], p[3]].map(|v| v as f32 / 255.0));
+                                p.copy_from_slice(&[(c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8,
+                                                    (c[2] * 255.0).round() as u8, (a * 255.0).round() as u8]);
+                            }
+                        }
+                        Ok(())
+                    })
+                }
                 (Some(t), Some(c)) if [c[0], c[1], c[2]] != [1.0; 3] => tex.stage_with(cache, t, 0, dir, notes, [c[0], c[1], c[2]], &tint_suffix([c[0], c[1], c[2]])),
                 _ => base,
             };
@@ -900,15 +964,54 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         // unevenly goes in as a copy repeated to the ratio (`repeats`), at
         // the smaller scale. Read as u alone, the palm's detail was
         // stretched six times along the trunk.
-        let mut tiled = |r: &str| -> (Option<String>, f32) {
+        // Specular (see `specular_constants`): CE's lightmap specular is
+        // Halo 2's lobe, masked by the base map's alpha; Turf's door
+        // frames and posts (`matte_grey`, brushed streaks in the alpha)
+        // drew flat grey without it. A template that cuts out on another
+        // map's alpha has that cut staged in the base's alpha, which would
+        // make the whole surface shine; it is left without.
+        let cut_elsewhere = tpl.alpha_tested && tpl.alpha_from != "base";
+        // A base map with no authored mask (alpha 1 everywhere: DXT1 with
+        // no transparent texels, Coagulation's cliffs, Turf's stucco garage
+        // doors, Backwash's tree trunks) shone all over like plastic: Halo
+        // 2's surfaces read flat there. Only an authored mask (Turf's
+        // brushed door frames, alpha 0.42 on average) takes specular.
+        let masked = base.as_deref().is_some_and(|b| !alpha_is_flat(&dir.join("textures").join(b)));
+        let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+        let specular = stem.as_ref().filter(|_| !cut_elsewhere && masked).and_then(specular_constants).and_then(|(a, b)| {
+            let c = |i: usize| constants.get(i).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]);
+            let (facing, glancing) = (c(a), c(b));
+            facing.iter().chain(glancing.iter()).any(|&v| v > 0.0).then_some((facing, glancing))
+        });
+        // CE's mask is not the base's alpha alone: the masters multiply the
+        // bump map's alpha in and, for the blended type, take the two
+        // details' alphas blended by the base's (lerp(secondary, primary,
+        // base)). With specular, the maps go in with the alpha that leaves
+        // Halo 2's mask: the bump and primary detail at 1, a second detail
+        // at 0. Coagulation's ground had details at alpha 1, so its mask
+        // was 1 everywhere and the pebble bump glinted white over the grass
+        // its base alpha leaves unmasked.
+        let mut tiled = |r: &str, alpha: Option<u8>| -> (Option<String>, f32) {
             let s = scale(r);
             let (ru, rv) = (s[0] / base_scale[0], s[1] / base_scale[1]);
-            match (tags.get(r), repeats(ru, rv)) {
-                (Some(t), Some((nu, nv))) => {
-                    let suffix = format!("__x{nu}y{nv}");
+            let rep = repeats(ru, rv);
+            match tags.get(r) {
+                Some(t) if rep.is_some() || alpha.is_some() => {
+                    let (nu, nv) = rep.unwrap_or((1, 1));
+                    let mut suffix = if rep.is_some() { format!("__x{nu}y{nv}") } else { String::new() };
+                    if let Some(a) = alpha {
+                        suffix.push_str(&format!("__a{a}"));
+                    }
                     let file = tex.stage_mapped(cache, t, 0, dir, notes, &suffix, &suffix, &mut |mips| {
                         for m in mips.iter_mut() {
-                            *m = tile_image(m, nu, nv);
+                            if rep.is_some() {
+                                *m = tile_image(m, nu, nv);
+                            }
+                            if let Some(a) = alpha {
+                                for p in m.rgba.chunks_exact_mut(4) {
+                                    p[3] = a;
+                                }
+                            }
                         }
                         Ok(())
                     });
@@ -917,11 +1020,12 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                 _ => (role(r), ru),
             }
         };
-        let (detail, detail_scale) = tiled("detail");
-        let (bump, bump_scale) = tiled("bump");
+        let one = specular.map(|_| 255u8);
+        let zero = specular.map(|_| 0u8);
+        let (bump, bump_scale) = tiled("bump", one);
         let ((primary, primary_scale), (secondary, secondary_scale)) = match detail2 {
-            Some(_) => (tiled("detail2"), (detail, detail_scale)),
-            None => ((detail, detail_scale), (None, 1.0)),
+            Some(_) => (tiled("detail2", one), tiled("detail", zero)),
+            None => (tiled("detail", one), (None, 1.0)),
         };
         let s = json!({
             "tag_path": shader.name(), "shader_class": "shad", "h2_template": template_name,
@@ -941,6 +1045,46 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "specular": {"flags": 0, "brightness": 0.0},
         });
         let mut s = s;
+        if let Some((facing, glancing)) = specular {
+            {
+                s["specular"] = json!({
+                    "flags": 4, "brightness": 1.0,
+                    "perpendicular_color": facing, "parallel_color": glancing,
+                });
+            }
+        }
+        // The change colour as CE's shader_model takes it (MCC's
+        // ShaderModel): the mask in the multipurpose map's alpha, the
+        // object's colour A from its block of the object lighting page.
+        // Only placed objects have one; tools/level/ce_material_spec.py
+        // leaves the BSP's copies of the shader without it.
+        if let Some(t) = tags.get("change") {
+            let mp = tex.stage_mapped(cache, t, 0, dir, notes, "__mp", "__mp", &mut |mips| {
+                for m in mips.iter_mut() {
+                    for p in m.rgba.chunks_exact_mut(4) {
+                        let mask = ((p[0] as u32 + p[1] as u32 + p[2] as u32) / 3) as u8;
+                        p.copy_from_slice(&[0, 0, 255, mask]);
+                    }
+                }
+                Ok(())
+            });
+            if mp.is_some() {
+                s["model"] = json!({"multipurpose": mp, "change_color_source": 1, "detail_mask": 0});
+            }
+        }
+        // Halo 2's self-illumination pass: the glow map times a tint (pass
+        // constant 1, which the template takes from one of the shader's
+        // pixel constants, or an animation drives), added over the lit
+        // surface, not lit with it: the light fixtures' maps are black
+        // where they glow.
+        if role_is_set(&roles, "self_illum") && glow_channels.is_null() {
+            let glow_slot = tpl.slots.iter().position(|r| *r == "self_illum");
+            let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+            if let Some(g) = glow_slot.and_then(|b| illum_tint(stem.as_ref(), b, post, &pixel)) {
+                s["self_illum"]["additive"] = json!(true);
+                s["self_illum"]["channels"] = json!([g]);
+            }
+        }
         if template_name.contains("env") {
             if let Some(r) = env_reflection(cache, &shader, post, &pixel, dir, tex, notes) {
                 s["reflection"] = r;
@@ -953,6 +1097,133 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     // plane at sea level fading the infinite water, drawn white without it.
     let drawn = template_name != "water_edge_blend";
     Shader { key, class, alpha_mode, double_sided, base, base_scale, unlit, drawn, summary }
+}
+
+/// A template's passes, in order: its postprocess definition (stem +0x58,
+/// 0x28) holds five {count, address} blocks; +0x10 the passes (10 bytes: the
+/// `spas` reference, then a u16 range of implementations), +0x18 the
+/// implementations (6 bytes: u16 ranges of remappings for the bitmaps, the
+/// pixel constants and the vertex constants) and +0x20 the remappings (4
+/// bytes: u16 descriptor, u8, u8 source). A range is its start in the low
+/// 9 bits and its count above. Each pass comes with the shader vertex
+/// constants it feeds vertex registers 10 and 11 (source slot 7), if any.
+fn template_passes(stem: &Tag<'_>) -> Vec<(String, Option<(usize, usize)>)> {
+    let Some(d) = stem.root.block(0x58, 0x28).get(0) else { return Vec::new() };
+    let imps = d.block(0x18, 6);
+    let remaps = d.block(0x20, 4);
+    let range = |v: u16| ((v & 0x1FF) as usize, (v >> 9) as usize);
+    let mut out = Vec::new();
+    for pass in d.block(0x10, 10).iter() {
+        let name = stem.file.entry(pass.u32(4)).map(|t| t.name.rsplit('\\').next().unwrap_or("").to_string()).unwrap_or_default();
+        let (start, count) = range(pass.u16(8));
+        let mut regs = [None, None];
+        for im in (start..start + count).filter_map(|i| imps.get(i)) {
+            let (s, n) = range(im.u16(4));
+            for r in (s..s + n).filter_map(|r| remaps.get(r)) {
+                let v = r.u16(0);
+                if (v >> 10) & 7 == 7 && matches!(v & 31, 10 | 11) {
+                    regs[(v & 31) as usize - 10] = Some(r.u8(3) as usize);
+                }
+            }
+        }
+        let vc = match regs {
+            [Some(a), Some(b)] => Some((a, b)),
+            _ => None,
+        };
+        out.push((name, vc));
+    }
+    out
+}
+
+/// Whether a template's lightmap passes leave a specular mask: Halo 2's
+/// `default_light_combined_tangentspace_specular_sphere` adds its light
+/// through the frame's alpha, which the lightmap pass writes. Nearly every
+/// lightmap pass writes min(1, 2 x base alpha x the light) (tex_detail,
+/// tex, the detail blends, two and three detail, illum, shiny, tiling,
+/// change colour, honor guard); the env ones, `detail_overlay` and
+/// `detail_no_specular` write 0, so those surfaces never shine; the
+/// alpha-tested ones write the cut-out or other terms, of which only
+/// `alpha_test_no_bump`'s (the cut-out, base alpha) is the staged alpha.
+fn specular_mask(lightmaps: &[&str]) -> bool {
+    !lightmaps.is_empty()
+        && lightmaps.iter().all(|n| {
+            !n.contains("env")
+                && !n.ends_with("detail_overlay")
+                && !n.ends_with("no_specular")
+                && (!n.contains("alpha_test") || n.ends_with("alpha_test_no_bump"))
+        })
+}
+
+/// The shader vertex constants holding a template's specular colours, when
+/// it draws specular: the `specular_sphere` pass's vertex shader
+/// (`stencil_light_specular_tangentspace_sphere`) passes registers 10 and
+/// 11 through, and its pixel shader adds sat(R.L)^8 x the light x
+/// lerp(register 11, register 10, sat(N.L)), R the view reflected about the
+/// bumped normal. CE's lightmap specular is that lobe from the lightmap's
+/// incident direction, its colour going from parallel to perpendicular by
+/// N.V instead: perpendicular register 10, parallel 11 (metal_grey_dark's
+/// vertex constants 7 and 8, 1.0 and 0.75 grey).
+fn specular_constants(stem: &Tag<'_>) -> Option<(usize, usize)> {
+    let passes = template_passes(stem);
+    let vc = passes.iter().find(|(n, _)| n.ends_with("specular_sphere")).and_then(|(_, vc)| *vc)?;
+    let lightmaps: Vec<&str> = passes.iter().map(|(n, _)| n.as_str()).filter(|n| n.starts_with("lightmap")).collect();
+    specular_mask(&lightmaps).then_some(vc)
+}
+
+/// The tint of a template's self-illumination pass as a CE channel
+/// (`{on, off, function, period}`): the pass samples the glow map
+/// (`default_self_illumination`: saturate(map.rgb x cb0[1])), its pass
+/// constant 1 (descriptor 0x81) taken from the shader pixel constant the
+/// template's remapping table names in the run where texture 0 is the glow
+/// map (tex_bump_illum: 2; tex_bump_illum_no_specular: 0). An animated
+/// parameter on 0x81 drives it instead: a periodic colour function (byte 1
+/// flags 0x30, wave at byte 2, colours as BGRA at 4..0x14, frequency at
+/// 0x14) goes in as its wave between the darkest and brightest colour;
+/// Turf's storefront signs jitter between 0.46 and 0.5 grey.
+fn illum_tint(stem: Option<&Tag<'_>>, glow_bitmap: usize, post: Option<Struct<'_>>, pixel: &[[f32; 4]]) -> Option<Value> {
+    let table: Vec<(u16, usize)> = stem?
+        .root
+        .block(0x58, 0x28)
+        .get(0)?
+        .block(0x20, 4)
+        .iter()
+        .map(|e| (e.u16(0), e.u8(3) as usize))
+        .collect();
+    let at = table.iter().position(|&(d, src)| d == 0 && src == glow_bitmap)?;
+    let constant = table[at + 1..].iter().take(4).find(|&&(d, _)| d == 0x81).map(|&(_, src)| src)?;
+    let rgb = |c: &[f32; 4]| [c[0], c[1], c[2]];
+    let fixed = pixel.get(constant).map(rgb).unwrap_or([1.0; 3]);
+    let mut out = json!({"on": fixed, "off": fixed, "function": 0, "period": 1.0, "phase": 0.0});
+    if let Some(p) = post {
+        let refs = p.block(0x54, 4);
+        let params = p.block(0x4C, 2);
+        let overlay_refs = p.block(0x44, 4);
+        let overlays = p.block(0x3C, 0x14);
+        for r in refs.iter().filter(|r| r.u16(0) == 0x81) {
+            let Some(param) = params.get(r.u8(3) as usize) else { continue };
+            let first = (param.u16(0) & 0x1FF) as usize;
+            let Some(o) = overlay_refs.get(first).and_then(|or| overlays.get(or.i16(0).max(0) as usize)) else { continue };
+            let Some(at) = p.file.offset(o.u32(0x10)) else { continue };
+            let f = &p.file.data[at..(at + o.u32(0x0C) as usize).min(p.file.data.len())];
+            if f.len() < 0x18 || f[0] != 3 || f[1] & 0x30 == 0 {
+                continue;
+            }
+            // An all-zero entry is an unused slot: the signs' function holds
+            // 0x80, 0x80, 0, 0x76 around their static 0x7B.
+            let colours: Vec<[f32; 3]> = (0..4)
+                .map(|k| [f[4 + 4 * k + 2], f[4 + 4 * k + 1], f[4 + 4 * k]].map(|c| c as f32 / 255.0))
+                .filter(|c| c.iter().any(|&v| v > 0.0))
+                .collect();
+            let luma = |c: &[f32; 3]| c[0] + c[1] + c[2];
+            let lo = colours.iter().copied().min_by(|a, b| luma(a).total_cmp(&luma(b)))?;
+            let hi = colours.iter().copied().max_by(|a, b| luma(a).total_cmp(&luma(b)))?;
+            let freq = f32::from_le_bytes(f[0x14..0x18].try_into().ok()?);
+            let period = o.f32(8) / if freq > 0.0 { freq } else { 1.0 };
+            out = json!({"on": hi, "off": lo, "function": f[2], "period": period, "phase": 0.0});
+            break;
+        }
+    }
+    Some(out)
 }
 
 /// A bitmap's first image's values in one channel, as a histogram of 64
@@ -1242,6 +1513,15 @@ struct Prim {
     uv0: Vec<[f32; 2]>,
     uv1: Vec<[f32; 2]>,
     incident: Vec<[f32; 3]>,
+    /// A decorator's own light per vertex (`_LIGHT`, linear, 1 = unlit
+    /// white), when it has one.
+    light: Vec<[f32; 3]>,
+    /// A camera-facing sprite's (`_BILLBOARD`, glTF metres): the vector from
+    /// the vertex to its base point on the sprite's axis, and its offset
+    /// across the axis. The vertex normal is then the axis.
+    billboard: Vec<[f32; 4]>,
+    /// Each vertex's index in the section it came from.
+    order: Vec<u32>,
     indices: Vec<u32>,
 }
 
@@ -1310,6 +1590,7 @@ impl Prim {
                     self.tangents.push([tg[0], tg[1], tg[2], w]);
                     self.uv0.push([v.uv[0] * base_scale[0], v.uv[1] * base_scale[1]]);
                     self.uv1.push(uv1.unwrap_or(v.lightmap_uv));
+                    self.order.push(i);
                     self.incident.push(match incident.and_then(|inc| inc.get(i as usize)) {
                         Some(&world) => to_gltf(world),
                         None if section.has_incident => to_gltf(frame.dir(v.incident)),
@@ -1321,6 +1602,22 @@ impl Prim {
             }
         }
     }
+}
+
+/// Whether a staged PNG's alpha is 1 (above 0.97) everywhere, or it can't
+/// be read: no specular mask authored.
+fn alpha_is_flat(path: &Path) -> bool {
+    let read = || -> Option<bool> {
+        let file = std::fs::File::open(path).ok()?;
+        let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().ok()?;
+        let mut buf = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).ok()?;
+        if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+            return Some(true);
+        }
+        Some(buf[..info.buffer_size()].chunks_exact(4).all(|p| p[3] >= 248))
+    };
+    read().unwrap_or(true)
 }
 
 /// The mean colour of the staged lightmap pages, as the flat page for
@@ -1721,6 +2018,147 @@ impl<'c> Renderer<'c> {
         Ok(Some(record))
     }
 
+    /// A decorator set's model as a glTF of its own
+    /// (`models/<set>__decorator<k>.gltf`, in the set's units, z up as the
+    /// BSP's) drawn with `shader`: the model's run of the set's indices, a
+    /// triangle list, double sided (decorator geometry is thin: leaves,
+    /// paper, cans). Its relative path, or `None` when it has no triangles.
+    pub fn decorator_model(
+        &mut self,
+        set_name: &str,
+        set: &crate::h2::decorator::Set,
+        model: usize,
+        shader: Option<Tag<'c>>,
+    ) -> Result<Option<String>, Error> {
+        let sh = self.shader(shader);
+        let (key, base) = (self.shaders[sh].key.clone(), self.shaders[sh].base.clone());
+        let rel = format!("models/{}__decorator{model}.gltf", sanitize(set_name));
+        if let Some(done) = self.models.get(&rel) {
+            return Ok(done.as_ref().map(|_| rel.clone()));
+        }
+        let Some(m) = set.models.get(model) else { return Ok(None) };
+        let section = Section {
+            vertices: set
+                .vertices
+                .iter()
+                .map(|v| geometry::Vertex { position: v.position, normal: v.normal, uv: v.uv, ..Default::default() })
+                .collect(),
+            parts: vec![geometry::Part { kind: 3, flags: 8, material: 0, first: m.first, count: m.count }],
+            indices: set.indices.clone(),
+            has_lightmap_uv: false,
+            has_incident: false,
+        };
+        let mut prim = Prim::default();
+        prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
+        if prim.indices.is_empty() || !self.shaders[sh].drawn {
+            self.models.insert(rel, None);
+            return Ok(None);
+        }
+        let mut gltf = Gltf::default();
+        let s = &self.shaders[sh];
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key}});
+        let material = gltf.material(&key, base.as_deref(), s.alpha_mode, true, extras);
+        let triangles = prim.indices.len() / 3;
+        let primitives = vec![gltf.primitive(&prim, material)];
+        let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
+        gltf.write(&self.dir.join("models"), &stem, primitives)?;
+        let record = json!({"tag_path": set_name, "tag_class": "DECR", "gltf": rel, "skeletal": false, "triangles": triangles});
+        self.models.insert(rel.clone(), Some(record));
+        Ok(Some(rel))
+    }
+
+    /// Decal decorators as a glTF of their own (`models/<name>.gltf`): their
+    /// quads, moved by `-origin` (world units, Halo axes), drawn with
+    /// `shader`, double sided, each vertex's stored colour (its placement's
+    /// tint times its light, `decorator::Decal::colors`) doubled as the
+    /// decorator shaders double it, as its light (`_LIGHT`). Its relative
+    /// path, or `None` when nothing is drawn.
+    pub fn decal_mesh(
+        &mut self,
+        name: &str,
+        decals: &[&crate::h2::decorator::Decal],
+        origin: [f32; 3],
+        shader: Option<Tag<'c>>,
+    ) -> Result<Option<String>, Error> {
+        let rel = format!("models/{}.gltf", sanitize(name));
+        let mut section = Section::default();
+        let mut light = Vec::new();
+        let mut billboard = Vec::new();
+        for d in decals {
+            let base = section.vertices.len() as u32;
+            let p = &d.positions;
+            // The quad's facing, for its normal.
+            let n = if p.len() >= 3 {
+                let (a, b) = ([0, 1, 2].map(|k| p[1][k] - p[0][k]), [0, 1, 2].map(|k| p[2][k] - p[0][k]));
+                let c = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+                let l = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt().max(1e-9);
+                c.map(|v| v / l)
+            } else {
+                [0.0, 0.0, 1.0]
+            };
+            for (k, pos) in p.iter().enumerate() {
+                // A sprite's vertex: its normal is its axis, and it carries
+                // the way to its base point and its offset across.
+                let n = match (d.axis, d.billboard.get(k)) {
+                    (Some(axis), Some(&(base, across))) => {
+                        let to = to_gltf([base[0] - pos[0], base[1] - pos[1], base[2] - pos[2]]);
+                        billboard.push([to[0] * WU_TO_M, to[1] * WU_TO_M, to[2] * WU_TO_M, across * WU_TO_M]);
+                        axis
+                    }
+                    _ => {
+                        billboard.push([0.0; 4]);
+                        n
+                    }
+                };
+                section.vertices.push(geometry::Vertex {
+                    position: [pos[0] - origin[0], pos[1] - origin[1], pos[2] - origin[2]],
+                    normal: n,
+                    uv: d.uvs.get(k).copied().unwrap_or_default(),
+                    ..Default::default()
+                });
+            }
+            light.extend((0..p.len()).map(|k| {
+                let c = d.colors.get(k).copied().unwrap_or([0.5; 4]);
+                [c[0] * 2.0, c[1] * 2.0, c[2] * 2.0]
+            }));
+            for t in &d.triangles {
+                // Wound to face the normal taken from corners 0, 1, 2.
+                section.indices.extend(t.iter().map(|&i| (base + i) as u16));
+            }
+        }
+        if section.indices.is_empty() || section.vertices.len() > u16::MAX as usize {
+            return Ok(None);
+        }
+        section.parts.push(geometry::Part { kind: 4, flags: 8, material: 0, first: 0, count: section.indices.len() });
+        let sh = self.shader(shader);
+        if !self.shaders[sh].drawn {
+            return Ok(None);
+        }
+        let (key, base) = (self.shaders[sh].key.clone(), self.shaders[sh].base.clone());
+        let mut prim = Prim::default();
+        prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
+        // Prim::add keeps the section's vertex order through its indices.
+        prim.light = prim.order.iter().map(|&i| light[i as usize]).collect();
+        let sprites = decals.iter().any(|d| d.axis.is_some());
+        if sprites {
+            prim.billboard = prim.order.iter().map(|&i| billboard[i as usize]).collect();
+        }
+        let mut gltf = Gltf::default();
+        let s = &self.shaders[sh];
+        // Sprites draw on a master that turns them (ce_material_spec.py
+        // `billboard`): a material of their own.
+        let extras = json!({"halo": {"tag_path": s.summary["tag_path"], "shader_class": s.class, "material": key, "billboard": sprites}});
+        let name = if sprites { format!("{key}__billboard") } else { key.clone() };
+        let material = gltf.material(&name, base.as_deref(), s.alpha_mode, true, extras);
+        let triangles = prim.indices.len() / 3;
+        let primitives = vec![gltf.primitive(&prim, material)];
+        let stem = rel.trim_start_matches("models/").trim_end_matches(".gltf").to_string();
+        gltf.write(&self.dir.join("models"), &stem, primitives)?;
+        let record = json!({"tag_path": name, "tag_class": "DECR", "gltf": rel, "skeletal": false, "triangles": triangles});
+        self.models.insert(rel.clone(), Some(record));
+        Ok(Some(rel))
+    }
+
     /// Write `materials.json` (every shader the BSP and models used, keyed by
     /// the glTF material name without its lightmap suffix); the model records.
     /// Stage a bitmap tag's first image for the placement (a decal's): its
@@ -1825,14 +2263,20 @@ impl Gltf {
         let uv0 = self.floats(&p.uv0, "VEC2", false);
         let uv1 = self.floats(&p.uv1, "VEC2", false);
         let inc = self.floats(&p.incident, "VEC3", false);
+        let light = (!p.light.is_empty()).then(|| self.floats(&p.light, "VEC3", false));
+        let billboard = (!p.billboard.is_empty()).then(|| self.floats(&p.billboard, "VEC4", false));
         let idx_bytes: Vec<u8> = p.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
         let view = self.view(&idx_bytes, 34963);
         self.accessors.push(json!({"bufferView": view, "componentType": 5125, "count": p.indices.len(), "type": "SCALAR"}));
         let idx = self.accessors.len() - 1;
-        json!({
-            "attributes": {"POSITION": pos, "NORMAL": nrm, "TANGENT": tan, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "_INCIDENT": inc},
-            "indices": idx, "material": material, "mode": 4,
-        })
+        let mut attributes = json!({"POSITION": pos, "NORMAL": nrm, "TANGENT": tan, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "_INCIDENT": inc});
+        if let Some(light) = light {
+            attributes["_LIGHT"] = json!(light);
+        }
+        if let Some(billboard) = billboard {
+            attributes["_BILLBOARD"] = json!(billboard);
+        }
+        json!({"attributes": attributes, "indices": idx, "material": material, "mode": 4})
     }
 
     fn material(&mut self, name: &str, base: Option<&str>, alpha: &str, double_sided: bool, extras: Value) -> usize {
@@ -1896,6 +2340,30 @@ impl Gltf {
 mod tests {
     use super::*;
 
+    /// Specular where the lightmap passes write the base alpha mask: not
+    /// through the env, overlay, no-specular or alpha-tested ones.
+    #[test]
+    fn specular_masks() {
+        for l in [
+            &["lightmap_tex_detail"][..],
+            &["lightmap_tex", "lightmap_tex_detail_blend_detail"],
+            &["lightmap_tex_detail_alpha_test_no_bump"],
+            &["lightmap_tex_one_change_color"],
+        ] {
+            assert!(specular_mask(l), "{l:?}");
+        }
+        for l in [
+            &[][..],
+            &["lightmap_tex_env", "lightmap_tex_env_detail"],
+            &["lightmap_tex", "lightmap_tex_detail_overlay"],
+            &["lightmap_tex_detail_no_specular"],
+            &["lightmap_tex_detail_alpha_test"],
+            &["lightmap_tex_env_detail_alpha_test"],
+        ] {
+            assert!(!specular_mask(l), "{l:?}");
+        }
+    }
+
     /// The slot tables put the base map where Lockout's shaders have it.
     #[test]
     fn templates_find_their_base_maps() {
@@ -1905,6 +2373,7 @@ mod tests {
         assert_eq!(template("tex_bump_alpha_test").slots[3], "base");
         assert!(template("tex_bump_alpha_test").alpha_tested);
         assert_eq!(template("one_alpha_env").transparent, 1);
+        assert_eq!(template("two_alpha_env_illum").slots[..3], ["env", "mask", "base"]);
         assert_eq!(template("plasma_alpha").transparent, 4);
         assert_eq!(template("one_add_two_plus_two").transparent, 1, "a product of its maps, alpha blended");
         // Ascension's sky: the cloud cover's cloud map is bitmap 0 and its
@@ -1937,6 +2406,8 @@ mod tests {
         assert_eq!(template("tex_bump_alpha_test_single_pass").alpha_from, "bump");
         assert_eq!(template("tex_bump_alpha_test_clamped_single_pass").alpha_from, "bump");
         assert_eq!(template("tex_bump_alpha_test").alpha_from, "base");
+        let combined = template("tex_bump_env_alpha_test_combined");
+        assert_eq!((combined.alpha_from, combined.slots[1], combined.alpha_tested), ("alpha", "alpha", true));
         assert_eq!(template("tex_bump_plasma_one_channel_illum").slots, &["bump", "base", "detail", "plasma"]);
         assert_eq!(template("overlay").transparent, 1, "a double multiply, baked for alpha blending");
     }
