@@ -14,7 +14,8 @@ import { getTool } from "../tools";
 import { authenticate, rateLimit } from "./auth";
 import { requireModerator } from "./account";
 import type { MapBlock } from "./manifest";
-import { mapListingUpsert } from "./publish";
+import { mapListingUpsert, sharedLibraryOwner } from "./publish";
+import { LOCAL_CHUNK_NUMBERS, parseRequires } from "./clients";
 import { ErrorSchema, FindingSchema } from "./schemas";
 
 type Ctx = Context<ApiEnv>;
@@ -633,7 +634,7 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
       const { id } = c.req.valid("param");
       const { action, reason, sha256 } = c.req.valid("json");
       const pending = await c.env.DB.prepare(
-        `SELECT r.mod_id, r.sha256, r.map_json,
+        `SELECT r.mod_id, r.sha256, r.map_json, r.requires,
                 EXISTS (SELECT 1 FROM mod_releases n
                         WHERE n.mod_id = r.mod_id AND n.status = 'published'
                           AND n.created_at > r.created_at) AS superseded
@@ -641,7 +642,13 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
          WHERE rv.release_id = ?1 AND rv.state = 'pending' AND r.status = 'pending'`,
       )
         .bind(id)
-        .first<{ mod_id: string; sha256: string | null; map_json: string | null; superseded: number }>();
+        .first<{
+          mod_id: string;
+          sha256: string | null;
+          map_json: string | null;
+          requires: string | null;
+          superseded: number;
+        }>();
       if (!pending) {
         return c.json({ error: "not_found", message: "This release is no longer waiting for review." }, 404);
       }
@@ -676,6 +683,18 @@ export function registerModerationRoutes(app: OpenAPIHono<ApiEnv>) {
         );
       }
       if (map) statements.push(mapListingUpsert(c.env.DB, pending.mod_id, map));
+      // Its scan compared its shader libraries with what was published then;
+      // another mod may have published one of them while it waited.
+      if (
+        approve &&
+        !parseRequires(pending.requires).includes(LOCAL_CHUNK_NUMBERS) &&
+        (await sharedLibraryOwner(c.env.DB, pending.mod_id, { releaseId: id }))
+      ) {
+        const requires = [...parseRequires(pending.requires), LOCAL_CHUNK_NUMBERS];
+        statements.push(
+          c.env.DB.prepare(`UPDATE mod_releases SET requires = ?2 WHERE id = ?1`).bind(id, JSON.stringify(requires)),
+        );
+      }
       try {
         await c.env.DB.batch(statements);
       } catch (e) {

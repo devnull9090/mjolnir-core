@@ -305,6 +305,14 @@ file, `decals/`) is fetched again rather than skipped.
 
 ## Publishing
 
+A map whose shader library is cooked under a number outside 900 to 999, or
+under a number another mod's library already uses, needs a launcher with
+local chunk numbers. The hub works this out when it scans the release
+(`requires: ["local-chunk-numbers"]`) and keeps the release from older
+launchers. The launcher ships, then the hub change deploys, and only then
+is such a map published. The order and what each launcher does are in
+[chunk_numbering.md](chunk_numbering.md#the-launcher-gate-and-release-order).
+
 ### Our maps
 
 ```bash

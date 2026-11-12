@@ -13,6 +13,7 @@ mod forge_packs;
 mod forge_shaders;
 mod hub;
 mod links;
+mod local_builds;
 mod maps;
 mod minidump;
 mod preflight;
@@ -1713,6 +1714,22 @@ async fn hub_missing_files() -> Result<Vec<String>, String> {
         .map_err(|e| format!("Task join error: {e}"))?
 }
 
+/// Local builds installed with `mjolnir dev install`, and loose containers
+/// that lose to a hub copy.
+#[tauri::command]
+async fn hub_local_builds() -> Result<local_builds::LocalBuilds, String> {
+    tauri::async_runtime::spawn_blocking(local_builds::list)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+async fn hub_remove_local_build(name: String) -> Result<local_builds::LocalBuilds, String> {
+    tauri::async_runtime::spawn_blocking(move || local_builds::remove(name))
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
 #[tauri::command]
 fn hub_state() -> hub::HubState {
     hub::get_state()
@@ -2268,6 +2285,8 @@ pub fn run() {
             links::take_pending_link,
             hub_uninstall,
             hub_state,
+            hub_local_builds,
+            hub_remove_local_build,
             hub_set_order,
             hub_set_enabled,
             hub_profile_create,

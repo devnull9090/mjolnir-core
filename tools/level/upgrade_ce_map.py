@@ -36,6 +36,7 @@ Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
 from cooked_map_container import cooked_map_container
+import dev_paks
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook
 import glob
 import json
@@ -2092,18 +2093,16 @@ def mark_structures(level):
     return n
 
 
-def hub_map_container(m, prefix="pakchunk997-"):
-    """The installed hub copy's container (its map, 997, by default), by the
-    launcher's state."""
+def require_hub_map(m):
+    """The map's hub release must be installed: a local build goes on top of
+    it (dev_paks) rather than replacing it."""
     state = json.load(open(LAUNCHER_STATE, encoding="utf-8"))
-    inst = next((x for x in state.get("installed", []) if x["slug"] == m["hub"]), None)
-    if not inst:
+    if not any(x["slug"] == m["hub"] for x in state.get("installed", [])):
         sys.exit(f"{m['hub']} is not installed from the hub")
-    j = next(i for i, c in enumerate(inst["containers"]) if c.startswith(prefix))
-    hits = glob.glob(os.path.join(PAKS, f"pakchunk*-MJOLNIRHUB-{m['hub']}-{j}_P.utoc"))
-    if len(hits) != 1:
-        sys.exit(f"{m['hub']}: expected one installed map container, found {hits}")
-    return hits[0][:-5]
+
+
+def cli_path():
+    return os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
 
 
 def require_game_closed():
@@ -2136,7 +2135,7 @@ def local_install_plan(code, m, p, *, shared=True):
             sys.exit(f"{code}: registration record names a different map")
 
     loader = os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader")
-    cli = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
+    cli = cli_path()
     required = [cli, os.path.join(loader, "Scripts", "main.lua"),
                 os.path.join(loader, "native", "mjolnir_map_registry.dll")]
     for mode in level.get("modes", [level.get("variant", "slayer")]):
@@ -2154,28 +2153,26 @@ def local_install_plan(code, m, p, *, shared=True):
         candidates = [os.path.join(PAKS, stem)]
         if stem in runtime.get("containers", []):
             index = runtime["containers"].index(stem)
-            candidates += [f[:-5] for f in glob.glob(os.path.join(PAKS,
-                           f"pakchunk*-MJOLNIRHUB-mjolnir-ce-runtime-{index}_P.utoc"))]
+            candidates += dev_paks.hub_containers(PAKS, "mjolnir-ce-runtime", index)
         if not any(all(os.path.isfile(f"{base}.{e}") for e in ("pak", "utoc", "ucas")) for base in candidates):
             sys.exit(f"{code}: install the CE runtime first (missing {stem})")
 
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     files = [(p["out_level"], os.path.join(data, "level.json")),
              (record, os.path.join(data, "registration.json"))]
-    stub = os.path.join(PAKS, "pakchunk115-Windows.pak")
-    containers = [(os.path.join(source, f"pakchunk997-MJOLNIRMAP-{code}_P"), None),
+    # Each container goes in as a local build named for the map (dev_paks),
+    # so it loads above any hub copy and its shader library gets a number of
+    # its own.
+    containers = [(os.path.join(source, f"pakchunk997-MJOLNIRMAP-{code}_P"), f"MJOLNIRMAP-{code}"),
                   (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
-                   f"pakchunk986-MJOLNIRMESH-{code}_P"),
+                   f"MJOLNIRMESH-{code}"),
                   (str(verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk")
-                       else cooked_map_container(p["conv"], code)), None)]
+                       else cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}")]
     if not m.get("indoor"):
-        containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), None))
+        containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
-        containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), None))
-    for base, name in containers:
-        dest = os.path.join(PAKS, name or os.path.basename(base))
-        files += [(f"{base}.{e}", f"{dest}.{e}") for e in ("utoc", "ucas")]
-        files.append((f"{base}.pak" if os.path.isfile(f"{base}.pak") else stub, f"{dest}.pak"))
+        containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
+    required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
     for f in glob.glob(os.path.join(p["work"], "decals", "*")):
@@ -2195,14 +2192,16 @@ def local_install_plan(code, m, p, *, shared=True):
     missing = [f for f in required + [src for src, _ in files] if not os.path.isfile(f)]
     if missing:
         sys.exit(f"{code}: local install is incomplete:\n  " + "\n  ".join(missing))
-    return files, cli
+    return files, cli, containers
 
 
 def install_local(code, plan):
-    files, _ = plan
+    files, cli, containers = plan
     for src, dest in files:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copyfile(src, dest)
+    for base, name in containers:
+        print("  " + run(dev_paks.install_command(cli, PAKS, base, name)).strip())
     print(f"  {code}: local containers and map data installed")
 
 
@@ -2222,22 +2221,19 @@ def stage_install(code, m, p):
                 shutil.copyfile(os.path.join(decals, f), os.path.join(data, "decals", f))
         print(f"  {code}: level file installed (indoor)")
         return
-    base = hub_map_container(m)
-    for e in ("utoc", "ucas"):
-        shutil.copyfile(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.{e}"), f"{base}.{e}")
+    # The new map, mesh and landscape go on top of the hub copy as local
+    # builds (dev_paks): they win every package they share with it, and the
+    # landscape's shader library opens under a number of its own, beside the
+    # hub copy's. Writing over the hub's files instead loses to the launcher,
+    # which renames those files and their libraries.
+    require_hub_map(m)
+    cli = cli_path()
+    builds = [(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P"), f"MJOLNIRMAP-{code}"),
+              (os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}")]
     if m.get("mesh_container"):
-        mesh = hub_map_container(m, "pakchunk986-")
-        for e in ("utoc", "ucas"):
-            shutil.copyfile(f"{m['mesh_container']}.{e}", f"{mesh}.{e}")
-    for f in glob.glob(os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows.*")):
-        shutil.copyfile(f, os.path.join(PAKS, os.path.basename(f)))
-    # The hub copy of the landscape chunk (a _P container) outranks ours on
-    # mount priority, shader library and all: write over it too, or the game
-    # keeps the old landscape shaders (Death Island, 2026-10-18).
-    for hub in glob.glob(os.path.join(PAKS, f"pakchunk{m['chunk']}-MJOLNIRHUB-{m['hub']}-*_P.utoc")):
-        for e in ("utoc", "ucas"):
-            shutil.copyfile(os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows.{e}"), hub[:-4] + e)
-        print(f"  {code}: landscape chunk also over {os.path.basename(hub)[:-5]}")
+        builds.append((m["mesh_container"], f"MJOLNIRMESH-{code}"))
+    for base, name in builds:
+        print("  " + run(dev_paks.install_command(cli, PAKS, base, name)).strip())
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
@@ -2248,23 +2244,21 @@ def stage_install(code, m, p):
         os.makedirs(os.path.join(data, "decals"), exist_ok=True)
         for f in os.listdir(decals):
             shutil.copyfile(os.path.join(decals, f), os.path.join(data, "decals", f))
-    print(f"  {code}: installed over {os.path.basename(base)}")
+    print(f"  {code}: installed over the hub copy as local builds")
 
 
 def install_shared():
-    for e in ("utoc", "ucas"):
-        shutil.copyfile(os.path.join(STAGED, f"pakchunk983-Windows.{e}"),
-                        os.path.join(PAKS, f"pakchunk983-MJOLNIRCETRIAL-Windows.{e}"))
-        # The CE runtime from the hub carries chunk 983 too, as a _P container
-        # that outranks ours: a master new in this build (the trial
-        # M_CE_Flare) found no shaders and drew as a black dome
-        # (2026-10-18). Write over the hub's as well.
-        for hub in glob.glob(os.path.join(PAKS, "pakchunk983-MJOLNIRHUB-*_P.utoc")):
-            shutil.copyfile(os.path.join(STAGED, f"pakchunk983-Windows.{e}"), hub[:-4] + e)
-        # The water masters (M_CE_Ocean, chunk 982), when this cook made them.
-        staged = os.path.join(STAGED, f"pakchunk982-Windows.{e}")
-        if os.path.exists(staged):
-            shutil.copyfile(staged, os.path.join(PAKS, f"pakchunk982-MJOLNIRWATER-Windows.{e}"))
+    # The trial masters (983) and, when this cook made them, the water
+    # masters (982) go on top of the CE runtime's copies as local builds
+    # (dev_paks). A plain copy loses to the hub's: a master new in a build
+    # (the trial M_CE_Flare) then found no shaders and drew as a black dome
+    # (2026-10-18).
+    cli = cli_path()
+    print("  " + run(dev_paks.install_command(cli, PAKS, os.path.join(STAGED, "pakchunk983-Windows"),
+                                              "MJOLNIRCETRIAL")).strip())
+    if os.path.exists(os.path.join(STAGED, "pakchunk982-Windows.utoc")):
+        print("  " + run(dev_paks.install_command(cli, PAKS, os.path.join(STAGED, "pakchunk982-Windows"),
+                                                  "MJOLNIRWATER")).strip())
     shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"),
                     os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
     print("  trial masters and the loader installed")

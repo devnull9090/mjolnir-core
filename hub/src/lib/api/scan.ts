@@ -28,6 +28,7 @@ import {
 import { chunkIdToHex, parseTocChunkIds } from "./iostore";
 import { forgePackageId, requiredForgePackages } from "./forge-content";
 import { Sha256 } from "./sha256";
+import { LOCAL_CHUNK_NUMBERS } from "./clients";
 
 /** Hard cap on an archive uploaded in one request (PUT .../archive): under
  *  the 100 MB request body Cloudflare takes. Its members are hashed as they
@@ -41,7 +42,7 @@ export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
 const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
 
-export const SCANNER_VERSION = "ts-5";
+export const SCANNER_VERSION = "ts-6";
 
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
@@ -111,6 +112,10 @@ export interface ScanResult {
   containerCount: number;
   /** The Wwise banks the archive carries, by member name. */
   banks: string[];
+  /** Launcher features the release needs (clients.ts), as measured from its
+   *  containers: `local-chunk-numbers` for a shader library under a number a
+   *  launcher up to 0.23 cannot load. Publishing can add to it. */
+  requires: string[];
   /** The members the scan reads (`.json`, `.utoc`, `.bnk`), unzipped, so later steps
    *  (signature verification) never unzip a second time. Empty when the zip
    *  did not open. */
@@ -118,6 +123,20 @@ export interface ScanResult {
   /** Every member's SHA-256 (hex) and size, directory entries included. */
   hashes: Record<string, string>;
   sizes: Record<string, number>;
+}
+
+/** IoStore chunk type ShaderCodeLibrary, the last byte of a chunk ID. */
+export const SHADER_LIBRARY_CHUNK = 8;
+
+/** Launchers up to 0.23 keep a shader library's cooked number in its Paks
+ *  name and set aside a container outside these (docs/chunk_numbering.md). */
+const OLD_LAUNCHER_NUMBERS = { min: 900, max: 999 };
+
+/** The `pakchunk<N>` number a container's name starts with, if any. */
+function cookedNumber(container: string): number | null {
+  const base = container.slice(container.lastIndexOf("/") + 1);
+  const m = /^pakchunk(\d+)/i.exec(base);
+  return m ? Number(m[1]) : null;
 }
 
 /** Members read whole; everything else (container data, images) is hashed
@@ -285,6 +304,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
       chunkIds: [],
       containerCount: 0,
       banks: [],
+      requires: [],
       files: {},
       hashes: {},
       sizes: {},
@@ -395,6 +415,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
 
   // Containers → chunk identity.
   const seen = new Map<string, Uint8Array>();
+  const requires = new Set<string>();
   const installedPackages = new Set<bigint>();
   for (const name of utocs) {
     try {
@@ -407,6 +428,19 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
       if (!(cas in sizes)) err("orphan_utoc", `${name} has no matching .ucas.`);
       if (toc.chunkIds.length === 0) warn("empty_container", `${name} holds no chunks.`);
       for (const id of toc.chunkIds) seen.set(chunkIdToHex(id), id);
+      if (name.startsWith("content/")) {
+        const n = cookedNumber(name);
+        const oldNumber = n !== null && n >= OLD_LAUNCHER_NUMBERS.min && n <= OLD_LAUNCHER_NUMBERS.max;
+        if (!oldNumber && toc.chunkIds.some((id) => id[11] === SHADER_LIBRARY_CHUNK)) {
+          requires.add(LOCAL_CHUNK_NUMBERS);
+          warn(
+            "needs_new_launcher",
+            `${name} carries a shader library under ${n === null ? "no pakchunk number" : `pakchunk${n}`}, ` +
+              "outside the 900-999 that launchers up to 0.23 load: players need a launcher with " +
+              "local chunk numbers, and older launchers are told to update.",
+          );
+        }
+      }
       if (name.startsWith("content/") && sizes[cas] > 0) {
         for (const id of toc.chunkIds) {
           // ExportBundleData at index zero, not a bulk-data chunk with the
@@ -473,6 +507,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
     chunkIds: [...seen.values()],
     containerCount: utocs.length,
     banks,
+    requires: [...requires],
     files,
     hashes,
     sizes,

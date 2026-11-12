@@ -18,6 +18,7 @@ import {
 import { useState } from "react";
 
 import { conflictsFor, type Library } from "../../hub/library";
+import { LocalBuildsPanel } from "./LocalBuildsPanel";
 
 export function InstalledPanel({
   library,
@@ -224,6 +225,8 @@ export function InstalledPanel({
           })}
         </div>
       )}
+
+      <LocalBuildsPanel />
     </div>
   );
 }

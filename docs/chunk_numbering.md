@@ -147,11 +147,74 @@ So, reproduced on purpose:
   case but one: a loose test build that shares a *fixed* number with a hub
   container and has a marker sorting below `MJOLNIRHUB` (PC 1's
   `pakchunk981-MJOLNIRH2TEST_P`) beat the hub copy by name, and now loses.
-  A loose container that must beat the hub names itself `…_<v>_P` with `v`
-  from 20,000,100 to 21,000,000 (`chunk_numbers::OVERRIDE_BASE`); that band
-  is reserved and has not been tried in game (the largest suffix tried is
-  `_3000_P`, and the launcher's own reach about 3,300 on PC 1). Whether
-  developer overrides should instead win by default is open.
+  Plain `_P` keeps losing on purpose. Local development wins by being
+  installed as a local build (next section), and anything still loose that
+  loses is named by `mjolnir dev list` and in the launcher.
+
+## Local builds take precedence over hub content
+
+Decided 2026-11-11: local development must have a good way to win over
+published hub content. A local build is
+`pakchunk<N>-MJOLNIRDEV-<name>_<v>_P`:
+
+| | Load-order suffix `v` | Chunk number `N` |
+| --- | --- | --- |
+| Loose `_P` (registration, hand copies) | 0 | as named |
+| Hub containers (launcher) | 1,000 to 999,996, plus 3 for live updates | 10,000 to 4,999,999 |
+| Local builds (`mjolnir dev install`) | 1,000,000 to 1,999,999, each install above the last | 5,000,000 to 5,999,999 |
+
+The bands live in one place, `ue_iostore::paks`, with compile-time checks
+that they do not overlap and that `100 × (v + 1)` stays inside the engine's
+int32 priority. The launcher's `chunk_numbers` takes its hub values from it.
+
+- `mjolnir dev install <container> --name <name>` writes the build above
+  every hub container and every earlier build, replacing an earlier build of
+  the same name (it keeps that build's number). A shader library is renamed
+  to the build's own number, so it opens beside the hub copy's. The name is
+  letters, digits and dashes; one carrying `MJOLNIRHUB` is refused (the
+  launcher deletes those). With no `--name` the container's own name after
+  its number is used, refused when it says nothing about which map
+  (`pakchunk978-MJOLNIRLAND-Windows`).
+- `mjolnir dev remove <name>`, `mjolnir dev list [--json]`. Install and
+  remove change nothing while the game holds a file they would replace.
+- `dev install` and `dev list` print every loose MJOLNIR container that
+  loses chunks with different bytes to a hub container or local build
+  (`paks::shadowed_loose`; byte-identical chunks are counted apart, shader
+  code and container headers are left out, a library under the same number
+  counts). This is the silent failure seen twice (a hub copy at 920 over a
+  local 996, and H2TEST).
+- The launcher never sets a local build aside, never renames or deletes
+  one, and lists them under *Local builds* in the Library's content-mod
+  panel with a Remove button, beside the same "loses to" warnings
+  (`local_builds.rs`, `LocalBuildsPanel.tsx`).
+- `tools/level/dev_paks.py` is the Python side: the install and remove
+  commands, and the glob for the launcher's copy of a hub container under
+  either name. `upgrade_ce_map.py`'s install stages use it: a local install
+  of a new map, `--install` over an existing hub map (map, mesh and
+  landscape), and the shared trial and water masters all go in as local
+  builds instead of being copied over the hub's files.
+  `tst_preview_swap.py` installs the staged TST containers as builds named
+  `TST-PREVIEW-*`, swaps and backs up the map's data files as before, and
+  restore removes the builds.
+- A local build shadows the hub copy; it cannot delete it. A package the hub
+  copy has and the build does not still loads from the hub. Overwriting the
+  hub's files used to drop such packages; that no longer works anyway, since
+  the launcher renames hub files and rewrites their libraries.
+
+Checked in game 2026-11-11 (PC 1, Steam), with the hub profile written under
+the new names and the same GUID memory scan as above (11 packages the
+runtime and TST both carry):
+
+| Paks | Copy that loaded |
+| --- | --- |
+| hub only | TST (later entry), 8 of 11, runtime 0 |
+| + runtime's WATER, CETRIAL, MAT as local builds at 1,000,000 to 1,000,002 | runtime, 8 of 11, TST 0: the bottom of the band beats the hub |
+| + a placeholder at 1,999,998, then TST's COOK as a local build, which took 1,999,999 | TST, 8 of 11, runtime 0: the top beats the bottom, no overflow |
+| TST's hub entry off, its five containers as local builds (libraries 968 → 5,000,000 and 969 → 5,000,001) | TST loads and draws textured; COOK's 13 shader maps are in no other library |
+
+`mjolnir dev list` on that Paks named PC 1's `pakchunk981-MJOLNIRH2TEST_P`
+as losing to the runtime's 981 container, the case it exists for. The
+launcher's panel was not looked at in the running app.
 
 ## What was built
 
@@ -165,9 +228,9 @@ Launcher (`apps/launcher/src-tauri/src`):
   the active profile, counting every entry's containers in order, disabled
   entries included, so enabling a mod or installing one (appended) renames
   nothing already mounted.
-  - Suffix `v = 1000 + 4 × position`, capped at 20,000,000 (the engine keeps
-    priority in an int32). The gap of 4 holds three live updates.
-  - Chunk number `N = 10000 + position`: every container its own number.
+  - Suffix `v = 1000 + 4 × position`, capped at 999,996, below the local
+    builds' band. The gap of 4 holds three live updates.
+  - Chunk number `N = 10000 + position`, capped below the local builds' numbers: every container its own number.
   - `config/fixed_chunks.json`: the containers that keep their cooked number
     because Lua, a tool or the launcher names them by it (966 KOTH, 980
     FORGEUI, 981 H2, 982 WATER, 983 CETRIAL, 984 UI, 985 MENU, 988 MAT, the
@@ -220,6 +283,54 @@ Not checked in game: live updates (`patch_name`, `library_free`), the
 registration rebuild path of a full `materialize` (`sync_maps`, unchanged by
 this work), suffixes above about 3,300, and the Game Pass build.
 
+## The launcher gate and release order
+
+Decided 2026-11-11: content that only works with local chunk numbers must
+not reach a player on an older launcher silently; they get "update your
+launcher" instead.
+
+What needs a newer launcher. A release carrying a shader library cooked
+under a number outside 900 to 999 (launchers before local numbers set that
+container aside as unsupported), or under the same number as another mod's
+library (they open only one of the two). The hub measures this when it scans
+a release and records it as the release's `requires` list, entry
+`local-chunk-numbers`; authors do not declare it. A library number already
+used by another mod's ungated release gates the newcomer, never the
+original.
+
+What each launcher does.
+
+- **This launcher and later** send `User-Agent: MJOLNIR-Launcher/<version>`,
+  `X-MJOLNIR-Launcher: <version>` and `X-MJOLNIR-Features:
+  local-chunk-numbers` on every hub request (`hub.rs`, `launcher_headers`).
+  A release whose `requires` names a feature the launcher lacks is never
+  chosen, never offered as an update, and refused at install or enable with
+  "needs a newer MJOLNIR launcher … Update the launcher, then try again"
+  (`needs_newer_launcher`). The feature list is compiled in
+  (`LAUNCHER_FEATURES`), as Forge packs' `requires` is.
+- **Launchers up to 0.23.0** send no User-Agent and no headers, which is how
+  the hub tells them from browsers. The hub leaves gated releases out of
+  their release lists and map listings, so they install the newest release
+  they can use. When a mod has nothing else, the newest gated release stays
+  listed and `GET /releases/{id}` reports its status as a sentence telling
+  them to update the launcher, which they show as "Release is …, not
+  published"; the download itself is refused. Browsers and other clients
+  with a User-Agent see everything as before.
+- **Not covered.** A player on an old launcher who joins a host running a
+  gated release by its exact id reads "That release is not published". The
+  test for an old launcher is the missing User-Agent: anything else that
+  calls the hub without one is treated the same way. Releases scanned
+  before the hub change is deployed carry no `requires` until scanned again.
+
+Release order, for content cooked under a new number (Halo 2, Reach and
+later remasters, community maps with their own libraries):
+
+1. Ship this launcher (`launcher-v*`) and let it be adopted. Which version
+   number that is, is the release's call; nothing stores it.
+2. Deploy the hub with the `requires` scan and filtering.
+3. Only then publish such content. Content cooked under 900 to 999 with a
+   number nobody else uses needs no gate and works on every launcher.
+
 ## Rollout
 
 1. `ue-iostore`: `pack::rekey` and `shader_library::renumber` (written,
@@ -241,15 +352,19 @@ this work), suffixes above about 3,300, and the Game Pass build.
 
 ## Remaining
 
-- **Tools that find hub containers by name.** These match the old
-  `…-<j>_P` ending and miss `…-<j>_<v>_P`:
-  `tools/level/upgrade_ce_map.py` (its "install the CE runtime first" check
-  globs `pakchunk*-MJOLNIRHUB-mjolnir-ce-runtime-{index}_P.utoc`),
-  `tools/level/test_upgrade_ce_map.py`, `tools/level/tst_preview_swap.py` and
-  its test (`pakchunk972-MJOLNIRHUB-…`). Rollout step 5 should give them one
-  shared helper. A comment in `mods/MJOLNIRLobby/Scripts/main.lua` still
-  describes the old `pakchunk9NN` names (Lua finds hub containers by their
-  cached names in `hub_state.json`, so its behaviour does not change).
+- **Tools not moved to local builds.** `tools/level/ce_vehicle.py` and
+  `ce_vehicle_name.py` copy any `pakchunk997-MJOLNIRMAP-*_P.pak` from Paks as
+  a stub, which a machine with only hub maps does not have. The build
+  scripts that copy runtime overrides in by hand (`build_ce_runtime.sh`,
+  `convert_ce_map.sh`, `build_spawn_point.sh`, `build_ctf_flag.sh`, the
+  `blam-cli` `ue` and `level` writers) still write plain `_P` names, which
+  lose to the hub's runtime; `mjolnir dev list` names them.
+  `pack_local_map.py` only packages archives and needed nothing. Tools that
+  read Paks through `ue_iostore::load_all` do not apply mount priority when
+  two containers hold one package. A comment in
+  `mods/MJOLNIRLobby/Scripts/main.lua` still describes the old `pakchunk9NN`
+  names (Lua finds hub containers by their cached names in
+  `hub_state.json`, so its behaviour does not change).
 - **Minimum launcher version gate** for content cooked under numbers outside
   9NN (older launchers set those aside as unsupported).
 - **The two shared landscape shader maps** (design step 4): move them into

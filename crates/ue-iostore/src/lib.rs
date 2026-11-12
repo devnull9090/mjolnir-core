@@ -20,6 +20,7 @@ pub mod container_header;
 pub mod oodle;
 pub mod pack;
 pub mod pak;
+pub mod paks;
 pub mod shader_library;
 pub mod toc;
 

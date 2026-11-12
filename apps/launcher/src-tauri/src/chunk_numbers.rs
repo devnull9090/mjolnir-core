@@ -25,43 +25,31 @@
 use serde::Deserialize;
 use std::sync::OnceLock;
 
+use ue_iostore::paks;
+
 /// The first local chunk number. Our fixed numbers and the game's own are all
 /// below it.
-pub const LOCAL_BASE: u32 = 10000;
+pub const LOCAL_BASE: u32 = paks::HUB_NUMBER_BASE;
 
 /// The load-order suffix of the first hub container. Loose `_P` containers
 /// in Paks (a plain `_P` is `v = 0`: the registration MJOLNIRREG, anything a
-/// build script installs by hand) sit below every hub container, which is
-/// what wins today in every case measured but one: hub copies beat local 99x
-/// overrides (docs/chunk_numbering.md). Suffixes 1 to 999 are free for
-/// anything of ours that must load above loose containers but below every
-/// hub mod.
-pub const HUB_BASE: u32 = 1000;
-
-/// A loose container that has to beat every hub container (a developer's
-/// test build of something a hub mod ships) names itself `…_<v>_P` with `v`
-/// from here to [`OVERRIDE_MAX`]. The launcher never writes these.
-pub const OVERRIDE_BASE: u32 = 20_000_100;
-
-/// The highest suffix whose priority still fits the engine's int32.
-pub const OVERRIDE_MAX: u32 = 21_000_000;
-
-// The bands, checked when this compiles: hub suffixes and their live updates
-// below the override band, and `100 × (v + 1)` plus a folder base below 10
-// inside an int32 for every suffix either band holds.
-const _: () = assert!(OVERRIDE_BASE > MAX_SUFFIX + STEP);
-const _: () = assert!(100 * (OVERRIDE_MAX as u64 + 1) + 10 < i32::MAX as u64);
+/// build script copies in by hand) sit below every hub container, and
+/// developer builds (`mjolnir dev install`, `ue_iostore::paks`) above them.
+/// Suffixes 1 to 999 are free for anything of ours that must load above
+/// loose containers but below every hub mod.
+pub const HUB_BASE: u32 = paks::HUB_SUFFIX_BASE;
 
 /// Suffixes between one container and the next. A live update of a container
 /// the game holds open is written beside it at `v + 1`, `v + 2`, `v + 3`
 /// (`patch_name`), still below the next container.
 pub const STEP: u32 = 4;
 
-/// The highest suffix the launcher writes. The engine keeps priority in an
-/// int32, so `100 × (v + 1)` plus the folder's base must stay below 2³¹.
-/// At [`STEP`] 4 that is five million containers; past it every container
-/// shares the top suffix and their names decide.
-pub const MAX_SUFFIX: u32 = 20_000_000;
+/// The highest suffix the launcher writes, below the developer band. At
+/// [`STEP`] 4 that is a quarter of a million containers; past it every
+/// container shares the top suffix and their names decide.
+pub const MAX_SUFFIX: u32 = paks::HUB_SUFFIX_MAX;
+
+const _: () = assert!(MAX_SUFFIX + STEP - 1 < paks::DEV_SUFFIX_BASE);
 
 /// The load-order suffix of the container at `position` (counted across the
 /// active profile's entries, in order, then each entry's containers in
@@ -72,21 +60,16 @@ pub fn suffix(position: usize) -> u32 {
     v.min(MAX_SUFFIX as u64) as u32
 }
 
-/// The local chunk number of the container at `position`.
+/// The local chunk number of the container at `position`, below the
+/// developer builds' numbers.
 pub fn local_number(position: usize) -> u32 {
     let n = (LOCAL_BASE as u64).saturating_add(position as u64);
-    n.min(u32::MAX as u64) as u32
+    n.min(paks::HUB_NUMBER_MAX as u64) as u32
 }
 
 /// `pakchunk<digits>` at the start of `stem`: the number and what follows.
 pub fn split_number(stem: &str) -> Option<(u32, &str)> {
-    if stem.len() <= 8 || !stem[..8].eq_ignore_ascii_case("pakchunk") {
-        return None;
-    }
-    let rest = &stem[8..];
-    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-    let number = rest[..digits].parse().ok()?;
-    Some((number, &rest[digits..]))
+    paks::split_number(stem)
 }
 
 #[derive(Debug, Deserialize)]
