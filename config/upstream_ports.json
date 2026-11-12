@@ -1,0 +1,24 @@
+{
+  "about": [
+    "Code of ours that is a port of another project's, and how far each port has",
+    "been checked against its source. A weekly scheduled agent reads this, looks at",
+    "what the source changed under `paths` since `reviewed_commit`, ports what",
+    "applies and moves `reviewed_commit` forward in the same pull request",
+    "(docs/credits.md, hub/src/lib/credits.ts).",
+    "`scope` says which of the source's branches we carry: a change outside it is",
+    "recorded as reviewed and not ported."
+  ],
+  "ports": [
+    {
+      "name": "CUE4Parse Nanite readers",
+      "source": "https://github.com/FabianFG/CUE4Parse",
+      "licence": "Apache-2.0",
+      "paths": ["CUE4Parse/UE4/Assets/Exports/Nanite"],
+      "ours": ["crates/ue-asset/src/nanite.rs"],
+      "scope": "Unreal Engine 5.5 only (the engine Halo Campaign Evolved ships on): static and skeletal mesh cluster pages, positions, normals, UVs, strips and vertex references. Other engine versions' branches are not carried.",
+      "ported": "2026-09-06",
+      "reviewed_commit": null,
+      "reviewed_note": "Not yet reviewed against a named commit. The newest change under `paths` on 2026-11-12 was 2cfd957a4 (2026-09-06, \"Skip nanite voxel clusters\"), the day the port was written: the first review decides whether the port already has it."
+    }
+  ]
+}
