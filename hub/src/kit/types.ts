@@ -81,6 +81,8 @@ export interface Release {
   signer_fingerprint?: string | null;
   /** The author's signing key has been revoked since publish. */
   signer_key_revoked?: boolean;
+  /** Launcher features this release needs (`local-chunk-numbers`); empty for none. */
+  requires?: string[];
 }
 
 export interface ScanFinding {
@@ -137,6 +139,8 @@ export interface ReleaseStatusDetail {
   signer_fingerprint?: string | null;
   /** The signing key has been revoked since this release published. */
   signer_key_revoked?: boolean;
+  /** Launcher features this release needs (`local-chunk-numbers`); empty for none. */
+  requires?: string[];
 }
 
 export type MediaStatus = "pending" | "approved" | "rejected";
@@ -615,6 +619,8 @@ export interface MapListing {
     file_size: number | null;
     sha256: string | null;
     created_at: string;
+    /** Launcher features the release needs. */
+    requires?: string[];
   } | null;
 }
 

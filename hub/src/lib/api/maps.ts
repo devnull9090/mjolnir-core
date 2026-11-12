@@ -20,6 +20,8 @@ import { requireModerator } from "./account";
 import { audit } from "./moderation";
 import { MAP_GAMES, MAP_ORIGINS, MAP_SIZES } from "./manifest";
 import { ErrorSchema, avatarUrl, mediaUrl } from "./schemas";
+import type { Client } from "./clients";
+import { CLIENT_VARY, OTHER_CLIENT, clientOf, compatibleSql, featuresJson, parseRequires } from "./clients";
 
 const MapSchema = z
   .object({
@@ -59,8 +61,17 @@ const MapSchema = z
         file_size: z.number().nullable(),
         sha256: z.string().nullable(),
         created_at: z.string(),
+        requires: z.array(z.string()).openapi({
+          description: "Launcher features the release needs (see Release.requires).",
+        }),
       })
-      .nullable(),
+      .nullable()
+      .openapi({
+        description:
+          "The newest published release, the one to install. A launcher (`X-MJOLNIR-Launcher`, " +
+          "or no User-Agent: launchers up to 0.23) gets the newest one its `X-MJOLNIR-Features` " +
+          "cover, or the newest of all when none is.",
+      }),
   })
   .openapi("MapListing");
 
@@ -101,12 +112,18 @@ function toMap(r: MapRow): MapListing {
           file_size: (r.release_size as number) ?? null,
           sha256: (r.release_sha256 as string) ?? null,
           created_at: r.release_created_at as string,
+          requires: parseRequires(r.release_requires),
         }
       : null,
   };
 }
 
-/** Published maps, each joined to its newest published release. */
+/**
+ * Published maps, each joined to its newest published release the client can
+ * install, or failing that its newest: ?1 is the client's features
+ * (clients.ts featuresJson), NULL for a client every release suits. Ties on
+ * the second go to the later insert.
+ */
 const MAP_SELECT = `
   SELECT ml.code, ml.title, ml.modes, ml.official, ml.size, ml.players_min, ml.players_max,
          ml.vehicles, ml.origin, ml.game, m.slug, m.summary, m.download_count, m.rating_count,
@@ -114,6 +131,7 @@ const MAP_SELECT = `
          u.discord_id AS owner_discord_id, u.discord_avatar AS owner_discord_avatar,
          r.id AS release_id, r.version AS release_version, r.file_size AS release_size,
          r.sha256 AS release_sha256, r.created_at AS release_created_at,
+         r.requires AS release_requires,
          (SELECT md.id FROM media md
           WHERE md.mod_id = m.id AND md.status = 'approved' AND md.kind <> 'video'
           ORDER BY md.position, md.created_at LIMIT 1) AS cover_id
@@ -123,7 +141,7 @@ const MAP_SELECT = `
   LEFT JOIN mod_releases r ON r.id = (
     SELECT r2.id FROM mod_releases r2
     WHERE r2.mod_id = m.id AND r2.status = 'published'
-    ORDER BY r2.created_at DESC LIMIT 1)`;
+    ORDER BY ${compatibleSql("r2", "?1")} DESC, r2.created_at DESC, r2.rowid DESC LIMIT 1)`;
 
 /**
  * Explicit orders. Each ends on the code so an offset cursor pages through
@@ -157,6 +175,8 @@ export interface MapListQuery {
   limit?: number;
   /** `next_cursor` from the previous page. */
   cursor?: string;
+  /** Who the embedded releases are for; absent, the newest of each map. */
+  client?: Client;
 }
 
 /** LIKE wildcards in a search are literal characters, not patterns. */
@@ -174,7 +194,8 @@ export async function searchMaps(
   query: MapListQuery = {},
 ): Promise<{ maps: MapListing[]; next_cursor: string | null }> {
   const clauses: string[] = [];
-  const binds: unknown[] = [];
+  // ?1 is MAP_SELECT's.
+  const binds: unknown[] = [featuresJson(query.client ?? OTHER_CLIENT)];
   if (query.official !== undefined) {
     binds.push(query.official ? 1 : 0);
     clauses.push(`ml.official = ?${binds.length}`);
@@ -340,7 +361,9 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
         sort: query.sort,
         limit: query.limit,
         cursor: query.cursor,
+        client: clientOf(c.req.raw.headers),
       });
+      c.header("Vary", CLIENT_VARY, { append: true });
       return c.json(page, 200);
     },
   );
@@ -505,9 +528,10 @@ export function registerMapRoutes(app: OpenAPIHono<ApiEnv>) {
     }),
     async (c) => {
       const { code } = c.req.valid("param");
-      const row = await c.env.DB.prepare(`${MAP_SELECT} WHERE ml.code = ?1`)
-        .bind(code.toUpperCase())
+      const row = await c.env.DB.prepare(`${MAP_SELECT} WHERE ml.code = ?2`)
+        .bind(featuresJson(clientOf(c.req.raw.headers)), code.toUpperCase())
         .first<MapRow>();
+      c.header("Vary", CLIENT_VARY, { append: true });
       if (!row) return c.json({ error: "not_found" }, 404);
       return c.json(toMap(row), 200);
     },

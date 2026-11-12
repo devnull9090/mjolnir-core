@@ -509,6 +509,7 @@ mod tests {
             "pakchunk800-MJOLNIRX_P.pak",
             "pakchunk10042-MJOLNIRHUB-ce-blood-gulch-0_2000_P.ucas",
             "pakchunk20001-mjolnirtst_P.utoc",
+            "pakchunk5000000-MJOLNIRDEV-MJOLNIRMAP-BGL_1000000_P.ucas",
             "readme.txt",
             "LogicMods/notes.md",
         ] {

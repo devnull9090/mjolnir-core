@@ -79,35 +79,48 @@ class LocalInstallTest(unittest.TestCase):
             upgrade.main()
 
     def test_fresh_local_install_merges_registration_after_copying_all_data(self):
+        installed = {}
+
         def run(cmd, **kwargs):
             if cmd == ["tasklist"]:
                 return "explorer.exe"
+            if cmd[1:3] == ["dev", "install"]:
+                self.assertEqual(cmd[-2:], ["--paks", str(self.paks)])
+                installed[cmd[cmd.index("--name") + 1]] = Path(cmd[3]).name
+                return "installed"
             self.assertEqual(cmd, [str(self.cli), "level", "register", "--paks", str(self.paks)])
             data = self.ue4ss / "MJOLNIRMaps/TST"
             self.assertTrue((data / "registration.json").is_file())
             self.assertTrue((data / "foliage.bin").is_file())
             self.assertTrue((data / "decals/test.dds").is_file())
-            self.assertEqual((self.paks / "pakchunk969-MJOLNIRLAND-Windows.pak").read_bytes(), b"stub")
             self.assertEqual((self.paks / "pakchunk996-MJOLNIRREG_P.utoc").read_bytes(), b"existing")
+            self.assertEqual(len(installed), 4, "every container is in before the registration")
             return "2 map(s) registered: BGL, TST"
         with patch.object(upgrade, "run", side_effect=run) as run_mock, patch.object(upgrade, "install_shared") as shared:
             self.main("--local-install")
         shared.assert_called_once()
-        self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(run_mock.call_count, 6)
         self.assertFalse(self.state.exists())
-        for stem in ("pakchunk997-MJOLNIRMAP-TST_P", "pakchunk986-MJOLNIRMESH-TST_P", "pakchunk985-MJOLNIRCOOK-TST_P"):
-            for ext in ("utoc", "ucas", "pak"):
-                self.assertTrue((self.paks / f"{stem}.{ext}").is_file())
+        # Every container goes in as a local build named for the map, above
+        # any hub copy; none is copied in under its own name.
+        self.assertEqual(installed, {
+            "MJOLNIRMAP-TST": "pakchunk997-MJOLNIRMAP-TST_P",
+            "MJOLNIRMESH-TST": "pakchunk986-MJOLNIRMESH-TST_P",
+            "MJOLNIRCOOK-TST": "pakchunk985-MJOLNIRCOOK-TST_P",
+            "MJOLNIRLAND-TST": "pakchunk969-MJOLNIRLAND-Windows",
+        })
+        for stem in ("pakchunk997-MJOLNIRMAP-TST_P", "pakchunk969-MJOLNIRLAND-Windows"):
+            self.assertFalse((self.paks / f"{stem}.utoc").exists())
 
     def test_authored_local_install_keeps_shader_library_number(self):
         conv = Path(self.paths["conv"])
         self.write(conv / "materials.spec.json", {"chunk": 48621, "authored_surfaces": {"armor": {}}})
         for ext in ("utoc", "ucas"):
             self.write(conv / f"pakchunk48621-MJOLNIRCOOK-TST_P.{ext}")
-        files, _ = upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
-        targets = [Path(dst).name for _, dst in files]
-        self.assertIn("pakchunk48621-MJOLNIRCOOK-TST_P.utoc", targets)
-        self.assertNotIn("pakchunk985-MJOLNIRCOOK-TST_P.utoc", targets)
+        _, _, containers = upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
+        sources = [Path(base).name for base, _ in containers]
+        self.assertIn("pakchunk48621-MJOLNIRCOOK-TST_P", sources)
+        self.assertNotIn("pakchunk985-MJOLNIRCOOK-TST_P", sources)
 
     def test_beta_local_install_keeps_published_runtime_unchanged(self):
         self.map["environment"] = {"light_scale": 8192, "sun": {"atmosphere_sun": True},
@@ -131,7 +144,8 @@ class LocalInstallTest(unittest.TestCase):
         self.write(water / "state.json", {})
         self.write(water / "height.exr", b"height")
         self.write(water / "velocity.exr", b"velocity")
-        upgrade.install_local("TST", upgrade.local_install_plan("TST", self.map, self.paths))
+        with patch.object(upgrade, "run", return_value="installed"):
+            upgrade.install_local("TST", upgrade.local_install_plan("TST", self.map, self.paths))
         dest = self.ue4ss / "MJOLNIRMaps/TST/flux_state"
         self.assertEqual((dest / "height.exr").read_bytes(), b"height")
         self.assertEqual((dest / "velocity.exr").read_bytes(), b"velocity")
@@ -159,6 +173,20 @@ class LocalInstallTest(unittest.TestCase):
         state = {"installed": [{"slug": "mjolnir-ce-runtime", "containers": [stem]}]}
         self.write(self.state, state)
         upgrade.local_install_plan("TST", self.map, self.paths)
+        # The launcher's names since load order went by suffix.
+        for ext in ("pak", "utoc", "ucas"):
+            (self.paks / f"pakchunk988-MJOLNIRHUB-mjolnir-ce-runtime-0_P.{ext}").rename(
+                self.paks / f"pakchunk983-MJOLNIRHUB-mjolnir-ce-runtime-0_1000_P.{ext}")
+        upgrade.local_install_plan("TST", self.map, self.paths)
+        # Another container's index never stands in for it.
+        for ext in ("pak", "utoc", "ucas"):
+            (self.paks / f"pakchunk983-MJOLNIRHUB-mjolnir-ce-runtime-0_1000_P.{ext}").rename(
+                self.paks / f"pakchunk10010-MJOLNIRHUB-mjolnir-ce-runtime-10_1040_P.{ext}")
+        with self.assertRaisesRegex(SystemExit, "install the CE runtime first"):
+            upgrade.local_install_plan("TST", self.map, self.paths)
+        for ext in ("pak", "utoc", "ucas"):
+            (self.paks / f"pakchunk10010-MJOLNIRHUB-mjolnir-ce-runtime-10_1040_P.{ext}").rename(
+                self.paks / f"pakchunk988-MJOLNIRHUB-mjolnir-ce-runtime-0_P.{ext}")
         state["installed"].append({"slug": "existing-map", "map_code": "TST"})
         self.write(self.state, state)
         with self.assertRaisesRegex(SystemExit, "existing hub map"):
@@ -185,6 +213,29 @@ class LocalInstallTest(unittest.TestCase):
             upgrade.stage_swap("TST", dict(self.map, tree_variant="Lrg_A"), self.paths)
             cmd = run.call_args.args[0]
             self.assertEqual(cmd[cmd.index("--tree-variant") + 1], "Lrg_A")
+
+
+class SharedInstallTest(unittest.TestCase):
+    def test_trial_and_water_masters_go_in_as_local_builds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = Path(tmp) / "staged"
+            staged.mkdir()
+            for stem in ("pakchunk983-Windows", "pakchunk982-Windows"):
+                (staged / f"{stem}.utoc").write_bytes(b"x")
+            repo = Path(tmp) / "repo"
+            ue4ss = Path(tmp) / "ue4ss"
+            (repo / "mods/MJOLNIRLevelLoader/Scripts").mkdir(parents=True)
+            (repo / "mods/MJOLNIRLevelLoader/Scripts/main.lua").write_text("--")
+            (ue4ss / "Mods/MJOLNIRLevelLoader/Scripts").mkdir(parents=True)
+            with patch.multiple(upgrade, STAGED=str(staged), PAKS="P", REPO=str(repo), UE4SS=str(ue4ss)), \
+                    patch.dict(os.environ, {"MJOLNIR": "cli"}), \
+                    patch.object(upgrade, "run", return_value="installed") as run:
+                upgrade.install_shared()
+            calls = [c.args[0] for c in run.call_args_list]
+            self.assertEqual(calls, [
+                ["cli", "dev", "install", str(staged / "pakchunk983-Windows"), "--name", "MJOLNIRCETRIAL", "--paks", "P"],
+                ["cli", "dev", "install", str(staged / "pakchunk982-Windows"), "--name", "MJOLNIRWATER", "--paks", "P"],
+            ])
 
 
 class GeneratedMeshTest(unittest.TestCase):

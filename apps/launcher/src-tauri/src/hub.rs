@@ -104,6 +104,10 @@ pub struct InstalledHubMod {
     /// in the release cache beside the containers.
     #[serde(default)]
     pub map_code: Option<String>,
+    /// What the release needs of the launcher, as the hub measured it
+    /// (`LAUNCHER_FEATURES`).
+    #[serde(default)]
+    pub requires: Vec<String>,
     /// Whether the install kept every file of the pack's `map/` folder. Set
     /// from launcher 0.14.1. Launchers up to 0.13 kept only `level.json` and
     /// `registration.json`, so a remastered map they installed has no
@@ -221,7 +225,7 @@ pub(crate) fn installed_summary() -> serde_json::Value {
     serde_json::json!({ "hub_mods": hub_mods, "code_mods": code_mods })
 }
 
-fn paks_dir() -> Result<PathBuf, String> {
+pub(crate) fn paks_dir() -> Result<PathBuf, String> {
     let (install, _) =
         crate::find_game_install().ok_or("Game not found. Install Halo Campaign Evolved first.")?;
     let paks = install.join("Meteorite/Content/Paks");
@@ -240,9 +244,60 @@ fn http() -> Result<reqwest::blocking::Client, String> {
     }
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(180))
+        .user_agent(format!("MJOLNIR-Launcher/{}", env!("CARGO_PKG_VERSION")))
+        .default_headers(launcher_headers())
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
     Ok(CLIENT.get_or_init(|| client).clone())
+}
+
+/// What a release can need of the launcher, beyond what every launcher
+/// does. The hub measures a release's needs when it scans it (`requires`)
+/// and leaves out of its answers to a launcher what that launcher lacks.
+///
+/// - `local-chunk-numbers`: a container whose shader library was cooked
+///   under a number outside 900 to 999, or under a number another mod's
+///   library already uses. Launchers before local chunk numbers
+///   (`chunk_numbers`) set the first aside as unsupported and open only one
+///   of the second.
+pub(crate) const LAUNCHER_FEATURES: &[&str] = &["local-chunk-numbers"];
+
+/// The headers that tell the hub this is a launcher and what it supports.
+/// Launchers before these sent no headers at all, not even a User-Agent,
+/// which is how the hub tells them apart from browsers.
+fn launcher_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(v) = reqwest::header::HeaderValue::from_str(env!("CARGO_PKG_VERSION")) {
+        headers.insert("X-MJOLNIR-Launcher", v);
+    }
+    if let Ok(v) = reqwest::header::HeaderValue::from_str(&LAUNCHER_FEATURES.join(",")) {
+        headers.insert("X-MJOLNIR-Features", v);
+    }
+    headers
+}
+
+/// The features `requires` names that this launcher lacks.
+fn unmet(requires: &[String]) -> Vec<String> {
+    requires.iter().filter(|f| !LAUNCHER_FEATURES.contains(&f.as_str())).cloned().collect()
+}
+
+/// Why `name` `version` cannot be used here, when it needs what this
+/// launcher lacks.
+fn needs_newer_launcher(name: &str, version: &str, requires: &[String]) -> Option<String> {
+    let missing = unmet(requires);
+    (!missing.is_empty()).then(|| {
+        format!(
+            "{name} {version} needs a newer MJOLNIR launcher (it uses {}; this is launcher {}). \
+             Update the launcher, then try again.",
+            missing.join(", "),
+            env!("CARGO_PKG_VERSION")
+        )
+    })
+}
+
+/// The releases this launcher can install.
+fn usable(releases: &[HubRelease]) -> Vec<HubRelease> {
+    releases.iter().filter(|r| unmet(&r.requires).is_empty()).cloned().collect()
 }
 
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
@@ -911,6 +966,8 @@ struct HubRelease {
     channel: String,
     #[serde(default)]
     signature: Option<String>,
+    #[serde(default)]
+    requires: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -925,6 +982,8 @@ struct HubReleaseStatus {
     signer_fingerprint: Option<String>,
     #[serde(default)]
     signer_key_revoked: Option<bool>,
+    #[serde(default)]
+    requires: Vec<String>,
 }
 
 /// Sort key for a version: numeric components, then whether it is a final
@@ -1215,14 +1274,25 @@ fn install_one_as(
             .find(|r| &r.id == id)
             .cloned()
             .ok_or("That release is not published")?,
-        None => newest_release(&releases)
-            .cloned()
-            .ok_or("This mod has no published releases")?,
+        None => match newest_release(&usable(&releases)) {
+            Some(r) => r.clone(),
+            None => {
+                let newest = newest_release(&releases).ok_or("This mod has no published releases")?;
+                return Err(needs_newer_launcher(&name, &newest.version, &newest.requires)
+                    .unwrap_or_else(|| "This mod has no published releases".into()));
+            }
+        },
     };
+    if let Some(why) = needs_newer_launcher(&name, &release.version, &release.requires) {
+        return Err(why);
+    }
 
     let status: HubReleaseStatus =
         serde_json::from_value(get_json(&format!("{api}/releases/{}", release.id))?)
             .map_err(|e| e.to_string())?;
+    if let Some(why) = needs_newer_launcher(&name, &release.version, &status.requires) {
+        return Err(why);
+    }
     if status.status != "published" {
         return Err(format!("Release is {}, not published", status.status));
     }
@@ -1365,7 +1435,8 @@ fn install_one_as(
             return Err(format!("{name} needs {} {} enabled. Install that version in the launcher and restart the game.", dep.slug, dep.range));
         }
         if !satisfied {
-            let releases = fetch_releases(&dep.slug)?;
+            let all = fetch_releases(&dep.slug)?;
+            let releases = if version_available { all } else { usable(&all) };
             let matching = if version_available {
                 releases.iter().find(|r| have.is_some_and(|m| r.id == m.release_id))
             } else {
@@ -1497,6 +1568,7 @@ fn install_one_as(
         category: mod_page["category"].as_str().map(str::to_string),
         installed_at: Some(now_unix()),
         signature_verified,
+        requires: status.requires.clone(),
         container_hashes,
         signer_fingerprint,
         published_by: status.published_by.clone().or_else(|| {
@@ -1935,7 +2007,8 @@ pub fn installed_mods() -> Vec<InstalledHubMod> {
 /// One installed mod against the hub: a newer release, the same release
 /// again for a map missing files, or None when it is current.
 pub fn check_update_one(inst: &InstalledHubMod) -> Result<Option<UpdateInfo>, String> {
-    let releases = fetch_releases(&inst.slug)?;
+    // A release this launcher cannot install is not offered as an update.
+    let releases = usable(&fetch_releases(&inst.slug)?);
     let Some(latest) = newest_release(&releases) else {
         return Ok(None);
     };
@@ -2222,6 +2295,13 @@ pub fn set_enabled(slug: String, enabled: bool) -> Result<HubState, String> {
         .find(|e| e.slug == slug)
         .ok_or("Not in this profile")?;
     entry.enabled = enabled;
+    if enabled {
+        if let Some(inst) = state.installed.iter().find(|m| m.slug == slug) {
+            if let Some(why) = needs_newer_launcher(&inst.name, &inst.version, &inst.requires) {
+                return Err(why);
+            }
+        }
+    }
     validate_profile_dependencies(&state)?;
     preflight_forge_shaders(&state, true)?;
     save_state(&state)?;
@@ -4658,7 +4738,60 @@ mod tests {
             version: version.into(),
             channel: channel.into(),
             signature: None,
+            requires: Vec::new(),
         }
+    }
+
+    /// What tells the hub apart a launcher of today from one that predates
+    /// release requirements (no User-Agent, no headers) must be on the wire.
+    #[test]
+    fn every_hub_request_says_it_is_a_launcher() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8];
+            while !request.ends_with(b"\r\n\r\n") && socket.read(&mut byte).unwrap_or(0) == 1 {
+                request.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+            String::from_utf8_lossy(&request).to_ascii_lowercase()
+        });
+        http().unwrap().get(format!("http://{addr}/mods/x/releases")).send().unwrap();
+        let request = server.join().unwrap();
+        let version = env!("CARGO_PKG_VERSION");
+        assert!(request.contains(&format!("user-agent: mjolnir-launcher/{version}\r\n")), "{request}");
+        assert!(request.contains(&format!("x-mjolnir-launcher: {version}\r\n")), "{request}");
+        assert!(request.contains("x-mjolnir-features: local-chunk-numbers\r\n"), "{request}");
+    }
+
+    #[test]
+    fn a_release_needing_what_this_launcher_lacks_is_never_chosen() {
+        let mut gated = release("new", "2.0.0", "stable");
+        gated.requires = vec!["teleport-anywhere".into()];
+        let mine = release("ours", "1.9.0", "stable");
+        let mut known = release("known", "1.9.5", "stable");
+        known.requires = vec!["local-chunk-numbers".into()];
+        let all = [gated.clone(), mine.clone(), known.clone()];
+        let ids: Vec<String> = usable(&all).into_iter().map(|r| r.id).collect();
+        assert_eq!(ids, ["ours", "known"]);
+        assert_eq!(newest_release(&usable(&all)).unwrap().id, "known");
+        let why = needs_newer_launcher("Coldsnap", "2.0.0", &gated.requires).unwrap();
+        assert!(why.contains("newer MJOLNIR launcher") && why.contains("teleport-anywhere"), "{why}");
+        assert!(needs_newer_launcher("Coldsnap", "1.9.5", &known.requires).is_none());
+        // The hub is told who is asking: a launcher, and what it supports.
+        let headers = launcher_headers();
+        assert_eq!(headers["X-MJOLNIR-Launcher"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(headers["X-MJOLNIR-Features"], "local-chunk-numbers");
+        // The record of an installed release keeps what it needed; one
+        // written before this field reads as needing nothing.
+        let old: InstalledHubMod = serde_json::from_value(serde_json::json!({
+            "slug": "a", "name": "A", "release_id": "r", "version": "1", "sha256": "", "containers": []
+        })).unwrap();
+        assert!(old.requires.is_empty());
     }
 
     fn installed(slug: &str) -> InstalledHubMod {

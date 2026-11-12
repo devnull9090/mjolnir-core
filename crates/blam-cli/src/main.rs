@@ -15,6 +15,7 @@ mod cache;
 mod console;
 mod container;
 mod defs;
+mod dev;
 mod extract;
 mod forge;
 mod hsc;
@@ -200,6 +201,8 @@ enum Command {
     Mesh(mesh::MeshArgs),
     /// Read and edit the properties of any cooked Unreal package — a material instance's parameters, a data asset's fields — and write the edit as an override container
     Ue(ue::UeArgs),
+    /// Local builds that take precedence over hub content: install, remove, list.
+    Dev(dev::DevArgs),
     /// Derive FPackageId values and check them against the shipped TOCs.
     Packageid(container::PackageIdArgs),
     /// Diff the shipped tags of two builds, field by field.
@@ -600,6 +603,7 @@ fn main() -> Result<()> {
         Command::Cache(a) => cache::run(a),
         Command::Mesh(a) => mesh::run(a),
         Command::Ue(a) => ue::run(a),
+        Command::Dev(a) => dev::run(a),
         Command::Packageid(a) => container::run_packageid(a),
         Command::Tagdiff(a) => tagdiff::run(a),
     }
