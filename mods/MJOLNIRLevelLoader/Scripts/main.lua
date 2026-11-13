@@ -4499,6 +4499,13 @@ function Land.structures(world, spec)
                                     mid:SetTextureParameterValue(FName("LM"), lm)
                                     vec(mid, "LandLMLevels", { levels[1], levels[2], 0, 0 })
                                 end
+                                -- `bake_ao`: the conversion's baked corners
+                                -- (the slot's Bake texture), as a power.
+                                local bake = set.bake_ao and type(t.Bake) == "string" and resolveMesh(t.Bake)
+                                if bake then
+                                    mid:SetTextureParameterValue(FName("Bake"), bake)
+                                    vec(mid, "CliffBakeAO", { set.bake_ao, 0, 0, 0 })
+                                end
                                 vec(mid, "CliffTiles", set.tiles)
                                 vec(mid, "CliffMix", set.mix)
                                 vec(mid, "CliffLook", set.look)

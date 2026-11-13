@@ -9,6 +9,12 @@ copy of the base map covers (from the mesh's UVs), and so the size of a
 texel on the surface, in cm. A texel over about 1 cm reads as blurred from
 a player's eye height at arm's length; over 3 cm, from across a room.
 
+The detail map (`Primary`, tiled `PrimaryScale` times per copy of the base
+map) and the bump map (`Bump`, `BumpScale`) get the same measure:
+`detail_cm` and `bump_cm`. A surface is as sharp as its finest layer, so a
+stretched base map over a fine detail map reads better than its own
+`texel_cm` says; `sharpest_cm` is the smallest of the three.
+
 `treatment` says what the remaster already does with the shader: the
 landscape (`shaders`), the cliffs' rock (`cliff_shaders`), a PBR surface
 (`structure_surfaces`), hidden (`hide_materials`), or `as converted`.
@@ -88,9 +94,22 @@ def main():
             size = list(Image.open(files[base]).size)
         span = (row["area_m2"] / row["uv_area"]) ** 0.5 if row["uv_area"] > 1e-9 else None
         texel = span * 100.0 / max(size) if span and size else None
+        sc = e.get("scalars") or {}
+
+        def layer(slot, scale):
+            name = str(tex.get(slot) or "").rsplit(".", 1)[-1]
+            if not (name in files and os.path.exists(files[name]) and span):
+                return name, None, None
+            dims = list(Image.open(files[name]).size)
+            return name, dims, round(span * 100.0 / (max(float(sc.get(scale) or 1.0), 1e-3) * max(dims)), 2)
+
+        detail, detail_size, detail_cm = layer("Primary", "PrimaryScale") if sc.get("HasPrimary", 1.0) else ("", None, None)
+        bump, bump_size, bump_cm = layer("Bump", "BumpScale") if sc.get("HasBump", 1.0) else ("", None, None)
+        cms = [v for v in (texel, detail_cm, bump_cm) if v]
         row.update({"scenes": sorted(row["scenes"]), "parent": str(e.get("parent", "")).rsplit(".", 1)[-1],
-                    "base": base, "base_size": size, "detail": str(tex.get("Primary", "")).rsplit(".", 1)[-1],
-                    "bump": str(tex.get("Bump", "")).rsplit(".", 1)[-1],
+                    "base": base, "base_size": size, "detail": detail, "detail_size": detail_size,
+                    "detail_cm": detail_cm, "bump": bump, "bump_size": bump_size, "bump_cm": bump_cm,
+                    "sharpest_cm": round(min(cms), 2) if cms else None,
                     "span_m": round(span, 2) if span else None, "texel_cm": round(texel, 2) if texel else None,
                     "area_m2": round(row["area_m2"], 1), "treatment": treatment(row["shader"], m)})
         row.pop("uv_area")
@@ -105,8 +124,13 @@ def main():
     print(f"as converted: {len(todo)} shader(s), {sum(r['area_m2'] for r in todo):.0f} m2. Worst first:")
     for r in todo[:a.top]:
         size = "x".join(str(v) for v in r["base_size"]) if r["base_size"] else "?"
-        print(f"  {r['area_m2']:8.0f} m2  {str(r['texel_cm'] or '?'):>6} cm/texel  {size:>9}  {r['parent']:28s} "
+        print(f"  {r['area_m2']:8.0f} m2  {str(r['texel_cm'] or '?'):>6} cm/texel  {size:>9}  "
+              f"detail {str(r['detail_cm'] or '-'):>5}  bump {str(r['bump_cm'] or '-'):>5}  {r['parent']:28s} "
               f"{r['shader'][-58:]}")
+    flat = [r for r in todo if not r["detail_cm"] and not r["bump_cm"] and (r["texel_cm"] or 0) > 1.0]
+    soft = [r for r in todo if (r["sharpest_cm"] or 0) > 1.0 and r not in flat]
+    print(f"no detail or bump map and over 1 cm a texel: {len(flat)} shader(s), {sum(r['area_m2'] for r in flat):.0f} m2")
+    print(f"every layer over 1 cm a texel: {len(soft)} shader(s), {sum(r['area_m2'] for r in soft):.0f} m2")
 
 
 if __name__ == "__main__":

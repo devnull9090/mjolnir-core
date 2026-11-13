@@ -1467,7 +1467,7 @@ def stage_assemble(code, m, p):
         entry = {"bases": bases, "rock_a": surface_textures(st["surface"]),
                  "rock_b": surface_textures(st.get("large") or st["surface"])}
         for key in ("tiles", "mix", "look", "tint", "rough", "far", "vary", "ce_tint", "fill", "fill_dir", "drape",
-                    "foot", "wet", "moss", "ledge", "fill_occlusion"):
+                    "foot", "wet", "moss", "ledge", "fill_occlusion", "bake_ao"):
             if key in st:
                 entry[key] = st[key]
         structures.append(entry)
@@ -1751,6 +1751,33 @@ def stage_assemble(code, m, p):
                         tex[key] = f"{root}{leaf}.{leaf}"
                         swapped += 1
         print(f"  {code}: {swapped} material slot(s) on {len(names)} upscaled texture(s)")
+    # `detail_fill`: a detail map for slots the game drew with a base map
+    # alone (Halo 2's wheel: a stretched colour map and nothing under it).
+    # Each rule names base maps (tokens), one of the conversion's own detail
+    # maps and how often it tiles; a slot that has a detail map keeps it.
+    # Moving parts cannot take a structure surface (world space: it swims).
+    if m.get("detail_fill"):
+        spec_tex = {str(t["name"]): t for t in json.load(open(
+            os.path.join(p["conv"], "materials.spec.json"), encoding="utf-8"))["textures"]}
+        any_path = next((str(v) for item in level.get("decor") or [] for e in item.get("materials") or []
+                         if isinstance(e, dict) for v in (e.get("textures") or {}).values()
+                         if f"/Maps/{code}/Textures/" in str(v)), None)
+        filled = 0
+        for rule in m["detail_fill"]:
+            if rule["detail"] not in spec_tex or not any_path:
+                sys.exit(f"{code}: detail_fill names a texture the conversion does not carry: {rule['detail']}")
+            path = any_path.rsplit("/", 1)[0] + f"/{rule['detail']}.{rule['detail']}"
+            for item in level.get("decor") or []:
+                for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
+                    tex = entry.get("textures") if isinstance(entry, dict) else None
+                    sc = entry.get("scalars") if isinstance(entry, dict) else None
+                    leaf = str((tex or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
+                    if (isinstance(sc, dict) and not sc.get("HasPrimary") and "Primary" not in tex
+                            and any(tok in leaf for tok in rule["bases"])):
+                        tex["Primary"] = path
+                        sc["HasPrimary"], sc["PrimaryScale"] = 1.0, float(rule.get("scale", 16))
+                        filled += 1
+        print(f"  {code}: {filled} slot(s) given a detail map")
     pulses = bake_pulses(level)
     if pulses:
         print(f"  {code}: {pulses} flare pulse(s) in the material")
@@ -2408,6 +2435,17 @@ def stage_install(code, m, p):
               (os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}")]
     if m.get("mesh_container"):
         builds.append((m["mesh_container"], f"MJOLNIRMESH-{code}"))
+    # `conversion_containers`: the conversion's own mesh and texture
+    # containers too. A map converted again since its hub copy (the Halo 2
+    # maps) names textures the hub's containers lack: Zanzibar failed 516
+    # lookups at load and drew most slots without their detail maps.
+    if m.get("conversion_containers"):
+        if not m.get("mesh_container"):
+            builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
+        builds.append((str(cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}"))
+    missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
+    if missing:
+        sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))
     for base, name in builds:
         print("  " + run(dev_paks.install_command(cli, PAKS, base, name)).strip())
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)

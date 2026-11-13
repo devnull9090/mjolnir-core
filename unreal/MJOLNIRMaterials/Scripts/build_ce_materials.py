@@ -3126,6 +3126,7 @@ float3 ceLight = 1.0.xxx;
 bool cladLM = CladLight.a > 1.5;
 if (LMLevels.y > LMLevels.x)
 {
+    if (BakeAO.x > 0.0) ao *= pow(saturate(Texture2DSample(Bake, BakeSampler, TC1).r), BakeAO.x);
     float3 lmc = cladLM ? CladLM : Texture2DSample(LM, LMSampler, TC1).rgb;
     float lm = dot(lmc, float3(0.2126, 0.7152, 0.0722));
     occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
@@ -3331,6 +3332,11 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         # contrast.
         ("Look", g.vector4("CliffLook", (1.0, 0.7, 0.6, 1.0)), ""),
         tex("LM", white, linear),
+        # The conversion's baked corners (lightmap_bake: red, on the
+        # lightmap's UVs) and their power (BakeAO.x; 0 off): a structure's
+        # steps and inside corners, which its lightmap is too coarse to hold.
+        tex("Bake", white, linear),
+        ("BakeAO", g.vector4("CliffBakeAO", (0.0, 0.0, 0.0, 0.0)), ""),
         ("LMLevels", g.vector4("LandLMLevels", (0.0, 0.0, 0.0, 0.0)), ""),
         ("Sea", g.vector4("LandSea", (0.0, 150.0, 40.0, 0.0)), ""),
         # Rough: the range the surfaces' roughness maps to.

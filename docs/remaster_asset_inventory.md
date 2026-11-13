@@ -343,7 +343,8 @@ published).
   maps, alpha variants), so most slots drew without their detail maps for
   the whole of the earlier tuning. Installed as local builds by hand
   (`mjolnir dev install`), as Coagulation's were: 0 failures. The install
-  stage should do this for a Halo 2 map.
+  stage now does it for a map with `"conversion_containers": true` (both
+  Halo 2 maps), and stops before touching the game when one is missing.
 - **Upscaling** (`"upscale": {"max": 1024}`, `tools/level/
   upscale_textures.py`): the base maps of everything the remaster leaves
   as converted, and the wall decals' textures, through Upscayl's
@@ -381,7 +382,34 @@ published).
   without the leaks (117 on Zanzibar). The concrete was then too bright
   in sun to show any of it: tint 0.8 and base gain 0.48 took the big
   wall's view from 8% to 4% clipped. Checked at the big wall and one
-  interior corridor (clean floor); the steel sets have no weathering yet.
+  interior corridor (clean floor).
+- **Flat steps: the baked corners were thrown away.** An interior
+  stairwell drew with no shape: no sun reaches it, the emissive fill is
+  uniform, and the 64 pixel lightmap is flat there (following it at full
+  share changed nothing). The conversion's own bake (`lightmap_bake`, red:
+  corner occlusion at four times the lightmap's resolution) is what the
+  CE masters shade corners with, and M_CE_CliffPBR ignored it. It now
+  takes `Bake` and `CliffBakeAO` (power; 0 off, the cliffs' default), a
+  set's `bake_ao` (Level Loader 0.13.11). Risers and wall joints shade.
+  Zanzibar settled at `bake_ao` 1.6, `fill_occlusion` [0.25, 1.0] and a
+  fill of 1.6: at 2 with a 0.45 share the room at the stairwell's foot
+  measured 0.17 mean luma with 8% near black; now 0.21 to 0.23 with 6 to
+  7%, a dim interior, and the beach clips 3%.
+- **Steel weathering.** The steel sets' rust layer was a faint 0.25 to
+  0.35 share in patches 25 m across, streaks 0.3: clean plate. Now 0.5
+  to 0.65 in 13 to 15 m patches with streaks 0.65 (`mix[0]`, `tiles[2]`,
+  `far[2]`); the wheel, the corrugated walls and the gantry read rusted
+  where rain runs. Config only.
+- **Soil decals dropped too, and a stick that swayed.** The soil decals
+  at wall feet (`"grime": "soil"`) drew as streaked translucent
+  rectangles on the concrete, the same on every wall: off for Zanzibar,
+  so it has no grime decals at all. A dry branch on the beach rocked in
+  the wind: the coast's and desert's dead wood is now `static` (a scatter
+  rule's flag, carried to the group); the default rules are unchanged.
+  The decals' removal was written up before it landed: the config kept
+  `"grime": "soil"` and the user found the same streaks again. It is out
+  now (0 grime decals in the installed level, the wall foot clean in a
+  frame), and the branch is still across three frames a second apart.
 - **Occlusion and atmosphere.** The walls' fill is emissive, so nothing
   occludes it: the engine's SSAO and bent normals, switched on live, made
   no visible difference. `fill_occlusion` [share, power] (CliffFillDir's
@@ -393,10 +421,24 @@ published).
   out, now 10 m, density 0.03, with a warm glow towards the sun
   (`haze.sun`). `environment.post` gains `vignette`; Zanzibar sets bloom
   0.5 and vignette 0.3. Tuned at two spots only.
-- **Not done:** detail and bump maps are untouched; the audit does not
-  cover them. The baseline tour for comparison was captured looking down
-  by mistake, so there is no like-for-like map-wide before and after.
-  Shaded exterior walls and some interiors read very dark in the tour.
+- **Detail and bump maps.** `texture_audit.py` now measures them too
+  (`detail_cm`, `bump_cm`, `sharpest_cm`). Zanzibar, of what the remaster
+  leaves as converted: five shaders (1,915 m2, mostly cliff tree leaves)
+  have every layer over 1 cm a texel, and seven have a base map alone.
+  Of those seven, two are sky and one the hidden wave sheet; the rest is
+  the wheel (metal_wheel, flywheel_metal, carbon_blade: 2,425 m2), which
+  turns, so a world-space structure surface would swim on it.
+  `detail_fill` gives base-only slots one of the conversion's own detail
+  maps (the rusted metal one, 24 times a copy: 5 slots, no cook). The
+  effect on the wheel is slight. The audit sizes textures before
+  upscaling, so its texel numbers overstate what draws.
+- **Not done:** the wheel and the small props still have no bump map of
+  their own; the bump maps are not upscaled. The baseline tour for
+  comparison was captured looking down by mistake, so there is no
+  like-for-like map-wide before and after.
+- **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
+  and Timberland assemble to the same bytes with this branch's pipeline
+  as with its merge-base's.
 
 ## Proposal
 

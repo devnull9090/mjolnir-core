@@ -205,6 +205,30 @@ class LocalInstallTest(unittest.TestCase):
         hub.assert_called_once()
         local.assert_not_called()
 
+    def hub_install(self, m):
+        for stem in ("bake/pakchunk997-MJOLNIRMAP-TST_P", "bake/pakchunk969-MJOLNIRLAND-Windows"):
+            for ext in ("utoc", "ucas"):
+                self.write(self.work / "TST" / f"{stem}.{ext}")
+        self.write(self.paths["out_level"], {})
+        self.write(Path(self.paths["work"]) / "foliage.bin")
+        (self.ue4ss / "MJOLNIRMaps/TST").mkdir(parents=True, exist_ok=True)
+        with patch.object(upgrade, "run", return_value="installed") as run, \
+                patch.object(upgrade, "require_game_closed"), patch.object(upgrade, "require_hub_map"):
+            upgrade.stage_install("TST", m, self.paths)
+        return [c.args[0][c.args[0].index("--name") + 1] for c in run.call_args_list]
+
+    def test_hub_install_adds_conversion_containers_only_when_asked(self):
+        self.assertEqual(self.hub_install(self.map), ["MJOLNIRMAP-TST", "MJOLNIRLAND-TST"])
+        conv = Path(self.map["conversion"])
+        for stem in ("pakchunk986-MJOLNIRMESH-TST_P", "pakchunk985-MJOLNIRCOOK-TST_P"):
+            for ext in ("utoc", "ucas"):
+                self.write(conv / f"{stem}.{ext}")
+        self.assertEqual(self.hub_install(dict(self.map, conversion_containers=True)),
+                         ["MJOLNIRMAP-TST", "MJOLNIRLAND-TST", "MJOLNIRMESH-TST", "MJOLNIRCOOK-TST"])
+        (conv / "pakchunk985-MJOLNIRCOOK-TST_P.ucas").unlink()
+        with self.assertRaisesRegex(SystemExit, "install is incomplete"):
+            self.hub_install(dict(self.map, conversion_containers=True))
+
     def test_swap_forwards_explicit_tree_variant_only_when_configured(self):
         self.write(self.paths["level"], {})
         with patch.object(upgrade, "run", return_value="swapped") as run:

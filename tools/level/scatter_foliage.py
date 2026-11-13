@@ -621,7 +621,7 @@ DESERT_RULES = [r for r in RULES if r["name"] in DESERT_KEEP] + [
      "cull": [8000, 14000], "shadow": True},
     # Dead branches here and there, on any ground.
     {"name": "dead wood", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.02, "slope": 25,
-     "above": [None, None], "cluster": [14.0, 0.55],
+     "above": [None, None], "cluster": [14.0, 0.55], "static": True,
      "meshes": [(MEGA3D + f"Dead_Branches_qjuwd/S_Dead_Branches_qjuwd_high_Var{i}", 1.0, 2.4, 0) for i in (1, 3)],
      "cull": [3500, 6000], "shadow": True},
 ]
@@ -635,7 +635,12 @@ DESERT_RULES = [r for r in RULES if r["name"] in DESERT_KEEP] + [
 # pack the ice plants and succulents of a dune.
 SEA_LIFE = "/Game/Env/Bio/MarineLife/"
 PALMS = MEGA
-COAST_RULES = RULES + [
+# Dead wood does not sway: the game's dry branches carry a foliage material,
+# and a stick lying on the beach rocked in the wind (Zanzibar, 2026-11-13).
+# Held still here and in the desert's dead wood; the default rules keep
+# theirs as it was, so the published CE maps' scatter does not change.
+STILL = ("driftwood",)
+COAST_RULES = [dict(r, static=True) if r["name"] in STILL else r for r in RULES] + [
     # Anemones, snails, oysters, a coral and the odd sea star on the bed,
     # from wading depth down to where the light gives out.
     {"name": "sea life", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.3, "slope": 30,
@@ -675,7 +680,7 @@ COAST_RULES = RULES + [
                 ("/Game/Env/Bio/Rock/Limestone/Limestone_Slab_A/SM_Limestone_Slab_A", 0.5, 0.9, 6)],
      "cull": [8000, 14000], "shadow": True},
     {"name": "drift branches", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.006, "slope": 15,
-     "above": [0.1, 2.0],
+     "above": [0.1, 2.0], "static": True,
      "meshes": [(MEGA3D + "Drift_Wood_Branch_1_we0nehh/S_Drift_Wood_Branch_1_we0nehh_lod0_Var1", 0.7, 1.3, 2)],
      "cull": [5000, 9000], "shadow": True},
     # A dune's own: ice plants creeping over the dry sand, a succulent
@@ -1542,6 +1547,9 @@ def main():
         if material:
             g["material"] = object_path(material)
         g["shadow"] = bool(rule.get("shadow", True))
+        # `static`: no wind (the loader and the bake both honour it).
+        if rule.get("static"):
+            g["static"] = True
         if rule.get("cliff"):
             # Drawn in the cliffs' rock (M_CE_CliffPBR) with the base map of
             # the wall it clads, its instance colour the wall's CE light.
