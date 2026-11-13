@@ -263,10 +263,11 @@ published).
   near white with nothing to see. What fixed it: the base map's gain down
   to 0.5 and its share to 0.7; grain contrast 2.2 and normal strength 2;
   a second, stained concrete (Concrete Wall 006) as the large layer at
-  0.6; weathering streaks at 0.5; and three of the cliffs' effects a set
-  can now ask for: `drape` (stains running 9 m down from a wall's top, by
-  the landscape's edge map, with no turf), `foot` (contact shade where it
-  meets the ground) and `wet` (dark and glossy within 70 cm of the sea).
+  0.6; weathering streaks at 0.5; and two of the cliffs' effects a set
+  can ask for: `foot` (contact shade where it meets the ground) and `wet`
+  (dark and glossy within 70 cm of the sea). (`drape`, the cliffs' stains
+  from a wall's top, was used here at first and removed: see "Bubbled
+  floors".)
 - **Grime decals were tried and dropped.** With `"grime": true` the
   pipeline laid 517 soil and leak decals on the concrete; in game the
   leaks drew as small dark blurry rectangles on the wall. `grime_decals`
@@ -298,11 +299,14 @@ published).
   `h2_decal_<n>` a lit cut-out (`M_CE_EnvironmentMasked`, no lightmap);
   steady over the same steps. Additive decals are unchanged, and a sign in
   shade is now as dim as its wall.
-- **Bubbled floors.** The large layer tiles at 9 to 11 m, four times its
-  real size, and its normal map at half strength (`mix[1]`) turned every
-  tie hole into a crater a metre across: the base's concrete floors looked
-  like a default bump texture. The large layer now gives colour only
-  (`mix[1]` 0 on every set).
+- **Bubbled floors: `drape` is not for structures.** The base's concrete
+  floors drew a bubbly default texture. `drape` turns on the cliffs' turf
+  and earth at a lip, which a structure set gives no textures for, so the
+  master's defaults drew over every flat surface under a wall top.
+  Zanzibar's sets no longer set `drape`; the streaks from `far` stay.
+  (First blamed on the large layer's normal map, because the live test had
+  silently dropped `drape`, `foot` and `wet`; removing each in turn showed
+  it was `drape` alone.)
 - **Every sign was drawn twice.** Assemble added its own quad a decal
   (`ce_decal_<n>`, square) over the conversion's (`h2_decal_<n>`, at the
   decal's aspect): two images at different sizes, fighting. Assemble now
