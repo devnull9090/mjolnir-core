@@ -442,8 +442,12 @@ published).
   it reads ("NOTICE / ENTRANCE FOR / EMPLOYEES / ONLY") draws the same
   sign again, legible, at 1024 by 512; the source's alpha is kept, so the
   cut-out's outline is Halo 2's. A file in `<work>/redrawn/` named for
-  the texture stands in for its upscale (`upscale_textures.py`). One
-  decal so far, as a trial. The key comes from `OPENAI_API_KEY` or
+  the texture stands in for its upscale (`upscale_textures.py`).
+  Zanzibar: 14 of its 16 wall decals, each with a description and its
+  words read off the original by hand (text, pictograms and the hazard
+  placard all came back in place; colours run more saturated than Halo
+  2's). The two 4:1 caution strips keep their upscale: over the model's
+  3:1 limit, and their shape is in the alpha. The key comes from `OPENAI_API_KEY` or
   `.env.local` (ignored by git); the texture is sent to OpenAI.
 - **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
   and Timberland assemble to the same bytes with this branch's pipeline
