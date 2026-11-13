@@ -7656,5 +7656,47 @@
 134.1875
 ],
 "verts": 4536
+},
+{
+"path": "/Game/Megascans/3D_Plants/AlexandraPalm/SM_AlexandraPalm_01.SM_AlexandraPalm_01",
+"min": [
+-47.75,
+-82.5625,
+-0.1875
+],
+"max": [
+48.0625,
+54.25,
+172.625
+],
+"verts": 9225
+},
+{
+"path": "/Game/Megascans/3D_Plants/AlexandraPalm/SM_AlexandraPalm_02.SM_AlexandraPalm_02",
+"min": [
+-95.25,
+-60.375,
+-0.25
+],
+"max": [
+35.3125,
+51.625,
+159.875
+],
+"verts": 1883
+},
+{
+"path": "/Game/Megascans/3D_Plants/Cat_Palm_tjejafeia/S_Cat_Palm_tjejafeia_0_Var1_lod0.S_Cat_Palm_tjejafeia_0_Var1_lod0",
+"min": [
+-63.375,
+-79.1875,
+-0.8125
+],
+"max": [
+75.4375,
+72.3125,
+158.125
+],
+"verts": 1222
 }
 ]

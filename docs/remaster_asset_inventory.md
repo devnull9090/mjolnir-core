@@ -182,6 +182,131 @@ About 110,000 pieces over the default grass. What the build settled:
   (`hub/src/lib/credits.ts`), marked as not yet in a release;
   docs/credits.md says how the list is kept.
 
+## Built: the coast biome on Zanzibar
+
+`"biome": "coast"` selects `COAST_RULES`: every default beach rule as it
+is, plus the rows below. Built 2026-11-12 on Zanzibar as local builds on
+PC 1 and seen in game; not published.
+
+| Rule | From | Where |
+| --- | --- | --- |
+| sea life, sea stars | game: anemones, snails, oysters, coral, sea star | the sea bed, 0.25 to 3.5 m down |
+| sea campion | game | where grass thins to sand |
+| foot palms | game: zamia, lady and Alexandra palms, taro, ginger | wall feet only |
+| limestone, drift branches | game | sand near the water |
+| ice plants, succulents | Namaqualand | dry sand above the tide |
+| beach bushes | game: young Alexandra and cat palms | swapped for Halo 2's seven `bush_beach_a` |
+
+What Zanzibar needed beyond the rules:
+
+- **A sea of its own.** The conversion has no water surface (Halo 2 draws
+  Zanzibar's sea as fog over the bed). The Flux coast sits at the fog
+  plane's height, -903 cm, and the shoreline wave overlays are hidden.
+- **Sand and grass the right way round.** The ground master reads base
+  alpha 1 as sand, CE's order. Zanzibar's ground shaders list their weeds
+  first, so the beach drew as a lawn with the pebbles on it. The landscape's
+  bake flips the alpha of such a shader (`build_landscape --grass-primary`,
+  from the config's `details`), and the terrain mesh's own slots of it take
+  `LandMix` with its edges swapped (`cut.looks`), since they read the
+  unflipped base map.
+- **A crack across the beach.** The landscape is a square around the first
+  ground shader's ground, Zanzibar's inland dirt, so it stopped part way
+  down the beach; past its edge the terrain mesh draws 8 cm lower, and the
+  step was a dark slit with the sea showing through. `landscape_square`
+  names the shaders the square is drawn around (the dirt and the beach
+  proper): the landscape went from 189 m to 252 m a side, its bake from 18
+  to 25 cm a texel.
+- **Frame cost** on the beach at 4K on PC 1: 12.4 ms, foliage 0.8 ms of it.
+- Blood Gulch's scatter and landscape bake are byte for byte the same from
+  the committed code and from this change.
+
+- **Its two cliff trees stay Halo 2's.** They lean 35 degrees out of the
+  rock face with their origin half way up their bounds, in the air beside
+  it. Swapped as standing trees, an upright 13 m tree hung in the sky
+  there. `instance_scenery.py` now leaves out any instance whose origin
+  is more than a quarter of the way up its bounds; Coagulation's cedars
+  (a tenth) still swap.
+
+Not checked on Zanzibar: collision against the new pieces, the far side
+of the map, and the sea from inside the base's tunnels (one cut zone was
+made there).
+
+## Built: structure walls in PBR surfaces
+
+A converted map's concrete and steel are one small colour map stretched
+over tens of metres: flat paint beside the remastered rock. Zanzibar's now
+draw in a real surface (2026-11-12, local builds, seen in game, not
+published).
+
+- **How.** `structure_surfaces` in the map's config names structure
+  shaders and a surface. The loader (`Land.structures`, Level Loader
+  0.13.8) draws their slots with the cliffs' master, `M_CE_CliffPBR`: the
+  surface projected in world space at real size, the map's own base map
+  as its colour at 0.85 (so Halo 2's rust streaks, panel lines and tide
+  stain stay where they were) and its lightmap as shade. No new master.
+- **Surfaces.** `Scripts/build_surfaces.py` imports a Poly Haven texture
+  set (CC0) as three maps, as the game's Megascans rock has them: colour,
+  normal, and occlusion, roughness and height packed in one. They live in
+  `/Game/MJOLNIR/CETrial/Surfaces` and cook into the runtime container
+  (983), at about 13 MB a set. (A third set, a stained plaster, was
+  tried as the large layer, read orange and was removed.)
+- **Zanzibar.** Concrete Wall 008 over nine concrete shaders (the sea
+  wall, the base's massive concrete, the pier, painted and interior
+  concrete, floors, the rubble chunks), Rusty Metal Sheet over five metal
+  ones (the wheel, weathered steel, pipes, roofs): 195 slots.
+- **Tuning that mattered.** The first build was tan and overbright: the
+  cliffs' warm bounce fill at full strength, and a stained-plaster set as
+  the large layer. The fill is now neutral at 0.3, the base map's gain
+  0.75, and one concrete serves both layers. Tile variation is off for
+  concrete (it chops formwork lines) and on for steel.
+- **The polish pass on the big wall.** Up close in full sun it was still
+  near white with nothing to see. What fixed it: the base map's gain down
+  to 0.5 and its share to 0.7; grain contrast 2.2 and normal strength 2;
+  a second, stained concrete (Concrete Wall 006) as the large layer at
+  0.6; weathering streaks at 0.5; and three of the cliffs' effects a set
+  can now ask for: `drape` (stains running 9 m down from a wall's top, by
+  the landscape's edge map, with no turf), `foot` (contact shade where it
+  meets the ground) and `wet` (dark and glossy within 70 cm of the sea).
+- **Grime decals were tried and dropped.** With `"grime": true` the
+  pipeline laid 517 soil and leak decals on the concrete; in game the
+  leaks drew as small dark blurry rectangles on the wall. `grime_decals`
+  now takes the `structure_surfaces` shaders as structure, but Zanzibar
+  leaves grime off.
+- **Frame cost.** 7.7 ms at 4K on PC 1 facing the big wall from the beach
+  (not a matched before and after).
+- **A sawtooth shadow edge.** Lit by the real sun, a smooth wall the sun
+  skims showed its shadow's edge as a row of teeth: shadow texels
+  stretched down the face (they grew with a coarser shadow map and shrank
+  with a finer one). `environment.sun.shadow_normal_bias` (Level Loader
+  0.13.8) sets `r.Shadow.Virtual.NormalBias` for the map, restored with its
+  other shadow settings; the engine's 0.5 left the teeth, 2 shrank them,
+  3 cleared them. Zanzibar uses 3. Side effects elsewhere on the map
+  (contact shadows starting off an object's base) have not been looked for.
+- **Steel, second pass.** One rust sheet over every metal read as orange
+  blotches on the upper decks. Weathered steel, the wheel and pipes now
+  take Metal Plate 02 and the roofs and rippled panels Corrugated Iron 02,
+  each with the rust sheet as its large layer only. The darker concrete
+  settings left interiors too dim: the base map's gain went back up to
+  0.62 and the fill to 0.5.
+- **Halo 2's wall decals flashed as the player walked.** A sign went from
+  clear to a dark smear between two side steps. Not occlusion culling (the
+  same with occlusion queries off) and not the upscaler alone (one dark
+  frame with anti-aliasing off). With auto exposure forced off the scene
+  blew out and the decal stayed dim: it is an unlit, alpha-blended quad
+  that does not follow the scene's exposure, so it changed against the
+  wall whenever the exposure adapted. Assemble now makes each alpha-blended
+  `h2_decal_<n>` a lit cut-out (`M_CE_EnvironmentMasked`, no lightmap);
+  steady over the same steps. Additive decals are unchanged, and a sign in
+  shade is now as dim as its wall.
+- **Every sign was drawn twice.** Assemble added its own quad a decal
+  (`ce_decal_<n>`, square) over the conversion's (`h2_decal_<n>`, at the
+  decal's aspect): two images at different sizes, fighting. Assemble now
+  adds none when the conversion placed them. Coagulation has no decals, so
+  it was not affected.
+- **Not done:** metals are drawn as painted steel (the master has no
+  metallic input); props, signs and the crane keep Halo 2's textures;
+  other Halo 2 maps have no `structure_surfaces` yet.
+
 ## Proposal
 
 1. **Biomes, opt-in, as `SNOW_RULES` is.** `desert` (Blood Gulch,

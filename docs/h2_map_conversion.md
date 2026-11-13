@@ -717,6 +717,17 @@ and the level takes the map's name.
   beach's shells and driftwood: docs/remaster_asset_inventory.md. The pack
   cooks into the map's landscape container, so the map needs it in the
   editor project and a credit when published.
+- **Zanzibar** (`ZAN`, chunk 1002, `"biome": "coast"`). A Fluid Flux coast
+  at the fog plane's height, since the conversion has no water surface;
+  sea life on the bed, sea campion, small palms at the walls' feet and
+  the beach bushes as young palms. Its ground shaders list grass before
+  sand, the reverse of CE: the bake and the mesh ground slots turn that
+  over (docs/remaster_asset_inventory.md).
+- **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
+  steel draw in Poly Haven PBR surfaces through the cliffs' master, each
+  wall's Halo 2 base map kept as its colour and its lightmap as shade
+  (docs/remaster_asset_inventory.md). The surfaces cook into the runtime
+  container, so they too need a runtime release.
 - **Still CE-runtime bound.** The cliffs' tessellated meshes cook into the
   trial masters' container (983), as for the CE remasters, and Halo 2's
   masters are in 981: publishing a Halo 2 remaster needs a runtime release

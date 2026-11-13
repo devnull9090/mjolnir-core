@@ -29,6 +29,10 @@ import os
 import sys
 
 WU_M = 3.048
+# An instance whose origin is further up its bounds than this share of its
+# height does not stand on it (Coagulation's cedars: 0.1; Zanzibar's cliff
+# trees: 0.5).
+ROOTED = 0.25
 
 
 def main():
@@ -45,6 +49,7 @@ def main():
     # placed scenery and instances (Zanzibar's bushes and its palms) swaps
     # both, and the grass keeps clear of both.
     entries, taken = [], {}
+    leaning = 0
     own = os.path.join(staging, "placement.json")
     if os.path.exists(own):
         for e in json.load(open(own, encoding="utf-8"))["entries"]:
@@ -56,6 +61,16 @@ def main():
         shaders = [s.lower() for s in inst["shaders"]]
         rule = next((r for token, r in rules if any(token.lower() in s for s in shaders)), None)
         if not rule:
+            continue
+        # Only what stands on its origin: the swap plants its stand-in
+        # upright there. Zanzibar's cliff trees lean 35 degrees out of the
+        # rock face, their origin half way up their bounds in the air beside
+        # it, and a 13 m tree planted there hung in the sky (2026-11-12).
+        # By the bounds, not the frame: Coagulation's cedars are modelled
+        # along their `left` axis, so a frame's `up` says nothing.
+        height = inst["max"][2] - inst["min"][2]
+        if height > 0 and (inst["pos"][2] - inst["min"][2]) / height > ROOTED:
+            leaning += 1
             continue
         pos, lo, hi = inst["pos"], inst["min"], inst["max"]
         # glTF metres, y up, about the instance's origin (scenery_swap.model_box
@@ -75,7 +90,8 @@ def main():
         taken[rule] = taken.get(rule, 0) + 1
     json.dump({"world_unit_meters": WU_M, "rotation_convention": "halo_yaw_pitch_roll_radians", "entries": entries},
               open(os.path.join(out, "placement.json"), "w", encoding="utf-8"), indent=1)
-    print(f"{len(entries) - placed} instance(s) as scenery {taken}, after {placed} placement(s) -> {out}")
+    print(f"{len(entries) - placed} instance(s) as scenery {taken}, {leaning} not standing on their origin left as they are, "
+          f"after {placed} placement(s) -> {out}")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ thing and no credit sends the change back.
 | You are adding | Section | Also do |
 | --- | --- | --- |
 | A content pack to `unreal/MJOLNIRMaterials` whose assets cook into a map | `assets` | Add its `/Game/<Pack>/` folder to the entry's `contentPaths`, and to `COOKED` in `tools/level/foliage_bake.py`. The check ties the two together. |
+| A PBR surface for `Scripts/build_surfaces.py` (walls drawn by `structure_surfaces`) | `assets` | No `contentPaths`: it cooks with the runtime masters, not with a map. Name each texture set in the entry. |
 | A binary we download and redistribute (as UE4SS in `runtime/ue4ss.lock.json`) | `runtime` | Keep its licence file in the bundle if the licence asks for it. |
 | Code ported or copied from another project | `runtime` | Add it to the `NOTICE` file at the repository root too, with the files it touches. |
 | A library a shipped product is built on (a framework, an engine, a renderer) | `runtime` or `site` | One entry a library. Ordinary transitive dependencies are covered by the "Rust crates" entry and the lockfiles. |

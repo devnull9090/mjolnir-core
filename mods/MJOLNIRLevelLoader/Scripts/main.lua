@@ -1701,6 +1701,14 @@ local function spawnEnvironment(world)
                 if type(env.weather) == "table" and type(env.weather.system) == "string" then
                     set["r.Lumen.Reflections.ScreenTraces"] = 0
                 end
+                -- `sun.shadow_normal_bias`: the sun skimming a smooth wall
+                -- drew its shadow's edge as a row of teeth, a shadow texel
+                -- each stretched down the face (Zanzibar's sea-wall slabs
+                -- once they took a PBR surface lit by the sun, 2026-11-12).
+                -- The engine's 0.5 left them; 3 cleared them.
+                if tonumber(sun.shadow_normal_bias) then
+                    set["r.Shadow.Virtual.NormalBias"] = tonumber(sun.shadow_normal_bias)
+                end
                 -- A Flux sea mirrors the CE sky mesh's horizon strip, which
                 -- Lumen finds far brighter than the sky drawn there: a hard
                 -- white line all along Death Island's horizon. Clamped, it
@@ -4411,6 +4419,110 @@ Land.ROCK_B = {
     o = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG",
 }
 
+--- Structure walls in a PBR surface (level.landscape.structures, from
+--- upgrade_ce_map.py `structure_surfaces`): a converted map's concrete and
+--- metal are one small colour map stretched over tens of metres, flat
+--- paint beside the remastered rock. Each set names its slots by base map
+--- (`bases`: substrings of the base texture's name) and two surfaces
+--- (`rock_a` the grain, `rock_b` the large shapes: { d, n, o } texture
+--- paths), and they draw with the cliffs' master: the surface projected in
+--- world space, the map's own base map as its colour (so its stains, seams
+--- and painted lines stay where they were) and its lightmap as its light.
+--- No turf at a lip and no sand at a foot unless a set asks (`drape`,
+--- `foot`: the cliffs' parameters): a wall is not a cliff, but stains run
+--- down it from its top and it stands in shade where it meets the ground.
+--- By the sea it is wet as the rock is (`wet` cm over the water).
+function Land.structures(world, spec)
+    local sets = type(spec.structures) == "table" and spec.structures or {}
+    if #sets == 0 then return 0 end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_CliffPBR.M_CE_CliffPBR")
+    if not (kml and parent) then return 0 end
+    local function vec(mid, name, v)
+        if type(v) == "table" then
+            mid:SetVectorParameterValue(FName(name), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 1 })
+        end
+    end
+    local levels = lightmapSun()
+    local cliff = type(spec.cliff) == "table" and spec.cliff or {}
+    local sea = Land.seaHeight()
+    -- The landscape's edge map: where each wall's top and foot are.
+    local edge = type(spec.pbr) == "table" and type(spec.pbr.edge) == "table" and spec.pbr.edge
+    local edgeTex = edge and type(edge.texture) == "string" and resolveMesh(edge.texture) or nil
+    Land.structureMids = {}
+    local changed = 0
+    for si, set in ipairs(sets) do
+        local textures = {}
+        for prefix, rock in pairs({ RockA = set.rock_a, RockB = set.rock_b or set.rock_a }) do
+            if type(rock) == "table" then
+                textures[prefix .. "D"] = Land.megascans(rock.d)
+                textures[prefix .. "N"] = Land.megascans(rock.n)
+                textures[prefix .. "O"] = Land.megascans(rock.o)
+            end
+        end
+        local tokens = {}
+        for _, b in ipairs(type(set.bases) == "table" and set.bases or {}) do tokens[#tokens + 1] = tostring(b):lower() end
+        if textures.RockAD and textures.RockAN and #tokens > 0 then
+            for index, item in ipairs(Current.level.decor or {}) do
+                local actor = Current.actors[(type(item) == "table" and item.id) or ("#" .. index)]
+                if type(item) == "table" and type(item.materials) == "table" and actor and actor:IsValid() then
+                    local comp = actor.StaticMeshComponent
+                    for i, entry in ipairs(item.materials) do
+                        local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
+                        local leaf = t and type(t.Base) == "string" and t.Base:match("%.([%w_]+)$")
+                        local hit = false
+                        if leaf then
+                            local lower = leaf:lower()
+                            for _, token in ipairs(tokens) do hit = hit or lower:find(token, 1, true) ~= nil end
+                        end
+                        if hit then
+                            local mid = kml:CreateDynamicMaterialInstance(world, parent,
+                                FName(string.format("mjolnir_structure_%d_%d", si, i)), 0)
+                            if mid and mid:IsValid() then
+                                for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
+                                local base = resolveMesh(t.Base)
+                                if base then mid:SetTextureParameterValue(FName("Base"), base) end
+                                local lm = type(t.Lightmap) == "string" and not t.Lightmap:find("object_lighting", 1, true)
+                                    and resolveMesh(t.Lightmap)
+                                if lm and levels then
+                                    mid:SetTextureParameterValue(FName("LM"), lm)
+                                    vec(mid, "LandLMLevels", { levels[1], levels[2], 0, 0 })
+                                end
+                                vec(mid, "CliffTiles", set.tiles)
+                                vec(mid, "CliffMix", set.mix)
+                                vec(mid, "CliffLook", set.look)
+                                vec(mid, "RockTint", set.tint)
+                                vec(mid, "CliffRough", set.rough)
+                                vec(mid, "CliffFar", set.far)
+                                vec(mid, "CliffVary", set.vary)
+                                vec(mid, "CliffCETint", set.ce_tint or cliff.ce_tint)
+                                vec(mid, "CliffDrape", set.drape or { 30, 70, 700, 0 })
+                                vec(mid, "CliffFoot", set.foot or { 35, 150, 0.45, 0 })
+                                if edgeTex and (set.drape or set.foot) then
+                                    mid:SetTextureParameterValue(FName("Edge"), edgeTex)
+                                    vec(mid, "EdgeRect", edge.rect)
+                                    vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
+                                end
+                                if sea and set.wet then vec(mid, "LandSea", { sea, 0, set.wet, 1 }) end
+                                local f = set.fill or cliff.fill
+                                if type(f) == "table" then
+                                    vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() })
+                                end
+                                vec(mid, "CliffFillDir", set.fill_dir or cliff.fill_dir)
+                                if pcall(function() comp:SetMaterial(i - 1, mid) end) then
+                                    changed = changed + 1
+                                    Land.structureMids[#Land.structureMids + 1] = mid
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return changed
+end
+
 function Land.megascans(path)
     if type(path) ~= "string" then return nil end
     if path:sub(1, 1) == "/" then return resolveMesh(path) end
@@ -4887,6 +4999,13 @@ function Land.apply(world)
                 Log("landscape: " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs)
                     or tostring(cliffs)))
                 Current.lap("landscape cliffs")
+            end,
+            function()
+                local sok, n = pcall(Land.structures, world, spec)
+                if not sok or n > 0 then
+                    Log("landscape: " .. (sok and string.format("%d structure slot(s) in a PBR surface", n) or tostring(n)))
+                end
+                Current.lap("landscape structures")
             end,
             function()
                 pcall(function()

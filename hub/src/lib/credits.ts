@@ -65,10 +65,21 @@ export const CREDIT_SECTIONS: CreditSection[] = [
         url: "https://www.fab.com/listings/295ed897-fe78-4711-a583-d9b80fde554a",
         licence: "Creative Commons Attribution 4.0 International (CC BY 4.0)",
         licenceUrl: "https://creativecommons.org/licenses/by/4.0/",
-        use: "Flowers, succulents, rooibos bushes and granite stones in the desert dressing of the remastered Coagulation.",
+        use: "Flowers, succulents, rooibos bushes and granite stones in the desert dressing of the remastered Coagulation, and the ice plants and succulents on the dunes of the remastered Zanzibar.",
         changes:
           "Textures capped at 1024 pixels; meshes re-encoded for Halo Campaign Evolved; scaled and scattered by our own rules.",
         contentPaths: ["/Game/Namaqualand/"],
+        status: "planned",
+      },
+      {
+        name: "Poly Haven textures: Concrete Wall 008, Concrete Wall 006, Metal Plate 02, Corrugated Iron 02 and Rusty Metal Sheet",
+        by: "Poly Haven",
+        url: "https://polyhaven.com/textures",
+        licence: "CC0 1.0 Universal (public domain dedication)",
+        licenceUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
+        use: "The concrete and weathered steel that the walls, floors and machinery of the remastered Zanzibar are drawn in.",
+        changes:
+          "Used at 2048 pixels; ambient occlusion, roughness and height packed into one map; blended with each wall's original Halo 2 colour map.",
         status: "planned",
       },
     ],

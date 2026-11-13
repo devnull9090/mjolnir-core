@@ -529,6 +529,17 @@ def stage_land(code, m, p):
         cmd += ["--also", ",".join(m["ground_also"])]
     if m.get("real_base"):
         cmd += ["--real-base"]
+    # `landscape_square`: the shaders whose ground the landscape's square is
+    # drawn around, when the first of `shaders` is not all of the playable
+    # ground (Zanzibar: its dirt and its beach).
+    if m.get("landscape_square"):
+        cmd += ["--square", ",".join(m["landscape_square"])]
+    # `details` that are grass: a ground shader that lists one first has its
+    # sand and grass the other way round from CE's (build_landscape
+    # --grass-primary).
+    grass = [name for name, cls in (m.get("details") or {}).items() if cls == "grass"]
+    if grass:
+        cmd += ["--grass-primary", ",".join(grass)]
     if m.get("cliff_shaders"):
         cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
     # A coast with a seabed (flux.coast.seabed): the landscape's floor shelves
@@ -1017,6 +1028,13 @@ def horizon_skirt(code, m, p, level):
     return out
 
 
+def surface_textures(name):
+    """A structure surface's three maps (Scripts/build_surfaces.py), as the
+    loader's rock { d, n, o }."""
+    root = f"/Game/MJOLNIR/CETrial/Surfaces/T_{name}_"
+    return {k: f"{root}{k.upper()}.T_{name}_{k.upper()}" for k in ("d", "n", "o")}
+
+
 def flux_ground(code, level):
     """What the Flux ground capture sees: CE's ground and the cliffs' copy."""
     return [item["id"] for item in level.get("decor") or []
@@ -1371,8 +1389,82 @@ def stage_assemble(code, m, p):
                  if any(x in mt.get("name", "").lower() for x in look["shaders"])]
         if slots:
             looks.append({"slots": slots, "vectors": look.get("vectors") or {}, "scalars": look.get("scalars") or {}})
+    # A ground shader that lists a grass detail first (`details`: Halo 2's
+    # Zanzibar) has its sand and grass the other way round from CE's. The
+    # landscape's bake flips its alpha (build_landscape --grass-primary); the
+    # terrain mesh's own slots of it read the unflipped base map, so they
+    # take the ground's LandMix with its two edges swapped, which turns the
+    # master's grass weight over.
+    grass = [name.lower() for name, cls in (m.get("details") or {}).items() if cls == "grass"]
+    mix = (level["landscape"].get("pbr") or {}).get("mix")
+    if grass and isinstance(mix, list) and len(mix) >= 2:
+        spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+        by_slot = {sl["pattern"].rstrip("$"): sl["material"] for sl in spec["slots"]}
+        doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+        flipped = []
+        for i, mt in enumerate(doc["materials"]):
+            name = mt.get("name", "").lower()
+            mat = by_slot.get(name)
+            if not mat or not any(x in name for x in m["shaders"]):
+                continue
+            primary = str((mat.get("textures") or {}).get("Primary", "")).lower()
+            if (mat.get("scalars") or {}).get("Type", 0) > 0.5 and any(g in primary for g in grass):
+                flipped.append(i + 1)
+        if flipped:
+            looks.append({"slots": flipped, "vectors": {"LandMix": [mix[1], mix[0]] + list(mix[2:])}, "scalars": {}})
+            print(f"  {code}: {len(flipped)} mesh ground slot(s) with grass first, their LandMix turned over")
     if looks and isinstance(level["landscape"].get("cut"), dict):
         level["landscape"]["cut"]["looks"] = looks
+    # Halo 2's wall decals (gen_ce_level's `h2_decal_<n>` quads) as lit
+    # cut-outs. The conversion draws them unlit and alpha blended, which does
+    # not follow the scene's exposure: beside walls now lit by the real sun
+    # a sign went from clear to a dark smear and back as the exposure
+    # adapted to each step between shade and sun (Zanzibar, 2026-11-12).
+    # The masked CE master is lit as the wall behind it is. Additive decals
+    # stay as they are.
+    lit = 0
+    for item in level.get("decor") or []:
+        mats = item.get("materials") if isinstance(item, dict) else None
+        if not (mats and str(item.get("id", "")).startswith("h2_decal_")):
+            continue
+        entry = mats[0]
+        if not isinstance(entry, dict) or "M_CE_TransparentAlpha" not in str(entry.get("parent", "")):
+            continue
+        texture = (entry.get("textures") or {}).get("Map0")
+        if not texture:
+            continue
+        mats[0] = {"parent": "/Game/MJOLNIR/CETrial/M_CE_EnvironmentMasked.M_CE_EnvironmentMasked",
+                   "textures": {"Base": texture},
+                   "scalars": {"AlphaFromBase": 1.0, "HasBake": 0.0, "Type": 0, "Func": 0, "MicroFunc": 0,
+                               "PrimaryScale": 1.0, "SecondaryScale": 1.0, "MicroScale": 1.0, "BumpScale": 1.0,
+                               "SelfIllumScale": 1.0, "HasPrimary": 0.0, "HasSecondary": 0.0, "HasMicro": 0.0,
+                               "HasBump": 0.0, "HasLightmap": 0.0, "HasSelfIllum": 0.0, "BumpIsSpecMask": 0.0}}
+        lit += 1
+    if lit:
+        print(f"  {code}: {lit} wall decal(s) as lit cut-outs")
+    # `structure_surfaces`: structure shaders drawn in a PBR surface
+    # (MJOLNIRLevelLoader Land.structures; the surfaces are
+    # unreal/MJOLNIRMaterials Scripts/build_surfaces.py's). Each names its
+    # shaders by substring; the loader finds their slots by base map.
+    structures = []
+    for st in m.get("structure_surfaces") or []:
+        spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+        bases = sorted({str((mat.get("textures") or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
+                        for mat in spec.get("materials") or []
+                        if any(x in mat.get("name", "").lower() for x in st["shaders"])} - {""})
+        if not bases:
+            sys.exit(f"{code}: structure_surfaces names {st['shaders']}, which no material matches")
+        entry = {"bases": bases, "rock_a": surface_textures(st["surface"]),
+                 "rock_b": surface_textures(st.get("large") or st["surface"])}
+        for key in ("tiles", "mix", "look", "tint", "rough", "far", "vary", "ce_tint", "fill", "fill_dir", "drape",
+                    "foot", "wet"):
+            if key in st:
+                entry[key] = st[key]
+        structures.append(entry)
+    if structures:
+        level["landscape"]["structures"] = structures
+        print(f"  {code}: {len(structures)} structure surface set(s) over "
+              f"{sum(len(e['bases']) for e in structures)} base map(s)")
     plasma = os.path.join(p["work"], "plasma_mesh.json")
     if os.path.exists(plasma):
         spec = json.load(open(plasma, encoding="utf-8"))
@@ -1632,12 +1724,20 @@ def stage_assemble(code, m, p):
     lights = ce_lights(p) + authored_map_lights(m, p)
     if lights:
         level["lights"] = lights
-    decals, files = ce_decals(p)
+    # A Halo 2 conversion has already placed its decals (gen_ce_level's
+    # `h2_decal_<n>`, at each decal's own aspect): a second, square copy
+    # from here drew over each one, the two fighting (Zanzibar's signs,
+    # 2026-11-12).
+    if any(str(item.get("id", "")).startswith("h2_decal_") for item in level.get("decor") or []
+           if isinstance(item, dict)):
+        decals, files = [], []
+    else:
+        decals, files = ce_decals(p)
     level["decor"] = (level.get("decor") or []) + decals
     # Grime is opt-in per map (ce_upgrade_maps.json "grime": true): on
     # CE's dark metal the Megascans soil read as pale blocky patches, and
     # it barely showed elsewhere (Yoyorast and Blood Gulch, 2026-10-12).
-    grime = grime_decals(p) if m.get("grime") else []
+    grime = grime_decals(p, extra=[x for st in m.get("structure_surfaces") or [] for x in st["shaders"]])         if m.get("grime") else []
     if grime:
         level["decals"] = grime
     out = os.path.join(p["work"], "decals")
@@ -1916,7 +2016,7 @@ GRIME_KEEP = {"soil": 0.7, "leak": 0.35}
 GRIME_SCALARS = {"Opacity Intensity": 2.5}
 
 
-def grime_decals(p, seed=7):
+def grime_decals(p, seed=7, extra=()):
     """Soil and leak decals on the conversion's structure walls (materials
     whose base map names metal, panels and the like: mark_structures's
     STRUCTURE), as level `decals`. A wall's base counts where a ray down
@@ -1928,8 +2028,11 @@ def grime_decals(p, seed=7):
     sys.path.insert(0, HERE)
     from refine_water_gltf import read_accessor
     spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+    # `extra`: shader name substrings that are structure too (a map's
+    # `structure_surfaces`: Zanzibar's concrete, which no base map name says).
     structure = {mat["name"] for mat in spec.get("materials") or []
-                 if any(w in str((mat.get("textures") or {}).get("Base", "")).rsplit("/", 1)[-1].lower() for w in STRUCTURE)}
+                 if any(w in str((mat.get("textures") or {}).get("Base", "")).rsplit("/", 1)[-1].lower() for w in STRUCTURE)
+                 or any(x in mat["name"].lower() for x in extra)}
     gltf = os.path.join(p["scene"], "scene.gltf")
     doc = json.load(open(gltf, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(gltf), doc["buffers"][0]["uri"]), "rb").read()

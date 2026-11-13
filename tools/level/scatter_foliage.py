@@ -627,6 +627,70 @@ DESERT_RULES = [r for r in RULES if r["name"] in DESERT_KEEP] + [
 ]
 
 
+# A coast (`--biome coast`, Zanzibar): every beach rule above as it is, and
+# what the game ships for a shore that the beach rules never used
+# (docs/remaster_asset_inventory.md): life on the sea bed, sea campion where
+# the grass meets the sand, small palms and taro at the walls' feet, a
+# limestone slab and a drift branch here and there, and from the Namaqualand
+# pack the ice plants and succulents of a dune.
+SEA_LIFE = "/Game/Env/Bio/MarineLife/"
+PALMS = MEGA
+COAST_RULES = RULES + [
+    # Anemones, snails, oysters, a coral and the odd sea star on the bed,
+    # from wading depth down to where the light gives out.
+    {"name": "sea life", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.3, "slope": 30,
+     "above": [-3.5, -0.25], "cluster": [5.0, 0.45, 0.7],
+     "meshes": [(SEA_LIFE + f"Anemones/SM_MarineLife_Anemones_Lrg_{v}", 0.6, 1.2, 0) for v in "ABCE"]
+     + [(SEA_LIFE + "Anemones/SM_MarineLife_Anemones_Med_A", 0.7, 1.3, 0),
+        (SEA_LIFE + "SeaSnails/SM_MarineLife_SeaSnails_Med_A", 0.7, 1.2, 2),
+        (SEA_LIFE + "SeaSnails/SM_MarineLife_SeaSnails_Sml_A", 0.8, 1.4, 0),
+        (SEA_LIFE + "Oyster/SM_MarineLife_Oyster_Med_A", 0.8, 1.5, 1),
+        (SEA_LIFE + "Coral/SM_MarineLife_Coral_A", 0.5, 0.9, 5)],
+     "cull": [3000, 6000], "shadow": False},
+    {"name": "sea stars", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.02, "slope": 20,
+     "above": [-2.5, -0.15], "cluster": [9.0, 0.5],
+     "meshes": [(SEA_LIFE + "SeaStar/SM_MarineLife_Seastar_A", 0.35, 0.7, 1)],
+     "cull": [3000, 6000], "shadow": False},
+    # Sea campion in flowering clumps through the grass's thin edge.
+    {"name": "sea campion", "on": "grass", "share": [0.08, 0.45], "density": 0.9, "slope": 35, "above": [0.5, None],
+     "falloff": True, "cluster": [7.0, 0.4, 0.7],
+     "meshes": [(MEGA + "Sea_Campion_vkblbbpia/S_Sea_Campion_vkblbbpia_Var10_lod0", 0.8, 1.4, 1),
+                (MEGA + "Sea_Campion_vkblbbpia/S_Sea_Campion_vkblbbpia_Var11_lod0", 0.8, 1.4, 1)],
+     "cull": [4000, 8000], "bands": 2, "shadow": False},
+    # Small palms, taro and ginger where the walls meet the ground: up to a
+    # metre and a half, so only at the feet, out of the way.
+    {"name": "foot palms", "wall": "foot", "on": "any", "share": [0.0, 0.0], "density": 0.2, "slope": 35,
+     "above": [0.6, None], "cluster": [8.0, 0.45], "support": 45.0,
+     "meshes": [(PALMS + "ZamiaPalm/SM_ZamiaPalm_02", 0.8, 1.3, 0), (PALMS + "ZamiaPalm/SM_ZamiaPalm_03", 0.6, 1.0, 0),
+                (PALMS + "BroadleafLadyPalm/SM_BroadleafLadyPalm_02", 0.9, 1.5, 0),
+                (PALMS + "BroadleafLadyPalm/SM_BroadleafLadyPalm_03", 0.9, 1.5, 0),
+                (PALMS + "AlexandraPalm/SM_AlexandraPalm_03", 0.8, 1.2, 0),
+                (PALMS + "Taro/SM_Taro_08", 0.6, 1.0, 0), (PALMS + "Taro/SM_Taro_02", 0.6, 1.0, 1),
+                (PALMS + "Ginger_Plant_sgbmM/S_Ginger_Plant_sgbmM_Var12_lod0", 0.8, 1.2, 3)],
+     "cull": [10000, 22000], "bands": 3, "shadow": True},
+    # A limestone slab breaking the sand now and then, beside the Nordic ones.
+    {"name": "limestone", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.008, "slope": 12,
+     "above": [-0.3, 2.5], "cluster": [14.0, 0.6], "seat": [45.0, 10.0],
+     "meshes": [("/Game/Env/Bio/Rock/Limestone/Limestone_Slab_B/SM_Limestone_Slab_B", 0.7, 1.3, 4),
+                ("/Game/Env/Bio/Rock/Limestone/Limestone_Slab_A/SM_Limestone_Slab_A", 0.5, 0.9, 6)],
+     "cull": [8000, 14000], "shadow": True},
+    {"name": "drift branches", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.006, "slope": 15,
+     "above": [0.1, 2.0],
+     "meshes": [(MEGA3D + "Drift_Wood_Branch_1_we0nehh/S_Drift_Wood_Branch_1_we0nehh_lod0_Var1", 0.7, 1.3, 2)],
+     "cull": [5000, 9000], "shadow": True},
+    # A dune's own: ice plants creeping over the dry sand, a succulent
+    # among them.
+    {"name": "ice plants", "align": True, "on": "sand", "share": [0.4, 0.8], "density": 0.6, "slope": 30,
+     "above": [0.8, None], "cluster": [6.0, 0.5, 0.75],
+     "meshes": nama("Foliage", "crystalline_iceplant", "abcde", 1.2, 2.2, 0, "LP"),
+     "cull": [2500, 4500], "shadow": False},
+    {"name": "succulents", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.08, "slope": 30,
+     "above": [1.0, None], "cluster": [9.0, 0.55, 0.75],
+     "meshes": nama("Foliage", "cheiridopsis_succulent", "abcdef", 0.8, 1.3, 3),
+     "cull": [4000, 8000], "bands": 2, "shadow": True},
+]
+
+
 # Cliff shaders by name (--cliff-shaders): Sidewinder's share its ground's
 # snow detail map.
 CLIFF_SHADERS = []
@@ -1133,7 +1197,7 @@ def main():
     ap.add_argument("--swapped-rocks", action="store_true",
                     help="clear no circle for the boulders scenery_swap.py replaces (rock_foliage.py clears "
                          "their own hulls after the swap)")
-    ap.add_argument("--biome", default="b30", choices=["b30", "snow", "desert"],
+    ap.add_argument("--biome", default="b30", choices=["b30", "snow", "desert", "coast"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
     ap.add_argument("--rule-scale", action="append", default=[], metavar="RULE=FACTOR",
@@ -1161,7 +1225,7 @@ def main():
     if a.biome == "snow":
         global CLADDING
         CLADDING = SNOW_CLADDING
-    rules = [dict(r) for r in ({"snow": SNOW_RULES, "desert": DESERT_RULES}.get(a.biome, RULES))
+    rules = [dict(r) for r in ({"snow": SNOW_RULES, "desert": DESERT_RULES, "coast": COAST_RULES}.get(a.biome, RULES))
              if (not a.only or r["name"] in a.only.split(","))
              and (not r.get("optional") or r["name"] in a.extra)]
     for option, pairs in (("scale", a.rule_scale), ("density", a.rule_density)):
