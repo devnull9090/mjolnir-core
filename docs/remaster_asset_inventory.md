@@ -216,6 +216,13 @@ What Zanzibar needed beyond the rules:
   names the shaders the square is drawn around (the dirt and the beach
   proper): the landscape went from 189 m to 252 m a side, its bake from 18
   to 25 cm a texel.
+- **A black strip under the sea.** With the landscape reaching the water
+  (`landscape_square`), a coast's `seabed` shelving pushed its floor down
+  by up to 8 m away from the shore. That is for CE's flat sea floors a
+  metre under the water; Zanzibar has a real sloping bed, and the lowered
+  copy opened a gap against it, black with Flux off and a dark wedge in
+  the water with it on. Zanzibar's coast now has `"seabed": false`: the
+  landscape keeps Halo 2's own bed heights.
 - **Frame cost** on the beach at 4K on PC 1: 12.4 ms, foliage 0.8 ms of it.
 - Blood Gulch's scatter and landscape bake are byte for byte the same from
   the committed code and from this change.
@@ -307,6 +314,10 @@ published).
   (First blamed on the large layer's normal map, because the live test had
   silently dropped `drape`, `foot` and `wet`; removing each in turn showed
   it was `drape` alone.)
+- **The crane deck.** Its floor (`zanzibar_grating`) is a 128 pixel map
+  over 6 m, a texel nearly 5 cm across. It and the crane's body now draw
+  in Metal Plate 02, tinted darker, with the base map's share at 0.65 so
+  the panel lines stay.
 - **Every sign was drawn twice.** Assemble added its own quad a decal
   (`ce_decal_<n>`, square) over the conversion's (`h2_decal_<n>`, at the
   decal's aspect): two images at different sizes, fighting. Assemble now
@@ -315,6 +326,77 @@ published).
 - **Not done:** metals are drawn as painted steel (the master has no
   metallic input); props, signs and the crane keep Halo 2's textures;
   other Halo 2 maps have no `structure_surfaces` yet.
+
+## Built: the texture audit and upscaling on Zanzibar
+
+2026-11-12, local builds on PC 1, seen in game, not published.
+
+- **`tools/level/texture_audit.py <CODE>`** lists every shader with its
+  area, base map size and the size of a texel on the surface, worst
+  first. Zanzibar: 81 shaders. Its `treatment` column is derived from the
+  config by name and is wrong for hidden slots (the shoreline waves show
+  as converted): it should read the assembled level.
+- **The fresh conversion's containers were never installed.** The remaster
+  install puts in the map and landscape containers only; the texture and
+  mesh containers (`MJOLNIRCOOK-ZAN`, `MJOLNIRMESH-ZAN`) stayed the hub's,
+  from an older conversion. 516 texture lookups failed at load (detail
+  maps, alpha variants), so most slots drew without their detail maps for
+  the whole of the earlier tuning. Installed as local builds by hand
+  (`mjolnir dev install`), as Coagulation's were: 0 failures. The install
+  stage should do this for a Halo 2 map.
+- **Upscaling** (`"upscale": {"max": 1024}`, `tools/level/
+  upscale_textures.py`): the base maps of everything the remaster leaves
+  as converted, and the wall decals' textures, through Upscayl's
+  Real-ESRGAN build (`upscayl-standard-4x`), wrap-padded so tiling
+  survives, alpha kept, capped at 1024. The editor stage imports them
+  beside the landscape's bakes (BC7, no sRGB decode) and assemble points
+  each `Base` and `Map0` at its copy. Zanzibar: 55 textures, 111 slots;
+  its landscape container went from 37 to 84 MB. Not upscaled: the
+  landscape's, cliffs' and surface sets' base maps, bump maps, sky, glass,
+  plasma.
+- **What an upscaler cannot do.** A 64 by 32 sign stays rough: three
+  models each invented different letter shapes. The palm bark is 16 by
+  128. Those need new art.
+- **`structure_metal: false`.** Assemble dresses any slot whose base map
+  name holds "metal", "strip", "pipe" and so on as Forerunner plate.
+  Zanzibar's hazard stripes ("strip") drew with silver blobs. Off for
+  Zanzibar: a human installation.
+- **Dark shaded walls.** A wall out of the sun had only the sky's light
+  and a fill of 0.5: 0.10 to 0.24 mean luma in the tour's shaded and
+  interior views. Every set's fill is now 1.3 and the base map's baked
+  shade share (`look[2]`) 0.2: those views read 0.20 to 0.47. The sunlit
+  big wall from the beach went from 0.60 to 0.65 with 8% of the frame
+  clipped, which is hot. Measured over four of the tour's seven spots;
+  at the other three the player had died and respawned elsewhere, so
+  those views do not compare.
+- **Weathering ("too clean").** Sharp surfaces with nothing settled on
+  them. Zanzibar's concrete now takes `drape` again, done properly: the
+  loader gives a set with `drape` the cliffs' soil and the ground's grass
+  textures (the missing ones were the bubbled floors' cause), a `moss`
+  tint, and `CliffLedge` 0, a new parameter of M_CE_CliffPBR that turns
+  off turf on every up-facing surface, so floors stay concrete (Level
+  Loader 0.13.9; the trial masters rebuilt). Earth and a moss fringe under
+  each wall top, stains 9 m down, the stained layer's share 0.75,
+  streaks 0.7. `"grime": "soil"` lays the soil decals at wall feet
+  without the leaks (117 on Zanzibar). The concrete was then too bright
+  in sun to show any of it: tint 0.8 and base gain 0.48 took the big
+  wall's view from 8% to 4% clipped. Checked at the big wall and one
+  interior corridor (clean floor); the steel sets have no weathering yet.
+- **Occlusion and atmosphere.** The walls' fill is emissive, so nothing
+  occludes it: the engine's SSAO and bent normals, switched on live, made
+  no visible difference. `fill_occlusion` [share, power] (CliffFillDir's
+  z and w, Level Loader 0.13.10) makes the fill follow the map's baked
+  lightmap shade instead, so corners and overhangs darken where Halo 2
+  shaded them. 0.85 at power 1.5 turned shaded walls black again; 0.45
+  at 1 keeps them readable (0.31 to 0.41 mean luma at the crane).
+  `haze_look` overrides the CE-derived fog: Zanzibar's started 1.5 km
+  out, now 10 m, density 0.03, with a warm glow towards the sun
+  (`haze.sun`). `environment.post` gains `vignette`; Zanzibar sets bloom
+  0.5 and vignette 0.3. Tuned at two spots only.
+- **Not done:** detail and bump maps are untouched; the audit does not
+  cover them. The baseline tour for comparison was captured looking down
+  by mistake, so there is no like-for-like map-wide before and after.
+  Shaded exterior walls and some interiors read very dark in the tour.
 
 ## Proposal
 

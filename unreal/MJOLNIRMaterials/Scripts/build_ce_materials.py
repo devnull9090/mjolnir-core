@@ -3067,7 +3067,8 @@ if (EdgeRange.y > EdgeRange.x)
 // Grass on ledges that look up (a boulder's top is all grass; a ledge
 // part-way, its edge ragged), by the surface's own normal, not the rock's
 // bumps (with them, every up-facing seam of the rock drew a green hairline).
-turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2));
+// (Ledge.x 0: a structure's wall, whose floors are not ledges of turf.)
+turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2) * Ledge.x);
 // Rock, not turf, where CE's light is all but gone (its lightmap's
 // luminance, gamma 0.12 to 0.3, linear about 0.01 to 0.07): a tunnel's
 // floor, where the scatter grows no grass under the roof (scatter_foliage
@@ -3164,6 +3165,11 @@ if (Sea.w > 0.5)
 // wall, 2026-10-13).
 float facing = max(FillDir.x + FillDir.y * Nr.z, 0.0);
 Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 0.5 * occ, Look.z);
+// The fill is emissive, so nothing occludes it: no screen-space or Lumen
+// occlusion darkens a corner it lights (Zanzibar's walls, 2026-11-12).
+// FillDir.z: how far it follows the map's own baked shade (the lightmap's
+// corners and overhangs), FillDir.w that shade's power (0: 1).
+Emissive *= lerp(1.0, pow(occ, FillDir.w > 0.0 ? FillDir.w : 1.0), FillDir.z);
 // Indoors (Indoor.x: the loader's cliff.indoor gain times the scene's light
 // scale): CE's lightmap is the light, as CE drew it (lightmap times colour,
 // linear). A tunnel has no sun, and lit by Unreal alone (a few placed
@@ -3303,6 +3309,8 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         ("EdgeRange", g.vector4("EdgeRange", (0.0, 0.0, 0.0, 0.0)), ""),
         # Drape: turf and earth depth under the lip, stain length (cm), strength.
         ("Drape", g.vector4("CliffDrape", (30.0, 70.0, 700.0, 1.0)), ""),
+        # Ledge: turf on every surface that looks up (1: a cliff's ledges).
+        ("Ledge", g.vector4("CliffLedge", (1.0, 0.0, 0.0, 0.0)), ""),
         # Foot: sand bank height, contact shade height (cm), shade, strength.
         ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
         # The foot's sand: the beach's albedo, tinted.

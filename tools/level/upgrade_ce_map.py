@@ -694,6 +694,16 @@ def stage_editor(code, m, p):
     # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
     # in the world here (tools/level/foliage_bake.py) instead of by the
     # loader at runtime; assemble then marks the level file's foliage `baked`.
+    # `upscale`: the map's one-off textures through an AI upscaler
+    # (upscale_textures.py), imported beside the bakes; assemble points the
+    # level's materials at them.
+    if m.get("upscale"):
+        cfg = m["upscale"] if isinstance(m["upscale"], dict) else {}
+        up = os.path.join(p["work"], "upscaled")
+        print("  " + run([sys.executable, os.path.join(HERE, "upscale_textures.py"), code, up]
+                         + (["--model", cfg["model"]] if cfg.get("model") else [])
+                         + (["--max", str(cfg["max"])] if cfg.get("max") else [])).strip().splitlines()[-1][:200])
+        env["MJ_UPSCALED"] = os.path.join(up, "manifest.json")
     if m.get("bake_foliage"):
         spec = os.path.join(p["work"], "foliage_bake", "spec.json")
         origin = (json.load(open(p["level"], encoding="utf-8")).get("canvas") or {}).get("origin") or [0, 0, 0]
@@ -1457,7 +1467,7 @@ def stage_assemble(code, m, p):
         entry = {"bases": bases, "rock_a": surface_textures(st["surface"]),
                  "rock_b": surface_textures(st.get("large") or st["surface"])}
         for key in ("tiles", "mix", "look", "tint", "rough", "far", "vary", "ce_tint", "fill", "fill_dir", "drape",
-                    "foot", "wet"):
+                    "foot", "wet", "moss", "ledge", "fill_occlusion"):
             if key in st:
                 entry[key] = st[key]
         structures.append(entry)
@@ -1668,6 +1678,10 @@ def stage_assemble(code, m, p):
             haze["max_opacity"] = coast.get("haze_opacity", 1.0)
             if coast.get("haze_color"):
                 haze["color"] = list(coast["haze_color"])
+        # `haze_look`: the map's own changes to that fog (a nearer start, a
+        # glow towards the sun: MJOLNIRLevelLoader environment.haze).
+        if haze and m.get("haze_look"):
+            haze.update(m["haze_look"])
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
     # `haze` as an object: the height fog itself (MJOLNIRLevelLoader
@@ -1717,7 +1731,26 @@ def stage_assemble(code, m, p):
             for i, material in enumerate(mats):
                 if first is not None and i != first and isinstance(material, dict) and "M_CE_Water" in material.get("parent", ""):
                     mats[i] = json.loads(json.dumps(mats[first]))
-    structures = mark_structures(level)
+    # `structure_metal: false`: no Forerunner plate on the map's metal (a
+    # human installation: Zanzibar's hazard stripes, whose name holds
+    # "strip", drew as iridescent metal).
+    structures = mark_structures(level) if m.get("structure_metal", True) else 0
+    # The upscaled textures (stage_editor): every Base and Map0 that names
+    # one, at its copy beside the bakes.
+    manifest = os.path.join(p["work"], "upscaled", "manifest.json")
+    if m.get("upscale") and os.path.exists(manifest):
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
+        root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
+        swapped = 0
+        for item in level.get("decor") or []:
+            for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
+                tex = entry.get("textures") if isinstance(entry, dict) else None
+                for key in ("Base", "Map0"):
+                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+                    if leaf in names:
+                        tex[key] = f"{root}{leaf}.{leaf}"
+                        swapped += 1
+        print(f"  {code}: {swapped} material slot(s) on {len(names)} upscaled texture(s)")
     pulses = bake_pulses(level)
     if pulses:
         print(f"  {code}: {pulses} flare pulse(s) in the material")
@@ -1738,6 +1771,10 @@ def stage_assemble(code, m, p):
     # CE's dark metal the Megascans soil read as pale blocky patches, and
     # it barely showed elsewhere (Yoyorast and Blood Gulch, 2026-10-12).
     grime = grime_decals(p, extra=[x for st in m.get("structure_surfaces") or [] for x in st["shaders"]])         if m.get("grime") else []
+    # `"grime": "soil"`: the soil splashed up the walls' feet alone (the
+    # leaks drew as dark blurred rectangles on Zanzibar's concrete).
+    if m.get("grime") == "soil":
+        grime = [g for g in grime if g["material"] in SOIL]
     if grime:
         level["decals"] = grime
     out = os.path.join(p["work"], "decals")

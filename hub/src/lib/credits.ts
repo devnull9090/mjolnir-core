@@ -251,6 +251,14 @@ export const CREDIT_SECTIONS: CreditSection[] = [
         status: "shipped",
       },
       {
+        name: "Upscayl and Real-ESRGAN",
+        by: "the Upscayl team; Xintao Wang and the Real-ESRGAN contributors",
+        url: "https://github.com/upscayl/upscayl",
+        licence: "AGPL-3.0 (Upscayl); BSD 3-Clause (Real-ESRGAN)",
+        use: "Enlarges the remastered Zanzibar's one-off textures (hazard stripes, signs, the wheel and crane, props) four times, from Halo 2's originals.",
+        status: "planned",
+      },
+      {
         name: "Ghidra",
         by: "the National Security Agency and contributors",
         url: "https://ghidra-sre.org",

@@ -1830,6 +1830,16 @@ local function spawnEnvironment(world)
             c:SetStartDistance(haze.start or 2500)
             c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
+            -- `haze.sun` {r, g, b, exponent, start cm}: the haze glows
+            -- towards the sun (directional inscattering).
+            if type(haze.sun) == "table" then
+                local sc = haze.sun
+                pcall(function()
+                    c:SetDirectionalInscatteringColor({ R = (sc[1] or 1) * k, G = (sc[2] or 1) * k, B = (sc[3] or 1) * k, A = 1.0 })
+                    c:SetDirectionalInscatteringExponent(sc[4] or 8.0)
+                    c:SetDirectionalInscatteringStartDistance(sc[5] or 3000.0)
+                end)
+            end
             -- Both as soon as they can be: the capture on the first tick after
             -- the load lets go (the delay has run out by then), the haze a few
             -- frames after it. At 1 s and 2 s it came up ~2 s after the
@@ -1868,6 +1878,7 @@ local function spawnEnvironment(world)
             set("expand_gamut", "ExpandGamut", post.expand_gamut)
             set("blue_correction", "BlueCorrection", post.blue_correction)
             set("bloom", "BloomIntensity", post.bloom)
+            set("vignette", "VignetteIntensity", post.vignette)
             -- Rougher surfaces reflect from the radiance cache, not traced
             -- rays (docs/level_format.md); a level of glossy metal saves ms.
             set("max_traced_roughness", "LumenMaxRoughnessToTraceReflections", post.max_traced_roughness)
@@ -4498,6 +4509,24 @@ function Land.structures(world, spec)
                                 vec(mid, "CliffCETint", set.ce_tint or cliff.ce_tint)
                                 vec(mid, "CliffDrape", set.drape or { 30, 70, 700, 0 })
                                 vec(mid, "CliffFoot", set.foot or { 35, 150, 0.45, 0 })
+                                -- `drape`: earth under a wall's top, a fringe of
+                                -- moss on it and stains below, in the cliffs'
+                                -- soil and the ground's grass; no turf on the
+                                -- surfaces that look up (CliffLedge 0: floors).
+                                if set.drape then
+                                    local own = type(spec.pbr) == "table" and type(spec.pbr.surfaces) == "table"
+                                        and spec.pbr.surfaces or {}
+                                    local soil = type(cliff.soil) == "table" and cliff.soil or Land.SOIL
+                                    local dress = {
+                                        GrassD = Land.megascans(own.GrassD or Land.SURFACES.GrassD),
+                                        GrassN = Land.megascans(own.GrassN or Land.SURFACES.GrassN),
+                                        SoilD = Land.megascans(soil.d), SoilN = Land.megascans(soil.n),
+                                        SoilO = Land.megascans(soil.o),
+                                    }
+                                    for name, tex in pairs(dress) do mid:SetTextureParameterValue(FName(name), tex) end
+                                    vec(mid, "GrassTint", set.moss or (spec.pbr and spec.pbr.grass_tint))
+                                    vec(mid, "CliffLedge", { set.ledge or 0, 0, 0, 0 })
+                                end
                                 if edgeTex and (set.drape or set.foot) then
                                     mid:SetTextureParameterValue(FName("Edge"), edgeTex)
                                     vec(mid, "EdgeRect", edge.rect)
@@ -4508,7 +4537,11 @@ function Land.structures(world, spec)
                                 if type(f) == "table" then
                                     vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() })
                                 end
-                                vec(mid, "CliffFillDir", set.fill_dir or cliff.fill_dir)
+                                -- A set's `fill_occlusion` {share, power}: the
+                                -- fill follows the map's baked shade.
+                                local fd = set.fill_dir or cliff.fill_dir or { 0.75, -0.35, 0, 0 }
+                                local fo = type(set.fill_occlusion) == "table" and set.fill_occlusion or { 0, 0 }
+                                vec(mid, "CliffFillDir", { fd[1], fd[2], fo[1] or 0, fo[2] or 0 })
                                 if pcall(function() comp:SetMaterial(i - 1, mid) end) then
                                     changed = changed + 1
                                     Land.structureMids[#Land.structureMids + 1] = mid

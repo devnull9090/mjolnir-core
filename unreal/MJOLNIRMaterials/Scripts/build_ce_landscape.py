@@ -254,6 +254,30 @@ if FOLIAGE:
             unreal.log(f"MJOLNIR baked decor materials: {material_count} cooked MIC(s)")
     unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
                f"{len(fspec['standins'])} stand-in(s)")
+# The map's upscaled one-off textures (MJ_UPSCALED: tools/level/
+# upscale_textures.py's manifest), under the bakes' folder so they cook with
+# the map. Read as every CE bitmap is (gamma values as they are, no sRGB
+# decode), but block compressed: at four times the size, BGRA8 would be
+# 100 MB a map.
+UPSCALED = os.environ.get("MJ_UPSCALED")
+if UPSCALED:
+    up = json.load(open(UPSCALED, encoding="utf-8"))
+    for t in up["textures"]:
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", t["file"])
+        task.set_editor_property("destination_path", TEXTURES + "/Up")
+        task.set_editor_property("destination_name", t["name"])
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("save", False)
+        tools.import_asset_tasks([task])
+        tex = unreal.load_asset(f"{TEXTURES}/Up/{t['name']}")
+        if not tex:
+            raise RuntimeError(f"upscaled texture {t['name']} did not import")
+        tex.set_editor_property("srgb", False)
+        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_BC7)
+        eal.save_loaded_asset(tex)
+    unreal.log(f"MJOLNIR CE landscape upscaled: {len(up['textures'])} texture(s)")
 # A map-owned ambient probe avoids dependence on runtime sky recapture.
 ambient = os.environ.get("MJ_AMBIENT_CUBEMAP")
 if ambient:
