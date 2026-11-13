@@ -298,6 +298,11 @@ published).
   `h2_decal_<n>` a lit cut-out (`M_CE_EnvironmentMasked`, no lightmap);
   steady over the same steps. Additive decals are unchanged, and a sign in
   shade is now as dim as its wall.
+- **Bubbled floors.** The large layer tiles at 9 to 11 m, four times its
+  real size, and its normal map at half strength (`mix[1]`) turned every
+  tie hole into a crater a metre across: the base's concrete floors looked
+  like a default bump texture. The large layer now gives colour only
+  (`mix[1]` 0 on every set).
 - **Every sign was drawn twice.** Assemble added its own quad a decal
   (`ce_decal_<n>`, square) over the conversion's (`h2_decal_<n>`, at the
   decal's aspect): two images at different sizes, fighting. Assemble now
