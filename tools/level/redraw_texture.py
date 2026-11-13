@@ -4,8 +4,12 @@
         --what "a worn metal safety sign" [--text "NOTICE / ENTRANCE FOR / EMPLOYEES / ONLY"]
         [--size 1024] [--model gpt-image-2.6-sunburst] [--quality high] [--keep-raw]
 
-An upscaler (upscale_textures.py) can only sharpen what is there, and a
-64 by 32 sign holds no letter shapes: Real-ESRGAN invents blobs. This sends
+An upscaler can only sharpen what is there, and a 64 by 32 sign holds no
+letter shapes: Real-ESRGAN, tried on a whole map's textures, invented blobs
+for letters and was dropped. A texture is enlarged only on purpose, one at
+a time, with someone saying what it shows: write the result to
+`<work>/redrawn/<asset name>.png` and a map with `"redrawn": true` builds
+with it (upgrade_ce_map.py). This sends
 the texture, magnified, to OpenAI's image edit endpoint with a prompt that
 says what it is and what it reads, and asks for the same picture drawn
 again: same layout, colours and proportions, front on, filling the frame.
@@ -13,6 +17,10 @@ again: same layout, colours and proportions, front on, filling the frame.
 The result is scaled to `--size` on its long side at the source's aspect.
 The source's own alpha is kept (magnified and smoothed), so a cut-out
 keeps its outline whatever the model drew outside it.
+
+A bump map is redrawn the same way with `--normal-map` (the model keeps
+the encoding and the way each slope faces) and then finished with
+redraw_bump.py, which makes the picture a normal map again.
 
 The key is read from OPENAI_API_KEY, or from `.env.local` / `.env` at the
 repository root (both ignored by git). It is never written anywhere.
@@ -39,8 +47,18 @@ PROMPT = (
     "every element in the same place. {text}"
     "Flat and front on, with no perspective, no frame, no background, no shadow and no added border: "
     "the picture fills the whole image edge to edge as the input does. "
-    "Crisp edges and clean lettering, lightly worn like a painted sign that has been outdoors, not new and not grimy."
+    "{wear}"
 )
+NORMAL_MAP = (
+    "This image is a tiny, heavily magnified tangent-space normal map from a video game, the purple-blue relief "
+    "encoding game engines use: flat areas are RGB 128,128,255, a slope facing right is redder, a slope facing "
+    "left is less red, and green encodes slopes facing up or down. It is the relief for {what}. "
+    "Redraw exactly this normal map at high resolution: the same layout, every shape in the same place, "
+    "the same colour encoding and the same direction of every slope, flat areas the same flat purple-blue, "
+    "filling the whole image edge to edge. Make every bevel clean, sharp and evenly wide, as if baked from a "
+    "high-resolution sculpt. Add no lighting, no shadows, no texture grain and no new shapes."
+)
+WEAR = "Crisp edges and clean lettering, lightly worn like a painted sign that has been outdoors, not new and not grimy."
 
 
 def api_key():
@@ -87,6 +105,13 @@ def main():
     ap.add_argument("--size", type=int, default=1024, help="the output's long side")
     ap.add_argument("--model", default="gpt-image-2.6-sunburst")
     ap.add_argument("--quality", default="high")
+    ap.add_argument("--alpha", choices=("cutout", "smooth"), default="cutout",
+                    help="the source's alpha is a cut-out's outline (cut back to a clean edge), or a mask with "
+                         "levels of its own, such as a specular mask (magnified as it is)")
+    ap.add_argument("--normal-map", action="store_true",
+                    help="the source is a bump (normal) map: redraw it as one. Finish the result with "
+                         "redraw_bump.py before using it")
+    ap.add_argument("--prompt", help="replace the closing sentence about wear (the default suits a painted sign)")
     ap.add_argument("--keep-raw", action="store_true", help="also write the model's own image beside the output")
     a = ap.parse_args()
 
@@ -103,7 +128,8 @@ def main():
     if a.text:
         lines = [t.strip() for t in a.text.split("/") if t.strip()]
         text = "It reads, line by line: " + "; ".join(f'"{t}"' for t in lines) + ". Spell it exactly so. "
-    prompt = PROMPT.format(what=a.what, text=text)
+    prompt = NORMAL_MAP.format(what=a.what) if a.normal_map else PROMPT.format(what=a.what, text=text,
+                                                                                wear=a.prompt or WEAR)
     body, ctype = multipart({"model": a.model, "prompt": prompt, "size": f"{rw}x{rh}", "quality": a.quality,
                              "n": "1", "output_format": "png"},
                             {"image": ("texture.png", buf.getvalue(), "image/png")})
@@ -125,7 +151,11 @@ def main():
         # The source's outline, magnified: smoothed, then cut back to a
         # clean edge so 64 texels of stair steps do not show.
         big = alpha.resize((ow, oh), Image.BICUBIC).filter(ImageFilter.GaussianBlur(scale * 0.5))
-        out.putalpha(big.point(lambda v: 0 if v < 96 else 255 if v > 160 else int((v - 96) * 255 / 64)))
+        if a.alpha == "smooth":
+            big = alpha.resize((ow, oh), Image.BICUBIC)
+        else:
+            big = big.point(lambda v: 0 if v < 96 else 255 if v > 160 else int((v - 96) * 255 / 64))
+        out.putalpha(big)
     out.save(a.out)
     usage = reply.get("usage") or {}
     print(f"{os.path.basename(a.source)}: {w}x{h} -> {ow}x{oh} ({a.model}, {a.quality}; asked {rw}x{rh}"

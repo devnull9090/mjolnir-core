@@ -254,14 +254,20 @@ if FOLIAGE:
             unreal.log(f"MJOLNIR baked decor materials: {material_count} cooked MIC(s)")
     unreal.log(f"MJOLNIR CE landscape foliage: {placed} clump(s) baked, {len(decor)} decor piece(s), "
                f"{len(fspec['standins'])} stand-in(s)")
-# The map's upscaled one-off textures (MJ_UPSCALED: tools/level/
-# upscale_textures.py's manifest), under the bakes' folder so they cook with
+# The map's redrawn textures (MJ_REDRAWN: upgrade_ce_map.py's manifest of
+# tools/level/redraw_texture.py's outputs), under the bakes' folder so they cook with
 # the map. Read as every CE bitmap is (gamma values as they are, no sRGB
 # decode), but block compressed: at four times the size, BGRA8 would be
 # 100 MB a map.
-UPSCALED = os.environ.get("MJ_UPSCALED")
-if UPSCALED:
-    up = json.load(open(UPSCALED, encoding="utf-8"))
+REDRAWN = os.environ.get("MJ_REDRAWN")
+if REDRAWN:
+    up = json.load(open(REDRAWN, encoding="utf-8"))
+    # Only what the manifest names: a texture left from an earlier build
+    # (the wholesale upscales this folder once held) would cook with the map.
+    keep = {t["name"] for t in up["textures"]}
+    for path in eal.list_assets(TEXTURES + "/Up", recursive=False) if eal.does_directory_exist(TEXTURES + "/Up") else []:
+        if str(path).rsplit("/", 1)[-1].split(".")[0] not in keep:
+            eal.delete_asset(str(path))
     for t in up["textures"]:
         task = unreal.AssetImportTask()
         task.set_editor_property("filename", t["file"])
@@ -273,11 +279,11 @@ if UPSCALED:
         tools.import_asset_tasks([task])
         tex = unreal.load_asset(f"{TEXTURES}/Up/{t['name']}")
         if not tex:
-            raise RuntimeError(f"upscaled texture {t['name']} did not import")
+            raise RuntimeError(f"redrawn texture {t['name']} did not import")
         tex.set_editor_property("srgb", False)
         tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_BC7)
         eal.save_loaded_asset(tex)
-    unreal.log(f"MJOLNIR CE landscape upscaled: {len(up['textures'])} texture(s)")
+    unreal.log(f"MJOLNIR CE landscape redrawn: {len(up['textures'])} texture(s)")
 # A map-owned ambient probe avoids dependence on runtime sky recapture.
 ambient = os.environ.get("MJ_AMBIENT_CUBEMAP")
 if ambient:

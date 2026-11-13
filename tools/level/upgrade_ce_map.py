@@ -682,6 +682,21 @@ def bake_sbsp(m, p):
     return own if os.path.exists(own) else os.path.join(p["conv"], m["sbsp"])
 
 
+def redrawn_manifest(code, p):
+    """The manifest of a map's redrawn textures: every `<asset name>.png` in
+    `<work>/redrawn` (redraw_texture.py's outputs; its `.raw.png` copies are
+    not textures). The editor stage imports them and removes any other."""
+    folder = os.path.join(p["work"], "redrawn")
+    names = sorted(f[:-4] for f in os.listdir(folder) if f.endswith(".png") and not f.endswith(".raw.png"))         if os.path.isdir(folder) else []
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "manifest.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"textures": [{"name": n, "file": os.path.join(folder, n + ".png").replace("\\", "/")}
+                                for n in names]}, f, indent=1)
+    print(f"  {code}: {len(names)} redrawn texture(s)")
+    return path
+
+
 def stage_editor(code, m, p):
     if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
         sys.exit(f"{code}: rock overrides require bake_foliage")
@@ -694,16 +709,12 @@ def stage_editor(code, m, p):
     # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
     # in the world here (tools/level/foliage_bake.py) instead of by the
     # loader at runtime; assemble then marks the level file's foliage `baked`.
-    # `upscale`: the map's one-off textures through an AI upscaler
-    # (upscale_textures.py), imported beside the bakes; assemble points the
-    # level's materials at them.
-    if m.get("upscale"):
-        cfg = m["upscale"] if isinstance(m["upscale"], dict) else {}
-        up = os.path.join(p["work"], "upscaled")
-        print("  " + run([sys.executable, os.path.join(HERE, "upscale_textures.py"), code, up]
-                         + (["--model", cfg["model"]] if cfg.get("model") else [])
-                         + (["--max", str(cfg["max"])] if cfg.get("max") else [])).strip().splitlines()[-1][:200])
-        env["MJ_UPSCALED"] = os.path.join(up, "manifest.json")
+    # `redrawn`: the textures redrawn for this map one at a time
+    # (redraw_texture.py, `<work>/redrawn/<asset name>.png`), imported beside
+    # the bakes; assemble points the level's materials at them. Nothing is
+    # enlarged wholesale: a texture with no redraw stays as converted.
+    if m.get("redrawn"):
+        env["MJ_REDRAWN"] = redrawn_manifest(code, p)
     if m.get("bake_foliage"):
         spec = os.path.join(p["work"], "foliage_bake", "spec.json")
         origin = (json.load(open(p["level"], encoding="utf-8")).get("canvas") or {}).get("origin") or [0, 0, 0]
@@ -1735,22 +1746,22 @@ def stage_assemble(code, m, p):
     # human installation: Zanzibar's hazard stripes, whose name holds
     # "strip", drew as iridescent metal).
     structures = mark_structures(level) if m.get("structure_metal", True) else 0
-    # The upscaled textures (stage_editor): every Base and Map0 that names
+    # The redrawn textures (stage_editor): every Base, Map0 and Bump that names
     # one, at its copy beside the bakes.
-    manifest = os.path.join(p["work"], "upscaled", "manifest.json")
-    if m.get("upscale") and os.path.exists(manifest):
+    manifest = os.path.join(p["work"], "redrawn", "manifest.json")
+    if m.get("redrawn") and os.path.exists(manifest):
         names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
         root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
         swapped = 0
         for item in level.get("decor") or []:
             for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
                 tex = entry.get("textures") if isinstance(entry, dict) else None
-                for key in ("Base", "Map0"):
+                for key in ("Base", "Map0", "Bump"):
                     leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
                     if leaf in names:
                         tex[key] = f"{root}{leaf}.{leaf}"
                         swapped += 1
-        print(f"  {code}: {swapped} material slot(s) on {len(names)} upscaled texture(s)")
+        print(f"  {code}: {swapped} material slot(s) on {len(names)} redrawn texture(s)")
     # `detail_fill`: a detail map for slots the game drew with a base map
     # alone (Halo 2's wheel: a stretched colour map and nothing under it).
     # Each rule names base maps (tokens), one of the conversion's own detail

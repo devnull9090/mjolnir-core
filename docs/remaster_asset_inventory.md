@@ -327,7 +327,7 @@ published).
   metallic input); props, signs and the crane keep Halo 2's textures;
   other Halo 2 maps have no `structure_surfaces` yet.
 
-## Built: the texture audit and upscaling on Zanzibar
+## Built: the texture audit on Zanzibar
 
 2026-11-12, local builds on PC 1, seen in game, not published.
 
@@ -345,16 +345,13 @@ published).
   (`mjolnir dev install`), as Coagulation's were: 0 failures. The install
   stage now does it for a map with `"conversion_containers": true` (both
   Halo 2 maps), and stops before touching the game when one is missing.
-- **Upscaling** (`"upscale": {"max": 1024}`, `tools/level/
-  upscale_textures.py`): the base maps of everything the remaster leaves
-  as converted, and the wall decals' textures, through Upscayl's
-  Real-ESRGAN build (`upscayl-standard-4x`), wrap-padded so tiling
-  survives, alpha kept, capped at 1024. The editor stage imports them
-  beside the landscape's bakes (BC7, no sRGB decode) and assemble points
-  each `Base` and `Map0` at its copy. Zanzibar: 55 textures, 111 slots;
-  its landscape container went from 37 to 84 MB. Not upscaled: the
-  landscape's, cliffs' and surface sets' base maps, bump maps, sky, glass,
-  plasma.
+- **Wholesale upscaling, tried and removed.** The base maps of
+  everything the remaster leaves as converted, and the wall decals, went
+  through Upscayl's Real-ESRGAN build (55 textures, 111 slots). The
+  results looked bad in game, the signs worst, and the step is gone
+  (`upscale_textures.py`, the `upscale` key, the imported copies). No
+  texture is enlarged by a model unless someone chose it and said what
+  it shows: see "Redrawn, one at a time" below.
 - **What an upscaler cannot do.** A 64 by 32 sign stays rough: three
   models each invented different letter shapes. The palm bark is 16 by
   128. Those need new art.
@@ -430,25 +427,60 @@ published).
   turns, so a world-space structure surface would swim on it.
   `detail_fill` gives base-only slots one of the conversion's own detail
   maps (the rusted metal one, 24 times a copy: 5 slots, no cook). The
-  effect on the wheel is slight. The audit sizes textures before
-  upscaling, so its texel numbers overstate what draws.
+  effect on the wheel is slight. The audit sizes the converted textures, not a redrawn copy.
 - **Not done:** the wheel and the small props still have no bump map of
-  their own; the bump maps are not upscaled. The baseline tour for
+  their own. The baseline tour for
   comparison was captured looking down by mistake, so there is no
   like-for-like map-wide before and after.
-- **A sign redrawn, not upscaled** (`tools/level/redraw_texture.py`).
-  The 64 by 32 notice came out of Real-ESRGAN as blobs where the letters
-  were. An image model given the magnified texture, what it is and what
-  it reads ("NOTICE / ENTRANCE FOR / EMPLOYEES / ONLY") draws the same
-  sign again, legible, at 1024 by 512; the source's alpha is kept, so the
-  cut-out's outline is Halo 2's. A file in `<work>/redrawn/` named for
-  the texture stands in for its upscale (`upscale_textures.py`).
-  Zanzibar: 14 of its 16 wall decals, each with a description and its
-  words read off the original by hand (text, pictograms and the hazard
-  placard all came back in place; colours run more saturated than Halo
-  2's). The two 4:1 caution strips keep their upscale: over the model's
-  3:1 limit, and their shape is in the alpha. The key comes from `OPENAI_API_KEY` or
-  `.env.local` (ignored by git); the texture is sent to OpenAI.
+- **Redrawn, one at a time** (`tools/level/redraw_texture.py`,
+  `"redrawn": true`). An image model given the magnified texture, what
+  it is and what it reads ("NOTICE / ENTRANCE FOR / EMPLOYEES / ONLY")
+  draws the same sign again, legible, at 1024 on its long side; the
+  source's alpha is kept, so a cut-out's outline is Halo 2's. Each
+  result is looked at beside its original before it goes in. A file in
+  `<work>/redrawn/` named for the texture is imported by the editor
+  stage (which removes any other from the map's `Up` folder) and
+  assemble points the level's `Base` and `Map0` at it. Zanzibar: 14 of
+  its 16 wall decals and the no-swimming sign, each with a description
+  and its words read off the original by hand (text, pictograms and the
+  hazard placard came back in place; colours run more saturated than
+  Halo 2's). The two 4:1 caution strips are as converted: over the
+  model's 3:1 limit, and their shape is in the alpha. So is everything
+  else that was upscaled: the wheel, hazard stripes, props, tree
+  leaves. The key comes from `OPENAI_API_KEY` or `.env.local` (ignored
+  by git); the texture is sent to OpenAI.
+- **Bump maps for a redraw** (`redraw_texture.py --normal-map`, then
+  `tools/level/redraw_bump.py`). A colour map redrawn at four times the
+  size sat on a bump map a quarter as sharp. Tried on the tyre props
+  (256 to 1024). Guessing relief from the colour alone was not tried:
+  it discards the rim, bolts and tread depth Halo 2's artists built.
+  Integrating the original normal map to a height, enlarging it along
+  the redraw's edges and deriving normals again gave soft, lumpy bevels,
+  worse than a plain enlargement. Asking the image model to redraw the
+  normal map itself worked: clean bevels, the same layout, and slopes
+  that still agree with the original's (0.83 and 0.88 correlation in x
+  and y). `redraw_bump.py` then makes the picture a normal map again:
+  unit length, its broad slopes and overall strength held to the
+  original's, the colour redraw's grain added as fine relief, and a
+  warning when the model's slopes agree under 0.6. Assemble swaps a
+  redrawn `Bump` as it does `Base` and `Map0`. `--alpha smooth` keeps a
+  specular mask's levels instead of cutting an outline.
+- **DeepBump, compared in game** (`tools/level/deepbump_normals.py`;
+  DeepBump is GPL-3.0, cloned outside the repo and run as a tool, with
+  `onnxruntime`). Each candidate was swapped into the running game
+  through the level file (a file texture, `linear`) and captured from one
+  camera, so only the bump map differs. Tyres: the image model's redraw
+  of the bump map stayed best; DeepBump from the colour map read lumpy
+  (slopes agree with Halo 2's 0.43 / 0.51); its 4x enlargement of the
+  original was close to the original and little sharper. Fusion coil
+  body (the military props' 256 atlas): the image model's redraw of the
+  bump map failed the check (0.45 / 0.56) and its 4x looked like the
+  original, but DeepBump from the redrawn colour gave the panels grooved
+  edges and the end caps deeper rings, so that is what the build uses,
+  though its slopes agree with Halo 2's only 0.20 / 0.24 and it reads
+  some dark grime as dents. The wrapper puts its green in the source's
+  convention and keeps the source's alpha. Which tool wins is per
+  texture: look at both in game.
 - **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
   and Timberland assemble to the same bytes with this branch's pipeline
   as with its merge-base's.
