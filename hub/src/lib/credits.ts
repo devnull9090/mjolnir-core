@@ -259,6 +259,15 @@ export const CREDIT_SECTIONS: CreditSection[] = [
         status: "planned",
       },
       {
+        name: "GPT Image 2.6",
+        by: "OpenAI",
+        url: "https://developers.openai.com/api/docs/guides/image-generation",
+        licence: "OpenAI Services Agreement",
+        licenceUrl: "https://openai.com/policies/services-agreement/",
+        use: "Redraws signs too small for an upscaler to read (the remastered Zanzibar's 64 by 32 pixel notice), from Halo 2's original and the words on it.",
+        status: "planned",
+      },
+      {
         name: "Ghidra",
         by: "the National Security Agency and contributors",
         url: "https://ghidra-sre.org",

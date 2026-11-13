@@ -1,0 +1,136 @@
+"""Redraw one small texture with an image model, for a remaster.
+
+    python tools/level/redraw_texture.py <source image> <out.png>
+        --what "a worn metal safety sign" [--text "NOTICE / ENTRANCE FOR / EMPLOYEES / ONLY"]
+        [--size 1024] [--model gpt-image-2.6-sunburst] [--quality high] [--keep-raw]
+
+An upscaler (upscale_textures.py) can only sharpen what is there, and a
+64 by 32 sign holds no letter shapes: Real-ESRGAN invents blobs. This sends
+the texture, magnified, to OpenAI's image edit endpoint with a prompt that
+says what it is and what it reads, and asks for the same picture drawn
+again: same layout, colours and proportions, front on, filling the frame.
+
+The result is scaled to `--size` on its long side at the source's aspect.
+The source's own alpha is kept (magnified and smoothed), so a cut-out
+keeps its outline whatever the model drew outside it.
+
+The key is read from OPENAI_API_KEY, or from `.env.local` / `.env` at the
+repository root (both ignored by git). It is never written anywhere.
+The source image leaves this machine: use it on textures you may send.
+"""
+import argparse
+import base64
+import io
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+import uuid
+
+from PIL import Image, ImageFilter
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
+URL = "https://api.openai.com/v1/images/edits"
+PROMPT = (
+    "This image is a tiny, heavily magnified video game texture of {what}. "
+    "Redraw exactly this picture at high resolution: the same layout, the same colours, the same proportions, "
+    "every element in the same place. {text}"
+    "Flat and front on, with no perspective, no frame, no background, no shadow and no added border: "
+    "the picture fills the whole image edge to edge as the input does. "
+    "Crisp edges and clean lettering, lightly worn like a painted sign that has been outdoors, not new and not grimy."
+)
+
+
+def api_key():
+    key = os.environ.get("OPENAI_API_KEY")
+    for name in (".env.local", ".env"):
+        path = os.path.join(REPO, name)
+        if not key and os.path.isfile(path):
+            for line in open(path, encoding="utf-8"):
+                if line.strip().startswith("OPENAI_API_KEY="):
+                    key = line.strip().split("=", 1)[1].strip().strip('"')
+    if not key:
+        sys.exit("no key: set OPENAI_API_KEY or put OPENAI_API_KEY=... in .env.local")
+    return key
+
+
+def request_size(w, h):
+    """The size asked of the model: the source's aspect (held to the API's
+    1:3 to 3:1), both edges multiples of 16, about 1.2 million pixels."""
+    aspect = min(max(w / h, 1 / 3), 3.0)
+    height = (1_200_000 / aspect) ** 0.5
+    return max(16, round(height * aspect / 16) * 16), max(16, round(height / 16) * 16)
+
+
+def multipart(fields, files):
+    boundary = uuid.uuid4().hex
+    body = io.BytesIO()
+    for name, value in fields.items():
+        body.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+    for name, (filename, data, mime) in files.items():
+        body.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                   f"Content-Type: {mime}\r\n\r\n".encode())
+        body.write(data)
+        body.write(b"\r\n")
+    body.write(f"--{boundary}--\r\n".encode())
+    return body.getvalue(), f"multipart/form-data; boundary={boundary}"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("source")
+    ap.add_argument("out")
+    ap.add_argument("--what", required=True, help="what the texture shows, in a few words")
+    ap.add_argument("--text", help="what it reads, lines separated by ' / '")
+    ap.add_argument("--size", type=int, default=1024, help="the output's long side")
+    ap.add_argument("--model", default="gpt-image-2.6-sunburst")
+    ap.add_argument("--quality", default="high")
+    ap.add_argument("--keep-raw", action="store_true", help="also write the model's own image beside the output")
+    a = ap.parse_args()
+
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    src = Image.open(a.source).convert("RGBA")
+    w, h = src.size
+    rw, rh = request_size(w, h)
+    # Opaque for the model: the colour under a transparent texel is whatever
+    # the artist left there, usually the sign's own.
+    sent = src.convert("RGB").resize((rw, rh), Image.LANCZOS)
+    buf = io.BytesIO()
+    sent.save(buf, "PNG")
+    text = ""
+    if a.text:
+        lines = [t.strip() for t in a.text.split("/") if t.strip()]
+        text = "It reads, line by line: " + "; ".join(f'"{t}"' for t in lines) + ". Spell it exactly so. "
+    prompt = PROMPT.format(what=a.what, text=text)
+    body, ctype = multipart({"model": a.model, "prompt": prompt, "size": f"{rw}x{rh}", "quality": a.quality,
+                             "n": "1", "output_format": "png"},
+                            {"image": ("texture.png", buf.getvalue(), "image/png")})
+    req = urllib.request.Request(URL, data=body, headers={"Authorization": "Bearer " + api_key(),
+                                                          "Content-Type": ctype})
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r:
+            reply = json.load(r)
+    except urllib.error.HTTPError as e:
+        sys.exit(f"{e.code}: {e.read().decode(errors='replace')[:600]}")
+    raw = Image.open(io.BytesIO(base64.b64decode(reply["data"][0]["b64_json"]))).convert("RGB")
+    if a.keep_raw:
+        raw.save(os.path.splitext(a.out)[0] + ".raw.png")
+    scale = a.size / max(w, h)
+    ow, oh = max(4, round(w * scale / 4) * 4), max(4, round(h * scale / 4) * 4)
+    out = raw.resize((ow, oh), Image.LANCZOS).convert("RGBA")
+    alpha = src.getchannel("A")
+    if alpha.getextrema() != (255, 255):
+        # The source's outline, magnified: smoothed, then cut back to a
+        # clean edge so 64 texels of stair steps do not show.
+        big = alpha.resize((ow, oh), Image.BICUBIC).filter(ImageFilter.GaussianBlur(scale * 0.5))
+        out.putalpha(big.point(lambda v: 0 if v < 96 else 255 if v > 160 else int((v - 96) * 255 / 64)))
+    out.save(a.out)
+    usage = reply.get("usage") or {}
+    print(f"{os.path.basename(a.source)}: {w}x{h} -> {ow}x{oh} ({a.model}, {a.quality}; asked {rw}x{rh}"
+          + (f", {usage.get('total_tokens')} tokens" if usage.get("total_tokens") else "") + ")")
+
+
+if __name__ == "__main__":
+    main()

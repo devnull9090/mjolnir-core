@@ -436,6 +436,15 @@ published).
   their own; the bump maps are not upscaled. The baseline tour for
   comparison was captured looking down by mistake, so there is no
   like-for-like map-wide before and after.
+- **A sign redrawn, not upscaled** (`tools/level/redraw_texture.py`).
+  The 64 by 32 notice came out of Real-ESRGAN as blobs where the letters
+  were. An image model given the magnified texture, what it is and what
+  it reads ("NOTICE / ENTRANCE FOR / EMPLOYEES / ONLY") draws the same
+  sign again, legible, at 1024 by 512; the source's alpha is kept, so the
+  cut-out's outline is Halo 2's. A file in `<work>/redrawn/` named for
+  the texture stands in for its upscale (`upscale_textures.py`). One
+  decal so far, as a trial. The key comes from `OPENAI_API_KEY` or
+  `.env.local` (ignored by git); the texture is sent to OpenAI.
 - **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
   and Timberland assemble to the same bytes with this branch's pipeline
   as with its merge-base's.

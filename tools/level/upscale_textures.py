@@ -69,6 +69,13 @@ def main():
         src, dst = files[name], os.path.join(a.out, name + ".png")
         if not os.path.exists(src):
             continue
+        # A redrawn copy (redraw_texture.py, `<out>/../redrawn/<name>.png`)
+        # stands in for the upscale: a sign too small to hold letter shapes.
+        redrawn = os.path.join(os.path.dirname(os.path.abspath(a.out)), "redrawn", name + ".png")
+        if os.path.exists(redrawn):
+            manifest.append({"name": name, "file": redrawn.replace("\\", "/"), "size": list(Image.open(redrawn).size),
+                             "source_size": list(Image.open(src).size), "redrawn": True})
+            continue
         if not os.path.exists(dst) or os.path.getmtime(dst) < os.path.getmtime(src):
             img = np.asarray(Image.open(src).convert("RGBA"))
             tmp = os.path.join(a.out, "_in.png")
