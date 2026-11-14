@@ -129,13 +129,21 @@ def bash():
             return b
 
 
-def sea_height(level):
-    """The sea's height (cm) from the level's water decor, as the loader finds it."""
+def sea_height(level, m=None):
+    """The sea's height (cm) from the level's water decor, as the loader finds
+    it. None for a map whose config says `"sea": false`: its water is a pond
+    (Coagulation's pool by the cave, 7 m up), not a sea the ground shelves
+    into, and nothing is kept above it or dressed as a beach beside it."""
+    if m is not None and m.get("sea") is False:
+        return None
     origin = (level.get("canvas") or {}).get("origin") or [0, 0, 0]
     for item in level.get("decor") or []:
         if isinstance(item, dict) and "_Water." in str(item.get("mesh", "")) and item.get("pos"):
             return item["pos"][2] + origin[2]
-    return None
+    # No water mesh (Halo 2's Zanzibar draws its sea as fog over the seabed
+    # alone): a Flux coast's own height.
+    coast = ((m or {}).get("flux") or {}).get("coast") or {}
+    return float(coast["water"]) if coast.get("water") is not None else None
 
 
 def generated_mesh(code, m, suffix):
@@ -521,6 +529,17 @@ def stage_land(code, m, p):
         cmd += ["--also", ",".join(m["ground_also"])]
     if m.get("real_base"):
         cmd += ["--real-base"]
+    # `landscape_square`: the shaders whose ground the landscape's square is
+    # drawn around, when the first of `shaders` is not all of the playable
+    # ground (Zanzibar: its dirt and its beach).
+    if m.get("landscape_square"):
+        cmd += ["--square", ",".join(m["landscape_square"])]
+    # `details` that are grass: a ground shader that lists one first has its
+    # sand and grass the other way round from CE's (build_landscape
+    # --grass-primary).
+    grass = [name for name, cls in (m.get("details") or {}).items() if cls == "grass"]
+    if grass:
+        cmd += ["--grass-primary", ",".join(grass)]
     if m.get("cliff_shaders"):
         cmd += ["--cliff-shaders", ",".join(m["cliff_shaders"])]
     # A coast with a seabed (flux.coast.seabed): the landscape's floor shelves
@@ -556,12 +575,14 @@ def stage_foliage(code, m, p):
         if not os.path.isfile(policy):
             raise FileNotFoundError(f"Missing authored PCG permissions: {policy}")
         cmd += ["--surface-policy", policy]
-    sea = sea_height(level)
+    sea = sea_height(level, m)
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
     cmd += ["--staging", staging(p)]
     for name, cls in (m.get("details") or {}).items():
         cmd += ["--detail", f"{name}={cls}"]
+    if m.get("foliage_ceiling") is not None:
+        cmd += ["--ceiling", str(m["foliage_ceiling"])]
     for rule, tint in (m.get("tints") or {}).items():
         cmd += ["--rule-tint", f"{rule}={tint}"]
     for field, option in (("foliage_scale", "--rule-scale"), ("foliage_density", "--rule-density")):
@@ -587,15 +608,25 @@ def stage_foliage(code, m, p):
 def stage_swap(code, m, p):
     data = os.path.join(HERE, "data")
     with open(p["level"], encoding="utf-8") as f:
-        sea = sea_height(json.load(f))
+        sea = sea_height(json.load(f), m)
     # A snow map (`biome: snow`) takes B40's trees and rocks: its own
     # recipes and bounds (scenery_swap.py recipes, `mjolnir mesh list`).
     source = "b40" if m.get("biome") == "snow" else "b30"
+    # `instance_swap` {shader token: rule}: a Halo 2 map's instanced geometry
+    # (its trees are pieces of the BSP, not scenery) as scenery entries in a
+    # staging folder of their own (instance_scenery.py), which the swap then
+    # reads in place of the conversion's.
+    swap_staging = staging(p)
+    if m.get("instance_swap"):
+        swap_staging = os.path.join(p["work"], "instance_staging")
+        out = run([sys.executable, os.path.join(HERE, "instance_scenery.py"), staging(p), swap_staging]
+                  + [f"{token}={rule}" for token, rule in m["instance_swap"].items()])
+        print("  " + out.strip().splitlines()[-1][:200])
     out = run([sys.executable, os.path.join(HERE, "scenery_swap.py"), "swap", p["scene"],
                os.path.join(p["scene"], "materials.spec.json"), os.path.join(data, f"{source}_tree_recipes.json"),
                os.path.join(data, f"{source}_scenery_bounds.json"), os.path.join(p["work"], "swap.json"),
                "--rocks", m.get("rocks", "beach"), "--foliage", os.path.join(p["foliage"], "foliage.json"),
-               "--staging", staging(p)]
+               "--staging", swap_staging]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
               + (["--authored-decor", os.path.join(REPO,m["authored_decor"])] if m.get("authored_decor") else [])
@@ -606,7 +637,7 @@ def stage_swap(code, m, p):
     fol = os.path.join(p["foliage"], "foliage.bin")
     if os.path.exists(fol):
         out = run([sys.executable, os.path.join(HERE, "rock_foliage.py"), fol, os.path.join(p["work"], "swap.json"),
-                   staging(p)] + (["--biome", m["biome"]] if m.get("biome") else []))
+                   swap_staging] + (["--biome", m["biome"]] if m.get("biome") else []))
         print(f"  {code}: " + out.strip().splitlines()[-1][:200])
 
 
@@ -651,6 +682,21 @@ def bake_sbsp(m, p):
     return own if os.path.exists(own) else os.path.join(p["conv"], m["sbsp"])
 
 
+def redrawn_manifest(code, p):
+    """The manifest of a map's redrawn textures: every `<asset name>.png` in
+    `<work>/redrawn` (redraw_texture.py's outputs; its `.raw.png` copies are
+    not textures). The editor stage imports them and removes any other."""
+    folder = os.path.join(p["work"], "redrawn")
+    names = sorted(f[:-4] for f in os.listdir(folder) if f.endswith(".png") and not f.endswith(".raw.png"))         if os.path.isdir(folder) else []
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "manifest.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"textures": [{"name": n, "file": os.path.join(folder, n + ".png").replace("\\", "/")}
+                                for n in names]}, f, indent=1)
+    print(f"  {code}: {len(names)} redrawn texture(s)")
+    return path
+
+
 def stage_editor(code, m, p):
     if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
         sys.exit(f"{code}: rock overrides require bake_foliage")
@@ -663,6 +709,12 @@ def stage_editor(code, m, p):
     # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
     # in the world here (tools/level/foliage_bake.py) instead of by the
     # loader at runtime; assemble then marks the level file's foliage `baked`.
+    # `redrawn`: the textures redrawn for this map one at a time
+    # (redraw_texture.py, `<work>/redrawn/<asset name>.png`), imported beside
+    # the bakes; assemble points the level's materials at them. Nothing is
+    # enlarged wholesale: a texture with no redraw stays as converted.
+    if m.get("redrawn"):
+        env["MJ_REDRAWN"] = redrawn_manifest(code, p)
     if m.get("bake_foliage"):
         spec = os.path.join(p["work"], "foliage_bake", "spec.json")
         origin = (json.load(open(p["level"], encoding="utf-8")).get("canvas") or {}).get("origin") or [0, 0, 0]
@@ -997,6 +1049,13 @@ def horizon_skirt(code, m, p, level):
     return out
 
 
+def surface_textures(name):
+    """A structure surface's three maps (Scripts/build_surfaces.py), as the
+    loader's rock { d, n, o }."""
+    root = f"/Game/MJOLNIR/CETrial/Surfaces/T_{name}_"
+    return {k: f"{root}{k.upper()}.T_{name}_{k.upper()}" for k in ("d", "n", "o")}
+
+
 def flux_ground(code, level):
     """What the Flux ground capture sees: CE's ground and the cliffs' copy."""
     return [item["id"] for item in level.get("decor") or []
@@ -1009,7 +1068,9 @@ def flux_coast(k, land, code, level):
     sea at `water` cm. `floor`: the base maps of CE's sea floor, kept out of
     the ground capture (`floor` slots by ground item): Death Island's lies a
     metre under the water everywhere, so the whole domain was surf, a flat
-    milky square with a hard edge against the open sea round it."""
+    milky square with a hard edge against the open sea round it. `max_ray`:
+    Lumen reflections' brightest ray (the loader's default 2); a lit sky
+    turned Zanzibar's sea white at 2, 1 keeps it teal."""
     x, y, w, h = land["rect"]
     margin, cell = k.get("margin", 6000.0), int(k.get("cell", 100))
     res = [int(math.ceil((w + 2 * margin) / cell / 32.0)) * 32, int(math.ceil((h + 2 * margin) / cell / 32.0)) * 32]
@@ -1025,7 +1086,7 @@ def flux_coast(k, land, code, level):
                 floor.setdefault(item["id"], []).append(i)
     return {"centre": [round(x + w / 2), round(y + h / 2)], "res": res, "cell": cell,
             "height": k.get("height", 10000.0), "water": k["water"], "floor": floor, "swell": k.get("swell", 140),
-            "seabed": bool(k.get("seabed"))}
+            "seabed": bool(k.get("seabed")), **({"max_ray": k["max_ray"]} if "max_ray" in k else {})}
 
 
 PHANTOM = "/Game/FluidFlux/Simulation/Materials/M_PhantomMesh_3.M_PhantomMesh_3"
@@ -1351,8 +1412,82 @@ def stage_assemble(code, m, p):
                  if any(x in mt.get("name", "").lower() for x in look["shaders"])]
         if slots:
             looks.append({"slots": slots, "vectors": look.get("vectors") or {}, "scalars": look.get("scalars") or {}})
+    # A ground shader that lists a grass detail first (`details`: Halo 2's
+    # Zanzibar) has its sand and grass the other way round from CE's. The
+    # landscape's bake flips its alpha (build_landscape --grass-primary); the
+    # terrain mesh's own slots of it read the unflipped base map, so they
+    # take the ground's LandMix with its two edges swapped, which turns the
+    # master's grass weight over.
+    grass = [name.lower() for name, cls in (m.get("details") or {}).items() if cls == "grass"]
+    mix = (level["landscape"].get("pbr") or {}).get("mix")
+    if grass and isinstance(mix, list) and len(mix) >= 2:
+        spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+        by_slot = {sl["pattern"].rstrip("$"): sl["material"] for sl in spec["slots"]}
+        doc = json.load(open(os.path.join(p["scene"], "scene.gltf"), encoding="utf-8"))
+        flipped = []
+        for i, mt in enumerate(doc["materials"]):
+            name = mt.get("name", "").lower()
+            mat = by_slot.get(name)
+            if not mat or not any(x in name for x in m["shaders"]):
+                continue
+            primary = str((mat.get("textures") or {}).get("Primary", "")).lower()
+            if (mat.get("scalars") or {}).get("Type", 0) > 0.5 and any(g in primary for g in grass):
+                flipped.append(i + 1)
+        if flipped:
+            looks.append({"slots": flipped, "vectors": {"LandMix": [mix[1], mix[0]] + list(mix[2:])}, "scalars": {}})
+            print(f"  {code}: {len(flipped)} mesh ground slot(s) with grass first, their LandMix turned over")
     if looks and isinstance(level["landscape"].get("cut"), dict):
         level["landscape"]["cut"]["looks"] = looks
+    # Halo 2's wall decals (gen_ce_level's `h2_decal_<n>` quads) as lit
+    # cut-outs. The conversion draws them unlit and alpha blended, which does
+    # not follow the scene's exposure: beside walls now lit by the real sun
+    # a sign went from clear to a dark smear and back as the exposure
+    # adapted to each step between shade and sun (Zanzibar, 2026-11-12).
+    # The masked CE master is lit as the wall behind it is. Additive decals
+    # stay as they are.
+    lit = 0
+    for item in level.get("decor") or []:
+        mats = item.get("materials") if isinstance(item, dict) else None
+        if not (mats and str(item.get("id", "")).startswith("h2_decal_")):
+            continue
+        entry = mats[0]
+        if not isinstance(entry, dict) or "M_CE_TransparentAlpha" not in str(entry.get("parent", "")):
+            continue
+        texture = (entry.get("textures") or {}).get("Map0")
+        if not texture:
+            continue
+        mats[0] = {"parent": "/Game/MJOLNIR/CETrial/M_CE_EnvironmentMasked.M_CE_EnvironmentMasked",
+                   "textures": {"Base": texture},
+                   "scalars": {"AlphaFromBase": 1.0, "HasBake": 0.0, "Type": 0, "Func": 0, "MicroFunc": 0,
+                               "PrimaryScale": 1.0, "SecondaryScale": 1.0, "MicroScale": 1.0, "BumpScale": 1.0,
+                               "SelfIllumScale": 1.0, "HasPrimary": 0.0, "HasSecondary": 0.0, "HasMicro": 0.0,
+                               "HasBump": 0.0, "HasLightmap": 0.0, "HasSelfIllum": 0.0, "BumpIsSpecMask": 0.0}}
+        lit += 1
+    if lit:
+        print(f"  {code}: {lit} wall decal(s) as lit cut-outs")
+    # `structure_surfaces`: structure shaders drawn in a PBR surface
+    # (MJOLNIRLevelLoader Land.structures; the surfaces are
+    # unreal/MJOLNIRMaterials Scripts/build_surfaces.py's). Each names its
+    # shaders by substring; the loader finds their slots by base map.
+    structures = []
+    for st in m.get("structure_surfaces") or []:
+        spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+        bases = sorted({str((mat.get("textures") or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
+                        for mat in spec.get("materials") or []
+                        if any(x in mat.get("name", "").lower() for x in st["shaders"])} - {""})
+        if not bases:
+            sys.exit(f"{code}: structure_surfaces names {st['shaders']}, which no material matches")
+        entry = {"bases": bases, "rock_a": surface_textures(st["surface"]),
+                 "rock_b": surface_textures(st.get("large") or st["surface"])}
+        for key in ("tiles", "mix", "look", "tint", "rough", "far", "vary", "ce_tint", "fill", "fill_dir", "drape",
+                    "foot", "wet", "moss", "ledge", "fill_occlusion", "bake_ao", "fill_sky_cut"):
+            if key in st:
+                entry[key] = st[key]
+        structures.append(entry)
+    if structures:
+        level["landscape"]["structures"] = structures
+        print(f"  {code}: {len(structures)} structure surface set(s) over "
+              f"{sum(len(e['bases']) for e in structures)} base map(s)")
     plasma = os.path.join(p["work"], "plasma_mesh.json")
     if os.path.exists(plasma):
         spec = json.load(open(plasma, encoding="utf-8"))
@@ -1491,6 +1626,22 @@ def stage_assemble(code, m, p):
         if surf:
             fx = level.setdefault("effects", {"placed": [], "camera": []})
             fx.setdefault("placed", []).extend(surf)
+    # `"sea": false`: the loader takes no sea from the level's water mesh.
+    if m.get("sea") is False and isinstance(level.get("landscape"), dict):
+        level["landscape"]["sea"] = False
+    # `hide_materials`: slots drawn by a material whose parent or textures
+    # carry one of these tokens are hidden (Coagulation's Halo 2 grass
+    # sprites, which the scattered grass replaces).
+    tokens = [t.lower() for t in m.get("hide_materials") or []]
+    if tokens:
+        dropped = 0
+        for item in level.get("decor") or []:
+            mats = item.get("materials") if isinstance(item, dict) else None
+            for i, entry in enumerate(mats or []):
+                if entry != HIDDEN and any(t in json.dumps(entry).lower() for t in tokens):
+                    mats[i] = HIDDEN
+                    dropped += 1
+        print(f"  {code}: {dropped} slot(s) hidden by hide_materials")
     swap_path = os.path.join(p["work"], "swap.json")
     if os.path.exists(swap_path):
         swap = json.load(open(swap_path, encoding="utf-8"))
@@ -1540,6 +1691,10 @@ def stage_assemble(code, m, p):
             haze["max_opacity"] = coast.get("haze_opacity", 1.0)
             if coast.get("haze_color"):
                 haze["color"] = list(coast["haze_color"])
+        # `haze_look`: the map's own changes to that fog (a nearer start, a
+        # glow towards the sun: MJOLNIRLevelLoader environment.haze).
+        if haze and m.get("haze_look"):
+            haze.update(m["haze_look"])
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
     # `haze` as an object: the height fog itself (MJOLNIRLevelLoader
@@ -1589,19 +1744,77 @@ def stage_assemble(code, m, p):
             for i, material in enumerate(mats):
                 if first is not None and i != first and isinstance(material, dict) and "M_CE_Water" in material.get("parent", ""):
                     mats[i] = json.loads(json.dumps(mats[first]))
-    structures = mark_structures(level)
+    # `structure_metal: false`: no Forerunner plate on the map's metal (a
+    # human installation: Zanzibar's hazard stripes, whose name holds
+    # "strip", drew as iridescent metal).
+    structures = mark_structures(level) if m.get("structure_metal", True) else 0
+    # The redrawn textures (stage_editor): every Base, Map0 and Bump that names
+    # one, at its copy beside the bakes.
+    manifest = os.path.join(p["work"], "redrawn", "manifest.json")
+    if m.get("redrawn") and os.path.exists(manifest):
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
+        root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
+        swapped = 0
+        for item in level.get("decor") or []:
+            for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
+                tex = entry.get("textures") if isinstance(entry, dict) else None
+                for key in ("Base", "Map0", "Bump"):
+                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+                    if leaf in names:
+                        tex[key] = f"{root}{leaf}.{leaf}"
+                        swapped += 1
+        print(f"  {code}: {swapped} material slot(s) on {len(names)} redrawn texture(s)")
+    # `detail_fill`: a detail map for slots the game drew with a base map
+    # alone (Halo 2's wheel: a stretched colour map and nothing under it).
+    # Each rule names base maps (tokens), one of the conversion's own detail
+    # maps and how often it tiles; a slot that has a detail map keeps it.
+    # Moving parts cannot take a structure surface (world space: it swims).
+    if m.get("detail_fill"):
+        spec_tex = {str(t["name"]): t for t in json.load(open(
+            os.path.join(p["conv"], "materials.spec.json"), encoding="utf-8"))["textures"]}
+        any_path = next((str(v) for item in level.get("decor") or [] for e in item.get("materials") or []
+                         if isinstance(e, dict) for v in (e.get("textures") or {}).values()
+                         if f"/Maps/{code}/Textures/" in str(v)), None)
+        filled = 0
+        for rule in m["detail_fill"]:
+            if rule["detail"] not in spec_tex or not any_path:
+                sys.exit(f"{code}: detail_fill names a texture the conversion does not carry: {rule['detail']}")
+            path = any_path.rsplit("/", 1)[0] + f"/{rule['detail']}.{rule['detail']}"
+            for item in level.get("decor") or []:
+                for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
+                    tex = entry.get("textures") if isinstance(entry, dict) else None
+                    sc = entry.get("scalars") if isinstance(entry, dict) else None
+                    leaf = str((tex or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
+                    if (isinstance(sc, dict) and not sc.get("HasPrimary") and "Primary" not in tex
+                            and any(tok in leaf for tok in rule["bases"])):
+                        tex["Primary"] = path
+                        sc["HasPrimary"], sc["PrimaryScale"] = 1.0, float(rule.get("scale", 16))
+                        filled += 1
+        print(f"  {code}: {filled} slot(s) given a detail map")
     pulses = bake_pulses(level)
     if pulses:
         print(f"  {code}: {pulses} flare pulse(s) in the material")
     lights = ce_lights(p) + authored_map_lights(m, p)
     if lights:
         level["lights"] = lights
-    decals, files = ce_decals(p)
+    # A Halo 2 conversion has already placed its decals (gen_ce_level's
+    # `h2_decal_<n>`, at each decal's own aspect): a second, square copy
+    # from here drew over each one, the two fighting (Zanzibar's signs,
+    # 2026-11-12).
+    if any(str(item.get("id", "")).startswith("h2_decal_") for item in level.get("decor") or []
+           if isinstance(item, dict)):
+        decals, files = [], []
+    else:
+        decals, files = ce_decals(p)
     level["decor"] = (level.get("decor") or []) + decals
     # Grime is opt-in per map (ce_upgrade_maps.json "grime": true): on
     # CE's dark metal the Megascans soil read as pale blocky patches, and
     # it barely showed elsewhere (Yoyorast and Blood Gulch, 2026-10-12).
-    grime = grime_decals(p) if m.get("grime") else []
+    grime = grime_decals(p, extra=[x for st in m.get("structure_surfaces") or [] for x in st["shaders"]])         if m.get("grime") else []
+    # `"grime": "soil"`: the soil splashed up the walls' feet alone (the
+    # leaks drew as dark blurred rectangles on Zanzibar's concrete).
+    if m.get("grime") == "soil":
+        grime = [g for g in grime if g["material"] in SOIL]
     if grime:
         level["decals"] = grime
     out = os.path.join(p["work"], "decals")
@@ -1880,7 +2093,7 @@ GRIME_KEEP = {"soil": 0.7, "leak": 0.35}
 GRIME_SCALARS = {"Opacity Intensity": 2.5}
 
 
-def grime_decals(p, seed=7):
+def grime_decals(p, seed=7, extra=()):
     """Soil and leak decals on the conversion's structure walls (materials
     whose base map names metal, panels and the like: mark_structures's
     STRUCTURE), as level `decals`. A wall's base counts where a ray down
@@ -1892,8 +2105,11 @@ def grime_decals(p, seed=7):
     sys.path.insert(0, HERE)
     from refine_water_gltf import read_accessor
     spec = json.load(open(os.path.join(p["scene"], "materials.spec.json"), encoding="utf-8"))
+    # `extra`: shader name substrings that are structure too (a map's
+    # `structure_surfaces`: Zanzibar's concrete, which no base map name says).
     structure = {mat["name"] for mat in spec.get("materials") or []
-                 if any(w in str((mat.get("textures") or {}).get("Base", "")).rsplit("/", 1)[-1].lower() for w in STRUCTURE)}
+                 if any(w in str((mat.get("textures") or {}).get("Base", "")).rsplit("/", 1)[-1].lower() for w in STRUCTURE)
+                 or any(x in mat["name"].lower() for x in extra)}
     gltf = os.path.join(p["scene"], "scene.gltf")
     doc = json.load(open(gltf, encoding="utf-8"))
     data = open(os.path.join(os.path.dirname(gltf), doc["buffers"][0]["uri"]), "rb").read()
@@ -2232,6 +2448,17 @@ def stage_install(code, m, p):
               (os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}")]
     if m.get("mesh_container"):
         builds.append((m["mesh_container"], f"MJOLNIRMESH-{code}"))
+    # `conversion_containers`: the conversion's own mesh and texture
+    # containers too. A map converted again since its hub copy (the Halo 2
+    # maps) names textures the hub's containers lack: Zanzibar failed 516
+    # lookups at load and drew most slots without their detail maps.
+    if m.get("conversion_containers"):
+        if not m.get("mesh_container"):
+            builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
+        builds.append((str(cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}"))
+    missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
+    if missing:
+        sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))
     for base, name in builds:
         print("  " + run(dev_paks.install_command(cli, PAKS, base, name)).strip())
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)

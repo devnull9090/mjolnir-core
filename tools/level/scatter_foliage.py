@@ -351,6 +351,11 @@ def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
     for e in placement.get("entries", []):
         if e.get("kind") != "scenery" or not e.get("model"):
             continue
+        # A Halo 2 decorator (a field of grass decals 20 m across, a pebble)
+        # is ground cover, not an object the grass stands clear of:
+        # Coagulation's 218 decal fields left its valley floor bare.
+        if e.get("decorator"):
+            continue
         if skip_rocks and (swap_rule(e, staging, snow) or ("",))[0] in ("rock", "bigrock"):
             continue
         model = os.path.join(staging, e["model"])
@@ -500,6 +505,195 @@ SNOW_CLADDING = {
                (GLACIAL + "Rock_Glacial_Lrg_B/SM_Rock_Glacial_Lrg_B", 0.4, 1.0, 640, 0.4)],
     "density": 0.1, "steep": 0.8, "protrude": [25, 110], "above": 0.3, "lights": 6, "clear": 150,
 }
+
+
+# A canyon (`--biome desert`, Coagulation): the valley's grass as Blood
+# Gulch's, and on its dirt and along its walls the game's own dry-country
+# plants and rock in place of the beach's shells, driftwood and pebbles
+# (docs/remaster_asset_inventory.md). The grass rules are RULES' own, by
+# name; nothing here needs a sea.
+DESERT_ROCK = "/Game/Env/Bio/Rock/Desert/"
+THATCH = MEGA + "Thatching_Grass_uddmcgbia/S_Thatching_Grass_uddmcgbia_"
+RABBIT = MEGA + "Yellow_Rabbitbrush_vdtlcbjia/S_Yellow_Rabbitbrush_vdtlcbjia_0_"
+SAGE = "/Game/Env/Bio/Plants/Sagebrush/Plants_Sagebrush_{0}/SM_Plants_Sagebrush_{0}"
+# Poly Haven's Namaqualand pack (CC BY 4.0, unreal/MJOLNIRMaterials
+# /Game/Namaqualand): what the game has none of, small flowers, succulents
+# and warm granite stones. Its Nanite meshes; they cook into the map's own
+# landscape container (foliage_bake.COOKED).
+NAMA = "/Game/Namaqualand/Meshes/"
+
+
+def nama(kind, name, letters, lo, hi, sink=0, lod="NN"):
+    """The pack's meshes of a family: its Nanite ones, or (`lod` "LP") its
+    low-poly ones for the small flowers, by the thousand under the grass."""
+    return [(f"{NAMA}{kind}/{lod}/SM_{name}_{v}_{lod}", lo, hi, sink) for v in letters]
+
+
+DESERT_KEEP = ("grass", "short grass", "tall grass", "weeds", "lip grass")
+DESERT_RULES = [r for r in RULES if r["name"] in DESERT_KEEP] + [
+    # Dry bunch grass on the dirt, thick where the dirt meets the grass and
+    # in patches along the roads (7 to 62 cm; the game's own tan).
+    {"name": "bunch grass", "on": "sand", "share": [0.35, 0.8], "density": 0.9, "slope": 40, "above": [None, None],
+     "cluster": [7.0, 0.35, 0.7],
+     "meshes": [(THATCH + "Var12_lod0", 0.8, 1.3, 0), (THATCH + "Var15_lod0", 0.8, 1.3, 0),
+                (THATCH + "Var16_lod0", 0.8, 1.4, 0), (THATCH + "Var18_lod0", 0.8, 1.4, 0),
+                (THATCH + "Var3_lod0", 0.9, 1.6, 0), (THATCH + "Var7_lod0", 0.9, 1.6, 0)],
+     "cull": [5000, 10000], "bands": 4},
+    # The same through the grass's thin edge, so the green does not stop at
+    # a line.
+    {"name": "dry tufts", "on": "grass", "share": [0.1, 0.4], "density": 0.7, "slope": 40, "above": [None, None],
+     "falloff": True,
+     "meshes": [(THATCH + "Var12_lod0", 0.8, 1.2, 0), (THATCH + "Var16_lod0", 0.8, 1.3, 0),
+                (THATCH + "Var18_lod0", 0.8, 1.3, 0), (THATCH + "Var1_lod0", 0.6, 0.9, 0)],
+     "cull": [5000, 10000], "bands": 4},
+    # Rabbitbrush, the two small ones (38 and 61 cm): knee-high scrub in
+    # loose stands over the grass and the dirt's edge.
+    {"name": "scrub", "on": "any", "share": [0.0, 0.0], "density": 0.035, "slope": 30, "above": [None, None],
+     "cluster": [18.0, 0.6, 0.8], "support": 30.0,
+     "meshes": [(RABBIT + "Var11_lod0", 0.8, 1.25, 2), (RABBIT + "Var9_lod0", 0.6, 0.9, 2)],
+     "cull": [9000, 20000], "bands": 3, "shadow": True},
+    # Sagebrush and the big rabbitbrush where the walls meet the ground: a
+    # metre and more, so only at the cliffs' feet, out of the way.
+    {"name": "foot brush", "wall": "foot", "on": "any", "share": [0.0, 0.0], "density": 0.22, "slope": 40,
+     "above": [None, None], "cluster": [9.0, 0.45], "support": 60.0,
+     "meshes": [(SAGE.format("A"), 0.6, 1.0, 4), (SAGE.format("C"), 0.7, 1.1, 4), (SAGE.format("D"), 0.5, 0.9, 4),
+                (SAGE.format("E"), 0.5, 0.85, 4), (RABBIT + "Var7_lod0", 0.8, 1.3, 3),
+                (RABBIT + "Var10_lod0", 0.5, 0.8, 3)],
+     "cull": [12000, 26000], "bands": 3, "shadow": True},
+    # Scree and desert stones banked along the walls' feet.
+    {"name": "foot rubble", "wall": "foot", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.9,
+     "support": 25.0, "slope": 40, "above": [None, None], "cluster": [6.0, 0.35],
+     "meshes": [(DESERT_ROCK + "Rock_Desert_Stone_A/SM_Rock_Desert_Stone_A", 0.6, 1.6, 8),
+                (DESERT_ROCK + "Rock_Desert_Stone_B/SM_Rock_Desert_Stone_B", 0.6, 1.8, 8),
+                (DESERT_ROCK + "Rock_Desert_Stone_C/SM_Rock_Desert_Stone_C", 0.6, 2.0, 6)],
+     "cull": [5000, 9000], "shadow": True},
+    # Granite rocks and small boulders set into the dirt, in loose groups
+    # (8 to 25 cm; the pack lays them at 0.5 a square metre, sunk).
+    {"name": "stones", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.2, "slope": 30,
+     "above": [None, None], "cluster": [10.0, 0.5],
+     "meshes": nama("General", "namaqualand_rocks_01", "abcd", 1.4, 2.5, 1)
+     + nama("General", "namaqualand_boulders_01", "ab", 1.0, 1.8, 6),
+     "cull": [4000, 7000], "shadow": True},
+    # Small stones thick over the dirt (the pack's own scatter lays them at
+    # 6 a square metre; the beach's pebbles lie at 0.8), culled close.
+    {"name": "pebbles", "align": True, "on": "sand", "share": [0.4, 0.8], "density": 2.2, "slope": 30,
+     "above": [None, None], "cluster": [4.0, 0.3, 0.75],
+     "meshes": nama("General", "namaqualand_stones_01", "abcde", 1.5, 2.5, 1),
+     "cull": [2000, 3500], "shadow": False},
+    # Flowers where the grass thins toward the dirt: gazanias, ursinias,
+    # stinkkruid and empodium, 4 to 26 cm, a third bigger than life so they
+    # show from a Spartan's height.
+    {"name": "flowers", "on": "grass", "share": [0.08, 0.45], "density": 2.5, "slope": 35, "above": [None, None],
+     "falloff": True, "cluster": [8.0, 0.4, 0.7],
+     "meshes": nama("Foliage", "flower_gazania", "defgh", 1.3, 2.0, 0, "LP")
+     + nama("Foliage", "flower_ursinia", "abc", 1.3, 2.0, 0, "LP")
+     + nama("Foliage", "flower_stinkkruid", "abcd", 1.3, 2.0, 0, "LP")
+     + nama("Foliage", "flower_empodium", "abc", 1.3, 2.0, 0, "LP"),
+     "cull": [2500, 5000], "bands": 2, "shadow": False},
+    # Heliophila sprays standing through the grass in drifts (27 to 40 cm
+    # at scale 1; the grass stands 50 to 70).
+    {"name": "meadow flowers", "on": "grass", "share": [0.3, 0.7], "density": 0.5, "slope": 30,
+     "above": [None, None], "cluster": [16.0, 0.6, 0.8],
+     "meshes": [(NAMA + "Foliage/LP/SM_flower_heliophila_small_LP", 1.8, 2.6, 0),
+                (NAMA + "Foliage/LP/SM_flower_heliophila_medium_LP", 1.6, 2.2, 0)],
+     "cull": [4000, 8000], "bands": 3, "shadow": False},
+    # Succulents on open dirt, in loose colonies.
+    {"name": "succulents", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.14, "slope": 30,
+     "above": [None, None], "cluster": [9.0, 0.5, 0.75],
+     "meshes": nama("Foliage", "cheiridopsis_succulent", "abcdefghi", 0.8, 1.3, 3)
+     + [(NAMA + "Foliage/NN/SM_leipoldtia_schultzei_small_NN", 0.7, 1.1, 2),
+        (NAMA + "Foliage/NN/SM_leipoldtia_schultzei_medium_NN", 0.7, 1.1, 2)],
+     "cull": [4000, 8000], "bands": 2, "shadow": True},
+    {"name": "ice plants", "align": True, "on": "sand", "share": [0.4, 0.8], "density": 0.5, "slope": 30,
+     "above": [None, None], "cluster": [6.0, 0.5, 0.75],
+     "meshes": nama("Foliage", "crystalline_iceplant", "abcde", 1.0, 1.8, 0, "LP"),
+     "cull": [2500, 4500], "shadow": False},
+    # Wild rooibos, knee-high, along the roads.
+    {"name": "rooibos", "on": "sand", "share": [0.3, 0.7], "density": 0.05, "slope": 30, "above": [None, None],
+     "cluster": [15.0, 0.55], "support": 30.0,
+     "meshes": nama("Foliage", "wild_rooibos_bush", "abcd", 0.9, 1.3),
+     "cull": [8000, 16000], "bands": 2, "shadow": True},
+    # Sandstone slabs breaking the dirt, a few to a road.
+    {"name": "slabs", "align": True, "on": "sand", "share": [0.6, 0.85], "density": 0.012, "slope": 12,
+     "above": [None, None], "cluster": [16.0, 0.6], "seat": [120.0, 14.0],
+     "meshes": [(MEGA3D + "SandstoneRockyGround/SM_SandstoneRockyGround_01", 0.45, 0.8, 6),
+                (MEGA3D + "SandstoneRockyGround/SM_SandstoneRockyGround_04", 0.45, 0.8, 8)],
+     "cull": [8000, 14000], "shadow": True},
+    # Dead branches here and there, on any ground.
+    {"name": "dead wood", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.02, "slope": 25,
+     "above": [None, None], "cluster": [14.0, 0.55], "static": True,
+     "meshes": [(MEGA3D + f"Dead_Branches_qjuwd/S_Dead_Branches_qjuwd_high_Var{i}", 1.0, 2.4, 0) for i in (1, 3)],
+     "cull": [3500, 6000], "shadow": True},
+]
+
+
+# A coast (`--biome coast`, Zanzibar): every beach rule above as it is, and
+# what the game ships for a shore that the beach rules never used
+# (docs/remaster_asset_inventory.md): life on the sea bed, sea campion where
+# the grass meets the sand, small palms and taro at the walls' feet, a
+# limestone slab and a drift branch here and there, and from the Namaqualand
+# pack the ice plants and succulents of a dune.
+SEA_LIFE = "/Game/Env/Bio/MarineLife/"
+PALMS = MEGA
+# Dead wood does not sway: the game's dry branches carry a foliage material,
+# and a stick lying on the beach rocked in the wind (Zanzibar, 2026-11-13).
+# Held still here and in the desert's dead wood; the default rules keep
+# theirs as it was, so the published CE maps' scatter does not change.
+STILL = ("driftwood",)
+COAST_RULES = [dict(r, static=True) if r["name"] in STILL else r for r in RULES] + [
+    # Anemones, snails, oysters, a coral and the odd sea star on the bed,
+    # from wading depth down to where the light gives out.
+    {"name": "sea life", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.3, "slope": 30,
+     "above": [-3.5, -0.25], "cluster": [5.0, 0.45, 0.7],
+     "meshes": [(SEA_LIFE + f"Anemones/SM_MarineLife_Anemones_Lrg_{v}", 0.6, 1.2, 0) for v in "ABCE"]
+     + [(SEA_LIFE + "Anemones/SM_MarineLife_Anemones_Med_A", 0.7, 1.3, 0),
+        (SEA_LIFE + "SeaSnails/SM_MarineLife_SeaSnails_Med_A", 0.7, 1.2, 2),
+        (SEA_LIFE + "SeaSnails/SM_MarineLife_SeaSnails_Sml_A", 0.8, 1.4, 0),
+        (SEA_LIFE + "Oyster/SM_MarineLife_Oyster_Med_A", 0.8, 1.5, 1),
+        (SEA_LIFE + "Coral/SM_MarineLife_Coral_A", 0.5, 0.9, 5)],
+     "cull": [3000, 6000], "shadow": False},
+    {"name": "sea stars", "align": True, "on": "any", "share": [0.0, 0.0], "density": 0.02, "slope": 20,
+     "above": [-2.5, -0.15], "cluster": [9.0, 0.5],
+     "meshes": [(SEA_LIFE + "SeaStar/SM_MarineLife_Seastar_A", 0.35, 0.7, 1)],
+     "cull": [3000, 6000], "shadow": False},
+    # Sea campion in flowering clumps through the grass's thin edge.
+    {"name": "sea campion", "on": "grass", "share": [0.08, 0.45], "density": 0.9, "slope": 35, "above": [0.5, None],
+     "falloff": True, "cluster": [7.0, 0.4, 0.7],
+     "meshes": [(MEGA + "Sea_Campion_vkblbbpia/S_Sea_Campion_vkblbbpia_Var10_lod0", 0.8, 1.4, 1),
+                (MEGA + "Sea_Campion_vkblbbpia/S_Sea_Campion_vkblbbpia_Var11_lod0", 0.8, 1.4, 1)],
+     "cull": [4000, 8000], "bands": 2, "shadow": False},
+    # Small palms, taro and ginger where the walls meet the ground: up to a
+    # metre and a half, so only at the feet, out of the way.
+    {"name": "foot palms", "wall": "foot", "on": "any", "share": [0.0, 0.0], "density": 0.2, "slope": 35,
+     "above": [0.6, None], "cluster": [8.0, 0.45], "support": 45.0,
+     "meshes": [(PALMS + "ZamiaPalm/SM_ZamiaPalm_02", 0.8, 1.3, 0), (PALMS + "ZamiaPalm/SM_ZamiaPalm_03", 0.6, 1.0, 0),
+                (PALMS + "BroadleafLadyPalm/SM_BroadleafLadyPalm_02", 0.9, 1.5, 0),
+                (PALMS + "BroadleafLadyPalm/SM_BroadleafLadyPalm_03", 0.9, 1.5, 0),
+                (PALMS + "AlexandraPalm/SM_AlexandraPalm_03", 0.8, 1.2, 0),
+                (PALMS + "Taro/SM_Taro_08", 0.6, 1.0, 0), (PALMS + "Taro/SM_Taro_02", 0.6, 1.0, 1),
+                (PALMS + "Ginger_Plant_sgbmM/S_Ginger_Plant_sgbmM_Var12_lod0", 0.8, 1.2, 3)],
+     "cull": [10000, 22000], "bands": 3, "shadow": True},
+    # A limestone slab breaking the sand now and then, beside the Nordic ones.
+    {"name": "limestone", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.008, "slope": 12,
+     "above": [-0.3, 2.5], "cluster": [14.0, 0.6], "seat": [45.0, 10.0],
+     "meshes": [("/Game/Env/Bio/Rock/Limestone/Limestone_Slab_B/SM_Limestone_Slab_B", 0.7, 1.3, 4),
+                ("/Game/Env/Bio/Rock/Limestone/Limestone_Slab_A/SM_Limestone_Slab_A", 0.5, 0.9, 6)],
+     "cull": [8000, 14000], "shadow": True},
+    {"name": "drift branches", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.006, "slope": 15,
+     "above": [0.1, 2.0], "static": True,
+     "meshes": [(MEGA3D + "Drift_Wood_Branch_1_we0nehh/S_Drift_Wood_Branch_1_we0nehh_lod0_Var1", 0.7, 1.3, 2)],
+     "cull": [5000, 9000], "shadow": True},
+    # A dune's own: ice plants creeping over the dry sand, a succulent
+    # among them.
+    {"name": "ice plants", "align": True, "on": "sand", "share": [0.4, 0.8], "density": 0.6, "slope": 30,
+     "above": [0.8, None], "cluster": [6.0, 0.5, 0.75],
+     "meshes": nama("Foliage", "crystalline_iceplant", "abcde", 1.2, 2.2, 0, "LP"),
+     "cull": [2500, 4500], "shadow": False},
+    {"name": "succulents", "align": True, "on": "sand", "share": [0.5, 0.8], "density": 0.08, "slope": 30,
+     "above": [1.0, None], "cluster": [9.0, 0.55, 0.75],
+     "meshes": nama("Foliage", "cheiridopsis_succulent", "abcdef", 0.8, 1.3, 3),
+     "cull": [4000, 8000], "bands": 2, "shadow": True},
+]
 
 
 # Cliff shaders by name (--cliff-shaders): Sidewinder's share its ground's
@@ -997,6 +1191,9 @@ def main():
                     help="a detail bitmap (substring of its name) and its class, sand or grass; repeatable")
     ap.add_argument("--center", help="x,y (Unreal cm): only scatter within --radius of it")
     ap.add_argument("--radius", type=float, default=0.0, help="cm")
+    ap.add_argument("--ceiling", type=float,
+                    help="cm: nothing is scattered on ground above this height (a plateau no player sees: "
+                         "Coagulation's, 50 to 107 m up, took 1.8 of its 2.2 million grass clumps)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--cliff-shaders", default="", help="substrings of the cliff shaders' names, comma-separated")
     ap.add_argument("--ground-shaders", default="",
@@ -1005,7 +1202,7 @@ def main():
     ap.add_argument("--swapped-rocks", action="store_true",
                     help="clear no circle for the boulders scenery_swap.py replaces (rock_foliage.py clears "
                          "their own hulls after the swap)")
-    ap.add_argument("--biome", default="b30", choices=["b30", "snow"],
+    ap.add_argument("--biome", default="b30", choices=["b30", "snow", "desert", "coast"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
     ap.add_argument("--rule-scale", action="append", default=[], metavar="RULE=FACTOR",
@@ -1033,7 +1230,7 @@ def main():
     if a.biome == "snow":
         global CLADDING
         CLADDING = SNOW_CLADDING
-    rules = [dict(r) for r in (SNOW_RULES if a.biome == "snow" else RULES)
+    rules = [dict(r) for r in ({"snow": SNOW_RULES, "desert": DESERT_RULES, "coast": COAST_RULES}.get(a.biome, RULES))
              if (not a.only or r["name"] in a.only.split(","))
              and (not r.get("optional") or r["name"] in a.extra)]
     for option, pairs in (("scale", a.rule_scale), ("density", a.rule_density)):
@@ -1225,6 +1422,8 @@ def main():
                             continue
                         if center and math.hypot(x - center[0], y - center[1]) > a.radius:
                             continue
+                        if a.ceiling is not None and z - a.lift > a.ceiling:
+                            continue
                         if a.sea is not None:
                             low, high = rule["above"]
                             h = (z - a.lift - a.sea) / 100.0
@@ -1348,6 +1547,9 @@ def main():
         if material:
             g["material"] = object_path(material)
         g["shadow"] = bool(rule.get("shadow", True))
+        # `static`: no wind (the loader and the bake both honour it).
+        if rule.get("static"):
+            g["static"] = True
         if rule.get("cliff"):
             # Drawn in the cliffs' rock (M_CE_CliffPBR) with the base map of
             # the wall it clads, its instance colour the wall's CE light.

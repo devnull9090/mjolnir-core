@@ -657,3 +657,84 @@ hard, then breaks and lets players through, as in Halo 2.
   replaces the runtime's masters.
 - All 24 multiplayer maps stage; Lockout, Ascension and Zanzibar have been
   converted end to end and started.
+
+## Remasters
+
+A converted Halo 2 map goes through the same pipeline as the CE remasters
+(`tools/level/upgrade_ce_map.py`, configured in
+`tools/level/ce_upgrade_maps.json`). Coagulation (`COA`) is the first, built
+2026-11-12 and seen in game on PC 1 as local builds; it is not published.
+Convert from the `.map` itself, not from a staging folder elsewhere: the
+pipeline reads the staging beside the conversion (`<conversion>/staging`),
+and the level takes the map's name.
+
+- **Stages:** land, foliage, swap, editor, cook, bake, assemble, install.
+  `collision` is skipped, so the bake uses the conversion's own BSP with its
+  glass and physics-model surfaces; a swapped tree keeps Halo 2's collision.
+- **Ground and cliffs by name.** Halo 2's detail bitmaps are not named
+  `detail_grass` or `detail_cliff`, so the config names them: `shaders`,
+  `cliff_shaders` (Coagulation's boulders, `coag_rocks`, among them, which
+  draws them in the game's rock) and `details` (`ground_dirt_pebble` as
+  sand, `coag_grass` as grass: the base map's alpha then says where each
+  grows, as on a CE map).
+- **A look of its own.** A landscape with no `MAP_LOOKS` entry in
+  `build_landscape.py` gets Death Island's beach. Coagulation (`LCO`) takes
+  Blood Gulch's: packed earth, stones on soil, its cliff mix.
+- **A pond is not a sea** (`"sea": false`). The pipeline and the loader take
+  any water mesh for the sea. Coagulation's pool by the cave sits 7 m up:
+  grass grew only above it, so 1.8 of 2.2 million clumps stood on the
+  plateau and none in the valley, and the valley floor drew as a beach
+  (sand, ripples, shells).
+- **`foliage_ceiling`** (cm): nothing is scattered on ground above it.
+  Coagulation's plateau, 50 to 107 m up and out of sight, is left bare;
+  the valley keeps about 290,000 clumps, Blood Gulch's count.
+- **Light.** The conversion's sun stood at 28 degrees and the cliffs shaded
+  the valley floor; the config raises it to 55, turns the baked sun mask
+  off (`sun_mask: false`, as Blood Gulch) and sets `sun.lightmap_sun` to
+  [0.35, 0.62]: Halo 2's ground lightmap is a lavender 0.6 where CE's
+  sunlit ground is 1.0. Blood Gulch's skylight, exposure and clouds, and
+  `haze: "ce"` (a Halo 2 slot carries its fog as a CE one does).
+- **Halo 2's grass sprites are hidden** (`hide_materials:
+  ["M_H2_Billboard"]`): the scattered grass replaces them. A decorator
+  placement is ground cover, not scenery the grass keeps clear of or a
+  boulder to swap (`decorator` in `placement.json`): Coagulation's 218
+  decal fields cleared 20 m circles of grass until the scatter skipped them.
+- **Trees.** Coagulation's trees are instanced BSP geometry, which
+  `placement.json` never names. `mjolnir cache stage` writes every
+  instance's name, frame, shaders and bounds to `bsp/instances.json`, and
+  `instance_swap: {"redcedar": "tree_pine"}` has
+  `tools/level/instance_scenery.py` turn the instances with such a shader
+  into scenery entries for the swap: its three red cedars stand as A30's
+  pines, sized to each cedar's height, their Halo 2 slots hidden.
+- **Chunk 1001.** Halo 2 remasters take numbers from 1001 up
+  (docs/chunk_numbering.md). The landscape container's library holds the
+  same two shader maps as every CE remaster's, so a textured landscape on
+  a machine with a CE remaster installed does not prove library 1001
+  opened.
+- **Desert biome** (`"biome": "desert"`). Coagulation's dirt and cliff feet
+  are dressed from the game's dry-country plants and Poly Haven's
+  Namaqualand pack (flowers, succulents, granite stones) instead of the
+  beach's shells and driftwood: docs/remaster_asset_inventory.md. The pack
+  cooks into the map's landscape container, so the map needs it in the
+  editor project and a credit when published.
+- **Zanzibar** (`ZAN`, chunk 1002, `"biome": "coast"`). A Fluid Flux coast
+  at the fog plane's height, since the conversion has no water surface;
+  sea life on the bed, sea campion, small palms at the walls' feet and
+  the beach bushes as young palms. Its ground shaders list grass before
+  sand, the reverse of CE: the bake and the mesh ground slots turn that
+  over (docs/remaster_asset_inventory.md).
+- **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
+  steel draw in Poly Haven PBR surfaces through the cliffs' master, each
+  wall's Halo 2 base map kept as its colour and its lightmap as shade
+  (docs/remaster_asset_inventory.md). The surfaces cook into the runtime
+  container, so they too need a runtime release.
+- **Still CE-runtime bound.** The cliffs' tessellated meshes cook into the
+  trial masters' container (983), as for the CE remasters, and Halo 2's
+  masters are in 981: publishing a Halo 2 remaster needs a runtime release
+  with both.
+- **Measured** on PC 1 at 4K, standing in the grass: 13.9 ms a frame, 2.5 ms
+  of it the foliage.
+- **Not done:** the pines against Halo 2's cedar collision is unchecked; no
+  side-by-side from fixed cameras; `instance_swap` replaces the conversion's
+  own scenery list for the swap, so a map with both kinds swaps only its
+  instances.

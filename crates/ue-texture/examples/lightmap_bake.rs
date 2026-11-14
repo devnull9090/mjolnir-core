@@ -36,6 +36,19 @@
 //! suffix: page N is `<page 0 stem>_N.png` beside page 0; the output is named
 //! for the cooked lightmap texture it goes with (`T_<stem>`, `T_<stem>_nN`).
 //! glTF units are metres, y up.
+//!
+//! `--gi` bakes instead the light a surface gets from everything but the
+//! sun itself, for a remaster that keeps Unreal's sun and its shadows:
+//! R = the sky (cosine-weighted rays that leave the level, times
+//! `--gi-sky`) plus one bounce (rays that hit a surface bring back
+//! `--gi-albedo` times that surface's light: the sun where it reaches it,
+//! cosine-weighted, plus the sky it faces), smoothed over `--gi-smooth`
+//! metres of surface and scaled so the `--gi-ref` quantile is 1 (plus
+//! `--gi-floor`), as `<page asset>_gi.png`. G and B are the sun and sky
+//! visibility, A the charts, as always. `--gi-pages 1,2,3` bakes only those
+//! pages; `--gi-texel` (metres) picks each page's scale from its surface's
+//! size, up to `--max-size`. Its own random stream: without `--gi` nothing
+//! changes.
 
 use std::path::{Path, PathBuf};
 
@@ -172,9 +185,15 @@ impl Bvh {
     /// Whether anything lies along `o + t d` for `t` in (0, `tmax`); the
     /// nearest hit's `t` when `nearest`.
     fn hit(&self, o: V3, d: V3, tmax: f32, nearest: bool) -> Option<f32> {
+        self.hit_id(o, d, tmax, nearest).map(|(t, _)| t)
+    }
+
+    /// As `hit`, with the triangle hit.
+    fn hit_id(&self, o: V3, d: V3, tmax: f32, nearest: bool) -> Option<(f32, usize)> {
         let inv = [1.0 / d[0], 1.0 / d[1], 1.0 / d[2]];
         let mut best = tmax;
         let mut found = false;
+        let mut which = 0usize;
         let mut stack = [0u32; 64];
         let mut sp = 1;
         while sp > 0 {
@@ -192,7 +211,7 @@ impl Bvh {
                 continue;
             }
             if node.count > 0 {
-                for tri in &self.tris[node.index as usize..(node.index + node.count) as usize] {
+                for (k, tri) in self.tris[node.index as usize..(node.index + node.count) as usize].iter().enumerate() {
                     // Moller-Trumbore, both faces.
                     let e1 = sub(tri[1], tri[0]);
                     let e2 = sub(tri[2], tri[0]);
@@ -215,10 +234,11 @@ impl Bvh {
                     let t = dot(e2, q) * inv_det;
                     if t > 1e-5 && t < best {
                         if !nearest {
-                            return Some(t);
+                            return Some((t, node.index as usize + k));
                         }
                         best = t;
                         found = true;
+                        which = node.index as usize + k;
                     }
                 }
             } else {
@@ -228,7 +248,7 @@ impl Bvh {
                 sp += 2;
             }
         }
-        found.then_some(best)
+        found.then_some((best, which))
     }
 }
 
@@ -330,6 +350,57 @@ fn bake(bvh: &Bvh, s: &Sample, cfg: &Settings, rng: &mut Rng) -> (f32, f32, f32)
     }
     let sky = if cfg.sky_rays > 0 { open as f32 / cfg.sky_rays as f32 } else { 1.0 };
     (ao, lit as f32 / cfg.sun_rays as f32, sky)
+}
+
+struct Gi {
+    rays: usize,
+    sky: f32,
+    albedo: f32,
+}
+
+/// `--gi`: (sky and one bounce, sun visibility, sky visibility) for one
+/// texel. The sun is Unreal's, so it is not in the first value.
+fn gi(bvh: &Bvh, s: &Sample, cfg: &Settings, g: &Gi, rng: &mut Rng) -> (f32, f32, f32) {
+    let o = add(s.p, mul(s.face, 0.02));
+    let (t, b) = frame(s.face);
+    let side = (g.rays as f32).sqrt().ceil() as usize;
+    let (mut open, mut bounce, mut rays) = (0usize, 0.0f32, 0usize);
+    for i in 0..side {
+        for j in 0..side {
+            if rays == g.rays {
+                break;
+            }
+            rays += 1;
+            let u1 = (i as f32 + rng.next()) / side as f32;
+            let u2 = (j as f32 + rng.next()) / side as f32;
+            let r = u1.sqrt();
+            let phi = std::f32::consts::TAU * u2;
+            let z = (1.0 - u1).max(0.0).sqrt();
+            let d = norm(add(add(mul(t, r * phi.cos()), mul(b, r * phi.sin())), mul(s.face, z)));
+            match bvh.hit_id(o, d, 1e5, true) {
+                None => open += 1,
+                Some((dist, k)) => {
+                    let tri = &bvh.tris[k];
+                    let mut n = norm(cross(sub(tri[1], tri[0]), sub(tri[2], tri[0])));
+                    if dot(n, d) > 0.0 {
+                        n = mul(n, -1.0);
+                    }
+                    let hp = add(add(o, mul(d, dist)), mul(n, 0.02));
+                    // The surface hit: the sun where it reaches it, and the
+                    // sky it faces (not traced: a second bounce's worth).
+                    let mut light = g.sky * (0.5 + 0.5 * n[1]);
+                    let c = dot(n, cfg.sun);
+                    if c > 0.0 && bvh.hit(hp, cfg.sun, 1e5, false).is_none() {
+                        light += c;
+                    }
+                    bounce += g.albedo * light;
+                }
+            }
+        }
+    }
+    let sky = open as f32 / rays.max(1) as f32;
+    let lit = if dot(s.face, cfg.sun) > 0.0 && bvh.hit(o, cfg.sun, 1e5, false).is_none() { 1.0 } else { 0.0 };
+    (g.sky * sky + bounce / rays.max(1) as f32, lit, sky)
 }
 
 /// The covered texels' charts, 4-connected islands of a page, as alpha
@@ -599,6 +670,17 @@ fn main() {
     let mut pages: Vec<usize> = receivers.iter().map(|r| r.page).collect();
     pages.sort();
     pages.dedup();
+    let gi_mode = args.iter().any(|a| a == "--gi");
+    let gi_cfg = Gi {
+        rays: arg(&args, "--gi-rays", 128),
+        sky: arg(&args, "--gi-sky", 0.35),
+        albedo: arg(&args, "--gi-albedo", 0.4),
+    };
+    let gi_texel: f32 = arg(&args, "--gi-texel", 0.0);
+    if let Some(list) = args.iter().position(|a| a == "--gi-pages").and_then(|i| args.get(i + 1)) {
+        let keep: Vec<usize> = list.split(',').map(|x| x.trim().parse().expect("--gi-pages 1,2,3")).collect();
+        pages.retain(|p| keep.contains(p));
+    }
     let mut baked = Vec::new();
     for page in pages {
         let name = if page == 0 { stem.clone() } else { format!("{stem}_{page}") };
@@ -606,7 +688,20 @@ fn main() {
             println!("page {page}: no {name}.png, skipped");
             continue;
         };
-        let scale = (max_size / lw.max(lh)).clamp(1, max_scale);
+        let mut scale = (max_size / lw.max(lh)).clamp(1, max_scale);
+        if gi_mode && gi_texel > 0.0 {
+            // The page's own texel size on its surface (area over UV area).
+            let (mut area, mut uv_area) = (0.0f64, 0.0f64);
+            for r in receivers.iter().filter(|r| r.page == page) {
+                let c = cross(sub(r.p[1], r.p[0]), sub(r.p[2], r.p[0]));
+                area += 0.5 * dot(c, c).sqrt() as f64;
+                let a = [r.uv[1][0] - r.uv[0][0], r.uv[1][1] - r.uv[0][1]];
+                let b2 = [r.uv[2][0] - r.uv[0][0], r.uv[2][1] - r.uv[0][1]];
+                uv_area += 0.5 * (a[0] * b2[1] - a[1] * b2[0]).abs() as f64;
+            }
+            let texel = if uv_area > 0.0 { (area / (uv_area * (lw * lh) as f64)).sqrt() as f32 } else { 0.0 };
+            scale = ((texel / gi_texel).ceil() as usize).clamp(1, (max_size / lw.max(lh)).max(1));
+        }
         let (w, h) = (lw * scale, lh * scale);
 
         // Rasterise the page's triangles in UV space, one sample per texel
@@ -656,6 +751,7 @@ fn main() {
                 .map(|(k, part)| {
                     let bvh = &bvh;
                     let cfg = &cfg;
+                    let gi_cfg = &gi_cfg;
                     scope.spawn(move || {
                         let _ = k;
                         part.iter()
@@ -666,7 +762,12 @@ fn main() {
                                     ^ ((page as u64) << 48);
                                 seed ^= seed >> 31;
                                 let mut rng = Rng(seed | 1);
-                                let (ao, vis, sky) = bake(bvh, s, cfg, &mut rng);
+                                let (ao, vis, sky) = if gi_mode {
+                                    let mut rng = Rng((seed ^ 0xD1B5_4A32_D192_ED03) | 1);
+                                    gi(bvh, s, cfg, gi_cfg, &mut rng)
+                                } else {
+                                    bake(bvh, s, cfg, &mut rng)
+                                };
                                 (s.pixel, ao, vis, sky)
                             })
                             .collect::<Vec<_>>()
@@ -700,7 +801,29 @@ fn main() {
             }
         }
     }
-    let ao_smooth: f32 = arg(&args, "--ao-smooth", 0.0);
+    // `--gi`: the light smoothed over the surface around each texel against
+    // the rays' noise, then scaled so its `--gi-ref` quantile is 1.
+    if gi_mode && !mask_only {
+        let pts: Vec<(V3, V3, f32)> = baked
+            .iter()
+            .flat_map(|b| b.samples.iter().zip(&b.results).map(|(s, r)| (s.p, s.face, r.1)))
+            .collect();
+        let smooth = world_blur(&pts, arg(&args, "--gi-smooth", 0.3), threads);
+        let mut sorted = smooth.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let q: f32 = arg(&args, "--gi-ref", 0.95);
+        let reference = sorted.get(((sorted.len() as f32 - 1.0) * q) as usize).copied().unwrap_or(1.0).max(1e-4);
+        let floor: f32 = arg(&args, "--gi-floor", 0.0);
+        let mut k = 0;
+        for b in baked.iter_mut() {
+            for r in b.results.iter_mut() {
+                r.1 = floor + (1.0 - floor) * (smooth[k] / reference).min(1.0);
+                k += 1;
+            }
+        }
+        println!("gi: {} texel(s), the {q} quantile {reference:.3} -> 1, floor {floor}", sorted.len());
+    }
+    let ao_smooth: f32 = if gi_mode { 0.0 } else { arg(&args, "--ao-smooth", 0.0) };
     if ao_smooth > 0.0 {
         let started = std::time::Instant::now();
         let n = smooth_ao(&mut baked, ao_smooth, threads);
@@ -716,7 +839,7 @@ fn main() {
     // from 0.5 to 0.59): (0.5 / 0.85)^1.3 = 0.50.
     let ao_knee: f32 = arg(&args, "--ao-knee", 0.85);
     let ao_curve: f32 = arg(&args, "--ao-curve", 1.3);
-    if ao_knee > 0.0 && ao_knee < 1.0 {
+    if ao_knee > 0.0 && ao_knee < 1.0 && !gi_mode {
         for b in baked.iter_mut() {
             for r in b.results.iter_mut() {
                 r.1 = (r.1 / ao_knee).min(1.0).powf(ao_curve);
@@ -730,7 +853,7 @@ fn main() {
     // sun share and the lightmap's shadow share one edge. Our own trace is
     // a hard per-texel test, and its stair-stepped edge against the shadow
     // proxy's darkened a sliver twice (Blood Gulch base roof, 2026-10-08).
-    for b in baked.iter_mut().filter(|_| !mask_only) {
+    for b in baked.iter_mut().filter(|_| !mask_only && !gi_mode) {
         let file = dir.join(format!("{}_sunvis.png", b.name));
         let Some((sw, rgb)) = read_png_rgb(&file) else { continue };
         let sh = rgb.len() / 3 / sw.max(1);
@@ -815,7 +938,7 @@ fn main() {
             }
         }
 
-        let file = out.join(format!("{}.png", asset_name(&name)));
+        let file = out.join(format!("{}{}.png", asset_name(&name), if gi_mode { "_gi" } else { "" }));
         let mut enc = png::Encoder::new(std::fs::File::create(&file).expect("create png"), w as u32, h as u32);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
@@ -833,7 +956,7 @@ fn main() {
         );
     }
 
-    let cell: f32 = arg(&args, "--sun-mask-cell", 1.0);
+    let cell: f32 = if gi_mode { 0.0 } else { arg(&args, "--sun-mask-cell", 1.0) };
     if cell > 0.0 {
         let centre = [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5];
         sun_mask(&baked, mask_pages.as_deref().unwrap_or(&dir), &out, &asset_name(&stem), centre, cell);
