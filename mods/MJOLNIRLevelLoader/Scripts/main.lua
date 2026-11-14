@@ -1882,6 +1882,10 @@ local function spawnEnvironment(world)
             -- Rougher surfaces reflect from the radiance cache, not traced
             -- rays (docs/level_format.md); a level of glossy metal saves ms.
             set("max_traced_roughness", "LumenMaxRoughnessToTraceReflections", post.max_traced_roughness)
+            -- Sky light let into enclosed spaces: lit by Lumen alone
+            -- (level.lumen_cells, no fill), Zanzibar's rooms took their
+            -- light from the sunlit sand and walls outside and went yellow.
+            set("sky_leak", "LumenSkylightLeaking", post.sky_leak)
             if post.manual_exposure then
                 set("manual_exposure", "AutoExposureMethod", 2) -- AEM_Manual
                 set("manual_exposure", "AutoExposureApplyPhysicalCameraExposure", false)
@@ -4645,6 +4649,54 @@ function Land.slotMeshes(world, level)
     return n
 end
 
+--- Lumen cells (level.lumen_cells, tools/level/structure_chunks.py): the
+--- terrain mesh again as a grid of editor-built meshes, drawn in its place.
+--- The terrain is a rewritten engine mesh with no Lumen cards, so Lumen's
+--- surface cache had nothing for any wall and its bounce and short-range AO
+--- came back black indoors; the rooms lived on the structures' emissive fill
+--- (Zanzibar, 2026-11-14). Each cell section takes the material its terrain
+--- slot holds once the landscape's jobs are done (the structures' PBR
+--- surfaces included), then the terrain is hidden. Lumen captures emissive
+--- light and bounces it, so the structures' fill goes (even a quarter of it
+--- flooded the rooms yellow). Nothing changes unless every cell loads.
+function Land.lumenCells(world, level)
+    local spec = level.lumen_cells
+    if type(spec) ~= "table" or type(spec.cells) ~= "table" or #spec.cells == 0 then return 0 end
+    local terrain = Current.actors[spec.item]
+    if not (terrain and terrain:IsValid()) then return 0, "decor '" .. tostring(spec.item) .. "' not spawned" end
+    local meshes = {}
+    for i, cell in ipairs(spec.cells) do
+        meshes[i] = type(cell.mesh) == "string" and resolveMesh(cell.mesh)
+        if not meshes[i] then return 0, "mesh not found: " .. tostring(cell.mesh) end
+    end
+    local tc = terrain.StaticMeshComponent
+    local cls = findObject("/Script/Engine.StaticMeshActor")
+    for i, cell in ipairs(spec.cells) do
+        local key = "__lumen_cell_" .. i
+        local actor = Current.actors[key]
+        if not (actor and actor:IsValid()) then
+            actor = world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+            Current.actors[key] = actor
+        end
+        if not (actor and actor:IsValid()) then return i - 1, "spawn failed" end
+        local c = actor.StaticMeshComponent
+        c.Mobility = MOBILITY_MOVABLE
+        c:SetStaticMesh(meshes[i])
+        c:SetCollisionEnabled(COLLISION_NONE)
+        -- As the terrain: its shadows are the shadow shell's.
+        c:SetCastShadow(false)
+        for k, slot in ipairs(cell.slots or {}) do c:SetMaterial(k - 1, tc:GetMaterial(slot)) end
+    end
+    tc:SetVisibility(false, false)
+    for _, mid in ipairs(Land.structureMids or {}) do
+        pcall(function()
+            local f = mid:K2_GetVectorParameterValue(FName("CliffFill"))
+            mid:SetVectorParameterValue(FName("CliffFill"), { R = f.R, G = f.G, B = f.B, A = 0 })
+        end)
+    end
+    return #spec.cells
+end
+
 function Land.cliffs(world, spec)
     local cliff = spec.cliff
     if type(cliff) ~= "table" then return 0 end
@@ -5827,6 +5879,14 @@ local function spawnDecor(world)
         -- What the landscape handed on: its ground, cliffs and components,
         -- then the cladding rocks' material.
         step("landscape jobs", Current.dressQueue.step)
+        -- After the landscape's jobs: the cells copy the terrain slots'
+        -- finished materials.
+        if type(level.lumen_cells) == "table" then
+            step("lumen cells", function()
+                local lok, n, err = pcall(Land.lumenCells, world, level)
+                Log("lumen cells: " .. (lok and (tostring(n) .. (err and (" (" .. err .. ")") or "")) or tostring(n)))
+            end)
+        end
         step("deformation", function() Footprints.deformStart(world) end, true)
         -- What it handed on: the vehicles and bipeds whose brushes it registers.
         step("deformation jobs", Current.dressQueue.step)

@@ -146,6 +146,32 @@ def sea_height(level, m=None):
     return float(coast["water"]) if coast.get("water") is not None else None
 
 
+TRANSLUCENT_PARENTS = ("M_CE_Glass", "M_CE_Transparent", "M_H2_Plasma", "M_CE_Plasma", "M_CE_Ocean", "M_CE_Water")
+# Additive with no brightness: a translucent slot that draws nothing.
+INVISIBLE_TRANSLUCENT = {"parent": "/Game/MJOLNIR/CE/M_CE_GlassReflection.M_CE_GlassReflection",
+                         "scalars": {"PerpBrightness": 0.0, "ParaBrightness": 0.0}}
+
+
+def keep_translucent_first_slots(code, level):
+    """A mesh's first slot decides which passes the whole mesh draws in (this
+    game's renderer): M_CE_Hidden (masked) in slot 0 of a translucent mesh
+    left every other slot undrawn. Zanzibar's glass went invisible, still
+    solid and still breaking, when `hide_materials` hid the shoreline waves
+    in slot 0 of SM_ZAN_Translucent (2026-11-14). Such a slot takes a
+    translucent material that draws nothing instead."""
+    fixed = 0
+    for item in level.get("decor") or []:
+        mats = item.get("materials") if isinstance(item, dict) else None
+        if not mats or mats[0] != HIDDEN:
+            continue
+        if any(isinstance(e, dict) and any(t in str(e.get("parent", "")) for t in TRANSLUCENT_PARENTS)
+               for e in mats[1:]):
+            mats[0] = dict(INVISIBLE_TRANSLUCENT)
+            fixed += 1
+    if fixed:
+        print(f"  {code}: {fixed} translucent mesh(es) keep a translucent first slot")
+
+
 def generated_mesh(code, m, suffix):
     # A runtime release can contain an older CETrial mesh with the same name.
     # Give independently released maps their own package IDs, not mount-order overrides.
@@ -850,6 +876,20 @@ def build_cliffs(maps, ps):
         if ((m.get("flux") or {}).get("coast") or {}).get("ground_mesh"):
             specs.append(f"SM_{code}_FluxGround={flux_coast_ground(code, m, ps[code])}")
     specs += shadow_shells(maps, ps)
+    # `lumen_chunks` (cell cm): the terrain's walls and floors again as a grid
+    # of editor-built meshes with Lumen cards (structure_chunks.py); the
+    # terrain mesh itself has none, so Lumen lit nothing indoors.
+    for code, m in maps.items():
+        if not m.get("lumen_chunks"):
+            continue
+        p = ps[code]
+        out = run([sys.executable, os.path.join(HERE, "structure_chunks.py"), p["level"],
+                   os.path.join(p["scene"], "scene.gltf"), os.path.join(p["work"], "lumen_chunks"),
+                   "--cell", str(m["lumen_chunks"]), "--cliff", os.path.join(p["work"], "cliff_mesh.json"),
+                   "--swap", os.path.join(p["work"], "swap.json"), "--code", code])
+        chunks = [l.strip() for l in out.splitlines() if l.startswith(f"SM_{code}_Lumen_")]
+        print(f"  {code}: {len(chunks)} Lumen cell mesh(es)")
+        specs += chunks
     if not specs:
         return
     powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_cliffs.py"],
@@ -1514,6 +1554,19 @@ def stage_assemble(code, m, p):
             own = m["tess"] if isinstance(m.get("tess"), dict) else {}
             cliff["tess"] = dict(TESS, **own, mesh=generated_mesh(code, m, "CliffTess"),
                                  item=spec["item"], slots=spec["slots"])
+    # `lumen_chunks`: the terrain's cells (structure_chunks.py), which the
+    # loader draws in the terrain's place (MJOLNIRLevelLoader Land.lumenCells).
+    cells_dir = os.path.join(p["work"], "lumen_chunks")
+    if m.get("lumen_chunks") and os.path.isdir(cells_dir):
+        cells = []
+        for path in sorted(glob.glob(os.path.join(cells_dir, f"SM_{code}_Lumen_*.json"))):
+            spec = json.load(open(path, encoding="utf-8"))
+            suffix = os.path.basename(path)[len(f"SM_{code}_"):-len(".json")]
+            cells.append({"mesh": generated_mesh(code, m, suffix), "slots": spec["slots"]})
+            item = spec["item"]
+        if cells:
+            level["lumen_cells"] = {"item": item, "cells": cells}
+            print(f"  {code}: {len(cells)} Lumen cell(s) in the terrain's place")
     if os.path.exists(os.path.join(p["work"], "shadow_shell.json")):
         level["shadow_shell"] = {"mesh": generated_mesh(code, m, "ShadowShell")}
     if fol:
@@ -1824,6 +1877,7 @@ def stage_assemble(code, m, p):
     if baked and level.get("foliage"):
         mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
         print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
+    keep_translucent_first_slots(code, level)
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
           f"{structures} structure slot(s), "

@@ -540,6 +540,76 @@ published).
   the player on it, so its before and after could not share a camera.
   Level Loader 0.13.13 lets a structure set's slot take a file-path base
   texture for these runtime previews.
+- **Lumen lights the interiors** (2026-11-14). The rooms were flat: their
+  light was the structures' emissive fill, which no screen-space or Lumen
+  AO darkens, and Lumen's own bounce was black indoors. Its overview
+  (`r.Lumen.Visualize 1`, `ShowFlag.VisualizeLumen 1`) showed why: the
+  whole level missing surface cache coverage. The terrain mesh is a
+  rewritten engine mesh (`mesh_rewrite`) with no Lumen cards, where the
+  editor-built cladding rocks beside it were covered.
+  `structure_chunks.py` (config `lumen_chunks`: cell size, cm) cuts the
+  terrain's walls and floors into 10 m cells, 450 on Zanzibar. They are
+  built in the editor (`build_ce_cliffs.py`, 32 Lumen cards a mesh, CE's
+  incident light as the vertex colour as the terrain packs it) into chunk
+  983. The level lists them (`lumen_cells`), and Level Loader 0.13.14
+  (`Land.lumenCells`) draws them in the terrain's place, with each slot's
+  finished material. The fill goes to zero: Lumen captures emissive light
+  and bounces it, and even a quarter of the fill flooded the rooms yellow.
+  At FlyCam shot 1 the stairwell now falls off into shade, and the steps,
+  ceiling corners and the pipes against the wall have real occlusion.
+  Outdoors, shade is cooler (sky bounce) where the fill had warmed it.
+  Tuned the same day:
+  - Lit by Lumen alone, the rooms went yellow. With Lumen GI off, the sky
+    light showed the concrete itself was neutral, so the cast was the
+    bounce from sunlit sand and walls outside, plus the structures' CE
+    light tint (`ce_tint` 0.5) compounding over bounces.
+  - `ce_tint` is now 0 on every set, and `post.sky_leak` is 0.2 (Lumen's
+    skylight leaking). The concrete reads grey and the stairwell keeps its
+    shade; 0.25 flattened it.
+  - The post volume's indirect lighting intensity (2 and 3) and the
+    concrete's tint changed nothing measurable (the same mean colour to
+    the unit).
+  - Frame time on PC 1 at shot 1 was 10.6 ms with the terrain mesh and
+    10.7 ms with 161 or 450 cells; the cells' load frame was 65 and 121 ms.
+  - Some floor and ceiling triangles stay without surface cache coverage
+    at both cell sizes. Building the cells as two-sided, a surface cache
+    atlas of 8192 and hiding the sea-capture ground mesh changed none of
+    it; the cause is open.
+  - The grade: converted levels run Unreal's tonemapper without its filmic
+    curve (`post.tone_curve` 0), which left the rooms flat beside the
+    mock-up. Zanzibar now takes the full curve (`tone_curve` 1.0) and
+    `exposure_bias` 0.4 to bring the midtones back up, the user's pick of
+    three tried live: deep shade and rich rust indoors, the best
+    shot 6. The cost is the beach: the curve's shoulder pales the sand and
+    flattens the sky, and at +0.7 EV the surf nearly clipped.
+  - The walls' olive is mostly Halo's base map (`look[1]` 0.7: 70% of the
+    colour), so the Megascans tint barely reaches it. More of the
+    Megascans concrete made the walls lighter, not less saturated (0.29 to
+    0.27). What yellow is left is the warm bounce through the doorway: the
+    floor, facing the sky, stays neutral (saturation 0.07). Package names must not
+  end in `_<digits>` (an FName number: such a cell did not load by path),
+  so cells are `X<i>_Y<j>`.
+- **The floor grate redrawn** (2026-11-14, `spindle_grate`, 512x256 to
+  1024x512). The first try drew lines in the wrong places: the slots are
+  white under their alpha, which the model read as bars, and `--tile`
+  blended in a half-shifted copy that doubled every groove that drifted.
+  `redraw_texture.py --holes` now sends the openings as flat black and
+  asks for them kept exactly, and `--ref IMAGE=what` sends more images
+  beside the texture (here its own bump map, which marks every slot as a
+  bevelled rectangle, and a screenshot of the grate in game). The slots
+  came back within one pixel of the mask on all eight rows. The source's
+  alpha held levels of its own across the bars (90 to 200), which the
+  masked master's cut at half punched through: `--holes` writes a clean
+  mask (above 16 solid), 60% plate against the 38% the old cut left.
+- **Zanzibar's glass drew nothing** (2026-11-14): the breakable windows
+  blocked a player and shattered when shot, but could not be seen. This
+  game's renderer decides a mesh's passes by its first slot, and
+  `hide_materials` ("waves_shorline") had put the masked M_CE_Hidden in
+  slot 0 of SM_ZAN_Translucent, which kept every glass slot out of the
+  translucency pass. Assemble now gives such a slot an additive glass
+  material with no brightness (`keep_translucent_first_slots`). Of the
+  fourteen upgraded maps only Zanzibar had it. The glass is Halo 2's: a
+  faint teal sheet with a hexagon pattern.
 - **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
   and Timberland assemble to the same bytes with this branch's pipeline
   as with its merge-base's.

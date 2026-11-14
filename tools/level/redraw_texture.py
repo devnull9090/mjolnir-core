@@ -88,7 +88,7 @@ def multipart(fields, files):
     body = io.BytesIO()
     for name, value in fields.items():
         body.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
-    for name, (filename, data, mime) in files.items():
+    for name, (filename, data, mime) in (files.items() if isinstance(files, dict) else files):
         body.write(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
                    f"Content-Type: {mime}\r\n\r\n".encode())
         body.write(data)
@@ -119,6 +119,13 @@ def main():
     ap.add_argument("--tile-v", action="store_true",
                     help="the texture repeats top to bottom on its models: it is sent twice, one copy above the "
                          "other, and the two copies drawn back are blended so the result tiles")
+    ap.add_argument("--holes", action="store_true",
+                    help="the source's transparent texels are openings cut through the surface (a grate): they "
+                         "are sent as flat black and the model is told to keep them exactly; the colour an artist "
+                         "left under them (often white) otherwise reads as part of the picture")
+    ap.add_argument("--ref", action="append", default=[], metavar="IMAGE[=WHAT]",
+                    help="a further image sent beside the texture for reference (repeatable), with what it "
+                         "shows after '=': a screenshot of the texture in game, a photo of the real thing")
     ap.add_argument("--keep-raw", action="store_true", help="also write the model's own image beside the output")
     a = ap.parse_args()
 
@@ -132,6 +139,10 @@ def main():
     # Opaque for the model: the colour under a transparent texel is whatever
     # the artist left there, usually the sign's own.
     base = src.convert("RGB")
+    if a.holes:
+        # Openings as flat black: an artist's white under them read as bars.
+        black = Image.new("RGB", src.size, (0, 0, 0))
+        base = Image.composite(base, black, src.getchannel("A").point(lambda v: 255 if v > 16 else 0))
     if reps > 1:
         stacked = Image.new("RGB", (w, h * reps))
         for k in range(reps):
@@ -146,13 +157,27 @@ def main():
         text = "It reads, line by line: " + "; ".join(f'"{t}"' for t in lines) + ". Spell it exactly so. "
     prompt = NORMAL_MAP.format(what=a.what) if a.normal_map else PROMPT.format(what=a.what, text=text,
                                                                                 wear=a.prompt or WEAR)
+    if a.holes:
+        prompt += (" The pure black areas are openings cut right through the surface: keep every one exactly where "
+                   "it is, with the same size and shape, still pure black, and draw the surface around them so its "
+                   "edges, bevels and shading meet the openings exactly. Draw no line, groove or shadow anywhere "
+                   "else.")
+    refs = []
+    for i, r in enumerate(a.ref):
+        path, _, what = r.partition("=")
+        refs.append((path, what.strip()))
+    if refs:
+        prompt += " The first image is the texture to redraw. The other images are for reference only: " + "; ".join(
+            f"image {i + 2} shows {what or 'the same thing'}" for i, (_, what) in enumerate(refs)) + "."
     if reps > 1:
         prompt += (" The input is one texture repeated twice, one copy above the other, because the texture repeats "
                    "endlessly upward and downward: keep the two copies identical, every stripe and edge continuing "
                    "straight across the join between them and across the top and bottom edges.")
     body, ctype = multipart({"model": a.model, "prompt": prompt, "size": f"{rw}x{rh}", "quality": a.quality,
                              "n": "1", "output_format": "png"},
-                            {"image": ("texture.png", buf.getvalue(), "image/png")})
+                            [("image[]", ("texture.png", buf.getvalue(), "image/png"))]
+                            + [("image[]", (os.path.basename(path), open(path, "rb").read(), "image/png"))
+                               for path, _ in refs])
     req = urllib.request.Request(URL, data=body, headers={"Authorization": "Bearer " + api_key(),
                                                           "Content-Type": ctype})
     try:
@@ -192,6 +217,11 @@ def main():
         print(f"tile: edge steps {np.abs(e[0] - e[-1]).mean():.1f} (rows) {np.abs(e[:, 0] - e[:, -1]).mean():.1f} (columns)"
               f" against {np.abs(np.diff(e, axis=0)).mean():.1f} between neighbours")
     alpha = src.getchannel("A")
+    if a.holes:
+        # Openings and surface only: a grate's alpha held levels of its own
+        # across the bars (90 to 200 on Zanzibar's), which a cut at half
+        # punched holes through.
+        alpha = alpha.point(lambda v: 255 if v > 16 else 0)
     if alpha.getextrema() != (255, 255):
         # The source's outline, magnified: smoothed, then cut back to a
         # clean edge so 64 texels of stair steps do not show.
