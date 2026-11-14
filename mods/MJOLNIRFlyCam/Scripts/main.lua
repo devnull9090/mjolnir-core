@@ -23,8 +23,8 @@
 --   mjolnir_camera : shots, poses and paths from the console (README.md)
 --
 -- The first-person rig (arms + gun) is hidden so it stops floating in front
--- of the lens; the game's own shadow-proxy body doubles as the external
--- player model (`mjolnir_camera body hide` hides it for clean shots).
+-- of the lens, and the player's real third-person biped is shown in place of
+-- the low-poly shadow proxy (`mjolnir_camera body hide` hides both for clean shots).
 
 local bEnabled = false
 local bMouseLookEnabled = true
@@ -252,16 +252,101 @@ local function ForEachPawnAndWeaponActor(pawn, fn)
     end
 end
 
--- Hide the first-person rig: FP arms, visor overlays, and FP gun meshes
--- (FP_-prefixed component/class names on the pawn and attached weapon
--- actors) — but NOT the Shadow proxies unless the body is hidden too. This
--- game is first-person only and has no separate third-person model: the
--- bOwnerNoSee "shadow" meshes (BPC_FP_ShadowSkeletalMesh full body,
--- BPC_FP_ShadowStaticMesh gun) are the only complete external body, and the
--- engine already shows them when the view target is not the pawn.
+-- The player's own third-person model. The game hides every mesh of the
+-- local player's biped actor (BP_SpartansBipedActor_C and its weapon), since
+-- in first person you never see it, and draws a plain low-poly "shadow
+-- proxy" on the pawn (BPC_FP_Shadow*, bOwnerNoSee) to cast your shadow.
+-- With the camera detached Unreal no longer treats you as that proxy's
+-- owner, so it shows up as a grey statue. FlyCam shows the real biped and
+-- its weapon instead and hides the proxy; all of it is put back on exit.
+local LocalBiped = nil
+local SavedThird = {}        -- { {comp=<obj>, actor=<weapon actor or nil>} } shown by us
+
+local function ShadowLocation(pawn)
+    local loc = nil
+    ForEachPrimitiveComponent(pawn, function(c)
+        if c:GetFName():ToString():find("ShadowSkeletal") then loc = c:K2_GetComponentLocation() end
+    end)
+    return loc
+end
+
+local function Near(a, b, limit)
+    return a and b and math.abs(a.X - b.X) + math.abs(a.Y - b.Y) + math.abs(a.Z - b.Z) < limit
+end
+
+-- A full object scan (~20 ms): only when FlyCam turns on or after a respawn.
+local function FindLocalBiped(at)
+    local best, bestD = nil, nil
+    local ok, actors = pcall(function() return FindAllOf("BlamObjectActor") end)
+    if not ok or type(actors) ~= "table" then return nil end
+    for _, a in ipairs(actors) do
+        pcall(function()
+            if a:GetClass():GetFName():ToString():find("Biped") then
+                local l = a:K2_GetActorLocation()
+                local d = math.abs(l.X - at.X) + math.abs(l.Y - at.Y) + math.abs(l.Z - at.Z)
+                if d < 300 and (not bestD or d < bestD) then best, bestD = a, d end
+            end
+        end)
+    end
+    return best
+end
+
+local function ShowActorMeshes(actor, weapon)
+    ForEachPrimitiveComponent(actor, function(c)
+        if c.bHiddenInGame or c:IsVisible() then return end
+        SavedThird[#SavedThird + 1] = { comp = c, actor = weapon and actor or nil }
+        c:SetVisibility(true, false)
+    end)
+end
+
+--- true when the real body is showing (so the proxy can go).
+local function ShowThirdPersonBody(pawn)
+    if bBodyHidden then return false end
+    local at = ShadowLocation(pawn)
+    if not at then return false end
+    local current = nil
+    if IsValid(LocalBiped) then
+        local ok, l = pcall(function() return LocalBiped:K2_GetActorLocation() end)
+        if ok and Near(l, at, 300) then current = LocalBiped end
+    end
+    LocalBiped = current or FindLocalBiped(at)
+    if not LocalBiped then return false end
+    ShowActorMeshes(LocalBiped, false)
+    local attached = {}
+    pcall(function() LocalBiped:GetAttachedActors(attached, true, false) end)
+    for i = 1, #attached do
+        local a = unwrap(attached[i])
+        pcall(function()
+            local cn = a:GetClass():GetFName():ToString()
+            if cn:find("Weapon") and not cn:find("FP_") then ShowActorMeshes(a, true) end
+        end)
+    end
+    return true
+end
+
+-- Hide again what we showed. A weapon the player dropped meanwhile is the
+-- game's to draw, so only weapons still held are hidden.
+local function RestoreThirdPerson()
+    for _, entry in ipairs(SavedThird) do
+        pcall(function()
+            if not entry.comp:IsValid() then return end
+            if entry.actor then
+                local parent = entry.actor:GetAttachParentActor()
+                if not (IsValid(parent) and IsValid(LocalBiped) and parent:GetAddress() == LocalBiped:GetAddress()) then return end
+            end
+            entry.comp:SetVisibility(false, false)
+        end)
+    end
+    SavedThird = {}
+end
+
+-- Hide the first-person rig (FP arms, visor overlays, FP gun meshes:
+-- FP_-prefixed components on the pawn and attached weapon actors), and the
+-- shadow proxy whenever the real body is showing or `body hide` is on.
 -- (BPC_PAWN_SkeletalMesh is just the owner-view lower body — the legs you
 -- see looking down in first person — so leave its bOnlyOwnerSee alone.)
 local function HideFirstPersonRig(pawn)
+    local realBody = ShowThirdPersonBody(pawn)
     ForEachPawnAndWeaponActor(pawn, function(actor)
         ForEachPrimitiveComponent(actor, function(c)
             if not c:IsValid() then return end
@@ -272,7 +357,7 @@ local function HideFirstPersonRig(pawn)
                 if not shadow then
                     SavedVisibility[#SavedVisibility + 1] = { comp = c, visible = true }
                     c:SetVisibility(false, false)
-                elseif bBodyHidden then
+                elseif bBodyHidden or realBody then
                     SavedBody[#SavedBody + 1] = { comp = c, visible = true }
                     c:SetVisibility(false, false)
                 end
@@ -290,6 +375,7 @@ local function RestoreList(list)
 end
 
 local function RestoreVisibility()
+    RestoreThirdPerson()
     RestoreList(SavedVisibility)
     RestoreList(SavedBody)
     SavedVisibility, SavedBody = {}, {}
@@ -1250,7 +1336,7 @@ local function CameraCommand(args)
         local mode = (words[2] or ""):lower()
         if mode ~= "hide" and mode ~= "show" then Log("Usage: mjolnir_camera body hide|show"); return end
         bBodyHidden = mode == "hide"
-        if not bBodyHidden then RestoreList(SavedBody); SavedBody = {} end
+        if bBodyHidden then RestoreThirdPerson() else RestoreList(SavedBody); SavedBody = {} end
         if bEnabled and IsValid(OwnerController) then
             pcall(function() HideFirstPersonRig(OwnerController.Pawn) end)
         end

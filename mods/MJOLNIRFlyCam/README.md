@@ -3,7 +3,11 @@
 FlyCam detaches an Unreal camera for screenshots and video. `F8` toggles it.
 While it is on, the player stands still: the game's HUD, MJOLNIR HUD and
 first-person gun/arms are hidden, and WASD and the mouse fly the camera the way
-the Forge Monitor flies, without moving your Spartan.
+the Forge Monitor flies, without moving your Spartan. Your Spartan shows as its full
+third-person model: the game normally hides your own model (you never see
+it in first person) and draws a plain low-poly stand-in to cast your
+shadow, so FlyCam swaps them while it is on and puts both back when it
+turns off.
 
 ## Controls
 
