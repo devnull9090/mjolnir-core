@@ -267,7 +267,7 @@ function Panel:showCard(pc, model)
             self.more:SetText(FText(hidden > 0 and ("+" .. hidden .. " more (mjolnir_camera shots)") or ""))
             self.more:SetColorAndOpacity(slate(C.faint))
         end
-        self.hints:SetText(FText("1-0 go     Ctrl+1-0 save     Ctrl+Z undo" .. (model.canRedo and "     Ctrl+Y redo" or "")
+        self.hints:SetText(FText("1-0 go     PgUp/PgDn fly     Ctrl+1-0 save     Ctrl+Z undo" .. (model.canRedo and "     Ctrl+Y redo" or "")
             .. "     Z/X zoom     R reset     F6 pin"))
         if not self.cardShown then self.card:SetVisibility(HIT_TEST_INVISIBLE) end
     end)

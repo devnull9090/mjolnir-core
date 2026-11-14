@@ -69,6 +69,19 @@ assert(#h.redo == 0)
 for i = 1, Shots.UNDO_LIMIT + 5 do Shots.record(h, "ZAN", tostring(i), tostring(i + 1), "s") end
 assert(#h.undo == Shots.UNDO_LIMIT)
 
+-- Paging between shots: by number, wrapping, skipping gaps.
+local paged = Shots.empty("ZAN")
+for _, n in ipairs({ 2, 5, 9 }) do Shots.put(paged, pose, n) end
+assert(Shots.neighbour(paged, nil, 1).n == 2 and Shots.neighbour(paged, nil, -1).n == 9)
+assert(Shots.neighbour(paged, 2, 1).n == 5 and Shots.neighbour(paged, 9, 1).n == 2)
+assert(Shots.neighbour(paged, 2, -1).n == 9 and Shots.neighbour(paged, 7, -1).n == 5)
+assert(Shots.neighbour(paged, 3, 1).n == 5)                         -- from a deleted number
+assert(not Shots.neighbour(Shots.empty("X"), nil, 1))
+local near0 = { X = 0, Y = 0, Z = 0, Pitch = 0, Yaw = 170 }
+assert(Flight.transitionSeconds(near0, near0) == 0.6)
+assert(Flight.transitionSeconds(near0, { X = 1e6, Y = 0, Z = 0, Pitch = 0, Yaw = 170 }) == 3.5)
+near(Flight.transitionSeconds(near0, { X = 0, Y = 0, Z = 0, Pitch = 0, Yaw = -170 }), 0.6 + 20 / 240)  -- short way round
+
 assert(Shots.validMap("ZAN") and Shots.validMap("h2_zanzibar") and not Shots.validMap("../x"))
 
 -- Flight: eases toward the target speed, stops, flies along the view.

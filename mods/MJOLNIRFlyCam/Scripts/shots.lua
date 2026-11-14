@@ -135,6 +135,20 @@ function Shots.find(data, ref)
     return nil
 end
 
+--- The shot after (step 1) or before (step -1) shot number `from`, wrapping
+--- round; with no `from`, the first (or last) shot. nil if there are none.
+function Shots.neighbour(data, from, step)
+    local list = data.shots
+    if #list == 0 then return nil end
+    if not from then return step < 0 and list[#list] or list[1] end
+    if step > 0 then
+        for _, s in ipairs(list) do if s.n > from then return s end end
+        return list[1]
+    end
+    for i = #list, 1, -1 do if list[i].n < from then return list[i] end end
+    return list[#list]
+end
+
 function Shots.nextFree(data)
     local used = {}
     for _, s in ipairs(data.shots) do used[s.n] = true end

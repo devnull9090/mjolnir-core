@@ -18,6 +18,7 @@ the Forge Monitor flies, without moving your Spartan.
 | **Z** / **X** (hold) | Zoom in / out (field of view, 5–170°) |
 | **R** | Field of view back to 90°, roll to 0 |
 | **1**–**9**, **0** | Jump to shot 1–10 |
+| **Page Down** / **Page Up** | Fly to the next / previous shot |
 | **Ctrl + 1**–**9**, **0** | Save the current view as shot 1–10 |
 | **Ctrl + Z** / **Ctrl + Y** | Undo / redo the last shot save or delete |
 | **Tab** (hold) | Show the shot list and the camera's coordinates |
@@ -37,6 +38,15 @@ pins it, so it is never in a screenshot by accident. A short notice at the
 top of the screen confirms each save, overwrite, delete, undo and redo for a
 few seconds. Recalling a shot from the console (`mjolnir_camera go`) hides
 both.
+
+### Flying between shots
+
+Page Down flies the camera to the next shot and Page Up to the previous one,
+in number order, wrapping from the last back to the first. The move eases in
+and out along a straight line, turning and changing the field of view on
+the way; it takes 0.6 to 3.5 seconds depending on how far it goes and how
+much it turns. Pressing again mid-flight heads on to the following shot. It
+flies through walls: it is a camera. The number keys still jump instantly.
 
 ### Undo
 
@@ -99,6 +109,8 @@ mjolnir_camera save 4                save it as shot 4 (keeps shot 4's name)
 mjolnir_camera save 4 tower          ... and name it
 mjolnir_camera save tower            save over the shot called tower, or as a new number
 mjolnir_camera go 4                  jump to shot 4 (or: go tower)
+mjolnir_camera fly 4 [SECONDS]       fly there smoothly instead of jumping
+mjolnir_camera next / prev           fly to the next / previous shot
 mjolnir_camera delete 4              delete shot 4; other numbers stay put
 mjolnir_camera undo / redo           undo or redo the last save or delete
 mjolnir_camera map                   show the map code (map ZAN / map auto to override)

@@ -18,6 +18,7 @@
 --   Z / X zoom in / out (field of view), R resets FOV to 90 and roll to 0
 --   1-9, 0 : jump to shot 1-10    Ctrl + 1-9, 0 : save the view as shot 1-10
 --   Ctrl+Z / Ctrl+Y : undo / redo the last shot save or delete
+--   Page Down / Page Up : fly to the next / previous shot
 --   Numpad 5 : snap to the player
 --   mjolnir_camera : shots, poses and paths from the console (README.md)
 --
@@ -641,6 +642,7 @@ local function SaveShot(n, name)
     local ok, saveError = CommitShots(data, code, path, before, what, shot.n)
     if not ok then return false, saveError end
     Overlay.flash, Overlay.flashLeft = shot.n, 1.5
+    LastShotN = shot.n
     if previous then
         Toast("Overwrote " .. ShotLabel(previous), "Ctrl+Z to undo", "warn")
     else
@@ -650,6 +652,8 @@ local function SaveShot(n, name)
 end
 
 local GotoShot -- defined after EnsureFlyCam
+local FlyStep -- defined after GotoShot
+local LastShotN = nil
 
 --------------------------------------------------------------------------------
 -- Per-tick update
@@ -767,6 +771,9 @@ local function OnCameraTick(dt, PC)
     local pathDt = (type(dt) == "number" and dt == dt and dt > 0 and dt < 60) and dt or 0
     if type(dt) ~= "number" or dt ~= dt or dt <= 0.0 or dt > 0.5 then dt = 0.016 end
 
+    -- Page Down / Page Up fly to the next / previous shot, also mid-flight.
+    if Pressed(PC, "PageDown") then FlyStep(1) elseif Pressed(PC, "PageUp") then FlyStep(-1) end
+
     if Playback then
         local pose, finished, err = Path.advance(Playback, pathDt)
         if not pose then
@@ -775,8 +782,13 @@ local function OnCameraTick(dt, PC)
         else
             ApplyPose(pose)
             if finished then
+                local arrive = Playback.arrive
                 Playback = nil
-                Log("Camera path finished; FlyCam remains at the final pose.")
+                if arrive then
+                    Log("At " .. arrive .. ".")
+                else
+                    Log("Camera path finished; FlyCam remains at the final pose.")
+                end
             end
         end
     else
@@ -1056,8 +1068,41 @@ GotoShot = function(ref, fromConsole)
     if fromConsole then Overlay.pinned = false; OverlayHide(); UI:hideToast() end
     ApplyPose(ShotPose(shot))
     CameraCut()
+    LastShotN = shot.n
     Log(string.format("At shot %d%s on %s.", shot.n, shot.name and (" (" .. shot.name .. ")") or "", data.map))
     return true
+end
+
+--- Fly smoothly from wherever the camera is to a shot (eased, timed by the
+--- distance and turn). seconds: nil for automatic.
+local function FlyToShot(shot, seconds, fromConsole)
+    if not EnsureFlyCam(0) then Log("Could not enable FlyCam."); return false end
+    Flight.stop(FlightState)
+    if fromConsole then Overlay.pinned = false; OverlayHide(); UI:hideToast() end
+    local from, to = CurrentPose(), ShotPose(shot)
+    seconds = seconds or Flight.transitionSeconds(from, to)
+    local path, err = Path.create({ from = from, to = to }, { "from", "to" }, seconds, "smooth")
+    if not path then Log("Cannot fly there: " .. tostring(err)); return false end
+    path.arrive = ShotLabel(shot)
+    Playback = path
+    LastShotN = shot.n
+    Log(string.format("Flying to %s (%.1f s).", ShotLabel(shot), seconds))
+    return true
+end
+
+--- The next (step 1) or previous (step -1) shot from the one the camera is at
+--- or last visited.
+FlyStep = function(step, fromConsole)
+    local data, err = LoadShots()
+    if not data then Log("Shots not read: " .. tostring(err)); return false end
+    local here = ShotHere(data.shots) or LastShotN
+    local shot = Shots.neighbour(data, here, step)
+    if not shot then
+        Log("No shots saved for " .. data.map .. ".")
+        Toast("No shots saved yet", "Ctrl+1-0 saves one", "info")
+        return false
+    end
+    return FlyToShot(shot, nil, fromConsole)
 end
 
 --- Pose lookup for `play`: saved shots by number or name, then named poses.
@@ -1080,7 +1125,7 @@ end
 
 local function CameraHelp()
     Log("mjolnir_camera on|off|where|help")
-    Log("  shots | save [N] [NAME] | go N|NAME | delete N|NAME | undo | redo | map [CODE|auto]")
+    Log("  shots | save [N] [NAME] | go N|NAME | fly N|NAME [SECONDS] | next | prev | delete N|NAME | undo | redo | map [CODE|auto]")
     Log("  fov DEG | speed CM_PER_S | move FWD RIGHT UP | look DYAW DPITCH | pos X Y Z | rot PITCH YAW ROLL")
     Log("  body hide|show | overlay on|off | lock")
     Log("  capture NAME | set NAME X Y Z PITCH YAW ROLL [FOV] | goto NAME | list | reload")
@@ -1143,6 +1188,17 @@ local function CameraCommand(args)
         if not ok then Log("Shot not deleted: " .. tostring(saveError)); return end
         Log("Deleted shot " .. Shots.describe(shot) .. " (mjolnir_camera undo brings it back)")
         Toast("Deleted " .. ShotLabel(shot), "Ctrl+Z to undo", "warn")
+    elseif command == "fly" then
+        if #words ~= 2 and #words ~= 3 then Log("Usage: mjolnir_camera fly N|NAME [SECONDS]"); return end
+        local data, err = LoadShots()
+        if not data then Log("Shots not read: " .. tostring(err)); return end
+        local shot = Shots.find(data, words[2])
+        if not shot then Log("No shot " .. words[2] .. " on " .. data.map .. "."); return end
+        local seconds = words[3] and tonumber(words[3])
+        if words[3] and (not seconds or seconds < 0.1 or seconds > 60) then Log("SECONDS must be 0.1 to 60."); return end
+        FlyToShot(shot, seconds, true)
+    elseif command == "next" or command == "prev" then
+        FlyStep(command == "next" and 1 or -1, true)
     elseif command == "undo" or command == "redo" then
         UndoShots(command == "redo")
     elseif command == "map" then

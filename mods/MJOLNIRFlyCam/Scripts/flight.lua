@@ -60,6 +60,15 @@ function Flight.step(state, rot, axes, speed, dt)
     return { X = state.vel.X * dt, Y = state.vel.Y * dt, Z = state.vel.Z * dt }
 end
 
+--- How long a fly between two poses takes: longer for farther or for a
+--- bigger turn, so short hops feel quick and crossing the map stays readable.
+function Flight.transitionSeconds(a, b)
+    local dist = math.sqrt((b.X - a.X) ^ 2 + (b.Y - a.Y) ^ 2 + (b.Z - a.Z) ^ 2)
+    local turn = math.abs(((b.Yaw - a.Yaw + 180) % 360) - 180) + math.abs(b.Pitch - a.Pitch)
+    local seconds = 0.6 + dist / 3500 + turn / 240
+    return math.max(0.6, math.min(3.5, seconds))
+end
+
 function Flight.clampSpeed(s)
     return math.max(Flight.MIN_SPEED, math.min(Flight.MAX_SPEED, s))
 end
