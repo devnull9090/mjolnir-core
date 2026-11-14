@@ -180,7 +180,7 @@ def generated_mesh(code, m, suffix):
     return f"{root}/{name}.{name}"
 
 
-def moved_level(path, moves):
+def moved_level(path, moves, extra=None):
     """`vehicle_moves` ({megalo label: [x, y, z] cm, or {"pos", "yaw"}}): the base level with
     those vehicles placed again, written beside it as <stem>.moved.level.json
     (the bake reads files beside the level). Zanzibar's east Shade spawned
@@ -202,6 +202,11 @@ def moved_level(path, moves):
     missing = set(moves) - found
     if missing:
         sys.exit(f"vehicle_moves: no vehicle labelled {sorted(missing)} in {path}")
+    # `objects`: placements added to blam.objects (a crate, `group`
+    # "crates", is a physics object the simulation moves: shot, bumped,
+    # blown about).
+    if extra:
+        level.setdefault("blam", {}).setdefault("objects", []).extend(extra)
     out = path[:-len(".level.json")] + ".moved.level.json" if path.endswith(".level.json") else path + ".moved.json"
     text = json.dumps(level, indent=1)
     if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
@@ -214,8 +219,8 @@ def paths(code, m, work):
     scene = m.get("scene", conv)
     w = os.path.join(work, code)
     level = m.get("base_level") or os.path.join(conv, m["level"])
-    if m.get("vehicle_moves"):
-        level = moved_level(level, m["vehicle_moves"])
+    if m.get("vehicle_moves") or m.get("objects"):
+        level = moved_level(level, m.get("vehicle_moves") or {}, m.get("objects"))
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -1885,7 +1890,14 @@ def stage_assemble(code, m, p):
     pulses = bake_pulses(level)
     if pulses:
         print(f"  {code}: {pulses} flare pulse(s) in the material")
-    lights = ce_lights(p) + authored_map_lights(m, p)
+    lights = ce_lights(p, h2_lights(code, m, p)) + authored_map_lights(m, p)
+    # `light_gain`: the map's lights brighter by this factor. A Halo 2
+    # light's intensity (0.9 for Coagulation's base lights) is on another
+    # scale from CE's radiosity intensity (about 3): at the CE scale the
+    # bases stayed dark, at 50 times they lit like Halo 2's (2026-11-14).
+    gain = float(m.get("light_gain", 1.0))
+    for light in lights:
+        light["intensity"] = round(light["intensity"] * gain, 3)
     if lights:
         level["lights"] = lights
     # A Halo 2 conversion has already placed its decals (gen_ce_level's
@@ -2047,13 +2059,28 @@ def scene_triangles(p):
     return np.concatenate(tris)
 
 
-def ce_lights(p):
+def h2_lights(code, m, p):
+    """`h2_map` (an MCC Halo 2 .map): its scenario's placed lights, written by
+    blam-cache's h2_lights example to <work>/scene_lights.json in the
+    scene_lights format (the Halo 2 stager does not read lights). None
+    without `h2_map`."""
+    if not m.get("h2_map"):
+        return None
+    out = os.path.join(p["work"], "scene_lights.json")
+    exe = os.path.join(REPO, "target", "release", "examples", "h2_lights.exe")
+    if not os.path.exists(exe):
+        run(["cargo", "build", "--release", "-p", "blam-cache", "--example", "h2_lights"])
+    print("  " + run([exe, m["h2_map"], out]).strip().splitlines()[-1])
+    return out
+
+
+def ce_lights(p, path=None):
     """The conversion's scene_lights.json (merge_ce_scene.py --lights) in the
     level's own terms: position (Unreal cm), colour, candela, radius. A
     fixture's marker points into the wall for some models and out of the
     fixture for others, so each light steps out along whichever way of its
     axis has more room before the scene's geometry."""
-    path = os.path.join(p["scene"], "scene_lights.json")
+    path = path or os.path.join(p["scene"], "scene_lights.json")
     if not os.path.exists(path):
         return []
     lights = [l for l in json.load(open(path, encoding="utf-8")).get("lights") or []

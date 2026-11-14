@@ -630,6 +630,33 @@ published).
   {pos, yaw}) places a vehicle again in a copy of the base level that the
   bake and the level file both read. The east Shade now stands in the
   clear part of its platform (1965, 4300) and stays.
+- **Coagulation: Lumen cells and Halo 2's own lights** (2026-11-14). The
+  Zanzibar recipe did not carry over by config alone:
+  - With the cells (`lumen_chunks` 1000, 819 cells) the bases drew a
+    blocky mosaic: the Forerunner metal kit (`SURFACE_METAL`, its greeble
+    map tiled every 3 m) became visible once Lumen and a lit sky reached
+    the metal; on the old terrain mesh, whose normals sent the walls'
+    triplanar projection from above, it smeared into streaks.
+    `structure_metal: false` removes it and Halo 2's panel pattern shows.
+  - The cells now take full-precision UVs (the builder's
+    `bUseFullPrecisionUVs`, as ue-asset's mesh writer stores them); the
+    Python build setting never reached the cooked mesh. Not the mosaic's
+    cause, but CE masters tile detail maps over the base UVs.
+  - The physical sky and `atmosphere_sun` lit nothing inside and paled
+    the valley (the CE masters divide out an unfiltered sun), and the
+    filmic grade changed the outdoor colours: Coagulation keeps its own
+    sky and grade, with `sky_leak` 0.2.
+  - Lit by Lumen alone the occluded bases went dark (the flat "before"
+    brightness was the old sky light reaching indoors unoccluded).
+    Coagulation's scenario places 21 Halo 2 lights: three team-coloured
+    spheres in each base and a fourth below, six small blue ones on the
+    lower floors, six dim white-blue ones in the valley, one under the
+    pool. blam-cache's `h2_lights` example reads them (scnr +0xE8, 0x6C
+    each: palette index 0x00, position 0x08, radius 0x68; palette +0xF0,
+    `ligh` colour 0x64, intensity 0x70) and `h2_map` in the map's config
+    runs it at assemble; `light_gain` 50 brings Halo 2's intensity (0.9)
+    to the bases' look. The red base is warm and shaded, the blue base
+    cooler; the valley matches its before shot.
 - **Zanzibar's glass drew nothing** (2026-11-14): the breakable windows
   blocked a player and shattered when shot, but could not be seen. This
   game's renderer decides a mesh's passes by its first slot, and
