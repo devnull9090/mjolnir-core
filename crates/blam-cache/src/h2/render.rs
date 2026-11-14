@@ -1864,12 +1864,45 @@ impl<'c> Renderer<'c> {
             .iter()
             .map(|d| geometry::read(cache, sbsp.file, d.at(0x28), d.u16(0) as usize, section_compression(d)))
             .collect::<Result<_, _>>()?;
+        // Each instance as placed (`bsp/instances.json`): its name, frame,
+        // shaders and world bounds. Instanced geometry is drawn into the BSP
+        // mesh above, so nothing downstream sees one piece of it otherwise;
+        // the remaster's scenery swap reads this to stand a tree of the
+        // game's where Halo 2 has one (tools/level/instance_scenery.py).
+        let mut placed: Vec<Value> = Vec::new();
         for (i, inst) in sbsp.root.block(0x140, 0x58).iter().enumerate() {
             let Some(def) = defs.get(inst.i16(0x34).max(0) as usize) else { continue };
             let scale = if inst.f32(0) == 0.0 { 1.0 } else { inst.f32(0) };
             let frame = Frame { scale, axes: [inst.vec3(0x04), inst.vec3(0x10), inst.vec3(0x1C)], origin: inst.vec3(0x28) };
+            let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for v in &def.vertices {
+                let p = frame.point(v.position);
+                for k in 0..3 {
+                    lo[k] = lo[k].min(p[k]);
+                    hi[k] = hi[k].max(p[k]);
+                }
+            }
+            let mut names: Vec<&str> = def
+                .parts
+                .iter()
+                .filter_map(|p| materials.get(p.material.max(0) as usize))
+                .map(|&s| shaders[s].key.as_str())
+                .collect();
+            names.sort_unstable();
+            names.dedup();
+            if !def.vertices.is_empty() {
+                placed.push(json!({
+                    "index": i, "name": inst.sid(0x50), "definition": inst.i16(0x34),
+                    "scale": scale, "forward": frame.axes[0], "left": frame.axes[1], "up": frame.axes[2],
+                    "pos": frame.origin, "min": lo, "max": hi, "shaders": names,
+                }));
+            }
             add_section(def, frame, lm.instances.get(i).copied(), Some(i));
         }
+        let listing = self.dir.join("bsp").join("instances.json");
+        std::fs::create_dir_all(self.dir.join("bsp")).map_err(|e| Error::Io(listing.clone(), e))?;
+        let text = serde_json::to_string(&json!({"units": "halo_wu", "instances": placed})).unwrap_or_default();
+        std::fs::write(&listing, text).map_err(|e| Error::Io(listing.clone(), e))?;
 
         if !texels.is_empty() {
             // Named as the pages after page 0 are (`<page 0 stem>_<N>`):
