@@ -1,29 +1,28 @@
 -- MJOLNIR FlyCam (Detached Camera for Halo Campaign Evolved)
 --
--- The player pawn in this game is a puppet of the original Blam engine
--- simulation, which reads raw input directly. Nothing at the UE layer
--- (DisableInput, SetIgnoreMoveInput, SetInputEnabled, world pause) stops
--- WASD/mouse from driving the player. Camera movement therefore lives on
--- the numpad, which the Blam sim does not read.
+-- The player pawn in this game is a puppet of the original Blam simulation,
+-- which reads its own copy of the keyboard and mouse. Nothing at the Unreal
+-- layer stops it, so the native half (native/flycam, mjolnir_flycam.dll)
+-- blanks the simulation's input while FlyCam is on: the player stands still
+-- and WASD and the mouse fly the camera instead, read from Unreal's own
+-- PlayerInput, which is a separate copy. Without the DLL, FlyCam still works
+-- but WASD moves the player too; the numpad then flies the camera alone.
 --
--- Hotkeys:
---   F8 : Toggle FlyCam ON/OFF
---   F7 : Toggle HUD Overlay ON/OFF
---   F9 or Numpad 0 : Toggle Mouse Look ON/OFF
---   mjolnir_camera  : Named poses and timed paths (see this mod's README)
--- Camera controls (numpad, active only while FlyCam is on):
---   Numpad 8 / 2 : Forward / Backward
---   Numpad 4 / 6 : Strafe Left / Right
---   Numpad 9 / 3 : Up / Down
---   Numpad 5     : Snap camera back to the player
---   Numpad + / - (or ] / [) : Raise / Lower base speed
---   Left Shift   : Boost (3x)
---   Mouse        : Look around (when Mouse Look is on)
+-- Hotkeys (README.md has the full list):
+--   F8 : FlyCam on/off          F7 : HUD on/off       F9 / Numpad 0 : mouse look
+--   F6 : pin the shot list      Tab (hold) : show the shot list
+-- While FlyCam is on:
+--   W/A/S/D (or numpad 8/4/2/6) fly where you look and strafe
+--   Space / E (numpad 9) up, C / Q (numpad 3) down
+--   Shift boost, Left Alt slow, mouse wheel or Numpad +/- (] / [) speed
+--   Z / X zoom in / out (field of view), R resets FOV to 90 and roll to 0
+--   1-9, 0 : jump to shot 1-10    Ctrl + 1-9, 0 : save the view as shot 1-10
+--   Numpad 5 : snap to the player
+--   mjolnir_camera : shots, poses and paths from the console (README.md)
 --
--- While FlyCam is on, WASD/mouse still control the player (see note above).
 -- The first-person rig (arms + gun) is hidden so it stops floating in front
 -- of the lens; the game's own shadow-proxy body doubles as the external
--- player model.
+-- player model (`mjolnir_camera body hide` hides it for clean shots).
 
 local bEnabled = false
 local bMouseLookEnabled = true
@@ -31,9 +30,14 @@ local bHUDVisible = true
 
 local scriptPath = (debug.getinfo(1, "S").source or ""):gsub("^@", "")
 local scriptDirectory = scriptPath:match("^(.*)[\\/][^\\/]+$") or "."
+local modDirectory = scriptDirectory:match("^(.*)[\\/]Scripts$") or scriptDirectory
 local Path = dofile(scriptDirectory .. "\\camera_path.lua")
+local Json = dofile(scriptDirectory .. "\\json.lua")
+local Shots = dofile(scriptDirectory .. "\\shots.lua").init(Json)
+local Flight = dofile(scriptDirectory .. "\\flight.lua")
 local localAppData = os.getenv("LOCALAPPDATA")
-local PoseFile = localAppData and (localAppData .. "\\Meteorite\\Saved\\MJOLNIR_FlyCam_poses.txt") or nil
+local SavedDirectory = localAppData and (localAppData .. "\\Meteorite\\Saved\\") or nil
+local PoseFile = SavedDirectory and (SavedDirectory .. "MJOLNIR_FlyCam_poses.txt") or nil
 local Poses = {}
 local Playback = nil
 
@@ -42,9 +46,10 @@ local OwnerController = nil
 local OwnerAddress = nil
 local Engine = nil
 
-local BaseSpeed = 1800.0 -- units per second
-local BoostMultiplier = 3.0
+local Speed = Flight.DEFAULT_SPEED -- cm/s before boost/slow
 local MouseSensitivity = 2.0
+local ZoomRate = 0.9               -- FOV changes by e^(rate) per second held
+local FlightState = Flight.new()
 
 local CamLoc = { X = 0.0, Y = 0.0, Z = 0.0 }
 local CamRot = { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 }
@@ -52,7 +57,9 @@ local CamFOV = 90.0
 
 -- Visibility bookkeeping: exact prior state, restored on disable.
 local SavedVisibility = {}   -- { {comp=<obj>, visible=<bool>} }
+local SavedBody = {}         -- the third-person body, hidden by `body hide`
 local SavedHudWidgets = {}   -- { {widget=<obj>, visibility=<int>} }
+local bBodyHidden = false
 local CommandOutput = nil
 
 local function Log(msg)
@@ -64,6 +71,55 @@ local function IsValid(obj)
     local ok, valid = pcall(function() return obj and obj:IsValid() end)
     return ok and valid == true
 end
+
+--------------------------------------------------------------------------------
+-- Input lock (native half)
+--------------------------------------------------------------------------------
+
+local Lock = {
+    dll = modDirectory .. "\\native\\mjolnir_flycam.dll",
+    statusFile = modDirectory .. "\\native\\flycam_status.txt",
+    lockFn = nil, unlockFn = nil, beatFn = nil,
+    state = "not loaded",
+    locked = false,
+}
+
+local function ReadStatus()
+    local f = io.open(Lock.statusFile, "rb")
+    if not f then return "no status" end
+    local s = f:read("*l") or "no status"
+    f:close()
+    return s
+end
+
+function Lock.load()
+    if not (package and package.loadlib) then Lock.state = "this Lua has no package.loadlib"; return end
+    local f = io.open(Lock.dll, "rb")
+    if not f then Lock.state = "mjolnir_flycam.dll is not installed"; return end
+    f:close()
+    local l, err = package.loadlib(Lock.dll, "mjolnir_flycam_lock")
+    local u, err2 = package.loadlib(Lock.dll, "mjolnir_flycam_unlock")
+    if not l or not u then Lock.state = "could not load the DLL: " .. tostring(err or err2); return end
+    Lock.lockFn, Lock.unlockFn = l, u
+    -- Older DLLs have no beat; with one, the lock lapses if FlyCam's tick stops.
+    Lock.beatFn = package.loadlib(Lock.dll, "mjolnir_flycam_beat") or nil
+    -- The DLL outlives a Lua reload; a reload must never leave the player frozen.
+    pcall(u)
+    Lock.state = "ready"
+end
+
+function Lock.set(on)
+    local fn = on and Lock.lockFn or Lock.unlockFn
+    if not fn then Lock.locked = false; return false end
+    local ok, err = pcall(fn)
+    Lock.state = ok and ReadStatus() or ("call failed: " .. tostring(err))
+    Lock.locked = on and Lock.state:match("^ok locked") ~= nil
+    return Lock.locked
+end
+
+--------------------------------------------------------------------------------
+-- Player controller and ownership
+--------------------------------------------------------------------------------
 
 -- nil means this build cannot answer the question; it is not proof of local.
 local function IsLocal(obj)
@@ -140,28 +196,31 @@ local function IsDown(PC, keyName)
     return ok and down == true
 end
 
-local function Rad(deg)
-    return deg * (math.pi / 180.0)
+local function AnyDown(PC, names)
+    for _, name in ipairs(names) do
+        if IsDown(PC, name) then return true end
+    end
+    return false
 end
 
-local function GetForwardVector(rot)
-    local p = Rad(rot.Pitch)
-    local y = Rad(rot.Yaw)
-    return {
-        X = math.cos(p) * math.cos(y),
-        Y = math.cos(p) * math.sin(y),
-        Z = math.sin(p)
-    }
+local function JustPressed(PC, keyName)
+    local ok, pressed = pcall(function() return PC:WasInputKeyJustPressed(FKeyOf(keyName)) end)
+    return ok and pressed == true
 end
 
-local function GetRightVector(rot)
-    local y = Rad(rot.Yaw + 90.0)
-    return {
-        X = math.cos(y),
-        Y = math.sin(y),
-        Z = 0.0
-    }
+-- Edge detection from Unreal's own key state, so keys typed into the console
+-- or a text box (which Unreal's PlayerInput never sees) do nothing here.
+local KeyWasDown = {}
+local function Pressed(PC, keyName)
+    local down = IsDown(PC, keyName)
+    local was = KeyWasDown[keyName]
+    KeyWasDown[keyName] = down
+    return down and not was
 end
+
+--------------------------------------------------------------------------------
+-- Visibility: first-person rig, body, HUD
+--------------------------------------------------------------------------------
 
 -- K2_GetComponentsByClass returns a plain table whose entries may need :get()
 local function unwrap(e)
@@ -192,12 +251,11 @@ end
 
 -- Hide the first-person rig: FP arms, visor overlays, and FP gun meshes
 -- (FP_-prefixed component/class names on the pawn and attached weapon
--- actors) — but NOT the Shadow proxies. This game is first-person only and
--- has no separate third-person model: the bOwnerNoSee "shadow" meshes
--- (BPC_FP_ShadowSkeletalMesh full body, BPC_FP_ShadowStaticMesh gun) are
--- the only complete external body, and the engine already shows them
--- automatically when the view target is not the pawn. Vanilla's "two guns"
--- came from the always-rendered FP arms overlapping that shadow body.
+-- actors) — but NOT the Shadow proxies unless the body is hidden too. This
+-- game is first-person only and has no separate third-person model: the
+-- bOwnerNoSee "shadow" meshes (BPC_FP_ShadowSkeletalMesh full body,
+-- BPC_FP_ShadowStaticMesh gun) are the only complete external body, and the
+-- engine already shows them when the view target is not the pawn.
 -- (BPC_PAWN_SkeletalMesh is just the owner-view lower body — the legs you
 -- see looking down in first person — so leave its bOnlyOwnerSee alone.)
 local function HideFirstPersonRig(pawn)
@@ -206,33 +264,36 @@ local function HideFirstPersonRig(pawn)
             if not c:IsValid() then return end
             local cn = c:GetClass():GetFName():ToString()
             local n = c:GetFName():ToString()
-            if (cn:find("FP_") or n:find("FP_"))
-                and not (cn:find("Shadow") or n:find("Shadow"))
-                and c:IsVisible() then
-                SavedVisibility[#SavedVisibility + 1] = { comp = c, visible = true }
-                c:SetVisibility(false, false)
+            local shadow = cn:find("Shadow") or n:find("Shadow")
+            if (cn:find("FP_") or n:find("FP_")) and c:IsVisible() then
+                if not shadow then
+                    SavedVisibility[#SavedVisibility + 1] = { comp = c, visible = true }
+                    c:SetVisibility(false, false)
+                elseif bBodyHidden then
+                    SavedBody[#SavedBody + 1] = { comp = c, visible = true }
+                    c:SetVisibility(false, false)
+                end
             end
         end)
     end)
 end
 
--- Weapon swaps while flying spawn fresh FP meshes; re-hide periodically.
-local function RescanFirstPersonRig(pawn)
-    HideFirstPersonRig(pawn)
+local function RestoreList(list)
+    for _, entry in ipairs(list) do
+        pcall(function()
+            if entry.comp:IsValid() then entry.comp:SetVisibility(entry.visible, false) end
+        end)
+    end
 end
 
 local function RestoreVisibility()
-    for _, entry in ipairs(SavedVisibility) do
-        pcall(function()
-            if entry.comp:IsValid() then
-                entry.comp:SetVisibility(entry.visible, false)
-            end
-        end)
-    end
-    SavedVisibility = {}
+    RestoreList(SavedVisibility)
+    RestoreList(SavedBody)
+    SavedVisibility, SavedBody = {}, {}
 end
 
 local ESlateVisibility_Collapsed = 1
+local ESlateVisibility_HitTestInvisible = 3
 
 local function SetHUDVisible(visible)
     bHUDVisible = visible
@@ -276,6 +337,180 @@ local function SetHUDVisible(visible)
     end
 end
 
+--------------------------------------------------------------------------------
+-- Map code and shots file
+--------------------------------------------------------------------------------
+
+local MapOverride = nil
+local MapCache = { world = nil, code = nil } -- FindAllOf is a full object scan: once per world
+
+--- The running map's code: the scenario tag's codename ("ZAN" from
+--- .../ZAN-scenario), else the world's name. Shots files are keyed by it, so
+--- the same shots load on every build of a map.
+local function ScanMapCode()
+    local ok, assets = pcall(function() return FindAllOf("BlamScenarioTagDataAsset") end)
+    if ok and type(assets) == "table" then
+        for _, a in ipairs(assets) do
+            local okn, name = pcall(function() return a:GetFullName() end)
+            if okn and type(name) == "string" then
+                local code = name:match("([%w_]+)%-scenario%.[%w_]+%-scenario$")
+                if code then return string.upper(code), true end
+            end
+        end
+    end
+    local pc = GetPlayerController()
+    local okWorld, world = pcall(function() return pc:GetWorld():GetFName():ToString() end)
+    if okWorld and type(world) == "string" and Shots.validMap(world) then return world end
+    return nil
+end
+
+local function MapCode()
+    if MapOverride then return MapOverride end
+    local pc = IsValid(OwnerController) and OwnerController or GetPlayerController()
+    local okWorld, world = pcall(function() return pc:GetWorld() end)
+    local address = okWorld and Address(world) or nil
+    if address and MapCache.world == address and MapCache.code then return MapCache.code end
+    local code, fromScenario = ScanMapCode()
+    -- A world name may be the stand-in before the scenario tag loads: scan again.
+    MapCache.world, MapCache.code = address, fromScenario and code or nil
+    return code
+end
+
+local function ShotsFile(code)
+    if not SavedDirectory or not code then return nil end
+    return SavedDirectory .. "MJOLNIR_FlyCam_shots_" .. code .. ".json"
+end
+
+--- The map's shots, read fresh every time so edits by hand or by a tool
+--- count. Returns data, code, path or nil, why.
+local function LoadShots()
+    local code = MapCode()
+    if not code then return nil, "no map is loaded (or its code is unknown; use mjolnir_camera map CODE)" end
+    local path = ShotsFile(code)
+    if not path then return nil, "LOCALAPPDATA is unavailable" end
+    local text = ""
+    local f = io.open(path, "rb")
+    if f then text = f:read("*a") or ""; f:close() end
+    local data, err = Shots.decode(text, code)
+    if not data then return nil, path .. " is invalid (" .. tostring(err) .. "); fix or move it" end
+    data.map = code
+    return data, code, path
+end
+
+--- Whole file or nothing: write beside, then swap in.
+local function SaveShots(data, path)
+    local temporary = path .. ".tmp"
+    local f, err = io.open(temporary, "wb")
+    if not f then return false, "cannot write " .. temporary .. ": " .. tostring(err) end
+    local wrote, writeError = f:write(Shots.encode(data))
+    local closed, closeError = f:close()
+    if not wrote or not closed then
+        os.remove(temporary)
+        return false, "could not finish " .. temporary .. ": " .. tostring(writeError or closeError)
+    end
+    os.remove(path)
+    local moved, moveError = os.rename(temporary, path)
+    if not moved then return false, "could not replace " .. path .. ": " .. tostring(moveError) end
+    return true
+end
+
+--------------------------------------------------------------------------------
+-- Overlay: shot list and camera coordinates, never in a shot by default
+--------------------------------------------------------------------------------
+
+local Overlay = { widget = nil, text = nil, pinned = false, shown = false, timer = 0, lines = nil, listTimer = 0 }
+local OVERLAY_X, OVERLAY_Y, OVERLAY_SCALE = 40, 120, 1.0
+
+local function OverlayWidget()
+    local w, t = Overlay.widget, Overlay.text
+    if IsValid(w) and IsValid(t) then
+        local okIn, inViewport = pcall(function() return w:IsInViewport() end)
+        if okIn and not inViewport then
+            pcall(function()
+                w:AddToViewport(1001)
+                w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
+            end)
+        end
+        return w, t
+    end
+    w, t = nil, nil
+    local pc = IsValid(OwnerController) and OwnerController or GetPlayerController()
+    if not pc then return nil end
+    local built = pcall(function()
+        local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local widgetClass = StaticFindObject("/Script/UMG.UserWidget")
+        local textClass = StaticFindObject("/Script/UMG.TextBlock")
+        w = library:Create(pc, widgetClass, pc)
+        local tree = w.WidgetTree
+        t = StaticConstructObject(textClass, tree, FName("MJOLNIRFlyCamText"))
+        tree.RootWidget = t
+        t:SetColorAndOpacity({ SpecifiedColor = { R = 0.55, G = 0.95, B = 1.0, A = 1 }, ColorUseRule = 0 })
+        t:SetShadowOffset({ X = 1.5, Y = 1.5 })
+        t:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.95 })
+        t:SetRenderTransformPivot({ X = 0, Y = 0 })
+        t:SetRenderScale({ X = OVERLAY_SCALE, Y = OVERLAY_SCALE })
+        w:SetVisibility(ESlateVisibility_Collapsed)
+        w:AddToViewport(1001)
+        w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
+    end)
+    if not built or not IsValid(w) then return nil end
+    Overlay.widget, Overlay.text = w, t
+    return w, t
+end
+
+-- Hidden, never removed: RemoveFromParent has hung this game.
+local function OverlayHide()
+    if Overlay.shown and IsValid(Overlay.widget) then
+        pcall(function() Overlay.widget:SetVisibility(ESlateVisibility_Collapsed) end)
+    end
+    Overlay.shown = false
+end
+
+local function OverlayText()
+    local lines = {}
+    lines[#lines + 1] = string.format("FLYCAM  %s   speed %d cm/s   fov %.1f   %s",
+        tostring(MapCode() or "?"), math.floor(Speed + 0.5), CamFOV,
+        Lock.locked and "player locked" or "PLAYER NOT LOCKED (" .. Lock.state .. ")")
+    lines[#lines + 1] = string.format("cam  %.1f  %.1f  %.1f    pitch %.1f  yaw %.1f  roll %.1f",
+        CamLoc.X, CamLoc.Y, CamLoc.Z, CamRot.Pitch, CamRot.Yaw, CamRot.Roll)
+    lines[#lines + 1] = "1-0 go to shot 1-10   Ctrl+1-0 save   Z/X zoom   R reset fov   F6 pin list"
+    if not Overlay.lines or Overlay.listTimer <= 0 then
+        Overlay.listTimer = 1.0
+        local data, err = LoadShots()
+        Overlay.lines = {}
+        if not data then
+            Overlay.lines[1] = "shots: " .. tostring(err)
+        elseif #data.shots == 0 then
+            Overlay.lines[1] = "no shots saved for this map"
+        else
+            for _, s in ipairs(data.shots) do Overlay.lines[#Overlay.lines + 1] = Shots.describe(s) end
+        end
+    end
+    lines[#lines + 1] = ""
+    for _, l in ipairs(Overlay.lines) do lines[#lines + 1] = l end
+    return table.concat(lines, "\n")
+end
+
+local function OverlayTick(dt, PC)
+    local want = bEnabled and (Overlay.pinned or IsDown(PC, "Tab"))
+    if not want then OverlayHide(); Overlay.lines = nil; return end
+    Overlay.listTimer = Overlay.listTimer - dt
+    Overlay.timer = Overlay.timer - dt
+    if Overlay.shown and Overlay.timer > 0 then return end
+    Overlay.timer = 0.1
+    local w, t = OverlayWidget()
+    if not w then return end
+    pcall(function()
+        t:SetText(FText(OverlayText()))
+        if not Overlay.shown then w:SetVisibility(ESlateVisibility_HitTestInvisible) end
+    end)
+    Overlay.shown = true
+end
+
+--------------------------------------------------------------------------------
+-- Camera state
+--------------------------------------------------------------------------------
+
 local LoseCamera
 
 local function ToggleHUD()
@@ -293,6 +528,8 @@ LoseCamera = function(reason)
         ((localPc and Address(localPc) == address) or (not localPc and IsLocal(owner) == true))
     bEnabled = false
     Playback = nil
+    Lock.set(false)
+    OverlayHide()
     if stillOwner then
         pcall(function()
             if owner.Pawn and owner.Pawn:IsValid() then owner:SetViewTargetWithBlend(owner.Pawn, 0.2, 0, 0, false) end
@@ -305,6 +542,7 @@ LoseCamera = function(reason)
     end
     SavedHudWidgets = {}
     SpawnedCameraActor, OwnerController, OwnerAddress = nil, nil, nil
+    Overlay.widget, Overlay.text = nil, nil
     bHUDVisible = true
     Log("FlyCam disabled: " .. reason)
 end
@@ -324,6 +562,14 @@ local function UpdateCameraTransform()
     end)
 end
 
+-- A jump, not a move: motion blur and temporal AA must not smear the old view
+-- into the first frames at the new one.
+local function CameraCut()
+    local pc = OwnerController
+    if not IsValid(pc) then return end
+    pcall(function() pc.PlayerCameraManager:SetGameCameraCutThisFrame() end)
+end
+
 local function CurrentPose()
     return { X = CamLoc.X, Y = CamLoc.Y, Z = CamLoc.Z,
              Pitch = CamRot.Pitch, Yaw = CamRot.Yaw, Roll = CamRot.Roll, FOV = CamFOV }
@@ -336,6 +582,14 @@ local function ApplyPose(pose)
     UpdateCameraTransform()
 end
 
+local function ShotPose(s)
+    return { X = s.x, Y = s.y, Z = s.z, Pitch = s.pitch, Yaw = s.yaw, Roll = s.roll, FOV = s.fov }
+end
+
+local function PoseShot(p)
+    return { x = p.X, y = p.Y, z = p.Z, pitch = p.Pitch, yaw = p.Yaw, roll = p.Roll, fov = p.FOV }
+end
+
 local function SnapToPlayer(PC)
     pcall(function()
         local pawn = PC.Pawn
@@ -346,9 +600,25 @@ local function SnapToPlayer(PC)
     end)
 end
 
--- Per-tick camera update, driven by a RegisterHook on the game's own
--- PlayerController ReceiveTick (game thread, once per frame).
--- Two approaches that do NOT work here:
+local function SaveShot(n, name)
+    local data, code, path = LoadShots()
+    if not data then return false, code end
+    local shot, err = Shots.put(data, PoseShot(CurrentPose()), n, name)
+    if not shot then return false, err end
+    local ok, saveError = SaveShots(data, path)
+    if not ok then return false, saveError end
+    Overlay.lines = nil
+    return true, shot, path
+end
+
+local GotoShot -- defined after EnsureFlyCam
+
+--------------------------------------------------------------------------------
+-- Per-tick update
+--------------------------------------------------------------------------------
+
+-- Driven by a RegisterHook on the game's own PlayerController ReceiveTick
+-- (game thread, once per frame). Two approaches that do NOT work here:
 --   * RegisterHook on PlayerCameraManager:UpdateCamera — not a UFunction,
 --     registration fails silently and the camera never moves.
 --   * LoopAsync(16ms) + ExecuteInGameThread per tick — the cross-thread
@@ -357,8 +627,85 @@ end
 local RescanInterval = 2.0
 local RescanTimer = 0.0
 
+local DIGITS = { "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero" }
+local KEYS_FORWARD = { "W", "NumPadEight" }
+local KEYS_BACK = { "S", "NumPadTwo" }
+local KEYS_LEFT = { "A", "NumPadFour" }
+local KEYS_RIGHT = { "D", "NumPadSix" }
+local KEYS_UP = { "SpaceBar", "E", "NumPadNine" }
+-- Not Left Ctrl: it is the save modifier, and sinking while saving would save
+-- a different view from the one framed.
+local KEYS_DOWN = { "C", "Q", "NumPadThree" }
+
+local function AdjustSpeed(factor)
+    Speed = Flight.clampSpeed(Speed * factor)
+end
+
+local function ManualTick(dt, PC)
+    -- Mouse look, slower when zoomed in so aim stays precise.
+    if bMouseLookEnabled then
+        pcall(function()
+            local d, d2 = {}, {}
+            PC:GetInputMouseDelta(d, d2)
+            local dx = d.DeltaX or 0.0
+            local dy = d.DeltaY or 0.0
+            if math.abs(dx) > 0.001 or math.abs(dy) > 0.001 then
+                local s = MouseSensitivity * (CamFOV / 90.0)
+                CamRot.Yaw = CamRot.Yaw + dx * s
+                CamRot.Pitch = CamRot.Pitch + dy * s
+                Flight.normalizeRot(CamRot)
+            end
+        end)
+    end
+
+    local ctrl = IsDown(PC, "LeftControl") or IsDown(PC, "RightControl")
+
+    -- Shots: 1-0 jump, Ctrl+1-0 save.
+    for i, key in ipairs(DIGITS) do
+        if Pressed(PC, key) then
+            if ctrl then
+                local ok, shot, path = SaveShot(i, nil)
+                if ok then Log("Saved shot " .. shot.n .. " in " .. path) else Log("Shot not saved: " .. tostring(shot)) end
+            else
+                GotoShot(tostring(i), false)
+            end
+            return
+        end
+    end
+
+    -- Speed: wheel or +/-.
+    if JustPressed(PC, "MouseScrollUp") then AdjustSpeed(1.25) end
+    if JustPressed(PC, "MouseScrollDown") then AdjustSpeed(1 / 1.25) end
+
+    -- Field of view.
+    if IsDown(PC, "Z") then CamFOV = Flight.clampFov(CamFOV * math.exp(-ZoomRate * dt)) end
+    if IsDown(PC, "X") then CamFOV = Flight.clampFov(CamFOV * math.exp(ZoomRate * dt)) end
+    if Pressed(PC, "R") then CamFOV, CamRot.Roll = 90.0, 0.0 end
+
+    if Pressed(PC, "NumPadFive") then
+        SnapToPlayer(PC)
+        Flight.stop(FlightState)
+    else
+        local axes = {
+            fwd = (AnyDown(PC, KEYS_FORWARD) and 1 or 0) - (AnyDown(PC, KEYS_BACK) and 1 or 0),
+            right = (AnyDown(PC, KEYS_RIGHT) and 1 or 0) - (AnyDown(PC, KEYS_LEFT) and 1 or 0),
+            up =(AnyDown(PC, KEYS_UP) and 1 or 0) - (AnyDown(PC, KEYS_DOWN) and 1 or 0),
+        }
+        local speed = Speed
+        if IsDown(PC, "LeftShift") or IsDown(PC, "RightShift") then speed = speed * Flight.BOOST end
+        if IsDown(PC, "LeftAlt") then speed = speed * Flight.SLOW end
+        local move = Flight.step(FlightState, CamRot, axes, speed, dt)
+        CamLoc.X = CamLoc.X + move.X
+        CamLoc.Y = CamLoc.Y + move.Y
+        CamLoc.Z = CamLoc.Z + move.Z
+    end
+
+    UpdateCameraTransform()
+end
+
 local function OnCameraTick(dt, PC)
     if not bEnabled then return end
+    if Lock.locked and Lock.beatFn then pcall(Lock.beatFn) end
 
     -- Level transition or camera destroyed under us: shut down cleanly.
     if not SpawnedCameraActor or not SpawnedCameraActor:IsValid() then
@@ -386,61 +733,10 @@ local function OnCameraTick(dt, PC)
             end
         end
     else
-
-    -- Mouse look
-    if bMouseLookEnabled then
-        pcall(function()
-            local d, d2 = {}, {}
-            PC:GetInputMouseDelta(d, d2)
-            local dx = d.DeltaX or 0.0
-            local dy = d.DeltaY or 0.0
-            if math.abs(dx) > 0.001 or math.abs(dy) > 0.001 then
-                CamRot.Yaw = CamRot.Yaw + (dx * MouseSensitivity)
-                CamRot.Pitch = math.max(-89.0, math.min(89.0, CamRot.Pitch + (dy * MouseSensitivity)))
-            end
-        end)
+        ManualTick(dt, PC)
     end
 
-    -- Numpad movement
-    local bBoost = IsDown(PC, "LeftShift") or IsDown(PC, "RightShift")
-    local speed = BaseSpeed * (bBoost and BoostMultiplier or 1.0) * dt
-
-    local bForward  = IsDown(PC, "NumPadEight")
-    local bBackward = IsDown(PC, "NumPadTwo")
-    local bLeft     = IsDown(PC, "NumPadFour")
-    local bRight    = IsDown(PC, "NumPadSix")
-    local bUp       = IsDown(PC, "NumPadNine")
-    local bDown     = IsDown(PC, "NumPadThree")
-
-    local moveX, moveY, moveZ = 0.0, 0.0, 0.0
-
-    if bForward or bBackward then
-        local fwd = GetForwardVector(CamRot)
-        local sign = bForward and 1.0 or 0.0
-        sign = sign - (bBackward and 1.0 or 0.0)
-        moveX = moveX + fwd.X * speed * sign
-        moveY = moveY + fwd.Y * speed * sign
-        moveZ = moveZ + fwd.Z * speed * sign
-    end
-    if bLeft or bRight then
-        local rgt = GetRightVector(CamRot)
-        local sign = (bRight and 1.0 or 0.0) - (bLeft and 1.0 or 0.0)
-        moveX = moveX + rgt.X * speed * sign
-        moveY = moveY + rgt.Y * speed * sign
-    end
-    if bUp then moveZ = moveZ + speed end
-    if bDown then moveZ = moveZ - speed end
-
-    if IsDown(PC, "NumPadFive") then
-        SnapToPlayer(PC)
-    else
-        CamLoc.X = CamLoc.X + moveX
-        CamLoc.Y = CamLoc.Y + moveY
-        CamLoc.Z = CamLoc.Z + moveZ
-    end
-
-        UpdateCameraTransform()
-    end
+    OverlayTick(dt, PC)
 
     -- Re-hide FP meshes that respawned (weapon swap etc.) every couple seconds.
     RescanTimer = RescanTimer + dt
@@ -448,7 +744,7 @@ local function OnCameraTick(dt, PC)
         RescanTimer = 0.0
         pcall(function()
             local pawn = PC.Pawn
-            if pawn and pawn:IsValid() then RescanFirstPersonRig(pawn) end
+            if pawn and pawn:IsValid() then HideFirstPersonRig(pawn) end
         end)
     end
 end
@@ -518,7 +814,8 @@ local function EnsureTickHook()
     return true
 end
 
-local function EnableFlyCam()
+local function EnableFlyCam(blend)
+    blend = blend or 0.2
     local PC = GetPlayerController()
     if not PC or not PC:IsValid() then
         Log("Cannot enable: No valid PlayerController found.")
@@ -592,17 +889,23 @@ local function EnableFlyCam()
         SpawnedCameraActor:K2_SetActorLocationAndRotation(CamLoc, CamRot, false, {}, true)
     end)
 
-    pcall(function() PC:SetViewTargetWithBlend(SpawnedCameraActor, 0.2, 0, 0, false) end)
+    pcall(function() PC:SetViewTargetWithBlend(SpawnedCameraActor, blend, 0, 0, false) end)
 
-    SavedVisibility = {}
+    SavedVisibility, SavedBody = {}, {}
     RescanTimer = 0.0
+    KeyWasDown = {}
+    Flight.stop(FlightState)
     HideFirstPersonRig(pawn)
 
     SetHUDVisible(false)
 
     bEnabled = true
-    Log("FlyCam ENABLED. Numpad 8/2/4/6 move, 9/3 up/down, 5 snap to player, Shift boost.")
-    Log("F8 exit | F7 HUD | F9/Num0 mouse look | Num+/- speed. WASD still moves the player.")
+    if Lock.set(true) then
+        Log("FlyCam ENABLED, player locked. WASD fly, Space/E up, C/Q down, Shift boost, Alt slow.")
+    else
+        Log("FlyCam ENABLED, player NOT locked (" .. Lock.state .. "): WASD moves the player too; fly on the numpad.")
+    end
+    Log("Z/X zoom, R reset FOV, wheel speed, 1-0 go to shot, Ctrl+1-0 save shot, Tab/F6 shot list, F8 exit.")
 end
 
 local function DisableFlyCam()
@@ -612,6 +915,8 @@ local function DisableFlyCam()
     end
     bEnabled = false
     Playback = nil
+    Lock.set(false)
+    OverlayHide()
     local PC = OwnerController
     if PC and PC:IsValid() then
         pcall(function()
@@ -644,10 +949,9 @@ local function ToggleMouseLook()
     Log("Mouse Look: " .. (bMouseLookEnabled and "ENABLED" or "DISABLED"))
 end
 
-local function AdjustSpeed(delta)
-    if not bEnabled then return end
-    BaseSpeed = math.max(200.0, BaseSpeed + delta)
-    Log("Base FlyCam Speed: " .. tostring(BaseSpeed))
+local function ToggleOverlayPin()
+    Overlay.pinned = not Overlay.pinned
+    if not Overlay.pinned then OverlayHide() end
 end
 
 -- Poses are append-only records in the game's writable Saved directory; the
@@ -686,16 +990,64 @@ local function StorePose(name, pose)
     return true
 end
 
-local function EnsureFlyCam()
+local function EnsureFlyCam(blend)
     if bEnabled and not OwnerStillLocal() then LoseCamera("local controller changed") end
-    if not bEnabled then EnableFlyCam() end
+    if not bEnabled then EnableFlyCam(blend) end
     return bEnabled and SpawnedCameraActor and SpawnedCameraActor:IsValid()
 end
 
+--- Jump to a shot. fromConsole: a scripted capture, so the list goes away.
+GotoShot = function(ref, fromConsole)
+    local data, err = LoadShots()
+    if not data then Log("Shots not read: " .. tostring(err)); return false end
+    local shot = Shots.find(data, ref)
+    if not shot then Log("No shot " .. tostring(ref) .. " on " .. data.map .. ". Use mjolnir_camera shots."); return false end
+    if not EnsureFlyCam(0) then Log("Could not enable FlyCam."); return false end
+    Playback = nil
+    Flight.stop(FlightState)
+    if fromConsole then Overlay.pinned = false; OverlayHide() end
+    ApplyPose(ShotPose(shot))
+    CameraCut()
+    Log(string.format("At shot %d%s on %s.", shot.n, shot.name and (" (" .. shot.name .. ")") or "", data.map))
+    return true
+end
+
+--- Pose lookup for `play`: saved shots by number or name, then named poses.
+local function PlayLookup(words)
+    local lookup, names = {}, {}
+    local data = LoadShots()
+    for i, word in ipairs(words) do
+        local shot = data and Shots.find(data, word)
+        if shot then
+            local key = "shot" .. shot.n
+            lookup[key] = ShotPose(shot)
+            names[i] = key
+        else
+            lookup[word] = Poses[word]
+            names[i] = word
+        end
+    end
+    return lookup, names
+end
+
 local function CameraHelp()
-    Log("mjolnir_camera on|off|capture NAME|set NAME X Y Z PITCH YAW ROLL [FOV]")
-    Log("mjolnir_camera goto NAME|play SECONDS_PER_SEGMENT linear|smooth A B [C ...]|stop|list|reload")
-    Log("Pose coordinates are Unreal units/degrees; files are local to this computer.")
+    Log("mjolnir_camera on|off|where|help")
+    Log("  shots | save [N] [NAME] | go N|NAME | delete N|NAME | map [CODE|auto]")
+    Log("  fov DEG | speed CM_PER_S | move FWD RIGHT UP | look DYAW DPITCH | pos X Y Z | rot PITCH YAW ROLL")
+    Log("  body hide|show | overlay on|off | lock")
+    Log("  capture NAME | set NAME X Y Z PITCH YAW ROLL [FOV] | goto NAME | list | reload")
+    Log("  play SECONDS_PER_SEGMENT linear|smooth A B [C ...] (shot numbers/names or poses) | stop")
+    Log("Shots: one JSON file per map in " .. tostring(SavedDirectory) .. "MJOLNIR_FlyCam_shots_<MAP>.json")
+end
+
+local function NeedNumbers(words, first, count)
+    local values = {}
+    for i = first, first + count - 1 do
+        local v = tonumber(words[i])
+        if not v or v ~= v or v == math.huge or v == -math.huge then return nil end
+        values[#values + 1] = v
+    end
+    return values
 end
 
 local function CameraCommand(args)
@@ -710,6 +1062,98 @@ local function CameraCommand(args)
         if not bEnabled then EnableFlyCam() else Log("FlyCam is already enabled.") end
     elseif command == "off" then
         if bEnabled then DisableFlyCam() else Playback = nil; Log("FlyCam is already disabled.") end
+    elseif command == "where" then
+        Log(string.format("%s cam %.4f %.4f %.4f | %.4f %.4f %.4f | FOV %.4f | speed %.0f | %s | %s",
+            tostring(MapCode()), CamLoc.X, CamLoc.Y, CamLoc.Z, CamRot.Pitch, CamRot.Yaw, CamRot.Roll, CamFOV,
+            Speed, bEnabled and "enabled" or "disabled", Lock.locked and "player locked" or ("not locked: " .. Lock.state)))
+    elseif command == "shots" then
+        local data, err, path = LoadShots()
+        if not data then Log("Shots not read: " .. tostring(err)); return end
+        if #data.shots == 0 then Log("No shots saved for " .. data.map .. ".") end
+        for _, s in ipairs(data.shots) do Log(Shots.describe(s)) end
+        Log("Shots file: " .. tostring(path))
+    elseif command == "save" then
+        local n, name
+        if words[2] and tonumber(words[2]) then n, name = tonumber(words[2]), words[3] else name = words[2] end
+        if #words > 3 or (n == nil and #words > 2) then Log("Usage: mjolnir_camera save [N] [NAME]"); return end
+        if not EnsureFlyCam() then Log("Could not enable FlyCam."); return end
+        local ok, shot, path = SaveShot(n, name)
+        if not ok then Log("Shot not saved: " .. tostring(shot)); return end
+        Log("Saved shot " .. Shots.describe(shot) .. " in " .. path)
+    elseif command == "go" then
+        if #words ~= 2 then Log("Usage: mjolnir_camera go N|NAME"); return end
+        GotoShot(words[2], true)
+    elseif command == "delete" then
+        if #words ~= 2 then Log("Usage: mjolnir_camera delete N|NAME"); return end
+        local data, err, path = LoadShots()
+        if not data then Log("Shots not read: " .. tostring(err)); return end
+        local shot = Shots.remove(data, words[2])
+        if not shot then Log("No shot " .. words[2] .. " on " .. data.map .. "."); return end
+        local ok, saveError = SaveShots(data, path)
+        if not ok then Log("Shot not deleted: " .. tostring(saveError)); return end
+        Overlay.lines = nil
+        Log("Deleted shot " .. Shots.describe(shot))
+    elseif command == "map" then
+        if words[2] then
+            if words[2]:lower() == "auto" then MapOverride = nil
+            elseif Shots.validMap(words[2]) then MapOverride = words[2]:upper()
+            else Log("Map codes use letters, digits, _ or -."); return end
+        end
+        Log("Map: " .. tostring(MapCode()) .. (MapOverride and " (set by hand; map auto undoes it)" or ""))
+        Overlay.lines = nil
+    elseif command == "fov" then
+        local v = NeedNumbers(words, 2, 1)
+        if not v or #words ~= 2 then Log("Usage: mjolnir_camera fov DEGREES (5-170)"); return end
+        if not EnsureFlyCam() then return end
+        CamFOV = Flight.clampFov(v[1]); UpdateCameraTransform()
+        Log(string.format("FOV %.4f", CamFOV))
+    elseif command == "speed" then
+        local v = NeedNumbers(words, 2, 1)
+        if not v or #words ~= 2 then Log("Usage: mjolnir_camera speed CM_PER_SECOND"); return end
+        Speed = Flight.clampSpeed(v[1])
+        Log(string.format("Speed %.0f cm/s", Speed))
+    elseif command == "move" then
+        local v = NeedNumbers(words, 2, 3)
+        if not v or #words ~= 4 then Log("Usage: mjolnir_camera move FORWARD RIGHT UP (cm, camera-relative)"); return end
+        if not EnsureFlyCam() then return end
+        local d = Flight.offset(CamRot, v[1], v[2], v[3])
+        CamLoc.X, CamLoc.Y, CamLoc.Z = CamLoc.X + d.X, CamLoc.Y + d.Y, CamLoc.Z + d.Z
+        UpdateCameraTransform(); CameraCut()
+        Log(string.format("cam %.4f %.4f %.4f", CamLoc.X, CamLoc.Y, CamLoc.Z))
+    elseif command == "look" then
+        local v = NeedNumbers(words, 2, 2)
+        if not v or #words ~= 3 then Log("Usage: mjolnir_camera look DYAW DPITCH (degrees)"); return end
+        if not EnsureFlyCam() then return end
+        CamRot.Yaw, CamRot.Pitch = CamRot.Yaw + v[1], CamRot.Pitch + v[2]
+        Flight.normalizeRot(CamRot); UpdateCameraTransform(); CameraCut()
+        Log(string.format("pitch %.4f yaw %.4f", CamRot.Pitch, CamRot.Yaw))
+    elseif command == "pos" then
+        local v = NeedNumbers(words, 2, 3)
+        if not v or #words ~= 4 then Log("Usage: mjolnir_camera pos X Y Z (Unreal cm)"); return end
+        if not EnsureFlyCam(0) then return end
+        CamLoc = { X = v[1], Y = v[2], Z = v[3] }; UpdateCameraTransform(); CameraCut()
+    elseif command == "rot" then
+        local v = NeedNumbers(words, 2, 3)
+        if not v or #words ~= 4 then Log("Usage: mjolnir_camera rot PITCH YAW ROLL"); return end
+        if not EnsureFlyCam(0) then return end
+        CamRot = { Pitch = v[1], Yaw = v[2], Roll = v[3] }; Flight.normalizeRot(CamRot)
+        UpdateCameraTransform(); CameraCut()
+    elseif command == "body" then
+        local mode = (words[2] or ""):lower()
+        if mode ~= "hide" and mode ~= "show" then Log("Usage: mjolnir_camera body hide|show"); return end
+        bBodyHidden = mode == "hide"
+        if not bBodyHidden then RestoreList(SavedBody); SavedBody = {} end
+        if bEnabled and IsValid(OwnerController) then
+            pcall(function() HideFirstPersonRig(OwnerController.Pawn) end)
+        end
+        Log("Player body " .. (bBodyHidden and "hidden" or "shown") .. " while FlyCam is on.")
+    elseif command == "overlay" then
+        local mode = (words[2] or ""):lower()
+        if mode ~= "on" and mode ~= "off" then Log("Usage: mjolnir_camera overlay on|off"); return end
+        Overlay.pinned = mode == "on"
+        if not Overlay.pinned then OverlayHide() end
+    elseif command == "lock" then
+        Log("Input lock: " .. (Lock.locked and "on" or "off") .. " (" .. Lock.state .. ")")
     elseif command == "capture" then
         local name = words[2]
         if #words ~= 2 or not Path.validName(name) then Log("Usage: mjolnir_camera capture NAME"); return end
@@ -728,18 +1172,21 @@ local function CameraCommand(args)
         Log("Saved pose " .. words[2] .. " in " .. PoseFile)
     elseif command == "goto" then
         if #words ~= 2 or not Poses[words[2]] then Log("Unknown pose. Use mjolnir_camera list."); return end
-        if not EnsureFlyCam() then Log("Could not enable FlyCam."); return end
+        if not EnsureFlyCam(0) then Log("Could not enable FlyCam."); return end
         Playback = nil
         ApplyPose(Poses[words[2]])
+        CameraCut()
         Log("At pose " .. words[2] .. ".")
     elseif command == "play" then
-        local names = {}
-        for i = 4, #words do names[#names + 1] = words[i] end
-        local path, err = Path.create(Poses, names, words[2], (words[3] or ""):lower())
+        local refs = {}
+        for i = 4, #words do refs[#refs + 1] = words[i] end
+        local lookup, names = PlayLookup(refs)
+        local path, err = Path.create(lookup, names, words[2], (words[3] or ""):lower())
         if not path then Log("Camera path not started: " .. tostring(err)); return end
-        if not EnsureFlyCam() then Log("Could not enable FlyCam."); return end
+        if not EnsureFlyCam(0) then Log("Could not enable FlyCam."); return end
         Playback = path
         ApplyPose(path.frames[1])
+        CameraCut()
         Log(string.format("Camera path: %d segments, %.3f seconds each, %s.",
                           #path.frames - 1, path.seconds, path.easing))
     elseif command == "stop" then
@@ -778,14 +1225,18 @@ end
 local function RegisterControls()
     BindKey(Key.F8, ToggleFlyCam)
     BindKey(Key.F7, ToggleHUD)
+    BindKey(Key.F6, ToggleOverlayPin)
     BindKey(Key.F9, ToggleMouseLook)
     BindKey(Key.NUM_ZERO, ToggleMouseLook)
 
-    -- Speed: numpad +/- plus the old [ ] bindings
-    BindKey(Key.ADD, function() AdjustSpeed(400.0) end)
-    BindKey(Key.SUBTRACT, function() AdjustSpeed(-400.0) end)
-    BindKey(Key.OEM_SIX, function() AdjustSpeed(400.0) end)
-    BindKey(Key.OEM_FOUR, function() AdjustSpeed(-400.0) end)
+    -- Speed: numpad +/- plus the old [ ] bindings (the wheel is read per tick)
+    BindKey(Key.ADD, function() if bEnabled then AdjustSpeed(1.25) end end)
+    BindKey(Key.SUBTRACT, function() if bEnabled then AdjustSpeed(1 / 1.25) end end)
+    BindKey(Key.OEM_SIX, function() if bEnabled then AdjustSpeed(1.25) end end)
+    BindKey(Key.OEM_FOUR, function() if bEnabled then AdjustSpeed(1 / 1.25) end end)
+
+    Lock.load()
+    if Lock.state ~= "ready" then Log("Input lock unavailable: " .. Lock.state) end
 
     local ok, err = LoadPoses(true)
     if not ok then Log("Saved poses were not loaded: " .. tostring(err)) end
@@ -800,7 +1251,7 @@ local function RegisterControls()
         if not registered then Log("Could not register mjolnir_camera: " .. tostring(registerError)) end
     end
 
-    Log("FlyCam Ready. Press F8 to toggle. Camera flies on the numpad (8/2/4/6, 9/3 up/down).")
+    Log("FlyCam Ready. Press F8 to toggle; WASD + mouse fly it, Tab shows saved shots.")
 end
 
 ExecuteInGameThreadWithDelay(2000, RegisterControls)
