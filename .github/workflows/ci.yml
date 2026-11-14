@@ -54,6 +54,7 @@ jobs:
       - name: Test multiplayer HUD and team presentation
         run: |
           lua5.4 tools/tests/test_multiplayer_ui.lua
+          lua5.4 tools/tests/test_flycam_shots.lua
           lua5.4 tools/tests/test_lobby_startup.lua
           lua5.4 tools/tests/test_hill_marker.lua
           lua5.4 tools/tests/test_flag_marker.lua
@@ -154,15 +155,15 @@ jobs:
             echo "⚠️ luacheck not available, skipping lint"
           fi
 
-  # Five mods have a native half (native/blam_console, native/map_registry,
-  # native/lobby, native/frame_times, native/forge),
+  # Six mods have a native half (native/blam_console, native/map_registry,
+  # native/lobby, native/frame_times, native/forge, native/flycam),
   # built on every pull request that changes native/ or the crates the map
   # registry links (mjolnir-mglo-cabi), so a change that does not compile is
   # caught here and not at the release gate. The artifacts are what a reviewer
   # installs to test; a PR that skips this job leaves the DLLs as released.
   # The release workflow builds its own from the tag.
   build-native:
-    name: Build native (Blam console + map registry + lobby + frame times + forge DLLs)
+    name: Build native (Blam console + map registry + lobby + frame times + forge + flycam DLLs)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     runs-on: windows-latest
@@ -221,6 +222,10 @@ jobs:
         shell: pwsh
         run: .\native\forge\test-pack-bindings.ps1
 
+      - name: Build mjolnir_flycam.dll
+        shell: pwsh
+        run: .\native\flycam\build.ps1
+
       - uses: actions/upload-artifact@v4
         with:
           name: mjolnir_blam_console
@@ -249,6 +254,12 @@ jobs:
         with:
           name: mjolnir_forge
           path: mods/MJOLNIRForge/native/mjolnir_forge.dll
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact\v4
+        with:
+          name: mjolnir_flycam
+          path: mods/MJOLNIRFlyCam/native/mjolnir_flycam.dll
           if-no-files-found: error
 
   validate-structure:
