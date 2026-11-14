@@ -601,6 +601,25 @@ published).
   alpha held levels of its own across the bars (90 to 200), which the
   masked master's cut at half punched through: `--holes` writes a clean
   mask (above 16 solid), 60% plate against the 38% the old cut left.
+- **Black smudges under the cliff lips** (2026-11-14): the cliff master's
+  soil band (the drape under a lip) drew pure black. The loader's soil set,
+  Megascans Soil_Damp_sbykj0p0, is streamed as virtual textures, and the
+  master samples its soil as plain textures, which read black (swapping
+  either the colour or the ORHG map for a rock one brought that channel
+  back). Level Loader 0.13.15 uses the non-virtual Trampled_Forest_Path
+  set the landscape already uses for packed earth. Every map shares
+  Land.SOIL, so every remaster's lips had the band.
+- **A hairline down a boulder** (2026-11-14): the cliff master's soil,
+  turf and stains go "just under the lip", read from the landscape's edge
+  map. Where that map ramps from a plateau texel to a low one, "just under
+  the lip" is a contour running straight down a tall face, drawn as a line
+  the height of the wall. M_CE_CliffPBR now drapes only where the lip map
+  is flat (neighbouring texels within 60 to 150 cm). A UV derivative clamp
+  on the base map was tried first and changed nothing.
+- **Hard lights on the hill rocks** (2026-11-14) were the Megascans
+  rock's own white mineral streaks pushed by the cliffs' contrast
+  (`look[3]` 1.5). `cliff_look` (entries over the cliffs' look, null keeps
+  one) sets Zanzibar's to 1.0.
 - **The east Shade fell off its platform every spawn** (2026-11-14). Both
   turrets stand on mirrored gratings, but a parapet chunk (an object baked
   into the terrain, 1.7 m tall) stands on the east one alone, and Halo 2's

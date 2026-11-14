@@ -4423,10 +4423,13 @@ Land.ROCK_A = {
     n = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
     o = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG",
 }
+-- Non-virtual textures only: the masters sample these as plain textures,
+-- and the damp soil set (Soil_Damp_sbykj0p0, virtual texture streaming)
+-- read as black, a black band under every cliff lip (Zanzibar, 2026-11-14).
 Land.SOIL = {
-    d = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_D",
-    n = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_N",
-    o = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_ORHG",
+    d = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D",
+    n = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
+    o = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
 }
 Land.ROCK_B = {
     d = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",

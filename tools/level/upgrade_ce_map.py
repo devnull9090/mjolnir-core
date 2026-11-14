@@ -1576,6 +1576,12 @@ def stage_assemble(code, m, p):
     cliff = level["landscape"].get("cliff")
     if isinstance(cliff, dict):
         cliff["fill_dir"] = CLIFF_FILL_DIR
+        # `cliff_look`: entries over the cliffs' look ([base, CE colour, CE
+        # shade, contrast]; null keeps one). Zanzibar's contrast 1.0: at 1.5
+        # the rock's white mineral streaks stood out as hard lights.
+        for i, v in enumerate(m.get("cliff_look") or []):
+            if v is not None and isinstance(cliff.get("look"), list) and i < len(cliff["look"]):
+                cliff["look"][i] = v
         if m.get("cliff_scalars"):
             cliff["scalars"] = dict(m["cliff_scalars"])
         mesh = os.path.join(p["work"], "cliff_mesh.json")

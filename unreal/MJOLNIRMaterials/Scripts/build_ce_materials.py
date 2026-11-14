@@ -3044,6 +3044,22 @@ if (EdgeRange.y > EdgeRange.x)
     // Only up to 60 cm above the lip: a wall rising from a plateau (a tower
     // over its lip) took turf as green slabs metres up.
     float lipOn = smoothstep(-60.0, -15.0, below) * step(0.004, e.r);
+    // Only where the lip map is flat: where it ramps from a plateau's texel
+    // to a low one, "just under the lip" is a contour running straight down
+    // a tall face, and the soil, turf and stains drew it as a hairline the
+    // height of the wall (Zanzibar's boulders, 2026-11-14).
+    {
+        float ew, eh;
+        Edge.GetDimensions(ew, eh);
+        float2 euv = (W.xy - EdgeRect.xy) / EdgeRect.zw;
+        float ex = Texture2DSampleLevel(Edge, EdgeSampler, euv + float2(1.0 / ew, 0.0), 0).r;
+        float ey = Texture2DSampleLevel(Edge, EdgeSampler, euv + float2(0.0, 1.0 / eh), 0).r;
+        float ex2 = Texture2DSampleLevel(Edge, EdgeSampler, euv - float2(1.0 / ew, 0.0), 0).r;
+        float ey2 = Texture2DSampleLevel(Edge, EdgeSampler, euv - float2(0.0, 1.0 / eh), 0).r;
+        float lipStep = max(max(abs(ex - e.r), abs(ey - e.r)), max(abs(ex2 - e.r), abs(ey2 - e.r)))
+                        * (EdgeRange.y - EdgeRange.x);
+        lipOn *= 1.0 - smoothstep(60.0, 150.0, lipStep);
+    }
     float t = Drape.x * (0.3 + 1.4 * rag);
     // Only on a wall (steep) right under an edge (the lip mask): a sloping
     // rock face crossing the lip's height drew the rim as a green hairline.
