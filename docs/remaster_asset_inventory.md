@@ -481,6 +481,56 @@ published).
   some dark grime as dents. The wrapper puts its green in the source's
   convention and keeps the source's alpha. Which tool wins is per
   texture: look at both in game.
+- **Tiling redraws** (`redraw_texture.py --tile-v`). The hazard strip
+  sheets (256x128 on the floor strips and catwalks, 512x256 on one prop)
+  repeat top to bottom on their models (V runs -2.3 to 3.3). The source
+  is sent as two copies, one above the other, with a line asking for the
+  join to continue; the two copies drawn back (2 levels apart on
+  average) are blended, the lower into the upper, so the last row runs
+  into the first. Both now redrawn to 1024x512; the strip in the base
+  room shows no repeat seam. Their bump map stays Halo 2's (nearly flat
+  apart from the channels).
+- **DeepBump's seams.** The olive crates showed a line down the middle
+  of each face with DeepBump's bump map, and none with Halo 2's. A crate
+  face is one quarter panel of the sheet mirrored four times; DeepBump
+  tilts whole panels and invents slopes at their edges, so mirrored
+  halves light differently. `deepbump_normals.py` now takes its slopes
+  broader than 12 texels from the original (`--broad`) and fades to the
+  original within 10 texels of every UV island border and mirror fold of
+  the shader's triangles (`--seams <conversion> --material <token>`;
+  5,632 seam edges, 9% of the military sheet). The line is gone at that
+  crate; the frame's groove softens a little where it crosses the join.
+- **The walls lit by Unreal, not lightmaps** (2026-11-13). The walls
+  drew blotchy shadows from Halo 2's lightmaps (32 to 512 pixel pages,
+  up to 1 m a texel) and our corner bake; with both off
+  (`look[2]` 0, no `fill_occlusion`, no `bake_ao`) the shadows went
+  clean. Then, tested in game with the fill switched off: the game
+  runs Lumen with hardware ray tracing and has static lighting turned
+  off (so Unreal's own baked lightmaps cannot be used), and Lumen does
+  see our walls (an enclosed room goes black under a bright sky). The
+  sky light was dark because the loader keeps the sun off the
+  atmosphere for the CE masters, so it captured a black sky; and our
+  walls give no visible bounce light (likely the donor mesh's Lumen
+  data; unproven). Zanzibar now sets `sun.atmosphere_sun` and a
+  physical sky light of 8: Lumen lights open walls with sun and sky.
+  The fill stays where the sky cannot reach: `fill_sky_cut` (2.5)
+  scales it by one minus the conversion bake's sky visibility (B;
+  M_CE_CliffPBR `CliffBakeAO.y`, Level Loader 0.13.12). The base room
+  measured 0.268 mean luma against 0.266 before; open walls shade with
+  real direction and less clipping (the far side 0.9% against 6.3%
+  with the fill everywhere). The lit sky turned the sea white through
+  Lumen reflections; `flux.coast.max_ray` 1.0 (was the loader's 2)
+  keeps it teal. That cap applies to every Lumen reflection; glass and
+  metal unchecked.
+- **A bounce-light bake, prototyped** (`lightmap_bake --gi`): sky plus
+  one bounce per texel, smoothed and scaled, with `--gi-pages` and a
+  texel size per page (`--gi-texel`). Six pages tried live (the loader
+  reads a file path as the `Bake` texture): smooth, but interiors came
+  out far too dark until reshaped against each room's own level, and
+  black dots where samples sit inside geometry. Not used; kept for the
+  interiors if Lumen's bounce cannot be made to work. Without `--gi`
+  the bake writes the same bytes as before (all 116 Zanzibar pages
+  compared).
 - **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
   and Timberland assemble to the same bytes with this branch's pipeline
   as with its merge-base's.

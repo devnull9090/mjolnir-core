@@ -36,6 +36,7 @@ import urllib.error
 import urllib.request
 import uuid
 
+import numpy as np
 from PIL import Image, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -112,16 +113,28 @@ def main():
                     help="the source is a bump (normal) map: redraw it as one. Finish the result with "
                          "redraw_bump.py before using it")
     ap.add_argument("--prompt", help="replace the closing sentence about wear (the default suits a painted sign)")
+    ap.add_argument("--tile-v", action="store_true",
+                    help="the texture repeats top to bottom on its models: it is sent twice, one copy above the "
+                         "other, and the two copies drawn back are blended so the result tiles")
     ap.add_argument("--keep-raw", action="store_true", help="also write the model's own image beside the output")
     a = ap.parse_args()
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     src = Image.open(a.source).convert("RGBA")
     w, h = src.size
-    rw, rh = request_size(w, h)
+    # `--tile-v`: two copies, one above the other, so the model draws the
+    # join between them; its two copies are blended back into one below.
+    reps = 2 if a.tile_v else 1
+    rw, rh = request_size(w, h * reps)
     # Opaque for the model: the colour under a transparent texel is whatever
     # the artist left there, usually the sign's own.
-    sent = src.convert("RGB").resize((rw, rh), Image.LANCZOS)
+    base = src.convert("RGB")
+    if reps > 1:
+        stacked = Image.new("RGB", (w, h * reps))
+        for k in range(reps):
+            stacked.paste(base, (0, h * k))
+        base = stacked
+    sent = base.resize((rw, rh), Image.LANCZOS)
     buf = io.BytesIO()
     sent.save(buf, "PNG")
     text = ""
@@ -130,6 +143,10 @@ def main():
         text = "It reads, line by line: " + "; ".join(f'"{t}"' for t in lines) + ". Spell it exactly so. "
     prompt = NORMAL_MAP.format(what=a.what) if a.normal_map else PROMPT.format(what=a.what, text=text,
                                                                                 wear=a.prompt or WEAR)
+    if reps > 1:
+        prompt += (" The input is one texture repeated twice, one copy above the other, because the texture repeats "
+                   "endlessly upward and downward: keep the two copies identical, every stripe and edge continuing "
+                   "straight across the join between them and across the top and bottom edges.")
     body, ctype = multipart({"model": a.model, "prompt": prompt, "size": f"{rw}x{rh}", "quality": a.quality,
                              "n": "1", "output_format": "png"},
                             {"image": ("texture.png", buf.getvalue(), "image/png")})
@@ -145,7 +162,18 @@ def main():
         raw.save(os.path.splitext(a.out)[0] + ".raw.png")
     scale = a.size / max(w, h)
     ow, oh = max(4, round(w * scale / 4) * 4), max(4, round(h * scale / 4) * 4)
-    out = raw.resize((ow, oh), Image.LANCZOS).convert("RGBA")
+    if reps > 1:
+        # The bottom copy runs on from the top one's last row, so blending
+        # from it (at the top) into the top copy (at the bottom) gives a
+        # texture whose last row runs into its first.
+        both = np.asarray(raw.resize((ow, oh * 2), Image.LANCZOS)).astype(np.float64)
+        top, bottom = both[:oh], both[oh:]
+        t = np.linspace(0.0, 1.0, oh)[:, None, None]
+        t = t * t * (3 - 2 * t)
+        out = Image.fromarray(np.clip(bottom * (1 - t) + top * t + 0.5, 0, 255).astype(np.uint8)).convert("RGBA")
+        print(f"tile-v: the two copies differ by {np.abs(top - bottom).mean():.1f} levels on average")
+    else:
+        out = raw.resize((ow, oh), Image.LANCZOS).convert("RGBA")
     alpha = src.getchannel("A")
     if alpha.getextrema() != (255, 255):
         # The source's outline, magnified: smoothed, then cut back to a

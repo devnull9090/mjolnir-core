@@ -4501,10 +4501,16 @@ function Land.structures(world, spec)
                                 end
                                 -- `bake_ao`: the conversion's baked corners
                                 -- (the slot's Bake texture), as a power.
-                                local bake = set.bake_ao and type(t.Bake) == "string" and resolveMesh(t.Bake)
+                                -- A file path (not "/Game/..."): a bake read at
+                                -- runtime, beside the level file (trying a
+                                -- new bake without a cook).
+                                -- `fill_sky_cut`: the fill fades where the bake's sky
+                                -- visibility (B) is open, times this.
+                                local bake = (set.bake_ao or set.fill_sky_cut) and type(t.Bake) == "string"
+                                    and (isObjectPath(t.Bake) and resolveMesh(t.Bake) or importTexture(world, t.Bake, true))
                                 if bake then
                                     mid:SetTextureParameterValue(FName("Bake"), bake)
-                                    vec(mid, "CliffBakeAO", { set.bake_ao, 0, 0, 0 })
+                                    vec(mid, "CliffBakeAO", { set.bake_ao or 0, set.fill_sky_cut or 0, 0, 0 })
                                 end
                                 vec(mid, "CliffTiles", set.tiles)
                                 vec(mid, "CliffMix", set.mix)

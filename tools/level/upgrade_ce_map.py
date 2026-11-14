@@ -1068,7 +1068,9 @@ def flux_coast(k, land, code, level):
     sea at `water` cm. `floor`: the base maps of CE's sea floor, kept out of
     the ground capture (`floor` slots by ground item): Death Island's lies a
     metre under the water everywhere, so the whole domain was surf, a flat
-    milky square with a hard edge against the open sea round it."""
+    milky square with a hard edge against the open sea round it. `max_ray`:
+    Lumen reflections' brightest ray (the loader's default 2); a lit sky
+    turned Zanzibar's sea white at 2, 1 keeps it teal."""
     x, y, w, h = land["rect"]
     margin, cell = k.get("margin", 6000.0), int(k.get("cell", 100))
     res = [int(math.ceil((w + 2 * margin) / cell / 32.0)) * 32, int(math.ceil((h + 2 * margin) / cell / 32.0)) * 32]
@@ -1084,7 +1086,7 @@ def flux_coast(k, land, code, level):
                 floor.setdefault(item["id"], []).append(i)
     return {"centre": [round(x + w / 2), round(y + h / 2)], "res": res, "cell": cell,
             "height": k.get("height", 10000.0), "water": k["water"], "floor": floor, "swell": k.get("swell", 140),
-            "seabed": bool(k.get("seabed"))}
+            "seabed": bool(k.get("seabed")), **({"max_ray": k["max_ray"]} if "max_ray" in k else {})}
 
 
 PHANTOM = "/Game/FluidFlux/Simulation/Materials/M_PhantomMesh_3.M_PhantomMesh_3"
@@ -1478,7 +1480,7 @@ def stage_assemble(code, m, p):
         entry = {"bases": bases, "rock_a": surface_textures(st["surface"]),
                  "rock_b": surface_textures(st.get("large") or st["surface"])}
         for key in ("tiles", "mix", "look", "tint", "rough", "far", "vary", "ce_tint", "fill", "fill_dir", "drape",
-                    "foot", "wet", "moss", "ledge", "fill_occlusion", "bake_ao"):
+                    "foot", "wet", "moss", "ledge", "fill_occlusion", "bake_ao", "fill_sky_cut"):
             if key in st:
                 entry[key] = st[key]
         structures.append(entry)

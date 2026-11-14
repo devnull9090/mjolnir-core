@@ -3171,6 +3171,11 @@ Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 
 // FillDir.z: how far it follows the map's own baked shade (the lightmap's
 // corners and overhangs), FillDir.w that shade's power (0: 1).
 Emissive *= lerp(1.0, pow(occ, FillDir.w > 0.0 ? FillDir.w : 1.0), FillDir.z);
+// BakeAO.y: the fill only where the sky does not reach, from the bake's B
+// (sky visibility, 1 open): with a real sky light (the sun lighting the
+// atmosphere), Lumen lights the open walls and the fill keeps the rooms
+// it cannot (Zanzibar, 2026-11-13). 0: the fill everywhere.
+if (BakeAO.y > 0.0) Emissive *= saturate(1.0 - Texture2DSample(Bake, BakeSampler, TC1).b * BakeAO.y);
 // Indoors (Indoor.x: the loader's cliff.indoor gain times the scene's light
 // scale): CE's lightmap is the light, as CE drew it (lightmap times colour,
 // linear). A tunnel has no sun, and lit by Unreal alone (a few placed
