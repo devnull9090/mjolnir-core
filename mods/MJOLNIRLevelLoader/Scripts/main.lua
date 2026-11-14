@@ -4480,7 +4480,10 @@ function Land.structures(world, spec)
                     local comp = actor.StaticMeshComponent
                     for i, entry in ipairs(item.materials) do
                         local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
-                        local leaf = t and type(t.Base) == "string" and t.Base:match("%.([%w_]+)$")
+                        -- A file path's stem (a texture tried without a cook,
+                        -- named for the one it stands in for) matches too.
+                        local leaf = t and type(t.Base) == "string"
+                            and (t.Base:match("([%w_]+)%.png$") or t.Base:match("%.([%w_]+)$"))
                         local hit = false
                         if leaf then
                             local lower = leaf:lower()
@@ -4491,7 +4494,7 @@ function Land.structures(world, spec)
                                 FName(string.format("mjolnir_structure_%d_%d", si, i)), 0)
                             if mid and mid:IsValid() then
                                 for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
-                                local base = resolveMesh(t.Base)
+                                local base = isObjectPath(t.Base) and resolveMesh(t.Base) or importTexture(world, t.Base, true)
                                 if base then mid:SetTextureParameterValue(FName("Base"), base) end
                                 local lm = type(t.Lightmap) == "string" and not t.Lightmap:find("object_lighting", 1, true)
                                     and resolveMesh(t.Lightmap)

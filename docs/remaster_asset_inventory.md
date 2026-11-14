@@ -531,6 +531,15 @@ published).
   interiors if Lumen's bounce cannot be made to work. Without `--gi`
   the bake writes the same bytes as before (all 116 Zanzibar pages
   compared).
+- **More redraws:** the dumpster (colour, DeepBump bump with the seam
+  fix), the nose cone (colour and the image model's bump: it failed the
+  numeric check at 0.38 / 0.50 but lines up within two pixels and drew
+  the cleanest rivets in game), and the crane's two steel grain textures
+  (`redraw_texture.py --tile`: blended with itself shifted half a tile so
+  it wraps both ways). 28 redrawn textures in all. The crane turns with
+  the player on it, so its before and after could not share a camera.
+  Level Loader 0.13.13 lets a structure set's slot take a file-path base
+  texture for these runtime previews.
 - **CE maps unchanged.** Blood Gulch, Death Island, Rat Race, Ice Fields
   and Timberland assemble to the same bytes with this branch's pipeline
   as with its merge-base's.

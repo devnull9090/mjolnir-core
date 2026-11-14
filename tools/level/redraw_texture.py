@@ -113,6 +113,9 @@ def main():
                     help="the source is a bump (normal) map: redraw it as one. Finish the result with "
                          "redraw_bump.py before using it")
     ap.add_argument("--prompt", help="replace the closing sentence about wear (the default suits a painted sign)")
+    ap.add_argument("--tile", action="store_true",
+                    help="the texture repeats both ways (a surface's grain): the redraw is made to wrap by "
+                         "blending it with itself shifted half a tile, the shifted copy at the edges")
     ap.add_argument("--tile-v", action="store_true",
                     help="the texture repeats top to bottom on its models: it is sent twice, one copy above the "
                          "other, and the two copies drawn back are blended so the result tiles")
@@ -174,6 +177,20 @@ def main():
         print(f"tile-v: the two copies differ by {np.abs(top - bottom).mean():.1f} levels on average")
     else:
         out = raw.resize((ow, oh), Image.LANCZOS).convert("RGBA")
+    if a.tile:
+        # The copy shifted half a tile has its seams in the middle and wraps
+        # at the edges: it takes over towards the edges, the redraw keeps
+        # the middle. A grain texture hides the blend; a layout would not.
+        img = np.asarray(out.convert("RGB")).astype(np.float64)
+        shifted = np.roll(np.roll(img, oh // 2, 0), ow // 2, 1)
+        y = np.abs(np.linspace(-1.0, 1.0, oh))[:, None]
+        x = np.abs(np.linspace(-1.0, 1.0, ow))[None, :]
+        m = np.clip((np.maximum(x, y) - 0.45) / 0.45, 0.0, 1.0)
+        m = (m * m * (3 - 2 * m))[..., None]
+        out = Image.fromarray(np.clip(img * (1 - m) + shifted * m + 0.5, 0, 255).astype(np.uint8)).convert("RGBA")
+        e = np.asarray(out.convert("L")).astype(np.float64)
+        print(f"tile: edge steps {np.abs(e[0] - e[-1]).mean():.1f} (rows) {np.abs(e[:, 0] - e[:, -1]).mean():.1f} (columns)"
+              f" against {np.abs(np.diff(e, axis=0)).mean():.1f} between neighbours")
     alpha = src.getchannel("A")
     if alpha.getextrema() != (255, 255):
         # The source's outline, magnified: smoothed, then cut back to a
