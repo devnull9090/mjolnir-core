@@ -178,6 +178,43 @@ function Shots.remove(data, ref)
     return shot
 end
 
+--- Undo/redo of whole-file changes. Each entry keeps the file text before
+--- and after one save or delete, so undoing a save that overwrote a shot
+--- brings the old shot back exactly, name and all.
+Shots.UNDO_LIMIT = 50
+
+function Shots.history()
+    return { undo = {}, redo = {} }
+end
+
+function Shots.record(h, map, before, after, what)
+    if before == after then return end
+    h.undo[#h.undo + 1] = { map = map, before = before, after = after, what = what }
+    if #h.undo > Shots.UNDO_LIMIT then table.remove(h.undo, 1) end
+    h.redo = {}
+end
+
+--- The entry to undo (or redo) for this map, taken off its stack; nil if none.
+--- The caller writes entry.before (or entry.after) and, if that works,
+--- calls Shots.commit so the entry moves to the other stack.
+function Shots.take(h, map, redo)
+    local stack = redo and h.redo or h.undo
+    for i = #stack, 1, -1 do
+        if stack[i].map == map then return table.remove(stack, i) end
+    end
+    return nil
+end
+
+function Shots.commit(h, entry, redo)
+    local other = redo and h.undo or h.redo
+    other[#other + 1] = entry
+end
+
+function Shots.putBack(h, entry, redo)
+    local stack = redo and h.redo or h.undo
+    stack[#stack + 1] = entry
+end
+
 --- One line describing a shot, for the console and the overlay.
 function Shots.describe(s)
     return string.format("%2d %-14s %9.1f %9.1f %8.1f   p %6.1f  y %6.1f  r %4.1f   fov %5.1f",

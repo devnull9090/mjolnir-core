@@ -19,6 +19,7 @@ the Forge Monitor flies, without moving your Spartan.
 | **R** | Field of view back to 90°, roll to 0 |
 | **1**–**9**, **0** | Jump to shot 1–10 |
 | **Ctrl + 1**–**9**, **0** | Save the current view as shot 1–10 |
+| **Ctrl + Z** / **Ctrl + Y** | Undo / redo the last shot save or delete |
 | **Tab** (hold) | Show the shot list and the camera's coordinates |
 | **F6** | Pin the shot list on screen until F6 again |
 | **F7** | HUD on / off |
@@ -28,9 +29,22 @@ the Forge Monitor flies, without moving your Spartan.
 Mouse look slows as you zoom in, so a narrow lens stays easy to aim. Starting
 and stopping eases in and out over a fraction of a second.
 
-The shot list is a plain text panel that is off unless Tab is held or F6 pins
-it, so it is never in a screenshot by accident. Recalling a shot from the
-console (`mjolnir_camera go`) unpins it.
+The shot list is a panel at the top left: the map, whether the player is
+locked, the camera's position, lens and speed, and a row for each number key
+showing which shots are saved (the one the camera sits at is highlighted;
+empty slots say which key saves them). It is off unless Tab is held or F6
+pins it, so it is never in a screenshot by accident. A short notice at the
+top of the screen confirms each save, overwrite, delete, undo and redo for a
+few seconds. Recalling a shot from the console (`mjolnir_camera go`) hides
+both.
+
+### Undo
+
+Every save and delete can be undone, so overwriting a shot by pressing the
+wrong number is never final: Ctrl+Z puts the file back exactly as it was
+(the old shot, its name and number), and Ctrl+Y redoes it. The last 50
+changes are kept per map until the game closes. From the console:
+`mjolnir_camera undo` and `mjolnir_camera redo`.
 
 ### How the player stays still
 
@@ -86,6 +100,7 @@ mjolnir_camera save 4 tower          ... and name it
 mjolnir_camera save tower            save over the shot called tower, or as a new number
 mjolnir_camera go 4                  jump to shot 4 (or: go tower)
 mjolnir_camera delete 4              delete shot 4; other numbers stay put
+mjolnir_camera undo / redo           undo or redo the last save or delete
 mjolnir_camera map                   show the map code (map ZAN / map auto to override)
 ```
 

@@ -1,6 +1,6 @@
 {
   "version": "1.3.0",
-  "summary": "Monitor-style WASD camera that locks the player in place, FOV zoom, numbered per-map camera shots with an on-demand list, timed camera paths, HUD toggle, and first-person model hiding.",
+  "summary": "Monitor-style WASD camera that locks the player in place, FOV zoom, numbered per-map camera shots with an on-demand shot panel and undo, timed camera paths, HUD toggle, and first-person model hiding.",
   "category": "camera",
   "slug": "mjolnir-flycam"
 }

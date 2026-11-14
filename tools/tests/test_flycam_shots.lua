@@ -51,6 +51,24 @@ local full = Shots.empty("X")
 for n = 1, Shots.MAX do assert(Shots.put(full, pose, n)) end
 assert(not Shots.put(full, pose))
 
+-- Undo/redo: per map, newest first; a new change clears redo.
+local h = Shots.history()
+Shots.record(h, "ZAN", "a", "b", "save 1")
+Shots.record(h, "ZAN", "b", "b", "no-op")                           -- unchanged files are not recorded
+Shots.record(h, "BGL", "x", "y", "other map")
+Shots.record(h, "ZAN", "b", "c", "overwrite 1")
+local e = assert(Shots.take(h, "ZAN", false))
+assert(e.before == "b" and e.what == "overwrite 1"); Shots.commit(h, e, false)
+e = assert(Shots.take(h, "ZAN", true)); assert(e.after == "c"); Shots.commit(h, e, true)  -- redo
+e = assert(Shots.take(h, "ZAN", false)); assert(e.what == "overwrite 1"); Shots.commit(h, e, false)
+e = assert(Shots.take(h, "ZAN", false)); assert(e.what == "save 1"); Shots.commit(h, e, false)
+assert(not Shots.take(h, "ZAN", false))
+assert(Shots.take(h, "BGL", false).what == "other map")
+Shots.record(h, "ZAN", "a", "d", "new save")
+assert(#h.redo == 0)
+for i = 1, Shots.UNDO_LIMIT + 5 do Shots.record(h, "ZAN", tostring(i), tostring(i + 1), "s") end
+assert(#h.undo == Shots.UNDO_LIMIT)
+
 assert(Shots.validMap("ZAN") and Shots.validMap("h2_zanzibar") and not Shots.validMap("../x"))
 
 -- Flight: eases toward the target speed, stops, flies along the view.

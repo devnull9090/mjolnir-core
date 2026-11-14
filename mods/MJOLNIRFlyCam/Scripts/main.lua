@@ -17,6 +17,7 @@
 --   Shift boost, Left Alt slow, mouse wheel or Numpad +/- (] / [) speed
 --   Z / X zoom in / out (field of view), R resets FOV to 90 and roll to 0
 --   1-9, 0 : jump to shot 1-10    Ctrl + 1-9, 0 : save the view as shot 1-10
+--   Ctrl+Z / Ctrl+Y : undo / redo the last shot save or delete
 --   Numpad 5 : snap to the player
 --   mjolnir_camera : shots, poses and paths from the console (README.md)
 --
@@ -35,6 +36,7 @@ local Path = dofile(scriptDirectory .. "\\camera_path.lua")
 local Json = dofile(scriptDirectory .. "\\json.lua")
 local Shots = dofile(scriptDirectory .. "\\shots.lua").init(Json)
 local Flight = dofile(scriptDirectory .. "\\flight.lua")
+local Panel = dofile(scriptDirectory .. "\\panel.lua")
 local localAppData = os.getenv("LOCALAPPDATA")
 local SavedDirectory = localAppData and (localAppData .. "\\Meteorite\\Saved\\") or nil
 local PoseFile = SavedDirectory and (SavedDirectory .. "MJOLNIR_FlyCam_poses.txt") or nil
@@ -293,7 +295,6 @@ local function RestoreVisibility()
 end
 
 local ESlateVisibility_Collapsed = 1
-local ESlateVisibility_HitTestInvisible = 3
 
 local function SetHUDVisible(visible)
     bHUDVisible = visible
@@ -415,96 +416,123 @@ local function SaveShots(data, path)
 end
 
 --------------------------------------------------------------------------------
--- Overlay: shot list and camera coordinates, never in a shot by default
+-- Overlay: shot list card and toasts (panel.lua), never in a shot by default
 --------------------------------------------------------------------------------
 
-local Overlay = { widget = nil, text = nil, pinned = false, shown = false, timer = 0, lines = nil, listTimer = 0 }
-local OVERLAY_X, OVERLAY_Y, OVERLAY_SCALE = 40, 120, 1.0
+local Overlay = { pinned = false, timer = 0, listTimer = 0, data = nil, err = nil, flash = nil, flashLeft = 0 }
+local UI = Panel.new(IsValid)
+local History = Shots.history()
 
-local function OverlayWidget()
-    local w, t = Overlay.widget, Overlay.text
-    if IsValid(w) and IsValid(t) then
-        local okIn, inViewport = pcall(function() return w:IsInViewport() end)
-        if okIn and not inViewport then
-            pcall(function()
-                w:AddToViewport(1001)
-                w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
-            end)
-        end
-        return w, t
-    end
-    w, t = nil, nil
-    local pc = IsValid(OwnerController) and OwnerController or GetPlayerController()
-    if not pc then return nil end
-    local built = pcall(function()
-        local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-        local widgetClass = StaticFindObject("/Script/UMG.UserWidget")
-        local textClass = StaticFindObject("/Script/UMG.TextBlock")
-        w = library:Create(pc, widgetClass, pc)
-        local tree = w.WidgetTree
-        t = StaticConstructObject(textClass, tree, FName("MJOLNIRFlyCamText"))
-        tree.RootWidget = t
-        t:SetColorAndOpacity({ SpecifiedColor = { R = 0.55, G = 0.95, B = 1.0, A = 1 }, ColorUseRule = 0 })
-        t:SetShadowOffset({ X = 1.5, Y = 1.5 })
-        t:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.95 })
-        t:SetRenderTransformPivot({ X = 0, Y = 0 })
-        t:SetRenderScale({ X = OVERLAY_SCALE, Y = OVERLAY_SCALE })
-        w:SetVisibility(ESlateVisibility_Collapsed)
-        w:AddToViewport(1001)
-        w:SetPositionInViewport({ X = OVERLAY_X, Y = OVERLAY_Y }, false)
-    end)
-    if not built or not IsValid(w) then return nil end
-    Overlay.widget, Overlay.text = w, t
-    return w, t
-end
-
--- Hidden, never removed: RemoveFromParent has hung this game.
 local function OverlayHide()
-    if Overlay.shown and IsValid(Overlay.widget) then
-        pcall(function() Overlay.widget:SetVisibility(ESlateVisibility_Collapsed) end)
-    end
-    Overlay.shown = false
+    UI:hideCard()
 end
 
-local function OverlayText()
-    local lines = {}
-    lines[#lines + 1] = string.format("FLYCAM  %s   speed %d cm/s   fov %.1f   %s",
-        tostring(MapCode() or "?"), math.floor(Speed + 0.5), CamFOV,
-        Lock.locked and "player locked" or "PLAYER NOT LOCKED (" .. Lock.state .. ")")
-    lines[#lines + 1] = string.format("cam  %.1f  %.1f  %.1f    pitch %.1f  yaw %.1f  roll %.1f",
-        CamLoc.X, CamLoc.Y, CamLoc.Z, CamRot.Pitch, CamRot.Yaw, CamRot.Roll)
-    lines[#lines + 1] = "1-0 go to shot 1-10   Ctrl+1-0 save   Z/X zoom   R reset fov   F6 pin list"
-    if not Overlay.lines or Overlay.listTimer <= 0 then
-        Overlay.listTimer = 1.0
-        local data, err = LoadShots()
-        Overlay.lines = {}
-        if not data then
-            Overlay.lines[1] = "shots: " .. tostring(err)
-        elseif #data.shots == 0 then
-            Overlay.lines[1] = "no shots saved for this map"
-        else
-            for _, s in ipairs(data.shots) do Overlay.lines[#Overlay.lines + 1] = Shots.describe(s) end
+local function OverlayPc()
+    return IsValid(OwnerController) and OwnerController or GetPlayerController()
+end
+
+--- The shot the camera sits at (same pose to a millimetre and a hundredth of a degree).
+local function ShotHere(shots)
+    for _, s in ipairs(shots or {}) do
+        if math.abs(s.x - CamLoc.X) < 0.1 and math.abs(s.y - CamLoc.Y) < 0.1 and math.abs(s.z - CamLoc.Z) < 0.1
+            and math.abs(s.pitch - CamRot.Pitch) < 0.01 and math.abs(((s.yaw - CamRot.Yaw + 180) % 360) - 180) < 0.01
+            and math.abs(s.fov - CamFOV) < 0.01 then
+            return s.n
         end
     end
-    lines[#lines + 1] = ""
-    for _, l in ipairs(Overlay.lines) do lines[#lines + 1] = l end
-    return table.concat(lines, "\n")
+    return nil
+end
+
+local function RefreshOverlayList()
+    Overlay.listTimer = 1.0
+    local data, err = LoadShots()
+    Overlay.data, Overlay.err = data, (not data) and err or nil
+end
+
+local function OverlayModel()
+    if not Overlay.data and not Overlay.err or Overlay.listTimer <= 0 then RefreshOverlayList() end
+    local code = MapCode()
+    local shots = Overlay.data and Overlay.data.shots
+    local canRedo = false
+    for _, e in ipairs(History.redo) do if e.map == code then canRedo = true end end
+    return {
+        map = code, locked = Lock.locked, lockNote = Lock.state,
+        cam = CamLoc, rot = CamRot, fov = CamFOV, speed = Speed,
+        shots = shots, shotsError = Overlay.err, here = ShotHere(shots),
+        flash = Overlay.flashLeft > 0 and Overlay.flash or nil, canRedo = canRedo,
+    }
 end
 
 local function OverlayTick(dt, PC)
+    UI:tick(dt)
+    if Overlay.flashLeft > 0 then Overlay.flashLeft = Overlay.flashLeft - dt end
     local want = bEnabled and (Overlay.pinned or IsDown(PC, "Tab"))
-    if not want then OverlayHide(); Overlay.lines = nil; return end
+    if not want then OverlayHide(); return end
     Overlay.listTimer = Overlay.listTimer - dt
     Overlay.timer = Overlay.timer - dt
-    if Overlay.shown and Overlay.timer > 0 then return end
+    if UI.cardShown and Overlay.timer > 0 then return end
     Overlay.timer = 0.1
-    local w, t = OverlayWidget()
-    if not w then return end
-    pcall(function()
-        t:SetText(FText(OverlayText()))
-        if not Overlay.shown then w:SetVisibility(ESlateVisibility_HitTestInvisible) end
-    end)
-    Overlay.shown = true
+    UI:showCard(PC, OverlayModel())
+end
+
+--- A short notice after a change, while FlyCam is on (only its tick hides it).
+local function Toast(message, hint, kind)
+    if bEnabled then UI:showToast(OverlayPc(), message, hint, kind, 3.5) end
+end
+
+local function ShotLabel(s)
+    return "shot " .. s.n .. (s.name and (" (" .. s.name .. ")") or "")
+end
+
+--- Write a changed shots file and remember the change for undo.
+local function CommitShots(data, code, path, before, what, n)
+    local ok, err = SaveShots(data, path)
+    if not ok then return false, err end
+    Shots.record(History, code, before, Shots.encode(data), what)
+    local last = History.undo[#History.undo]
+    if last and last.what == what then last.n = n end
+    Overlay.data, Overlay.err = nil, nil
+    return true
+end
+
+--- Write raw file text (undo/redo), keeping the same atomic swap.
+local function WriteShotsText(path, text)
+    local temporary = path .. ".tmp"
+    local f, err = io.open(temporary, "wb")
+    if not f then return false, tostring(err) end
+    local wrote = f:write(text)
+    local closed = f:close()
+    if not wrote or not closed then os.remove(temporary); return false, "write failed" end
+    os.remove(path)
+    local moved, moveError = os.rename(temporary, path)
+    if not moved then return false, tostring(moveError) end
+    return true
+end
+
+--- Undo (or redo) the last change to this map's shots.
+local function UndoShots(redo)
+    local code = MapCode()
+    local path = ShotsFile(code)
+    if not path then Log("Nothing to " .. (redo and "redo" or "undo") .. ": no map."); return false end
+    local entry = Shots.take(History, code, redo)
+    if not entry then
+        Log("Nothing to " .. (redo and "redo" or "undo") .. " on " .. tostring(code) .. ".")
+        Toast("Nothing to " .. (redo and "redo" or "undo"), nil, "info")
+        return false
+    end
+    local ok, err = WriteShotsText(path, redo and entry.after or entry.before)
+    if not ok then
+        Shots.putBack(History, entry, redo)
+        Log("Could not " .. (redo and "redo" or "undo") .. ": " .. tostring(err))
+        return false
+    end
+    Shots.commit(History, entry, redo)
+    Overlay.data, Overlay.err = nil, nil
+    Overlay.flash, Overlay.flashLeft = entry.n, 1.5
+    local msg = (redo and "Redid: " or "Undid: ") .. entry.what
+    Log(msg)
+    Toast(msg, redo and "Ctrl+Z to undo again" or "Ctrl+Y to redo", redo and "good" or "warn")
+    return true
 end
 
 --------------------------------------------------------------------------------
@@ -542,7 +570,8 @@ LoseCamera = function(reason)
     end
     SavedHudWidgets = {}
     SpawnedCameraActor, OwnerController, OwnerAddress = nil, nil, nil
-    Overlay.widget, Overlay.text = nil, nil
+    UI:hideToast()
+    UI:reset()
     bHUDVisible = true
     Log("FlyCam disabled: " .. reason)
 end
@@ -600,15 +629,24 @@ local function SnapToPlayer(PC)
     end)
 end
 
+--- Save the view as a shot. Returns ok, shot (or why), path, the shot it replaced.
 local function SaveShot(n, name)
     local data, code, path = LoadShots()
     if not data then return false, code end
+    local before = Shots.encode(data)
+    local previous = (n and Shots.find(data, tostring(n))) or (name and Shots.find(data, name)) or nil
     local shot, err = Shots.put(data, PoseShot(CurrentPose()), n, name)
     if not shot then return false, err end
-    local ok, saveError = SaveShots(data, path)
+    local what = previous and ("overwrite of " .. ShotLabel(previous)) or ("save of " .. ShotLabel(shot))
+    local ok, saveError = CommitShots(data, code, path, before, what, shot.n)
     if not ok then return false, saveError end
-    Overlay.lines = nil
-    return true, shot, path
+    Overlay.flash, Overlay.flashLeft = shot.n, 1.5
+    if previous then
+        Toast("Overwrote " .. ShotLabel(previous), "Ctrl+Z to undo", "warn")
+    else
+        Toast("Saved " .. ShotLabel(shot), "Ctrl+Z to undo", "good")
+    end
+    return true, shot, path, previous
 end
 
 local GotoShot -- defined after EnsureFlyCam
@@ -660,12 +698,21 @@ local function ManualTick(dt, PC)
 
     local ctrl = IsDown(PC, "LeftControl") or IsDown(PC, "RightControl")
 
+    -- Undo / redo the last save or delete.
+    if ctrl and Pressed(PC, "Z") then UndoShots(false); return end
+    if ctrl and Pressed(PC, "Y") then UndoShots(true); return end
+
     -- Shots: 1-0 jump, Ctrl+1-0 save.
     for i, key in ipairs(DIGITS) do
         if Pressed(PC, key) then
             if ctrl then
                 local ok, shot, path = SaveShot(i, nil)
-                if ok then Log("Saved shot " .. shot.n .. " in " .. path) else Log("Shot not saved: " .. tostring(shot)) end
+                if ok then
+                    Log("Saved shot " .. shot.n .. " in " .. path)
+                else
+                    Log("Shot not saved: " .. tostring(shot))
+                    Toast("Shot not saved", tostring(shot), "warn")
+                end
             else
                 GotoShot(tostring(i), false)
             end
@@ -678,7 +725,7 @@ local function ManualTick(dt, PC)
     if JustPressed(PC, "MouseScrollDown") then AdjustSpeed(1 / 1.25) end
 
     -- Field of view.
-    if IsDown(PC, "Z") then CamFOV = Flight.clampFov(CamFOV * math.exp(-ZoomRate * dt)) end
+    if not ctrl and IsDown(PC, "Z") then CamFOV = Flight.clampFov(CamFOV * math.exp(-ZoomRate * dt)) end
     if IsDown(PC, "X") then CamFOV = Flight.clampFov(CamFOV * math.exp(ZoomRate * dt)) end
     if Pressed(PC, "R") then CamFOV, CamRot.Roll = 90.0, 0.0 end
 
@@ -917,6 +964,7 @@ local function DisableFlyCam()
     Playback = nil
     Lock.set(false)
     OverlayHide()
+    UI:hideToast()
     local PC = OwnerController
     if PC and PC:IsValid() then
         pcall(function()
@@ -1005,7 +1053,7 @@ GotoShot = function(ref, fromConsole)
     if not EnsureFlyCam(0) then Log("Could not enable FlyCam."); return false end
     Playback = nil
     Flight.stop(FlightState)
-    if fromConsole then Overlay.pinned = false; OverlayHide() end
+    if fromConsole then Overlay.pinned = false; OverlayHide(); UI:hideToast() end
     ApplyPose(ShotPose(shot))
     CameraCut()
     Log(string.format("At shot %d%s on %s.", shot.n, shot.name and (" (" .. shot.name .. ")") or "", data.map))
@@ -1032,7 +1080,7 @@ end
 
 local function CameraHelp()
     Log("mjolnir_camera on|off|where|help")
-    Log("  shots | save [N] [NAME] | go N|NAME | delete N|NAME | map [CODE|auto]")
+    Log("  shots | save [N] [NAME] | go N|NAME | delete N|NAME | undo | redo | map [CODE|auto]")
     Log("  fov DEG | speed CM_PER_S | move FWD RIGHT UP | look DYAW DPITCH | pos X Y Z | rot PITCH YAW ROLL")
     Log("  body hide|show | overlay on|off | lock")
     Log("  capture NAME | set NAME X Y Z PITCH YAW ROLL [FOV] | goto NAME | list | reload")
@@ -1077,22 +1125,26 @@ local function CameraCommand(args)
         if words[2] and tonumber(words[2]) then n, name = tonumber(words[2]), words[3] else name = words[2] end
         if #words > 3 or (n == nil and #words > 2) then Log("Usage: mjolnir_camera save [N] [NAME]"); return end
         if not EnsureFlyCam() then Log("Could not enable FlyCam."); return end
-        local ok, shot, path = SaveShot(n, name)
+        local ok, shot, path, previous = SaveShot(n, name)
         if not ok then Log("Shot not saved: " .. tostring(shot)); return end
-        Log("Saved shot " .. Shots.describe(shot) .. " in " .. path)
+        Log("Saved shot " .. Shots.describe(shot) .. " in " .. path
+            .. (previous and " (replaced the old one; mjolnir_camera undo brings it back)" or ""))
     elseif command == "go" then
         if #words ~= 2 then Log("Usage: mjolnir_camera go N|NAME"); return end
         GotoShot(words[2], true)
     elseif command == "delete" then
         if #words ~= 2 then Log("Usage: mjolnir_camera delete N|NAME"); return end
-        local data, err, path = LoadShots()
-        if not data then Log("Shots not read: " .. tostring(err)); return end
+        local data, code, path = LoadShots()
+        if not data then Log("Shots not read: " .. tostring(code)); return end
+        local before = Shots.encode(data)
         local shot = Shots.remove(data, words[2])
         if not shot then Log("No shot " .. words[2] .. " on " .. data.map .. "."); return end
-        local ok, saveError = SaveShots(data, path)
+        local ok, saveError = CommitShots(data, code, path, before, "delete of " .. ShotLabel(shot), shot.n)
         if not ok then Log("Shot not deleted: " .. tostring(saveError)); return end
-        Overlay.lines = nil
-        Log("Deleted shot " .. Shots.describe(shot))
+        Log("Deleted shot " .. Shots.describe(shot) .. " (mjolnir_camera undo brings it back)")
+        Toast("Deleted " .. ShotLabel(shot), "Ctrl+Z to undo", "warn")
+    elseif command == "undo" or command == "redo" then
+        UndoShots(command == "redo")
     elseif command == "map" then
         if words[2] then
             if words[2]:lower() == "auto" then MapOverride = nil
@@ -1100,7 +1152,7 @@ local function CameraCommand(args)
             else Log("Map codes use letters, digits, _ or -."); return end
         end
         Log("Map: " .. tostring(MapCode()) .. (MapOverride and " (set by hand; map auto undoes it)" or ""))
-        Overlay.lines = nil
+        Overlay.data, Overlay.err = nil, nil
     elseif command == "fov" then
         local v = NeedNumbers(words, 2, 1)
         if not v or #words ~= 2 then Log("Usage: mjolnir_camera fov DEGREES (5-170)"); return end
