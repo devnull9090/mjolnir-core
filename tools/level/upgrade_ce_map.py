@@ -180,13 +180,45 @@ def generated_mesh(code, m, suffix):
     return f"{root}/{name}.{name}"
 
 
+def moved_level(path, moves):
+    """`vehicle_moves` ({megalo label: [x, y, z] cm, or {"pos", "yaw"}}): the base level with
+    those vehicles placed again, written beside it as <stem>.moved.level.json
+    (the bake reads files beside the level). Zanzibar's east Shade spawned
+    82 cm from a parapet chunk (an object baked into the terrain, 1.7 m
+    tall) that stands on its platform alone: pushed out of it, the turret
+    slid off the platform every spawn. It moves to the middle of the clear
+    part of the platform (2026-11-14)."""
+    level = json.load(open(path, encoding="utf-8"))
+    found = set()
+    for v in (level.get("blam") or {}).get("vehicles") or []:
+        label = (v.get("set") or {}).get("multiplayer data.megalo label")
+        if label in moves:
+            move = moves[label]
+            # [x, y, z] or {"pos": [x, y, z], "yaw": degrees}
+            v["pos"] = [float(c) for c in (move["pos"] if isinstance(move, dict) else move)]
+            if isinstance(move, dict) and "yaw" in move:
+                v["yaw"] = float(move["yaw"])
+            found.add(label)
+    missing = set(moves) - found
+    if missing:
+        sys.exit(f"vehicle_moves: no vehicle labelled {sorted(missing)} in {path}")
+    out = path[:-len(".level.json")] + ".moved.level.json" if path.endswith(".level.json") else path + ".moved.json"
+    text = json.dumps(level, indent=1)
+    if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
+        open(out, "w", encoding="utf-8").write(text)
+    return out
+
+
 def paths(code, m, work):
     conv = m["conversion"]
     scene = m.get("scene", conv)
     w = os.path.join(work, code)
+    level = m.get("base_level") or os.path.join(conv, m["level"])
+    if m.get("vehicle_moves"):
+        level = moved_level(level, m["vehicle_moves"])
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
-            "level": m.get("base_level") or os.path.join(conv, m["level"]), "out_level": os.path.join(w, "level.json")}
+            "level": level, "out_level": os.path.join(w, "level.json")}
 
 
 def indoor_landscape(code, m, p):

@@ -601,6 +601,16 @@ published).
   alpha held levels of its own across the bars (90 to 200), which the
   masked master's cut at half punched through: `--holes` writes a clean
   mask (above 16 solid), 60% plate against the 38% the old cut left.
+- **The east Shade fell off its platform every spawn** (2026-11-14). Both
+  turrets stand on mirrored gratings, but a parapet chunk (an object baked
+  into the terrain, 1.7 m tall) stands on the east one alone, and Halo 2's
+  placement put that Shade 82 cm from it. Spawned overlapping it, the
+  turret was pushed out and slid off (traced from the sim's live objects:
+  it rose 14 cm, then slid off the near edge). Moving it inward next to
+  the chunk launched it 5 m. `vehicle_moves` (label: [x, y, z] cm, or
+  {pos, yaw}) places a vehicle again in a copy of the base level that the
+  bake and the level file both read. The east Shade now stands in the
+  clear part of its platform (1965, 4300) and stays.
 - **Zanzibar's glass drew nothing** (2026-11-14): the breakable windows
   blocked a player and shattered when shot, but could not be seen. This
   game's renderer decides a mesh's passes by its first slot, and
