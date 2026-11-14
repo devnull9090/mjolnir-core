@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Reproduce with Chrome headless: --window-size=1200,630 --hide-scrollbars
+ --screenshot=<absolute-output.png> file:///<repo>/blog/featured/weekly-update-3.html
+ Encode the PNG to JPEG at quality 90. Uses only local assets (the HUD's own medal
+ glyphs in unreal/MJOLNIRMaterials/Art/HudIcons) and system fonts. -->
+<html lang="en"><meta charset="utf-8"><title>Weekly update 3 — featured image</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:1200px;height:630px;overflow:hidden;background:#070d13;font-family:Bahnschrift,"Segoe UI",sans-serif;color:#f1f7fb}
+.glow{position:absolute;left:640px;top:40px;width:620px;height:620px;border-radius:50%;background:radial-gradient(circle,#e6c26a26 0,#e6c26a0d 40%,#070d1300 70%)}
+.medals{position:absolute;left:600px;top:58px;width:560px;height:520px}
+.m{position:absolute;width:118px;height:118px;border-radius:50%;background:radial-gradient(circle at 50% 38%,#24384a,#0f1b26 72%);border:5px solid var(--c);box-shadow:0 0 0 3px #070d13,0 0 0 5px #ffffff14,0 0 28px var(--c)}
+.m img{position:absolute;left:50%;top:50%;width:80px;height:80px;transform:translate(-50%,-50%);filter:drop-shadow(0 0 6px #000a)}
+.big{width:176px;height:176px;border-width:7px}.big img{width:118px;height:118px}
+.text{position:absolute;left:52px;top:44px;width:560px}.brand{font-size:16px;letter-spacing:4px;color:#e6c26a}
+.tag{margin-top:64px;font-size:14px;letter-spacing:3px;color:#9de6f0}h1{font-size:72px;line-height:1.02;letter-spacing:-2px;margin:16px 0 22px;font-weight:800}h1 span{color:#e6c26a}
+.sub{font-size:23px;line-height:1.4;color:#d4e1e9}.footer{position:absolute;left:52px;bottom:36px;font-size:12px;letter-spacing:1.8px;color:#a5bdcd}
+</style><body>
+<div class="glow"></div>
+<div class="medals">
+<div class="m big" style="--c:#e6c26a;left:192px;top:172px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Headshot.png" alt=""></div>
+<div class="m" style="--c:#9de6f0;left:60px;top:40px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/FirstBlood.png" alt=""></div>
+<div class="m" style="--c:#ff8a5c;left:250px;top:0"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Revenge.png" alt=""></div>
+<div class="m" style="--c:#b08cff;left:430px;top:70px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Spree.png" alt=""></div>
+<div class="m" style="--c:#7ee08f;left:440px;top:280px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Splatter.png" alt=""></div>
+<div class="m" style="--c:#ff6b7a;left:280px;top:390px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Assassination.png" alt=""></div>
+<div class="m" style="--c:#9de6f0;left:40px;top:330px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Melee.png" alt=""></div>
+<div class="m" style="--c:#e6c26a;left:0;top:190px;width:96px;height:96px"><img src="../../unreal/MJOLNIRMaterials/Art/HudIcons/Flag.png" alt="" style="width:64px;height:64px"></div>
+</div>
+<div class="text"><div class="brand">MJOLNIR / WEEKLY UPDATE 3</div><div class="tag">MEDALS AND THE POST-GAME SCREEN</div>
+<h1>EVERY<br><span>MEDAL.</span></h1><div class="sub">A podium, a timeline, and public<br>matches mid-game.<br>Playtest Saturday, 6 PM MST.</div></div>
+<div class="footer">MJOLNIRCORE.COM/BLOG</div></body></html>
