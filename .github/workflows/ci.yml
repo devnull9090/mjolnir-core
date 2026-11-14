@@ -256,7 +256,7 @@ jobs:
           path: mods/MJOLNIRForge/native/mjolnir_forge.dll
           if-no-files-found: error
 
-      - uses: actions/upload-artifact\v4
+      - uses: actions/upload-artifact@v4
         with:
           name: mjolnir_flycam
           path: mods/MJOLNIRFlyCam/native/mjolnir_flycam.dll
