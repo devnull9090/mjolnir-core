@@ -81,6 +81,11 @@ native/frame_times/obj/
 mods/MJOLNIRForge/native/*.dll
 mods/MJOLNIRForge/native/*.txt
 native/forge/obj/
+# Built by native/flycam/build.ps1; never committed
+mods/MJOLNIRFlyCam/native/*.dll
+mods/MJOLNIRFlyCam/native/*.txt
+mods/MJOLNIRFlyCam/native/*.tmp
+native/flycam/obj/
 # Built by native/test_input/build.ps1; never committed
 mods/MJOLNIRBridge/native/*.dll
 native/test_input/obj/
