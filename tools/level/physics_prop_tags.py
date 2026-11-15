@@ -39,6 +39,11 @@ DONOR = "covenant/crate_space_a/crate_space_a"
 # its origin.
 DONOR_HALF = (0.222392, 0.24796)
 DONOR_TOP = 0.369094 + 0.352695
+# crate_space_a's own actor class. A clone bound to it again (`--asset-reference`
+# naming the donor's own Blueprint) imported it twice and the binding did not
+# resolve: no coil spawned at all (Zanzibar, 2026-11-15). The donor's own
+# reference is kept instead.
+DONOR_BLUEPRINT = "/Game/_Prototypes/SynchronizationTestContent/Assets/props/crate_space_a/BP_CrateSpaceACrateActor"
 
 
 def run(cli, *args):
@@ -48,11 +53,30 @@ def run(cli, *args):
     return r.stdout
 
 
-def scaled_shape(dump, k):
-    """`path=value` lines scaling the polyhedron by k = (kx, ky, kz)."""
+def convex_radius(dump):
+    """The polyhedron's Havok convex radius: a shell that pads the shape on
+    every side (crate_space_a: 0.0164 world units)."""
+    block = None
+    for line in dump.splitlines():
+        m = re.match(r"^  (\S.*?)  \[\d+ element", line)
+        if m:
+            block = m.group(1).strip()
+            continue
+        m = re.match(r"^\s+radius = (-?[\d.]+)", line)
+        if m and block == "polyhedra":
+            return float(m.group(1))
+    return 0.0
+
+
+def scaled_shape(dump, k, z0=0.0):
+    """`path=value` lines scaling the polyhedron by k = (kx, ky, kz), z about
+    height z0 (its base: crate_space_a's polyhedron starts one convex radius
+    up, so its shell meets the ground at the origin)."""
     kx, ky, kz = k
     vec = lambda s: [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?(?:e-?\d+)?", s)]
     fmt = lambda v: "(" + ", ".join(f"{x:.6f}" for x in v) + ")"
+    off = (0.0, 0.0, z0)
+    move = lambda v, axis: off[axis] + (v - off[axis]) * k[axis]
     sets, planes = [], {}
     block = index = None
     for line in dump.splitlines():
@@ -72,21 +96,25 @@ def scaled_shape(dump, k):
         if block == "polyhedron four vectors":
             axis = {"x": 0, "y": 1, "z": 2}[field[-1]]
             if field.startswith("four vectors"):
-                sets.append(f"{path}={fmt([v * k[axis] for v in vec(value)])}")
+                sets.append(f"{path}={fmt([move(v, axis) for v in vec(value)])}")
             elif field.startswith("havok w four vectors"):
-                sets.append(f"{path}={vec(value)[0] * k[axis]:.6f}")
+                sets.append(f"{path}={move(vec(value)[0], axis):.6f}")
         elif block == "polyhedron plane equations":
             planes.setdefault(index, {})[field] = vec(value)
-        elif block == "polyhedra" and field in ("aabb half extents", "aabb center"):
+        elif block == "polyhedra" and field == "aabb half extents":
             sets.append(f"{path}={fmt([v * kk for v, kk in zip(vec(value), k)])}")
+        elif block == "polyhedra" and field == "aabb center":
+            sets.append(f"{path}={fmt([move(v, axis) for axis, v in enumerate(vec(value))])}")
         elif block == "polyhedra" and field == "volume":
             sets.append(f"polyhedra[{index}].base.volume={vec(value)[0] * kx * ky * kz:.6f}")
         elif block == "rigid bodies" and field == "bounding sphere radius":
             sets.append(f"{path}={vec(value)[0] * max(k):.6f}")
     for i, p in sorted(planes.items()):
-        # a x + b y + c z + w = 0 with x = x'/kx ...: normal (a/kx, b/ky, c/kz), renormalized.
+        # a x + b y + c z + w = 0 with x = x'/kx, y = y'/ky, z = z0 + (z' - z0)/kz:
+        # normal (a/kx, b/ky, c/kz), w + c z0 (1 - 1/kz), renormalized.
         n, w = p["plane equations"], p["havok w plane equations"][0]
         m = [n[0] / kx, n[1] / ky, n[2] / kz]
+        w += n[2] * z0 * (1.0 - 1.0 / kz)
         length = math.sqrt(sum(v * v for v in m)) or 1.0
         sets.append(f"polyhedron plane equations[{i}].plane equations={fmt([v / length for v in m])}")
         sets.append(f"polyhedron plane equations[{i}].havok w plane equations={w / length:.6f}")
@@ -107,22 +135,28 @@ def main():
                                                   "release", "mjolnir.exe"))
     a = ap.parse_args()
     hx, hy = (float(v) for v in a.half.split(","))
-    k = (hx / DONOR_HALF[0], hy / DONOR_HALF[1], a.height / DONOR_TOP)
     leaf = a.tag.replace("/", "\\").split("\\")[-1]
     base = a.name or f"pakchunk996-MJOLNIRPROP-{leaf}"
     os.makedirs(a.out, exist_ok=True)
     dump = run(a.cli, "values", "--paks", a.paks, "--group", "physics_model", "--tag", DONOR,
                "--depth", "4", "--elements", "1000", "--all")
-    sets = [f"mass scale={a.mass_scale}"] + scaled_shape(dump, k)
+    # The convex radius pads the polyhedron on every side and is not scaled:
+    # sized to the prop's box itself, a coil stood 0.03 world units (8 cm)
+    # proud of the one under it (Zanzibar, 2026-11-15). The polyhedron is the
+    # box less the shell: half widths less r, height less 2r from its base at r.
+    r = convex_radius(dump)
+    k = ((hx - r) / DONOR_HALF[0], (hy - r) / DONOR_HALF[1], (a.height - 2 * r) / (DONOR_TOP - r))
+    sets = [f"mass scale={a.mass_scale}"] + scaled_shape(dump, k, z0=r)
     set_file = os.path.join(a.out, f"{leaf}.phmo.sets")
     open(set_file, "w", encoding="utf-8").write("\n".join(sets))
     run(a.cli, "new-tag", "--paks", a.paks, "--group", "physics_model", "--from", DONOR, "--to", a.tag,
         "--set-file", set_file, "--out-dir", a.out, "--name", base + "-P")
     run(a.cli, "new-tag", "--paks", a.paks, "--group", "model", "--from", DONOR, "--to", a.tag,
         "--set", f"physics_model=phmo:{a.tag}", "--out-dir", a.out, "--name", base + "-H")
+    bind = [] if a.blueprint.split(".")[0].lower() == DONOR_BLUEPRINT.lower() else ["--asset-reference", a.blueprint]
     run(a.cli, "new-tag", "--paks", a.paks, "--group", "crate", "--from", DONOR + "-crate", "--to", a.tag,
         "--set", f"object.model=hlmt:{a.tag}", "--set", "object.multiplayer object[0].default abandonment time=32767",
-        "--asset-reference", a.blueprint, "--out-dir", a.out, "--name", base + "-C")
+        *bind, "--out-dir", a.out, "--name", base + "-C")
     print(f"{a.tag}: shape x{k[0]:.2f} y{k[1]:.2f} z{k[2]:.2f}, mass scale {a.mass_scale}, "
           f"{len(sets)} physics field(s); containers {base}-P/-H/-C in {a.out}")
 
