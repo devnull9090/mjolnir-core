@@ -262,25 +262,32 @@ def conformal_uv(corners, uv, section, unit):
 
 def border_fade(verts, border_edges, fade):
     """Each vertex's distance from the border edges over `fade`, clamped to
-    1, by a grid of points along them (a quarter of `fade` apart)."""
-    pts = []
-    for a, b in border_edges:
-        pa, pb = verts[a], verts[b]
-        n = max(1, int(np.ceil(np.linalg.norm(pb - pa) / (fade / 4.0))))
-        for k in range(n + 1):
-            pts.append(pa + (pb - pa) * (k / n))
-    pts = np.array(pts) if pts else np.zeros((0, 3))
-    cell = fade
-    grid = {}
-    for i, c in enumerate(np.floor(pts / cell).astype(int)):
-        grid.setdefault(tuple(c), []).append(i)
+    1: the exact distance to each edge as a segment. Points sampled along
+    the edges a quarter of `fade` apart put subdivision's midpoints, which
+    lie on a border edge, up to 31 cm off it: displaced by an eighth, the
+    cliffs' foot opened a crack along the ground (Blood Gulch, 2026-11-14)."""
     out = np.ones(len(verts))
-    for i, v in enumerate(verts):
-        c = np.floor(v / cell).astype(int)
-        near = [j for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)
-                for j in grid.get((c[0] + dx, c[1] + dy, c[2] + dz), ())]
-        if near:
-            out[i] = min(1.0, float(np.min(np.linalg.norm(pts[near] - v, axis=1))) / fade)
+    if not len(border_edges):
+        return out
+    pa, pb = verts[border_edges[:, 0]], verts[border_edges[:, 1]]
+    cell = fade
+    grid = {}  # cell -> segments whose box (grown by `fade`) reaches it
+    lo = np.floor((np.minimum(pa, pb) - fade) / cell).astype(int)
+    hi = np.floor((np.maximum(pa, pb) + fade) / cell).astype(int)
+    for s in range(len(pa)):
+        for x in range(lo[s, 0], hi[s, 0] + 1):
+            for y in range(lo[s, 1], hi[s, 1] + 1):
+                for z in range(lo[s, 2], hi[s, 2] + 1):
+                    grid.setdefault((x, y, z), []).append(s)
+    for i, c in enumerate(np.floor(verts / cell).astype(int)):
+        near = grid.get(tuple(c))
+        if not near:
+            continue
+        a, b = pa[near], pb[near]
+        ab = b - a
+        t = np.clip(np.einsum("ij,ij->i", verts[i] - a, ab) / np.maximum(np.einsum("ij,ij->i", ab, ab), 1e-12), 0, 1)
+        d = np.linalg.norm(a + ab * t[:, None] - verts[i], axis=1)
+        out[i] = min(1.0, float(d.min()) / fade)
     return out
 
 
