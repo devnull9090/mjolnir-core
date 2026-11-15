@@ -16,6 +16,7 @@
 //! (u32s: rotation, translation, scale), naming the animated nodes. A
 //! rotation key is i16 (i, j, k, w) / 32767, a translation key three floats
 //! (world units), both the node's local transform, replacing its default.
+//! Codec 3 keeps every frame instead (see `opening`).
 use super::{Cache, Tag};
 
 #[derive(Debug, Clone)]
@@ -93,8 +94,8 @@ pub fn opening(cache: &Cache, machine: &Tag<'_>) -> Result<Opening, String> {
         d.get(o..o + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).ok_or_else(|| format!("short at {o:#x}"))
     };
     let codec = d[0];
-    if !(4..=7).contains(&codec) {
-        return Err(format!("codec {codec} (keyframe codecs 4-7 only)"));
+    if codec != 3 && !(4..=7).contains(&codec) {
+        return Err(format!("codec {codec} (codecs 3-7 only)"));
     }
     let (rotating, sliding, scaling) = (d[1] as usize, d[2] as usize, d[3] as usize);
     if scaling != 0 {
@@ -119,6 +120,33 @@ pub fn opening(cache: &Cache, machine: &Tag<'_>) -> Result<Opening, String> {
             slide_nodes.len()
         ));
     }
+    let mut poses: Vec<Vec<([f32; 3], [f32; 4])>> =
+        (0..frames).map(|_| nodes.iter().map(|n| (n.translation, n.rotation)).collect()).collect();
+    let rate = machine.root.f32(0xC8);
+    let seconds = if rate > 0.0 && rate < 900.0 { 1.0 / rate } else { 1.0 };
+    // Codec 3 stores every frame: each turning node's rotations (i16
+    // (i, j, k, w), 8 bytes a frame) from 0x20 in node order, each sliding
+    // node's translations (three floats) from the offset at 0x0C.
+    if codec == 3 {
+        let rot_data = 0x20usize;
+        let slide_data = u32_at(0x0C)? as usize;
+        for (i, &node) in rot_nodes.iter().enumerate() {
+            for (f, pose) in poses.iter_mut().enumerate() {
+                let o = rot_data + 8 * (i * frames + f);
+                let q = d.get(o..o + 8).ok_or("rotation frame past the block")?;
+                let c = |k: usize| i16::from_le_bytes([q[2 * k], q[2 * k + 1]]) as f32 / 32767.0;
+                pose[node].1 = norm([c(0), c(1), c(2), c(3)]);
+            }
+        }
+        for (i, &node) in slide_nodes.iter().enumerate() {
+            for (f, pose) in poses.iter_mut().enumerate() {
+                let o = slide_data + 12 * (i * frames + f);
+                let v = |k: usize| d.get(o + 4 * k..o + 4 * k + 4).map(|b| f32::from_le_bytes(b.try_into().unwrap()));
+                pose[node].0 = [v(0).ok_or("short")?, v(1).ok_or("short")?, v(2).ok_or("short")?];
+            }
+        }
+        return Ok(Opening { nodes, frames, poses, seconds });
+    }
     let wide = codec == 5 || codec == 7;
     let frame_of = |base: usize, k: usize| -> Result<usize, String> {
         if wide {
@@ -139,8 +167,6 @@ pub fn opening(cache: &Cache, machine: &Tag<'_>) -> Result<Opening, String> {
     };
     let (rot_kf, slide_kf) = (u32_at(0x14)? as usize, u32_at(0x18)? as usize);
     let (rot_data, slide_data) = (u32_at(0x20)? as usize, u32_at(0x24)? as usize);
-    let mut poses: Vec<Vec<([f32; 3], [f32; 4])>> =
-        (0..frames).map(|_| nodes.iter().map(|n| (n.translation, n.rotation)).collect()).collect();
     for (node, (first, n)) in rot_nodes.iter().zip(infos(0x30, rotating)?) {
         let mut keys = Vec::new();
         for k in first..first + n {
@@ -164,7 +190,5 @@ pub fn opening(cache: &Cache, machine: &Tag<'_>) -> Result<Opening, String> {
             poses[f][*node].0 = t;
         }
     }
-    let rate = machine.root.f32(0xC8);
-    let seconds = if rate > 0.0 && rate < 900.0 { 1.0 / rate } else { 1.0 };
     Ok(Opening { nodes, frames, poses, seconds })
 }

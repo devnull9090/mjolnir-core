@@ -23,9 +23,9 @@ local Doors = {}
 
 Doors.SCAN_S = 2.0
 Doors.SCAN_TRIES = 30
---- Machines stand 1.5 cm apart (h2_door_machines.STAGGER); an actor binds
+--- Machines stand 15 cm apart (h2_door_machines.SPACING); an actor binds
 --- to the machine it stands within this of.
-Doors.MATCH_CM = 0.7
+Doors.MATCH_CM = 5
 Doors.NEAR_CM = 40
 Doors.CONTROL_CLASS = "BP_FR_ControlPanel_C"
 Doors.IDLE_MS = 250
@@ -59,18 +59,19 @@ function Doors.new(d)
         return out
     end
 
+    --- Play one of a sound group's waves at `at`; whether it played.
     local function sound(group, at)
-        if type(group) ~= "table" or type(group.paths) ~= "table" or #group.paths == 0 or not at then return end
+        if type(group) ~= "table" or type(group.paths) ~= "table" or #group.paths == 0 or not at then return false end
         local world = d.getWorld()
         self.statics = self.statics or d.findObject("/Script/Engine.Default__GameplayStatics")
         local statics = self.statics
         local wave = d.resolveMesh(group.paths[math.random(#group.paths)])
         local volume = (tonumber(group.gain) or 1.0) * (d.gameVolume and d.gameVolume("ambient") or 1.0)
-        if not (world and statics and wave) or volume <= 0 then return end
-        pcall(function()
+        if not (world and statics and wave) or volume <= 0 then return false end
+        return (pcall(function()
             statics:SpawnSoundAtLocation(world, wave, { X = at[1], Y = at[2], Z = at[3] },
                 { Pitch = 0, Yaw = 0, Roll = 0 }, math.min(1.0, volume * 3.0), 1.0, 0.0, nil, nil, true)
-        end)
+        end))
     end
 
     --- The door's control: B40's switch panel stands at Halo 2's keypad (the
@@ -228,10 +229,14 @@ function Doors.new(d)
                     door.target = 0.0
                 end
                 if door.target ~= was and door.started then
-                    sound(snd.press, door.spec.control_cm)
-                    sound(door.target > 0.5 and snd.open or (snd.close or snd.open), door.spec.at_cm)
+                    local ok1 = sound(snd.press, door.spec.control_cm)
+                    local ok2 = sound(door.target > 0.5 and snd.open or (snd.close or snd.open), door.spec.at_cm)
+                    d.Log(string.format("door: %s (press sound %s, %s sound %s)", door.target > 0.5 and "opening" or "closing",
+                        tostring(ok1), door.target > 0.5 and "open" or "close", tostring(ok2)))
                 end
-                if door.started and door.last < 0.98 and s >= 0.98 then sound(snd.opened, door.spec.at_cm) end
+                if door.started and door.last < 0.98 and s >= 0.98 then
+                    d.Log("door: open (opened sound " .. tostring(sound(snd.opened, door.spec.at_cm)) .. ")")
+                end
                 local moving = math.abs(s - door.last) > 0.0005
                 door.started, door.last = true, s
                 wait = math.min(wait, moving and Doors.MOVING_MS or Doors.IDLE_MS)

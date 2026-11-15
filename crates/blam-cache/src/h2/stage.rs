@@ -523,23 +523,33 @@ fn placements<'c>(
                     "scale": scale, "phantoms": pushes,
                 }));
             }
-            // A door (machine type 1: Zanzibar's house gate, 13 parts that
-            // swing and slide open from its keypad) is drawn at rest, closed,
-            // without collision: present as Halo 2 places it, never blocking
-            // the way Halo 2 opens. Its opening is not drawn yet.
+            // A machine that is not a one-node gear, of any type (a door 0,
+            // a platform 1, a gear 2 of several parts), whose
+            // `device:position` animation decodes (crate::h2::door:
+            // Zanzibar's house gate, Containment's base gates, Triplicate's
+            // garage gates and train) is staged at rest with its opening,
+            // without collision of its own: tools/level/h2_door_machines.py
+            // makes each of its parts a machine of the simulation's own,
+            // which carries the part's collision.
             let mut door = false;
             let turn = match group {
                 "mach" => match crate::h2::animation::gear_turn(cache, &object) {
                     Ok(turn) => Some(turn),
-                    Err(_) if object.root.u16(0x11C) == 1 => {
-                        door = true;
-                        notes.push(format!("{} drawn closed, without collision (its opening is not drawn)", object.name()));
-                        None
-                    }
-                    Err(why) => {
-                        *skipped.entry(format!("{} (a machine whose motion is not drawn: {why})", object.name())).or_default() += 1;
-                        continue;
-                    }
+                    Err(gear_why) => match crate::h2::door::opening(cache, &object) {
+                        Ok(_) => {
+                            door = true;
+                            None
+                        }
+                        // No motion at all (no animation graph, or none
+                        // for its position: Dune's watchtowers and lights):
+                        // it never moves, so it is scenery, collision and all.
+                        Err(why) if why == "no animation graph" || why == "no device:position animation" => None,
+                        Err(why) => {
+                            let key = format!("{} (a machine whose motion is not drawn: {gear_why}; {why})", object.name());
+                            *skipped.entry(key).or_default() += 1;
+                            continue;
+                        }
+                    },
                 },
                 _ => None,
             };
@@ -587,7 +597,18 @@ fn placements<'c>(
                             .iter()
                             .map(|f| json!(f.iter().map(|(t, r)| json!([t, r])).collect::<Vec<_>>()))
                             .collect();
-                        entry["h2_door"] = json!({"frames": o.frames, "seconds": o.seconds, "nodes": nodes, "poses": poses});
+                        // The machine's own behaviour (mach: type 0x11C,
+                        // flags 0x11E, door open time 0x120; device:
+                        // automatic activation radius 0x118), for its
+                        // machines' tags.
+                        let r = object.root;
+                        entry["h2_door"] = json!({
+                            "frames": o.frames, "seconds": o.seconds, "nodes": nodes, "poses": poses,
+                            "machine": {
+                                "type": r.u16(0x11C), "flags": r.u16(0x11E), "door_open_time": r.f32(0x120),
+                                "automatic_radius": r.f32(0x118),
+                            },
+                        });
                         let bsps = door_bsps(cache, &object, dir, &mut notes)?;
                         entry["h2_door"]["collision"] =
                             json!(bsps.iter().map(|(n, p)| json!({"node": n, "bsp": p})).collect::<Vec<_>>());

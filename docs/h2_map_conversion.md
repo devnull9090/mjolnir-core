@@ -441,22 +441,61 @@ units and axes, so every later step reads them unchanged:
   once (`h2_machines.pose_resource`: codec 3 with the root's rotation and
   translation both animated, so a ramp swinging about its hinge is one
   machine); its collision is the node's own BSP, its physics boxes cover
-  the BSP's triangles. Each machine stands at its node's rest origin,
-  staggered 0.005 wu, so the loader (doors.lua) finds each one's actor by
-  where it stands and attaches the node's meshes to its moving component
+  the BSP's triangles. Each machine stands on a grid about the door's
+  origin, 0.05 wu (15 cm) apart, so the loader (doors.lua) finds each
+  one's actor by where it stands and attaches the node's meshes to its moving component
   once; Unreal carries them from then on (at rest that component sits
   exactly on the actor: location, rotation and scale). The keypad gets
   B40's switch panel; machines and switch share one device group
-  (`zan_house_gate`, baked into the scenario), so a player pressing the
+  (`zan_group0`, Halo 2's position group 0, baked into the scenario), so a player pressing the
   keypad opens the gate, collision and all, for everyone in the match. The
   loader hides the elevator meshes and the switch panel's components (the
   actor's own hidden flag is reset by the game), and watches one machine at
-  4 Hz (10 Hz while moving) only for Halo 2's sounds. A node that moves
-  without collision gets no machine (h2_door_machines says so): Dune's
-  collapsing teleporters and switch, the only other type-1 machines with an
-  opening, are all such nodes. The install stage installs every machine's
-  containers (`door_containers`).
-  `device_group_set none zan_house_gate 1` opens it from the console.
+  4 Hz (10 Hz while moving) only for Halo 2's sounds. The install stage
+  installs every machine's containers (`door_containers`).
+  `device_group_set none zan_group0 1` opens it from the console.
+
+  **Every machine that moves in parts is staged the same way**, whatever
+  its type. Staging tries a one-node gear first (`gear_turn`); any other
+  machine whose `device:position` decodes (keyframe codecs 4-7, and codec
+  3, which stores every frame) is staged as `h2_door` with its own
+  behaviour (`machine`: type 0x11C, flags 0x11E, door open time 0x120,
+  automatic activation radius 0x118). A machine with no animation never
+  moves and is staged as scenery with its collision (Dune's watchtowers).
+  `h2_machine_census <maps>` lists every machine and whether it decodes. In
+  MCC that is Containment's base gates, shields and switches, Gemini's High
+  Charity doors and gravity columns, Triplicate's garage gates and train,
+  Cyclotron's elevator, Waterworks' crusher, Backwash's monitor and Dune's
+  collapsing teleporters; all seven maps build their machines
+  (h2_door_machines.py). The rules, from the tags:
+  - one machine a collision BSP, and one a node that moves without
+    collision (no collision or physics model: Dune's teleporter legs);
+  - the machine tag's type is Halo 2's: a door (0) opens by itself within
+    its activation radius (proven on Zanzibar with Triplicate's garage
+    gate: a Ghost parked inside its 5 wu opened it, as Halo 2 does), a gear
+    (2) runs round by itself (Triplicate's train: all six parts' positions
+    agree, 0.732 then 0.936 three seconds later), a platform (1) goes where
+    its device group sends it;
+  - a placement's machines stand on a 15 cm grid about its origin, so a
+    door's parts measure its radius from nearly one point. Not closer:
+    machines 1.5 cm apart broke Unreal's copy of their poses (three of the
+    gate's four ramps never moved, the fourth froze mid-swing, while the
+    simulation had all four open), as Zanzibar's wheel and blades, two
+    machines on one spot, froze before;
+  - a machine tag is built once and placed per placement (Triplicate's
+    three garage gates);
+  - Halo 2's position group number is the device group
+    (`<code>_group<n>`), shared by every machine and control of that number
+    (Containment's gate and its switch), each control placed once.
+
+  Not yet: the base conversion (`convert_ce_map.sh`) still bakes these
+  machines into the static scene, closed and without collision; only the
+  upgrade pipeline (`h2_physics_props.py`) places them. And the simulation
+  computes a machine's pose only while it thinks the object is in view, by
+  its origin: Triplicate's train, whose cars run hundreds of metres from
+  their origin, drew a fixed pose whenever the origin was off screen
+  (Unreal's own bounds were not it: scaling them 2000x changed nothing).
+  Zanzibar's frozen big wheel is likely the same.
   Opaque shaders that scroll their base map are staged as `base_scroll`
   (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
   in u every 2 s); the `h2_staging` map setting applies it to the level's

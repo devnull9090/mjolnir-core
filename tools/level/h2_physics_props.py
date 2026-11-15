@@ -106,6 +106,7 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
     sounds = json.load(open(os.path.join(fresh_dir, "sounds_out", "sounds.json"), encoding="utf-8")).get("sounds", {})
     have = {(e.get("asset"), tuple(round(v, 2) for v in e.get("pos") or [])) for e in conv_placement["entries"]}
     jobs, mats, tex, ids, doors = [], [], {}, [], []
+    machine_cache = {}  # h2_door_machines: each Halo 2 tag's machine tags, built once
     T_ = lambda f: f"/Game/MJOLNIR/Maps/{code}/Textures/T_{f[:-4]}.T_{f[:-4]}"
 
     def waves(sid):
@@ -234,7 +235,7 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
         # player, the loader poses these meshes from the machines.
         if cli:
             import h2_door_machines
-            built = h2_door_machines.build(fresh_dir, e, controls, code, out, cli)
+            built = h2_door_machines.build(fresh_dir, e, controls, code, out, cli, machine_cache)
             entry["machines"], entry["blam"] = built["machines"], built["blam"]
             if built["control"]:
                 entry["sim_control"] = built["control"]
