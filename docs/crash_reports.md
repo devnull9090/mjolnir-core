@@ -44,6 +44,38 @@ What the files are worth:
   nothing; their `ErrorMessage` does.
 - The XML carries `MachineId`, `LoginId` and `EpicAccountId`.
 
+## Reading a crash
+
+`tools/crash/analyze.py` reads the dumps with no debugger and no symbols:
+
+    python tools/crash/analyze.py --last                 # the newest crash, in full
+    python tools/crash/analyze.py <crash folder>         # one crash (or an unzipped report)
+    python tools/crash/analyze.py --since 2026-11-14     # every crash since, grouped
+
+For each crash it finds the thread that failed (the exception's, or for an
+assert the one that raised it), takes the return addresses on its stack that
+follow a call instruction in a module's code (checked against the module's
+file on disk), drops the crash handler's own frames above the raise, and
+names each frame by its function: `FUN_<address>` from the module's unwind
+table, as Ghidra names it in the analysed exe (`tools/ghidra/decompile.ps1`
+decompiles one), or a name from `tools/crash/names.json`. Crashes group by
+error message or exception code plus the first frames below the fatal-error
+helpers (`_skip` in names.json). Stack scanning can keep a stale address;
+the call check drops most of them.
+
+Some dumps carry no thread records at all (zero stacks and registers: 12 of
+the 2026-11-14 crashes); for those only the exception record's address is
+known, and the census marks them "no stack in dump".
+
+**The Level Loader's breadcrumbs** (MJOLNIRLevelLoader 0.13.16,
+`breadcrumbs.lua`): `ue4ss/Mods/MJOLNIRLevelLoader/breadcrumbs.txt`, started
+afresh at each map load, one line before every load step and every asset it
+loads from disk, written unbuffered so the last line survives a crash. A
+Blood Gulch load writes about 315 lines (185 assets). analyze.py prints the
+last lines beside a crash written within a minute of the file. Shipping
+compiles Unreal's own log out, so this is the only record of what a load was
+doing.
+
 ## The launcher
 
 **Detection.** The launcher starts the game through `steam://` or the Xbox
