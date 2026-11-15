@@ -1045,6 +1045,23 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
             "specular": {"flags": 0, "brightness": 0.0},
         });
         let mut s = s;
+        // The base map's animated translation (an opaque shader's texture
+        // transform overlays, as `slot_scroll` reads a transparent one's):
+        // Zanzibar's rotating_metal scrolls in u once every 2 s, the drum
+        // under the spindle grate turning.
+        {
+            let stem = root.tagref(0x00).and_then(|r| cache.follow(r));
+            let slots = template_slots(stem.as_ref());
+            let scroll = slot_scroll(post, &slots);
+            if let Some(b) = tpl.slots.iter().position(|r| *r == "base") {
+                if let Some(sc) = scroll.get(&b) {
+                    let axis = |m: Option<(f32, f32, f32)>| m.map(|(p, r, ph)| json!([p, r, ph]));
+                    if sc[0].is_some() || sc[1].is_some() {
+                        s["base_scroll"] = json!({"u": axis(sc[0]), "v": axis(sc[1])});
+                    }
+                }
+            }
+        }
         if let Some((facing, glancing)) = specular {
             {
                 s["specular"] = json!({

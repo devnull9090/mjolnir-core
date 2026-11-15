@@ -6406,8 +6406,8 @@ local function watch()
     every(250, "prop deaths", function()
         if Current.props then Current.props.deaths() end
     end)
-    -- Halo 2 doors opened by their controls (doors.lua): E near the
-    -- control, or `mjolnir_door`.
+    -- Halo 2 doors (doors.lua): opened in the simulation by their controls,
+    -- drawn here from the machines that carry their collision.
     local function doors()
         local level = Current.furnished and Current.level
         if not (level and type(level.doors) == "table" and #level.doors > 0) then return nil end
@@ -6425,22 +6425,7 @@ local function watch()
         local dt = math.min(0.2, now - doorClock)
         doorClock = now
         local dd = doors()
-        if dd then
-            -- A press is only noted where it happens (the key and console
-            -- callbacks): calling into the engine from the key callback
-            -- while this loop held the mod's lock froze the game.
-            local press = Current.doorPress
-            Current.doorPress = nil
-            if press ~= nil then pcall(dd.press, press) end
-            dd.tick(dt)
-        end
-    end)
-    pcall(RegisterKeyBind, Key.E, {}, function()
-        if Current.doorPress == nil then Current.doorPress = false end
-    end)
-    pcall(RegisterConsoleCommandHandler, "mjolnir_door", function()
-        Current.doorPress = true
-        return true
+        if dd then dd.tick(dt, now) end
     end)
 end
 

@@ -89,7 +89,7 @@ def merge_h2_fields(placement, fresh):
     return n
 
 
-def static_extras(fresh_dir, conv_placement, code, out):
+def static_extras(fresh_dir, conv_placement, code, out, cli=None):
     """Devices a fresh staging places that the conversion did not: doors
     (machine type 1: Zanzibar's house gate) and controls (its keypad). A
     control is one world-space mesh. A door is a mesh a moving node (the
@@ -244,6 +244,15 @@ def static_extras(fresh_dir, conv_placement, code, out):
                 w, gn = waves(ps)
                 if w:
                     entry["sounds"]["press"] = {"paths": w, "gain": round(gn, 3)}
+        # Its collision and its opening in the simulation (h2_door_machines):
+        # the machines slide with the door, the control opens it for every
+        # player, the loader poses these meshes from the machines.
+        if cli:
+            import h2_door_machines
+            built = h2_door_machines.build(fresh_dir, e, controls, code, out, cli)
+            entry["machines"], entry["blam"] = built["machines"], built["blam"]
+            if built["control"]:
+                entry["sim_control"] = built["control"]
         doors.append(entry)
     json.dump(doors, open(os.path.join(out, "doors.json"), "w", encoding="utf-8"), indent=1)
     imports = [{"file": os.path.join(fresh_dir, "textures", f), "dest": f"/Game/MJOLNIR/Maps/{code}/Textures",
@@ -382,7 +391,7 @@ def main():
                 mesh_jobs.append(f"{conv}/{f}=basicshapes/cube={r}/SM_{code}_Machine{k}")
         mesh_jobs += jobs
         # Machines the conversion left out (a closed door), as static decor.
-        ex_jobs, ex_mats, ex_imports, ex_ids = static_extras(fresh_dir, placement, code, out)
+        ex_jobs, ex_mats, ex_imports, ex_ids = static_extras(fresh_dir, placement, code, out, a.cli)
         spec_path = os.path.join(conv, "materials.spec.json")
         if ex_jobs:
             spec = json.load(open(spec_path, encoding="utf-8"))

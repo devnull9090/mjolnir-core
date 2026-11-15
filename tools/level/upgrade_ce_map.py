@@ -180,7 +180,7 @@ def generated_mesh(code, m, suffix):
     return f"{root}/{name}.{name}"
 
 
-def moved_level(path, moves, extra=None):
+def moved_level(path, moves, extra=None, groups=None):
     """`vehicle_moves` ({megalo label: [x, y, z] cm, or {"pos", "yaw"}}): the base level with
     those vehicles placed again, written beside it as <stem>.moved.level.json
     (the bake reads files beside the level). Zanzibar's east Shade spawned
@@ -207,6 +207,11 @@ def moved_level(path, moves, extra=None):
     # blown about).
     if extra:
         level.setdefault("blam", {}).setdefault("objects", []).extend(extra)
+    # `doors`' device groups (a Halo 2 door's machines and its control
+    # share one, h2_door_machines.py).
+    if groups:
+        have = {g["name"] for g in level.setdefault("blam", {}).setdefault("device_groups", [])}
+        level["blam"]["device_groups"].extend(g for g in groups if g["name"] not in have)
     out = path[:-len(".level.json")] + ".moved.level.json" if path.endswith(".level.json") else path + ".moved.json"
     text = json.dumps(level, indent=1)
     if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
@@ -339,8 +344,13 @@ def paths(code, m, work):
     w = os.path.join(work, code)
     level = m.get("base_level") or os.path.join(conv, m["level"])
     objects = (m.get("objects") or []) + physics_prop_objects(m)
+    groups = []
+    if m.get("doors") and os.path.exists(m["doors"]):
+        for door in json.load(open(m["doors"], encoding="utf-8")):
+            objects += (door.get("blam") or {}).get("objects") or []
+            groups += (door.get("blam") or {}).get("device_groups") or []
     if m.get("vehicle_moves") or objects:
-        level = moved_level(level, m.get("vehicle_moves") or {}, objects)
+        level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups)
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -2063,6 +2073,33 @@ def stage_assemble(code, m, p):
     # `extra_decor`: static meshes a conversion left out (a Halo 2 door drawn
     # closed: Zanzibar's house gate), written by h2_physics_props.py, lit by
     # Unreal (they have no lightmap page).
+    # `h2_staging`: a fresh `mjolnir cache stage` of a Halo 2 map, for what
+    # an older conversion's spec lacks: an opaque shader's scrolling base map
+    # (`base_scroll`: Zanzibar's rotating_metal, the drum under the spindle
+    # grate, which Halo 2 turns by scrolling its texture once every 2 s).
+    # Every level slot drawing that base map gets CE's environment scroll.
+    if m.get("h2_staging"):
+        mats = json.load(open(os.path.join(m["h2_staging"], "materials.json"), encoding="utf-8"))
+        scrolls = {}
+        for v in mats.values():
+            sh = (v.get("shader") or {}) if isinstance(v, dict) else {}
+            if sh.get("base_scroll") and sh.get("base_map"):
+                scrolls["T_" + os.path.splitext(sh["base_map"])[0]] = sh["base_scroll"]
+        hit = 0
+        for item in level.get("decor") or []:
+            for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
+                if not isinstance(entry, dict):
+                    continue
+                leaf = str((entry.get("textures") or {}).get("Base", "")).rsplit(".", 1)[-1]
+                bs = scrolls.get(leaf)
+                if bs:
+                    for axis, key in (("u", "BaseUAnim"), ("v", "BaseVAnim")):
+                        if bs.get(axis):
+                            period, reps, phase = bs[axis]
+                            entry.setdefault("vectors", {})[key] = [6, float(period), float(phase), float(reps)]
+                    hit += 1
+        if scrolls:
+            print(f"  {code}: {hit} slot(s) scroll as Halo 2 animates them ({', '.join(sorted(scrolls))})")
     # `doors`: Halo 2 doors and the controls that open them (doors.json from
     # h2_physics_props.py), played by the loader (doors.lua).
     if m.get("doors") and os.path.exists(m["doors"]):

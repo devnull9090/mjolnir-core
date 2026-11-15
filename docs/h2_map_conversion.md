@@ -426,15 +426,28 @@ units and axes, so every later step reads them unchanged:
   reads its render model's nodes (0x48, 0x60 each: parent 0x04, default
   translation 0x0C, rotation 0x18) and decodes `device:position` for every
   node: keyframe codec 6, four turning and ten sliding nodes named by the
-  three node bit fields that end the frame data, their frame info stored
-  last node first, sliding keys offsets added to the default translation.
+  three node bit fields that end the frame data, their frame info in node
+  order (read last node first the gate's doors stayed shut while its bars
+  slid across), sliding keys offsets added to the default translation.
   A vertex's node is its rigid-boned vertex's index byte through the
   section's node map (resource locator 0x68), staged as `_NODE`.
   h2_physics_props.py splits the door into a mesh a node and writes every
   part's world transform at each of the 16 frames (doors.json); the loader
-  (doors.lua) plays the 5 s opening and Halo 2's open / opened / button
-  sounds when the interact key is pressed near the keypad (or
-  `mjolnir_door`). Local to the machine that presses it, without collision.
+  (doors.lua) poses the parts. The simulation opens it: every sliding node
+  with a collision BSP (staged `h2_door.collision`, one BSP a node) becomes
+  a device machine cloned from B40's elevator (h2_door_machines.py: its root
+  slides by the node's offsets, its collision the node's own BSP), and the
+  keypad gets B40's switch panel; machines and switch share one device group
+  (`zan_house_gate`, baked into the scenario), so a player pressing the
+  keypad opens the gate, collision and all, for everyone in the match. The
+  loader hides the elevator meshes and the switch panel's components (the
+  actor's own hidden flag is reset by the game), and eases the parts between
+  frames from how far the machines have slid, with Halo 2's sounds.
+  `device_group_set none zan_house_gate 1` opens it from the console.
+  Opaque shaders that scroll their base map are staged as `base_scroll`
+  (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
+  in u every 2 s); the `h2_staging` map setting applies it to the level's
+  slots as CE's environment scroll (BaseUAnim).
   Turning machines are lit by Unreal (their object page drew black, and a
   black flywheel turning read as one standing still); one riding a
   simulation machine whose Unreal part stops updating (the big wheel and

@@ -348,6 +348,40 @@ fn machine_bsp(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &mut Vec<Stri
     Ok(Some(format!("{stem}.json")))
 }
 
+/// Every collision BSP of a door's collision model, each written as
+/// `collision/<object>.node<n>_<k>.bsp.json` (node-local, as `machine_bsp`
+/// writes a gear's), with the node it hangs on: the parts that move become
+/// machines of their own (tools/level/h2_door_machines.py).
+fn door_bsps(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Result<Vec<(i16, String)>, Error> {
+    let mut out = Vec::new();
+    let Some(model) = follow(cache, object.root, 0x34, notes) else { return Ok(out) };
+    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else { return Ok(out) };
+    for region in coll.root.block(0x1C, 0x0C).iter() {
+        let Some(perm) = region.block(0x04, 0x14).get(0) else { continue };
+        for (k, b) in perm.block(0x04, 0x44).iter().enumerate() {
+            let node = b.i16(0);
+            let col = collision::read(b.at(0x04));
+            let stem = format!("collision/{}.node{}_{}.bsp", sanitize(object.name()), node, k);
+            let bin = dir.join(format!("{stem}.bin"));
+            std::fs::write(&bin, col.to_bin()).map_err(|e| Error::Io(bin.clone(), e))?;
+            let (lo, hi) = col.bounds().unwrap_or(([0.0; 3], [0.0; 3]));
+            let counts: serde_json::Map<String, Value> =
+                ARRAY_ORDER.iter().zip(col.counts()).map(|(n, c)| (n.to_string(), json!(c))).collect();
+            write_json(
+                &dir.join(format!("{stem}.json")),
+                &json!({
+                    "layout": "ce_pc_v7", "source_layout": "h2_mcc", "coordinate_space": "halo_wu_node_local",
+                    "tag_path": coll.name(), "bin": format!("{stem}.bin"), "node": node,
+                    "array_order": ARRAY_ORDER, "counts": counts,
+                    "world_bounds": {"min": lo, "max": hi},
+                }),
+            )?;
+            out.push((node, format!("{stem}.json")));
+        }
+    }
+    Ok(out)
+}
+
 fn summary_materials(meta: &Value) -> usize {
     meta["materials"].as_array().map(|a| a.len()).unwrap_or(0)
 }
@@ -554,6 +588,9 @@ fn placements<'c>(
                             .map(|f| json!(f.iter().map(|(t, r)| json!([t, r])).collect::<Vec<_>>()))
                             .collect();
                         entry["h2_door"] = json!({"frames": o.frames, "seconds": o.seconds, "nodes": nodes, "poses": poses});
+                        let bsps = door_bsps(cache, &object, dir, &mut notes)?;
+                        entry["h2_door"]["collision"] =
+                            json!(bsps.iter().map(|(n, p)| json!({"node": n, "bsp": p})).collect::<Vec<_>>());
                         // Its sounds (mach: open 0xDC, close 0xE4, opened
                         // 0xEC, closed 0xF4), staged as one-shots.
                         for (key, off) in [("open", 0xDCusize), ("close", 0xE4), ("opened", 0xEC), ("closed", 0xF4)] {

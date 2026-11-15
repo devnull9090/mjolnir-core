@@ -10,9 +10,9 @@
 //! rate, eight u32 offsets from 0x0C (translation and scale frame info, the
 //! three keyframe index arrays, the three key arrays); the rotating nodes'
 //! frame info from 0x30 and the translation frame info at its offset, one
-//! u32 a node (key count in the low 12 bits, first key in the high 20),
-//! stored last node first (the gate's mirrored pairs read in pairs only
-//! that way); the frame data ends with three bit fields, one bit a node
+//! u32 a node in node order (key count in the low 12 bits, first key in
+//! the high 20; the keys run last node first); the frame data ends with
+//! three bit fields, one bit a node
 //! (u32s: rotation, translation, scale), naming the animated nodes. A
 //! rotation key is i16 (i, j, k, w) / 32767, a translation key three floats
 //! (world units), both the node's local transform, replacing its default.
@@ -128,13 +128,14 @@ pub fn opening(cache: &Cache, machine: &Tag<'_>) -> Result<Opening, String> {
         }
         .ok_or_else(|| "keyframe index past the block".into())
     };
-    // One frame info word a node, last node first: sorted by first key.
+    // One frame info word a node, in node order (the keys themselves are
+    // stored last node first). Read the other way the house gate's doors
+    // stayed shut and its bars slid across each other: in this order its
+    // left door slides +y and its right -y, out into the walls.
     let infos = |base: usize, n: usize| -> Result<Vec<(usize, usize)>, String> {
-        let mut v = (0..n)
+        (0..n)
             .map(|i| u32_at(base + 4 * i).map(|w| ((w >> 12) as usize, (w & 0xFFF) as usize)))
-            .collect::<Result<Vec<_>, _>>()?;
-        v.sort();
-        Ok(v)
+            .collect::<Result<Vec<_>, _>>()
     };
     let (rot_kf, slide_kf) = (u32_at(0x14)? as usize, u32_at(0x18)? as usize);
     let (rot_data, slide_data) = (u32_at(0x20)? as usize, u32_at(0x24)? as usize);
