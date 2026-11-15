@@ -113,6 +113,15 @@ public:
 		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FLinearColor>& Colors,
 		const TArray<FVector>& ShadeNormals);
 
+	/** Attribute-preserving importer: 1..8 UV channels interleaved per corner,
+	 * FColor source data bytes per vertex, authored normals retained, Mikk
+	 * tangents generated. No shade-normal packing or UV generation. */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
+	static bool BuildAttributedStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions,
+		const TArray<FVector>& Normals, const TArray<int32>& Indices,
+		const TArray<FVector2D>& CornerUVs, int32 NumUVChannels,
+		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FColor>& Colors);
+
 	/**
 	 * Write every loaded class and struct's unversioned property schema, and
 	 * every enum, to Path as a .usmap (version 3, uncompressed): the stock

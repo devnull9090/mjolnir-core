@@ -1,0 +1,147 @@
+{
+  "generator": "derive_runtime_heightfield.py v1",
+  "source_manifest_sha256": "b26005fe6a8a22a0ed6c944fb4f1684e79161b57d330ffba98de9149ad95b26c",
+  "source_height_sha256": "aa57854dff015f03a7404d79c3c7ebd066b646f63891f51196e8469da8d87d3d",
+  "geometry": "../final-v5/terrain.geometry.json",
+  "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+  "water_level_m": 55.0,
+  "surface_interpolation": "triangle_nw_se",
+  "landscape_encoding_policy": {
+    "mode": "fixed",
+    "centre_cm": 22400.0,
+    "z_scale": 100.0,
+    "components": 16,
+    "size": 1009,
+    "origin_cm": [
+      -100000.0,
+      -100000.0
+    ],
+    "quad_cm": 198.4126984126984
+  },
+  "preservation": {
+    "baseline_manifest": "../runtime-v3/runtime-master.json",
+    "baseline_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+    "baseline_height_sha256": "aae13c42fffcbbd2f248e057a8792fc966aaf48971c407b7a2bc2a0173ce1ad7",
+    "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+    "layout": "../../native-contract-v3/layout.json",
+    "layout_sha256": "6a48c5a9e4ebbabc6f17ada0d67007671c6c776d93b072086c721c1c38b3ea00",
+    "protected_mask": "protected"
+  },
+  "runtime_source": {
+    "manifest": "../final-v5/final-master.json",
+    "manifest_sha256": "e5c743c139455d704bdce0a47b877ab378bfe313d1abe6d115a971af6bf28c0c",
+    "height_sha256": "7bd3b58ca4f7c73b63326f19f32bfedcfad36d8feb1be7032392b884438896f0",
+    "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4"
+  },
+  "landscape_encoding": {
+    "components": 16,
+    "quads_per_component": 63,
+    "size": 1009,
+    "origin_cm": [
+      -100000.0,
+      -100000.0
+    ],
+    "quad_cm": 198.4126984126984,
+    "centre_cm": 22400.0,
+    "z_scale": 100.0,
+    "r16_sha256": "a2c8517021e4945843ebceb3a6430bf8df321add87e955b00e8142b04991e39d"
+  },
+  "triangulation_evidence": {
+    "source": "UE5.5 installed source, Landscape/Private/LandscapeRender.cpp:3276-3290",
+    "unreal_indices": [
+      [
+        "i00",
+        "i11",
+        "i10"
+      ],
+      [
+        "i00",
+        "i01",
+        "i11"
+      ]
+    ],
+    "authoring_diagonal": "NW(x0,y1) to SE(x1,y0), because UE import reverses authoring Y",
+    "authoring_triangles": [
+      [
+        "SW",
+        "SE",
+        "NW"
+      ],
+      [
+        "SE",
+        "NE",
+        "NW"
+      ]
+    ],
+    "scope": "Landscape LOD0 grid; lower visual LODs and material displacement require separate verification"
+  },
+  "schema": "pwr-heightfield-v1",
+  "coordinates": "authoring_metres_z_up",
+  "origin_m": [
+    -1000.0,
+    -1000.0
+  ],
+  "spacing_m": [
+    1.9841269841269842,
+    1.9841269841269842
+  ],
+  "dimensions": [
+    1009,
+    1009
+  ],
+  "row_order": "+y",
+  "height": {
+    "path": "runtime-master.heights.npy",
+    "encoding": "float32_npy",
+    "offset_m": 0,
+    "scale_m": 1,
+    "sha256": "7bd3b58ca4f7c73b63326f19f32bfedcfad36d8feb1be7032392b884438896f0"
+  },
+  "masks": {
+    "road": {
+      "path": "runtime-master.road.npy",
+      "encoding": "float32_npy",
+      "sha256": "463a4d28135d5cbe40cb4f055696ff276046a95f4e429eeeb8663cc74ce1585b"
+    },
+    "water": {
+      "path": "runtime-master.water.npy",
+      "encoding": "float32_npy",
+      "sha256": "d1776d5c35b6d2e095d6552e32fee033b7ee28c560a232ede11916071944b0d5"
+    },
+    "shore": {
+      "path": "runtime-master.shore.npy",
+      "encoding": "float32_npy",
+      "sha256": "b0ddb3fcb4f391af9b7bd88c8138bf39223b25571c05dc6a310731cd42ebce60"
+    },
+    "bases": {
+      "path": "runtime-master.bases.npy",
+      "encoding": "float32_npy",
+      "sha256": "e22d8421d65796175ff7c13b6f4458a83f40d4e8e3ed6e5308380d35156486b0"
+    },
+    "flat": {
+      "path": "runtime-master.flat.npy",
+      "encoding": "float32_npy",
+      "sha256": "e22d8421d65796175ff7c13b6f4458a83f40d4e8e3ed6e5308380d35156486b0"
+    },
+    "protected": {
+      "path": "runtime-master.protected.npy",
+      "encoding": "float32_npy",
+      "sha256": "583511d0e18cbeed47fdf08f005d62ffbcf00d0befa978b6a3a5886cf4abac68"
+    },
+    "protected_core": {
+      "path": "runtime-master.protected_core.npy",
+      "encoding": "float32_npy",
+      "sha256": "6caabf9593d9a5c86280dbace8fa9a51b6f9fbf75491e8c89172126cf00aa586"
+    },
+    "walkable": {
+      "path": "runtime-master.walkable.npy",
+      "encoding": "float32_npy",
+      "sha256": "0c341c95efd4e21be4d08ee7e10809be676b50bc1fd02556da9b5ba3dfd0b0ea"
+    },
+    "forest": {
+      "path": "runtime-master.forest.npy",
+      "encoding": "float32_npy",
+      "sha256": "84a4369c31380f59b456a68ef8654d3d95a6f43782a4069e9a4dbebcf9234749"
+    }
+  }
+}

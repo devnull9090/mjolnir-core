@@ -58,6 +58,13 @@ enum LiveCommand {
     },
     /// Every player and the unit each controls.
     Players,
+    /// Exact body vitality for one salted object handle; read-only JSON.
+    /// Unlike the objects table, no percentage rounding is performed.
+    ObjectHealth {
+        /// Exact hexadecimal handle, including its salt, e.g. 0xE2000010.
+        #[arg(long)]
+        handle: String,
+    },
     /// The simulation's data arrays: every table it keeps per game, with how full each is.
     Arrays,
     /// Which game engine the simulation is running: campaign, Megalo
@@ -169,6 +176,16 @@ pub fn run(a: LiveArgs) -> Result<()> {
             objects(&process, attached, group, filter, tsv)
         }
         LiveCommand::Players => players(&process, attached),
+        LiveCommand::ObjectHealth { handle } => {
+            let handle = u32::from_str_radix(handle.trim_start_matches("0x").trim_start_matches("0X"), 16)
+                .context("--handle must be the complete hexadecimal salted object handle")?;
+            let gs = GameState::attach(&process)?;
+            let objects = world::objects(&process, &gs)?;
+            let object = objects.iter().find(|o| o.handle == handle)
+                .context("the exact salted object handle is no longer present")?;
+            println!("{}", serde_json::to_string(&object_health_json(object, gs.tid)?)?);
+            Ok(())
+        }
         LiveCommand::Engine {
             launch_engine,
             map_variant_gate,
@@ -201,6 +218,48 @@ fn percent(fraction: Option<f32>, maximum: f32) -> String {
     match fraction {
         Some(f) if maximum > 0.0 => format!("{:.0}% of {maximum:.0}", f * 100.0),
         _ => "-".into(),
+    }
+}
+
+fn object_health_json(object: &world::LiveObject, thread: u32) -> Result<serde_json::Value> {
+    let fraction = object.health().context("object has no body damage section")?;
+    anyhow::ensure!(fraction.is_finite() && object.max_body.is_finite(), "non-finite body vitality");
+    Ok(serde_json::json!({
+        "schema": "mjolnir-object-health-v1", "thread": thread,
+        "handle": object.handle, "kind": object.kind.name(),
+        "body_section_present": object.sections[0].present,
+        "body_fraction": fraction, "body_fraction_bits": fraction.to_bits(),
+        "maximum_body": object.max_body,
+        "method": "LiveObject::health; unrounded native float32 section0 vitality"
+    }))
+}
+
+#[cfg(test)]
+mod exact_health_tests {
+    use super::*;
+    fn object(vitality: f32) -> world::LiveObject {
+        world::LiveObject {
+            index: 16, handle: 0xe2000010, kind: world::ObjectKind::Vehicle,
+            flags: 0, datum: 0, datum_size: 0, tag: 0, parent: None, first_child: None, next: None,
+            position: [0.0; 3], forward: [1.0, 0.0, 0.0], up: [0.0, 0.0, 1.0],
+            velocity: [0.0; 3], scale: 1.0, max_body: 600.0, max_shield: 0.0,
+            sections: vec![world::Section { present: true, vitality }],
+        }
+    }
+    #[test]
+    fn rounded_zero_percent_preserves_positive_native_health_in_json() {
+        let object = object(0.004);
+        assert_eq!(percent(object.health(), object.max_body), "0% of 600");
+        let value = object_health_json(&object, 123).unwrap();
+        assert!(value["body_fraction"].as_f64().unwrap() > 0.0);
+        assert_eq!(value["body_fraction_bits"], 0.004f32.to_bits());
+    }
+    #[test]
+    fn exact_zero_and_invalid_health_are_distinguishable() {
+        assert_eq!(object_health_json(&object(0.0), 123).unwrap()["body_fraction"], 0.0);
+        assert!(object_health_json(&object(f32::NAN), 123).is_err());
+        let mut missing = object(0.0); missing.sections.clear();
+        assert!(object_health_json(&missing, 123).is_err());
     }
 }
 

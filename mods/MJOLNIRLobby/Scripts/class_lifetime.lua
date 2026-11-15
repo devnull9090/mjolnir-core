@@ -19,7 +19,7 @@ function Lifetime.new(names, log)
         local ok, result = pcall(function()
             assert(type(path) == "string", "UI class path is missing")
             local folder, name, className = path:match("^/Game/MJOLNIR/(%w+)/(WBP_MJOLNIR%w+)%.([%w_]+)$")
-            assert((folder == "UI" or folder == "ForgeUI") and allowed[name]
+            assert((folder == "UI" or folder == "ForgeUI" or folder == "TacticalMap") and allowed[name]
                 and className == name .. "_C", "UI class is not allowlisted")
             assert(cls and cls:IsValid(), "UI class is unavailable")
             if ready[path] then return cls end

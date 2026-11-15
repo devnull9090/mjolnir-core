@@ -6,6 +6,7 @@
 	"Plugins": [
 		{ "Name": "PythonScriptPlugin", "Enabled": true },
 		{ "Name": "EditorScriptingUtilities", "Enabled": true },
-		{ "Name": "CommonUI", "Enabled": true }
+		{ "Name": "CommonUI", "Enabled": true },
+		{ "Name": "PCG", "Enabled": true, "TargetAllowList": ["Editor"] }
 	]
 }

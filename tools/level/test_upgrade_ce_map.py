@@ -12,6 +12,252 @@ from unittest.mock import patch
 import upgrade_ce_map as upgrade
 
 
+class AuthoredMaterialOverridesTest(unittest.TestCase):
+    def fixture(self, root):
+        source = "/Game/Maps/Test/T_Floor.T_Floor"
+        material = "/HaloMaterialLibrary/Metal/MI_Floor.MI_Floor"
+        level = {"decor": [
+            {"id": "architecture", "materials": ["/Game/Keep.Keep", {
+                "parent": "/Game/MJOLNIR/CE/M_CE_Environment.M_CE_Environment",
+                "textures": {"Base": source}, "scalars": {"HasLightmap": 1}}]},
+            {"id": "other", "materials": [{"textures": {"Base": source}}]}]}
+        document = {"schema": "mjolnir-authored-material-overrides-v1", "overrides": [
+            {"decor_id": "architecture", "source_base": source, "material": material}]}
+        path = root / "materials.json"
+        path.write_text(json.dumps(document))
+        return level, {"authored_material_overrides": str(path)}, document, path
+
+    def test_replaces_complete_material_without_touching_other_decor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            level, config, document, _ = self.fixture(Path(temp))
+            original = json.loads(json.dumps(level))
+            upgrade.mark_structures(level)
+            self.assertEqual(upgrade.apply_authored_material_overrides(level, config), 1)
+            self.assertEqual(level["decor"][0]["materials"][1], document["overrides"][0]["material"])
+            self.assertEqual(level["decor"][0]["materials"][0], original["decor"][0]["materials"][0])
+            self.assertEqual(level["decor"][1], original["decor"][1])
+            self.assertEqual(upgrade.apply_authored_material_overrides(level, {}), 0)
+
+    def test_missing_or_ambiguous_source_fails_before_any_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            level, config, document, path = self.fixture(Path(temp))
+            original = json.loads(json.dumps(level))
+            second = dict(document["overrides"][0], source_base="/Game/Missing.Missing")
+            document["overrides"].append(second)
+            path.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, "found 0"):
+                upgrade.apply_authored_material_overrides(level, config)
+            self.assertEqual(level, original)
+            document["overrides"].pop()
+            path.write_text(json.dumps(document))
+            level["decor"][0]["materials"].append(level["decor"][0]["materials"][1])
+            with self.assertRaisesRegex(ValueError, "found 2"):
+                upgrade.apply_authored_material_overrides(level, config)
+
+    def test_native_instance_parameters_create_mid_without_ce_parameters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            level, config, document, path = self.fixture(Path(temp))
+            rule = document["overrides"][0]
+            rule["scalars"] = {"Base Emissive Strength": 4096, "Offset": -0.25}
+            rule["vectors"] = {"Color Tint 1": [0.2, 0.6, 1.0, 700], "RGB": [1, 0.5, 0]}
+            path.write_text(json.dumps(document))
+            self.assertEqual(upgrade.apply_authored_material_overrides(level, config), 1)
+            self.assertEqual(level["decor"][0]["materials"][1], {
+                "parent": rule["material"], "scalars": rule["scalars"], "vectors": rule["vectors"]})
+
+    def test_invalid_native_parameters_fail_before_any_mutation(self):
+        invalid = [
+            ("scalars", []), ("scalars", None), ("scalars", {"": 1}),
+            ("scalars", {"Intensity": True}), ("scalars", {"Intensity": "8"}),
+            ("scalars", {"Intensity": float("nan")}),
+            ("scalars", {"Intensity": float("inf")}), ("scalars", {"Intensity": 1e100}),
+            ("scalars", {"Intensity": 10 ** 400}),
+            ("vectors", {"Tint": [1, 2]}), ("vectors", {"Tint": [1, 2, 3, 4, 5]}),
+            ("vectors", {"Tint": [1, 2, float("-inf"), 1]}),
+            ("vectors", {"Tint": [1, False, 0]}), ("vectors", {"Tint": "cyan"}),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            for kind, value in invalid:
+                with self.subTest(kind=kind, value=value):
+                    level, config, document, path = self.fixture(Path(temp))
+                    original = json.loads(json.dumps(level))
+                    # The first valid rule must not mutate its slot before the
+                    # second rule's invalid parameter is discovered.
+                    second = dict(document["overrides"][0], decor_id="other")
+                    second[kind] = value
+                    document["overrides"].append(second)
+                    path.write_text(json.dumps(document))
+                    with self.assertRaises(ValueError):
+                        upgrade.apply_authored_material_overrides(level, config)
+                    self.assertEqual(level, original)
+
+
+class PCGOnlyFoliageTest(unittest.TestCase):
+    def test_exact_pcg_transforms_bypass_legacy_scatter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.json"
+            source.write_text(json.dumps({"file": "source.bin", "groups": [
+                {"mesh": "/Game/Test.Test", "rule": "short grass", "exact": True}]}))
+            payload = struct.pack("<fffBBbbBBB", 1, 2, 3, 0, 100, 0, 0, 0, 0, 0)
+            (root / "source.bin").write_bytes(b"MJF3" + struct.pack("<III", 3, 1, 1) + payload)
+            exact = struct.pack("<10f", 1.125, 2.5, 3.75, 0, 0, 0, 1, 1, 1, 1)
+            (root / "source.bin.xf1").write_bytes(exact)
+            with patch.object(upgrade, "run") as run:
+                upgrade.stage_foliage("PWR", {"pcg_foliage_only": True, "pcg_foliage": str(source)},
+                                     {"foliage": str(root / "output")})
+                run.assert_not_called()
+            self.assertEqual((root / "output/foliage.bin.xf1").read_bytes(), exact)
+            self.assertTrue(json.loads((root / "output/foliage.json").read_text())["groups"][0]["pcg"])
+
+
+class RuntimeDecorTest(unittest.TestCase):
+    def test_distant_scenery_is_explicit_and_invalid_list_does_not_partially_append(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "decor.json"
+            level = {"decor": [{"id": "playable"}]}
+            apron = {"id": "distant_apron", "mesh": "/Game/Maps/PWR/Apron.Apron", "pos": [0, 0, 0]}
+            document = {"schema": "mjolnir-runtime-decor-v1", "render_only": True, "decor": [apron]}
+            source.write_text(json.dumps(document))
+            self.assertEqual(upgrade.append_runtime_decor(level, {"runtime_decor": str(source)}), 1)
+            self.assertEqual(level["decor"][-1], apron)
+            original = json.loads(json.dumps(level))
+            document["decor"] = [dict(apron, id="new_apron"), dict(apron, id="playable")]
+            source.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                upgrade.append_runtime_decor(level, {"runtime_decor": str(source)})
+            self.assertEqual(level, original)
+            document["render_only"] = False
+            source.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, "render-only"):
+                upgrade.append_runtime_decor(level, {"runtime_decor": str(source)})
+
+
+class AuthoredTerrainCollisionTest(unittest.TestCase):
+    def fixture(self,root):
+        import numpy as np
+        from heightfield import sha256,write_heightfield
+        field=write_heightfield(root/"master.json",np.zeros((2,2)),(0,0),(1,1))
+        own=root/"map.sbsp";own.write_bytes(b"verified native BSP")
+        binary=root/"collision_scene.bin";binary.write_bytes(b"compiled source")
+        scene=root/"collision_scene.json";scene.write_text(json.dumps({"bin":binary.name,"counts":{"surfaces":3}}))
+        authored=root/"terrain-extra.json";authored.write_text("current terrain triangles")
+        (root/"b30_collision.json").write_text(json.dumps({"authored_sources":[{"path":str(authored),
+            "sha256":sha256(authored),"master_manifest_sha256":field.manifest_sha256}]}))
+        receipt={"schema":"mjolnir-collision-pieces-v1","output":str(own),"output_sha256":sha256(own),
+                 "source_manifest":str(scene),"source_manifest_sha256":sha256(scene),
+                 "source_binary_sha256":sha256(binary),"source_surfaces":3}
+        receipt_path=root/"native-collision-receipt.json";receipt_path.write_text(json.dumps(receipt))
+        config={"authored_collision":str(authored),"heightfield":str(field.path),"sbsp":own.name}
+        return config,{"work":str(root),"conv":str(root/"converted")},receipt_path
+
+    def test_authored_bake_requires_matching_compiled_output_and_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);config,paths,receipt_path=self.fixture(root)
+            self.assertEqual(upgrade.bake_sbsp(config,paths),str(root/"map.sbsp"))
+            for name in ("map.sbsp","collision_scene.json","collision_scene.bin","terrain-extra.json","master.heights.npy"):
+                target=root/name;original=target.read_bytes()
+                with self.subTest(changed=name):
+                    target.write_bytes(original+b"changed")
+                    with self.assertRaises(ValueError):upgrade.bake_sbsp(config,paths)
+                    target.write_bytes(original)
+            receipt=json.loads(receipt_path.read_text());receipt["output"]=str(root/"other.sbsp")
+            receipt_path.write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError,"path mismatch"):upgrade.bake_sbsp(config,paths)
+
+    def test_authored_bake_never_falls_back_to_converted_core(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);config,paths,receipt_path=self.fixture(root)
+            (root/"converted").mkdir();(root/"converted/map.sbsp").write_bytes(b"empty membership core")
+            receipt_path.unlink()
+            with self.assertRaisesRegex(ValueError,"core fallback is forbidden"):upgrade.bake_sbsp(config,paths)
+            (root/"map.sbsp").unlink()
+            self.assertEqual(upgrade.bake_sbsp({"sbsp":"map.sbsp"},paths),str(root/"converted/map.sbsp"))
+
+    def test_bad_collision_does_not_delete_previous_bake(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);config,paths,receipt_path=self.fixture(root)
+            bake=root/"bake";bake.mkdir();saved=bake/"previous.utoc";saved.write_bytes(b"previous complete bake")
+            paths["bake"]=str(bake);receipt_path.unlink()
+            with patch.object(upgrade,"run") as run:
+                with self.assertRaisesRegex(ValueError,"core fallback is forbidden"):
+                    upgrade.stage_bake("PWR",config,paths)
+                run.assert_not_called()
+            self.assertEqual(saved.read_bytes(),b"previous complete bake")
+
+    def test_matching_terrain_appends_after_scenery_and_stale_source_fails(self):
+        from heightfield import sha256
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);manifest=root/"master.json";manifest.write_text("fixture")
+            original={"triangles":[[[0,0,0],[1,0,0],[0,1,0]]],"materials":["wood"],"objects":1}
+            source={"schema":"pwr-native-terrain-extra-v1","coordinates":"ce_world_units_z_up",
+                    "master_manifest":str(manifest),"master_manifest_sha256":sha256(manifest),"accuracy_pass":True,
+                    "triangles":[[[0,0,2],[1,0,2],[0,1,2]]],"materials":["stone"],"objects":2}
+            extra=root/"extra.json";extra.write_text(json.dumps(original));terrain=root/"terrain.json";terrain.write_text(json.dumps(source))
+            self.assertEqual(upgrade.append_authored_collision(str(extra),str(terrain)),1)
+            merged=json.loads(extra.read_text());self.assertEqual(merged["objects"],3)
+            self.assertEqual(merged["materials"],["wood","stone"])
+            manifest.write_text("changed")
+            before=extra.read_bytes()
+            with self.assertRaisesRegex(ValueError,"stale"):
+                upgrade.append_authored_collision(str(extra),str(terrain))
+            self.assertEqual(extra.read_bytes(),before)
+
+
+class CollisionHullCacheTest(unittest.TestCase):
+    def paths(self, root):
+        return {key: str(root) for key in ("work", "foliage", "scene", "conv")}
+
+    def test_default_omits_override_and_explicit_cache_is_forwarded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for setting in ({}, {"collision_hulls": str(root)}):
+                with self.subTest(setting=setting), patch.object(upgrade, "run", return_value="fixture") as run, contextlib.redirect_stdout(io.StringIO()):
+                    upgrade.stage_collision("PWR", {"sbsp": "pwr.sbsp", **setting}, self.paths(root))
+                    command = run.call_args_list[0].args[0]
+                    if setting:
+                        self.assertEqual(command[-2:], ["--hulls", str(root.resolve())])
+                    else:
+                        self.assertNotIn("--hulls", command)
+
+    def test_missing_non_directory_and_invalid_cache_stop_before_compile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            file = root / "not-directory.json"
+            file.write_text("{}")
+            for value in ("", None, 12, str(file), str(root / "missing")):
+                with self.subTest(value=value), patch.object(upgrade, "run") as run:
+                    with self.assertRaisesRegex(ValueError, "collision_hulls"):
+                        upgrade.stage_collision("PWR", {"sbsp": "pwr.sbsp", "collision_hulls": value}, self.paths(root))
+                    run.assert_not_called()
+
+
+class LandscapeSpacingTest(unittest.TestCase):
+    def test_large_map_forwards_centimetre_spacing_with_component_count(self):
+        config = {"shaders": ["ground"], "landscape": "LPW", "components": 16, "quad": 200}
+        with patch.object(upgrade, "run", return_value="") as run:
+            upgrade.stage_land("PWR", config, {"scene": "scene", "land": "land"})
+        argv = run.call_args.args[0]
+        spacing = float(argv[argv.index("--quad") + 1])
+        components = int(argv[argv.index("--components") + 1])
+        self.assertEqual(components * 63 * spacing, 201600,
+                         "The 2 km recipe must not silently build a 1 km landscape")
+
+    def test_existing_map_keeps_landscape_default_spacing(self):
+        with patch.object(upgrade, "run", return_value="") as run:
+            upgrade.stage_land("TST", {"shaders": ["ground"], "landscape": "LTT"},
+                               {"scene": "scene", "land": "land"})
+        self.assertNotIn("--quad", run.call_args.args[0])
+
+    def test_invalid_spacing_fails_before_launch(self):
+        for value in (0, -200, float("inf"), float("nan")):
+            with self.subTest(value=value), patch.object(upgrade, "run") as run:
+                with self.assertRaisesRegex(ValueError, "spacing"):
+                    upgrade.stage_land("PWR", {"shaders": ["ground"], "landscape": "LPW", "quad": value},
+                                       {"scene": "scene", "land": "land"})
+                run.assert_not_called()
+
+
 class LocalInstallTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -109,6 +355,19 @@ class LocalInstallTest(unittest.TestCase):
         self.assertIn("pakchunk48621-MJOLNIRCOOK-TST_P.utoc", targets)
         self.assertNotIn("pakchunk985-MJOLNIRCOOK-TST_P.utoc", targets)
 
+    def test_extra_map_container_is_required_before_any_install(self):
+        stem = self.root / "extra/pakchunk963-MJOLNIRAPRON-TST_P"
+        self.map["extra_containers"] = [str(stem)]
+        self.write(str(stem) + ".utoc", b"toc")
+        with self.assertRaisesRegex(SystemExit, "local install is incomplete"):
+            upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
+        self.assertFalse((self.paks / (stem.name + ".utoc")).exists())
+        self.write(str(stem) + ".ucas", b"payload")
+        plan = upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
+        upgrade.install_local("TST", plan)
+        self.assertEqual((self.paks / (stem.name + ".ucas")).read_bytes(), b"payload")
+        self.assertEqual((self.paks / (stem.name + ".pak")).read_bytes(), b"stub")
+
     def test_beta_local_install_keeps_published_runtime_unchanged(self):
         self.map["environment"] = {"light_scale": 8192, "sun": {"atmosphere_sun": True},
                                    "skylight": {"physical": True}, "post": {}}
@@ -185,6 +444,26 @@ class LocalInstallTest(unittest.TestCase):
             upgrade.stage_swap("TST", dict(self.map, tree_variant="Lrg_A"), self.paths)
             cmd = run.call_args.args[0]
             self.assertEqual(cmd[cmd.index("--tree-variant") + 1], "Lrg_A")
+
+    def test_measured_tree_recipes_reach_both_pcg_and_scenery(self):
+        self.write(self.paths["level"], {})
+        recipes = Path(self.paths["work"]) / "measured-recipes.json"
+        trees = recipes.with_name("trees.json")
+        self.write(recipes, {})
+        self.write(trees, {})
+        config = dict(self.map, tree_recipes=str(recipes), pcg_trees=str(trees))
+        with patch.object(upgrade, "run", return_value="swapped") as run:
+            upgrade.stage_swap("TST", config, self.paths)
+            commands = [call.args[0] for call in run.call_args_list]
+            adapter = next(cmd for cmd in commands if cmd[1].endswith("pcg_tree_decor.py"))
+            scenery = next(cmd for cmd in commands if cmd[1].endswith("scenery_swap.py"))
+            self.assertEqual(adapter[3], str(recipes.resolve()))
+            self.assertEqual(scenery[5], str(recipes.resolve()))
+        recipes.unlink()
+        with patch.object(upgrade, "run") as run:
+            with self.assertRaisesRegex(FileNotFoundError, "Measured tree recipes"):
+                upgrade.stage_swap("TST", config, self.paths)
+            run.assert_not_called()
 
 
 class GeneratedMeshTest(unittest.TestCase):

@@ -187,4 +187,16 @@ eq(typing(), false, "pins alone never consume Forge input")
 clock = clock + 3
 found[#found + 1] = widget("WBP_MJOLNIRChat_C_3", true, true)
 eq(typing(), true, "discovery retries when new world's chat arrives")
+local tacticalFixture=fixture()
+local tacticalName="WBP_MJOLNIRTacticalMap"
+local tacticalPath="/Game/MJOLNIR/TacticalMap/"..tacticalName.."."..tacticalName.."_C"
+local tacticalClass=tacticalFixture.class()
+local tacticalKeeper=tacticalFixture.keeper({tacticalName})
+eq(tacticalKeeper(tacticalPath,tacticalClass),tacticalClass,"isolated map class retained")
+local tacticalDisplayed=tacticalFixture.display(tacticalClass)
+tacticalFixture.travel()
+eq(tacticalDisplayed.valid,false,"map travel releases displayed tactical widget")
+eq(tacticalClass.field.valid,true,"tactical reflection metadata survives travel")
+eq(tacticalKeeper(tacticalPath,tacticalClass),tacticalClass,"tactical map reuses class pin")
+eq(#tacticalFixture.created,1,"one tactical class pin across worlds")
 print("UI class lifetime: " .. checks .. " checks passed")

@@ -1,0 +1,50 @@
+{
+  "schema": "pwr-constrained-terrain-rejection-v1",
+  "status": "REJECTED; no master published",
+  "source_manifest_sha256": "88b2a678dab9040f24c52800a0936f7ad2aeaf488605564b62a6bbe97def014e",
+  "baseline_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+  "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+  "protection": {
+    "thresholds": {
+      "road": 0.001,
+      "bases": 0.5,
+      "flat": 0.5,
+      "water": 0.01,
+      "shore": 0.5
+    },
+    "vertices_by_mask": {
+      "road": 99915,
+      "bases": 74007,
+      "flat": 74007,
+      "water": 80031,
+      "shore": 51258
+    },
+    "collar_cells": 2,
+    "support_points": 27388,
+    "vehicle_support_discs": 16,
+    "vehicle_support_radius_m": 12,
+    "protected_vertices": 300815,
+    "protected_fraction": 0.2954725606312268
+  },
+  "blend": {
+    "method": "harmonic boundary displacement with quintic outer taper",
+    "blend_m": 180.0,
+    "solver_unknowns": 447377,
+    "solver_iterations": 791,
+    "solver_max_residual": 1.982581476767109e-07,
+    "max_correction_grade": 1.5747417625367812,
+    "correction_grade_limit": 0.75,
+    "max_earthwork_m": 96.48797107878181,
+    "far_field_vertices": 269889,
+    "far_field_max_error_m": 0.0,
+    "protected_max_abs_error_m": 0.0,
+    "worst_grid_xy": [
+      142,
+      489
+    ],
+    "worst_position_m": [
+      -718.2539682539682,
+      -29.761904761904702
+    ]
+  }
+}

@@ -8,6 +8,11 @@
 -- win); everything else carries over between game types, as in CE.
 
 local Settings = {}
+local descriptors = {}
+
+function Settings.registerModes(modes)
+    for id, mode in pairs(modes or {}) do descriptors[id] = mode end
+end
 
 Settings.PAGES = { "GAME", "PLAYERS", "ITEMS", "RED VEHICLES", "BLUE VEHICLES" }
 
@@ -141,6 +146,13 @@ end
 function Settings.option(id, mode)
     for _, o in ipairs(Settings.OPTIONS) do
         if o.id == id then
+            local fixed = ((descriptors[mode] or {}).fixedOptions or {})[id]
+            if fixed then
+                return { id = id, key = "fixed." .. mode .. "." .. id, page = o.page,
+                    label = fixed.label or o.label, help = fixed.help or o.help,
+                    choices = { { value = fixed.value, text = fixed.text or tostring(fixed.value) } },
+                    default = fixed.value }
+            end
             if id ~= "score" then return o end
             local s = SCORES[mode]
             if not s then return nil end

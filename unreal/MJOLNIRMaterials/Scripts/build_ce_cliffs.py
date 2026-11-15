@@ -46,13 +46,21 @@ def build(code, spec_path):
         eal.delete_asset(path)
     mesh = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, root, unreal.StaticMesh, None)
     v = unreal.Vector
+    # Exact runtime capture beds carry no texture coordinates: their capture
+    # material reads world height only. Supply the builder's per-corner channels
+    # in memory without changing the hash-bound offline bed document.
+    capture_bed = spec.get("names") == ["flux_runtime_bed"]
+    def uv_channel(key):
+        if capture_bed and key not in spec:
+            return [unreal.Vector2D(0.0, 0.0)] * len(spec["indices"])
+        return [unreal.Vector2D(*t) for t in spec[key]]
     ok = unreal.MjolnirUIBuilderLibrary.build_static_mesh(
         mesh,
         [v(*p) for p in spec["positions"]],
         [v(*n) for n in spec["normals"]],
         spec["indices"],
-        [unreal.Vector2D(*t) for t in spec["uv0"]],
-        [unreal.Vector2D(*t) for t in spec["uv1"]],
+        uv_channel("uv0"),
+        uv_channel("uv1"),
         spec["sections"],
         [f"slot_{s}" for s in spec["slots"]],
         [unreal.LinearColor(w, w, w, 1.0) for w in spec["weight"]],

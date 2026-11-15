@@ -63,13 +63,24 @@ def prepare(code, config, work, staging):
         source, relative = auxiliary(foliage)
         copies.append((source, str(relative)))
     directories = []
-    if (level.get("flux") or {}).get("state"):
+    flux=level.get("flux") or {}
+    if any(entry.get("playback")!="baked" or not entry.get("state") for entry in flux.get("domains",[])):
+        raise ValueError("Release map requires baked states for every terrain-backed Flux domain")
+    domain_states=[entry for entry in flux.get("domains",[]) if entry.get("state")]
+    if flux.get("state") or domain_states:
         # flux.state is metadata; the binary textures live in flux_state/.
-        if not isinstance(level["flux"]["state"], dict):
+        if flux.get("state") and not isinstance(flux["state"], dict):
             raise ValueError("flux.state must contain baked domain metadata")
         source, relative = auxiliary("flux_state")
-        if not (source / "state.json").is_file():
-            raise FileNotFoundError(f"Missing baked water state: {source}")
+        paths=[source / entry["id"] / "state.json" for entry in domain_states] if domain_states else [source / "state.json"]
+        for path in paths:
+            if not path.resolve().is_relative_to(source.resolve()) or not path.is_file():
+                raise FileNotFoundError(f"Missing baked water state: {path}")
+        if domain_states:
+            from flux_heightfield import state_matches, verify_state_files
+            for entry in domain_states:
+                if not state_matches(entry["state"],entry):raise ValueError("Stale terrain-backed Flux state")
+                verify_state_files(upgraded,entry["state"])
         directories.append((source, relative))
     if (upgraded / "decals").is_dir():
         directories.append((upgraded / "decals", Path("decals")))

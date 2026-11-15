@@ -241,6 +241,42 @@ function readMessage(file) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Publish one already-encoded request without resending it on a file lock.
+ * Windows can refuse replacement while the game's reader has the old target
+ * open. Retry only that rename, keeping the same temporary file and payload.
+ * This does not coordinate multiple callers of the single-request mailbox.
+ */
+async function publishRequestFile(temporary, target, payload, {
+  writeFile = fs.promises.writeFile,
+  rename = fs.promises.rename,
+  unlink = fs.promises.unlink,
+  wait = sleep,
+  now = () => performance.now(),
+} = {}) {
+  try {
+    await writeFile(temporary, payload);
+    const deadline = now() + 500;
+    while (true) {
+      try {
+        await rename(temporary, target);
+        return;
+      } catch (error) {
+        const remaining = deadline - now();
+        if (!['EPERM', 'EBUSY'].includes(error.code) || remaining <= 0) throw error;
+        await wait(Math.min(20, remaining));
+        if (now() >= deadline) throw error;
+      }
+    }
+  } catch (error) {
+    // Never delete the live target to work around a failed replacement.
+    try { await unlink(temporary); }
+    catch (cleanupError) {
+      if (cleanupError.code !== 'ENOENT') log('could not clean unpublished request', temporary, String(cleanupError));
+    }
+    throw error;
+  }
+}
+
 let nextId = Date.now() % 1_000_000;
 
 /** Read the heartbeat the mod writes about once a second. */
@@ -266,8 +302,7 @@ async function bridgeCall(op, body, timeoutMs = 15_000) {
   try { fs.unlinkSync(responseFile); } catch { /* first call of the session */ }
 
   const temporary = path.join(bridge, `request.${id}.tmp`);
-  fs.writeFileSync(temporary, encodeMessage({ id, op }, body));
-  fs.renameSync(temporary, requestFile);
+  await publishRequestFile(temporary, requestFile, encodeMessage({ id, op }, body));
 
   const deadline = Date.now() + timeoutMs;
   let nextProcessCheck = Date.now() + 2_000;
@@ -747,8 +782,8 @@ async function inGameInput(steps, gapMs, pid) {
   const id = Date.now() % 1_000_000_000;
   fs.rmSync(ackFile, { force: true });
   const temporary = path.join(bridge, `input_cmd.${id}.tmp`);
-  fs.writeFileSync(temporary, [`id ${id}`, ...script.lines, ""].join("\n"));
-  fs.renameSync(temporary, path.join(bridge, "input_cmd.txt"));
+  await publishRequestFile(temporary, path.join(bridge, "input_cmd.txt"),
+    [`id ${id}`, ...script.lines, ""].join("\n"));
 
   const deadline = Date.now() + script.duration + 5_000;
   while (Date.now() < deadline) {
@@ -853,4 +888,4 @@ export async function callTool(name, args = {}) {
   }
 }
 
-export { INSTALL, paths, setInstall, bridgeCall, bridgeStatus, gameProcess, log };
+export { INSTALL, paths, setInstall, bridgeCall, bridgeStatus, gameProcess, log, publishRequestFile };

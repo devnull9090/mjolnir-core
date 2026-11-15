@@ -7,6 +7,7 @@ average out to a flat sheet.
 
     refine_water_gltf.py <in.gltf> <out.gltf> [--near 4] [--growth 0.08]
         [--center x,z --radius r | --placement <staging>/placement.json] [--terrain scene.gltf]
+        [--heightfield runtime-master.json]
 
 Longest-edge bisection (Rivara): a triangle whose longest edge is longer
 than the target splits that edge at its middle, and so does the triangle
@@ -25,13 +26,17 @@ the distant ring stays cheap. glTF units are metres, y up.
 Every attribute is interpolated at the midpoint (normals and tangents
 renormalized, the tangent's handedness kept), and the output gets a buffer
 of its own. With `--terrain`, each vertex's distance to the shore and the
-sea floor's depth under it go into TEXCOORD_1 (bake_shore).
+sea floor's depth under it go into TEXCOORD_1 (bake_shore). --heightfield
+instead samples the verified master terrain and the water's local elevation;
+shore distance includes the authored water footprint and exposed islands.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -265,8 +270,8 @@ def terrain_heights(terrain, x0, z0, cell, nx, nz):
     """The highest terrain surface over each cell of a grid (glTF metres, y
     up): every triangle of the terrain glTF `terrain` rasterized at its cells'
     centres. Cells nothing covers are -inf."""
-    doc = json.load(open(terrain, encoding="utf-8"))
-    data = open(os.path.join(os.path.dirname(os.path.abspath(terrain)), doc["buffers"][0]["uri"]), "rb").read()
+    doc = json.loads(Path(terrain).read_text(encoding="utf-8"))
+    data = (Path(terrain).parent / doc["buffers"][0]["uri"]).read_bytes()
     h = np.full((nz, nx), -np.inf)
     for mesh in doc["meshes"]:
         for prim in mesh["primitives"]:
@@ -330,24 +335,170 @@ def bilinear(grid, pos, x0, z0, cell):
     return top * (1 - tz) + bot * tz
 
 
-def bake_shore(path, terrain, cell=2.0, limit=200.0, deep=50.0):
+def euclidean_distance_to(mask, cell, limit):
+    """Exact Euclidean distance to marked grid centres, without SciPy.
+
+    Two separable squared-distance transforms, each the lower envelope of
+    parabolas. The finite sentinel avoids inf-inf when a row has no sites.
+    This is exact for the raster; its shoreline still has cell-size error.
+    """
+    if not mask.any():
+        return np.full(mask.shape, limit, dtype=np.float64)
+    big = float(sum(n * n for n in mask.shape) + 1)
+    values = np.where(mask, 0.0, big)
+
+    def line_transform(f):
+        n = len(f)
+        sites = np.empty(n, dtype=np.int64)
+        edges = np.empty(n + 1, dtype=np.float64)
+        sites[0], edges[0], edges[1] = 0, -np.inf, np.inf
+        k = 0
+        for q in range(1, n):
+            v = sites[k]
+            edge = ((f[q] + q * q) - (f[v] + v * v)) / (2 * (q - v))
+            while edge <= edges[k]:
+                k -= 1
+                v = sites[k]
+                edge = ((f[q] + q * q) - (f[v] + v * v)) / (2 * (q - v))
+            k += 1
+            sites[k], edges[k], edges[k + 1] = q, edge, np.inf
+        q = np.arange(n)
+        nearest = sites[np.searchsorted(edges[1:k + 1], q, side="left")]
+        return (q - nearest) ** 2 + f[nearest]
+
+    for row in range(values.shape[0]):
+        values[row] = line_transform(values[row])
+    for column in range(values.shape[1]):
+        values[:, column] = line_transform(values[:, column])
+    return np.minimum(np.sqrt(values) * cell, limit)
+
+
+def bake_heightfield_shore(path, heightfield, cell=2.0, limit=200.0, deep=50.0):
+    """Bake metre distances against local water Z and verified master triangles.
+
+    Input glTF is pre-offset CE geometry: (x, z, -y) authoring metres. The
+    heightfield must use that same frame; mesh_rewrite's later actor offset
+    moves water and terrain together and must not be applied a second time.
+    Depth is sampled directly at every vertex. Shore distance uses the union
+    of rasterized water triangles where their surface lies above the master,
+    so a varying river is never replaced by one median sea plane.
+    """
+    from heightfield import load_heightfield
+
+    if not all(math.isfinite(v) and v > 0 for v in (cell, limit, deep)):
+        raise ValueError("shore cell size, distance limit and depth limit must be positive finite metres")
+    field = load_heightfield(heightfield)
+    path = Path(path)
+    source_json = path.read_bytes()
+    doc = json.loads(source_json)
+    identity = np.eye(4).reshape(-1)
+    for node in doc.get("nodes", []):
+        if (not np.allclose(node.get("matrix", identity), identity)
+                or not np.allclose(node.get("translation", [0, 0, 0]), [0, 0, 0])
+                or not np.allclose(node.get("scale", [1, 1, 1]), [1, 1, 1])
+                or not np.allclose(node.get("rotation", [0, 0, 0, 1]), [0, 0, 0, 1])):
+            raise ValueError("heightfield shore bake requires node transforms applied to glTF positions")
+    bin_path = path.parent / doc["buffers"][0]["uri"]
+    source_bin = bin_path.read_bytes()
+    prims = [p for m in doc["meshes"] for p in m["primitives"]]
+    positions = [read_accessor(doc, source_bin, p["attributes"]["POSITION"]).astype(np.float64) for p in prims]
+    if not positions or not sum(len(pos) for pos in positions):
+        raise ValueError("heightfield shore bake requires water vertices")
+    allp = np.concatenate(positions)
+    if not np.isfinite(allp).all():
+        raise ValueError("water positions must be finite")
+    # Fail on frame/bounds mismatch before changing either glTF or buffer.
+    floor = field.sample(allp[:, 0], -allp[:, 2])
+    signed_depth = allp[:, 1] - floor
+    depths = np.clip(signed_depth, 0.0, deep)
+    x0, z0 = np.floor(allp[:, [0, 2]].min(axis=0) / cell) * cell - cell * 2
+    x1, z1 = np.ceil(allp[:, [0, 2]].max(axis=0) / cell) * cell + cell * 2
+    nx, nz = int(round((x1 - x0) / cell)), int(round((z1 - z0) / cell))
+    if nx * nz > 16_000_000:
+        raise ValueError("heightfield shore grid exceeds 16 million cells; increase --shore-cell")
+    # Raster only the water triangles, not the buried CE terrain proxy.
+    surface = terrain_heights(str(path), x0, z0, cell, nx, nz)
+    xx, zz = np.meshgrid(x0 + (np.arange(nx) + 0.5) * cell,
+                         z0 + (np.arange(nz) + 0.5) * cell)
+    (minx, miny), (maxx, maxy) = field.bounds_m
+    inside = (xx >= minx) & (xx <= maxx) & (-zz >= miny) & (-zz <= maxy)
+    wet = np.zeros_like(inside)
+    covered = inside & np.isfinite(surface)
+    wet[covered] = surface[covered] > field.sample(xx[covered], -zz[covered])
+    if not wet.any():
+        raise ValueError("water footprint has no wet cells above the master terrain")
+    distance = euclidean_distance_to(~wet, cell, limit)
+    shore = bilinear(distance, allp, x0, z0, cell)
+    # A submerged/occluded water vertex is on the dry side of the shoreline.
+    shore[signed_depth <= 0] = 0.0
+    uv = np.stack([shore, depths], axis=1).astype("<f4")
+    data = bytearray(source_bin)
+    cursor = 0
+    for p, pos in zip(prims, positions):
+        a = doc["accessors"][p["attributes"]["TEXCOORD_1"]]
+        view = doc["bufferViews"][a["bufferView"]]
+        if view.get("byteStride") not in (None, 8) or a["componentType"] != FLOAT or a["type"] != "VEC2":
+            raise ValueError("shore bake needs packed float32 TEXCOORD_1 VEC2")
+        if a["count"] != len(pos):
+            raise ValueError("water position/UV vertex counts differ")
+        start = view.get("byteOffset", 0) + a.get("byteOffset", 0)
+        part = uv[cursor:cursor + len(pos)]
+        data[start:start + part.nbytes] = part.tobytes()
+        cursor += len(pos)
+        a.pop("min", None)
+        a.pop("max", None)
+    # Hash validation repeats before publishing to catch changing inputs.
+    if load_heightfield(heightfield).manifest_sha256 != field.manifest_sha256:
+        raise ValueError("master heightfield changed during shore bake")
+    if path.read_bytes() != source_json or bin_path.read_bytes() != source_bin:
+        raise ValueError("water mesh changed during shore bake")
+    receipt = {
+        "schema": "pwr-heightfield-shore-v1", "heightfield": str(field.path),
+        "heightfield_sha256": field.manifest_sha256,
+        "height_sha256": field.metadata["height"]["sha256"],
+        "surface_interpolation": field.metadata.get("surface_interpolation", "bilinear"),
+        "water_input_json_sha256": hashlib.sha256(source_json).hexdigest(),
+        "water_input_buffer_sha256": hashlib.sha256(source_bin).hexdigest(),
+        "water_output_buffer_sha256": hashlib.sha256(data).hexdigest(),
+        "water_position_sha256": hashlib.sha256(allp.astype("<f8").tobytes()).hexdigest(),
+        "vertex_count": len(allp), "grid_dimensions": [nx, nz], "grid_cell_m": cell,
+        "shore_distance_method": "Euclidean distance to dry raster cell centres, bilinear at vertices",
+        "shore_accuracy": "shoreline discretized at grid_cell_m; not exact vector distance or a continuous error bound",
+        "wet_grid_cells": int(wet.sum()), "shore_distance_limit_m": limit, "depth_limit_m": deep,
+        "water_surface_range_m": [float(allp[:, 1].min()), float(allp[:, 1].max())],
+        "depth_range_m": [float(depths.min()), float(depths.max())],
+        "shore_distance_range_m": [float(shore.min()), float(shore.max())],
+        "depth_float32_max_error_m": float(np.max(np.abs(uv[:, 1].astype(float) - depths))),
+        "dry_vertex_count": int((signed_depth <= 0).sum()),
+        "shallow_vertex_count": int((depths < 3.0).sum()),
+    }
+    bin_path.write_bytes(data)
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    path.with_suffix(".shore.json").write_text(json.dumps(receipt, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    return None, nx * nz, receipt["shallow_vertex_count"], len(allp)
+
+
+def bake_shore(path, terrain=None, cell=2.0, limit=200.0, deep=50.0, *, heightfield=None):
     """Write each water vertex's distance to the shore (m, up to `limit`) and
     the depth of the sea floor under it (m, up to `deep`) into the water glTF
     `path`'s TEXCOORD_1, from the terrain glTF `terrain`. Neither water
     material reads TEXCOORD_1 otherwise (CE's water is unlit, no lightmap), and
     mesh_rewrite writes it at full precision. M_CE_Ocean damps its swell over
     shallow water with it (a trough left sandbars dry) and runs its shore
-    waves towards the beach."""
-    doc = json.load(open(path, encoding="utf-8"))
+    waves towards the beach. An explicit heightfield selects the multi-level
+    water path and returns None for sea level; legacy callers are unchanged."""
+    if heightfield is not None:
+        return bake_heightfield_shore(path, heightfield, cell, limit, deep)
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
     bin_path = os.path.join(os.path.dirname(os.path.abspath(path)), doc["buffers"][0]["uri"])
-    data = bytearray(open(bin_path, "rb").read())
+    data = bytearray(Path(bin_path).read_bytes())
     prims = [p for m in doc["meshes"] for p in m["primitives"]]
     positions = [read_accessor(doc, bytes(data), p["attributes"]["POSITION"]).astype(np.float64) for p in prims]
     allp = np.concatenate(positions)
     sea = float(np.median(allp[:, 1]))
     # Only the water near land needs a fine grid: its bounds, cut to where
     # the terrain is (the distant ring reaches kilometres past any shore).
-    tdoc = json.load(open(terrain, encoding="utf-8"))
+    tdoc = json.loads(Path(terrain).read_text(encoding="utf-8"))
     tlo = np.min([tdoc["accessors"][p["attributes"]["POSITION"]]["min"] for m in tdoc["meshes"] for p in m["primitives"]], axis=0)
     thi = np.max([tdoc["accessors"][p["attributes"]["POSITION"]]["max"] for m in tdoc["meshes"] for p in m["primitives"]], axis=0)
     x0 = max(allp[:, 0].min(), tlo[0] - limit)
@@ -375,8 +526,8 @@ def bake_shore(path, terrain, cell=2.0, limit=200.0, deep=50.0):
         data[start:start + uv.nbytes] = uv.tobytes()
         a.pop("min", None)
         a.pop("max", None)
-    open(bin_path, "wb").write(bytes(data))
-    json.dump(doc, open(path, "w", encoding="utf-8"))
+    Path(bin_path).write_bytes(data)
+    Path(path).write_text(json.dumps(doc), encoding="utf-8")
     return sea, nx * nz, shallow, len(allp)
 
 
@@ -405,6 +556,8 @@ def main():
     ap.add_argument("--radius", type=float, help="radius of the playable area, metres")
     ap.add_argument("--placement", help="a staging placement.json to take the playable area from")
     ap.add_argument("--terrain", help="the terrain glTF: bake shore distance and depth into TEXCOORD_1 (bake_shore)")
+    ap.add_argument("--heightfield", help="verified master terrain in pre-offset authoring metres; overrides --terrain")
+    ap.add_argument("--shore-cell", type=float, default=2.0, help="heightfield shoreline raster spacing in metres")
     a = ap.parse_args()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     radius = a.radius
@@ -413,9 +566,10 @@ def main():
     before, after, center, radius = refine_file(a.src, a.dst, a.near, a.growth, center, radius)
     print(f"{os.path.basename(a.src)}: {before} -> {after} triangle(s), {a.near} m near "
           f"({center[0]:.0f}, {center[1]:.0f}) r {radius:.0f} m, +{a.growth} m/m beyond")
-    if a.terrain:
-        sea, cells, shallow, n = bake_shore(a.dst, a.terrain)
-        print(f"shore: sea level {sea:.2f} m, {cells} cell(s), {shallow} of {n} vertices over < 3 m of water")
+    if a.terrain or a.heightfield:
+        sea, cells, shallow, n = bake_shore(a.dst, a.terrain, cell=a.shore_cell, heightfield=a.heightfield)
+        surface = "local water elevations / master terrain" if sea is None else f"sea level {sea:.2f} m"
+        print(f"shore: {surface}, {cells} cell(s), {shallow} of {n} vertices over < 3 m of water")
 
 
 if __name__ == "__main__":

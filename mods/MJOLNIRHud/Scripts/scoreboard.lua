@@ -44,17 +44,34 @@ Board.modes = {
     forge = { title = "FORGE", toWin = 25, unit = "kills", stat = "kills", family = "forge" },
 }
 
+-- Extra bundled modes carry their presentation alongside the lobby/loader
+-- descriptor, rather than another parallel hard-coded variant list.
+function Board.registerModes(descriptors)
+    for id, descriptor in pairs(descriptors or {}) do
+        if descriptor.toWin and descriptor.stat and descriptor.family then
+            local mode = {}
+            for k, v in pairs(descriptor) do mode[k] = v end
+            mode.title = string.upper(descriptor.title or descriptor.name or id)
+            Board.modes[id] = mode
+        end
+    end
+end
+
 function Board.team(value)
     if value == "Red" or value == "Blue" then return value end
     return nil
 end
 
 function Board.score(player, mode)
+    if mode.teamOnlyScore then return 0 end
     return player[mode.stat or "kills"] or 0
 end
 
 function Board.totals(match)
-    local mode = Board.modes[match.variant]
+    local mode = match.mode or Board.modes[match.variant]
+    if mode and mode.authoritativeTeams then
+        return { Red = match.teams[0] or 0, Blue = match.teams[1] or 0 }
+    end
     if mode and mode.teams and mode.stat == "objectiveScore" then
         -- A team's score is the sum of its players', as the simulation adds it
         -- up. Those who left are still in the list, with what they earned.

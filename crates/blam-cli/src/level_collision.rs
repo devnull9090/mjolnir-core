@@ -55,6 +55,10 @@ pub struct CollisionArgs {
     /// Where to write the transform (JSON). Defaults to `<out>.transform.json`.
     #[arg(long)]
     pub transform: Option<PathBuf>,
+    /// With --own-bsp: write actual scenery instance/source surface ranges,
+    /// bounds and input/output hashes for offline seam acceptance probes.
+    #[arg(long, requires = "own_bsp")]
+    pub receipt: Option<PathBuf>,
     /// The canvas scenario hosting the terrain.
     #[arg(long, default_value = "B40")]
     pub canvas: String,
@@ -137,6 +141,31 @@ struct HostOut {
     definition: usize,
     instance: usize,
     group: usize,
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// split_standalone preserves source order and count, even when its 16-bit
+/// reference limit shortens a piece. Any later shed pieces are deliberately
+/// unassigned: their source surfaces need not be contiguous.
+fn source_tail_ranges(counts: &[usize], first: usize, total: usize) -> Result<Vec<Option<[usize; 2]>>> {
+    let mut cursor = first;
+    let mut ranges = Vec::with_capacity(counts.len());
+    for &count in counts {
+        if cursor < total {
+            let end = cursor.checked_add(count).context("surface count overflow")?;
+            anyhow::ensure!(count > 0 && end <= total, "piece crosses the source-tail boundary");
+            ranges.push(Some([cursor, end]));
+            cursor = end;
+        } else {
+            ranges.push(None);
+        }
+    }
+    anyhow::ensure!(cursor == total, "pieces do not cover the source tail");
+    Ok(ranges)
 }
 
 #[derive(Args)]
@@ -310,8 +339,11 @@ pub fn run(a: CollisionArgs) -> Result<()> {
         // the structure body, each piece with a tree of its own.
         let mut collision = staged.collision;
         let mut scenery = Vec::new();
+        let source_surfaces = collision.surfaces.len();
         // A map with no scenery can overflow by itself too: an empty tail.
         let tail = staged.manifest.scenery_surfaces.unwrap_or_default();
+        anyhow::ensure!(tail.surfaces <= source_surfaces, "invalid scenery tail count");
+        let source_tail_first = source_surfaces - tail.surfaces;
         if tail.surfaces > 0 || !blam_sbsp::scenery::fits(&collision) {
             let first = collision.surfaces.len().saturating_sub(tail.surfaces);
             let (c, pieces, placed) =
@@ -332,6 +364,27 @@ pub fn run(a: CollisionArgs) -> Result<()> {
                 ),
             }
         }
+        let mut receipt = if a.receipt.is_some() {
+            let counts: Vec<_> = scenery.iter().map(|p| p.surfaces.len()).collect();
+            let ranges = if scenery.is_empty() { vec![] }
+                else { source_tail_ranges(&counts, source_tail_first, source_surfaces)? };
+            let pieces: Vec<_> = scenery.iter().zip(ranges).enumerate().map(|(index, (p, range))| {
+                let bounds = p.bounds().expect("nonempty collision piece");
+                serde_json::json!({"piece": index, "surfaces": p.surfaces.len(),
+                    "source_surface_range": range,
+                    "source_kind": if range.is_some() { "standalone_tail" } else { "shed_noncontiguous" },
+                    "bounds_wu": {"min": ([0,1,2].map(|i| bounds.min[i]+delta[i])),
+                                   "max": ([0,1,2].map(|i| bounds.max[i]+delta[i]))}})
+            }).collect();
+            Some(serde_json::json!({"schema": "mjolnir-collision-pieces-v1",
+                "coordinate_space": "blam_world_units_z_up", "metres_per_wu": 3.048,
+                "source_manifest": a.collision, "source_manifest_sha256": sha256(&std::fs::read(&a.collision)?),
+                "source_binary_sha256": sha256(&std::fs::read(a.collision.with_extension("bin"))?),
+                "source_surfaces": source_surfaces, "source_tail_range": [source_tail_first,source_surfaces],
+                "tail_linked_in_host": scenery.is_empty(), "delta_wu": delta,
+                "range_semantics": "half-open source surface indices before packing; no guessed fixed batch size",
+                "pieces": pieces}))
+        } else { None };
         let scenario_bsp = a.bsp_index.unwrap_or(canvas.bsp_index as u8);
         let (mut out, r) = convert::convert_own(
             &donor,
@@ -379,6 +432,21 @@ pub fn run(a: CollisionArgs) -> Result<()> {
             r.structure.shell, r.structure.kept, r.structure.added, r.structure.code, r.kd_roots
         );
         std::fs::write(&a.out, &out).with_context(|| format!("writing {}", a.out.display()))?;
+        if let (Some(path), Some(ref mut receipt)) = (&a.receipt, &mut receipt) {
+            let pieces = receipt["pieces"].as_array_mut().expect("receipt pieces");
+            anyhow::ensure!(pieces.len() == r.scenery.instances.len(), "converted instance count changed");
+            let surfaces: u64 = pieces.iter().map(|p| p["surfaces"].as_u64().unwrap()).sum();
+            anyhow::ensure!(surfaces == r.scenery.surfaces as u64,
+                "packing changed surface counts; no exact-range receipt can be emitted");
+            for (piece, instance) in pieces.iter_mut().zip(&r.scenery.instances) {
+                piece["instance"] = serde_json::json!(instance);
+            }
+            receipt["output"] = serde_json::json!(a.out);
+            receipt["output_sha256"] = serde_json::json!(sha256(&out));
+            std::fs::write(path, serde_json::to_vec_pretty(receipt)?)
+                .with_context(|| format!("writing {}", path.display()))?;
+            println!("  receipt  {} (actual instance/source ranges)", path.display());
+        }
         println!(
             "wrote {} ({} bytes, walks exactly)",
             a.out.display(),
@@ -714,6 +782,16 @@ fn set_field(file: &mut Vec<u8>, path: &str, value: &blam_tag::Scalar) -> Result
 #[cfg(test)]
 mod plan_tests {
     use super::*;
+
+    #[test]
+    fn shortened_pieces_keep_exact_tail_ranges_without_claiming_shed_order() {
+        assert_eq!(source_tail_ranges(&[3, 2, 4, 7], 11, 20).unwrap(),
+            vec![Some([11, 14]), Some([14, 16]), Some([16, 20]), None]);
+        assert!(source_tail_ranges(&[3, 3], 11, 16).is_err());
+        assert!(source_tail_ranges(&[3], 11, 16).is_err());
+        assert!(source_tail_ranges(&[0, 5], 11, 16).is_err());
+        assert_eq!(source_tail_ranges(&[7], 11, 11).unwrap(), vec![None]);
+    }
 
     #[test]
     fn a_plan_reads_with_its_defaults() {

@@ -1,0 +1,87 @@
+{
+  "schema": "pwr-base-detail-palette-v1",
+  "verified_on": "2026-11-09",
+  "source": "Installed Halo Campaign Evolved native mesh bounds; actual GLB shape inspected through Blender MCP. Asset geometry stays in the local output cache.",
+  "assets": [
+    {
+      "path": "/Game/Env/HS/FR/ACR/Canyon_A_Bridge_A/FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w8_d3_h3_A/SM_FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w8_d3_h3_A.SM_FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w8_d3_h3_A",
+      "min": [
+        -442.5,
+        -169.5625,
+        -3.0625
+      ],
+      "max": [
+        442.5,
+        169.5625,
+        305.4375
+      ],
+      "verts": 768537,
+      "skeletal": false,
+      "size_m": [
+        8.85,
+        3.39125,
+        3.085
+      ]
+    },
+    {
+      "path": "/Game/Env/HS/FR/ACR/Canyon_A_Bridge_A/FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w1i5_d6_h4_A/SM_FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w1i5_d6_h4_A.SM_FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w1i5_d6_h4_A",
+      "min": [
+        -64.0,
+        -280.75,
+        -0.125
+      ],
+      "max": [
+        64.0,
+        257.3125,
+        366.0
+      ],
+      "verts": 113726,
+      "skeletal": false,
+      "size_m": [
+        1.28,
+        5.380625,
+        3.66125
+      ]
+    },
+    {
+      "path": "/Game/Env/HS/FR/ACR/Canyon_A_SmallRoom/FR_ACR_Int_Canyon_A_SmallRoom_Wall_w9_d1_h5_A/SM_FR_ACR_Int_Canyon_A_SmallRoom_Wall_w9_d1_h5_A.SM_FR_ACR_Int_Canyon_A_SmallRoom_Wall_w9_d1_h5_A",
+      "min": [
+        -800.5,
+        -72.9375,
+        -0.1875
+      ],
+      "max": [
+        0.0625,
+        54.5,
+        520.0625
+      ],
+      "verts": 81637,
+      "skeletal": false,
+      "size_m": [
+        8.005625,
+        1.274375,
+        5.2025
+      ]
+    },
+    {
+      "path": "/Game/Env/HS/FR/ACR/Canyon_A_SmallRoom/FR_ACR_Int_Canyon_A_SmallRoom_Pillar_w2_d0i5_h5i5_A/SM_FR_ACR_Int_Canyon_A_SmallRoom_Pillar_w2_d0i5_h5i5_A.SM_FR_ACR_Int_Canyon_A_SmallRoom_Pillar_w2_d0i5_h5i5_A",
+      "min": [
+        -0.375,
+        -28.3125,
+        -20.125
+      ],
+      "max": [
+        200.25,
+        26.5625,
+        530.0625
+      ],
+      "verts": 28312,
+      "skeletal": false,
+      "size_m": [
+        2.00625,
+        0.54875,
+        5.501875
+      ]
+    }
+  ]
+}

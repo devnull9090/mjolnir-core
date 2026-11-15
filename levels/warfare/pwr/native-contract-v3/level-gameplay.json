@@ -1,0 +1,1400 @@
+{
+  "schema_version": 1,
+  "name": "pwr",
+  "game": "halo1",
+  "multiplayer": true,
+  "warfare": {
+    "protocol": 20569,
+    "layout_revision": 3
+  },
+  "variant": "warfare",
+  "modes": [
+    "koth"
+  ],
+  "koth_hills": [
+    [
+      -23200.0,
+      15600.0,
+      10983.4342,
+      2000.0
+    ],
+    [
+      0.0,
+      -51000.0,
+      12922.744,
+      2000.0
+    ],
+    [
+      24000.0,
+      17000.0,
+      11226.4621,
+      2000.0
+    ]
+  ],
+  "vehicle_sets": [
+    {
+      "type": "warthog",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_1"
+    },
+    {
+      "type": "warthog",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_2"
+    },
+    {
+      "type": "warthog",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_3"
+    },
+    {
+      "type": "warthog",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_4"
+    },
+    {
+      "type": "scorpion",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_scorpion_1"
+    },
+    {
+      "type": "scorpion",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_scorpion_2"
+    },
+    {
+      "type": "banshee",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_banshee_1"
+    },
+    {
+      "type": "banshee",
+      "team": "red",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_banshee_2"
+    },
+    {
+      "type": "warthog",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_1"
+    },
+    {
+      "type": "warthog",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_2"
+    },
+    {
+      "type": "warthog",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_3"
+    },
+    {
+      "type": "warthog",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_warthog_4"
+    },
+    {
+      "type": "scorpion",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_scorpion_1"
+    },
+    {
+      "type": "scorpion",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_scorpion_2"
+    },
+    {
+      "type": "banshee",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_banshee_1"
+    },
+    {
+      "type": "banshee",
+      "team": "blue",
+      "default": 7,
+      "allowed": 7,
+      "label": "ce_banshee_2"
+    }
+  ],
+  "canvas": {
+    "scenario": "B40",
+    "origin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "blam": {
+    "clear": {
+      "squads": true,
+      "bipeds": true,
+      "weapons": true,
+      "vehicles": true,
+      "equipment": true,
+      "scripts": true,
+      "blocks": [
+        "scenery",
+        "machines",
+        "terminals",
+        "controls",
+        "effect scenery",
+        "sound scenery",
+        "giants",
+        "squad groups",
+        "zones",
+        "actual cues",
+        "quick cues",
+        "trigger volumes",
+        "zone set switch trigger volumes",
+        "scenario kill triggers",
+        "cutscene titles",
+        "cutscene camera points",
+        "cutscene spline points",
+        "crates",
+        "device groups",
+        "object names",
+        "cutscene flags",
+        "cinematics",
+        "ai objectives",
+        "reference frames",
+        "user interface objectives block",
+        "ai user hint data",
+        "scripting data"
+      ]
+    },
+    "player_starts": [
+      {
+        "pos": [
+          -60800.0,
+          13000.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -59600.0,
+          13000.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -58400.0,
+          13000.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -57200.0,
+          13000.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -60800.0,
+          14300.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -59600.0,
+          14300.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -58400.0,
+          14300.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          -57200.0,
+          14300.0,
+          10905.5
+        ],
+        "yaw": -0.0
+      },
+      {
+        "pos": [
+          58200.0,
+          13000.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          59400.0,
+          13000.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          60600.0,
+          13000.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          61800.0,
+          13000.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          58200.0,
+          14300.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          59400.0,
+          14300.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          60600.0,
+          14300.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      },
+      {
+        "pos": [
+          61800.0,
+          14300.0,
+          11305.0
+        ],
+        "yaw": -180.0
+      }
+    ],
+    "vehicles": [
+      {
+        "type": "warthog",
+        "pos": [
+          -63800.0,
+          12200.0,
+          10910.2
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "30",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_1"
+        },
+        "name": "pwr_hog_red_0"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          -62200.0,
+          12200.0,
+          10910.2
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "37",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_2"
+        },
+        "name": "pwr_hog_red_1"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          -55800.0,
+          12200.0,
+          10910.2
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "33",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_3"
+        },
+        "name": "pwr_hog_red_2"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          -54200.0,
+          12200.0,
+          10910.2
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "40",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_4"
+        },
+        "name": "pwr_hog_red_3"
+      },
+      {
+        "type": "scorpion",
+        "pos": [
+          -63000.0,
+          14200.0,
+          10986.4
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "36",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_scorpion_1"
+        },
+        "name": "pwr_tank_red_0"
+      },
+      {
+        "type": "scorpion",
+        "pos": [
+          -55000.0,
+          14200.0,
+          10986.4
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "32",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_scorpion_2"
+        },
+        "name": "pwr_tank_red_1"
+      },
+      {
+        "type": "banshee",
+        "pos": [
+          -61500.0,
+          15800.0,
+          11051.4
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "39",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_banshee_1"
+        },
+        "name": "pwr_banshee_red_0"
+      },
+      {
+        "type": "banshee",
+        "pos": [
+          -56500.0,
+          15800.0,
+          11051.4
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "35",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_banshee_2"
+        },
+        "name": "pwr_banshee_red_1"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          55200.0,
+          12200.0,
+          11309.8
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "31",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_1"
+        },
+        "name": "pwr_hog_blue_0"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          56800.0,
+          12200.0,
+          11309.8
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "38",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_2"
+        },
+        "name": "pwr_hog_blue_1"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          63200.0,
+          12200.0,
+          11309.8
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "34",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_3"
+        },
+        "name": "pwr_hog_blue_2"
+      },
+      {
+        "type": "warthog",
+        "pos": [
+          64800.0,
+          12200.0,
+          11309.8
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "30",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_warthog_4"
+        },
+        "name": "pwr_hog_blue_3"
+      },
+      {
+        "type": "scorpion",
+        "pos": [
+          56000.0,
+          14200.0,
+          11386.0
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "37",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_scorpion_1"
+        },
+        "name": "pwr_tank_blue_0"
+      },
+      {
+        "type": "scorpion",
+        "pos": [
+          64000.0,
+          14200.0,
+          11386.0
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "33",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_scorpion_2"
+        },
+        "name": "pwr_tank_blue_1"
+      },
+      {
+        "type": "banshee",
+        "pos": [
+          57500.0,
+          15800.0,
+          11451.0
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "40",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_banshee_1"
+        },
+        "name": "pwr_banshee_blue_0"
+      },
+      {
+        "type": "banshee",
+        "pos": [
+          62500.0,
+          15800.0,
+          11451.0
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "36",
+          "multiplayer data.abandonment time": "30",
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.spawn flags": "0x4",
+          "object data.placement flags": "0x0",
+          "multiplayer data.megalo label": "ce_banshee_2"
+        },
+        "name": "pwr_banshee_blue_1"
+      },
+      {
+        "type": "pelican",
+        "tag": "objects\\mjolnir\\warfare\\pelican\\pwr_pelican",
+        "name": "pwr_pelican_red",
+        "pos": [
+          -85000.0,
+          18000.0,
+          55000.0
+        ],
+        "yaw": 0,
+        "placed": false
+      },
+      {
+        "type": "pelican",
+        "tag": "objects\\mjolnir\\warfare\\pelican\\pwr_pelican",
+        "name": "pwr_pelican_blue",
+        "pos": [
+          85000.0,
+          -18000.0,
+          55000.0
+        ],
+        "yaw": 180,
+        "placed": false
+      }
+    ],
+    "weapons": [
+      {
+        "type": "assault_rifle",
+        "pos": [
+          -60200.0,
+          12600.0,
+          10870.2
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "30",
+          "object data.placement flags": "0x0"
+        }
+      },
+      {
+        "type": "magnum",
+        "pos": [
+          -57800.0,
+          12600.0,
+          10870.2
+        ],
+        "yaw": -0.0,
+        "set": {
+          "multiplayer data.spawn time": "37",
+          "object data.placement flags": "0x0"
+        }
+      },
+      {
+        "type": "assault_rifle",
+        "pos": [
+          58800.0,
+          12600.0,
+          11269.8
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "33",
+          "object data.placement flags": "0x0"
+        }
+      },
+      {
+        "type": "magnum",
+        "pos": [
+          61200.0,
+          12600.0,
+          11269.8
+        ],
+        "yaw": -180.0,
+        "set": {
+          "multiplayer data.spawn time": "40",
+          "object data.placement flags": "0x0"
+        }
+      }
+    ],
+    "equipment": [],
+    "objects": [
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -60800.0,
+          13000.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -59600.0,
+          13000.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -58400.0,
+          13000.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -57200.0,
+          13000.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -60800.0,
+          14300.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -59600.0,
+          14300.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -58400.0,
+          14300.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          -57200.0,
+          14300.0,
+          10874.9763
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "defender",
+          "multiplayer data.megalo label": "ctf_spawn_red",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          58200.0,
+          13000.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          59400.0,
+          13000.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          60600.0,
+          13000.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          61800.0,
+          13000.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          58200.0,
+          14300.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          59400.0,
+          14300.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          60600.0,
+          14300.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          61800.0,
+          14300.0,
+          11274.5445
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "attacker",
+          "multiplayer data.megalo label": "ctf_spawn_blue",
+          "multiplayer data.spawn flags": "0x0"
+        }
+      },
+      {
+        "tag": "objects\\multi\\powerups\\health_pack_spot",
+        "group": "scenery",
+        "pos": [
+          -59000.0,
+          14000.0,
+          10855.0
+        ],
+        "rot": [
+          0,
+          -0.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "eighth party",
+          "multiplayer data.megalo label": "ce_health_pack"
+        }
+      },
+      {
+        "tag": "objects\\multi\\powerups\\health_pack_spot",
+        "group": "scenery",
+        "pos": [
+          60000.0,
+          14000.0,
+          11254.5
+        ],
+        "rot": [
+          0,
+          -180.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "eighth party",
+          "multiplayer data.megalo label": "ce_health_pack"
+        }
+      },
+      {
+        "tag": "objects\\multi\\ctf\\flag_stand",
+        "group": "scenery",
+        "pos": [
+          -23200.0,
+          15600.0,
+          10983.4342
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.megalo label": "koth_hill",
+          "multiplayer data.owner team": "eighth party",
+          "multiplayer data.spawn order": "0",
+          "multiplayer data.boundary shape": "cylinder",
+          "multiplayer data.boundary width or radius": "6.561679790026247",
+          "multiplayer data.boundary positive height": "1.3123359580052494",
+          "multiplayer data.boundary negative height": "0.32808398950131235"
+        }
+      },
+      {
+        "tag": "objects\\multi\\ctf\\flag_stand",
+        "group": "scenery",
+        "pos": [
+          0.0,
+          -51000.0,
+          12922.744
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.megalo label": "koth_hill",
+          "multiplayer data.owner team": "eighth party",
+          "multiplayer data.spawn order": "1",
+          "multiplayer data.boundary shape": "cylinder",
+          "multiplayer data.boundary width or radius": "6.561679790026247",
+          "multiplayer data.boundary positive height": "1.3123359580052494",
+          "multiplayer data.boundary negative height": "0.32808398950131235"
+        }
+      },
+      {
+        "tag": "objects\\multi\\ctf\\flag_stand",
+        "group": "scenery",
+        "pos": [
+          24000.0,
+          17000.0,
+          11226.4621
+        ],
+        "rot": [
+          0,
+          0,
+          0
+        ],
+        "set": {
+          "multiplayer data.megalo label": "koth_hill",
+          "multiplayer data.owner team": "eighth party",
+          "multiplayer data.spawn order": "2",
+          "multiplayer data.boundary shape": "cylinder",
+          "multiplayer data.boundary width or radius": "6.561679790026247",
+          "multiplayer data.boundary positive height": "1.3123359580052494",
+          "multiplayer data.boundary negative height": "0.32808398950131235"
+        }
+      }
+    ],
+    "world_bounds": [
+      {
+        "bsp": 8,
+        "min": [
+          -328.0839895013123,
+          -328.0839895013123,
+          -6.561679790026247
+        ],
+        "max": [
+          328.0839895013123,
+          328.0839895013123,
+          213.25459317585302
+        ]
+      }
+    ],
+    "set": {
+      "type": "multiplayer",
+      "zone sets[0].structure design zone flags": "0x0",
+      "zone sets[0].sruntime tructure design zone flags": "0x0"
+    },
+    "map_variant": true,
+    "active_bsps": [
+      8
+    ],
+    "single_bsp": 8,
+    "object_names": [
+      "pwr_pelican_red",
+      "pwr_pelican_blue",
+      "pwr_hog_red_0",
+      "pwr_hog_red_1",
+      "pwr_hog_red_2",
+      "pwr_hog_red_3",
+      "pwr_tank_red_0",
+      "pwr_tank_red_1",
+      "pwr_banshee_red_0",
+      "pwr_banshee_red_1",
+      "pwr_hog_blue_0",
+      "pwr_hog_blue_1",
+      "pwr_hog_blue_2",
+      "pwr_hog_blue_3",
+      "pwr_tank_blue_0",
+      "pwr_tank_blue_1",
+      "pwr_banshee_blue_0",
+      "pwr_banshee_blue_1"
+    ],
+    "trigger_volumes": [
+      {
+        "name": "pwr_probe_hog_red",
+        "pos": [
+          -64300.0,
+          12700.0,
+          10610.2
+        ],
+        "forward": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "extents": [
+          3.2808398950131235,
+          3.2808398950131235,
+          2.952755905511811
+        ]
+      },
+      {
+        "name": "pwr_probe_tank_red",
+        "pos": [
+          -63500.0,
+          14700.0,
+          10686.4
+        ],
+        "forward": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "extents": [
+          3.2808398950131235,
+          3.2808398950131235,
+          2.952755905511811
+        ]
+      },
+      {
+        "name": "pwr_probe_banshee_red",
+        "pos": [
+          -62150.0,
+          16450.0,
+          10751.4
+        ],
+        "forward": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "extents": [
+          4.2650918635170605,
+          4.2650918635170605,
+          2.952755905511811
+        ]
+      },
+      {
+        "name": "pwr_probe_hog_blue",
+        "pos": [
+          54700.0,
+          12700.0,
+          11009.8
+        ],
+        "forward": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "extents": [
+          3.2808398950131235,
+          3.2808398950131235,
+          2.952755905511811
+        ]
+      },
+      {
+        "name": "pwr_probe_tank_blue",
+        "pos": [
+          55500.0,
+          14700.0,
+          11086.0
+        ],
+        "forward": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "extents": [
+          3.2808398950131235,
+          3.2808398950131235,
+          2.952755905511811
+        ]
+      },
+      {
+        "name": "pwr_probe_banshee_blue",
+        "pos": [
+          56850.0,
+          16450.0,
+          11151.0
+        ],
+        "forward": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "extents": [
+          4.2650918635170605,
+          4.2650918635170605,
+          2.952755905511811
+        ]
+      }
+    ],
+    "cutscene_flags": [
+      {
+        "name": "pwr_warmup",
+        "pos": [
+          -56800.0,
+          13000.0,
+          10874.9763
+        ],
+        "yaw": 90
+      },
+      {
+        "name": "pwr_red_home",
+        "pos": [
+          -59000.0,
+          13000.0,
+          10914.9763
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_blue_home",
+        "pos": [
+          60000.0,
+          13000.0,
+          11314.5445
+        ],
+        "yaw": 180
+      },
+      {
+        "name": "pwr_red_drop",
+        "pos": [
+          -85000.0,
+          18000.0,
+          55000.0
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_blue_drop",
+        "pos": [
+          85000.0,
+          -18000.0,
+          55000.0
+        ],
+        "yaw": 180
+      },
+      {
+        "name": "pwr_capture_a",
+        "pos": [
+          -23200.0,
+          15600.0,
+          11103.4342
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_capture_b",
+        "pos": [
+          0.0,
+          -51000.0,
+          13042.744
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_capture_c",
+        "pos": [
+          24000.0,
+          17000.0,
+          11346.4621
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_red_flight_start",
+        "pos": [
+          -85000.0,
+          18000.0,
+          55000.0
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_red_flight_end",
+        "pos": [
+          85000.0,
+          18000.0,
+          55000.0
+        ],
+        "yaw": 0
+      },
+      {
+        "name": "pwr_blue_flight_start",
+        "pos": [
+          85000.0,
+          -18000.0,
+          55000.0
+        ],
+        "yaw": 180
+      },
+      {
+        "name": "pwr_blue_flight_end",
+        "pos": [
+          -85000.0,
+          -18000.0,
+          55000.0
+        ],
+        "yaw": 180
+      }
+    ]
+  }
+}

@@ -1,0 +1,411 @@
+{
+  "schema": "pwr-local-assets-v1",
+  "verified_on": "2026-11-09",
+  "source": "Installed Halo Campaign Evolved CU4 cooked packages, offline mjolnir mesh/ue reads",
+  "evidence": "out/pwr-research; extracted geometry remains local and is not redistributed",
+  "status": "Trees integrated and offline collision-tested; architecture/snow candidates have not been rendered or placed in PWR",
+  "trees": [
+    {
+      "mesh": "/Game/Env/Bio/Tree/Pine/Tree_Windswept_A/Meshes/SM_Tree_Sapling_Optimized",
+      "size_m": [
+        12.4925,
+        12.6475,
+        21.50125
+      ],
+      "bounds_cm": {
+        "min": [
+          -624.625,
+          -632.375,
+          -166.25
+        ],
+        "max": [
+          624.625,
+          632.375,
+          1983.875
+        ]
+      },
+      "export_vertices": 158730,
+      "recipe": "Pine_Optimized",
+      "selection_weight": 0.88,
+      "collision_material": "tough_organic_wood",
+      "collision_section": "MI_SaplingTrunk",
+      "collision_hull_triangles": 88
+    },
+    {
+      "mesh": "/Game/Env/Bio/Tree/Pine/Tree_Pine_Sapling_A/Meshes/SM_Tree_Pine_Sapling_A",
+      "size_m": [
+        1.16187,
+        1.45437,
+        2.11313
+      ],
+      "bounds_cm": {
+        "min": [
+          -60.5,
+          -82.8125,
+          -5.3125
+        ],
+        "max": [
+          55.6875,
+          62.625,
+          206.0
+        ]
+      },
+      "export_vertices": 23712,
+      "recipe": "Pine_Sapling_A",
+      "selection_weight": 0.12,
+      "collision_material": "tough_organic_wood",
+      "collision_section": "Bark_Mat",
+      "collision_hull_triangles": 62
+    }
+  ],
+  "tree_rejection": {
+    "recipe": "Lrg_A",
+    "reason": "B30 Maned Kuenovo broadleaf silhouette; unsuitable as dominant alpine conifer"
+  },
+  "architecture": [
+    {
+      "mesh": "/Game/Env/HS/FR/ACR/Canyon_A_Bridge_A/FR_ACR_Ext_Canyon_A_Bridge_A_Doorframe_w9_d1i5_h16_A/SM_FR_ACR_Ext_Canyon_A_Bridge_A_Doorframe_w9_d1i5_h16_A",
+      "size_m": [
+        11.8275,
+        2.12,
+        13.90125
+      ],
+      "bounds_cm": {
+        "min": [
+          -591.375,
+          -212.0,
+          -0.0625
+        ],
+        "max": [
+          591.375,
+          0.0,
+          1390.0625
+        ]
+      },
+      "export_vertices": 145070,
+      "use": "base portal"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/ACR/Canyon_A_Bridge_A/FR_ACR_Ext_Canyon_A_Bridge_A_Floor_w30_d15_h1i5_A/SM_FR_ACR_Ext_Canyon_A_Bridge_A_Floor_w30_d15_h1i5_A",
+      "size_m": [
+        32.61375,
+        23.92188,
+        1.75313
+      ],
+      "bounds_cm": {
+        "min": [
+          -1630.6875,
+          -2391.9375,
+          -70.25
+        ],
+        "max": [
+          1630.6875,
+          0.25,
+          105.0625
+        ]
+      },
+      "export_vertices": 395476,
+      "use": "wide bridge deck"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/ACR/Canyon_A_Bridge_A/FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w12_d17_h26_A/SM_FR_ACR_Ext_Canyon_A_Bridge_A_Pillar_w12_d17_h26_A",
+      "size_m": [
+        12.78875,
+        18.54312,
+        27.45625
+      ],
+      "bounds_cm": {
+        "min": [
+          -639.25,
+          -1854.125,
+          -8.1875
+        ],
+        "max": [
+          639.625,
+          0.1875,
+          2737.4375
+        ]
+      },
+      "export_vertices": 328364,
+      "use": "bridge support"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/ACR/Canyon_B_Ziggurat/FR_ACR_Ext_Canyon_B_Ziggurat_Pillar_w10_d40_h62_A/SM_FR_ACR_Ext_Canyon_B_Ziggurat_Pillar_w10_d40_h62_A",
+      "size_m": [
+        10.6,
+        40.71437,
+        62.2075
+      ],
+      "bounds_cm": {
+        "min": [
+          -680.0,
+          -6303.875,
+          6124.9375
+        ],
+        "max": [
+          380.0,
+          -2232.4375,
+          12345.6875
+        ]
+      },
+      "export_vertices": 191200,
+      "use": "citadel buttress"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/ACR/Canyon_B_Ziggurat/FR_ACR_Ext_Canyon_B_Ziggurat_Pillar_w11_d18_h29_A/SM_FR_ACR_Ext_Canyon_B_Ziggurat_Pillar_w11_d18_h29_A",
+      "size_m": [
+        11.37688,
+        17.55625,
+        28.76438
+      ],
+      "bounds_cm": {
+        "min": [
+          700.125,
+          -606.5625,
+          2895.9375
+        ],
+        "max": [
+          1837.8125,
+          1149.0625,
+          5772.375
+        ]
+      },
+      "export_vertices": 116390,
+      "use": "citadel lower buttress"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/ACR/Canyon_B_Ziggurat/FR_ACR_Ext_Canyon_B_Ziggurat_Platform_Floor_w24_d40_h1_A/SM_FR_ACR_Ext_Canyon_B_Ziggurat_Platform_Floor_w24_d40_h1_A",
+      "size_m": [
+        23.99875,
+        40.30313,
+        1.07875
+      ],
+      "bounds_cm": {
+        "min": [
+          3371.6875,
+          -2959.8125,
+          -102.5
+        ],
+        "max": [
+          5771.5625,
+          1070.5,
+          5.375
+        ]
+      },
+      "export_vertices": 94325,
+      "use": "citadel platform"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/HAL/Ext_Terminal_A_Beam_Emitter/FR_HAL_Ext_Terminal_BeamEmitter_Sail_Anterior_Mid_Top_w3_d14_h37_A/SM_FR_HAL_Ext_Terminal_BeamEmitter_Sail_Anterior_Mid_Top_w3_d14_h37_A",
+      "size_m": [
+        2.97688,
+        13.86562,
+        37.175
+      ],
+      "bounds_cm": {
+        "min": [
+          -148.8125,
+          -505.625,
+          -73.4375
+        ],
+        "max": [
+          148.875,
+          880.9375,
+          3644.0625
+        ]
+      },
+      "export_vertices": 68044,
+      "use": "beam tower upper sail"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/HAL/Ext_Terminal_A_Beam_Emitter/FR_HAL_Ext_Terminal_BeamEmitter_Sail_Posterior_Shell_Mid_Top_w4_d18_h53_A/SM_FR_HAL_Ext_Terminal_BeamEmitter_Sail_Posterior_Shell_Mid_Top_w4_d18_h53_A",
+      "size_m": [
+        2.01938,
+        17.25,
+        52.79375
+      ],
+      "bounds_cm": {
+        "min": [
+          -101.4375,
+          257.5,
+          -12.8125
+        ],
+        "max": [
+          100.5,
+          1982.5,
+          5266.5625
+        ]
+      },
+      "export_vertices": 48345,
+      "use": "beam tower rear sail"
+    },
+    {
+      "mesh": "/Game/Env/HS/FR/HAL/Ext_Terminal_A_Beam_Emitter/FR_HAL_Ext_Terminal_Platform_Deck_Ramp_Floor_Deg15_30_w12_d40_h12_A/SM_FR_HAL_Ext_Terminal_Platform_Deck_Ramp_Floor_Deg15_30_w12_d40_h12_A",
+      "size_m": [
+        11.59563,
+        41.9925,
+        11.72
+      ],
+      "bounds_cm": {
+        "min": [
+          -906.3125,
+          -261.375,
+          -1189.375
+        ],
+        "max": [
+          253.25,
+          3937.875,
+          -17.375
+        ]
+      },
+      "export_vertices": 72547,
+      "use": "pedestrian ramp, steep for primary vehicle road"
+    }
+  ],
+  "architecture_note": "These are parts of campaign assemblies, not complete buildings. Bounds may differ from dimensions embedded in names. Rendering alone supplies no Blam collision; author explicit surface/compound collision for walkable structures and preserve openings. Inventory contains 3591 FR static meshes.",
+  "glacial_rocks": [
+    {
+      "mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_A/SM_Rock_Glacial_Lrg_A",
+      "size_m": [
+        9.30125,
+        9.76062,
+        8.63063
+      ],
+      "bounds_cm": {
+        "min": [
+          -485.1875,
+          -522.875,
+          -57.5
+        ],
+        "max": [
+          444.9375,
+          453.1875,
+          805.5625
+        ]
+      },
+      "export_vertices": 109123
+    },
+    {
+      "mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_B/SM_Rock_Glacial_Lrg_B",
+      "size_m": [
+        11.49125,
+        14.92375,
+        8.8675
+      ],
+      "bounds_cm": {
+        "min": [
+          -638.5625,
+          -785.125,
+          -213.375
+        ],
+        "max": [
+          510.5625,
+          707.25,
+          673.375
+        ]
+      },
+      "export_vertices": 109962
+    },
+    {
+      "mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_C/SM_Rock_Glacial_Lrg_C",
+      "size_m": [
+        11.665,
+        21.44312,
+        12.16437
+      ],
+      "bounds_cm": {
+        "min": [
+          -647.75,
+          -1346.8125,
+          -155.125
+        ],
+        "max": [
+          518.75,
+          797.5,
+          1061.3125
+        ]
+      },
+      "export_vertices": 110213
+    },
+    {
+      "mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A",
+      "size_m": [
+        6.48937,
+        5.29063,
+        3.8
+      ],
+      "bounds_cm": {
+        "min": [
+          -320.75,
+          -250.4375,
+          -71.875
+        ],
+        "max": [
+          328.1875,
+          278.625,
+          308.125
+        ]
+      },
+      "export_vertices": 64230
+    },
+    {
+      "mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B",
+      "size_m": [
+        4.47813,
+        3.5475,
+        2.91812
+      ],
+      "bounds_cm": {
+        "min": [
+          -235.1875,
+          -144.125,
+          -29.3125
+        ],
+        "max": [
+          212.625,
+          210.625,
+          262.5
+        ]
+      },
+      "export_vertices": 79802
+    },
+    {
+      "mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C",
+      "size_m": [
+        5.41875,
+        4.31375,
+        2.95125
+      ],
+      "bounds_cm": {
+        "min": [
+          -238.375,
+          -203.75,
+          -59.1875
+        ],
+        "max": [
+          303.5,
+          227.625,
+          235.9375
+        ]
+      },
+      "export_vertices": 58594
+    }
+  ],
+  "snow_materials": [
+    {
+      "path": "/Game/Env/Bio/Ground/Soil/Materials/MI_Soil_Snow",
+      "class": "MaterialInstanceConstant",
+      "use": "native snow surface candidate; verify landscape compatibility before assignment"
+    },
+    {
+      "path": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Lrg_B/Materials/MI_Rock_AllSnow",
+      "class": "MaterialInstanceConstant",
+      "use": "snow-covered rock candidate"
+    }
+  ],
+  "snow_tree_materials": {
+    "trunk": "/Game/Levels/Halo1/Solo/B40/PCG/Assemblies/DouglasFir_SnowDead/MI_DouglasFirTrunk_Snow",
+    "branch": "/Game/Levels/Halo1/Solo/B40/PCG/Assemblies/DouglasFir_SnowDead/MI_DouglasFirBranch_Snow",
+    "integration": "Existing scenery_swap SNOW material overrides and b40_tree_recipes.json; do not apply blindly to complete green pines."
+  }
+}

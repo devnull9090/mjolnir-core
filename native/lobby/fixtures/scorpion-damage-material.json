@@ -1,0 +1,256 @@
+{
+  "schema": "pwr-stock-script-damage-map-v1",
+  "stock_model": "../../../Meteorite/Content/Tags/objects/Vehicles/human/Scorpion/scorpion-model.ubulk",
+  "source_sha256": "fd700aa563e908f15197dc01c4c400faeecca614aaf780f562610734982d36ed",
+  "native_material_lookup": {
+    "evaluator_rva": "0x1b4260",
+    "dispatch_rva": "0x352250",
+    "count_offset": 156,
+    "entry_size": 20,
+    "name_offset": 0
+  },
+  "material_table_offset": 156,
+  "material_stride": 20,
+  "materials": [
+    {
+      "name": "backhatch",
+      "damage_section": 7
+    },
+    {
+      "name": "cab_hatch",
+      "damage_section": 8
+    },
+    {
+      "name": "hull_back",
+      "damage_section": 0
+    },
+    {
+      "name": "hull_front_left",
+      "damage_section": 1
+    },
+    {
+      "name": "hull_front_right",
+      "damage_section": 2
+    },
+    {
+      "name": "lamp_left",
+      "damage_section": 12
+    },
+    {
+      "name": "lamp_right",
+      "damage_section": 13
+    },
+    {
+      "name": "mounts_l",
+      "damage_section": 26
+    },
+    {
+      "name": "rearbar",
+      "damage_section": 34
+    },
+    {
+      "name": "rearbox_l",
+      "damage_section": 28
+    },
+    {
+      "name": "rearbox_r",
+      "damage_section": 29
+    },
+    {
+      "name": "rearbumper_l",
+      "damage_section": 27
+    },
+    {
+      "name": "rearpanel_a_l",
+      "damage_section": 20
+    },
+    {
+      "name": "rearpanel_a_r",
+      "damage_section": 22
+    },
+    {
+      "name": "rearpanel_b_l",
+      "damage_section": 21
+    },
+    {
+      "name": "rearpanel_b_r",
+      "damage_section": 23
+    },
+    {
+      "name": "rearpanel_c_r",
+      "damage_section": 24
+    },
+    {
+      "name": "sidepanel_a_l",
+      "damage_section": 18
+    },
+    {
+      "name": "sidepanel_a_r",
+      "damage_section": 14
+    },
+    {
+      "name": "sidepanel_b_l",
+      "damage_section": 19
+    },
+    {
+      "name": "sidepanel_b_r",
+      "damage_section": 15
+    },
+    {
+      "name": "sidepanel_c_r",
+      "damage_section": 16
+    },
+    {
+      "name": "sidepanel_d_r",
+      "damage_section": 17
+    },
+    {
+      "name": "skirt_bl_a",
+      "damage_section": 47
+    },
+    {
+      "name": "skirt_bl_b",
+      "damage_section": 48
+    },
+    {
+      "name": "skirt_bl_c",
+      "damage_section": 49
+    },
+    {
+      "name": "skirt_bl_d",
+      "damage_section": 50
+    },
+    {
+      "name": "skirt_br_a",
+      "damage_section": 43
+    },
+    {
+      "name": "skirt_br_b",
+      "damage_section": 44
+    },
+    {
+      "name": "skirt_br_c",
+      "damage_section": 45
+    },
+    {
+      "name": "skirt_br_d",
+      "damage_section": 46
+    },
+    {
+      "name": "skirt_fl_a",
+      "damage_section": 56
+    },
+    {
+      "name": "skirt_fl_b",
+      "damage_section": 57
+    },
+    {
+      "name": "skirt_fl_c",
+      "damage_section": 58
+    },
+    {
+      "name": "skirt_fl_d",
+      "damage_section": 59
+    },
+    {
+      "name": "skirt_fl_e",
+      "damage_section": 60
+    },
+    {
+      "name": "skirt_fr_a",
+      "damage_section": 51
+    },
+    {
+      "name": "skirt_fr_b",
+      "damage_section": 52
+    },
+    {
+      "name": "skirt_fr_c",
+      "damage_section": 53
+    },
+    {
+      "name": "skirt_fr_d",
+      "damage_section": 54
+    },
+    {
+      "name": "skirt_fr_e",
+      "damage_section": 55
+    },
+    {
+      "name": "toppanel_a_l",
+      "damage_section": 30
+    },
+    {
+      "name": "toppanel_a_r",
+      "damage_section": 31
+    },
+    {
+      "name": "toppanel_b_r",
+      "damage_section": 32
+    },
+    {
+      "name": "toppanel_c_r",
+      "damage_section": 33
+    },
+    {
+      "name": "tread_back_left",
+      "damage_section": 5
+    },
+    {
+      "name": "tread_back_right",
+      "damage_section": 6
+    },
+    {
+      "name": "tread_bl_a",
+      "damage_section": 41
+    },
+    {
+      "name": "tread_bl_b",
+      "damage_section": 42
+    },
+    {
+      "name": "tread_br_a",
+      "damage_section": 37
+    },
+    {
+      "name": "tread_br_b",
+      "damage_section": 38
+    },
+    {
+      "name": "tread_fl_a",
+      "damage_section": 39
+    },
+    {
+      "name": "tread_fl_b",
+      "damage_section": 40
+    },
+    {
+      "name": "tread_fr_a",
+      "damage_section": 35
+    },
+    {
+      "name": "tread_fr_b",
+      "damage_section": 36
+    },
+    {
+      "name": "tread_front_left",
+      "damage_section": 3
+    },
+    {
+      "name": "tread_front_right",
+      "damage_section": 4
+    },
+    {
+      "name": "vent_left",
+      "damage_section": 10
+    },
+    {
+      "name": "vent_right",
+      "damage_section": 11
+    },
+    {
+      "name": "windowport_l",
+      "damage_section": 25
+    }
+  ]
+}

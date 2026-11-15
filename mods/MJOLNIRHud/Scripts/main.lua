@@ -46,15 +46,21 @@ local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
+local TacticalMap = dofile(MOD_DIR .. "\\Scripts\\tactical_map.lua")
+local Tactical
 local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
+do
+    local ok, modes = pcall(dofile, LOADER_DIR .. "\\Scripts\\mode_descriptors.lua")
+    if ok and type(modes) == "table" then Scoreboard.registerModes(modes) end
+end
 
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
 local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
-    "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat",
+    "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat", "WBP_MJOLNIRTacticalMap",
 }, Log)
 Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
 
@@ -142,6 +148,12 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Race = dofile(MOD_DIR .. "\\Scripts\\race.lua"),
     Juggernaut = dofile(MOD_DIR .. "\\Scripts\\juggernaut.lua"),
     FlagMark = dofile(MOD_DIR .. "\\Scripts\\flagmark.lua"),
+    Warfare = dofile(MOD_DIR .. "\\Scripts\\warfare.lua"),
+    Canopy = dofile(MOD_DIR .. "\\Scripts\\warfare_canopy.lua"),
+    readWarfare = function()
+        return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
+            .. "\\MJOLNIRLobby\\native\\warfare_state.txt")
+    end,
     Board = Scoreboard,
     log = Log,
     readLevel = function(map)
@@ -746,6 +758,12 @@ HANDLERS.player_rejoined = HANDLERS.player_joined
 --- the fireteam back to the lobby with a seamless travel.
 local function finishMatch(how)
     if Match.over then return end
+    -- The incident can beat the next 500 ms native publication. Give the
+    -- final authoritative score a short presentation-only grace period.
+    if Match.mode.family == "warfare" and not Match.warfareEnd then
+        Match.warfareEnd = { how = how, at = now() + 1.5 }
+        return
+    end
     refreshNames()
     local parts = {}
     for index, p in pairs(Match.players) do
@@ -1223,7 +1241,7 @@ local function drawBoard()
         setText(Board.Subtitle, string.upper(Match.title or Match.code) .. "   /   " ..
             string.format("FIRST TO %d %s", mode.toWin, string.upper(mode.unit)))
     end
-    setText(Board.ScoreH, mode.stat == "captures" and "CAPTURES" or mode.family == "race" and string.upper(mode.unit) or "SCORE")
+    setText(Board.ScoreH, mode.scoreHeading or (mode.stat == "captures" and "CAPTURES" or mode.family == "race" and string.upper(mode.unit) or "SCORE"))
     refreshNames()
     local totals = Scoreboard.totals(Match)
     local rows = Scoreboard.rows(Match.players, mode, totals)
@@ -1256,7 +1274,7 @@ local function drawBoard()
             -- yet (joined mid-match) counts as alive.
             local dead = p and p.dead
             setText(Board["Marker" .. i], dead and "DEAD" or (you and "YOU" or ""))
-            setText(Board["Score" .. i], p and tostring(score(p)) or (entry.total and tostring(entry.total) or ""))
+            setText(Board["Score" .. i], p and (mode.teamOnlyScore and "-" or tostring(score(p))) or (entry.total and tostring(entry.total) or ""))
             setText(Board["Kills" .. i], p and tostring(p.kills) or "")
             setText(Board["Deaths" .. i], p and tostring(p.deaths) or "")
             local color = you and ROW_YOU or ((i % 2 == 0) and ROW_EVEN or ROW_ODD)
@@ -1668,6 +1686,7 @@ local function ensureFrameHook()
 end
 
 local function endMatch()
+    if Tactical then Tactical.close(true) end
     local okChat, errChat = pcall(Chat.finish)
     if not okChat then Log("chat: " .. tostring(errChat)) end
     if Match and MatchLog.recording() then
@@ -1860,7 +1879,7 @@ local function tick()
     refreshLocalPlayer()
     Match.host = isHostWorld(pc)
     pcall(findBipeds)
-    Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
+    if Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER, code) then boardDirty = true end
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets.
     if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then
@@ -1897,7 +1916,17 @@ local function tick()
     logSafely("tick", matchLogTick, pc)
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
+    if Tactical then
+        local okMap, errMap = pcall(Tactical.tick)
+        if not okMap then Tactical.close(); Log("tactical map: " .. tostring(errMap)) end
+    end
     drain()
+    if Match.warfareEnd and not Match.over then
+        local snapshot = Match.warfare and Match.warfare.snapshot
+        if (snapshot and snapshot.phase == 3) or now() >= Match.warfareEnd.at then
+            finishMatch(Match.warfareEnd.how)
+        end
+    end
     publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
@@ -2090,6 +2119,21 @@ logSafely("init", MatchLog.init, {
     log = Log,
     version = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"'),
 })
+
+do
+    local nativeDir = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native"
+    local pump = package.loadlib(nativeDir .. "\\mjolnir_lobby.dll", "mjolnir_warfare_map_pump")
+    Tactical = TacticalMap.new({
+        now=now, log=Log, createWidget=createWidget,
+        match=function() return Match end,
+        hidden=function() return HudHidden end,
+        blocked=Chat.inputActive,
+        localIndex=function() return LOCAL_PLAYER end,
+        pump=pump,
+        read=function() return readFile(nativeDir .. "\\warfare_map.txt") end,
+    })
+    Tactical.bind()
+end
 
 Log("Module loaded.")
 ExecuteInGameThreadWithDelay(5000, poll)

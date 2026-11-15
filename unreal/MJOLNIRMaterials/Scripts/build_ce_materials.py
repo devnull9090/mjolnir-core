@@ -2318,6 +2318,63 @@ LAND_PBR_CODE = r"""
 #define LP_ROT(uv, k) (float2((uv).x * 0.8 - (uv).y * 0.6, (uv).x * 0.6 + (uv).y * 0.8) * (k) + 0.31)
 #define LP_NRM(T, S, a, b, w) (lerp(Texture2DSample(T, S, a).rg, Texture2DSample(T, S, b).rg, w) * 2.0 - 1.0)
 
+// Alpine2 only: three randomly offset/quarter-turned tiles at triangle-grid
+// vertices. Cubic barycentrics meet continuously on edges. Explicit gradients
+// come from unjittered UVs, never the discontinuous hash/vertex selection.
+struct LPStochastic
+{
+    static float2 turn(float2 p, int r)
+    {
+        if (r == 1) return float2(-p.y, p.x);
+        if (r == 2) return -p;
+        if (r == 3) return float2(p.y, -p.x);
+        return p;
+    }
+    static float4 tileBlend(Texture2D tex, SamplerState smp, float2 uv, float2 gx, float2 gy, bool normalMap)
+    {
+        float2 base = floor(uv), f = frac(uv);
+        bool upper = f.x + f.y > 1.0;
+        float2 v0 = base + (upper ? 1.0.xx : 0.0.xx);
+        float2 v1 = base + float2(1, 0), v2 = base + float2(0, 1);
+        float3 weights = upper ? float3(f.x+f.y-1.0, 1.0-f.y, 1.0-f.x)
+                               : float3(1.0-f.x-f.y, f.x, f.y);
+        weights = weights*weights*weights;
+        weights /= max(dot(weights, 1.0.xxx), 1e-6);
+        float4 result = 0.0;
+        // A biased mip-average must not rotate into a new geometric tilt in
+        // each tile. Remove that DC slope; fade sub-pixel perturbations using
+        // the unjittered footprint, while preserving the actual vertex normal.
+        float normalDetail = 1.0-smoothstep(.08,.45,max(length(gx),length(gy)));
+        [branch] if(normalMap && normalDetail<=0.0) return float4(0,0,1,1);
+        float2 meanNormal = normalMap ? Texture2DSampleLevel(tex,smp,.5.xx,13).rg*2.0-1.0 : 0.0.xx;
+        [unroll] for (int i=0; i<3; ++i)
+        {
+            float2 vertex = i == 0 ? v0 : (i == 1 ? v1 : v2);
+            float2 hash = frac(sin(float2(dot(vertex, float2(127.1,311.7)),
+                                         dot(vertex, float2(269.5,183.3))))*43758.5453);
+            int rotation = (int)floor(hash.x*4.0);
+            float4 value = Texture2DSampleGrad(tex, smp, turn(uv, rotation)+hash,
+                                                turn(gx, rotation), turn(gy, rotation));
+            if (normalMap) value.rg = turn(value.rg*2.0-1.0-meanNormal, (4-rotation)%4)*normalDetail;
+            result += value*weights[i];
+        }
+        return result;
+    }
+    static float3 rockColour(Texture2D tex, SamplerState smp, float2 uv, float2 gx, float2 gy)
+    {
+        // Coherent fractures at23m survive the aerial view; the6.5m scan
+        // still supplies nearby grain. Once finer grain is subpixel use its
+        // real mean, not an aliased triangle-grid blend of mip averages.
+        float footprint=max(length(gx),length(gy));
+        float3 fine=Texture2DSampleLevel(tex,smp,.5.xx,13).rgb;
+        [branch] if(footprint<.28)
+            fine=tileBlend(tex,smp,uv,gx,gy,false).rgb;
+        float3 broad=tileBlend(tex,smp,uv*.28+17.3,gx*.28,gy*.28,false).rgb;
+        float3 average=Texture2DSampleLevel(tex,smp,.5.xx,13).rgb;
+        return fine*clamp(broad/max(average,1e-3),.45,1.70);
+    }
+};
+
 // The deformation map's centre from the game's globals (FootFromMPC).
 if (FootFromMpc > 0.5) FootRect.xy = FootMpc.xy;
 float2 luv = (W.xy - LandRect.xy) / LandRect.zw;
@@ -2325,6 +2382,17 @@ float2 luv = (W.xy - LandRect.xy) / LandRect.zw;
 // (MeshUV) its own base map and lightmap page by its own UVs, which hold the
 // right layer where a plateau overhangs the beach (the bakes hold the lower).
 float4 ce = Texture2DSample(Base, BaseSampler, MeshUV > 0.5 ? TC0 : luv);
+// Explicit Alpine mode2 stores terrain-derived rock/snow/soil in Base RGB;
+// alpha still carries the unchanged road mask. Never interpret these masks
+// as CE colour/green vegetation. Mode0/1 retain their previous format.
+float3 geology = ce.rgb;
+if (Alpine.w > 1.5) ce.rgb = 0.533.xxx;
+float4 ecology = float4(.35,0,0,.25);
+float4 surfaceDetail = 0.0;
+if (Alpine.w > 1.5 && EcologyInfo.x > .5)
+    ecology = Texture2DSample(Ecology,EcologySampler,luv);
+if (Alpine.w > 1.5 && SurfaceDataInfo.x > .5)
+    surfaceDetail = Texture2DSample(SurfaceData,SurfaceDataSampler,luv);
 // Ice (Ice: darkness from, to, flattening, strength; off at 0): where CE's
 // base map is painted dark, as Ice Fields' frozen pond is (a blue-black
 // shape with feathered edges on its snow), glassy ice in IceColor (tint,
@@ -2352,6 +2420,40 @@ grass = max(grass, smoothstep(0.03, 0.10, ce.g - max(ce.r, ce.b)));
 float rag2 = LP_NOISE(W.xy / 160.0 + 1.7) * 0.65 + LP_NOISE(W.xy / 45.0 + 6.2) * 0.35 - 0.5;
 float bankZ = normalize(Nw).z + rag2 * 0.14;
 grass = max(grass, smoothstep(Slope.x, Slope.y, bankZ) * Slope.z);
+if (Alpine.w > 1.5 && EcologyInfo.x > .5)
+{
+    // Irregular shoulders stay inside the existing feather; this never
+    // repaints Base alpha or narrows the native road/vehicle geometry.
+    float shoulder = ce.a*(1.0-ce.a)*4.0;
+    float breakup = LP_NOISE(W.xy/650.0+7.3)*.6 + LP_NOISE(W.xy/180.0+21.7)*.4;
+    grass = saturate(grass + (breakup-.5)*shoulder*.65);
+    float soilOpening = smoothstep(.13,.43,ecology.b);
+    float litterOpening = smoothstep(.40,.88,ecology.g)*.18;
+    grass *= 1.0-max(soilOpening*.85,litterOpening);
+}
+// Alpine meadow/soil patches have a persistent world-space shape at every
+// viewing distance. They only wear through existing grass, so painted roads
+// and aprons remain clear. Warped 25..95 m patches avoid a regular noise grid.
+float alpinePatch = 0.5;
+float2 alpineWarp = 0.0;
+if (Alpine.w > 0.0)
+{
+    float2 patchWarp = float2(LP_NOISE(W.xy / 13000.0 + 7.1),
+                             LP_NOISE(W.xy / 13000.0 + 31.7)) - 0.5;
+    float2 patchPos = W.xy + patchWarp * 5500.0;
+    alpinePatch = LP_NOISE(patchPos / 9500.0 + 13.7) * 0.65
+                + LP_NOISE(patchPos / 2500.0 + 31.2) * 0.35;
+    if (Alpine.w > 1.5)
+    {
+        alpinePatch = saturate(alpinePatch - geology.b * 0.35);
+        grass *= 1.0 - geology.b * 0.8;
+    }
+    else grass *= 1.0 - smoothstep(0.48, 0.76, 1.0 - alpinePatch) * 0.72;
+    // Under one metre of slow UV distortion breaks the repeating path
+    // stones without moving footprints, world geometry or the road mask.
+    alpineWarp = (float2(LP_NOISE(W.xy / 1700.0 + 3.1),
+                        LP_NOISE(W.xy / 1700.0 + 27.6)) - 0.5) * 180.0;
+}
 float h = W.z - Sea.x; // cm over the sea
 float hasSea = Sea.w > 0.5 ? 1.0 : 0.0;
 float rtop = Sea.y * (0.75 + 0.5 * LP_NOISE(W.xy / 900.0 + 3.1));
@@ -2420,15 +2522,58 @@ if (parD > 0.05 && Par.w >= 1.0)
     #undef LP_FOOT
 }
 
+float2 pDx = ddx(P), pDy = ddy(P);
+float3 wDx = ddx(W), wDy = ddy(W);
+// Alpine2 samples only its active meadow/path layers. All legacy maps keep
+// their existing texture recipe and two-tap behavior below.
+float3 sandA = 0.0; float2 sandN = 0.0;
+float4 sandO = float4(1.0, 0.85, 0.5, 0.0);
+[branch] if (Alpine.w > 1.5)
+{
+    [branch] if (grass < 0.998)
+    {
+        float2 uv = P / max(Tiles.x, 1.0);
+        float4 sd = surfaceDetail;
+        float lateral = abs((sd.b*2.0-1.0)*SurfaceDataInfo.y);
+        // Traffic bands wander and break where runoff/deposits collect.
+        // World-stable variation avoids a discontinuous dot(position,tangent)
+        // phase at curved-road segment joins. The signed distance stays exact.
+        float drift = (LP_NOISE(W.xy/1900.0+13.1)-.5)*110.0;
+        float wearPatch = LP_NOISE(W.xy/3100.0+27.9)*.65+LP_NOISE(W.xy/730.0+5.2)*.35;
+        float width = lerp(65.0,115.0,ecology.a);
+        float wheels = max(exp(-pow((lateral-280.0-drift)/width,2.0)),
+                           exp(-pow((lateral-510.0-drift)/width,2.0)))*sd.a;
+        wheels *= smoothstep(.22,.65,wearPatch)*(1.0-ecology.a*.5);
+        float shoulderGravel = smoothstep(650.0,1150.0,lateral)*sd.a;
+        float gravel = saturate(.28+wheels*.38+shoulderGravel*.28+(wearPatch-.5)*.22);
+        gravel *= 1.0-ecology.g*.55;
+        float3 earth = LPStochastic::tileBlend(SandD, SandDSampler, uv, pDx/max(Tiles.x,1.0), pDy/max(Tiles.x,1.0), false).rgb;
+        float3 stone = LPStochastic::tileBlend(MidD, MidDSampler, uv*0.74+13.7, pDx*0.74/max(Tiles.x,1.0), pDy*0.74/max(Tiles.x,1.0), false).rgb;
+        sandA = lerp(earth, stone, gravel)*SandTint.rgb;
+        // Native path colour at18m supplies coherent erosion/deposition
+        // mottling after small pebbles mip away; it changes no geometry.
+        float3 roadMacro=LPStochastic::tileBlend(SandD,SandDSampler,P/1800.0+41.2,pDx/1800.0,pDy/1800.0,false).rgb;
+        float3 roadMean=Texture2DSampleLevel(SandD,SandDSampler,.5.xx,13).rgb;
+        sandA*=lerp(1.0.xxx,clamp(roadMacro/max(roadMean,1e-3),.55,1.55),.42);
+        sandN = lerp(LPStochastic::tileBlend(SandN, SandNSampler, uv, pDx/max(Tiles.x,1.0), pDy/max(Tiles.x,1.0), true).rg,
+                     LPStochastic::tileBlend(MidN, MidNSampler, uv*0.74+13.7, pDx*0.74/max(Tiles.x,1.0), pDy*0.74/max(Tiles.x,1.0), true).rg, gravel);
+        sandO = lerp(LPStochastic::tileBlend(SandO, SandOSampler, uv, pDx/max(Tiles.x,1.0), pDy/max(Tiles.x,1.0), false),
+                     LPStochastic::tileBlend(MidO, MidOSampler, uv*0.74+13.7, pDx*0.74/max(Tiles.x,1.0), pDy*0.74/max(Tiles.x,1.0), false), gravel);
+        sandA *= (1.0-wheels*.12)*lerp(1.02,.76,ecology.r*ecology.g);
+        sandN *= 1.0-wheels*0.30;
+    }
+}
+else
+{
 // Sand, flat and rippled.
-float2 su = P / max(Tiles.x, 1.0); float2 su2 = LP_ROT(su, 0.43);
-float3 sandA = lerp(Texture2DSample(SandD, SandDSampler, su).rgb, Texture2DSample(SandD, SandDSampler, su2).rgb, w);
-float2 sandN = LP_NRM(SandN, SandNSampler, su, su2, w);
-float4 sandO = lerp(Texture2DSample(SandO, SandOSampler, su), Texture2DSample(SandO, SandOSampler, su2), w);
+float2 su = (P + alpineWarp) / max(Tiles.x, 1.0); float2 su2 = LP_ROT(su, 0.43);
+sandA = lerp(Texture2DSample(SandD, SandDSampler, su).rgb, Texture2DSample(SandD, SandDSampler, su2).rgb, w);
+sandN = LP_NRM(SandN, SandNSampler, su, su2, w);
+sandO = lerp(Texture2DSample(SandO, SandOSampler, su), Texture2DSample(SandO, SandOSampler, su2), w);
 // A second sand (B30's darker beach sand) over patches tens of metres
 // across, and the grain's contrast raised (Look.y): at dusk the light is
 // flat and the sand's own colour has to carry it.
-float2 bu = P / max(Tiles.x * 1.3, 1.0) + 0.43;
+float2 bu = (P + alpineWarp) / max(Tiles.x * 1.3, 1.0) + 0.43;
 float bw = smoothstep(0.3, 0.7, LP_NOISE(W.xy / 2400.0 + 5.3)) * Look.w;
 float3 sandB = Texture2DSample(SandBD, SandBDSampler, bu).rgb;
 float2 sandBN = Texture2DSample(SandBN, SandBNSampler, bu).rg * 2.0 - 1.0;
@@ -2449,6 +2594,18 @@ if (Macro.x > 0.0)
     float3 rel = clamp(mA / max(sandMean, 1e-3), 0.6, 1.5);
     sandA *= lerp(1.0.xxx, rel, Macro.x * (0.35 + 0.65 * farW));
     sandN = lerp(sandN, LP_NRM(SandN, SandNSampler, mu, mu2, 0.5) * 1.5, farW * Macro.x);
+}
+if (Alpine.w > 0.0)
+{
+    // Keep nearby gravel legible; in long views sub-pixel stones should not
+    // form a repeated checker. Broad soil variation survives the mild fade.
+    float pathFar = smoothstep(8000.0, 35000.0, length(Cam - W));
+    float pathPatch = LP_NOISE((W.xy + alpineWarp) / 3700.0 + 19.3);
+    float3 pathMean = sandMean * SandTint.rgb
+                   * lerp(float3(0.83, 0.87, 0.88), float3(1.13, 1.08, 0.98), pathPatch);
+    sandA = lerp(sandA, pathMean, pathFar * 0.35);
+    sandN *= lerp(1.0, 0.55, pathFar);
+}
 }
 float2 ru = P / max(Tiles.y, 1.0); float2 ru2 = LP_ROT(ru, 0.61);
 float3 ripA = lerp(Texture2DSample(RipD, RipDSampler, ru).rgb, Texture2DSample(RipD, RipDSampler, ru2).rgb, w) * SandTint.rgb;
@@ -2489,12 +2646,62 @@ float dirtW = inland;
     }
     dirtA *= DirtTint.rgb;
 }
+float3 grA = 0.0; float2 grN = 0.0;
+float4 grO = float4(1.0, 0.5, 0.95, 0.0);
+[branch] if (Alpine.w > 1.5)
+{
+    [branch] if (grass > 0.002)
+    {
+        float2 uv = P / max(Tiles.z, 1.0);
+        grA = LPStochastic::tileBlend(GrassD, GrassDSampler, uv, pDx/max(Tiles.z,1.0), pDy/max(Tiles.z,1.0), false).rgb*GrassTint.rgb;
+        grN = LPStochastic::tileBlend(GrassN, GrassNSampler, uv, pDx/max(Tiles.z,1.0), pDy/max(Tiles.z,1.0), true).rg;
+        grO = LPStochastic::tileBlend(GrassO, GrassOSampler, uv, pDx/max(Tiles.z,1.0), pDy/max(Tiles.z,1.0), false);
+        // A native meadow scan at 29m gives natural broad turf mottling;
+        // it remains visible after fine grass mips out, with no fixed tile.
+        float3 macroGrass = LPStochastic::tileBlend(GrassD, GrassDSampler, P/2900.0+31.7, pDx/2900.0, pDy/2900.0, false).rgb;
+        float3 meanGrass = Texture2DSampleLevel(GrassD, GrassDSampler, float2(.5,.5), 13).rgb;
+        float3 variation = clamp(macroGrass/max(meanGrass,1e-3), 0.55, 1.50);
+        // The native "Desat" scan still averages R=.371/G=.273/B=.173.
+        // Neutralize65% of that yellow cast before the authored green tint;
+        // retain local scan colour. The same balance is used at the apron seam.
+        float meanLuma = dot(meanGrass,float3(.2126,.7152,.0722));
+        grA *= lerp(1.0.xxx,meanLuma/max(meanGrass,1e-3),.65);
+        grA *= lerp(1.0.xxx, variation, 0.48);
+        grA *= lerp(float3(.78,.92,.82), float3(1.02,1.08,.94), alpinePatch);
+        if (EcologyInfo.x > .5)
+        {
+            // Drainage and real canopy density define broad coherent turf,
+            // not arbitrary brown noise; the native scan supplies fine grain.
+            grA *= lerp(float3(1.10,1.03,.84),float3(.62,.88,.72),ecology.r);
+            grA *= lerp(1.0,.72,ecology.g);
+        }
+        grN *= lerp(1.0, .65, smoothstep(10000,40000,length(Cam-W)));
+    }
+}
+else
+{
 // Grass ground.
-float2 gu = P / max(Tiles.z, 1.0); float2 gu2 = LP_ROT(gu, 0.53);
-float3 grA = lerp(Texture2DSample(GrassD, GrassDSampler, gu).rgb, Texture2DSample(GrassD, GrassDSampler, gu2).rgb, w) * GrassTint.rgb;
-float2 grN = LP_NRM(GrassN, GrassNSampler, gu, gu2, w);
-float4 grO = lerp(Texture2DSample(GrassO, GrassOSampler, gu), Texture2DSample(GrassO, GrassOSampler, gu2), w);
+float2 gu = (P + alpineWarp) / max(Tiles.z, 1.0); float2 gu2 = LP_ROT(gu, 0.53);
+grA = lerp(Texture2DSample(GrassD, GrassDSampler, gu).rgb, Texture2DSample(GrassD, GrassDSampler, gu2).rgb, w) * GrassTint.rgb;
+grN = LP_NRM(GrassN, GrassNSampler, gu, gu2, w);
+grO = lerp(Texture2DSample(GrassO, GrassOSampler, gu), Texture2DSample(GrassO, GrassOSampler, gu2), w);
 
+// Alpine meadows remain readable from the Pelican: the metre-scale ground
+// texture otherwise forms a regular dark/light carpet at hundreds of metres.
+// Retain most of its distant detail alongside broad vegetation/soil patches.
+// Replacing 80% by one mip-average had made the whole valley uniformly olive.
+// Soften distant micro normals without erasing them. Other map
+// looks retain their existing material while Alpine.w is zero.
+if (Alpine.w > 0.0)
+{
+    float meadowFar = smoothstep(8000.0, 35000.0, length(Cam - W));
+    float3 meadowMean = Texture2DSampleLevel(GrassD, GrassDSampler, float2(0.5, 0.5), 13.0).rgb * GrassTint.rgb;
+    grA = lerp(grA, meadowMean, meadowFar * 0.25)
+        * lerp(float3(0.79, 0.90, 0.78), float3(1.19, 1.10, 0.91), alpinePatch);
+    grN *= lerp(1.0, 0.55, meadowFar);
+}
+
+}
 // Where the ground meets a wall (the edge map, edge_bake): at a lip the
 // grass wears through to earth in ragged patches; at a foot the sand is
 // damper and darker and shaded where it meets the rock.
@@ -2575,19 +2782,57 @@ Emissive = 0.0;
 // Island's) drew sand on it, black in the shade. The cliffs' rock
 // (M_CE_CliffPBR's grain), from three sides, with their fill light.
 float3 nw = normalize(Nw);
-if (Steep.w > 0.0 && nw.z < Steep.y)
+if (Steep.w > 0.0 && (nw.z < Steep.y || (Alpine.w > 1.5 && geology.r > 0.001)))
 {
     float rag = LP_NOISE(float2(W.x + W.y, W.z) / 90.0);
     float st = smoothstep(Steep.y, Steep.x, nw.z + (rag - 0.5) * 0.25) * Steep.w;
+    if (Alpine.w > 0.0)
+    {
+        float outcrop = LP_NOISE(W.xy / 1800.0 + 4.1) * 0.7
+                      + LP_NOISE(W.xy / 500.0 + 8.2) * 0.3;
+        st = smoothstep(Steep.y, Steep.x, nw.z + (outcrop - 0.5) * 0.08) * Steep.w;
+    }
+    if (Alpine.w > 1.5) st = saturate(geology.r) * Steep.w;
     float3 sg = float3(nw.x < 0 ? -1.0 : 1.0, nw.y < 0 ? -1.0 : 1.0, nw.z < 0 ? -1.0 : 1.0);
     float3 bw = pow(abs(nw), 4.0);
     bw /= max(bw.x + bw.y + bw.z, 1e-4);
     float2 ux = float2(W.z * sg.x, W.y) / Steep.z, uy = float2(W.x * sg.y, W.z) / Steep.z, uz = float2(-W.x * sg.z, W.y) / Steep.z;
-    float3 rA = Texture2DSample(RockD, RockDSampler, ux).rgb * bw.x + Texture2DSample(RockD, RockDSampler, uy).rgb * bw.y
+    float3 rA = 0.0, tx = float3(0,0,1), ty = tx, tz = tx;
+    [branch] if (Alpine.w > 1.5)
+    {
+        // Skip negligible projections. Each remaining projection uses three
+        // continuous stochastic samples and correctly unrotated normals.
+        [branch] if (bw.x > .001)
+        {
+            rA += LPStochastic::rockColour(RockD, RockDSampler, ux, float2(wDx.z*sg.x,wDx.y)/Steep.z, float2(wDy.z*sg.x,wDy.y)/Steep.z)*bw.x;
+            tx.xy = LPStochastic::tileBlend(RockN, RockNSampler, ux, float2(wDx.z*sg.x,wDx.y)/Steep.z, float2(wDy.z*sg.x,wDy.y)/Steep.z, true).rg;
+        }
+        [branch] if (bw.y > .001)
+        {
+            rA += LPStochastic::rockColour(RockD, RockDSampler, uy, float2(wDx.x*sg.y,wDx.z)/Steep.z, float2(wDy.x*sg.y,wDy.z)/Steep.z)*bw.y;
+            ty.xy = LPStochastic::tileBlend(RockN, RockNSampler, uy, float2(wDx.x*sg.y,wDx.z)/Steep.z, float2(wDy.x*sg.y,wDy.z)/Steep.z, true).rg;
+        }
+        [branch] if (bw.z > .001)
+        {
+            rA += LPStochastic::rockColour(RockD, RockDSampler, uz, float2(-wDx.x*sg.z,wDx.y)/Steep.z, float2(-wDy.x*sg.z,wDy.y)/Steep.z)*bw.z;
+            tz.xy = LPStochastic::tileBlend(RockN, RockNSampler, uz, float2(-wDx.x*sg.z,wDx.y)/Steep.z, float2(-wDy.x*sg.z,wDy.y)/Steep.z, true).rg;
+        }
+    }
+    else
+    {
+    rA = Texture2DSample(RockD, RockDSampler, ux).rgb * bw.x + Texture2DSample(RockD, RockDSampler, uy).rgb * bw.y
               + Texture2DSample(RockD, RockDSampler, uz).rgb * bw.z;
-    float3 tx = float3(Texture2DSample(RockN, RockNSampler, ux).rg * 2.0 - 1.0, 1.0);
-    float3 ty = float3(Texture2DSample(RockN, RockNSampler, uy).rg * 2.0 - 1.0, 1.0);
-    float3 tz = float3(Texture2DSample(RockN, RockNSampler, uz).rg * 2.0 - 1.0, 1.0);
+    if (Alpine.w > 0.0)
+    {
+        float3 broadRock = Texture2DSample(RockD, RockDSampler, ux * 0.31 + 0.27).rgb * bw.x
+                         + Texture2DSample(RockD, RockDSampler, uy * 0.31 + 0.27).rgb * bw.y
+                         + Texture2DSample(RockD, RockDSampler, uz * 0.31 + 0.27).rgb * bw.z;
+        rA = lerp(rA, broadRock, 0.32);
+    }
+    tx = float3(Texture2DSample(RockN, RockNSampler, ux).rg * 2.0 - 1.0, 1.0);
+    ty = float3(Texture2DSample(RockN, RockNSampler, uy).rg * 2.0 - 1.0, 1.0);
+    tz = float3(Texture2DSample(RockN, RockNSampler, uz).rg * 2.0 - 1.0, 1.0);
+    }
     tx = float3(tx.xy + nw.zy, abs(nw.x) * tx.z);
     ty = float3(ty.xy + nw.xz, abs(nw.y) * ty.z);
     tz = float3(tz.xy + nw.xy, abs(nw.z) * tz.z);
@@ -2603,6 +2848,26 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
     albedo = lerp(albedo, rock, st);
     Normal = normalize(lerp(Normal, rT, st));
     rough = lerp(rough, 0.8, st);
+}
+// Optional alpine snow uses the otherwise unused ripple textures. Heights
+// are centimetres; the default strength is zero for all existing maps.
+if (Alpine.w > 0.0)
+{
+    float snowRag = LP_NOISE(W.xy / 5200.0 + 3.7) * 0.7
+                  + LP_NOISE(W.xy / 1400.0 + 9.2) * 0.3;
+    float snowline = W.z + (snowRag - 0.5) * Alpine.z;
+    float snow = smoothstep(Alpine.x, max(Alpine.x + 1.0, Alpine.y), snowline)
+               * smoothstep(0.45, 0.85, nw.z) * saturate(Alpine.w);
+    // Gaea deposits/flow and runtime concavity control retained snow. The
+    // mask already applies slope/height/road exclusions; no broad cap remains.
+    if (Alpine.w > 1.5) snow = saturate(geology.g);
+    float2 suv = W.xy / 450.0;
+    float3 snowD = Texture2DSample(RipD, RipDSampler, suv).rgb;
+    float2 snowRG = Texture2DSample(RipN, RipNSampler, suv).rg * 2.0 - 1.0;
+    float3 snowN = normalize(float3(snowRG.x, -snowRG.y, sqrt(saturate(1.0 - dot(snowRG, snowRG)))));
+    albedo = lerp(albedo, snowD, snow);
+    Normal = normalize(lerp(Normal, snowN, snow * 0.75));
+    rough = lerp(rough, 0.88, snow);
 }
 // The fill on every face that leans (the sand's bounce): under an
 // overhanging lip, the sand between the rock's ragged edge took none and
@@ -2745,9 +3010,19 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True, deform=No
                     texture=normal_default, sampler_type=normal)
     for t in (rock_d, rock_n):
         t.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+    surface_data = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100,
+                          parameter_name="SurfaceData", texture=white, sampler_type=linear)
+    surface_data.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+    ecology_data = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100,
+                          parameter_name="Ecology", texture=white, sampler_type=linear)
+    ecology_data.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
     inputs = [
         ("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
         tex("Base", white, linear),
+        ("SurfaceData", surface_data, ""),
+        ("SurfaceDataInfo", g.vector4("SurfaceDataInfo", (0.0, 1600.0, 0.0, 0.0)), ""),
+        ("Ecology", ecology_data, ""),
+        ("EcologyInfo", g.vector4("EcologyInfo", (0.0, 0.0, 0.0, 0.0)), ""),
         ("LandRect", g.vector4("LandRect", (0.0, 0.0, 50400.0, 50400.0)), ""),
         tex("SandD", albedo_default, colour), tex("SandN", normal_default, normal), tex("SandO", white, linear),
         tex("RipD", albedo_default, colour), tex("RipN", normal_default, normal), tex("RipO", white, linear),
@@ -2814,6 +3089,7 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True, deform=No
         # strength (0: off); IceColor: its tint and roughness.
         ("Ice", g.vector4("LandIce", (0.35, 0.75, 0.7, 0.0)), ""),
         ("IceColor", g.vector4("LandIceColor", (0.6, 0.75, 1.0, 0.03)), ""),
+        ("Alpine", g.vector4("LandAlpine", (30000.0, 35500.0, 2500.0, 0.0)), ""),
     ]
     c = g.custom(LAND_PBR_CODE, inputs, description="B30 ground")
     outs = []
@@ -2849,6 +3125,541 @@ def build_landscape_pbr(defaults, name="M_CE_LandscapePBR", land=True, deform=No
                             texture=white, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR), "")],
             output=unreal.CustomMaterialOutputType.CMOT_FLOAT1, description="landscape cut")
     mel.connect_material_property(holes, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
+ALPINE_APRON_CODE = r"""
+// Render-only surrounding mountains. Absolute world centimetres, never the
+// normalized mesh's local coordinates. An optional clamped Landscape geology
+// sample matches only the first150m outside its edge; outer relief keeps its
+// own slope/altitude material. RGB masks are linear UNORM, never gamma colours.
+// Shared native surfaces are supplied by runtime_decor, as for Land.pbr.
+struct LPStochastic
+{
+    static float2 turn(float2 p, int r)
+    {
+        if (r == 1) return float2(-p.y, p.x);
+        if (r == 2) return -p;
+        if (r == 3) return float2(p.y, -p.x);
+        return p;
+    }
+    static float4 tileBlend(Texture2D tex, SamplerState smp, float2 uv, float2 gx, float2 gy, bool normalMap)
+    {
+        float2 base = floor(uv), f = frac(uv);
+        bool upper = f.x + f.y > 1.0;
+        float2 v0 = base + (upper ? 1.0.xx : 0.0.xx);
+        float2 v1 = base + float2(1, 0), v2 = base + float2(0, 1);
+        float3 weights = upper ? float3(f.x+f.y-1.0, 1.0-f.y, 1.0-f.x)
+                               : float3(1.0-f.x-f.y, f.x, f.y);
+        weights = weights*weights*weights;
+        weights /= max(dot(weights, 1.0.xxx), 1e-6);
+        float4 result = 0.0;
+        // A biased mip-average must not rotate into a new geometric tilt in
+        // each tile. Remove that DC slope; fade sub-pixel perturbations using
+        // the unjittered footprint, while preserving the actual vertex normal.
+        float normalDetail = 1.0-smoothstep(.08,.45,max(length(gx),length(gy)));
+        [branch] if(normalMap && normalDetail<=0.0) return float4(0,0,1,1);
+        float2 meanNormal = normalMap ? Texture2DSampleLevel(tex,smp,.5.xx,13).rg*2.0-1.0 : 0.0.xx;
+        [unroll] for (int i=0; i<3; ++i)
+        {
+            float2 vertex = i == 0 ? v0 : (i == 1 ? v1 : v2);
+            float2 hash = frac(sin(float2(dot(vertex, float2(127.1,311.7)),
+                                         dot(vertex, float2(269.5,183.3))))*43758.5453);
+            int rotation = (int)floor(hash.x*4.0);
+            float4 value = Texture2DSampleGrad(tex, smp, turn(uv, rotation)+hash,
+                                                turn(gx, rotation), turn(gy, rotation));
+            if (normalMap) value.rg = turn(value.rg*2.0-1.0-meanNormal, (4-rotation)%4)*normalDetail;
+            result += value*weights[i];
+        }
+        return result;
+    }
+    static float3 rockColour(Texture2D tex, SamplerState smp, float2 uv, float2 gx, float2 gy)
+    {
+        // Coherent fractures at23m survive the aerial view; the6.5m scan
+        // still supplies nearby grain. Once finer grain is subpixel use its
+        // real mean, not an aliased triangle-grid blend of mip averages.
+        float footprint=max(length(gx),length(gy));
+        float3 fine=Texture2DSampleLevel(tex,smp,.5.xx,13).rgb;
+        [branch] if(footprint<.28)
+            fine=tileBlend(tex,smp,uv,gx,gy,false).rgb;
+        float3 broad=tileBlend(tex,smp,uv*.28+17.3,gx*.28,gy*.28,false).rgb;
+        float3 average=Texture2DSampleLevel(tex,smp,.5.xx,13).rgb;
+        return fine*clamp(broad/max(average,1e-3),.45,1.70);
+    }
+};
+
+struct AP
+{
+    static float noise(float2 p)
+    {
+        float2 i = floor(p), f = frac(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = frac(sin(dot(i, float2(127.1, 311.7))) * 43758.5453);
+        float b = frac(sin(dot(i + float2(1, 0), float2(127.1, 311.7))) * 43758.5453);
+        float c = frac(sin(dot(i + float2(0, 1), float2(127.1, 311.7))) * 43758.5453);
+        float d = frac(sin(dot(i + float2(1, 1), float2(127.1, 311.7))) * 43758.5453);
+        return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+    }
+    static float3 tri(Texture2D T, SamplerState S, float2 ux, float2 uy, float2 uz, float3 bw)
+    {
+        float3 result=0;
+        float2 ax=ddx(ux),ay=ddy(ux),bx=ddx(uy),by=ddy(uy),cx=ddx(uz),cy=ddy(uz);
+        [branch] if(bw.x>.001) result+=LPStochastic::rockColour(T,S,ux,ax,ay)*bw.x;
+        [branch] if(bw.y>.001) result+=LPStochastic::rockColour(T,S,uy,bx,by)*bw.y;
+        [branch] if(bw.z>.001) result+=LPStochastic::rockColour(T,S,uz,cx,cy)*bw.z;
+        return result;
+    }
+    static float3 triN(Texture2D T, SamplerState S, float2 ux, float2 uy, float2 uz,
+                       float3 bw, float3 n, float3 sg)
+    {
+        float3 tx=float3(0,0,1),ty=tx,tz=tx;
+        float2 ax=ddx(ux),ay=ddy(ux),bx=ddx(uy),by=ddy(uy),cx=ddx(uz),cy=ddy(uz);
+        [branch] if(bw.x>.001) tx.xy=LPStochastic::tileBlend(T,S,ux,ax,ay,true).rg;
+        [branch] if(bw.y>.001) ty.xy=LPStochastic::tileBlend(T,S,uy,bx,by,true).rg;
+        [branch] if(bw.z>.001) tz.xy=LPStochastic::tileBlend(T,S,uz,cx,cy,true).rg;
+        tx = float3(tx.xy + n.zy, abs(n.x) * tx.z);
+        ty = float3(ty.xy + n.xz, abs(n.y) * ty.z);
+        tz = float3(tz.xy + n.xy, abs(n.z) * tz.z);
+        tx.z *= sg.x; ty.z *= sg.y; tz.z *= sg.z;
+        return normalize(tx.zyx * bw.x + ty.xzy * bw.y + tz.xyz * bw.z);
+    }
+};
+float3 nw = normalize(Nw);
+float3 sg = float3(nw.x < 0 ? -1.0 : 1.0, nw.y < 0 ? -1.0 : 1.0, nw.z < 0 ? -1.0 : 1.0);
+float3 bw = pow(abs(nw), 4.0);
+bw /= max(bw.x + bw.y + bw.z, 1e-4);
+float2 outside = max(abs(W.xy - Extent.xy) - Extent.zw, 0.0);
+float seamDistance = length(outside);
+float seamWeight = saturate(GeologyBlend.w) * (1.0 - smoothstep(GeologyBlend.x,
+                   max(GeologyBlend.x + 1.0, GeologyBlend.y), seamDistance));
+// Exact LPW convention: UE worldXY, origin at rectangle minimum. The texture
+// and shared sampler clamp, preserving the same unbounded UV derivatives as
+// the Landscape at the seam. No authoring-Y flip is applied a second time.
+float2 geologyUV = (W.xy - GeologyRect.xy) / max(GeologyRect.zw, 1.0.xx);
+float4 edgeGeology = Texture2DSample(Geology, GeologySampler, geologyUV);
+float4 fieldGeology=float4(0,0,0,.35);
+if(FieldInfo.x>.5)
+{
+    float2 fieldUV=(W.xy-FieldRect.xy)/max(FieldRect.zw,1.0.xx);
+    fieldGeology=Texture2DSample(Field,FieldSampler,fieldUV);
+}
+float4 edgeEcology=float4(.35,0,0,.25);
+if(EcologyInfo.x>.5) edgeEcology=Texture2DSample(Ecology,EcologySampler,geologyUV);
+float2 patchWarp = float2(AP::noise(W.xy / 13000.0 + 7.1), AP::noise(W.xy / 13000.0 + 31.7)) - 0.5;
+float2 patchPos = W.xy + patchWarp * 5500.0;
+float patch = AP::noise(patchPos / 9500.0 + 13.7) * 0.65 + AP::noise(patchPos / 2500.0 + 31.2) * 0.35;
+float grass = 1.0 - smoothstep(0.48, 0.76, 1.0 - patch) * 0.72;
+float edgeGrass = smoothstep(GeologyMix.x, GeologyMix.y,
+                  1.0 - edgeGeology.a + (AP::noise(W.xy / 180.0) - 0.5) * 0.25)
+                * (1.0 - saturate(edgeGeology.b) * GeologyMix.z);
+if(EcologyInfo.x>.5)
+    edgeGrass*=1.0-max(smoothstep(.13,.43,edgeEcology.b)*.85,smoothstep(.40,.88,edgeEcology.g)*.18);
+// Explicit real8km geology replaces generic outer noise only when bound.
+if(FieldInfo.x>.5) grass=1.0-saturate(fieldGeology.b);
+grass = lerp(grass, edgeGrass, seamWeight);
+patch = lerp(patch, saturate(patch - edgeGeology.b * 0.35), seamWeight);
+if(FieldInfo.x>.5) patch=lerp(fieldGeology.a,patch,seamWeight);
+float2 warp = (float2(AP::noise(W.xy / 1700.0 + 3.1), AP::noise(W.xy / 1700.0 + 27.6)) - 0.5) * 180.0;
+float cell = smoothstep(0.25, 0.75, AP::noise(W.xy / 1100.0));
+float2 uv = W.xy/max(Tiles.x,1.0), pDx=ddx(W.xy), pDy=ddy(W.xy);
+float3 grA = LPStochastic::tileBlend(GrassD,GrassDSampler,uv,pDx/max(Tiles.x,1.0),pDy/max(Tiles.x,1.0),false).rgb*GrassTint.rgb;
+float2 grN = LPStochastic::tileBlend(GrassN,GrassNSampler,uv,pDx/max(Tiles.x,1.0),pDy/max(Tiles.x,1.0),true).rg;
+float3 macroGrass = LPStochastic::tileBlend(GrassD,GrassDSampler,W.xy/2900.0+31.7,pDx/2900.0,pDy/2900.0,false).rgb;
+float3 meanGrass = Texture2DSampleLevel(GrassD,GrassDSampler,float2(.5,.5),13).rgb;
+float meanLuma = dot(meanGrass,float3(.2126,.7152,.0722));
+grA *= lerp(1.0.xxx,meanLuma/max(meanGrass,1e-3),.65);
+grA *= lerp(1.0.xxx,clamp(macroGrass/max(meanGrass,1e-3),.55,1.50),.48);
+grA *= lerp(float3(.78,.92,.82),float3(1.02,1.08,.94),patch);
+if(EcologyInfo.x>.5)
+{
+    float3 ecoTint=lerp(float3(1.10,1.03,.84),float3(.62,.88,.72),edgeEcology.r)*lerp(1.0,.72,edgeEcology.g);
+    grA*=lerp(1.0.xxx,ecoTint,seamWeight);
+    if(FieldInfo.x>.5)
+        grA*=lerp(lerp(float3(1.10,1.03,.84),float3(.62,.88,.72),fieldGeology.a),1.0.xxx,seamWeight);
+}
+grN *= lerp(1.0,.65,smoothstep(10000,40000,length(Cam-W)));
+float2 su = (W.xy + warp) / max(Tiles.y, 1.0);
+float2 su2 = float2(su.x * 0.8 - su.y * 0.6, su.x * 0.6 + su.y * 0.8) * 0.43 + 0.31;
+float3 soil = lerp(Texture2DSample(SoilD, SoilDSampler, su).rgb,
+                  Texture2DSample(SoilD, SoilDSampler, su2).rgb, cell) * SoilTint.rgb;
+float2 soilN = lerp(Texture2DSample(SoilN, SoilNSampler, su).rg,
+                   Texture2DSample(SoilN, SoilNSampler, su2).rg, cell) * 2.0 - 1.0;
+float3 albedo = lerp(soil, grA, grass);
+float2 nxy = lerp(soilN, grN, grass) * 1.2;
+Normal = normalize(float3(nxy.x, -nxy.y, 1.0));
+float outcrop = AP::noise(W.xy / 1800.0 + 4.1) * 0.7 + AP::noise(W.xy / 500.0 + 8.2) * 0.3;
+float stone = smoothstep(Steep.y, Steep.x, nw.z + (outcrop - 0.5) * 0.08) * saturate(Steep.w);
+if(FieldInfo.x>.5) stone=saturate(fieldGeology.r);
+stone = lerp(stone, saturate(edgeGeology.r) * saturate(Steep.w), seamWeight);
+float2 ux = float2(W.z * sg.x, W.y) / max(Tiles.z, 1.0);
+float2 uy = float2(W.x * sg.y, W.z) / max(Tiles.z, 1.0);
+float2 uz = float2(-W.x * sg.z, W.y) / max(Tiles.z, 1.0);
+float3 rock = AP::tri(RockD, RockDSampler, ux, uy, uz, bw);
+float3 rockMean = Texture2DSampleLevel(RockD, RockDSampler, float2(0.5, 0.5), 13.0).rgb;
+rock = rockMean * RockTint.rgb * max(1.0 + (rock / max(rockMean, 1e-3) - 1.0) * 1.3, 0.0);
+float3 rockN = AP::triN(RockN, RockNSampler, ux, uy, uz, bw, nw, sg);
+albedo = lerp(albedo, rock, stone);
+Normal = normalize(lerp(Normal, normalize(mul(Parameters.TangentToWorld, rockN)), stone));
+// Exact near threshold at the +/-1km seam; outer peaks can reach834m.
+// Raise the distant snowline smoothly instead of whitening all low valleys.
+float outer = smoothstep(FarSnow.z, max(FarSnow.z + 1.0, FarSnow.w), max(outside.x, outside.y));
+float2 snowRange = lerp(Alpine.xy, FarSnow.xy, outer);
+float snowRag = AP::noise(W.xy / 5200.0 + 3.7) * 0.7 + AP::noise(W.xy / 1400.0 + 9.2) * 0.3;
+float snow = smoothstep(snowRange.x, max(snowRange.x + 1.0, snowRange.y), W.z + (snowRag - 0.5) * Alpine.z)
+           * smoothstep(0.45, 0.85, nw.z) * saturate(Alpine.w);
+// The relocated ridge belt must retain visible granite rather than become a
+// solid white altitude cap. This opt-in outer retention is world-space and
+// cannot alter the exact geology weight at the fixed boundary.
+float retained = AP::noise(W.xy / max(SnowRetention.x, 1.0) + 41.2) * 0.7
+               + AP::noise(W.xy / max(SnowRetention.y, 1.0) + 17.9) * 0.3;
+snow *= lerp(1.0, smoothstep(SnowRetention.z, SnowRetention.z + 0.30, retained), saturate(SnowRetention.w));
+if(FieldInfo.x>.5) snow=saturate(fieldGeology.g);
+snow = lerp(snow, saturate(edgeGeology.g), seamWeight);
+float2 suv = W.xy / max(Tiles.w, 1.0);
+float3 snowD = Texture2DSample(SnowD, SnowDSampler, suv).rgb;
+float2 snowRG = Texture2DSample(SnowN, SnowNSampler, suv).rg * 2.0 - 1.0;
+float3 snowN = normalize(float3(snowRG.x, -snowRG.y, sqrt(saturate(1.0 - dot(snowRG, snowRG)))));
+albedo = lerp(albedo, snowD, snow);
+Normal = normalize(lerp(Normal, snowN, snow * 0.75));
+Rough = lerp(lerp(0.92, 0.8, stone), 0.88, snow);
+Spec = lerp(lerp(0.05, 0.22, stone), 0.18, snow);
+return max(albedo, 0.0);
+"""
+
+
+# Reuse the exact tested stochastic kernel; this small master deliberately
+# has no Landscape/biome inputs or layered-material vertex-mask assumptions.
+PWR_ROCK_CODE = LAND_PBR_CODE[LAND_PBR_CODE.index("struct LPStochastic"):
+                            LAND_PBR_CODE.index("// The deformation map")] + r"""
+float3 nw=normalize(Nw);
+float3 bw=pow(abs(nw),4.0);bw/=max(dot(bw,1.0.xxx),1e-5);
+float tile=max(RockParams.x,100.0);
+float2 ux=W.yz/tile,uy=W.xz/tile,uz=W.xy/tile;
+float3 dx=ddx(W),dy=ddy(W),color=0;
+float3 tx=float3(0,0,1),ty=tx,tz=tx;
+[branch] if(bw.x>.001)
+{
+    color+=LPStochastic::rockColour(RockD,RockDSampler,ux,dx.yz/tile,dy.yz/tile)*bw.x;
+    tx.xy=LPStochastic::tileBlend(RockN,RockNSampler,ux,dx.yz/tile,dy.yz/tile,true).rg*RockParams.z;
+}
+[branch] if(bw.y>.001)
+{
+    color+=LPStochastic::rockColour(RockD,RockDSampler,uy,dx.xz/tile,dy.xz/tile)*bw.y;
+    ty.xy=LPStochastic::tileBlend(RockN,RockNSampler,uy,dx.xz/tile,dy.xz/tile,true).rg*RockParams.z;
+}
+[branch] if(bw.z>.001)
+{
+    color+=LPStochastic::rockColour(RockD,RockDSampler,uz,dx.xy/tile,dy.xy/tile)*bw.z;
+    tz.xy=LPStochastic::tileBlend(RockN,RockNSampler,uz,dx.xy/tile,dy.xy/tile,true).rg*RockParams.z;
+}
+// Lift each sampled tangent perturbation into its projection's WORLD axes,
+// then remove the geometric normal component. A flat map returns Nw exactly
+// for every face orientation (including negative axes). The graph explicitly
+// disables tangent-space normals, so Unreal applies no second transform.
+float3 gradient=float3(0,tx.x,tx.y)*bw.x+float3(ty.x,0,ty.y)*bw.y+float3(tz.x,tz.y,0)*bw.z;
+gradient-=nw*dot(gradient,nw);
+Normal=normalize(nw+gradient);
+Rough=clamp(RockParams.y,.65,.95);
+return color*RockTint.rgb;
+"""
+
+
+def build_pwr_rock(defaults):
+    m=fresh(ROOT,"M_CE_PWRRock",unreal.Material,unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model",unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("used_with_nanite",True)
+    m.set_editor_property("used_with_instanced_static_meshes",True)
+    m.set_editor_property("used_with_static_lighting",False)
+    m.set_editor_property("tangent_space_normal",False)
+    g=Graph(m)
+    inputs=[("W",g.node(unreal.MaterialExpressionWorldPosition,x=-2000),""),
+            ("Nw",g.node(unreal.MaterialExpressionVertexNormalWS,x=-2000),""),
+            ("RockTint",g.vector4("RockTint",(.8,.83,.84,1)),""),
+            ("RockParams",g.vector4("RockParams",(650,.85,.75,0)),"")]
+    for parameter,path,sampler in (("RockD","/Engine/EngineResources/DefaultTexture",unreal.MaterialSamplerType.SAMPLERTYPE_COLOR),
+                                   ("RockN","/Engine/EngineMaterials/DefaultNormal",unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL)):
+        texture=g.node(unreal.MaterialExpressionTextureObjectParameter,x=-1100,parameter_name=parameter,
+                       texture=unreal.load_asset(path),sampler_type=sampler)
+        texture.set_editor_property("sampler_source",unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+        inputs.append((parameter,texture,""))
+    c=g.custom(PWR_ROCK_CODE,inputs,description="PWR granite world projection")
+    outputs=[]
+    for name,kind in (("Normal",unreal.CustomMaterialOutputType.CMOT_FLOAT3),("Rough",unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
+        output=unreal.CustomOutput();output.set_editor_property("output_name",name);output.set_editor_property("output_type",kind);outputs.append(output)
+    c.set_editor_property("additional_outputs",outputs)
+    for pin,prop in (("",unreal.MaterialProperty.MP_BASE_COLOR),("Normal",unreal.MaterialProperty.MP_NORMAL),("Rough",unreal.MaterialProperty.MP_ROUGHNESS)):
+        mel.connect_material_property(c,pin,prop)
+    mel.recompile_material(m);eal.save_loaded_asset(m)
+
+
+PWR_PAVING_CODE = r"""
+// Native Diagonal maps, linear data, metre-scale world projection. This
+// generated-geometry material has no vertex colour, COH, frost or wet inputs.
+struct PWRPanel
+{
+    static float4 layout(float2 p, float2 size, float jointWidth, float4 pattern)
+    {
+        // Original staggered chamfered alloy plates. Cell identity varies
+        // finish, while inset seams and triangular service panels provide
+        // architecture-scale detail independent of the native fine scan.
+        float row=floor(p.y/size.y);
+        float2 q=p-float2(fmod(abs(row),2.0)*size.x*.5,0);
+        float2 id=floor(q/size);
+        float2 local=(frac(q/size)-.5)*size;
+        float2 halfSize=size*.5;
+        float bevel=clamp(pattern.x,0.0,min(size.x,size.y)*.05);
+        float edge=min(min(halfSize.x-abs(local.x),halfSize.y-abs(local.y)),
+                       (halfSize.x+halfSize.y-bevel-abs(local.x)-abs(local.y))*.70710678);
+        float aa=max(max(length(ddx(p)),length(ddy(p))),1.0);
+        float seam=1.0-smoothstep(jointWidth*.5-aa,jointWidth*.5+aa,edge);
+        float inset=1.0-smoothstep(2.0-aa,2.0+aa,abs(edge-65.0));
+        float hash=frac(sin(dot(id,float2(127.1,311.7)))*43758.5453);
+        float variation=clamp(pattern.y,0.0,.03);
+        float plate=lerp(1.0-variation,1.0+variation,hash);
+        inset*=step(.72,hash);
+        float service=1.0-smoothstep(2.0-aa,2.0+aa,abs(local.y-size.y*.26));
+        service*=1.0-smoothstep(size.x*.18-aa,size.x*.18+aa,abs(local.x));
+        service*=step(1.0-saturate(pattern.w),hash)*(1.0-seam);
+        return float4(plate,seam,inset,service);
+    }
+};
+float3 nw=normalize(Nw);
+float3 weights=pow(abs(nw),8.0);
+weights/=max(dot(weights,1.0.xxx),1e-5);
+float tile=max(Paving.x,100.0);
+float2 ux=W.yz/tile, uy=W.xz/tile, uz=float2(W.x,-W.y)/tile;
+float4 data=Texture2DSample(PanelData,PanelDataSampler,ux)*weights.x
+           +Texture2DSample(PanelData,PanelDataSampler,uy)*weights.y
+           +Texture2DSample(PanelData,PanelDataSampler,uz)*weights.z;
+float2 nx=Texture2DSample(PanelNormal,PanelNormalSampler,ux).rg*2.0-1.0;
+float2 ny=Texture2DSample(PanelNormal,PanelNormalSampler,uy).rg*2.0-1.0;
+float2 nz=Texture2DSample(PanelNormal,PanelNormalSampler,uz).rg*2.0-1.0;
+float3 gradient=float3(0,nx.x,nx.y)*weights.x
+               +float3(ny.x,0,ny.y)*weights.y
+               +float3(nz.x,-nz.y,0)*weights.z;
+gradient-=nw*dot(gradient,nw);
+Normal=normalize(nw+gradient*Paving.w);
+float2 panelSize=max(PanelLayout.xy,100.0.xx);
+float4 plates=PWRPanel::layout(W.yz,panelSize,PanelLayout.z,Pattern)*weights.x
+             +PWRPanel::layout(W.xz,panelSize,PanelLayout.z,Pattern)*weights.y
+             +PWRPanel::layout(float2(W.x,-W.y),panelSize,PanelLayout.z,Pattern)*weights.z;
+float seams=saturate(plates.g*PanelLayout.w);
+float inset=saturate(plates.b*PanelLayout.w);
+// ORHG: native red occlusion, green roughness, blue height. Height does
+// not displace the existing collision/floor. Roughness cannot fall below .65.
+Rough=clamp(Paving.y+(data.g-0.5)*0.12+seams*.12+inset*.03,0.65,0.90);
+AO=lerp(1.0,data.r,0.35)*(1.0-seams*.25);
+Metal=saturate(Paving.z)*(1.0-seams*.75);
+float3 alloy=Tint.rgb*lerp(.94,1.04,data.g)*lerp(1.0,plates.r,PanelLayout.w);
+alloy*=1.0-inset*.08-plates.a*PanelLayout.w*.06;
+return alloy*(1.0-seams*clamp(Pattern.z,0.0,.25));
+"""
+
+
+def paving_graphic_code():
+    """Keep the original shader byte-identical when the optional atlas is absent."""
+    old = "return alloy*(1.0-seams*clamp(Pattern.z,0.0,.25));"
+    if PWR_PAVING_CODE.count(old) != 1:
+        raise RuntimeError("PWR paving graphic insertion point changed")
+    return PWR_PAVING_CODE.replace(old, r"""
+// Original albedo only: native fine normal/ORHG above remain unchanged.
+// Texture uses mirrored addressing, so the imperfect source borders cannot
+// create wrap discontinuities. There is no invented height or albedo-derived AO.
+float graphicTile=max(Graphic.x,100.0);
+float3 graphic=Texture2DSample(PanelGraphic,PanelGraphicSampler,W.yz/graphicTile).rgb*weights.x
+              +Texture2DSample(PanelGraphic,PanelGraphicSampler,W.xz/graphicTile).rgb*weights.y
+              +Texture2DSample(PanelGraphic,PanelGraphicSampler,float2(W.x,-W.y)/graphicTile).rgb*weights.z;
+float graphicWeight=saturate(Graphic.y)*saturate(Graphic.z);
+float3 finish=clamp(graphic/max(Graphic.w,.01),.28.xxx,1.6.xxx);
+alloy*=lerp(1.0.xxx,finish,graphicWeight);
+float graphicRough=clamp(Paving.y+(data.g-.5)*.12+seams*.10+inset*.02,.50,.82);
+Rough=lerp(Rough,graphicRough,graphicWeight);
+return alloy*(1.0-seams*clamp(Pattern.z,0.0,.25));
+""")
+
+
+def import_pwr_paving_graphic():
+    """An explicit manifest opts into the unchanged image and UE build resize."""
+    manifest = os.environ.get("MJ_PWR_PAVING_GRAPHIC", "")
+    if not manifest:
+        return None
+    import sys
+    import json
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../tools/level")))
+    from pwr_paving_graphic import load_graphic_manifest, digest
+    source, spec = load_graphic_manifest(manifest)
+    tex = import_texture(str(source), ROOT, "T_PWR_PavingGraphic")
+    settings = {"srgb": True, "virtual_texture_streaming": False,
+                "compression_settings": unreal.TextureCompressionSettings.TC_BC7,
+                "power_of_two_mode": unreal.TexturePowerOfTwoSetting.RESIZE_TO_SPECIFIC_RESOLUTION,
+                "resize_during_build_x": 1024, "resize_during_build_y": 1024,
+                "mip_gen_settings": unreal.TextureMipGenSettings.TMGS_FROM_TEXTURE_GROUP,
+                "address_x": unreal.TextureAddress.TA_MIRROR,
+                "address_y": unreal.TextureAddress.TA_MIRROR,
+                "lod_bias": 0, "max_texture_size": 1024, "never_stream": False}
+    for key, value in settings.items():
+        tex.set_editor_property(key, value)
+    for key, expected in settings.items():
+        if tex.get_editor_property(key) != expected:
+            raise RuntimeError("Paving graphic import property differs: " + key)
+    eal.save_loaded_asset(tex)
+    readback = os.environ.get("MJ_PWR_PAVING_GRAPHIC_READBACK", "")
+    if readback:
+        report = {"schema": "pwr-paving-graphic-editor-v1", "manifest": os.path.abspath(manifest),
+                  "manifest_sha256": digest(manifest), "source_sha256": digest(source),
+                  "source_dimensions": spec["source"]["dimensions"], "build": spec["build"],
+                  "package": tex.get_path_name(),
+                  "properties": {key: str(tex.get_editor_property(key)) for key in settings},
+                  "scope": "Saved source/import settings only; final cooked dimensions and mips require readback"}
+        os.makedirs(os.path.dirname(os.path.abspath(readback)), exist_ok=True)
+        with open(readback, "w", encoding="utf-8") as stream:
+            json.dump(report, stream, indent=2)
+            stream.write("\n")
+    return tex
+
+
+def build_pwr_paving(defaults):
+    """Explicit PWR material from exported native textures; no layered MIC."""
+    folder = os.environ.get("MJ_PWR_PAVING_TEXTURES", os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "../../../out/pwr/visual-v5/paving-materials-v3/textures")))
+    files = [("PanelNormal", "diagonal-normal.png", "T_PWR_PavingNormal", True),
+             ("PanelData", "diagonal-orhg.png", "T_PWR_PavingData", False)]
+    if not all(os.path.isfile(os.path.join(folder,row[1])) for row in files):
+        unreal.log_warning("PWR paving texture exports absent; optional PWR material skipped")
+        return
+    textures = {}
+    for parameter, file, name, normal in files:
+        tex = import_texture(os.path.join(folder,file), ROOT, name)
+        tex.set_editor_property("srgb", False)
+        tex.set_editor_property("virtual_texture_streaming", False)
+        tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP if normal
+                                else unreal.TextureCompressionSettings.TC_MASKS)
+        tex.set_editor_property("flip_green_channel", False) # exported UE/DirectX normal remains UE
+        tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_FROM_TEXTURE_GROUP)
+        eal.save_loaded_asset(tex)
+        textures[parameter] = tex
+    graphic = import_pwr_paving_graphic()
+    if graphic is not None:
+        textures["PanelGraphic"] = graphic
+    m = fresh(ROOT, "M_CE_PWRPaving", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("used_with_nanite", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    m.set_editor_property("tangent_space_normal", False)
+    g = Graph(m)
+    inputs = [("W", g.node(unreal.MaterialExpressionWorldPosition,x=-2000),""),
+              ("Nw",g.node(unreal.MaterialExpressionVertexNormalWS,x=-2000),""),
+              ("Tint",g.vector4("PavingTint",(.38,.40,.38,1)),""),
+              ("Paving",g.vector4("PavingParams",(400,.74,.25,.35)),""),
+              ("PanelLayout",g.vector4("PavingLayout",(2400,3600,3.5,1)),""),
+              ("Pattern",g.vector4("PavingPattern",(30,.03,.18,.25)),"")]
+    if graphic is not None:
+        inputs.append(("Graphic",g.vector4("PavingGraphic",(1200,0,1,.19)),""))
+    for parameter, texture in textures.items():
+        sampler = (unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL if parameter=="PanelNormal" else
+                   unreal.MaterialSamplerType.SAMPLERTYPE_COLOR if parameter=="PanelGraphic" else
+                   unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+        t = g.node(unreal.MaterialExpressionTextureObjectParameter,x=-1100,parameter_name=parameter,
+                   texture=texture,sampler_type=sampler)
+        t.set_editor_property("sampler_source",unreal.SamplerSourceMode.SSM_FROM_TEXTURE_ASSET if parameter=="PanelGraphic"
+                              else unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+        inputs.append((parameter,t,""))
+    c = g.custom(paving_graphic_code() if graphic is not None else PWR_PAVING_CODE,inputs,
+                 description="matte PWR alloy; native Diagonal maps and optional original albedo")
+    outputs=[]
+    for name,kind in (("Normal",unreal.CustomMaterialOutputType.CMOT_FLOAT3),("Rough",unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                      ("AO",unreal.CustomMaterialOutputType.CMOT_FLOAT1),("Metal",unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
+        output=unreal.CustomOutput();output.set_editor_property("output_name",name);output.set_editor_property("output_type",kind)
+        outputs.append(output)
+    c.set_editor_property("additional_outputs",outputs)
+    for pin,prop in (("",unreal.MaterialProperty.MP_BASE_COLOR),("Normal",unreal.MaterialProperty.MP_NORMAL),
+                     ("Rough",unreal.MaterialProperty.MP_ROUGHNESS),("AO",unreal.MaterialProperty.MP_AMBIENT_OCCLUSION),
+                     ("Metal",unreal.MaterialProperty.MP_METALLIC)):
+        mel.connect_material_property(c,pin,prop)
+    mel.recompile_material(m);eal.save_loaded_asset(m)
+
+
+def build_alpine_apron(defaults):
+    """PWR's opaque world-space apron; runtime supplies native stock textures.
+
+    Optional linear/clamped geology weights bridge the fixed Landscape edge.
+    No visibility mask, object-local projection, displacement or emissive fill.
+    """
+    m = fresh(ROOT, "M_CE_AlpineApron", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("used_with_nanite", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    albedo_default = unreal.load_asset("/Engine/EngineResources/DefaultTexture")
+    normal_default = unreal.load_asset("/Engine/EngineMaterials/DefaultNormal")
+    inputs = [("W", g.node(unreal.MaterialExpressionWorldPosition, x=-2000), ""),
+              ("Nw", g.node(unreal.MaterialExpressionVertexNormalWS, x=-2000), ""),
+              ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS, x=-2000), "")]
+    geology = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100,
+                     parameter_name="ApronGeology", texture=defaults["T_CE_White"],
+                     sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    geology.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+    inputs.append(("Geology", geology, ""))
+    ecology = g.node(unreal.MaterialExpressionTextureObjectParameter,x=-1100,
+                     parameter_name="ApronEcology",texture=defaults["T_CE_White"],
+                     sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    ecology.set_editor_property("sampler_source",unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+    inputs.append(("Ecology",ecology,""))
+    inputs.append(("EcologyInfo",g.vector4("ApronEcologyInfo",(0,0,0,0)),""))
+    field_file=os.environ.get("MJ_PWR_APRON_FIELD","")
+    field_texture=defaults["T_CE_White"]
+    if os.path.isfile(field_file):
+        field_texture=import_texture(field_file,ROOT,"T_PWR_ApronField")
+        field_texture.set_editor_property("srgb",False)
+        field_texture.set_editor_property("virtual_texture_streaming",False)
+        field_texture.set_editor_property("compression_settings",unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
+        field_texture.set_editor_property("mip_gen_settings",unreal.TextureMipGenSettings.TMGS_FROM_TEXTURE_GROUP)
+        eal.save_loaded_asset(field_texture)
+    field_node=g.node(unreal.MaterialExpressionTextureObjectParameter,x=-1100,
+                      parameter_name="ApronField",texture=field_texture,
+                      sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    field_node.set_editor_property("sampler_source",unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+    inputs.append(("Field",field_node,""))
+    inputs.append(("FieldInfo",g.vector4("ApronFieldInfo",(0,0,0,0)),""))
+    inputs.append(("FieldRect",g.vector4("ApronFieldRect",(-400000,-400000,800000,800000)),""))
+
+    for stem in ("Grass", "Soil", "Rock", "Snow"):
+        for suffix, default, sampler in (("D", albedo_default, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR),
+                                         ("N", normal_default, unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL)):
+            name = stem + suffix
+            t = g.node(unreal.MaterialExpressionTextureObjectParameter, x=-1100, parameter_name=name,
+                       texture=default, sampler_type=sampler)
+            t.set_editor_property("sampler_source", unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+            inputs.append((name, t, ""))
+    for name, param, value in (
+            ("GrassTint", "GrassTint", (0.40, 0.62, 0.36, 1.0)),
+            ("SoilTint", "SoilTint", (0.70, 0.68, 0.61, 1.0)),
+            ("RockTint", "RockTint", (0.80, 0.83, 0.84, 1.0)),
+            ("Tiles", "ApronTiles", (240.0, 220.0, 650.0, 450.0)),
+            ("Steep", "GroundSteep", (0.72, 0.94, 650.0, 1.0)),
+            ("Alpine", "LandAlpine", (19000.0, 27000.0, 1800.0, 1.0)),
+            ("Extent", "ApronExtent", (0.0, 0.0, 100000.0, 100000.0)),
+            ("GeologyRect", "ApronGeologyRect", (-100000.0, -100000.0, 200000.0, 200000.0)),
+            ("GeologyBlend", "ApronGeologyBlend", (0.0, 15000.0, 0.72, 0.0)),
+            ("GeologyMix", "ApronGeologyMix", (0.20, 0.75, 0.80, 0.65)),
+            ("SnowRetention", "ApronSnowRetention", (6500.0, 1800.0, 0.40, 0.0)),
+            ("FarSnow", "ApronFarSnow", (35000.0, 65000.0, 100000.0, 250000.0))):
+        inputs.append((name, g.vector4(param, value), ""))
+    c = g.custom(ALPINE_APRON_CODE, inputs, description="world-space alpine surround")
+    outs = []
+    for name, kind in (("Normal", unreal.CustomMaterialOutputType.CMOT_FLOAT3),
+                       ("Rough", unreal.CustomMaterialOutputType.CMOT_FLOAT1),
+                       ("Spec", unreal.CustomMaterialOutputType.CMOT_FLOAT1)):
+        o = unreal.CustomOutput()
+        o.set_editor_property("output_name", name)
+        o.set_editor_property("output_type", kind)
+        outs.append(o)
+    c.set_editor_property("additional_outputs", outs)
+    mel.connect_material_property(c, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(c, "Normal", unreal.MaterialProperty.MP_NORMAL)
+    mel.connect_material_property(c, "Rough", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(c, "Spec", unreal.MaterialProperty.MP_SPECULAR)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -3493,6 +4304,9 @@ elif TRIAL_ROOT:
     deform = deform_globals()
     build_landscape_pbr(defaults, deform=deform)
     build_landscape_pbr(defaults, "M_CE_GroundPBR", land=False, deform=deform)
+    build_alpine_apron(defaults)
+    build_pwr_paving(defaults)
+    build_pwr_rock(defaults)
     # The flares with their pulse in the material (upgrade_ce_map.py
     # bake_pulses points a remastered map's flares here).
     build_flare(defaults)

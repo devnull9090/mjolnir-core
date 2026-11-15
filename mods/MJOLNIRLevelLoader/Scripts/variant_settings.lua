@@ -192,7 +192,7 @@ end
 --- win per game type (`score.slayer=25;score.ctf=3`), so it stays right
 --- whichever game type the next match turns out to be (a post-game vote can
 --- change it). That game type's becomes `score`; the others are dropped.
-function VariantSettings.forMode(settings, mode)
+function VariantSettings.forMode(settings, mode, descriptor)
     local out = {}
     for key, value in pairs(settings or {}) do
         -- `vehicles.*` are the vehicle sets (vehicle_sets.lua), and `bots`
@@ -201,6 +201,10 @@ function VariantSettings.forMode(settings, mode)
         if key:sub(1, 6) ~= "score." and key:sub(1, 9) ~= "vehicles." and not bots then out[key] = value end
     end
     out.score = (settings or {})["score." .. tostring(mode)] or (settings or {}).score
+    for key, value in pairs((descriptor or {}).fixedSettings or {}) do out[key] = value end
+    -- A generated script may use the same score constant for its own end
+    -- condition. Preserve that variant's threshold, including dev variants.
+    if descriptor and descriptor.lockScore then out.score = nil end
     return out
 end
 

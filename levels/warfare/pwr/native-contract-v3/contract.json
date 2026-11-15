@@ -1,0 +1,30 @@
+{
+  "schema": "pwr-frozen-native-contract-v1",
+  "layout": {
+    "path": "layout.json",
+    "sha256": "6a48c5a9e4ebbabc6f17ada0d67007671c6c776d93b072086c721c1c38b3ea00"
+  },
+  "level_gameplay": {
+    "path": "level-gameplay.json",
+    "sha256": "476515ca94247ba38aa722cf69e52453455d9a9d66e4c861ed13a13a94a10274"
+  },
+  "runtime_master": {
+    "path": "../terrain/runtime-v3/runtime-master.json",
+    "sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec"
+  },
+  "runtime_height_sha256": "aae13c42fffcbbd2f248e057a8792fc966aaf48971c407b7a2bc2a0173ce1ad7",
+  "geometry": {
+    "path": "../terrain/final-v3/terrain.geometry.json",
+    "sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4"
+  },
+  "envelope": {
+    "flight_altitude_m": 550,
+    "ceiling_m": 650,
+    "maximum_terrain_reserved_structure_m": 400,
+    "reserved_structure_height_m": 120,
+    "maximum_accepted_static_collision_m": 418.2203327636719
+  },
+  "required_protected_mask_sha256": "679363ebb1cb47e4797f48ac9bc1db6ce6aa86c3e790a14a3f31429a36f32e89",
+  "required_protected_vertices": 300815,
+  "notes": "Frozen from accepted v3 gameplay and exact Landscape surface. 400 m bounds terrain and reserved architectural height; accepted static trees extend to 418.2203 m. Package gate requires a fresh collision receipt and verified probe plan. Live acceptance remains required."
+}

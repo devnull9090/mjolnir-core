@@ -4,6 +4,7 @@ spawn them.
 
     build_terrain_meshes.py --paks <Paks> --spec <materials.spec.json> --out <dir> --name <map>
         --offset x,y,z --fallback </Game/...> --container <name> [--examples <dir>] [--repo <dir>]
+        [--heightfield runtime-master.json]
         <scene.gltf>=<donor>=</Game/new/package/Path> [<scene_translucent.gltf>=<donor>=</Game/...>]
 
 Each mesh is a shipped basic shape's mesh rewritten with the map's geometry
@@ -32,6 +33,8 @@ pass (Death Island, 2026-10-10). The water is refined first
 waves, densest over the playable area (`--placement`, the staging's
 placement.json), then given each vertex's distance to the shore and the
 sea floor's depth (bake_shore, into TEXCOORD_1).
+With --heightfield, the verified master replaces the coarse CE floor and each
+water vertex keeps its own surface elevation when deriving depth/shore data.
 
 Writes `<out>/terrain.json`: a list of decor entries, one per mesh, for
 gen_ce_level.py --terrain.
@@ -108,6 +111,7 @@ def main():
     ap.add_argument("--placement", help="the staging's placement.json: where the water is refined most")
     ap.add_argument("--water-near", type=float, default=4.0, help="water edge length over the playable area, m")
     ap.add_argument("--water-growth", type=float, default=0.08, help="water edge length added per metre beyond it")
+    ap.add_argument("--heightfield", help="verified pre-offset master terrain for local water depth/shore UVs")
     ap.add_argument("--native-detail", action="append", default=[],
                     help="extra <gltf>=<donor>=</Game/package>, appended after generated water")
     here = os.path.dirname(os.path.abspath(__file__))
@@ -144,8 +148,9 @@ def main():
                   f"of ({center[0]:.0f}, {center[1]:.0f})")
             # Shore distance and sea-floor depth per vertex, for M_CE_Ocean's
             # swell damping and shore waves; the first mesh is the terrain.
-            sea, _, shallow, n = bake_shore(base + "_water_dense.gltf", jobs[0][0])
-            print(f"water: shore baked, sea level {sea:.2f} m, {shallow} of {n} vertices over < 3 m of water")
+            sea, _, shallow, n = bake_shore(base + "_water_dense.gltf", jobs[0][0], heightfield=a.heightfield)
+            surface = "local water elevations / master terrain" if sea is None else f"sea level {sea:.2f} m"
+            print(f"water: shore baked, {surface}, {shallow} of {n} vertices over < 3 m of water")
             water_jobs.append([base + "_water_dense.gltf", "basicshapes/cube",
                                package[: -len("_Translucent")] + "_Water"])
     jobs = append_native_detail_jobs(jobs, water_jobs, a.native_detail)

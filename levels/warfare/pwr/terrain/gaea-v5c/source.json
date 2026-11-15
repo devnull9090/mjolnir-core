@@ -1,0 +1,36 @@
+{
+  "schema": "pwr-heightfield-v1",
+  "coordinates": "authoring_metres_z_up",
+  "source_tool": "Gaea 2.3.1.0 Community",
+  "source_build_report": "build-report.json",
+  "source_graph": "../pwr_world_native_v5c.terrain",
+  "source_graph_sha256": "7ce6739f092461f747ce50a0cdeef81a160263c6a59967317306b22962f73287",
+  "source_r32_sha256": "2b96380d50efcf89ea836fde11efe743e21507902554873c1ab5038e41a7a501",
+  "normalization": "North-first R32 flipped to +Y rows; explicit datum plus height range",
+  "calibration": {
+    "datum_m": 70,
+    "height_range_m": 400
+  },
+  "status": "Native Gaea landforms; constrained gameplay earthworks pending",
+  "origin_m": [
+    -1000,
+    -1000
+  ],
+  "spacing_m": [
+    1.9550342130987293,
+    1.9550342130987293
+  ],
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "row_order": "+y",
+  "height": {
+    "path": "source.heights.npy",
+    "encoding": "float32_npy",
+    "offset_m": 0,
+    "scale_m": 1,
+    "sha256": "aa57854dff015f03a7404d79c3c7ebd066b646f63891f51196e8469da8d87d3d"
+  },
+  "masks": {}
+}

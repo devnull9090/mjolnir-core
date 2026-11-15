@@ -211,6 +211,10 @@ pub struct LevelFile {
     /// Opaque to the bake.
     #[serde(default)]
     pub variant: Option<String>,
+    /// Native Warfare adapter/layout contract, consumed by the runtime loader.
+    /// The baker preserves the separate named cutscene flags in `blam`.
+    #[serde(default)]
+    pub warfare: Option<WarfareMetadata>,
     /// The game the map comes from, `halo1` or `halo2`: listed in the
     /// `maps.json` an install writes, for the map select's game filter;
     /// otherwise opaque to the bake.
@@ -244,6 +248,10 @@ pub struct LevelFile {
     /// opaque to the bake.
     #[serde(default)]
     pub vehicle_sets: Option<serde_json::Value>,
+    /// Hidden spawn labels and their game families, emitted by the CE
+    /// converter and filtered by the runtime loader; opaque to the bake.
+    #[serde(default)]
+    pub spawn_sets: Option<serde_json::Value>,
     /// King of the Hill's hills in rotation order, x, y, z and radius in
     /// Unreal cm (tools/level/ce_objectives.py), which MJOLNIRHud's hill
     /// marker reads; opaque to the bake.
@@ -266,6 +274,13 @@ pub struct LevelFile {
 pub struct Canvas {
     pub scenario: String,
     pub origin: [f64; 3],
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WarfareMetadata {
+    pub protocol: u16,
+    pub layout_revision: u16,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -627,6 +642,29 @@ pub struct TypedPlacement {
     pub set: BTreeMap<String, String>,
 }
 
+/// Custom script-only tags must stay out of the independent multiplayer
+/// creation path. Scenario placements and their named palette references are
+/// retained for HaloScript object_create; stock Forge choices remain available.
+fn typed_map_variant_tags(
+    items: &[TypedPlacement],
+    table: &BTreeMap<String, String>,
+    group: &str,
+) -> BTreeMap<(String, String), usize> {
+    let mut tags = BTreeMap::new();
+    for item in items.iter().filter(|item| item.placed) {
+        if let Some(path) = item.tag.as_ref().or_else(|| table.get(&item.kind)) {
+            let variant = item.set.get("permutation data.variant name").cloned().unwrap_or_default();
+            *tags.entry((format!("{group}:{path}"), variant)).or_default() += 1;
+        }
+    }
+    for (kind, path) in table {
+        if !FORGE_WHERE_PLACED.contains(&kind.as_str()) {
+            tags.entry((format!("{group}:{path}"), String::new())).or_default();
+        }
+    }
+    tags
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
@@ -858,6 +896,11 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     }
     if level.kill_floor.is_some_and(|z| !z.is_finite()) {
         bail!("kill_floor must be finite Unreal centimetres");
+    }
+    if let Some(warfare) = &level.warfare {
+        if !(1..=32767).contains(&warfare.protocol) || !(1..=32767).contains(&warfare.layout_revision) {
+            bail!("warfare protocol and layout_revision must be integers in 1..=32767");
+        }
     }
     let scen = level.canvas.scenario.to_uppercase();
     if !SCENARIOS.contains(&scen.as_str()) {
@@ -2892,25 +2935,7 @@ fn bake(a: BakeArgs) -> Result<()> {
             ("vehicles", &level.blam.vehicles, &map.vehicles, "vehi"),
             ("equipment", &level.blam.equipment, &map.equipment, "eqip"),
         ] {
-            let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
-            for item in items {
-                if let Some(path) = item.tag.as_ref().or_else(|| table.get(&item.kind)) {
-                    let variant = item
-                        .set
-                        .get("permutation data.variant name")
-                        .cloned()
-                        .unwrap_or_default();
-                    *tags
-                        .entry((format!("{group}:{path}"), variant))
-                        .or_default() += 1;
-                }
-            }
-            for (kind, path) in table.iter() {
-                if !FORGE_WHERE_PLACED.contains(&kind.as_str()) {
-                    tags.entry((format!("{group}:{path}"), String::new()))
-                        .or_default();
-                }
-            }
+            let tags = typed_map_variant_tags(items, table, group);
             palettes.push((category, tags.into_iter().collect()));
         }
         let mut tags: BTreeMap<(String, String), usize> = BTreeMap::new();
@@ -4004,6 +4029,74 @@ fn append_forge_preloads(data: &[u8], targets: &[String], usmap: &ue_asset::Usma
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warfare_metadata_is_typed_and_unknown_fields_still_fail() {
+        let document = serde_json::json!({
+            "schema_version": 1, "name": "pwr",
+            "canvas": { "scenario": "B30", "origin": [0, 0, 0] },
+            "warfare": {"protocol": 20568, "layout_revision": 2}
+        });
+        let level: LevelFile = serde_json::from_value(document.clone()).unwrap();
+        validate_level(&level).unwrap();
+        let metadata = level.warfare.unwrap();
+        assert_eq!(metadata.protocol, 20568);
+        assert_eq!(metadata.layout_revision, 2);
+        let mut unknown = document.clone();
+        unknown["warfares"] = serde_json::json!({});
+        assert!(serde_json::from_value::<LevelFile>(unknown).is_err());
+        let mut unknown = document.clone();
+        unknown["warfare"]["layout_revison"] = serde_json::json!(2);
+        assert!(serde_json::from_value::<LevelFile>(unknown).is_err());
+        for field in ["protocol", "layout_revision"] {
+            for invalid in [serde_json::json!(0), serde_json::json!(32768)] {
+                let mut bad = document.clone();
+                bad["warfare"][field] = invalid;
+                let level: LevelFile = serde_json::from_value(bad).unwrap();
+                assert!(validate_level(&level).is_err());
+            }
+            for invalid in [serde_json::json!(-1), serde_json::json!(1.5), serde_json::json!("2")] {
+                let mut bad = document.clone();
+                bad["warfare"][field] = invalid;
+                assert!(serde_json::from_value::<LevelFile>(bad).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn custom_script_transports_are_not_automatic_map_variant_objects() {
+        let custom = r"objects\mjolnir\warfare\pelican\pwr_pelican";
+        let items: Vec<TypedPlacement> = serde_json::from_value(serde_json::json!([
+            {"type":"pelican", "tag":custom, "name":"pwr_pelican_red", "placed":false, "pos":[0,0,15000]},
+            {"type":"pelican", "tag":custom, "name":"pwr_pelican_blue", "placed":false, "pos":[1000,0,15000]},
+            {"type":"warthog", "pos":[0,0,0]},
+            {"type":"warthog", "pos":[1000,0,0], "set":{"permutation data.variant name":"rocket"}}
+        ])).unwrap();
+        let table = BTreeMap::from([
+            ("pelican".into(), r"objects\vehicles\human\pelican\pelican".into()),
+            ("warthog".into(), r"objects\vehicles\human\warthog\warthog".into()),
+        ]);
+        let tags = typed_map_variant_tags(&items, &table, "vehi");
+        assert!(!tags.keys().any(|(tag, _)| tag.contains("pwr_pelican")),
+            "map-variant copies ignore scenario not-automatically and duplicate script carriers");
+        assert_eq!(tags[&(r"vehi:objects\vehicles\human\warthog\warthog".into(), String::new())], 1);
+        assert_eq!(tags[&(r"vehi:objects\vehicles\human\warthog\warthog".into(), "rocket".into())], 1);
+        assert_eq!(items[0].name.as_deref(), Some("pwr_pelican_red"));
+        assert_eq!(items[1].tag.as_deref(), Some(custom));
+    }
+
+    #[test]
+    fn converted_spawn_sets_are_accepted_without_relaxing_unknown_field_checks() {
+        let mut document = serde_json::json!({
+            "schema_version": 1, "name": "spawn families",
+            "canvas": { "scenario": "b30", "origin": [0, 0, 0] },
+            "spawn_sets": [{"label": "spawn_set_0", "families": ["king", "slayer"]}]
+        });
+        let level: LevelFile = serde_json::from_value(document.clone()).unwrap();
+        assert_eq!(level.spawn_sets.unwrap(), document["spawn_sets"]);
+        document["spawn_setss"] = serde_json::json!([]);
+        assert!(serde_json::from_value::<LevelFile>(document).is_err());
+    }
 
     #[test]
     fn utility_palette_refs_reject_aliases_traversal_duplicates_and_unpinned_packs() {
