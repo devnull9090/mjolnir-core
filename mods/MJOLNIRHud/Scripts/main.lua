@@ -192,6 +192,51 @@ local function now()
     return os.clock()
 end
 
+--- Where a tick's time went: `Steps.mark(name)` ends the step `name` and
+--- starts the next. A tick over 50 ms logs its steps of 2 ms or more with the
+--- "slow:" line, so a stall names its own cause (os.clock, about 30 calls a
+--- tick, which is nothing at 10 Hz).
+local Steps = { names = {}, times = {}, n = 0, at = 0 }
+
+function Steps.reset()
+    Steps.n, Steps.at = 0, os.clock()
+end
+
+function Steps.mark(name)
+    local t = os.clock()
+    Steps.n = Steps.n + 1
+    Steps.names[Steps.n], Steps.times[Steps.n] = name, t - Steps.at
+    Steps.at = t
+end
+
+--- The steps of 2 ms or more, longest first: "widgets: feed 30 ms, chat 28 ms".
+function Steps.summary()
+    local order = {}
+    for i = 1, Steps.n do
+        if Steps.times[i] >= 0.002 then order[#order + 1] = i end
+    end
+    table.sort(order, function(a, b) return Steps.times[a] > Steps.times[b] end)
+    local parts = {}
+    for _, i in ipairs(order) do parts[#parts + 1] = string.format("%s %.0f ms", Steps.names[i], Steps.times[i] * 1000) end
+    return #parts > 0 and table.concat(parts, ", ") or "no step over 2 ms"
+end
+
+--- A match's one-time setup, one piece a poll. Each piece costs 10-45 ms:
+--- the incident hook, the kill feed, the scoreboard, the chat box, the name
+--- tag watch, the hill (or another marker). All in the first poll of a match
+--- they held the game thread 189-211 ms on two copies (2026-11-10). A piece
+--- asks `Setup.free()` and, once done, `Setup.use()`; the rest wait for the
+--- next poll, 0.1 s on, so everything is up about 0.7 s into a match.
+local Setup = { poll = 0, used = -1 }
+
+function Setup.free()
+    return Setup.used ~= Setup.poll
+end
+
+function Setup.use()
+    Setup.used = Setup.poll
+end
+
 local function refreshLocalPlayer()
     local ok, index = pcall(function()
         return playerController().PlayerState.BlamPlayerStateComponent.BlamAbsolutePlayerIndex
@@ -814,8 +859,13 @@ end
 --- Every incident, queued with what the handlers read. Reading the struct is
 --- all the hook does; while the match log records (the host), that includes
 --- where the cause's and the effect's objects stand at that moment.
+local nextIncidentTry = 0
 local function hookIncidents()
-    if incidentHooked then return end
+    if incidentHooked or now() < nextIncidentTry or not Setup.free() then return end
+    -- Finding the event by path and hooking it: 20-42 ms, once a session. A
+    -- try that fails waits a second, so the rest of the setup gets its polls.
+    Setup.use()
+    nextIncidentTry = now() + 1
     incidentHooked = pcall(function()
         RegisterHook(INCIDENT_EVENT, function(_, incident)
             if #Queue >= 64 then return end
@@ -1472,7 +1522,9 @@ end
 local function sweepTags()
     if now() < nextTagSweep then return end
     nextTagSweep = now() + 1
-    if not tagWatch then
+    -- Arming walks the object array once (about 23 ms): on its own poll.
+    if not tagWatch and Setup.free() then
+        Setup.use()
         tagWatch = pcall(function()
             NotifyOnNewObject(NAVPOINT_CLASS, function(tag)
                 trackTag(tag)
@@ -1541,9 +1593,24 @@ local function startMatch(running, world)
     applyHeardTeams()
 end
 
---- The widgets, once the map's world is up: created too early (while the
---- level is still loading) Create returns nothing, so this retries each
---- second until both exist.
+--- The widgets' classes, loaded while the player is in the menus, one a
+--- poll: the first match of a session loaded them (and pinned them,
+--- class_lifetime.lua, whose pin walks the object array once for the game
+--- engine) in its own polls, the kill feed's 47 ms on two copies
+--- (2026-11-10). A class that does not load here loads in the match as before.
+local PRELOAD = { FEED_CLASS, BOARD_CLASS, Chat.CLASS }
+local preloaded = 0
+local function preloadClasses()
+    if preloaded >= #PRELOAD or not Setup.free() then return end
+    Setup.use()
+    preloaded = preloaded + 1
+    loadClass(PRELOAD[preloaded])
+end
+
+--- The widgets, once the map's world is up: the kill feed, then the
+--- scoreboard on a later poll (each is about 30 ms to make: Setup). Created
+--- too early (while the level is still loading) Create returns nothing, and
+--- a failed try waits a second.
 local nextWidgetTry = 0
 local widgetTries = 0
 
@@ -1589,39 +1656,51 @@ end
 
 local function ensureWidgets()
     if Feed and Feed:IsValid() and Board and Board:IsValid() then return end
-    if now() < nextWidgetTry then return end
-    nextWidgetTry = now() + 1
+    if now() < nextWidgetTry or not Setup.free() then return end
+    Setup.use()
     widgetTries = widgetTries + 1
+    Steps.mark("widgets: before")
+    local function failed()
+        nextWidgetTry = now() + 1
+        if widgetTries == 30 then Log("WIDGETS MISSING after 30 s (is pakchunk984-MJOLNIRUI installed?)") end
+    end
     if not (Feed and Feed:IsValid()) then
         Feed = createWidget(FEED_CLASS, 40)
-        if Feed then
-            setText(Feed.Watermark, BuildLine.text(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR))
-            applyFonts(Feed)
-            if HudHidden then setVisible(Feed, false) end
-            local okE, edge = pcall(function() return Feed.FeedEdge0 end)
-            local okV, isRow = pcall(function() return edge:IsValid() end)
-            if Match then Match.legacyFeed = not (okE and okV and isRow) end
-            if Match and Match.legacyFeed then
-                Log("the UI container has no feed rows (an older CE runtime): text feed")
-            end
-            -- A new widget starts bare: the rows come back from the model.
-            if Match then
-                Match.feed = Rows.new()
-                Match.respawnShown, Match.respawnLabel = nil, nil
-                boardDirty = true
-            end
+        Steps.mark("widgets: feed")
+        if not Feed then return failed() end
+        setText(Feed.Watermark, BuildLine.text(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR))
+        Steps.mark("widgets: build line")
+        applyFonts(Feed)
+        Steps.mark("widgets: fonts")
+        if HudHidden then setVisible(Feed, false) end
+        local okE, edge = pcall(function() return Feed.FeedEdge0 end)
+        local okV, isRow = pcall(function() return edge:IsValid() end)
+        if Match then Match.legacyFeed = not (okE and okV and isRow) end
+        if Match and Match.legacyFeed then
+            Log("the UI container has no feed rows (an older CE runtime): text feed")
         end
+        -- A widget made again mid-match starts bare: the rows come back from
+        -- the model. The match's first keeps what came before it (the feed
+        -- is made a poll or two into the match, Setup).
+        if Match then
+            if Match.feedMade then Match.feed = Rows.new() end
+            Match.feedMade = true
+            Match.respawnShown, Match.respawnLabel = nil, nil
+            boardDirty = true
+        end
+        -- The scoreboard on a later poll.
+        return
     end
-    if not (Board and Board:IsValid()) then
-        Board = createWidget(BOARD_CLASS, 45)
-        if Board then setVisible(Board, false) end
-    end
-    if Feed and Board then
-        Log("kill feed and scoreboard up")
-        refreshNames()
-    elseif widgetTries == 30 then
-        Log("WIDGETS MISSING after 30 s (is pakchunk984-MJOLNIRUI installed?)")
-    end
+    Board = createWidget(BOARD_CLASS, 45)
+    Steps.mark("widgets: board")
+    if not Board then return failed() end
+    setVisible(Board, false)
+    -- Made a poll after the feed: Tab may already count as held, so the tick
+    -- shows (and draws) the new board as if Tab had just been pressed.
+    boardShown, boardDirty = false, true
+    Log("kill feed and scoreboard up")
+    refreshNames()
+    Steps.mark("widgets: names")
 end
 
 --- Every frame, the feed and the bars move (animate). The poll runs ten
@@ -1840,8 +1919,12 @@ local function tick()
     elseif timed then
         ensureFrameHook()
     end
+    Steps.mark("hitch log")
     if code ~= lastWorld then
         lastWorld = code
+        -- A new world is this poll's setup (the hitch log's summary, the
+        -- match's game type read from its variant): the rest waits.
+        Setup.use()
         -- The last world's bipeds are gone; campaign missions make hundreds.
         pcall(Bipeds.prune)
         local running = runningMatch()
@@ -1852,20 +1935,44 @@ local function tick()
         -- level loader knows the match: look again once a second.
         nextRunningCheck = now() + 1
         local running = runningMatch()
-        if running and code == running.code then startMatch(running, code) end
+        if running and code == running.code then
+            Setup.use()
+            startMatch(running, code)
+        end
     end
+    Steps.mark("match start")
     if not Match then
         Queue = {}
         publishPresence(nil, LOCAL_PLAYER)
+        preloadClasses()
         return
     end
     hookIncidents()
+    Steps.mark("incident hook")
     ensureWidgets()
+    Steps.mark("widgets")
     ensureFrameHook()
+    Steps.mark("frame hook")
     refreshLocalPlayer()
     Match.host = isHostWorld(pc)
+    Steps.mark("local player")
     pcall(findBipeds)
-    Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
+    Steps.mark("bipeds")
+    -- The hill (or another marker) is built on its first tick: on a poll of
+    -- its own (Setup). A build that fails waits a second, so the chat box and
+    -- the name tags still get their polls.
+    if not Markers.pending(Match) then
+        Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
+    elseif Setup.free() and now() >= (Match.markerTryAt or 0) then
+        Setup.use()
+        Match.markerTryAt = now() + 1
+        local okM, errM = pcall(Markers.tick, Match, now(), pc, HudHidden, LOCAL_PLAYER)
+        if not okM and not Match.markerSaid then
+            Match.markerSaid = true
+            Log("markers: " .. tostring(errM))
+        end
+    end
+    Steps.mark("markers")
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets. Its bots start on a
     -- later poll than that search (a FindAllOf, about 25 ms in a match): the
@@ -1877,6 +1984,7 @@ local function tick()
         Match.botsChecked = true
         startBots(Bots.wanted(LOADER_DIR))
     end
+    Steps.mark("relay and bot start")
     -- The humans in seat order: `player_get <n>` is the nth player there is.
     -- Their bipeds tell the bots where each side is.
     local humans = {}
@@ -1888,33 +1996,43 @@ local function tick()
     end
     local okBots, errBots = pcall(Bots.tick, now(), humans)
     if not okBots then Log("bots: " .. tostring(errBots)) end
+    Steps.mark("bots")
     if now() >= (Match.nextBotRoster or 0) then
         Match.nextBotRoster = now() + 1
         syncBotNames()
         syncTeams()
     end
+    Steps.mark("bot names and teams")
     if now() >= nextRosterRefresh then
         nextRosterRefresh = now() + 1
         refreshNames()
         boardDirty = true
     end
+    Steps.mark("names")
     if Match.joins and #Match.joins > 0 then announceJoins() end
     -- Before the drain: the host's log is recording by the first incident.
     logSafely("tick", matchLogTick, pc)
+    Steps.mark("joins and match log")
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
+    Steps.mark("chat")
     drain()
+    Steps.mark("incidents")
     -- The match over time, for the post-game charts (Scoreboard.sample).
     if not Match.over then Scoreboard.sample(Match, now()) end
+    Steps.mark("post-game samples")
     publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
         Match.demoUntil = nil
         boardDirty = true
     end
+    Steps.mark("presence")
     sweepTags()
+    Steps.mark("name tags")
     drawRespawn()
     drawClock()
+    Steps.mark("respawn and clock")
     local held = boardHeld(pc) or Match.over ~= nil
     if Match.travelAt and now() >= Match.travelAt then
         Match.travelAt = nil
@@ -1940,15 +2058,18 @@ local function tick()
             if tag:IsValid() then applyTag(tag) else Tags[address] = nil end
         end
     end
+    Steps.mark("board state")
     if boardDirty then
         boardDirty = false
         drawScoreStrip()
         if boardShown then drawBoard() end
     end
+    Steps.mark("board")
     -- The per-frame hook animates between polls; the poll draws too, so the
     -- HUD still moves (at its rate) if the hook never armed.
     animate(now())
     pcall(Chat.frame, now())
+    Steps.mark("animate")
 end
 
 -- The Lua collector in generational mode. The HUD keeps ~0.5 MB but makes
@@ -1960,18 +2081,34 @@ end
 pcall(collectgarbage, "generational")
 
 --- A tick that holds the game thread past 50 ms is logged (at most every
---- 30 s): a CTF host froze ~250 ms every 3.24 s in Lua, and nothing said
---- which mod's loop it was (playtest, 2026-10-03).
+--- 10 s), with its steps: a CTF host froze ~250 ms every 3.24 s in Lua, and
+--- nothing said which mod's loop it was (playtest, 2026-10-03).
 local slowReportedAt = -100
 local function poll()
     local started = os.clock()
+    Setup.poll = Setup.poll + 1
+    Steps.reset()
     local ok, err = pcall(tick)
     if not ok then Log("tick: " .. tostring(err)) end
+    -- What a tick did after its last step (its early returns included).
+    Steps.mark("rest")
     local took = os.clock() - started
     Hitches.work("Hud", "tick", started, took)
-    if took > 0.05 and started - slowReportedAt > 30 then
+    -- A match's first 10 s, where its setup runs (Setup): the worst tick and
+    -- its steps, logged once, so a setup piece that grows shows below the
+    -- "slow:" line's 50 ms.
+    if Match and Match.startedAt then
+        if started - Match.startedAt <= 10 then
+            if took > (Match.setupWorst or 0) then Match.setupWorst, Match.setupSteps = took, Steps.summary() end
+        elseif not Match.setupSaid then
+            Match.setupSaid = true
+            Log(string.format("match start: the worst HUD tick in the first 10 s took %.0f ms (%s)",
+                (Match.setupWorst or 0) * 1000, Match.setupSteps or "no steps"))
+        end
+    end
+    if took > 0.05 and started - slowReportedAt > 10 then
         slowReportedAt = started
-        Log(string.format("slow: the HUD tick held the game thread %.0f ms", took * 1000))
+        Log(string.format("slow: the HUD tick held the game thread %.0f ms (%s)", took * 1000, Steps.summary()))
     end
     ExecuteInGameThreadWithDelay(POLL_MS, poll)
 end
@@ -2037,6 +2174,8 @@ Chat.init({
     now = now,
     pc = playerController,
     createWidget = createWidget,
+    setupFree = Setup.free,
+    setupUse = Setup.use,
     font = Icons.font,
     match = function() return Match ~= nil end,
     isHost = function() return Match ~= nil and Match.host == true end,

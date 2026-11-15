@@ -145,6 +145,15 @@ function Markers.new(deps)
         return mine.objectiveScore or 0
     end
 
+    --- Whether this match's marker is still to be made. Its first tick builds
+    --- it (the hill reads the level file and stands its panels: 16-34 ms on
+    --- Blood Gulch), which main.lua gives a poll of its own (Setup).
+    local MARKER_OF = { king = "hill", race = "race", juggernaut = "juggernaut", ctf = "flags", oddball = "ball" }
+    function self.pending(match)
+        local key = match and match.mode and MARKER_OF[match.mode.family]
+        return key ~= nil and match[key] == nil
+    end
+
     local function made(match)
         local family = match.mode.family
         if family == "king" and not match.hill then
@@ -216,6 +225,11 @@ function Markers.new(deps)
     --- An incident a marker reads. Returns true when someone new became the
     --- Juggernaut, for the feed.
     function self.incident(match, inc, me)
+        -- The marker waits for its own poll (self.pending); an incident for
+        -- it that comes first makes it now, so no move or holder is lost.
+        if inc.name == "hill_moved" or inc.name == "checkpoint_reached" or inc.name == "new_juggernaut" then
+            made(match)
+        end
         if inc.name == "hill_moved" and match.hill then
             match.hill.moved(inc.value)
         elseif inc.name == "checkpoint_reached" and match.race then

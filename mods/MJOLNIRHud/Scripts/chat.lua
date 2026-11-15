@@ -36,6 +36,8 @@ Chat.RATE = { count = 5, seconds = 6 }   -- per sender, on the host
 Chat.MAX_RECORD = 5000
 
 local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRChat.WBP_MJOLNIRChat_C"
+--- The box's class, which main.lua loads while the player is in the menus.
+Chat.CLASS = CLASS
 
 --- The chat rules a player agrees to before their first line. Agreeing is
 --- remembered beside this mod (chat_rules.txt holds the version agreed to);
@@ -238,6 +240,10 @@ end
 local function ensureWidget()
     if valid(W) then return W end
     if ctx.now() < nextWidgetTry then return nil end
+    -- One piece of a match's setup a poll (main.lua's Setup): the box, about
+    -- 30 ms to make, waits its turn rather than its 2 s retry.
+    if ctx.setupFree and not ctx.setupFree() then return nil end
+    if ctx.setupUse then ctx.setupUse() end
     nextWidgetTry = ctx.now() + 2
     W = ctx.createWidget(CLASS, 42)
     if not W then return nil end
@@ -803,7 +809,8 @@ end
 
 --- deps: { dir, log, now, pc, createWidget, font, match, isHost, teams,
 --- teamColor, localTeam, localName, seatOf, colorOf, controllers, matchId,
---- queue, hidden, players, localIndex, console }.
+--- queue, hidden, players, localIndex, console }, and optionally setupFree
+--- and setupUse, the turn the widget waits for (main.lua's Setup).
 function Chat.init(deps)
     ctx = deps
     local okC, loaded = pcall(dofile, deps.dir .. "\\Scripts\\commands.lua")
