@@ -132,9 +132,25 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
             textures["Primary"] = T_(prim)
             scalars.update(HasPrimary=1.0, PrimaryScale=float((d.get("detail") or {}).get("primary_scale") or 1.0))
             tex[prim] = 1
+        # A self-illuminated screen (the gate keypad's `screen`,
+        # tex_bump_illum with no base map: Halo 2 draws its map's blue
+        # icon glowing on black). The base goes black (AlbedoGain 0) where
+        # there is no base map, or the master's white default showed as a
+        # blank white screen (2026-11-15); upgrade_ce_map.prop_lit makes it
+        # a plain glow (PlainGlow) in its first channel's colour.
+        vectors = {}
+        si = d.get("self_illum") or {}
+        if si.get("map"):
+            textures["SelfIllumMap"] = T_(si["map"])
+            tex[si["map"]] = 1
+            scalars.update(HasSelfIllum=1.0, SelfIllumScale=float(si.get("map_scale") or 1.0), PlainGlow=1.0)
+            ch = (si.get("channels") or [{"on": si.get("on_color") or [1, 1, 1]}])[0]
+            vectors["SelfOn0"] = list(map(float, ch.get("on") or [1, 1, 1])) + [1.0]
+            if not sh.get("base_map"):
+                scalars["AlbedoGain"] = 0.0
         if not any(m["name"] == name for m in mats):
             mats.append({"name": name, "parent": "/Game/MJOLNIR/CE/M_CE_Environment.M_CE_Environment",
-                         "scalars": scalars, "vectors": {}, "textures": textures})
+                         "scalars": scalars, "vectors": vectors, "textures": textures})
 
     def to_world(prims, e):
         r = mcs.ce_rotation(*e.get("rot", [0, 0, 0]))

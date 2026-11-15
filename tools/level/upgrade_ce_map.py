@@ -244,6 +244,7 @@ PROP_HIDDEN = "/Game/MJOLNIR/CETrial/M_CE_Hidden.M_CE_Hidden"
 PROP_GLOW = {"GlowBrightness": 40.0, "GlowDarken": 0.9, "FusionHaze": 0.1}
 PROP_GLOW_PULSE = [0.35, 2.4, 0.0, 0.0]
 PROP_FUSION = [3.0, 0.45, 0.6, 0.0]
+PLAIN_GLOW_BRIGHTNESS = 30.0
 
 
 def prop_lit(mat, prop):
@@ -272,10 +273,18 @@ def prop_lit(mat, prop):
     if not str(mat.get("parent", "")).endswith("/M_CE_Environment.M_CE_Environment"):
         return mat
     textures = {k: v for k, v in (mat.get("textures") or {}).items() if k != "Lightmap"}
-    keep = ("PrimaryScale", "BumpScale", "SelfIllumScale", "HasPrimary", "HasBump", "HasSelfIllum", "BumpIsSpecMask")
+    keep = ("PrimaryScale", "BumpScale", "SelfIllumScale", "HasPrimary", "HasBump", "HasSelfIllum", "BumpIsSpecMask",
+            "AlbedoGain")
     scalars = {k: v for k, v in (mat.get("scalars") or {}).items() if k in keep}
     vectors = {}
-    if scalars.get("HasSelfIllum", 0) > 0.5 and "SelfIllumMap" in textures:
+    # A plain glowing screen (h2_physics_props' `PlainGlow`: the gate
+    # keypad's icon): its map lit in its colour, steady, no fusion bands,
+    # haze or pulse, the surface under it not darkened.
+    if (mat.get("scalars") or {}).get("PlainGlow", 0) > 0.5 and "SelfIllumMap" in textures:
+        on = (mat.get("vectors") or {}).get("SelfOn0") or [1.0, 1.0, 1.0, 1.0]
+        scalars.update(GlowBrightness=PLAIN_GLOW_BRIGHTNESS, GlowDarken=0.0, FusionHaze=0.0)
+        vectors.update(GlowTint=on, GlowPulse=[0.0, 1.0, 0.0, 0.0], Fusion=[3.0, 0.5, 0.0, 0.0])
+    elif scalars.get("HasSelfIllum", 0) > 0.5 and "SelfIllumMap" in textures:
         scalars.update(PROP_GLOW)
         vectors["GlowPulse"] = PROP_GLOW_PULSE
         vectors["Fusion"] = PROP_FUSION
@@ -2107,7 +2116,17 @@ def stage_assemble(code, m, p):
         print(f"  {code}: {len(level['doors'])} door(s) opened by their controls")
     if m.get("extra_decor"):
         extra = json.load(open(m["extra_decor"], encoding="utf-8"))
+        # The redrawn textures, as the decor's above (that swap ran before
+        # these were added: the gate keypad's redraw).
+        manifest = os.path.join(p["work"], "redrawn", "manifest.json")
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}             if m.get("redrawn") and os.path.exists(manifest) else set()
         for item in extra:
+            for entry in item.get("materials") or []:
+                tex = entry.get("textures") if isinstance(entry, dict) else None
+                for key in ("Base", "Bump", "SelfIllumMap"):
+                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+                    if leaf in names:
+                        tex[key] = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/{leaf}.{leaf}"
             item["materials"] = [prop_lit(mat, {}) if isinstance(mat, dict) else mat for mat in item.get("materials") or []]
         level.setdefault("decor", []).extend(extra)
         print(f"  {code}: {len(extra)} extra decor mesh(es): {', '.join(str(i.get('mesh', '')).split('.')[-1] for i in extra)}")

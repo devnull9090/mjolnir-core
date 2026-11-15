@@ -269,23 +269,42 @@ function Props.new(d)
 
     --- Four times a second: crates waiting to be dressed, each dressed prop's
     --- health (its look's `Health`), and deaths (burnt, its death_fx).
+    --- A prop's damage component and its two functions, read once: 4 times
+    --- a second over every prop, a property read, a closure and two method
+    --- lookups a prop were garbage enough that the collector's runs landed
+    --- as 10-15 ms frames all over the hitch log (ZAN, 2026-11-15).
+    local function damageOf(mine)
+        if mine.dmg == nil then
+            mine.dmg = false
+            pcall(function()
+                local dmg = mine.actor.BlamObjectDamage
+                if dmg and dmg:IsValid() then
+                    mine.dmg, mine.isDead, mine.vitality = dmg, dmg.IsDead, dmg.GetBodyVitality
+                end
+            end)
+        end
+        return mine.dmg
+    end
+
     function self.deaths()
-        local world = d.getWorld()
-        if world then
-            for key, actor in pairs(self.pending) do
-                if actor:IsValid() then tryDress(world, actor) else self.pending[key] = nil end
+        if next(self.pending) then
+            local world = d.getWorld()
+            if world then
+                for key, actor in pairs(self.pending) do
+                    if actor:IsValid() then tryDress(world, actor) else self.pending[key] = nil end
+                end
             end
         end
         for key, mine in pairs(self.dressed) do
             if mine.actor:IsValid() and mine.comp:IsValid() then
                 local dead, health = false, 1.0
-                pcall(function()
-                    local dmg = mine.actor.BlamObjectDamage
-                    if dmg and dmg:IsValid() then
-                        dead = dmg:IsDead()
-                        health = dmg:GetBodyVitality()
-                    end
-                end)
+                local dmg = damageOf(mine)
+                if dmg and dmg:IsValid() then
+                    local ok, v = pcall(mine.isDead, dmg)
+                    if ok then dead = v end
+                    ok, v = pcall(mine.vitality, dmg)
+                    if ok then health = v end
+                end
                 if type(health) ~= "number" or health ~= health then health = 1.0 end
                 if dead ~= (mine.dead or false) then
                     -- Only a death seen happen blows up: a crate first seen

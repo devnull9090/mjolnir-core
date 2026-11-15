@@ -6167,6 +6167,18 @@ local function watch()
     -- clock from the level's load, as the game runs a gear's position from
     -- it: the yaw between the keys at t mod period, the actor swung about
     -- its pivot to it. Its tables are its own, refilled: nothing per run.
+    -- The angle of a ridden part about its machine's axis (below). Out of
+    -- the loop: a closure a machine a run was garbage at 30 Hz.
+    local function partAngle(m)
+        local k = m.axis or { X = 0, Y = 0, Z = 1 }
+        local a, b = m.base:GetActorForwardVector(), m.part:GetForwardVector()
+        if math.abs(a.X * k.X + a.Y * k.Y + a.Z * k.Z) > 0.9 then
+            a, b = m.base:GetActorUpVector(), m.part:GetUpVector()
+        end
+        local ak, bk = a.X * k.X + a.Y * k.Y + a.Z * k.Z, b.X * k.X + b.Y * k.Y + b.Z * k.Z
+        local cross = k.X * (a.Y * b.Z - a.Z * b.Y) + k.Y * (a.Z * b.X - a.X * b.Z) + k.Z * (a.X * b.Y - a.Y * b.X)
+        return math.deg(math.atan(cross, a.X * b.X + a.Y * b.Y + a.Z * b.Z - ak * bk))
+    end
     every(33, "turning machines", function()
         -- Once the world is dressed: its machines are spawned over frames.
         if #Current.turning == 0 or not Current.furnished then return end
@@ -6185,16 +6197,6 @@ local function watch()
             -- the part's; the turn's phase, for the sounds, is fitted to
             -- what the part does, as the simulation runs its gears from its
             -- own clock.
-            local function partAngle()
-                local k = m.axis or { X = 0, Y = 0, Z = 1 }
-                local a, b = m.base:GetActorForwardVector(), m.part:GetForwardVector()
-                if math.abs(a.X * k.X + a.Y * k.Y + a.Z * k.Z) > 0.9 then
-                    a, b = m.base:GetActorUpVector(), m.part:GetUpVector()
-                end
-                local ak, bk = a.X * k.X + a.Y * k.Y + a.Z * k.Z, b.X * k.X + b.Y * k.Y + b.Z * k.Z
-                local cross = k.X * (a.Y * b.Z - a.Z * b.Y) + k.Y * (a.Z * b.X - a.X * b.Z) + k.Z * (a.X * b.Y - a.Y * b.X)
-                return math.deg(math.atan(cross, a.X * b.X + a.Y * b.Y + a.Z * b.Z - ak * bk))
-            end
             if m.actor:IsValid() and m.follow and not m.attached then
                 if not m.seek or now - m.seek > 2 then
                     m.seek = now
@@ -6216,7 +6218,7 @@ local function watch()
                                 Current.claimed[key] = m.entry or true
                                 m.base = a
                                 m.part = a:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.StaticMeshComponent"))[1]:get()
-                                m.pose = partAngle()
+                                m.pose = partAngle(m)
                                 break
                             end
                         end
@@ -6224,7 +6226,7 @@ local function watch()
                 end
             elseif m.actor:IsValid() and m.attached and not m.offset and m.part:IsValid() then
                 local h = m.hist
-                local rel = partAngle()
+                local rel = partAngle(m)
                 h[#h + 1] = { now, rel }
                 local lo, hi = rel, rel
                 for _, sm in ipairs(h) do lo, hi = math.min(lo, sm[2]), math.max(hi, sm[2]) end
@@ -6260,8 +6262,10 @@ local function watch()
             -- part (Zanzibar's big wheel and blades under the generator
             -- grate froze for minutes, 2026-11-15). The mesh then leaves the
             -- part and turns by the clock from the angle it was left at.
-            if m.attached and m.part and m.part:IsValid() and m.period < 120 then
-                local ok, a = pcall(partAngle)
+            -- Looked at twice a second: four vectors a look are garbage too.
+            if m.attached and m.part and now - (m.stallLook or -1) > 0.5 and m.part:IsValid() and m.period < 120 then
+                m.stallLook = now
+                local ok, a = pcall(partAngle, m)
                 if ok then
                     if not m.still or math.abs(((a - m.still.a) + 540) % 360 - 180) > 0.5 then
                         m.still = { a = a, t = now }
@@ -6420,13 +6424,15 @@ local function watch()
         return Current.doors
     end
     local doorClock = os.clock()
-    every(33, "doors", function()
+    -- 30 Hz while a door moves, slower while it stands (doors.lua).
+    every(150, "doors", function()
         local now = os.clock()
         local dt = math.min(0.2, now - doorClock)
         doorClock = now
         local dd = doors()
-        if dd then dd.tick(dt, now) end
-    end)
+        if dd then return dd.tick(dt, now) end
+        return 1500
+    end, true)
 end
 
 --------------------------------------------------------------------------------

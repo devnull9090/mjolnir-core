@@ -19,6 +19,11 @@ local Doors = {}
 Doors.NEAR_CM = 40
 Doors.SCAN_S = 2.0
 Doors.CONTROL_CLASS = "BP_FR_ControlPanel_C"
+--- Poll the machines this often (ms) while the door stands still, every
+--- 33 ms while it moves: nine machines' two locations at 30 Hz, all the
+--- time, were garbage the collector paid for in 10-15 ms frames.
+Doors.IDLE_MS = 150
+Doors.MOVING_MS = 33
 
 --- deps: Log, Current, findObject, resolveMesh, getWorld, gameVolume.
 function Doors.new(d)
@@ -102,7 +107,10 @@ function Doors.new(d)
                     part = a:K2_GetComponentsByClass(d.findObject("/Script/Engine.StaticMeshComponent"))[1]:get()
                     part:SetVisibility(false, false)
                 end)
-                if part then found[#found + 1] = { actor = a, part = part } end
+                if part then
+                    found[#found + 1] = { actor = a, part = part, at = a.K2_GetActorLocation,
+                        partAt = part.K2_GetComponentLocation }
+                end
             end
         end
         door.actors = found
@@ -114,12 +122,10 @@ function Doors.new(d)
         if door.travel <= 0 then return nil end
         local most, any = 0, false
         for _, b in ipairs(door.actors) do
-            local ok, off = pcall(function()
-                local a, p = b.actor:K2_GetActorLocation(), b.part:K2_GetComponentLocation()
-                return math.sqrt((p.X - a.X) ^ 2 + (p.Y - a.Y) ^ 2 + (p.Z - a.Z) ^ 2)
-            end)
-            if ok and off then
-                most, any = math.max(most, off), true
+            local oa, a = pcall(b.at, b.actor)
+            local op, p = pcall(b.partAt, b.part)
+            if oa and op and a and p then
+                most, any = math.max(most, math.sqrt((p.X - a.X) ^ 2 + (p.Y - a.Y) ^ 2 + (p.Z - a.Z) ^ 2)), true
             end
         end
         if not any then return nil end
@@ -163,8 +169,10 @@ function Doors.new(d)
         end
     end
 
-    --- Follow the machines; `dt` seconds since the last call, `now` the clock.
+    --- Follow the machines; `dt` seconds since the last call, `now` the
+    --- clock. Returns how long to wait before the next call, in ms.
     function self.tick(dt, now)
+        local moving = false
         if self.world ~= d.Current.worldName then
             self.world, self.doors = d.Current.worldName, build()
         end
@@ -189,6 +197,7 @@ function Doors.new(d)
                     sound(door.target > 0.5 and s_snd.open or (s_snd.close or s_snd.open), at)
                 end
                 door.started = true
+                if math.abs(s - door.last) > 0.0005 then moving = true end
                 door.last = s
             end
             local seconds = math.max(0.1, tonumber(door.spec.seconds) or 1.0)
@@ -201,11 +210,13 @@ function Doors.new(d)
             -- Never far from what the simulation shows (a joiner, a hitch).
             if s and math.abs(door.p - s) > 0.25 then door.p = s end
             if before < 1.0 and door.p >= 1.0 then sound((door.spec.sounds or {}).opened, door.spec.at_cm) end
+            if door.p ~= before or door.p ~= door.target then moving = true end
             if door.p ~= before or not door.posed then
                 door.posed = true
                 pose(door)
             end
         end
+        return moving and Doors.MOVING_MS or Doors.IDLE_MS
     end
 
     return self
