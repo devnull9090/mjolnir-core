@@ -2753,6 +2753,7 @@ def local_install_plan(code, m, p, *, shared=True):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
         containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
+    containers += door_containers(m)
     required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
@@ -2774,6 +2775,18 @@ def local_install_plan(code, m, p, *, shared=True):
     if missing:
         sys.exit(f"{code}: local install is incomplete:\n  " + "\n  ".join(missing))
     return files, cli, containers
+
+
+def door_containers(m):
+    """A Halo 2 door's machines and control: tags of their own, a container
+    each (h2_door_machines), written beside doors.json; (base, build name)."""
+    out = []
+    if m.get("doors") and os.path.exists(m["doors"]):
+        for door in json.load(open(m["doors"], encoding="utf-8")):
+            for owner in (door.get("machines") or []) + [door.get("sim_control") or {}]:
+                for stem in owner.get("containers") or []:
+                    out.append((os.path.join(os.path.dirname(m["doors"]), f"{stem}_P"), stem.split("-", 1)[1]))
+    return out
 
 
 def install_local(code, plan):
@@ -2821,6 +2834,7 @@ def stage_install(code, m, p):
         if not m.get("mesh_container"):
             builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
         builds.append((str(cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}"))
+    builds += door_containers(m)
     missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
     if missing:
         sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))
@@ -2851,8 +2865,10 @@ def install_shared():
     if os.path.exists(os.path.join(STAGED, "pakchunk982-Windows.utoc")):
         print("  " + run(dev_paks.install_command(cli, PAKS, os.path.join(STAGED, "pakchunk982-Windows"),
                                                   "MJOLNIRWATER")).strip())
-    shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"),
-                    os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
+    # Every loader script (main.lua loads doors.lua, props.lua and the rest
+    # at run time): main.lua alone left a stale doors.lua behind.
+    for f in glob.glob(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "*.lua")):
+        shutil.copyfile(f, os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", os.path.basename(f)))
     print("  trial masters and the loader installed")
 
 

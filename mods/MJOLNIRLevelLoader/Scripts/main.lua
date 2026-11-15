@@ -6410,8 +6410,9 @@ local function watch()
     every(250, "prop deaths", function()
         if Current.props then Current.props.deaths() end
     end)
-    -- Halo 2 doors (doors.lua): opened in the simulation by their controls,
-    -- drawn here from the machines that carry their collision.
+    -- Halo 2 doors (doors.lua): opened in the simulation by their controls;
+    -- their meshes ride the machines that carry their collision, attached
+    -- once. Only the door sounds poll.
     local function doors()
         local level = Current.furnished and Current.level
         if not (level and type(level.doors) == "table" and #level.doors > 0) then return nil end
@@ -6423,14 +6424,9 @@ local function watch()
         end
         return Current.doors
     end
-    local doorClock = os.clock()
-    -- 30 Hz while a door moves, slower while it stands (doors.lua).
-    every(150, "doors", function()
-        local now = os.clock()
-        local dt = math.min(0.2, now - doorClock)
-        doorClock = now
+    every(250, "doors", function()
         local dd = doors()
-        if dd then return dd.tick(dt, now) end
+        if dd then return dd.tick(os.clock()) end
         return 1500
     end, true)
 end

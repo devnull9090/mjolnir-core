@@ -154,6 +154,93 @@ def turn_resource(donor, axis, angles):
     return bytes(b)
 
 
+def matrix_quat(m):
+    """A rotation matrix's quaternion (x, y, z, w), the convention of qrot
+    and merge_ce_scene.quat_matrix."""
+    t = m[0][0] + m[1][1] + m[2][2]
+    if t > 0:
+        s = math.sqrt(t + 1.0) * 2
+        q = ((m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s, 0.25 * s)
+    elif m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2
+        q = (0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s, (m[2][1] - m[1][2]) / s)
+    elif m[1][1] > m[2][2]:
+        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2
+        q = ((m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s, (m[0][2] - m[2][0]) / s)
+    else:
+        s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2
+        q = ((m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s, (m[1][0] - m[0][1]) / s)
+    n = math.sqrt(sum(c * c for c in q))
+    return tuple(c / n for c in q)
+
+
+def pose_resource(donor, platform_q, platform_t, frames):
+    """The donor animation graph with its one member rewritten for any rigid
+    motion: the root turns and slides by `frames` (one (quaternion,
+    translation) a frame, wu, the root's transform in the object), and the
+    platform (node 1, which the collision hangs on) sits at `platform_q`,
+    `platform_t` under it. Both root tracks are animated (codec 3, one
+    rotating and one sliding node), so a part that swings about a pivot
+    away from the root (a door's ramp) or slides and turns at once is one
+    machine. Segments as `turn_resource` lists them."""
+    b = bytearray(donor)
+    n = len(frames)
+    j = b.find(b"lbgt", b.find(b"crgt"))
+    e = j + 20
+    old_size = struct.unpack_from("<I", b, e + 80)[0]
+    d = b.find(b"adgt", j)
+    blob_at = d + 12
+    # Keys keep one hemisphere, so no frame interpolates the long way round.
+    qs, last = [], None
+    for q, _ in frames:
+        q = tuple(float(c) for c in q)
+        if last is not None and sum(a * c for a, c in zip(q, last)) < 0:
+            q = tuple(-c for c in q)
+        qs.append(q)
+        last = q
+    ts = [tuple(float(c) for c in t) for _, t in frames]
+
+    def i16q(q):
+        norm = math.sqrt(sum(c * c for c in q))
+        return tuple(int(round(c / norm * 32767)) for c in q)
+
+    static = struct.pack("<4B2f5I", 1, 1, 1, 2, 0.0, 0.0, 0x28, 0x28 + 12, 0, 0, 0)
+    static += struct.pack("<4h", *i16q(platform_q)) + struct.pack("<3f", *platform_t) + struct.pack("<2f", 1.0, 1.0)
+    rot = b"".join(struct.pack("<4h", *i16q(q)) for q in qs)
+    tr = b"".join(struct.pack("<3f", *t) for t in ts)
+    anim = struct.pack("<4B2f5I", 3, 1, 1, 0, 0.0, 1.0, 0x20 + 8 * n, 0x20 + 20 * n, 8 * n, 12 * n, 4 * n) + rot + tr
+    unc = struct.pack("<4B2f5I", 2, 1, 1, 0, 0.0, 0.0, 0x20 + 16 * n, 0x20 + 28 * n, 16 * n, 12 * n, 4 * n)
+    unc += b"".join(struct.pack("<4f", *q) for q in qs) + tr
+    osp = struct.pack("<HH", 2, n)
+    osp += b"".join(struct.pack("<4f3ff", *q, *t, 1.0) for q, t in zip(qs, ts))
+    osp += b"".join(struct.pack("<4f3ff", *qmul(q, platform_q), *(a + c for a, c in zip(qrot(q, platform_t), t)), 1.0)
+                    for q, t in zip(qs, ts))
+    seg = {0: static, 1: anim, 2: struct.pack("<3I", 0b10, 0b10, 0b11), 3: struct.pack("<3I", 0b01, 0b01, 0),
+           5: b"\0" * (12 * n), 6: unc, 13: osp, 15: struct.pack("<I", 0b11) + b"\0" * 28}
+    sizes = [len(seg.get(i, b"")) for i in range(17)]
+    blob = b"".join(seg[i] for i in sorted(seg))
+    delta = len(blob) - old_size
+    struct.pack_into("<h", b, e + 8, n)
+    struct.pack_into("<17i", b, e + 12, *sizes)
+    struct.pack_into("<I", b, e + 80, len(blob))
+    end = blob_at + old_size
+    for magic in (b"tadb", b"lbgt", b"tsgt", b"crgt", b"adgt"):
+        p = -1
+        while True:
+            p = b.find(magic, p + 1)
+            if p < 0 or p > blob_at:
+                break
+            v, s = struct.unpack_from("<II", b, p + 4)
+            if p + 12 + s == end:
+                struct.pack_into("<I", b, p + 8, s + delta)
+                if magic == b"tsgt" and v == s:
+                    struct.pack_into("<I", b, p + 4, s + delta)
+    total = struct.unpack_from("<I", b, 0x48)[0]
+    struct.pack_into("<I", b, 0x48, total + delta)
+    b[blob_at:end] = blob
+    return bytes(b)
+
+
 def boxes(triangles, cell=0.25, limit=200):
     """Boxes over a triangle mesh (world units): the cells of a grid the
     triangles pass through, merged greedily along x, then y, then z. The

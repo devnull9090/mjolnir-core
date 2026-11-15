@@ -107,8 +107,6 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
     have = {(e.get("asset"), tuple(round(v, 2) for v in e.get("pos") or [])) for e in conv_placement["entries"]}
     jobs, mats, tex, ids, doors = [], [], {}, [], []
     T_ = lambda f: f"/Game/MJOLNIR/Maps/{code}/Textures/T_{f[:-4]}.T_{f[:-4]}"
-    swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=float)  # CE (x, y, z) -> glTF (x, z, -y)
-    k = mcs.WU_TO_M
 
     def waves(sid):
         snd = sounds.get(sid) or {}
@@ -197,7 +195,7 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
                 for pp in g["meshes"][nd["mesh"]]["primitives"]:
                     acc = pp["attributes"].get("_NODE")
                     node_of.append(mcs.accessor(g, buf, acc)[:, 0].round().astype(int) if acc is not None else None)
-        r_p, t_p = to_world(prims, e)
+        to_world(prims, e)
         nodes = door["nodes"]
         parts = {}
         for pr, nv in zip(prims, node_of):
@@ -210,41 +208,12 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
                 q["idx"] = inv.astype(np.uint32)
                 parts.setdefault(n, []).append(q)
 
-        def chain(frame):
-            # Object-space (CE world units) matrices of every node at a frame:
-            # a sliding key is an offset added to the default translation, a
-            # node not sliding keeps its default (crate::h2::door).
-            mats_ = []
-            for i, nd in enumerate(nodes):
-                tr, rq = door["poses"][frame][i]
-                d0 = np.array(nd["t"], dtype=float)
-                tl = d0 if np.allclose(tr, nd["t"]) else d0 + np.array(tr, dtype=float)
-                m = np.eye(4)
-                m[:3, :3] = mcs.quat_matrix(rq)
-                m[:3, 3] = tl
-                mats_.append(m if nd["parent"] < 0 else mats_[nd["parent"]] @ m)
-            return mats_
-        rest = chain(0)
-        G = np.eye(4)
-        G[:3, :3] = swap * k
-        Gi = np.linalg.inv(G)
-        P = np.eye(4)
-        P[:3, :3] = r_p
-        P[:3, 3] = t_p
-        Pi = np.linalg.inv(P)
-        Q = np.array([[1, 0, 0], [0, 0, 1], [0, 1, 0]], dtype=float)  # glTF metres -> UE axes
+        # Each node's mesh, at rest; the loader attaches it to its node's
+        # machine (h2_door_machines), which Unreal then carries.
         part_list = []
         for n, ps in sorted(parts.items()):
             mesh = mesh_for(ps, f"{leaf}_n{n}")
-            frames = []
-            for f in range(door["frames"]):
-                D = chain(f)[n] @ np.linalg.inv(rest[n])
-                W = P @ G @ D @ Gi @ Pi
-                R = Q @ W[:3, :3] @ Q.T
-                T = Q @ W[:3, 3] * 100.0
-                frames.append({"x": [round(float(v), 6) for v in R[:, 0]], "z": [round(float(v), 6) for v in R[:, 2]],
-                               "t": [round(float(v), 3) for v in T]})
-            part_list.append({"id": f"{code.lower()}_{mesh.lower()}", "node": nodes[n]["name"], "frames": frames})
+            part_list.append({"id": f"{code.lower()}_{mesh.lower()}", "node": nodes[n]["name"]})
         grp = (e.get("h2_device") or {}).get("position_group", -1)
         ctl = next((c for c in controls if grp >= 0 and (c.get("h2_device") or {}).get("position_group") == grp), None)
         entry = {"asset": e["asset"], "seconds": door["seconds"], "parts": part_list, "sounds": {},

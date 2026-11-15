@@ -431,18 +431,31 @@ units and axes, so every later step reads them unchanged:
   slid across), sliding keys offsets added to the default translation.
   A vertex's node is its rigid-boned vertex's index byte through the
   section's node map (resource locator 0x68), staged as `_NODE`.
-  h2_physics_props.py splits the door into a mesh a node and writes every
-  part's world transform at each of the 16 frames (doors.json); the loader
-  (doors.lua) poses the parts. The simulation opens it: every sliding node
-  with a collision BSP (staged `h2_door.collision`, one BSP a node) becomes
-  a device machine cloned from B40's elevator (h2_door_machines.py: its root
-  slides by the node's offsets, its collision the node's own BSP), and the
-  keypad gets B40's switch panel; machines and switch share one device group
+  h2_physics_props.py splits the door into a mesh a node (doors.json). The
+  simulation opens it and Unreal moves it: every node with a collision BSP
+  (staged `h2_door.collision`, one BSP a node; the gate's 14, its frame and
+  four ramps among them) becomes a device machine with tags of its own
+  (h2_door_machines.py: animation, collision, physics, model and machine,
+  written into the layout of B40's elevator family, whose Unreal class
+  draws it). Its root follows the node exactly, turning and sliding at
+  once (`h2_machines.pose_resource`: codec 3 with the root's rotation and
+  translation both animated, so a ramp swinging about its hinge is one
+  machine); its collision is the node's own BSP, its physics boxes cover
+  the BSP's triangles. Each machine stands at its node's rest origin,
+  staggered 0.005 wu, so the loader (doors.lua) finds each one's actor by
+  where it stands and attaches the node's meshes to its moving component
+  once; Unreal carries them from then on (at rest that component sits
+  exactly on the actor: location, rotation and scale). The keypad gets
+  B40's switch panel; machines and switch share one device group
   (`zan_house_gate`, baked into the scenario), so a player pressing the
   keypad opens the gate, collision and all, for everyone in the match. The
   loader hides the elevator meshes and the switch panel's components (the
-  actor's own hidden flag is reset by the game), and eases the parts between
-  frames from how far the machines have slid, with Halo 2's sounds.
+  actor's own hidden flag is reset by the game), and watches one machine at
+  4 Hz (10 Hz while moving) only for Halo 2's sounds. A node that moves
+  without collision gets no machine (h2_door_machines says so): Dune's
+  collapsing teleporters and switch, the only other type-1 machines with an
+  opening, are all such nodes. The install stage installs every machine's
+  containers (`door_containers`).
   `device_group_set none zan_house_gate 1` opens it from the console.
   Opaque shaders that scroll their base map are staged as `base_scroll`
   (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
