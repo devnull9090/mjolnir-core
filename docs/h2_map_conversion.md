@@ -421,10 +421,25 @@ units and axes, so every later step reads them unchanged:
   its green channel drew the coils green. A prop's `overlay` stencil (the
   crates' MKT1 EMERGENCY FOOD) is drawn as masked paint on the prop: the
   level's darkening copy loses text that brightens. A door (machine type 1:
-  Zanzibar's house gate, 13 parts that swing and slide open from a keypad)
-  is drawn closed, without collision, as static decor; its opening is not
-  drawn yet. Turning machines are lit by Unreal (their object page drew
-  black, and a black flywheel turning read as one standing still).
+  Zanzibar's house gate) opens from its control (the keypad, staged as a
+  `ctrl` placement; the two share position group 0). `crate::h2::door`
+  reads its render model's nodes (0x48, 0x60 each: parent 0x04, default
+  translation 0x0C, rotation 0x18) and decodes `device:position` for every
+  node: keyframe codec 6, four turning and ten sliding nodes named by the
+  three node bit fields that end the frame data, their frame info stored
+  last node first, sliding keys offsets added to the default translation.
+  A vertex's node is its rigid-boned vertex's index byte through the
+  section's node map (resource locator 0x68), staged as `_NODE`.
+  h2_physics_props.py splits the door into a mesh a node and writes every
+  part's world transform at each of the 16 frames (doors.json); the loader
+  (doors.lua) plays the 5 s opening and Halo 2's open / opened / button
+  sounds when the interact key is pressed near the keypad (or
+  `mjolnir_door`). Local to the machine that presses it, without collision.
+  Turning machines are lit by Unreal (their object page drew black, and a
+  black flywheel turning read as one standing still); one riding a
+  simulation machine whose Unreal part stops updating (the big wheel and
+  blades: the simulation's position advances, the game stops copying its
+  pose) leaves the part after 2 s and turns by the clock.
 - **Teleporters.** Halo 2's teleporter scenery (Ascension's
   `2way_teleporter` bases) is placed like any other prop: the generator's
   working pads on the teleporter flags draw nothing. Its beam is a

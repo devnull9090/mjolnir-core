@@ -1522,6 +1522,9 @@ struct Prim {
     billboard: Vec<[f32; 4]>,
     /// Each vertex's index in the section it came from.
     order: Vec<u32>,
+    /// Each vertex's model node (the section's node map applied), when the
+    /// model has more than one node (`_NODE`: a door's moving parts).
+    node: Vec<[f32; 1]>,
     indices: Vec<u32>,
 }
 
@@ -1591,6 +1594,8 @@ impl Prim {
                     self.uv0.push([v.uv[0] * base_scale[0], v.uv[1] * base_scale[1]]);
                     self.uv1.push(uv1.unwrap_or(v.lightmap_uv));
                     self.order.push(i);
+                    let local = section.vertex_nodes.get(i as usize).copied().unwrap_or(0) as usize;
+                    self.node.push([section.node_map.get(local).copied().unwrap_or(local as u8) as f32]);
                     self.incident.push(match incident.and_then(|inc| inc.get(i as usize)) {
                         Some(&world) => to_gltf(world),
                         None if section.has_incident => to_gltf(frame.dir(v.incident)),
@@ -2080,6 +2085,9 @@ impl<'c> Renderer<'c> {
             indices: set.indices.clone(),
             has_lightmap_uv: false,
             has_incident: false,
+            vertex_nodes: Vec::new(),
+            resources: Vec::new(),
+            node_map: Vec::new(),
         };
         let mut prim = Prim::default();
         prim.add(&section, &section.parts[0], Frame::IDENTITY, self.shaders[sh].base_scale, Some([0.0, 0.0]), None);
@@ -2308,6 +2316,9 @@ impl Gltf {
         }
         if let Some(billboard) = billboard {
             attributes["_BILLBOARD"] = json!(billboard);
+        }
+        if p.node.len() == p.positions.len() && p.node.iter().any(|n| n[0] != 0.0) {
+            attributes["_NODE"] = json!(self.floats(&p.node, "SCALAR", false));
         }
         json!({"attributes": attributes, "indices": idx, "material": material, "mode": 4})
     }

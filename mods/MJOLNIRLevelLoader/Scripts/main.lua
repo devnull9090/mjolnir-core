@@ -6254,6 +6254,39 @@ local function watch()
                     table.remove(h, 1)
                 end
             end
+            -- A ridden part that stops while the clock says it turns: the
+            -- simulation keeps turning the machine (its device position
+            -- advances) but the game stops copying its pose to the Unreal
+            -- part (Zanzibar's big wheel and blades under the generator
+            -- grate froze for minutes, 2026-11-15). The mesh then leaves the
+            -- part and turns by the clock from the angle it was left at.
+            if m.attached and m.part and m.part:IsValid() and m.period < 120 then
+                local ok, a = pcall(partAngle)
+                if ok then
+                    if not m.still or math.abs(((a - m.still.a) + 540) % 360 - 180) > 0.5 then
+                        m.still = { a = a, t = now }
+                    elseif now - m.still.t > 2.0 then
+                        local function at(t)
+                            local keys = m.keys
+                            for k = 2, #keys do
+                                if t <= keys[k][1] then
+                                    local p, q = keys[k - 1], keys[k]
+                                    return q[1] > p[1] and (p[2] + (q[2] - p[2]) * (t - p[1]) / (q[1] - p[1])) or q[2]
+                                end
+                            end
+                            return keys[#keys][2]
+                        end
+                        local best, bestE = 0, math.huge
+                        for o = 0, m.period, 0.05 do
+                            local e = math.abs(((at((now - o) % m.period) - a) + 540) % 360 - 180)
+                            if e < bestE then best, bestE = o, e end
+                        end
+                        pcall(function() m.actor:K2_DetachFromActor(1, 1, 1) end)
+                        m.attached, m.follow, m.offset, m.yaw, m.still = false, nil, best, nil, nil
+                        Log(string.format("turning machine: its simulation part stopped updating; turned by the clock (%.1f s)", best))
+                    end
+                end
+            end
             if m.actor:IsValid() then
                 local t = (now - (m.offset or 0)) % m.period
                 -- Its sounds whose time the turn passed since the last
@@ -6372,6 +6405,42 @@ local function watch()
     -- A destroyed prop turns charred as it dies, not up to 1.5 s later.
     every(250, "prop deaths", function()
         if Current.props then Current.props.deaths() end
+    end)
+    -- Halo 2 doors opened by their controls (doors.lua): E near the
+    -- control, or `mjolnir_door`.
+    local function doors()
+        local level = Current.furnished and Current.level
+        if not (level and type(level.doors) == "table" and #level.doors > 0) then return nil end
+        if not Current.doors then
+            Current.doors = dofile(MOD_DIR .. "\\Scripts\\doors.lua").new({
+                Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh,
+                getWorld = getWorld, gameVolume = gameVolume,
+            })
+        end
+        return Current.doors
+    end
+    local doorClock = os.clock()
+    every(33, "doors", function()
+        local now = os.clock()
+        local dt = math.min(0.2, now - doorClock)
+        doorClock = now
+        local dd = doors()
+        if dd then
+            -- A press is only noted where it happens (the key and console
+            -- callbacks): calling into the engine from the key callback
+            -- while this loop held the mod's lock froze the game.
+            local press = Current.doorPress
+            Current.doorPress = nil
+            if press ~= nil then pcall(dd.press, press) end
+            dd.tick(dt)
+        end
+    end)
+    pcall(RegisterKeyBind, Key.E, {}, function()
+        if Current.doorPress == nil then Current.doorPress = false end
+    end)
+    pcall(RegisterConsoleCommandHandler, "mjolnir_door", function()
+        Current.doorPress = true
+        return true
     end)
 end
 

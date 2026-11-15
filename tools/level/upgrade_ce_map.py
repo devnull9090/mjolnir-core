@@ -2063,6 +2063,11 @@ def stage_assemble(code, m, p):
     # `extra_decor`: static meshes a conversion left out (a Halo 2 door drawn
     # closed: Zanzibar's house gate), written by h2_physics_props.py, lit by
     # Unreal (they have no lightmap page).
+    # `doors`: Halo 2 doors and the controls that open them (doors.json from
+    # h2_physics_props.py), played by the loader (doors.lua).
+    if m.get("doors") and os.path.exists(m["doors"]):
+        level["doors"] = json.load(open(m["doors"], encoding="utf-8"))
+        print(f"  {code}: {len(level['doors'])} door(s) opened by their controls")
     if m.get("extra_decor"):
         extra = json.load(open(m["extra_decor"], encoding="utf-8"))
         for item in extra:

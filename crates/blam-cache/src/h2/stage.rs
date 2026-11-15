@@ -456,7 +456,7 @@ fn placements<'c>(
     // left out, as before: still, with its collision, a closed gate or a
     // parked train would block a way Halo 2 opens.
     for (kind_block, palette_block, size, group) in
-        [(0x50usize, 0x58usize, 0x5Cusize, "scen"), (0x328, 0x330, 0x4C, "bloc"), (0xA8, 0xB0, 0x48, "mach")]
+        [(0x50usize, 0x58usize, 0x5Cusize, "scen"), (0x328, 0x330, 0x4C, "bloc"), (0xA8, 0xB0, 0x48, "mach"), (0xB8, 0xC0, 0x44, "ctrl")]
     {
         let palette = root.block(palette_block, 0x28);
         for e in root.block(kind_block, size).iter() {
@@ -527,6 +527,44 @@ fn placements<'c>(
             if let Some(c) = collision {
                 entry["collision"] = json!(c);
             }
+            // A device's groups (power 0x34, position 0x36): a control
+            // (Zanzibar's keypad) sets its position group, and the machine
+            // of the same position group (the house gate) opens.
+            if group == "mach" || group == "ctrl" {
+                entry["h2_device"] = json!({"power_group": e.i16(0x34), "position_group": e.i16(0x36)});
+            }
+            // A control's press sound (its device "open" sound, 0xDC: the
+            // keypad's button_push).
+            if group == "ctrl" {
+                if let Some(id) = object.root.tagref(0xDC).and_then(|r| cache.follow(r)).and_then(|t| sounds.sound(&t, false)) {
+                    entry["h2_device"]["press_sound"] = json!(id);
+                }
+            }
+            if door {
+                match crate::h2::door::opening(cache, &object) {
+                    Ok(o) => {
+                        let nodes: Vec<Value> = o
+                            .nodes
+                            .iter()
+                            .map(|n| json!({"name": n.name, "parent": n.parent, "t": n.translation, "r": n.rotation}))
+                            .collect();
+                        let poses: Vec<Value> = o
+                            .poses
+                            .iter()
+                            .map(|f| json!(f.iter().map(|(t, r)| json!([t, r])).collect::<Vec<_>>()))
+                            .collect();
+                        entry["h2_door"] = json!({"frames": o.frames, "seconds": o.seconds, "nodes": nodes, "poses": poses});
+                        // Its sounds (mach: open 0xDC, close 0xE4, opened
+                        // 0xEC, closed 0xF4), staged as one-shots.
+                        for (key, off) in [("open", 0xDCusize), ("close", 0xE4), ("opened", 0xEC), ("closed", 0xF4)] {
+                            if let Some(id) = object.root.tagref(off).and_then(|r| cache.follow(r)).and_then(|t| sounds.sound(&t, false)) {
+                                entry["h2_door"]["sounds"][key] = json!(id);
+                            }
+                        }
+                    }
+                    Err(why) => notes.push(format!("{}: its opening not read: {why}", object.name())),
+                }
+            }
             if group != "mach" {
                 if let Some(cc) = change_colors(&object, &e) {
                     entry["change_colors"] = cc;
@@ -592,7 +630,7 @@ fn placements<'c>(
             }
             sounds.object(&object, e.vec3(0x08), e.vec3(0x14));
             entries.push(entry);
-            count(summary, match group { "scen" => "scenery", "bloc" => "crate", _ => "machine" });
+            count(summary, match group { "scen" => "scenery", "bloc" => "crate", "ctrl" => "control", _ => "machine" });
         }
     }
 

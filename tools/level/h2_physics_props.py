@@ -90,25 +90,53 @@ def merge_h2_fields(placement, fresh):
 
 
 def static_extras(fresh_dir, conv_placement, code, out):
-    """Machines a fresh staging places that the conversion did not (a door
-    drawn closed: Zanzibar's house gate, which the stager used to leave
-    out): each a world-space glTF of its model, a material spec entry for
-    its shader, and the textures that spec names. Returns (mesh jobs, spec
-    materials, texture imports, decor ids)."""
+    """Devices a fresh staging places that the conversion did not: doors
+    (machine type 1: Zanzibar's house gate) and controls (its keypad). A
+    control is one world-space mesh. A door is a mesh a moving node (the
+    staged model's `_NODE`), each at the door's rest pose in world space,
+    and `doors.json` gives every part's world transform at every frame of
+    Halo 2's opening (crate::h2::door) for the level loader to play when a
+    player presses the control of the door's position group. Returns (mesh
+    jobs, spec materials, texture imports, decor meshes)."""
     sys.path.insert(0, os.path.join(REPO, "tools", "level"))
     import numpy as np
     import merge_ce_scene as mcs
     fresh = json.load(open(os.path.join(fresh_dir, "placement.json"), encoding="utf-8"))
     shaders = json.load(open(os.path.join(fresh_dir, "materials.json"), encoding="utf-8"))
+    sounds = json.load(open(os.path.join(fresh_dir, "sounds_out", "sounds.json"), encoding="utf-8")).get("sounds", {})
     have = {(e.get("asset"), tuple(round(v, 2) for v in e.get("pos") or [])) for e in conv_placement["entries"]}
-    jobs, mats, tex, ids = [], [], {}, []
-    for e in fresh["entries"]:
-        if e.get("tag_class") != "mach" or not e.get("model") or e.get("h2_motion"):
-            continue
-        if (e.get("asset"), tuple(round(v, 2) for v in e.get("pos") or [])) in have:
-            continue
-        g, buf = mcs.load_gltf(os.path.join(fresh_dir, e["model"]))
-        prims = mcs.primitives(g, buf)
+    jobs, mats, tex, ids, doors = [], [], {}, [], []
+    T_ = lambda f: f"/Game/MJOLNIR/Maps/{code}/Textures/T_{f[:-4]}.T_{f[:-4]}"
+    swap = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=float)  # CE (x, y, z) -> glTF (x, z, -y)
+    k = mcs.WU_TO_M
+
+    def waves(sid):
+        snd = sounds.get(sid) or {}
+        return [f"/Game/MJOLNIR/Maps/{code}/Sounds/{os.path.splitext(f)[0]}.{os.path.splitext(f)[0]}"
+                for f in snd.get("files") or []], snd.get("gain", 1.0)
+
+    def material(name):
+        sh = shaders.get(name) or {}
+        d = (sh.get("shader") or {})
+        textures, scalars = {}, {"PrimaryScale": 1.0, "BumpScale": 1.0, "HasPrimary": 0.0, "HasBump": 0.0}
+        if sh.get("base_map"):
+            textures["Base"] = T_(sh["base_map"])
+            tex[sh["base_map"]] = 1
+        bump = (d.get("bump") or {}).get("map")
+        if bump:
+            textures["Bump"] = T_(bump)
+            scalars.update(HasBump=1.0, BumpScale=float((d.get("bump") or {}).get("scale") or 1.0))
+            tex[bump] = 1
+        prim = (d.get("detail") or {}).get("primary")
+        if prim:
+            textures["Primary"] = T_(prim)
+            scalars.update(HasPrimary=1.0, PrimaryScale=float((d.get("detail") or {}).get("primary_scale") or 1.0))
+            tex[prim] = 1
+        if not any(m["name"] == name for m in mats):
+            mats.append({"name": name, "parent": "/Game/MJOLNIR/CE/M_CE_Environment.M_CE_Environment",
+                         "scalars": scalars, "vectors": {}, "textures": textures})
+
+    def to_world(prims, e):
         r = mcs.ce_rotation(*e.get("rot", [0, 0, 0]))
         t = mcs.ce_to_gltf(e["pos"])
         for pr in prims:
@@ -119,32 +147,105 @@ def static_extras(fresh_dir, conv_placement, code, out):
                 pr["uv1"] = pr["uv0"]
             if pr.get("inc") is None:
                 pr["inc"] = pr["nrm"]
-        leaf = e["asset"].split("\\")[-1]
+        return r, t
+
+    def mesh_for(prims, leaf):
         gpath = os.path.join(out, f"extra_{leaf}.gltf")
         mcs.write_gltf(prims, gpath)
         mesh = f"SM_{code}_{camel(leaf)}"
         jobs.append(f"{gpath}=basicshapes/cube=/Game/MJOLNIR/Maps/{code}/{mesh}")
         ids.append(mesh)
         for pr in prims:
-            sh = shaders.get(pr["material"]) or {}
-            d = (sh.get("shader") or {})
-            T = lambda f: f"/Game/MJOLNIR/Maps/{code}/Textures/T_{f[:-4]}.T_{f[:-4]}"
-            textures, scalars = {}, {"PrimaryScale": 1.0, "BumpScale": 1.0, "HasPrimary": 0.0, "HasBump": 0.0}
-            if sh.get("base_map"):
-                textures["Base"] = T(sh["base_map"])
-                tex[sh["base_map"]] = 1
-            bump = (d.get("bump") or {}).get("map")
-            if bump:
-                textures["Bump"] = T(bump)
-                scalars.update(HasBump=1.0, BumpScale=float((d.get("bump") or {}).get("scale") or 1.0))
-                tex[bump] = 1
-            prim = (d.get("detail") or {}).get("primary")
-            if prim:
-                textures["Primary"] = T(prim)
-                scalars.update(HasPrimary=1.0, PrimaryScale=float((d.get("detail") or {}).get("primary_scale") or 1.0))
-                tex[prim] = 1
-            mats.append({"name": pr["material"], "parent": "/Game/MJOLNIR/CE/M_CE_Environment.M_CE_Environment",
-                         "scalars": scalars, "vectors": {}, "textures": textures})
+            material(pr["material"])
+        return mesh
+
+    controls = [e for e in fresh["entries"] if e.get("tag_class") == "ctrl"]
+    for e in fresh["entries"]:
+        if e.get("tag_class") not in ("mach", "ctrl") or not e.get("model") or e.get("h2_motion"):
+            continue
+        if (e.get("asset"), tuple(round(v, 2) for v in e.get("pos") or [])) in have:
+            continue
+        g, buf = mcs.load_gltf(os.path.join(fresh_dir, e["model"]))
+        prims = mcs.primitives(g, buf)
+        leaf = e["asset"].split("\\")[-1]
+        door = e.get("h2_door")
+        if not door:
+            to_world(prims, e)
+            mesh_for(prims, leaf)
+            continue
+        # The node of each vertex, primitive by primitive (as primitives()
+        # walks them), each triangle by its first corner.
+        node_of = []
+        for nd in g["nodes"]:
+            if "mesh" in nd:
+                for pp in g["meshes"][nd["mesh"]]["primitives"]:
+                    acc = pp["attributes"].get("_NODE")
+                    node_of.append(mcs.accessor(g, buf, acc)[:, 0].round().astype(int) if acc is not None else None)
+        r_p, t_p = to_world(prims, e)
+        nodes = door["nodes"]
+        parts = {}
+        for pr, nv in zip(prims, node_of):
+            tris = pr["idx"].reshape(-1, 3)
+            per = nv[tris[:, 0]] if nv is not None else np.zeros(len(tris), dtype=int)
+            for n in sorted(set(per.tolist())):
+                keep = tris[per == n]
+                used, inv = np.unique(keep.reshape(-1), return_inverse=True)
+                q = {kk: (v[used] if isinstance(v, np.ndarray) and len(v) == len(pr["pos"]) else v) for kk, v in pr.items()}
+                q["idx"] = inv.astype(np.uint32)
+                parts.setdefault(n, []).append(q)
+
+        def chain(frame):
+            # Object-space (CE world units) matrices of every node at a frame:
+            # a sliding key is an offset added to the default translation, a
+            # node not sliding keeps its default (crate::h2::door).
+            mats_ = []
+            for i, nd in enumerate(nodes):
+                tr, rq = door["poses"][frame][i]
+                d0 = np.array(nd["t"], dtype=float)
+                tl = d0 if np.allclose(tr, nd["t"]) else d0 + np.array(tr, dtype=float)
+                m = np.eye(4)
+                m[:3, :3] = mcs.quat_matrix(rq)
+                m[:3, 3] = tl
+                mats_.append(m if nd["parent"] < 0 else mats_[nd["parent"]] @ m)
+            return mats_
+        rest = chain(0)
+        G = np.eye(4)
+        G[:3, :3] = swap * k
+        Gi = np.linalg.inv(G)
+        P = np.eye(4)
+        P[:3, :3] = r_p
+        P[:3, 3] = t_p
+        Pi = np.linalg.inv(P)
+        Q = np.array([[1, 0, 0], [0, 0, 1], [0, 1, 0]], dtype=float)  # glTF metres -> UE axes
+        part_list = []
+        for n, ps in sorted(parts.items()):
+            mesh = mesh_for(ps, f"{leaf}_n{n}")
+            frames = []
+            for f in range(door["frames"]):
+                D = chain(f)[n] @ np.linalg.inv(rest[n])
+                W = P @ G @ D @ Gi @ Pi
+                R = Q @ W[:3, :3] @ Q.T
+                T = Q @ W[:3, 3] * 100.0
+                frames.append({"x": [round(float(v), 6) for v in R[:, 0]], "z": [round(float(v), 6) for v in R[:, 2]],
+                               "t": [round(float(v), 3) for v in T]})
+            part_list.append({"id": f"{code.lower()}_{mesh.lower()}", "node": nodes[n]["name"], "frames": frames})
+        grp = (e.get("h2_device") or {}).get("position_group", -1)
+        ctl = next((c for c in controls if grp >= 0 and (c.get("h2_device") or {}).get("position_group") == grp), None)
+        entry = {"asset": e["asset"], "seconds": door["seconds"], "parts": part_list, "sounds": {},
+                 "at_cm": [round(v * 304.8, 1) for v in (e["pos"][0], -e["pos"][1], e["pos"][2])]}
+        for key, sid in (door.get("sounds") or {}).items():
+            w, gn = waves(sid)
+            if w:
+                entry["sounds"][key] = {"paths": w, "gain": round(gn, 3)}
+        if ctl:
+            entry["control_cm"] = [round(v * 304.8, 1) for v in (ctl["pos"][0], -ctl["pos"][1], ctl["pos"][2])]
+            ps = (ctl.get("h2_device") or {}).get("press_sound")
+            if ps:
+                w, gn = waves(ps)
+                if w:
+                    entry["sounds"]["press"] = {"paths": w, "gain": round(gn, 3)}
+        doors.append(entry)
+    json.dump(doors, open(os.path.join(out, "doors.json"), "w", encoding="utf-8"), indent=1)
     imports = [{"file": os.path.join(fresh_dir, "textures", f), "dest": f"/Game/MJOLNIR/Maps/{code}/Textures",
                 "name": "T_" + f[:-4]} for f in sorted(tex)]
     return jobs, mats, imports, ids
@@ -340,14 +441,15 @@ def main():
                                capture_output=True, text=True, env=dict(os.environ, MJ_IMPORT=lst))
             print("  " + (r.stdout.strip().splitlines() or ["(no output)"])[-1])
     # The extras' decor entries (terrain.json's, by mesh), for
-    # upgrade_ce_map.py's `extra_decor`.
-    if os.path.exists(terrain):
-        ids = {f"/Game/MJOLNIR/Maps/{code}/SM_{code}_{camel(e['asset'].split(chr(92))[-1])}"
-               for e in json.load(open(os.path.join(fresh_dir, "placement.json"), encoding="utf-8"))["entries"]
-               if e.get("tag_class") == "mach" and not e.get("h2_motion") and e.get("model")}
-        extra = [t for t in json.load(open(terrain, encoding="utf-8")) if str(t.get("mesh", "")).split(".")[0] in ids]
-        # Not terrain: an id with "_terrain" gets the terrain's shading and
-        # shadow copy; a door casts its shadow.
+    # upgrade_ce_map.py's `extra_decor`; a door part's id is the one
+    # doors.json names. Not terrain (an id with "_terrain" gets the
+    # terrain's shading and shadow copy); a door casts its shadow.
+    ids_path = os.path.join(out, "extra_ids.json")
+    if not a.no_meshes:
+        json.dump(ex_ids, open(ids_path, "w", encoding="utf-8"))
+    if os.path.exists(terrain) and os.path.exists(ids_path):
+        want = {f"/Game/MJOLNIR/Maps/{code}/{m}" for m in json.load(open(ids_path, encoding="utf-8"))}
+        extra = [t for t in json.load(open(terrain, encoding="utf-8")) if str(t.get("mesh", "")).split(".")[0] in want]
         for t in extra:
             t["id"] = f"{code.lower()}_" + str(t["mesh"]).split(".")[-1].lower()
             t["cast_shadow"] = True

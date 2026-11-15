@@ -9,6 +9,7 @@
 pub mod cache;
 pub mod collision;
 pub mod decorator;
+pub mod door;
 pub mod animation;
 pub mod bitmap;
 pub mod geometry;
