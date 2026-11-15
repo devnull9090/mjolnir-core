@@ -6353,6 +6353,22 @@ local function watch()
             pcall(dressHealthPack, world, actor, hp)
         end
     end)
+    -- Physics props (props.lua): crates the simulation moves, drawn as the
+    -- level's props (Zanzibar's fusion coils). Loaded with the first level
+    -- that has any; kept on Current, as the main chunk is near Lua's 200
+    -- locals.
+    every(1500, "physics props", function()
+        local level = Current.furnished and Current.level
+        if not (level and type(level.dress) == "table" and #level.dress > 0) then return end
+        if not Current.props then
+            Current.props = dofile(MOD_DIR .. "\\Scripts\\props.lua").new({
+                Log = Log, resolveMesh = resolveMesh, findObject = findObject, applyMaterials = applyMaterials,
+                hideAllBut = hideAllBut, getWorld = getWorld, Current = Current,
+                MOBILITY_MOVABLE = MOBILITY_MOVABLE, COLLISION_NONE = COLLISION_NONE,
+            })
+        end
+        Current.props.tick()
+    end)
 end
 
 --------------------------------------------------------------------------------

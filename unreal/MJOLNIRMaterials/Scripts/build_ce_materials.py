@@ -3522,6 +3522,86 @@ def build_plasma(defaults):
     eal.save_loaded_asset(m)
 
 
+PROP_GLOW_CODE = r"""
+// A prop's glow: its self-illumination map, brighter than CE drew it, with
+// an optional pulse (GlowPulse: depth 0..1, period seconds) and a fusion
+// look (Fusion: band count, band speed /s, band depth 0..1; FusionHaze). Energy
+// bands run up the map's V (a fusion coil's core stands on it), the lines
+// flicker and spark a little, and a haze of the glow's own colour fills the
+// dark between them, as if the whole core held light behind its glass.
+if (HasSelfIllum < 0.5) return 0.0.xxx;
+float pulse = 1.0 - GlowPulse.x * 0.5 * (1.0 + sin(6.2831853 * Time / max(GlowPulse.y, 0.05)));
+float3 g = Glow.rgb * GlowTint.rgb;
+float band = 0.5 + 0.5 * sin(6.2831853 * (UV.y * Fusion.x + Time * Fusion.y));
+band = lerp(1.0, 0.35 + 1.3 * band * band, Fusion.z);
+float flicker = 0.92 + 0.08 * sin(Time * 37.0) * sin(Time * 23.0 + 1.3);
+float2 cell = floor(UV * float2(12.0, 40.0)) + floor(Time * 9.0);
+float spark = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453) > 0.96 ? 1.8 : 1.0;
+float3 haze = HazeColor.rgb * FusionHaze * (0.6 + 0.4 * band);
+return (g * band * flicker * spark + haze) * GlowBrightness * pulse;
+"""
+
+
+def build_prop_lit(defaults):
+    """M_CE_PropLit: a converted prop that moves (MJOLNIRLevelLoader props.lua,
+    upgrade_ce_map.py `physics_props`), lit by Unreal: the sun, Lumen's sky and
+    bounce, and shadows as it tumbles. M_CE_Environment draws a placed
+    object's light as emissive, sampled where it was placed (ObjectPage): a
+    knocked-over drum stayed evenly bright wherever it went and cast that
+    light round it through Lumen as a halo (Zanzibar, 2026-11-15). The base
+    map times CE's detail map (twice, as CE blends it), the bump map as the
+    normal, and the self-illumination map as the only emissive (GlowBrightness,
+    GlowTint, GlowPulse): a fusion coil's core glows and lights its
+    surroundings. The colour is made linear (pow 2.2) after CE's blend: CE
+    bitmaps and their redrawn copies are imported without sRGB, and read as
+    linear the props drew pale and washed out. Takes M_CE_Environment's parameter names, so a slot's
+    material spec moves over by its parent alone."""
+    m = fresh(ROOT, "M_CE_PropLit", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    white, grey, flat = defaults["T_CE_White"], defaults["T_CE_Grey"], defaults["T_CE_Flat"]
+    uv0 = g.uv(0)
+
+    def scaled(name):
+        mul = g.node(unreal.MaterialExpressionMultiply, x=-1700)
+        link(uv0, "", mul, "A")
+        link(g.scalar(name, 1.0), "", mul, "B")
+        return mul
+
+    base = g.texture("Base", white, uv0)
+    primary = g.texture("Primary", grey, scaled("PrimaryScale"))
+    glow = g.texture("SelfIllumMap", white, scaled("SelfIllumScale"))
+    has_glow = g.scalar("HasSelfIllum", 0.0)
+    # CE bitmaps are read as gamma values (no sRGB decode): blended as CE did,
+    # then made linear for Unreal's lighting, or the colour washes out pale.
+    # Under the glow's lines the surface goes dark (GlowDarken), so the
+    # emissive's colour shows and not the base map's white (the coil core).
+    colour = g.custom("float3 d = HasPrimary > 0.5 ? P.rgb * 2.0 : 1.0.xxx;\n"
+                      "float m = HasSelfIllum > 0.5 ? saturate(max(G.r, max(G.g, G.b)) * 2.0) : 0.0;\n"
+                      "return pow(saturate(B.rgb * d * Gain), 2.2) * lerp(1.0, 1.0 - Darken, m);",
+                      [("B", base, "RGBA"), ("P", primary, "RGBA"), ("HasPrimary", g.scalar("HasPrimary", 0.0), ""),
+                       ("Gain", g.scalar("AlbedoGain", 1.0), ""), ("G", glow, "RGBA"), ("HasSelfIllum", has_glow, ""),
+                       ("Darken", g.scalar("GlowDarken", 0.9), "")], description="prop colour")
+    bump = g.texture("Bump", flat, scaled("BumpScale"))
+    normal = g.custom(NORMAL_CODE, [("Bump", bump, "RGBA"), ("HasBump", g.scalar("HasBump", 0.0), ""),
+                                    ("BumpIsSpecMask", g.scalar("BumpIsSpecMask", 0.0), "")], description="prop normal")
+    emissive = g.custom(PROP_GLOW_CODE, [
+        ("Glow", glow, "RGBA"), ("HasSelfIllum", has_glow, ""), ("UV", uv0, ""),
+        ("GlowTint", g.vector("GlowTint", (1.0, 1.0, 1.0, 1.0)), ""), ("GlowBrightness", g.scalar("GlowBrightness", 8.0), ""),
+        ("GlowPulse", g.vector("GlowPulse", (0.0, 1.0, 0.0, 0.0)), ""),
+        ("Fusion", g.vector("Fusion", (3.0, 0.5, 0.0, 0.0)), ""), ("FusionHaze", g.scalar("FusionHaze", 0.0), ""),
+        ("HazeColor", g.vector("HazeColor", (0.08, 0.39, 0.0, 1.0)), ""),
+        ("Time", g.node(unreal.MaterialExpressionTime, x=-2000), "")], description="prop glow")
+    mel.connect_material_property(colour, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
+    mel.connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.connect_material_property(g.scalar("Roughness", 0.55), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(g.scalar("Metallic", 0.0), "", unreal.MaterialProperty.MP_METALLIC)
+    mel.connect_material_property(g.scalar("Specular", 0.4), "", unreal.MaterialProperty.MP_SPECULAR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 def build_hidden():
     """M_CE_Hidden: draws nothing, casts nothing. A terrain slot whose CE
     scenery B30's own assets replace (tools/level/scenery_swap.py) points
@@ -3554,6 +3634,8 @@ elif TRIAL_ROOT:
     build_cliff_pbr(defaults, "M_CE_CladTess", tessellate=True)
     # Until the runtime pack carries it (MJOLNIRLevelLoader falls back here).
     build_plasma(defaults)
+    # Converted props that move (physics_props): lit by Unreal.
+    build_prop_lit(defaults)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")

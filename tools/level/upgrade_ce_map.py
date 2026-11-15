@@ -214,13 +214,87 @@ def moved_level(path, moves, extra=None):
     return out
 
 
+# `physics_props`: placed scenery that becomes a physics object of its own,
+# each entry {"asset": the placement's tag path, "crate": the crate tag the
+# simulation moves in its place, "actor_class": that crate's actor Blueprint
+# class, "mesh": the prop's own mesh (built into the map's mesh container, as
+# terrain.json lists it), "terrain": that terrain.json}. The prop's copy
+# merged into the terrain mesh must be gone (remove_placed_props.py, and
+# `mesh_container` naming the container built from it); this places the
+# crates, leaves the prop's collision out of the level, and has the loader
+# draw each crate as the prop (level `dress`). Zanzibar's fusion coils
+# (2026-11-15): a melee or a shot knocks them about.
+PROP_LIFT = 0.02  # world units the crate starts above the prop's origin
+
+
+PROP_LIT = "/Game/MJOLNIR/CETrial/M_CE_PropLit.M_CE_PropLit"
+# A moving prop's glowing parts (a fusion coil's core): brighter than CE drew
+# them, pulsing (depth, period s), so the glow reads and Lumen casts it; the
+# surface dark under the glow's lines (GlowDarken), so they show green and not
+# the base map's white; and the fusion look (M_CE_PropLit's Fusion: energy
+# bands a core high, their speed /s, their depth; FusionHaze, the haze
+# between the lines).
+PROP_GLOW = {"GlowBrightness": 40.0, "GlowDarken": 0.9, "FusionHaze": 0.1}
+PROP_GLOW_PULSE = [0.35, 2.4, 0.0, 0.0]
+PROP_FUSION = [3.0, 0.45, 0.6, 0.0]
+
+
+def prop_lit(mat, prop):
+    """A physics prop's material on M_CE_PropLit (build_ce_materials.py), lit
+    by Unreal where it lies: M_CE_Environment's ObjectPage drew the light
+    baked where it was placed as emissive, so a knocked-over drum glowed and
+    Lumen bounced that round it as a halo (Zanzibar, 2026-11-15). Keeps the
+    textures and scalars (same names); drops the lightmap, the CE specular and
+    fog, which the lit master has no use for. `prop` may carry "look":
+    {scalars} over every slot (Roughness, Metallic, Specular, AlbedoGain)."""
+    if not str(mat.get("parent", "")).endswith("/M_CE_Environment.M_CE_Environment"):
+        return mat
+    textures = {k: v for k, v in (mat.get("textures") or {}).items() if k != "Lightmap"}
+    keep = ("PrimaryScale", "BumpScale", "SelfIllumScale", "HasPrimary", "HasBump", "HasSelfIllum", "BumpIsSpecMask")
+    scalars = {k: v for k, v in (mat.get("scalars") or {}).items() if k in keep}
+    vectors = {}
+    if scalars.get("HasSelfIllum", 0) > 0.5 and "SelfIllumMap" in textures:
+        scalars.update(PROP_GLOW)
+        vectors["GlowPulse"] = PROP_GLOW_PULSE
+        vectors["Fusion"] = PROP_FUSION
+    scalars.update((prop.get("look") or {}))
+    return {"parent": PROP_LIT, "textures": textures, "scalars": scalars, "vectors": vectors}
+
+
+def prop_placements(m, asset):
+    """The conversion's placement entries of `asset`, with their indices."""
+    conv = m["conversion"]
+    own = os.path.join(m.get("scene", conv), "staging")
+    st = own if os.path.isdir(os.path.join(own, "models")) else os.path.join(conv, "staging")
+    placement = json.load(open(os.path.join(st, "placement.json"), encoding="utf-8"))
+    return [(n, e) for n, e in enumerate(placement["entries"]) if e.get("asset") == asset]
+
+
+def physics_prop_objects(m):
+    """blam.objects entries: one crate a placed prop. Positions are the level
+    file's Unreal centimetres (Halo world units x 304.8, y flipped); the bake
+    turns only the yaw (ue_yaw_to_blam), so a prop lying on its side starts
+    upright."""
+    out = []
+    for prop in m.get("physics_props") or []:
+        for _n, e in prop_placements(m, prop["asset"]):
+            x, y, z = e["pos"]
+            yaw = (e.get("rot") or [0, 0, 0])[0]
+            out.append({"tag": prop["crate"], "group": "crates",
+                        "pos": [round(x * 304.8, 1), round(-y * 304.8, 1), round((z + PROP_LIFT) * 304.8, 1)],
+                        "rot": [0, round(-math.degrees(yaw), 2), 0],
+                        "set": dict(prop.get("set") or {})})
+    return out
+
+
 def paths(code, m, work):
     conv = m["conversion"]
     scene = m.get("scene", conv)
     w = os.path.join(work, code)
     level = m.get("base_level") or os.path.join(conv, m["level"])
-    if m.get("vehicle_moves") or m.get("objects"):
-        level = moved_level(level, m.get("vehicle_moves") or {}, m.get("objects"))
+    objects = (m.get("objects") or []) + physics_prop_objects(m)
+    if m.get("vehicle_moves") or objects:
+        level = moved_level(level, m.get("vehicle_moves") or {}, objects)
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -732,6 +806,13 @@ def stage_collision(code, m, p):
         e["materials"] += w["materials"]
         json.dump(e, open(extra, "w", encoding="utf-8"))
         made += f"; wading wall {len(w['triangles'])} triangle(s)"
+    # A physics prop collides as its crate: its own collision leaves the level.
+    props = [n for prop in m.get("physics_props") or [] for n, _e in prop_placements(m, prop["asset"])]
+    if props:
+        e = json.load(open(extra, encoding="utf-8"))
+        e["skip_entries"] = sorted(set(e.get("skip_entries") or []) | set(props))
+        json.dump(e, open(extra, "w", encoding="utf-8"))
+        made += f"; {len(props)} physics prop(s) left to their crates"
     run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
     out = run([mjolnir, "level", "collision", scene, "--out", sbsp, "--own-bsp", "--bsp-index", "0", "--paks", PAKS])
     placed = [l.strip() for l in out.splitlines() if l.strip().startswith("scenery")]
@@ -1928,6 +2009,35 @@ def stage_assemble(code, m, p):
         mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
         print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
     keep_translucent_first_slots(code, level)
+    # `physics_props`: the loader draws each crate as the prop (props.lua):
+    # the prop's mesh with the materials and transform terrain.json gives it.
+    dress = []
+    for prop in m.get("physics_props") or []:
+        entry = next((t for t in json.load(open(prop["terrain"], encoding="utf-8"))
+                      if t.get("mesh") == prop["mesh"]), None)
+        if not entry:
+            sys.exit(f"{code}: physics prop mesh {prop['mesh']} is not in {prop['terrain']}")
+        dress.append({"actor_class": prop["actor_class"], "mesh": prop["mesh"], "pos": entry.get("pos") or [0, 0, 0],
+                      "scale": entry.get("scale") or 1.0,
+                      "materials": [prop_lit(mat, prop) for mat in entry.get("materials") or []]})
+    # The redrawn textures, as the decor above: the props drew the
+    # conversion's own low-resolution maps (Zanzibar's coils, 2026-11-15).
+    if dress and m.get("redrawn") and os.path.exists(manifest):
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
+        root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
+        swapped = 0
+        for look in dress:
+            for entry in look["materials"]:
+                tex = entry.get("textures") if isinstance(entry, dict) else None
+                for key in ("Base", "Map0", "Bump"):
+                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+                    if leaf in names:
+                        tex[key] = f"{root}{leaf}.{leaf}"
+                        swapped += 1
+        print(f"  {code}: {swapped} physics prop texture(s) on redrawn copies")
+    if dress:
+        level["dress"] = dress
+        print(f"  {code}: {len(dress)} physics prop look(s) for the loader")
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
           f"{structures} structure slot(s), "
