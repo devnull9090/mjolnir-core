@@ -79,14 +79,15 @@ function Doors.new(d)
     --- decor, so the panel's components (its meshes and sparks) are hidden,
     --- its device left working. The actor's own hidden flag is reset by the
     --- game; the components' stay, and are set again at every scan.
-    local function hide_control(door)
+    local function hide_control(door, scans)
         local c = door.spec.sim_control and door.spec.sim_control.at_cm
         if not c then return end
         if not door.panel and (door.panel_tries or 0) < 15 then
             door.panel_tries = (door.panel_tries or 0) + 1
             self.sceneClass = self.sceneClass or d.findObject("/Script/Engine.SceneComponent")
             local scene = self.sceneClass
-            for _, a in ipairs(FindAllOf(Doors.CONTROL_CLASS) or {}) do
+            scans[Doors.CONTROL_CLASS] = scans[Doors.CONTROL_CLASS] or FindAllOf(Doors.CONTROL_CLASS) or {}
+            for _, a in ipairs(scans[Doors.CONTROL_CLASS]) do
                 local ok, l = pcall(function() return a:K2_GetActorLocation() end)
                 if ok and l and math.abs(l.X - c[1]) + math.abs(l.Y - c[2]) + math.abs(l.Z - c[3]) < Doors.NEAR_CM then
                     door.panel = {}
@@ -139,11 +140,13 @@ function Doors.new(d)
     end
 
     --- Each machine's actor, by where it stands; its node's meshes ride it.
-    local function bind(door, now)
+    --- `scans`: one FindAllOf a class a tick, shared by every door (each is
+    --- ~20 ms; Triplicate's seven placements scanning their own were one
+    --- 147 ms frame).
+    local function bind(door, now, scans)
         if door.done or now - door.seek < Doors.SCAN_S then return end
         door.seek, door.tries = now, door.tries + 1
-        hide_control(door)
-        local scans = {}
+        hide_control(door, scans)
         for _, m in ipairs(door.machines) do
             if m.actor and m.actor:IsValid() then
                 attach(door, m, m.actor, m.part)
@@ -214,8 +217,9 @@ function Doors.new(d)
             self.world, self.doors = d.Current.worldName, build()
         end
         local wait = Doors.QUIET_MS
+        local scans = {}
         for _, door in ipairs(self.doors or {}) do
-            bind(door, now)
+            bind(door, now, scans)
             if not door.done then
                 wait = math.min(wait, Doors.SCAN_S * 1000)
             end

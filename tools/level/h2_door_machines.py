@@ -205,19 +205,20 @@ def build_tags(fresh_dir, entry, code, out, mjolnir, prefix):
     return built
 
 
-def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None):
+def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0, 0.0, 0.0)):
     """Machines, control and device group for one placed machine. `cache` (a
     dict shared across a map's placements) keeps each Halo 2 tag's machine
     tags, built once; each placement places them again at its own spot.
-    Returns {"machines": [...], "control": ..., "blam": {"objects": [...],
-    "device_groups": [...]}}."""
+    `delta` (wu) moves every position as a conversion moves its map
+    (`level collision`'s transform). Returns {"machines": [...], "control":
+    ..., "blam": {"objects": [...], "device_groups": [...]}}."""
     cache = {} if cache is None else cache
     tags_of = cache.setdefault("tags", {})
     asset = entry["asset"]
     if asset not in tags_of:
         tags_of[asset] = build_tags(fresh_dir, entry, code, out, mjolnir, f"D{len(tags_of)}" if tags_of else "")
     tags = tags_of[asset]
-    pos = np.array(entry["pos"], dtype=float)
+    pos = np.array(entry["pos"], dtype=float) + np.array(delta, dtype=float)
     yaw = float((entry.get("rot") or [0, 0, 0])[0])
     rz = np.array([[np.cos(yaw), -np.sin(yaw), 0], [np.sin(yaw), np.cos(yaw), 0], [0, 0, 1]])
 
@@ -260,11 +261,58 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None):
                             "--set", "action string=activate_device", "--out-dir", out, "--name", ck],
                            check=True, capture_output=True, text=True)
             cache["control"] = True
-        cp = ctl["pos"]
-        at = [round(cp[0] * WU_CM, 1), round(-cp[1] * WU_CM, 1), round(cp[2] * WU_CM, 1)]
+        at = [round(c, 1) for c in ue(np.array(ctl["pos"], dtype=float) + np.array(delta, dtype=float))]
         control = control or {"tag": tag, "containers": [ck], "at_cm": at}
         if tuple(at) not in cache.setdefault("placed_controls", set()):
             cache["placed_controls"].add(tuple(at))
             objects.append({"tag": tag, "group": "controls", "pos": at,
                             "rot": [0, round(-np.degrees(float(ctl["rot"][0])), 2), 0], "position_group": group})
     return {"machines": machines, "control": control, "blam": {"objects": objects, "device_groups": groups}}
+
+
+def main():
+    """A fresh conversion's machines (tools/level/convert_ce_map.sh):
+
+        h2_door_machines.py <staging> <CODE> <out dir> --transform <sbsp.transform.json> [--mjolnir PATH]
+
+    builds every staged `h2_door` placement's machines into <out dir> (their
+    containers beside h2_machines.py's, installed with them) and writes
+    <out dir>/doors.json: one record a placement, by its staging entry, for
+    gen_ce_level.py --doors (the machines and controls it places, the device
+    groups, and the level loader's `doors`)."""
+    import argparse
+    ap = argparse.ArgumentParser(description=main.__doc__.strip().splitlines()[0])
+    ap.add_argument("staging")
+    ap.add_argument("code")
+    ap.add_argument("out")
+    ap.add_argument("--transform", required=True, help="the conversion's <name>.sbsp.transform.json (its delta)")
+    ap.add_argument("--mjolnir", default=os.environ.get("MJOLNIR", "mjolnir"))
+    a = ap.parse_args()
+    placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
+    delta = json.load(open(a.transform, encoding="utf-8"))["delta"]
+    controls = [e for e in placement["entries"] if e.get("tag_class") == "ctrl"]
+    os.makedirs(a.out, exist_ok=True)
+    cache, doors = {}, []
+    for index, e in enumerate(placement["entries"]):
+        if "h2_door" not in e:
+            continue
+        built = build(a.staging, e, controls, a.code, a.out, a.mjolnir, cache, delta)
+        if not built["machines"]:
+            continue
+        grp = (e.get("h2_device") or {}).get("position_group", -1)
+        ctl = next((c for c in controls if grp >= 0 and (c.get("h2_device") or {}).get("position_group") == grp), None)
+        pos = [c + d for c, d in zip(e["pos"], delta)]
+        doors.append({"entry": index, "asset": e["asset"], "seconds": e["h2_door"]["seconds"],
+                      "sounds": e["h2_door"].get("sounds") or {},
+                      "press_sound": ((ctl or {}).get("h2_device") or {}).get("press_sound"),
+                      "at_cm": [round(pos[0] * WU_CM, 1), round(-pos[1] * WU_CM, 1), round(pos[2] * WU_CM, 1)],
+                      **({"control_cm": built["control"]["at_cm"], "sim_control": built["control"]}
+                         if built["control"] else {}),
+                      "machines": built["machines"], "blam": built["blam"]})
+    json.dump(doors, open(os.path.join(a.out, "doors.json"), "w", encoding="utf-8"), indent=1)
+    print(f"  {len(doors)} moving machine placement(s), {sum(len(d['machines']) for d in doors)} machine(s) "
+          f"-> {os.path.join(a.out, 'doors.json')}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1316,6 +1316,47 @@ def ambient_sounds(sounds_dir, root, to_ue):
     return {"background": background, "emitters": emitters, **({"zones": zones} if zones else {})}
 
 
+def add_doors(level, decor, doors_json, sounds_dir, sound_root):
+    """Halo 2's machines that move in parts (h2_door_machines.py doors.json):
+    their machines and controls into the scenario's objects, their device
+    groups (one a Halo 2 position group), and the level's `doors` for the
+    loader (doors.lua): each placement's machines and the decor ids of its
+    part meshes (build_terrain_meshes.py `door_part`, by staging entry), and
+    its sounds as waves."""
+    manifest = (json.load(open(os.path.join(sounds_dir, "sounds.json"), encoding="utf-8"))["sounds"]
+                if sounds_dir else {})
+
+    def waves(sid):
+        snd = manifest.get(sid) or {}
+        if not snd.get("files"):
+            return None
+        return {"paths": [f"{sound_root}/{os.path.splitext(f)[0]}.{os.path.splitext(f)[0]}" for f in snd["files"]],
+                "gain": round(snd.get("gain", 1.0), 3)}
+
+    blam = level["blam"]
+    groups = blam.setdefault("device_groups", [])
+    out = []
+    for d in json.load(open(doors_json, encoding="utf-8")):
+        blam["objects"] += d["blam"]["objects"]
+        for g in d["blam"]["device_groups"]:
+            if not any(x["name"] == g["name"] for x in groups):
+                groups.append(g)
+        parts = [{"id": item["id"], "node": item["door_part"]["node"]} for item in decor
+                 if (item.get("door_part") or {}).get("entry") == d["entry"]]
+        sounds = {k: w for k, w in ((k, waves(v)) for k, v in (d.get("sounds") or {}).items()) if w}
+        if d.get("press_sound") and waves(d["press_sound"]):
+            sounds["press"] = waves(d["press_sound"])
+        rec = {"asset": d["asset"], "seconds": d["seconds"], "at_cm": d["at_cm"], "parts": parts,
+               "machines": d["machines"], "sounds": sounds}
+        if d.get("sim_control"):
+            rec["sim_control"], rec["control_cm"] = d["sim_control"], d["control_cm"]
+        out.append(rec)
+    if out:
+        level["doors"] = out
+        print(f"  {len(out)} moving machine(s), {sum(len(r['machines']) for r in out)} simulation machine(s), "
+              f"{sum(len(r['parts']) for r in out)} part mesh(es), {len(groups)} device group(s)")
+
+
 def machine_sounds(decor, sounds_dir, root):
     """The one-shots a turning machine's animation raises (stage's
     `h2_motion.events`, [seconds, sound] through merge_ce_scene.py and
@@ -1365,6 +1406,10 @@ def main():
     ap.add_argument("--machines", help="tools/level/h2_machines.py's machines.json: Halo 2's turning parts as "
                                        "machines of the simulation's own, placed where the parts are, each "
                                        "part's mesh riding its machine (motion.follow)")
+    ap.add_argument("--doors", help="tools/level/h2_door_machines.py's doors.json: Halo 2's machines that move "
+                                    "in parts (doors, platforms, gears of several parts), placed with their "
+                                    "controls and device groups, the level loader attaching each part's mesh "
+                                    "(merge_ce_scene.py --doors) to its machine")
     ap.add_argument("--scene", help="the merged scene glTF, for the sun's direction "
                                     "(default: scene.gltf beside --terrain)")
     ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
@@ -1816,6 +1861,8 @@ def main():
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)
         machine_sounds(decor, a.sounds, sound_root)
+    if a.doors:
+        add_doors(level, decor, a.doors, a.sounds, sound_root if a.sounds else None)
     with open(a.out, "w") as f:
         json.dump(level, f, indent=2)
         f.write("\n")

@@ -211,6 +211,14 @@ def main():
             # A turning machine (merge_ce_scene.py --machines): the level
             # loader turns it about its pivot by the keys.
             entry["motion"] = json.load(open(motion, encoding="utf-8"))
+        door = gltf[: -len(".gltf")] + ".door.json"
+        if os.path.isfile(door):
+            # A moving Halo 2 machine's part (merge_ce_scene.py --doors): an
+            # id of its own, which gen_ce_level.py --doors names in the
+            # level's `doors` for the loader to attach to its machine.
+            part = json.load(open(door, encoding="utf-8"))
+            entry["door_part"] = part
+            entry["id"] = f"{a.name}_door{part['entry']}_{leaf.lower()}"
         if leaf.endswith("_Sky"):
             # Drawn before every other translucent thing, as CE's sky is.
             entry["sort_priority"] = -100

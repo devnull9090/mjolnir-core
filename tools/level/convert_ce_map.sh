@@ -181,6 +181,16 @@ bsp_args=(--bsp-index 0)
 [ "${CANVAS_BSPS:-0}" = "1" ] && bsp_args=()
 rm -f -- "$out/$name.sbsp.breakables.json"
 "$mjolnir" level collision "$collision" --out "$out/$name.sbsp" --own-bsp "${bsp_args[@]}" "${delta_args[@]}"
+# Halo 2's machines that move in parts (doors, platforms, gears of several
+# parts: staging's `h2_door`) as machines of the simulation's own, one a
+# part, their collision with them (tools/level/h2_door_machines.py; their
+# containers beside the turning parts', installed with them). The positions
+# follow the map's move (the transform `level collision` just wrote).
+door_scene_args=()
+if [ "$source_game" = halo2_mcc ]; then
+  MJOLNIR="$mjolnir" python "$here/h2_door_machines.py" "$staging" "$code" "$out/machines"     --transform "$out/$name.sbsp.transform.json" --mjolnir "$mjolnir"
+  door_scene_args=(--doors)
+fi
 
 echo "== 3/6 terrain mesh and materials"
 delta="$(python -c "import json,sys; d=json.load(open(sys.argv[1]))['delta']; print(f'{d[0]*304.8},{-d[1]*304.8},{d[2]*304.8}')" "$out/$name.sbsp.transform.json")"
@@ -202,10 +212,10 @@ if [ "$cook" = "1" ]; then
   # transparent pieces their precision when they shared one.
   # A Halo 2 gear that turns (Ascension's antennas) is a mesh of its own,
   # scene_machine_<k>.gltf, which the level loader turns.
-  [ -n "$out" ] && rm -f -- "$out"/scene_machine_*.gltf "$out"/scene_machine_*.bin "$out"/scene_machine_*.motion.json
+  [ -n "$out" ] && rm -f -- "$out"/scene_machine_*.gltf "$out"/scene_machine_*.bin "$out"/scene_machine_*.motion.json "$out"/scene_machine_*.door.json
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
     --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf" --lights "$out/scene_lights.json" \
-    --machines "$out/scene_machine"
+    --machines "$out/scene_machine" "${door_scene_args[@]}"
   # Breakable glass (Halo 2): each sheet `level collision` made breakable gets
   # mesh slots of its own, which the level loader hides when the game breaks it.
   [ -f "$out/$name.sbsp.breakables.json" ] && python "$here/split_breakable_glass.py" "$out/scene_translucent.gltf" "$out/$name.sbsp.breakables.json"
@@ -414,6 +424,7 @@ echo "== 4/6 level file"
 sound_args=()
 [ -f "$out/sounds_out/sounds.json" ] && sound_args=(--sounds "$out/sounds_out")
 [ -f "$out/machines/machines.json" ] && sound_args+=(--machines "$out/machines/machines.json")
+[ -f "$out/machines/doors.json" ] && sound_args+=(--doors "$out/machines/doors.json")
 # TITLE="Yoyorast Island" names a custom map in the menus (stock maps have
 # theirs in gen_ce_level.py).
 title_args=()

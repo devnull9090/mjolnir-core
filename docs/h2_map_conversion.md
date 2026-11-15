@@ -488,14 +488,35 @@ units and axes, so every later step reads them unchanged:
     (`<code>_group<n>`), shared by every machine and control of that number
     (Containment's gate and its switch), each control placed once.
 
-  Not yet: the base conversion (`convert_ce_map.sh`) still bakes these
-  machines into the static scene, closed and without collision; only the
-  upgrade pipeline (`h2_physics_props.py`) places them. And the simulation
-  computes a machine's pose only while it thinks the object is in view, by
-  its origin: Triplicate's train, whose cars run hundreds of metres from
-  their origin, drew a fixed pose whenever the origin was off screen
-  (Unreal's own bounds were not it: scaling them 2000x changed nothing).
-  Zanzibar's frozen big wheel is likely the same.
+  A fresh conversion (`convert_ce_map.sh`) does the same as the upgrade
+  pipeline: after `level collision`, `h2_door_machines.py <staging> <CODE>
+  <out>/machines --transform <name>.sbsp.transform.json` builds every
+  placement's machines (positions moved with the map) and writes
+  `doors.json`; `merge_ce_scene.py --doors` takes the machines out of the
+  static scene as a mesh a node (`scene_machine_d<k>n<node>.gltf` with a
+  `.door.json` naming its staging entry and node, which
+  build_terrain_meshes.py turns into a decor id); `gen_ce_level.py --doors`
+  adds the machines, controls and device groups to the scenario and the
+  level's `doors` for the loader (`level bake` keeps `doors` as opaque, as
+  it keeps `lifts`). The machine containers sit with h2_machines.py's in
+  `<out>/machines` and install with them. Triplicate (TRI, 2026-11-15):
+  seven placements, 20 machines, 18 part meshes, all bound and attached;
+  a garage gate rolled up when the player was teleported into its 5 wu
+  radius. Halo 1 conversions (Chill Out) and Halo 2 maps without such
+  machines (Lockout) merge byte-identically. The published Containment,
+  Gemini, Waterworks, Backwash and Foundation will gain their machines the
+  next time they are converted.
+
+  Not yet: the simulation computes a machine's pose for Unreal only some
+  of the time. Triplicate's trains run in the simulation (every part's
+  position agrees, advancing at the tag's rate) but their Unreal parts
+  held one pose, with the camera on the train's origin or on its cars; on
+  Zanzibar a train placed as a test updated only once the camera turned to
+  its origin. Unreal's own bounds were not it (scaling them 2000x changed
+  nothing), nor its tick option (already "always"). Doors and gates, whose
+  parts stay near their origin, move every time; Zanzibar's frozen big
+  wheel is likely the same fault. It needs the simulation's object update
+  read in Ghidra.
   Opaque shaders that scroll their base map are staged as `base_scroll`
   (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
   in u every 2 s); the `h2_staging` map setting applies it to the level's
