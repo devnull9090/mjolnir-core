@@ -39,6 +39,38 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.52.0",
+      "tag": "mods-v0.52.0",
+      "title": "Lit interiors and a flying camera",
+      "date": "2026-11-14",
+      "summary": "Remastered maps can now light their interiors with real bounced light, cliffs lose their black bands and hairlines, and FlyCam flies smoothly between saved camera shots.",
+      "body": "### Added\n\nIn MJOLNIRLevelLoader 0.13.15 and MJOLNIRFlyCam 1.3.0.\n\n- **Light that bounces indoors.** A remastered map can now draw its level\n  in pieces Unreal's Lumen can light. Rooms get real bounced light, shade in\n  their corners and falloff down their stairwells instead of an even glow.\n  Zanzibar and Coagulation are the first to use it.\n- **Halo 2's own lights.** A Halo 2 map's placed lights now come through as\n  real lights: Coagulation's bases are lit in their team colours again.\n- **New lighting settings for map makers.** `sky_leak` lets a little sky\n  light into enclosed spaces, and `lumen_cells` lists a map's lit pieces\n  (see the level format docs).\n- **FlyCam flies between shots.** Page Up and Page Down fly smoothly from one\n  saved shot to the next. Shots now have their own panel with undo and redo,\n  and FlyCam shows your real Spartan instead of a grey stand-in.\n\n### Fixed\n\n- **No more black band under cliff tops.** The soil drawn under a cliff's lip\n  read as solid black on every remastered map; it is packed earth now.\n- **No more hairline down tall rocks.** A thin dark line ran straight down\n  some boulders and walls where the ground above them stepped.\n- **Glass you can see.** Breakable windows that blocked you and shattered\n  but could not be seen now draw again.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Light that bounces indoors. A remastered map can now draw its level in pieces Unreal's Lumen can light. Rooms get real bounced light, shade in their corners and falloff down their stairwells instead of an even glow. Zanzibar and Coagulation are the first to use it.",
+            "Halo 2's own lights. A Halo 2 map's placed lights now come through as real lights: Coagulation's bases are lit in their team colours again.",
+            "New lighting settings for map makers. skyleak lets a little sky light into enclosed spaces, and lumencells lists a map's lit pieces (see the level format docs).",
+            "FlyCam flies between shots. Page Up and Page Down fly smoothly from one saved shot to the next. Shots now have their own panel with undo and redo, and FlyCam shows your real Spartan instead of a grey stand-in."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "No more black band under cliff tops. The soil drawn under a cliff's lip read as solid black on every remastered map; it is packed earth now.",
+            "No more hairline down tall rocks. A thin dark line ran straight down some boulders and walls where the ground above them stepped.",
+            "Glass you can see. Breakable windows that blocked you and shattered but could not be seen now draw again."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.52.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.52.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.52.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.24.0",
