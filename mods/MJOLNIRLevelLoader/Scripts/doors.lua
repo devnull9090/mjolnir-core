@@ -36,7 +36,7 @@ Doors.QUIET_MS = 2000
 --- findObject is a StaticFindObject every call (~1-20 ms): each lookup
 --- here is made once and kept.
 function Doors.new(d)
-    local self = { doors = nil, world = nil }
+    local self = { doors = nil, world = nil, claimed = {} }
 
     local function build()
         local list = d.Current.level and d.Current.level.doors
@@ -152,6 +152,7 @@ function Doors.new(d)
                 attach(door, m, m.actor, m.part)
             else
                 if m.actor then
+                    if m.key then self.claimed[m.key] = nil end
                     m.actor, door.bound = nil, door.bound - 1
                     for _, p in ipairs(door.parts[m.spec.node] or {}) do p.attached = false end
                 end
@@ -160,21 +161,31 @@ function Doors.new(d)
                 local class = tostring(m.spec.class)
                 scans[class] = scans[class] or FindAllOf(class) or {}
                 local at = m.spec.at_cm
+                -- The nearest actor no other machine has claimed: two
+                -- placements at one point (Triplicate's train and its
+                -- deathball) once bound one actor twice and left the other's
+                -- elevator mesh showing.
+                local best, best_d, best_key
                 for _, a in ipairs(scans[class]) do
                     local ok, l = pcall(function() return a:K2_GetActorLocation() end)
-                    if ok and l and math.sqrt((l.X - at[1]) ^ 2 + (l.Y - at[2]) ^ 2 + (l.Z - at[3]) ^ 2) < Doors.MATCH_CM then
-                        local part
-                        pcall(function()
-                            part = a:K2_GetComponentsByClass(mesh_class)[1]:get()
-                            part:SetVisibility(false, false)
-                        end)
-                        if part then
-                            m.actor, m.part = a, part
-                            m.at, m.partAt = a.K2_GetActorLocation, part.K2_GetComponentLocation
-                            door.bound = door.bound + 1
-                            attach(door, m, a, part)
-                        end
-                        break
+                    local dist = ok and l and math.sqrt((l.X - at[1]) ^ 2 + (l.Y - at[2]) ^ 2 + (l.Z - at[3]) ^ 2)
+                    if dist and dist < Doors.MATCH_CM and (not best_d or dist < best_d) then
+                        local okk, key = pcall(function() return a:GetFName():ToString() end)
+                        if okk and not self.claimed[key] then best, best_d, best_key = a, dist, key end
+                    end
+                end
+                if best then
+                    local part
+                    pcall(function()
+                        part = best:K2_GetComponentsByClass(mesh_class)[1]:get()
+                        part:SetVisibility(false, false)
+                    end)
+                    if part then
+                        self.claimed[best_key] = true
+                        m.actor, m.part, m.key = best, part, best_key
+                        m.at, m.partAt = best.K2_GetActorLocation, part.K2_GetComponentLocation
+                        door.bound = door.bound + 1
+                        attach(door, m, best, part)
                     end
                 end
             end
@@ -214,7 +225,7 @@ function Doors.new(d)
     --- wait before the next call, in ms.
     function self.tick(now)
         if self.world ~= d.Current.worldName then
-            self.world, self.doors = d.Current.worldName, build()
+            self.world, self.doors, self.claimed = d.Current.worldName, build(), {}
         end
         local wait = Doors.QUIET_MS
         local scans = {}

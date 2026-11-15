@@ -477,11 +477,11 @@ units and axes, so every later step reads them unchanged:
     agree, 0.732 then 0.936 three seconds later), a platform (1) goes where
     its device group sends it;
   - a placement's machines stand on a 15 cm grid about its origin, so a
-    door's parts measure its radius from nearly one point. Not closer:
-    machines 1.5 cm apart broke Unreal's copy of their poses (three of the
-    gate's four ramps never moved, the fourth froze mid-swing, while the
-    simulation had all four open), as Zanzibar's wheel and blades, two
-    machines on one spot, froze before;
+    door's parts measure its radius from nearly one point, every machine of
+    the map on a cell of its own (Triplicate's train and its deathball are
+    placed 3 cm apart; on shared cells the loader bound one actor twice and
+    an elevator mesh rode the train's nose). The loader claims each actor
+    once, nearest first;
   - a machine tag is built once and placed per placement (Triplicate's
     three garage gates);
   - Halo 2's position group number is the device group
@@ -507,16 +507,25 @@ units and axes, so every later step reads them unchanged:
   Gemini, Waterworks, Backwash and Foundation will gain their machines the
   next time they are converted.
 
-  Not yet: the simulation computes a machine's pose for Unreal only some
-  of the time. Triplicate's trains run in the simulation (every part's
-  position agrees, advancing at the tag's rate) but their Unreal parts
-  held one pose, with the camera on the train's origin or on its cars; on
-  Zanzibar a train placed as a test updated only once the camera turned to
-  its origin. Unreal's own bounds were not it (scaling them 2000x changed
-  nothing), nor its tick option (already "always"). Doors and gates, whose
-  parts stay near their origin, move every time; Zanzibar's frozen big
-  wheel is likely the same fault. It needs the simulation's object update
-  read in Ghidra.
+  A moving part is lit by Unreal (prop_lit.py's M_CE_PropLit, both
+  pipelines): lit by the light baked where it was placed, Triplicate's
+  trains, parked in a dark tunnel, drew black through the station. The
+  trains themselves run as the tag says: a 15 s loop, moving for about 5 s,
+  427 m at up to about 107 m/s. (A reading that looked frozen was the
+  train parked at the end of its run for the other two thirds of the loop.)
+
+  Open: the game hides some machines' actors (`bHidden`), and a hidden
+  actor's skeleton never renders (`bRecentlyRendered` false) and gets no
+  pose, so its part stands still while the simulation moves it. On
+  Zanzibar it is the same grid cells every load, whatever the player sees
+  (two of the gate's four top bars on the 8x8 grid; three ramps when the
+  machines stood 1.5 cm apart; none on the earlier 4x4 grid). The actors
+  are bound to the right objects (BlamObjectIndex), the simulation has
+  them open, and none of re-enabling tick, 50x bounds, un-hiding the mesh
+  or the actor brought the pose back. Every cell, working or not, sits
+  just under the BSP floor, so it is not a solid test of the origin; the
+  first 1 KB of the object data differs only by float noise. What sets the
+  flag needs the game's code read (Ghidra).
   Opaque shaders that scroll their base map are staged as `base_scroll`
   (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
   in u every 2 s); the `h2_staging` map setting applies it to the level's

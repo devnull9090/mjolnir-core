@@ -23,14 +23,19 @@ moves the machine in the simulation, for every player.
 
 A machine's tags are built once a Halo 2 tag, however often it is placed.
 Each placement's machines stand on a small grid about its origin, `SPACING`
-wu apart (`spot`): close enough that a door's parts measure its activation
-radius from nearly one point, apart enough that the game keeps them apart.
-Machines 1.5 cm apart broke Unreal's copy of their poses: three of the
-gate's four ramps never moved and the fourth froze mid-swing, though the
-simulation had them all open (2026-11-15), as Zanzibar's wheel and blades,
-two machines on one spot, froze before. The level loader (doors.lua) tells
-them apart by where they stand and attaches each node's meshes to its
-machine once. Unreal carries the meshes from then on.
+wu apart (`spot`), every machine of the map on a cell of its own: close
+enough that a door's parts measure its activation radius from nearly one
+point, apart enough that the level loader (doors.lua) tells them apart by
+where they stand. It attaches each node's meshes to its machine once, and
+Unreal carries the meshes from then on.
+
+Open (2026-11-15): on Zanzibar the game hides the actors of some machines
+(`bHidden`), the same cells every load, whatever the player sees; a hidden
+actor's skeleton never renders and gets no pose, so its part stands still
+though the simulation moved it (two of the gate's top bars on the 8x8 grid,
+three ramps when the machines stood 1.5 cm apart). Binding, the
+simulation's positions and the object data show no difference; what sets
+the flag is not yet known (docs/h2_map_conversion.md).
 """
 import json
 import os
@@ -52,12 +57,21 @@ SPACING = 0.05
 WU_CM = 304.8
 
 
-def spot(k, count):
-    """Machine k of `count`'s origin in the placement's space: a square grid
-    about the origin, `SPACING` apart, at the origin's height."""
-    side = int(np.ceil(np.sqrt(max(count, 1))))
-    i, j = k % side, k // side
-    return np.array([(i - (side - 1) / 2) * SPACING, (j - (side - 1) / 2) * SPACING, 0.0])
+# Cells a grid row and column: 64 cells a layer, within 0.18 wu (53 cm) of
+# the origin; a 65th machine starts a layer SPACING higher.
+GRID = 8
+
+
+def spot(i):
+    """The origin of a map's machine number i in its placement's space: a
+    cell of a grid about the origin, `SPACING` apart. Numbered across every
+    machine tag of the map, so two Halo 2 tags placed at one point (a train
+    and its deathball, 3 cm apart on Triplicate) never put machines on one
+    spot: they had, and the loader bound one actor twice and left the
+    other's elevator mesh riding the train's nose (2026-11-15)."""
+    layer, cell = divmod(i, GRID * GRID)
+    row, col = divmod(cell, GRID)
+    return np.array([(col - (GRID - 1) / 2) * SPACING, (row - (GRID - 1) / 2) * SPACING, layer * SPACING])
 # Halo 2 machine type (mach 0x11C).
 DOOR, PLATFORM, GEAR = 0, 1, 2
 
@@ -126,9 +140,9 @@ def root_frames(frames, n, origin):
     return out
 
 
-def build_tags(fresh_dir, entry, code, out, mjolnir, prefix):
-    """The machine tags of one Halo 2 machine tag. Returns [{tag, node,
-    origin, root, containers}]."""
+def build_tags(fresh_dir, entry, code, out, mjolnir, prefix, first=0):
+    """The machine tags of one Halo 2 machine tag, its machines on grid cells
+    from `first` (`spot`). Returns [{tag, node, origin, root, containers}]."""
     door = entry["h2_door"]
     nodes = door["nodes"]
     kind = door.get("machine") or {"type": PLATFORM}
@@ -146,7 +160,7 @@ def build_tags(fresh_dir, entry, code, out, mjolnir, prefix):
     parts = moving_parts(door, frames)
     for k, (n, bsp) in enumerate(parts):
         rest = frames[0][n]
-        origin = spot(k, len(parts))
+        origin = spot(first + k)
         root = root_frames(frames, n, origin)
         platform_q = matrix_quat(rest[:3, :3])
         platform_t = (rest[:3, 3] - origin).tolist()
@@ -216,7 +230,8 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0
     tags_of = cache.setdefault("tags", {})
     asset = entry["asset"]
     if asset not in tags_of:
-        tags_of[asset] = build_tags(fresh_dir, entry, code, out, mjolnir, f"D{len(tags_of)}" if tags_of else "")
+        first = sum(len(t) for t in tags_of.values())
+        tags_of[asset] = build_tags(fresh_dir, entry, code, out, mjolnir, f"D{len(tags_of)}" if tags_of else "", first)
     tags = tags_of[asset]
     pos = np.array(entry["pos"], dtype=float) + np.array(delta, dtype=float)
     yaw = float((entry.get("rot") or [0, 0, 0])[0])

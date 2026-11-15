@@ -1333,6 +1333,15 @@ def add_doors(level, decor, doors_json, sounds_dir, sound_root):
         return {"paths": [f"{sound_root}/{os.path.splitext(f)[0]}.{os.path.splitext(f)[0]}" for f in snd["files"]],
                 "gain": round(snd.get("gain", 1.0), 3)}
 
+    from prop_lit import prop_lit
+    # A part that moves is lit by Unreal where it is, not by the light baked
+    # where it was placed (Triplicate's trains, parked in a dark tunnel,
+    # drew black all the way through the station).
+    lit = 0
+    for item in decor:
+        if item.get("door_part") and isinstance(item.get("materials"), list):
+            item["materials"] = [prop_lit(m, {}) if isinstance(m, dict) else m for m in item["materials"]]
+            lit += 1
     blam = level["blam"]
     groups = blam.setdefault("device_groups", [])
     out = []
@@ -1354,7 +1363,7 @@ def add_doors(level, decor, doors_json, sounds_dir, sound_root):
     if out:
         level["doors"] = out
         print(f"  {len(out)} moving machine(s), {sum(len(r['machines']) for r in out)} simulation machine(s), "
-              f"{sum(len(r['parts']) for r in out)} part mesh(es), {len(groups)} device group(s)")
+              f"{sum(len(r['parts']) for r in out)} part mesh(es) ({lit} lit by Unreal), {len(groups)} device group(s)")
 
 
 def machine_sounds(decor, sounds_dir, root):
