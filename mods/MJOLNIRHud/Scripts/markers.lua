@@ -160,10 +160,14 @@ function Markers.new(deps)
             match.flags = deps.FlagMark.new(deps.Hill, seconds and { seconds = seconds, host = match.host } or nil)
         elseif family == "oddball" and not match.ball then
             match.ball = deps.FlagMark.ball(deps.Hill)
+        elseif family == "warfare" and not match.warfare then
+            match.warfare = deps.Warfare.new({ Hill = deps.Hill, readLevel = deps.readLevel,
+                readSnapshot = deps.readWarfare, bipedAt = bipedAt, Canopy = deps.Canopy })
+            deps.log("warfare markers: " .. match.warfare.start(match.code) .. " site(s)")
         end
     end
 
-    function self.tick(match, now, pc, hidden, me)
+    function self.tick(match, now, pc, hidden, me, currentCode)
         made(match)
         if match.hill then match.hill.tick(now, pc, hidden, playersOn(match, pc, me)) end
         if match.race then match.race.tick(now, pc, hidden, lapsDone(match, me), match.mode.toWin or 0) end
@@ -173,18 +177,19 @@ function Markers.new(deps)
             match.flags.tick(now, pc, hidden, mine and mine.team)
         end
         if match.ball then match.ball.tick(now, pc, hidden) end
+        if match.warfare then return match.warfare.tick(match, now, pc, hidden, me, currentCode) end
     end
 
     --- Every frame, from any player controller: on a host that can be a
     --- client's, and the marker is the local player's.
     function self.frame(match, pc, now)
-        local marker = match.hill or match.race or match.juggernaut or match.flags or match.ball
+        local marker = match.hill or match.race or match.juggernaut or match.flags or match.ball or match.warfare
         if marker and pc:IsLocalController() then marker.frame(pc, now) end
     end
 
     function self.hide(match)
         for _, marker in ipairs({ match.hill or false, match.race or false, match.juggernaut or false,
-            match.flags or false, match.ball or false }) do
+            match.flags or false, match.ball or false, match.warfare or false }) do
             if marker then marker.hide() end
         end
     end
@@ -198,6 +203,10 @@ function Markers.new(deps)
         if match.juggernaut then parts[#parts + 1] = "it " .. tostring(match.juggernaut.it) end
         local r = roster and roster.read()
         parts[#parts + 1] = r and "from the simulation" or "from actors"
+        if match.warfare then
+            local s = match.warfare.snapshot
+            parts[#parts + 1] = s and ("phase " .. s.phase .. "; instance " .. s.instance .. "; tick " .. s.tick) or "no live warfare snapshot"
+        end
         local seen = {}
         for _, p in ipairs(playersOn(match, pc, me)()) do
             seen[p.index] = true

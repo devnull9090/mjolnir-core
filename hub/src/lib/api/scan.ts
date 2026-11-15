@@ -47,8 +47,7 @@ export const SCANNER_VERSION = "ts-6";
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
 
-// The loader's mjolnir_flux_bake output. EXR is only accepted as these two
-// declared map-local simulation textures, never as a general content kind.
+// EXR remains limited to declared map-local simulation textures.
 const FluxStateSchema = z.object({
   height: z.literal("flux_state/height.exr"),
   velocity: z.literal("flux_state/velocity.exr"),
@@ -59,10 +58,34 @@ const FluxStateSchema = z.object({
   capture: z.number().optional(),
 });
 
+const FluxHash = z.string().regex(/^[0-9a-f]{64}$/);
+const FluxVector = z.tuple([z.number(), z.number(), z.number()]);
+const FluxResolution = z.tuple([z.number().int().positive().max(1024), z.number().int().positive().max(1024)])
+  .refine((values) => values.every((n) => (n & (n - 1)) === 0));
+const FluxProvenanceSchema = z.object({
+  schema: z.literal("mjolnir-flux-provenance-v1"),
+  terrain_manifest_sha256: FluxHash, terrain_samples_sha256: FluxHash,
+  water_geometry_sha256: FluxHash, capture_bed_sha256: FluxHash, settings_sha256: FluxHash,
+}).strict();
+const NamedFluxStateSchema = z.object({
+  schema: z.literal("mjolnir-flux-state-v2"),
+  height: z.string(), velocity: z.string(), ground: z.string(),
+  centre: FluxVector, res: FluxResolution, cell: z.number().positive(),
+  height_cm: z.number().positive().max(32000), capture: z.number(), origin: FluxVector,
+  provenance: FluxProvenanceSchema,
+  height_sha256: FluxHash.optional(), velocity_sha256: FluxHash.optional(), ground_sha256: FluxHash.optional(),
+}).strict();
+const NamedFluxDomainsSchema = z.array(z.object({
+  id: z.string().regex(/^[a-z][a-z0-9_]*$/), playback: z.literal("baked"),
+  domain: z.object({ centre: FluxVector, res: FluxResolution, cell: z.number().positive(), height: z.number().positive().max(32000) }),
+  origin: FluxVector.optional(), provenance: FluxProvenanceSchema, state: NamedFluxStateSchema,
+})).min(1).max(8);
+
 function fluxTextures(
   manifest: Manifest | null,
   files: Record<string, Uint8Array>,
   sizes: Record<string, number>,
+  hashes: Record<string, string>,
   err: (code: string, message: string) => void,
 ): Set<string> {
   const allowed = new Set<string>();
@@ -75,6 +98,48 @@ function fluxTextures(
   }
   const rawState = level?.flux?.state;
   const hasFiles = Object.keys(sizes).some((name) => name.startsWith("map/flux_state/"));
+  if (level?.flux?.domains != null || level?.flux?.schema === "mjolnir-flux-v2") {
+    const domains = NamedFluxDomainsSchema.safeParse(level?.flux?.domains);
+    if (level?.flux?.schema !== "mjolnir-flux-v2" || rawState != null || !domains.success) {
+      err("bad_flux_state", "Named Flux water requires 1..8 valid baked domains and matching v2 state metadata, without legacy flux.state.");
+      return allowed;
+    }
+    const ids = new Set<string>();
+    for (const spec of domains.data) {
+      if (ids.has(spec.id)) {
+        err("bad_flux_state", `Duplicate Flux domain id: ${spec.id}.`);
+        continue;
+      }
+      ids.add(spec.id);
+      const state = spec.state, domain = spec.domain, prefix = `flux_state/${spec.id}`;
+      const filesMatch = (["height", "velocity", "ground"] as const)
+        .every((key) => state[key] === `${prefix}/${key}.exr`);
+      const geometryMatches = state.centre.every((n, i) => Math.abs(n - domain.centre[i]) < 1)
+        && JSON.stringify(state.res) === JSON.stringify(domain.res)
+        && state.cell === domain.cell && state.height_cm === domain.height
+        && JSON.stringify(state.origin) === JSON.stringify(spec.origin ?? [0, 0, 0])
+        && JSON.stringify(state.provenance) === JSON.stringify(spec.provenance);
+      if (!filesMatch || !geometryMatches) {
+        err("bad_flux_state", `Flux ${spec.id} paths, geometry, origin and provenance must match its declared domain.`);
+        continue;
+      }
+      const metadata = `map/${prefix}/state.json`;
+      try {
+        const copy = NamedFluxStateSchema.parse(JSON.parse(new TextDecoder().decode(files[metadata])));
+        if (JSON.stringify(copy) !== JSON.stringify(state)) throw new Error("metadata differs");
+      } catch {
+        err("bad_flux_state", `${metadata} must match its level.flux.domains state.`);
+      }
+      for (const key of ["height", "velocity", "ground"] as const) {
+        const name = `map/${state[key]}`;
+        allowed.add(name);
+        if (!(sizes[name] > 0)) err("flux_file_missing", `Baked water requires a nonempty ${name}.`);
+        const seal = state[`${key}_sha256`];
+        if (seal !== undefined && hashes[name] !== seal) err("bad_flux_state", `${name} differs from its sealed SHA-256.`);
+      }
+    }
+    return allowed;
+  }
   if (rawState == null && !hasFiles) return allowed;
   const state = FluxStateSchema.safeParse(rawState);
   if (!state.success) {
@@ -374,7 +439,7 @@ function inspect(unpacked: Unpacked | Error): ScanResult {
   }
 
   // File inventory: reject-by-default.
-  const waterTextures = fluxTextures(manifest, files, sizes, err);
+  const waterTextures = fluxTextures(manifest, files, sizes, hashes, err);
   const utocs: string[] = [];
   for (const [name, size] of Object.entries(sizes)) {
     if (name.endsWith("/") || size === 0) continue; // directory entries

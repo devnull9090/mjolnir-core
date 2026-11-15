@@ -160,7 +160,9 @@ fn containers(dir: &Path, code: &str) -> Result<Vec<PathBuf>> {
                 p.file_name()
                     .and_then(|n| n.to_str())
                     .and_then(|n| n.strip_suffix(".utoc"))
-                    .is_some_and(|stem| stem.contains(&format!("-MJOLNIRMACH-{code}-")) && stem.ends_with("_P"))
+                    .is_some_and(|stem| {
+                        stem.contains(&format!("-MJOLNIRMACH-{code}-")) && stem.ends_with("_P")
+                    })
             })
             .collect();
         more.sort();
@@ -189,8 +191,13 @@ fn own_machines(level: &serde_json::Value, code: &str) -> BTreeSet<String> {
                 "controls" => "device_control",
                 _ => return None,
             };
-            let tag = object.get("tag")?.as_str()?.replace('\\', "/").to_lowercase();
-            tag.starts_with(&folder).then(|| format!("{tag}-{kind}.uasset"))
+            let tag = object
+                .get("tag")?
+                .as_str()?
+                .replace('\\', "/")
+                .to_lowercase();
+            tag.starts_with(&folder)
+                .then(|| format!("{tag}-{kind}.uasset"))
         })
         .collect()
 }
@@ -217,7 +224,12 @@ fn check_machines(level: &serde_json::Value, code: &str, utocs: &[PathBuf]) -> R
     for utoc in utocs {
         let container = ue_iostore::load_container(utoc)
             .with_context(|| format!("reading {}", utoc.display()))?;
-        files.extend(container.files.into_keys().map(|f| f.replace('\\', "/").to_lowercase()));
+        files.extend(
+            container
+                .files
+                .into_keys()
+                .map(|f| f.replace('\\', "/").to_lowercase()),
+        );
     }
     let missing = absent(&wanted, &files);
     if !missing.is_empty() {
@@ -406,16 +418,19 @@ fn pack(a: PackArgs) -> Result<()> {
     });
     let mut manifest = manifest;
     if let Some(packs) = level.pointer("/blam/forge_packs") {
-        let packs: Vec<crate::level::ForgePackRef> = serde_json::from_value(packs.clone())
-            .context("reading blam.forge_packs")?;
+        let packs: Vec<crate::level::ForgePackRef> =
+            serde_json::from_value(packs.clone()).context("reading blam.forge_packs")?;
         crate::level::validate_forge_packs(&packs)?;
         // The map names its pieces by tag path, so a later release in the
         // pack's caret line, which the Hub requires to keep every earlier
         // entry, serves it as well: an update never strands a map.
         for pack in packs {
-            manifest["deps"].as_array_mut().unwrap().push(serde_json::json!({
-                "slug": pack.slug, "range": format!("^{}", pack.version)
-            }));
+            manifest["deps"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "slug": pack.slug, "range": format!("^{}", pack.version)
+                }));
         }
     }
     if let Some(size) = &a.size {
@@ -424,7 +439,9 @@ fn pack(a: PackArgs) -> Result<()> {
     if let Some(players) = &a.players {
         let (min, max) = players
             .split_once('-')
-            .and_then(|(lo, hi)| Some((lo.trim().parse::<u8>().ok()?, hi.trim().parse::<u8>().ok()?)))
+            .and_then(|(lo, hi)| {
+                Some((lo.trim().parse::<u8>().ok()?, hi.trim().parse::<u8>().ok()?))
+            })
             .filter(|(lo, hi)| (1..=16).contains(lo) && (1..=16).contains(hi) && lo <= hi)
             .with_context(|| format!("--players {players:?}: want MIN-MAX, 1 to 16"))?;
         manifest["map"]["players"] = serde_json::json!({ "min": min, "max": max });
@@ -475,24 +492,8 @@ fn pack(a: PackArgs) -> Result<()> {
             extra.push((format!("decals/{name}"), p));
         }
     }
-    // A settled Fluid Flux domain carries metadata in level.flux.state and
-    // its texture data beside the level in flux_state/. Keep both together.
-    if level.pointer("/flux/state").is_some_and(|v| v.is_object()) {
-        let state_dir = a.dir.join("flux_state");
-        if !state_dir.join("state.json").is_file() {
-            bail!("level names baked water but flux_state/state.json is missing");
-        }
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&state_dir)?
-            .map(|e| e.map(|e| e.path())).collect::<std::io::Result<_>>()?;
-        files.sort();
-        for path in files {
-            if path.is_symlink() || !path.is_file() {
-                bail!("flux_state must contain regular files: {}", path.display());
-            }
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
-            extra.push((format!("flux_state/{name}"), path));
-        }
-    }
+    // Preserve legacy flat bakes and every declared named v2 domain.
+    extra.extend(flux_state_members(&level, &a.dir)?);
     members.push(("map/level.json".into(), level_bytes));
     members.push((
         "map/registration.json".into(),
@@ -517,8 +518,7 @@ fn pack(a: PackArgs) -> Result<()> {
         members.push(("map/vehicle_sounds.json".into(), bytes));
     }
     for (rel, path) in extra {
-        let bytes =
-            std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+        let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
         members.push((format!("map/{rel}"), bytes));
     }
     if let Some(readme) = &a.readme {
@@ -645,9 +645,244 @@ pub(crate) fn write_archive(
     Ok(())
 }
 
+fn flux_state_members(level: &serde_json::Value, dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let mut members = Vec::new();
+    let named = level.pointer("/flux/domains");
+    if named.is_none()
+        && level.pointer("/flux/schema").and_then(|v| v.as_str()) != Some("mjolnir-flux-v2")
+    {
+        // Existing single-domain archives retain their flat-directory behavior.
+        if level.pointer("/flux/state").is_some_and(|v| v.is_object()) {
+            let state_dir = dir.join("flux_state");
+            if !state_dir.join("state.json").is_file() {
+                bail!("level names baked water but flux_state/state.json is missing");
+            }
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&state_dir)?
+                .map(|e| e.map(|e| e.path()))
+                .collect::<std::io::Result<_>>()?;
+            files.sort();
+            for path in files {
+                if path.is_symlink() || !path.is_file() {
+                    bail!("flux_state must contain regular files: {}", path.display());
+                }
+                let name = path.file_name().unwrap().to_string_lossy().to_string();
+                members.push((format!("flux_state/{name}"), path));
+            }
+        }
+        return Ok(members);
+    }
+    if level.pointer("/flux/schema").and_then(|v| v.as_str()) != Some("mjolnir-flux-v2")
+        || level.pointer("/flux/state").is_some()
+    {
+        bail!("named Flux domains require mjolnir-flux-v2 without a legacy flux.state");
+    }
+    let domains = named
+        .and_then(|v| v.as_array())
+        .context("Flux domains must be an array")?;
+    if !(1..=8).contains(&domains.len()) {
+        bail!("Flux requires 1..8 named domains");
+    }
+    let base = dir.canonicalize()?;
+    let mut ids = BTreeSet::new();
+    for domain in domains {
+        let id = domain
+            .get("id")
+            .and_then(|v| v.as_str())
+            .context("Flux domain id missing")?;
+        if !id.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
+            || !ids.insert(id)
+        {
+            bail!("Invalid or duplicate Flux domain id {id:?}");
+        }
+        if domain.get("playback").and_then(|v| v.as_str()) != Some("baked") {
+            bail!("Flux domain {id} must use baked playback before packaging");
+        }
+        let state = domain
+            .get("state")
+            .filter(|v| v.is_object())
+            .context("Named Flux state missing")?;
+        if state.get("schema").and_then(|v| v.as_str()) != Some("mjolnir-flux-state-v2") {
+            bail!("Flux domain {id} requires mjolnir-flux-state-v2 metadata");
+        }
+        let prefix = format!("flux_state/{id}");
+        for leaf in ["state.json", "height.exr", "velocity.exr", "ground.exr"] {
+            let relative = format!("{prefix}/{leaf}");
+            if let Some(kind) = leaf.strip_suffix(".exr") {
+                if state.get(kind).and_then(|v| v.as_str()) != Some(relative.as_str()) {
+                    bail!("Flux {id} {kind} must name {relative}");
+                }
+            }
+            let path = dir.join(&relative);
+            let metadata = std::fs::symlink_metadata(&path)
+                .with_context(|| format!("missing Flux file {relative}"))?;
+            if metadata.file_type().is_symlink()
+                || !metadata.is_file()
+                || metadata.len() == 0
+                || !path.canonicalize()?.starts_with(&base)
+            {
+                bail!("Flux state requires a nonempty regular map-local file: {relative}");
+            }
+            let bytes = std::fs::read(&path)?;
+            if leaf == "state.json" {
+                let copy: serde_json::Value = serde_json::from_slice(&bytes)?;
+                if &copy != state {
+                    bail!("Flux {id} state.json differs from the level metadata");
+                }
+            } else {
+                let key = format!("{}_sha256", leaf.strip_suffix(".exr").unwrap());
+                if let Some(seal) = state.get(&key) {
+                    use sha2::Digest;
+                    let digest = format!("{:x}", sha2::Sha256::digest(&bytes));
+                    if seal.as_str() != Some(digest.as_str()) {
+                        bail!("Flux {id} {leaf} changed after sealing");
+                    }
+                }
+            }
+            members.push((relative, path));
+        }
+    }
+    Ok(members)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FluxFixture {
+        dir: PathBuf,
+        level: serde_json::Value,
+    }
+    impl FluxFixture {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "mjolnir-flux-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut domains = Vec::new();
+            for id in ["upper_river", "lower_lake"] {
+                let prefix = format!("flux_state/{id}");
+                std::fs::create_dir_all(dir.join(&prefix)).unwrap();
+                let state = serde_json::json!({"schema":"mjolnir-flux-state-v2",
+                    "height":format!("{prefix}/height.exr"),"velocity":format!("{prefix}/velocity.exr"),
+                    "ground":format!("{prefix}/ground.exr")});
+                std::fs::write(
+                    dir.join(&prefix).join("state.json"),
+                    serde_json::to_vec(&state).unwrap(),
+                )
+                .unwrap();
+                for leaf in ["height.exr", "velocity.exr", "ground.exr"] {
+                    std::fs::write(dir.join(&prefix).join(leaf), b"opaque texture fixture")
+                        .unwrap();
+                }
+                domains.push(serde_json::json!({"id":id,"playback":"baked","state":state}));
+            }
+            Self {
+                dir,
+                level: serde_json::json!({"flux":{"schema":"mjolnir-flux-v2","domains":domains}}),
+            }
+        }
+    }
+    impl Drop for FluxFixture {
+        fn drop(&mut self) {
+            let target = self.dir.canonicalize().unwrap();
+            assert_eq!(
+                target.parent().unwrap(),
+                std::env::temp_dir().canonicalize().unwrap()
+            );
+            std::fs::remove_dir_all(target).unwrap();
+        }
+    }
+
+    #[test]
+    fn named_flux_pack_contains_all_three_textures_and_sidecars() {
+        let f = FluxFixture::new();
+        let members = flux_state_members(&f.level, &f.dir).unwrap();
+        assert_eq!(members.len(), 8);
+        for id in ["upper_river", "lower_lake"] {
+            for name in ["state.json", "height.exr", "velocity.exr", "ground.exr"] {
+                assert!(members
+                    .iter()
+                    .any(|(p, _)| p == &format!("flux_state/{id}/{name}")));
+            }
+        }
+    }
+
+    #[test]
+    fn named_flux_pack_rejects_missing_empty_stale_and_unbaked_states() {
+        let mut f = FluxFixture::new();
+        f.level["flux"]["domains"][0]["playback"] = serde_json::json!("simulate");
+        assert!(flux_state_members(&f.level, &f.dir).is_err());
+        f.level["flux"]["domains"][0]["playback"] = serde_json::json!("baked");
+        let ground = f.dir.join("flux_state/upper_river/ground.exr");
+        std::fs::remove_file(&ground).unwrap();
+        assert!(flux_state_members(&f.level, &f.dir).is_err());
+        std::fs::write(&ground, []).unwrap();
+        assert!(flux_state_members(&f.level, &f.dir).is_err());
+        std::fs::write(&ground, b"texture").unwrap();
+        f.level["flux"]["domains"][0]["state"]["capture"] = serde_json::json!(123);
+        assert!(flux_state_members(&f.level, &f.dir)
+            .unwrap_err()
+            .to_string()
+            .contains("differs"));
+    }
+
+    #[test]
+    fn named_flux_pack_rejects_unsafe_duplicate_and_cross_domain_names() {
+        let f = FluxFixture::new();
+        for id in ["../escape", "Upper", "a/b", "a\\b", ""] {
+            let mut bad = f.level.clone();
+            bad["flux"]["domains"][0]["id"] = serde_json::json!(id);
+            assert!(flux_state_members(&bad, &f.dir).is_err(), "{id}");
+        }
+        let mut bad = f.level.clone();
+        bad["flux"]["domains"][0]["state"]["ground"] =
+            serde_json::json!("flux_state/lower_lake/ground.exr");
+        assert!(flux_state_members(&bad, &f.dir).is_err());
+        let mut duplicate = f.level.clone();
+        duplicate["flux"]["domains"]
+            .as_array_mut()
+            .unwrap()
+            .push(f.level["flux"]["domains"][0].clone());
+        assert!(flux_state_members(&duplicate, &f.dir)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate"));
+    }
+
+    #[test]
+    fn named_flux_pack_verifies_texture_seals_and_legacy_stays_flat() {
+        let mut f = FluxFixture::new();
+        f.level["flux"]["domains"][0]["state"]["ground_sha256"] = serde_json::json!("0".repeat(64));
+        std::fs::write(
+            f.dir.join("flux_state/upper_river/state.json"),
+            serde_json::to_vec(&f.level["flux"]["domains"][0]["state"]).unwrap(),
+        )
+        .unwrap();
+        assert!(flux_state_members(&f.level, &f.dir)
+            .unwrap_err()
+            .to_string()
+            .contains("sealing"));
+        let legacy = f.dir.join("legacy");
+        std::fs::create_dir_all(legacy.join("flux_state")).unwrap();
+        for name in ["state.json", "height.exr", "velocity.exr"] {
+            std::fs::write(legacy.join("flux_state").join(name), b"fixture").unwrap();
+        }
+        assert_eq!(
+            flux_state_members(&serde_json::json!({"flux":{"state":{}}}), &legacy)
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(flux_state_members(&serde_json::json!({}), &legacy)
+            .unwrap()
+            .is_empty());
+    }
 
     #[test]
     fn only_a_numbered_bank_in_wwise_audio_is_a_bank() {
@@ -748,7 +983,11 @@ mod tests {
             absent(&wanted, &[held.into()]),
             ["objects/mjolnir/yoy/button-device_control.uasset"]
         );
-        assert_eq!(absent(&wanted, &[]).len(), 2, "a pack with none lacks them all");
+        assert_eq!(
+            absent(&wanted, &[]).len(),
+            2,
+            "a pack with none lacks them all"
+        );
     }
 
     #[test]

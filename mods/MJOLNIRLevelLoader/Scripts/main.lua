@@ -74,6 +74,12 @@ local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
 -- CTF flags and team armour in their team's colours (Teams.init in
 -- initialize, once main.lua's helpers exist).
 local Teams = dofile(MOD_DIR .. "\\Scripts\\teams.lua")
+Teams.descriptors = dofile(MOD_DIR .. "\\Scripts\\mode_descriptors.lua")
+Teams.warfare = dofile(MOD_DIR .. "\\Scripts\\warfare.lua")
+for id, descriptor in pairs(Teams.descriptors) do
+    Teams.TEAM_GAMES[id] = descriptor.teams
+    VariantSettings.VARIANT_SLOTS[id] = descriptor.slot
+end
 -- A load's steps spread over frames (spawnDecor).
 local Dress = dofile(MOD_DIR .. "\\Scripts\\dress.lua")
 
@@ -391,6 +397,7 @@ local function resetState()
     Current.world = nil
     Current.skyRecapture = nil
     Current.fluxPending = nil
+    Current.fluxRuntime = nil
     -- The console variables a level changed (the sun's shadows,
     -- spawnEnvironment) back as the game had them.
     if Current.cvars then
@@ -410,6 +417,7 @@ local function clearActors()
     -- Reloads keep the world but replace its actors. Invalidate any pending
     -- capture before destroying them, and allow the replacement sky to capture.
     Current.skyRecapture = nil
+    Current.fluxRuntime = nil
     -- A dressing under way stops at its next step; a cleared world counts
     -- as dressed, so the watcher does not dress it again.
     Current.dressGen = Current.dressGen + 1
@@ -2308,6 +2316,7 @@ for _, e in ipairs(START_EVENTS) do START_EVENT_SET[e[2]] = true end
 
 local function startEvent()
     local mode = string.lower(tostring(RunningVariant or (Current.level and Current.level.variant) or "slayer"))
+    if Teams.descriptors[mode] then return Teams.descriptors[mode].startEvent end
     for _, e in ipairs(START_EVENTS) do
         if mode:find(e[1], 1, true) then return e[2] end
     end
@@ -3132,6 +3141,7 @@ end
 --- the shore) and `camera` [system] riding with the player's camera (dust
 --- in the air). `mjolnir_effects off` leaves them out until the game closes.
 local Effects = { on = true }
+Effects.Flux = dofile(MOD_DIR .. "\\Scripts\\flux_runtime.lua")
 
 function Effects.spawn(world)
     local fx = Current.level and Current.level.effects
@@ -3566,7 +3576,20 @@ end
 --- targets as EXR (the RG16f height copied into RGBA16f first, which the
 --- engine writes as EXR rather than a clamped PNG), and state.json with the
 --- domain it fits. tools/level/upgrade_ce_map.py ships them.
-function Effects.fluxBake()
+function Effects.fluxAPI()
+    return { Current=Current, modDir=MOD_DIR, findObject=findObject, getWorld=getWorld,
+        delay=ExecuteInGameThreadWithDelay, name=FName, construct=StaticConstructObject,
+        color=Effects.fluxColor, hide=Effects.hideCE, log=Log,
+        class=function(path)
+            local ksl=findObject("/Script/Engine.Default__KismetSystemLibrary")
+            local c=ksl:LoadClassAsset_Blocking(ksl:Conv_SoftClassPathToSoftClassRef(ksl:MakeSoftClassPath(path)))
+            if not (c and c:IsValid()) then error("Flux class missing: "..path) end
+            return c
+        end }
+end
+
+function Effects.fluxBake(id)
+    if Current.fluxRuntime then return Effects.Flux.bake(Effects.fluxAPI(), id) end
     local dom = Current.actors["__flux_domain"]
     local spec = Current.level and Current.level.flux
     if not (dom and dom:IsValid() and type(spec) == "table" and type(spec.domain) == "table") then
@@ -3603,6 +3626,11 @@ end
 
 function Effects.flux(world)
     local spec = Current.level and Current.level.flux
+    if type(spec)=="table" and (spec.playback~=nil or spec.domains~=nil) then
+        -- Imported only on level furnishing/reload, never in a tick loop.
+        Effects.Flux = dofile(MOD_DIR .. "\\Scripts\\flux_runtime.lua")
+        return Effects.Flux.start(Effects.fluxAPI(),world,spec)
+    end
     if type(spec) ~= "table" or (type(spec.domain) ~= "table" and type(spec.coast) ~= "table") then return end
     for _, key in ipairs({ "__flux_domain", "__flux_coast" }) do
         if Current.actors[key] and Current.actors[key]:IsValid() then return end
@@ -4359,6 +4387,27 @@ function Land.pbr(set, pbr)
     -- Ice where CE's base map is painted dark (Ice Fields' frozen pond).
     vec("LandIce", pbr.ice)
     vec("LandIceColor", pbr.ice_color)
+    vec("LandAlpine", pbr.alpine)
+    vec("GroundSteep", pbr.steep)
+    vec("RockTint", pbr.rock_tint)
+    -- Optional static road-distance texture. No world scans or per-frame work.
+    local detail = type(pbr.surface_detail) == "table" and pbr.surface_detail
+    local detailTex = detail and type(detail.texture) == "string" and resolveMesh(detail.texture)
+    if detailTex then
+        set.tex("SurfaceData", detailTex)
+        set.vec("SurfaceDataInfo", { R = 1, G = detail.range_cm or 1600, B = 0, A = 0 })
+    else
+        set.vec("SurfaceDataInfo", { R = 0, G = 1600, B = 0, A = 0 })
+    end
+    -- Static terrain/tree-derived material weights; no gameplay or frame loop.
+    local ecology = type(pbr.ecology) == "table" and pbr.ecology
+    local ecologyTex = ecology and type(ecology.texture) == "string" and resolveMesh(ecology.texture)
+    if ecologyTex then
+        set.tex("Ecology", ecologyTex)
+        set.vec("EcologyInfo", { R = 1, G = 0, B = 0, A = 0 })
+    else
+        set.vec("EcologyInfo", { R = 0, G = 0, B = 0, A = 0 })
+    end
     -- Depth: sand and footprint depth (cm), fade distance (cm), ray steps.
     vec("LandParallax", pbr.parallax)
     -- Far sand: strength, where it takes over (cm from, to), scale.
@@ -4393,6 +4442,9 @@ function Land.pbr(set, pbr)
     -- The sea, from the level's water (as GameWet): the rippled band and the
     -- wet edge sit over it.
     local sea = Land.seaHeight()
+    -- Multi-elevation alpine water is authored in the surface masks. Its
+    -- reused ripple textures are snow and must not paint the lower banks.
+    if pbr.sea_enabled == false then sea = nil end
     local band = type(pbr.sea) == "table" and pbr.sea or {}
     set.vec("LandSea", { R = sea or 0, G = band[1] or 150, B = band[2] or 40, A = sea and 1 or 0 })
     return missing
@@ -6739,6 +6791,7 @@ local GAME_TYPE_SLOTS = { [0] = "slayer", [1] = "ctf", [2] = "team_slayer", [3] 
     [6] = "race" }
 
 local function loadMegaloSwitch()
+    Teams.warfare.init(MOD_DIR, Log, every)
     if not package or not package.loadlib then return end
     local dll = MOD_DIR .. "\\native\\mjolnir_map_registry.dll"
     local on = package.loadlib(dll, "mjolnir_megalo_on")
@@ -6794,6 +6847,7 @@ local function loadMegaloSwitch()
         -- type<TAB>title", or no file while no multiplayer map runs.
         os.remove(MOD_DIR .. "\\running.txt")
         if not level and not code then
+            Teams.warfare.select(nil, nil)
             -- A travel that names no scenario: the way back to the frontend.
             -- Leave the patches alone. Restoring them under a running Megalo
             -- game froze every fireteam client on its way back to the menu
@@ -6806,6 +6860,7 @@ local function loadMegaloSwitch()
             return
         end
         if not level then
+            Teams.warfare.select(nil, nil)
             off()
             teamArmor(false)
             switched.code = nil
@@ -6815,6 +6870,7 @@ local function loadMegaloSwitch()
         -- client has from match_variant.txt or the travel's slot; else the
         -- map's default.
         local chosen = pending or level.variant
+        Teams.warfare.select(code, chosen, level.warfare)
         switched.code, switched.at = code, os.clock()
         if chosen == "forge" then
             if not forgeOn then
@@ -6862,7 +6918,7 @@ local function loadMegaloSwitch()
             local settingsText = readFile(MOD_DIR .. "\\variant_settings.txt")
             local parsed = VariantSettings.parse(settingsText)
             if bytes and settingsText and settingsText:match("%S") then
-                local settings = VariantSettings.forMode(parsed, name)
+                local settings = VariantSettings.forMode(parsed, name, Teams.descriptors[name])
                 local patched, why = VariantSettings.apply(bytes, settings)
                 if patched then
                     bytes = patched
@@ -6886,12 +6942,13 @@ local function loadMegaloSwitch()
                     if okL then layout = l end
                 end
                 local choices = VehicleSets.fromSettings(parsed)
-                local spawns = VehicleSets.spawnFilters(level.spawn_sets, name, level.game)
+                local vehicleMode = (Teams.descriptors[name] or {}).vehicleMode or name
+                local spawns = VehicleSets.spawnFilters(level.spawn_sets, vehicleMode, level.game)
                 local okV, out, added, dropped = pcall(function()
                     local wanted = {}
                     for _, f in ipairs(spawns) do wanted[#wanted + 1] = f end
                     if type(level.vehicle_sets) == "table" then
-                        for _, f in ipairs(VehicleSets.filters(level.vehicle_sets, name, choices)) do
+                        for _, f in ipairs(VehicleSets.filters(level.vehicle_sets, vehicleMode, choices)) do
                             wanted[#wanted + 1] = f
                         end
                     end
@@ -7028,9 +7085,17 @@ local function initialize()
         reload()
         return true
     end)
-    RegisterConsoleCommandHandler("mjolnir_flux_bake", function()
-        local _, msg = pcall(Effects.fluxBake)
-        Log("flux bake: " .. tostring(msg))
+    RegisterConsoleCommandHandler("mjolnir_flux_bake", function(_, args)
+        ExecuteInGameThread(function()
+            local _, msg = pcall(Effects.fluxBake, args and args[1])
+            Log("flux bake: " .. tostring(msg))
+        end)
+        return true
+    end)
+    RegisterConsoleCommandHandler("mjolnir_flux_status", function()
+        ExecuteInGameThread(function()
+            Log("flux status: " .. Effects.Flux.encode(Effects.Flux.status(Current)))
+        end)
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_flux_recapture", function()

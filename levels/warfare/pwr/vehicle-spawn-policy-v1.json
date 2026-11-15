@@ -1,0 +1,256 @@
+{
+  "schema": "pwr-vehicle-spawn-correction-v1",
+  "protocol": 20569,
+  "layout_revision": 3,
+  "revision": 1,
+  "support_clearance_m": 0.9,
+  "scope": "Only Tank/Banshee scenario-origin Z and matching probe-volume Z; physical terrain and settled destinations are unchanged",
+  "frozen_references": {
+    "layout": {
+      "path": "layout.json",
+      "sha256": "6a48c5a9e4ebbabc6f17ada0d67007671c6c776d93b072086c721c1c38b3ea00"
+    },
+    "geometry": {
+      "path": "../terrain/final-v3/terrain.geometry.json",
+      "sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4"
+    },
+    "level_gameplay": {
+      "path": "level-gameplay.json",
+      "sha256": "476515ca94247ba38aa722cf69e52453455d9a9d66e4c861ed13a13a94a10274"
+    }
+  },
+  "frozen_runtime_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+  "frozen_runtime_height_sha256": "aae13c42fffcbbd2f248e057a8792fc966aaf48971c407b7a2bc2a0173ce1ad7",
+  "cause": {
+    "binary": "C:\\ghidra_proj\\cu4\\HaloSimulation_tag_release.dll",
+    "binary_sha256": "c8c144404adf61a9de821c996682a7e66abadd7e530397d3bbde31c123203bf7",
+    "distance_predicate_rva": "0x3f8130",
+    "distance_squared_wu": 0.25,
+    "distance_metres": 1.524,
+    "abandonment_update_rva": "0x3f7a60",
+    "respawn_update_rva": "0x3f72b0",
+    "observation_sha256": "d140578e34d84b2a8be08bff385de9ced2b3be53ec963e228719e5cc65d7e85c"
+  },
+  "vehicles": [
+    {
+      "name": "pwr_tank_red_0",
+      "type": "scorpion",
+      "old_pos_cm": [
+        -63000.0,
+        14200.0,
+        10986.4
+      ],
+      "new_pos_cm": [
+        -63000.0,
+        14200.0,
+        10884.976349
+      ],
+      "support_floor_m": 107.9497634899293,
+      "observed_rest_origin_z_m": 108.29544,
+      "expected_initial_settling_m": 0.5543234900000016,
+      "distance_threshold_margin_m": 0.9696765099999984,
+      "unchanged_spawn_seconds": "36",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_tank_red_1",
+      "type": "scorpion",
+      "old_pos_cm": [
+        -55000.0,
+        14200.0,
+        10986.4
+      ],
+      "new_pos_cm": [
+        -55000.0,
+        14200.0,
+        10884.976349
+      ],
+      "support_floor_m": 107.9497634899293,
+      "observed_rest_origin_z_m": 108.29544,
+      "expected_initial_settling_m": 0.5543234900000016,
+      "distance_threshold_margin_m": 0.9696765099999984,
+      "unchanged_spawn_seconds": "32",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_banshee_red_0",
+      "type": "banshee",
+      "old_pos_cm": [
+        -61500.0,
+        15800.0,
+        11051.4
+      ],
+      "new_pos_cm": [
+        -61500.0,
+        15800.0,
+        10850.15625
+      ],
+      "support_floor_m": 107.6015625,
+      "observed_rest_origin_z_m": 108.29544,
+      "expected_initial_settling_m": 0.20612250000000643,
+      "distance_threshold_margin_m": 1.3178774999999936,
+      "unchanged_spawn_seconds": "39",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_banshee_red_1",
+      "type": "banshee",
+      "old_pos_cm": [
+        -56500.0,
+        15800.0,
+        11051.4
+      ],
+      "new_pos_cm": [
+        -56500.0,
+        15800.0,
+        10850.15625
+      ],
+      "support_floor_m": 107.6015625,
+      "observed_rest_origin_z_m": 108.29544,
+      "expected_initial_settling_m": 0.20612250000000643,
+      "distance_threshold_margin_m": 1.3178774999999936,
+      "unchanged_spawn_seconds": "35",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_tank_blue_0",
+      "type": "scorpion",
+      "old_pos_cm": [
+        56000.0,
+        14200.0,
+        11386.0
+      ],
+      "new_pos_cm": [
+        56000.0,
+        14200.0,
+        11284.544541
+      ],
+      "support_floor_m": 111.94544540745812,
+      "observed_rest_origin_z_m": 112.28832000000001,
+      "expected_initial_settling_m": 0.5571254099999834,
+      "distance_threshold_margin_m": 0.9668745900000166,
+      "unchanged_spawn_seconds": "37",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_tank_blue_1",
+      "type": "scorpion",
+      "old_pos_cm": [
+        64000.0,
+        14200.0,
+        11386.0
+      ],
+      "new_pos_cm": [
+        64000.0,
+        14200.0,
+        11284.544541
+      ],
+      "support_floor_m": 111.94544540745812,
+      "observed_rest_origin_z_m": 112.28832000000001,
+      "expected_initial_settling_m": 0.5571254099999834,
+      "distance_threshold_margin_m": 0.9668745900000166,
+      "unchanged_spawn_seconds": "33",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_banshee_blue_0",
+      "type": "banshee",
+      "old_pos_cm": [
+        57500.0,
+        15800.0,
+        11451.0
+      ],
+      "new_pos_cm": [
+        57500.0,
+        15800.0,
+        11249.375
+      ],
+      "support_floor_m": 111.59375,
+      "observed_rest_origin_z_m": 112.28832000000001,
+      "expected_initial_settling_m": 0.20542999999999267,
+      "distance_threshold_margin_m": 1.3185700000000073,
+      "unchanged_spawn_seconds": "40",
+      "unchanged_abandonment_seconds": "30"
+    },
+    {
+      "name": "pwr_banshee_blue_1",
+      "type": "banshee",
+      "old_pos_cm": [
+        62500.0,
+        15800.0,
+        11451.0
+      ],
+      "new_pos_cm": [
+        62500.0,
+        15800.0,
+        11249.375
+      ],
+      "support_floor_m": 111.59375,
+      "observed_rest_origin_z_m": 112.28832000000001,
+      "expected_initial_settling_m": 0.20542999999999267,
+      "distance_threshold_margin_m": 1.3185700000000073,
+      "unchanged_spawn_seconds": "36",
+      "unchanged_abandonment_seconds": "30"
+    }
+  ],
+  "probes": [
+    {
+      "name": "pwr_probe_tank_red",
+      "old_pos_cm": [
+        -63500.0,
+        14700.0,
+        10686.4
+      ],
+      "new_pos_cm": [
+        -63500.0,
+        14700.0,
+        10584.976349
+      ]
+    },
+    {
+      "name": "pwr_probe_banshee_red",
+      "old_pos_cm": [
+        -62150.0,
+        16450.0,
+        10751.4
+      ],
+      "new_pos_cm": [
+        -62150.0,
+        16450.0,
+        10550.15625
+      ]
+    },
+    {
+      "name": "pwr_probe_tank_blue",
+      "old_pos_cm": [
+        55500.0,
+        14700.0,
+        11086.0
+      ],
+      "new_pos_cm": [
+        55500.0,
+        14700.0,
+        10984.544541
+      ]
+    },
+    {
+      "name": "pwr_probe_banshee_blue",
+      "old_pos_cm": [
+        56850.0,
+        16450.0,
+        11151.0
+      ],
+      "new_pos_cm": [
+        56850.0,
+        16450.0,
+        10949.375
+      ]
+    }
+  ],
+  "live_acceptance_required": [
+    "all eight stationary vehicles retained for more than two original recycle cycles",
+    "initial chassis/floor clearance and guarded Tank/Banshee driving",
+    "driven-away abandonment and destroyed-vehicle respawn with original timers"
+  ],
+  "native_binary_or_layout_constants_changed": false
+}

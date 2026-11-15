@@ -38,13 +38,17 @@ import argparse
 from cooked_map_container import cooked_map_container
 import dev_paks
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook
+from owned_map_cook import snapshot_owned_cook, verified_owned_cook, flux_bed_requires_mesh, landscape_lod_policy_path, landscape_lod_cook_inputs, render_only_hism_path, render_only_hism_cook_inputs, render_only_pines_path, render_only_pines_cook_inputs, native_grass_pilot_config, native_grass_pilot_cook_inputs
 import glob
 import json
 import math
+import re
 import os
 import shutil
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -120,7 +124,7 @@ def run(cmd, env=None, cwd=REPO, check=True):
 
 
 def powershell(script, args, env=None):
-    return run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] + args, env=env, check=False)
+    return run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] + args, env=env)
 
 
 def bash():
@@ -586,6 +590,42 @@ def stage_land(code, m, p):
            "--name", m["landscape"]]
     if m.get("components"):
         cmd += ["--components", str(m["components"])]
+    if m.get("heightfield"):
+        manifest = os.path.abspath(os.path.join(REPO, m["heightfield"]))
+        if not os.path.isfile(manifest):
+            raise FileNotFoundError(f"Master heightfield manifest not found: {manifest}")
+        cmd += ["--heightfield", manifest]
+    if m.get("geology"):
+        geology = os.path.abspath(os.path.join(REPO, m["geology"]))
+        if m.get("landscape") != "LPW" or not m.get("heightfield"):
+            raise ValueError("Geology masks require LPW and an exact runtime heightfield")
+        if not os.path.isfile(geology):
+            raise FileNotFoundError(f"Alpine geology manifest not found: {geology}")
+        cmd += ["--geology", geology]
+    if m.get("surface_detail"):
+        geometry = os.path.abspath(os.path.join(REPO, m["surface_detail"]))
+        if m.get("landscape") != "LPW" or not m.get("heightfield"):
+            raise ValueError("Road surface detail requires LPW and an exact runtime heightfield")
+        if not os.path.isfile(geometry):
+            raise FileNotFoundError(f"Road surface geometry not found: {geometry}")
+        cmd += ["--surface-detail", geometry]
+    if m.get("ecology"):
+        ecology = os.path.abspath(os.path.join(REPO, m["ecology"]))
+        if m.get("landscape") != "LPW" or not m.get("heightfield") or not m.get("geology"):
+            raise ValueError("Ecology requires LPW, exact runtime heightfield and Alpine2 geology")
+        if not os.path.isfile(ecology):
+            raise FileNotFoundError(f"Alpine ecology manifest not found: {ecology}")
+        cmd += ["--ecology", ecology]
+    if m.get("landscape_lift") is not None:
+        lift = float(m["landscape_lift"])
+        if not math.isfinite(lift):
+            raise ValueError("Landscape lift must be finite centimetres")
+        cmd += ["--lift", f"{lift:g}"]
+    if m.get("quad") is not None:
+        quad = float(m["quad"])
+        if not math.isfinite(quad) or quad <= 0:
+            raise ValueError("Landscape quad spacing must be positive finite centimetres")
+        cmd += ["--quad", f"{quad:g}"]
     if m.get("min_z") is not None:
         cmd += ["--min-z", str(m["min_z"])]
     if m.get("ground_also"):
@@ -628,6 +668,24 @@ def stage_land(code, m, p):
 
 
 def stage_foliage(code, m, p):
+    pcg_foliage = os.path.join(REPO, m["pcg_foliage"]) if m.get("pcg_foliage") else None
+    if pcg_foliage and not os.path.isfile(pcg_foliage):
+        raise FileNotFoundError(f"Run the UE PCG graph before baking foliage: {pcg_foliage}")
+    if m.get("pcg_foliage_only"):
+        if not pcg_foliage:
+            raise ValueError("PCG-only foliage requires pcg_foliage")
+        import struct
+        from pcg_foliage import read_mjf_groups, merge_foliage
+        read_mjf_groups(pcg_foliage)  # Validate all source sidecars before writing.
+        os.makedirs(p["foliage"], exist_ok=True)
+        destination = os.path.join(p["foliage"], "foliage.json")
+        with open(os.path.join(p["foliage"], "foliage.bin"), "wb") as stream:
+            stream.write(b"MJF3" + struct.pack("<II", 3, 0))
+        with open(destination, "w", encoding="utf-8") as stream:
+            json.dump({"file": "foliage.bin", "groups": []}, stream)
+        result = merge_foliage(destination, pcg_foliage)
+        print(f"  {code}: {result['pcg_instances']} PCG instances; legacy scatter disabled")
+        return
     level = json.load(open(p["level"], encoding="utf-8"))
     cmd = [sys.executable, os.path.join(HERE, "scatter_foliage.py"), os.path.join(p["scene"], "scene.gltf"),
            os.path.join(p["scene"], "materials.spec.json"), os.path.join(p["foliage"], "foliage.json"),
@@ -666,10 +724,30 @@ def stage_foliage(code, m, p):
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])
+    if pcg_foliage:
+        merged = run([sys.executable, os.path.join(HERE, "pcg_foliage.py"), "merge",
+                      os.path.join(p["foliage"], "foliage.json"), pcg_foliage])
+        print("  " + merged.strip().splitlines()[-1][:200])
 
 
 def stage_swap(code, m, p):
     data = os.path.join(HERE, "data")
+    tree_recipes = os.path.abspath(os.path.join(REPO, m["tree_recipes"])) if m.get("tree_recipes") else None
+    if tree_recipes and not os.path.isfile(tree_recipes):
+        raise FileNotFoundError(f"Measured tree recipes not found: {tree_recipes}")
+    authored_decor = os.path.join(REPO, m["authored_decor"]) if m.get("authored_decor") else None
+    if m.get("pcg_trees"):
+        selected = os.path.join(REPO, m["pcg_trees"])
+        if not os.path.isfile(selected):
+            raise FileNotFoundError(f"Run the UE PCG graph before swapping trees: {selected}")
+        generated = os.path.join(p["work"], "pcg_authored_decor.json")
+        cmd = [sys.executable, os.path.join(HERE, "pcg_tree_decor.py"), selected,
+               tree_recipes or os.path.join(data, "b30_tree_recipes.json"), generated,
+               "--max-trees", str(m.get("pcg_tree_limit", 1000))]
+        if authored_decor:
+            cmd += ["--base", authored_decor]
+        print("  " + run(cmd).strip())
+        authored_decor = generated
     with open(p["level"], encoding="utf-8") as f:
         sea = sea_height(json.load(f), m)
     # A snow map (`biome: snow`) takes B40's trees and rocks: its own
@@ -686,13 +764,13 @@ def stage_swap(code, m, p):
                   + [f"{token}={rule}" for token, rule in m["instance_swap"].items()])
         print("  " + out.strip().splitlines()[-1][:200])
     out = run([sys.executable, os.path.join(HERE, "scenery_swap.py"), "swap", p["scene"],
-               os.path.join(p["scene"], "materials.spec.json"), os.path.join(data, f"{source}_tree_recipes.json"),
+               os.path.join(p["scene"], "materials.spec.json"), tree_recipes or os.path.join(data, f"{source}_tree_recipes.json"),
                os.path.join(data, f"{source}_scenery_bounds.json"), os.path.join(p["work"], "swap.json"),
                "--rocks", m.get("rocks", "beach"), "--foliage", os.path.join(p["foliage"], "foliage.json"),
                "--staging", swap_staging]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
-              + (["--authored-decor", os.path.join(REPO,m["authored_decor"])] if m.get("authored_decor") else [])
+              + (["--authored-decor", authored_decor] if authored_decor else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
     # The grass up to each swapped rock's own hull (the foliage stage left
@@ -702,6 +780,25 @@ def stage_swap(code, m, p):
         out = run([sys.executable, os.path.join(HERE, "rock_foliage.py"), fol, os.path.join(p["work"], "swap.json"),
                    swap_staging] + (["--biome", m["biome"]] if m.get("biome") else []))
         print(f"  {code}: " + out.strip().splitlines()[-1][:200])
+
+
+def append_authored_collision(extra_path, source_path):
+    """Append a measured terrain tail without erasing swapped scenery hulls."""
+    from heightfield import sha256
+    source_path=os.path.abspath(os.path.join(REPO,source_path))
+    with open(source_path,encoding="utf-8") as stream:source=json.load(stream)
+    if source.get("schema")!="pwr-native-terrain-extra-v1" or source.get("coordinates")!="ce_world_units_z_up":
+        raise ValueError("Authored terrain collision requires explicit native world units")
+    if not source.get("accuracy_pass") or sha256(source["master_manifest"])!=source["master_manifest_sha256"]:
+        raise ValueError("Authored terrain collision failed accuracy or has stale source")
+    if len(source["triangles"])!=len(source["materials"]):raise ValueError("Authored collision material count mismatch")
+    with open(extra_path,encoding="utf-8") as stream:extra=json.load(stream)
+    extra["triangles"].extend(source["triangles"]);extra["materials"].extend(source["materials"])
+    extra["objects"]=int(extra.get("objects",0))+int(source["objects"])
+    extra.setdefault("authored_sources",[]).append({"path":source_path,"sha256":sha256(source_path),
+                                                   "master_manifest_sha256":source["master_manifest_sha256"]})
+    with open(extra_path,"w",encoding="utf-8") as stream:json.dump(extra,stream,separators=(",",":"))
+    return len(source["triangles"])
 
 
 def stage_collision(code, m, p):
@@ -720,9 +817,18 @@ def stage_collision(code, m, p):
     scene = os.path.join(p["work"], "collision_scene.json")
     sbsp = os.path.join(p["work"], m["sbsp"])
     mjolnir = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
-    made = run([sys.executable, os.path.join(HERE, "b30_collision.py"), os.path.join(p["foliage"], "foliage.json"),
-                os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "swap.json"), extra,
-                "--scene", os.path.join(p["scene"], "scene.gltf")]).strip().splitlines()[-1]
+    scenery_command = [sys.executable, os.path.join(HERE, "b30_collision.py"), os.path.join(p["foliage"], "foliage.json"),
+                       os.path.join(p["foliage"], "foliage.bin"), os.path.join(p["work"], "swap.json"), extra,
+                       "--scene", os.path.join(p["scene"], "scene.gltf")]
+    if "collision_hulls" in m:
+        hulls = m["collision_hulls"]
+        if not isinstance(hulls, str) or not hulls.strip():
+            raise ValueError("collision_hulls must name an existing hull cache directory")
+        hulls = os.path.abspath(os.path.join(REPO, hulls))
+        if not os.path.isdir(hulls):
+            raise ValueError("collision_hulls directory does not exist: " + hulls)
+        scenery_command += ["--hulls", hulls]
+    made = run(scenery_command).strip().splitlines()[-1]
     # The wading wall (sea_zone.py, made with the landscape): players stop
     # where the seabed falls away.
     wall = os.path.join(p["work"], "zone", "wall.json")
@@ -732,8 +838,14 @@ def stage_collision(code, m, p):
         e["materials"] += w["materials"]
         json.dump(e, open(extra, "w", encoding="utf-8"))
         made += f"; wading wall {len(w['triangles'])} triangle(s)"
+    if m.get("authored_collision"):
+        count=append_authored_collision(extra,m["authored_collision"])
+        made+=f"; authored terrain {count} triangle(s)"
     run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
-    out = run([mjolnir, "level", "collision", scene, "--out", sbsp, "--own-bsp", "--bsp-index", "0", "--paks", PAKS])
+    command=[mjolnir, "level", "collision", os.path.abspath(scene), "--out", os.path.abspath(sbsp), "--own-bsp", "--bsp-index", "0", "--paks", PAKS]
+    if m.get("authored_collision"):
+        command += ["--receipt",os.path.abspath(os.path.join(p["work"],"native-collision-receipt.json"))]
+    out = run(command)
     placed = [l.strip() for l in out.splitlines() if l.strip().startswith("scenery")]
     print(f"  {code}: {made[:150]}")
     print(f"  {code}: {(placed[-1] if placed else '')[:150]}")
@@ -742,9 +854,66 @@ def stage_collision(code, m, p):
 def bake_sbsp(m, p):
     """The map's BSP: the collision stage's, else the conversion's own."""
     own = os.path.join(p["work"], m["sbsp"])
+    if m.get("authored_collision"):
+        from heightfield import sha256, load_heightfield
+        def canonical(path):
+            return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+        receipt_path=os.path.join(p["work"],"native-collision-receipt.json")
+        source_path=os.path.join(p["work"],"collision_scene.json")
+        binary_path=os.path.join(p["work"],"collision_scene.bin")
+        extra_path=os.path.join(p["work"],"b30_collision.json")
+        required=(own,receipt_path,source_path,binary_path,extra_path)
+        if any(not os.path.isfile(path) or os.path.getsize(path)==0 for path in required):
+            raise ValueError("Authored terrain requires its upgraded SBSP and complete native collision receipt; core fallback is forbidden")
+        with open(receipt_path,encoding="utf-8") as stream:receipt=json.load(stream)
+        if receipt.get("schema")!="mjolnir-collision-pieces-v1":
+            raise ValueError("Unsupported native collision receipt")
+        for key,expected,hash_key in (("output",own,"output_sha256"),
+                                      ("source_manifest",source_path,"source_manifest_sha256")):
+            if not isinstance(receipt.get(key),str) or canonical(receipt[key])!=canonical(expected):
+                raise ValueError("Native collision receipt path mismatch: "+key)
+            if receipt.get(hash_key)!=sha256(expected):
+                raise ValueError("Native collision receipt hash mismatch: "+key)
+        if receipt.get("source_binary_sha256")!=sha256(binary_path):
+            raise ValueError("Native collision source binary changed after compilation")
+        with open(source_path,encoding="utf-8") as stream:source=json.load(stream)
+        declared_binary=os.path.join(os.path.dirname(source_path),source.get("bin",""))
+        if canonical(declared_binary)!=canonical(binary_path):
+            raise ValueError("Native collision manifest names a different binary")
+        if source.get("counts",{}).get("surfaces")!=receipt.get("source_surfaces"):
+            raise ValueError("Native collision source surface count mismatch")
+        # The actual compiled source manifest/binary hashes are checked above.
+        # Bind their prepared extra input to today's configured terrain export,
+        # including its calibrated master, before a map can be baked.
+        with open(extra_path,encoding="utf-8") as stream:extra=json.load(stream)
+        configured=os.path.abspath(os.path.join(REPO,m["authored_collision"]))
+        inputs=[item for item in extra.get("authored_sources",[])
+                if canonical(item.get("path",""))==canonical(configured)]
+        if len(inputs)!=1 or inputs[0].get("sha256")!=sha256(configured):
+            raise ValueError("Native collision authored terrain input is stale")
+        if not m.get("heightfield"):
+            raise ValueError("Authored terrain collision needs its configured heightfield manifest")
+        field=load_heightfield(os.path.join(REPO,m["heightfield"]))
+        if inputs[0].get("master_manifest_sha256")!=field.manifest_sha256:
+            raise ValueError("Native collision was built from a different terrain master")
+        return own
     return own if os.path.exists(own) else os.path.join(p["conv"], m["sbsp"])
 
 
+def verify_grass_phase(path, mode, started):
+    """A failed build must never fall through to verifying an older clone."""
+    from landscape_grass_pilot import digest, validate_readback
+    if mode not in ("build", "verify"):
+        raise ValueError("Unknown native grass phase")
+    path = Path(path)
+    receipt = path.parent / ("grass-build.readback.json" if mode == "build" else "grass-saved.readback.json")
+    if not receipt.is_file() or receipt.stat().st_mtime < started:
+        raise ValueError("Native grass " + mode + " did not produce a fresh receipt")
+    readback = json.loads(receipt.read_text(encoding="utf-8"))
+    if readback.get("config_sha256") != digest(path) or readback.get("built") is not (mode == "build"):
+        raise ValueError("Native grass receipt belongs to another config or phase")
+    config = json.loads(path.read_text(encoding="utf-8"))
+    validate_readback(config, path.parent, readback, require_saved=mode == "verify")
 def redrawn_manifest(code, p):
     """The manifest of a map's redrawn textures: every `<asset name>.png` in
     `<work>/redrawn` (redraw_texture.py's outputs; its `.raw.png` copies are
@@ -766,7 +935,13 @@ def stage_editor(code, m, p):
     if m.get("indoor"):
         print(f"  {code}: indoor, no landscape world")
         return
+    bake_world_path(code, m)
     env = {"MJ_LANDSCAPE": p["land"], "MJ_LANDSCAPE_NAME": m["landscape"], "MJ_LANDSCAPE_CHUNK": str(m["chunk"])}
+    lod_policy = landscape_lod_policy_path(m)
+    exterior_hism = render_only_hism_path(m)
+    exterior_pines = render_only_pines_path(m)
+    grass_pilot = native_grass_pilot_config(m)
+    env["MJ_LANDSCAPE_LOD_POLICY"] = str(lod_policy) if lod_policy else ""
     if m.get("ambient_cubemap"):
         env["MJ_AMBIENT_CUBEMAP"] = json.dumps(m["ambient_cubemap"])
     # `bake_foliage`: the foliage, cladding rocks and swapped scenery placed
@@ -784,8 +959,11 @@ def stage_editor(code, m, p):
         print("  " + run([sys.executable, os.path.join(HERE, "foliage_bake.py"), p["work"], spec, "--paks", PAKS,
                           "--origin", ",".join(str(v) for v in origin),
                           "--mjolnir", os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))]
+                         + (["--pine-cull", ",".join(str(v) for v in m["pine_cull_cm"])] if m.get("pine_cull_cm") else [])
                          + (["--rock-roughness", str(m["rock_roughness"])] if m.get("rock_roughness") is not None else [])
-                         + (["--rock-palette", m["rock_palette"]] if m.get("rock_palette") else [])).strip().splitlines()[-1][:160])
+                         + (["--rock-palette", m["rock_palette"]] if m.get("rock_palette") else [])
+                         + (["--render-only-hism", str(exterior_hism)] if exterior_hism else [])
+                         + (["--render-only-pines", str(exterior_pines)] if exterior_pines else [])).strip().splitlines()[-1][:160])
         env["MJ_FOLIAGE"] = spec
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env=env)
@@ -798,6 +976,19 @@ def stage_editor(code, m, p):
         sys.exit(f"{code}: the landscape world was not built:\n{out[-2000:]}")
     if m.get("bake_foliage") and "landscape foliage:" not in log:
         sys.exit(f"{code}: the world was built without its foliage:\n{out[-2000:]}")
+    landscape_lod_cook_inputs(m, p["work"])
+    render_only_hism_cook_inputs(m, p["work"])
+    render_only_pines_cook_inputs(m, p["work"])
+    if grass_pilot:
+        pilot_path, _ = grass_pilot
+        for mode in ("build", "verify"):
+            started = time.time()
+            powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"),
+                       ["-Script", "Scripts/build_pwr_landscape_grass_pilot.py"]
+                       + (["-AllowRendering", "-StockRenderer"] if mode == "build" else []),
+                       env={"MJ_NATIVE_GRASS_PILOT": str(pilot_path), "MJ_NATIVE_GRASS_MODE": mode})
+            verify_grass_phase(pilot_path, mode, started)
+        native_grass_pilot_cook_inputs(m, p["work"])
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
 
 
@@ -810,12 +1001,37 @@ def build_water():
     print("  water masters built")
 
 
-def build_masters():
+def master_material_env(maps=None):
+    """Optional hash-bound PWR surface assets; other maps keep them disabled."""
+    env = {"MJ_PWR_APRON_FIELD": "", "MJ_PWR_PAVING_GRAPHIC": "", "MJ_PWR_PAVING_GRAPHIC_READBACK": ""}
+    for code, config in (maps or {}).items():
+        if config.get("paving_graphic"):
+            if code != "PWR":
+                raise ValueError("Paving graphic is an explicit PWR material option")
+            from pwr_paving_graphic import load_graphic_manifest
+            manifest = Path(REPO, config["paving_graphic"]).resolve()
+            load_graphic_manifest(manifest)
+            env["MJ_PWR_PAVING_GRAPHIC"] = str(manifest)
+            env["MJ_PWR_PAVING_GRAPHIC_READBACK"] = str(manifest.with_name("graphic.editor.json"))
+        if not config.get("apron_geology"):
+            continue
+        if code != "PWR" or not config.get("heightfield"):
+            raise ValueError("Apron geology requires PWR and its runtime heightfield")
+        from alpine_surface_v6 import load_apron_texture
+        from heightfield import load_heightfield
+        field = load_heightfield(os.path.join(REPO, config["heightfield"]))
+        texture, _ = load_apron_texture(os.path.join(REPO, config["apron_geology"]), field.manifest_sha256)
+        env["MJ_PWR_APRON_FIELD"] = str(texture)
+    return env
+
+
+def build_masters(maps=None):
     # M_CE_Plasma's noise: MCC's plasma shield noise volume as an atlas.
     noise = os.path.join(PROJECT, "Saved", "ce_plasma", "T_CE_PlasmaNoise.png")
     run([sys.executable, os.path.join(HERE, "mcc_tags.py"), "--plasma-noise", noise])
-    powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_materials.py"],
-               env={"MJ_CE_ROOT": "/Game/MJOLNIR/CETrial", "MJ_CE_CHUNK": "983", "MJ_PLASMA_NOISE": noise})
+    env = {"MJ_CE_ROOT": "/Game/MJOLNIR/CETrial", "MJ_CE_CHUNK": "983", "MJ_PLASMA_NOISE": noise,
+           **master_material_env(maps)}
+    powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_materials.py"], env=env)
     log = open(os.path.join(PROJECT, "Saved_build_ce_materials.log"), encoding="utf-8", errors="replace").read()
     if "trial materials built" not in log or "Traceback" in log:
         sys.exit("the trial masters did not build: see " + os.path.join(PROJECT, "Saved_build_ce_materials.log"))
@@ -903,10 +1119,15 @@ def build_cliffs(maps, ps):
     # Flux beds (`flux.bed`): the river's ground as Flux's capture alone sees
     # it (flux_bed).
     for code, m in maps.items():
-        if (m.get("flux") or {}).get("bed") and m.get("rivers"):
+        if (m.get("flux") or {}).get("heightfield") or ((m.get("flux") or {}).get("bed") and m.get("rivers")):
             bed = flux_bed(code, m, ps[code])
-            if bed:
+            # Keep the exact bed file for bake provenance. Complete saved
+            # states include their Ground texture and create no capture actor,
+            # so an all-baked map does not need this large invisible mesh asset.
+            if bed and flux_bed_requires_mesh(m):
                 specs.append(f"SM_{code}_FluxBed={bed}")
+            elif bed:
+                print(f"  {code}: baked-only Flux bed retained offline; no capture mesh cooked")
     # The sea's ground (coast `ground_mesh`): CE's scene by its lowest
     # surface, for the coastline's capture alone (flux_coast_ground).
     for code, m in maps.items():
@@ -941,13 +1162,39 @@ def build_cliffs(maps, ps):
         print("  " + line[:160])
 
 
+def cooked_landscape_world(m):
+    pilot = native_grass_pilot_config(m)
+    return pilot[1]['world'] if pilot else f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}"
+
+
+def bake_world_path(code, m):
+    world = cooked_landscape_world(m)
+    source = world.rsplit('/', 1)[-1]
+    expected = '/Game/Levels/Halo1/Solo/' + source + '/' + source
+    if world != expected or len(source) != len(code):
+        raise ValueError('Native world bake requires an equal-length source codename: ' + world + ' -> ' + code)
+    return world
+
+
 def stage_cook(maps):
-    worlds = "+".join(f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}" for m in maps
+    worlds = "+".join(cooked_landscape_world(m) for m in maps
                       if not m.get("indoor"))
     # StaticMesh too: chunk 983 carries the tessellated cliffs.
+    classes = "Material,MaterialInstanceConstant,StaticMesh"
+    if any(m.get("native_grass_pilot") for m in maps):
+        classes += ",LandscapeGrassType"
+    retarget = {str(Path(REPO, m['retarget_cli']).resolve()) for m in maps if m.get('retarget_cli')}
+    if len(retarget) > 1 or any(not Path(path).is_file() for path in retarget):
+        raise ValueError('Cook requires one existing explicit retarget CLI')
+    snapshots = {str(Path(REPO, m['retarget_snapshot']).resolve()) for m in maps if m.get('retarget_snapshot')}
+    if len(snapshots) > 1 or any(Path(path).exists() for path in snapshots):
+        raise ValueError('Retarget snapshot requires one fresh destination')
     out = powershell(os.path.join(REPO, "tools", "ue", "cook.ps1"),
-                     (["-Map", worlds] if worlds else []) + ["-Classes", "Material,MaterialInstanceConstant,StaticMesh"])
-    if "BUILD SUCCESSFUL" not in out:
+                     (["-Map", worlds] if worlds else []) + ["-Classes", classes],
+                     env={"MJOLNIR_RETARGET": next(iter(retarget), ""),
+                          "MJOLNIR_RETARGET_SNAPSHOT": next(iter(snapshots), ""),
+                          "MJOLNIR_RETARGET_SNAPSHOT_CHUNKS": ','.join(str(m['chunk']) for m in maps) if snapshots else ""})
+    if "BUILD SUCCESSFUL" not in out or "MJOLNIR cook and retarget complete" not in out:
         sys.exit("cook failed:\n" + out[-3000:])
     log = open(os.path.join(PROJECT, "Saved_cook.log"), encoding="utf-8", errors="replace").read()
     errors = [l for l in log.splitlines() if "error X" in l or ": error" in l]
@@ -962,13 +1209,15 @@ def stage_bake(code, m, p):
     tool_env = {"HCE_PAKS": PAKS,
                 "MJOLNIR": os.environ.get("MJOLNIR", "C:/haloce/.claude/worktrees/server-list-hosting-d9e78e/target/release/mjolnir.exe"),
                 "EXAMPLES": os.environ.get("EXAMPLES", "C:/haloce/target/debug/examples")}
+    # Validate collision before clearing an earlier complete bake.
+    sbsp=bake_sbsp(m,p)
+    world = bake_world_path(code, m)
     if os.path.isdir(p["bake"]):
         for f in glob.glob(os.path.join(p["bake"], "*")):
             if os.path.isfile(f):
                 os.remove(f)
-    world = f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}"
     out = run([bash(), "tools/level/bake_editor_world.sh", world, str(m["chunk"]), p["level"].replace("\\", "/"),
-               bake_sbsp(m, p).replace("\\", "/"), code, p["bake"].replace("\\", "/")],
+               sbsp.replace("\\", "/"), code, p["bake"].replace("\\", "/")],
               env=dict(tool_env, MSYS2_ARG_CONV_EXCL="/Game"))
     if not os.path.exists(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.utoc")):
         sys.exit(f"{code}: no map container baked:\n{out[-2000:]}")
@@ -1193,6 +1442,19 @@ def flux_bed(code, m, p, cell=50.0):
     the rock (2026-10-16). The lowest surface is the bed under an overhang
     and a wall's foot rising into it at the canyon's sides. Writes
     <work>/flux_bed.json (cliff_mesh.py's form) and returns its path."""
+    if m["flux"].get("heightfield"):
+        from flux_heightfield import build_capture_bed
+        fx=m["flux"]
+        if fx.get("domains"):
+            domains=[item["domain"] for item in fx["domains"]]
+        else:
+            river=json.load(open(os.path.join(p["work"], "river_mesh.json"), encoding="utf-8"))
+            domains=[flux_spec(code,fx,river,{})["domain"]]
+        out=os.path.join(p["work"], "flux_bed.json")
+        receipt=build_capture_bed(os.path.join(REPO,fx["heightfield"]),domains,out)
+        print(f"  {code}: exact runtime Flux bed: {receipt['vertices']} vertices, "
+              f"{receipt['source_vertex_error_m']:.3g} m source error")
+        return out
     import numpy as np
     from refine_water_gltf import read_accessor
     from build_landscape import raster
@@ -1437,14 +1699,27 @@ def flux_spec(code, fx, river, level):
     return spec
 
 
-def flux_state(code, p, flux):
+def flux_state(code, p, flux, domain_id=None):
     """The river's baked water (MJOLNIRLevelLoader's `mjolnir_flux_bake`,
     run in game once the river has settled): <work>/flux_state, or picked up
     from the game's map folder where the bake wrote it. Kept only when it was
     baked for this domain; the loader checks again and fills the river the old
     way otherwise."""
-    work = os.path.join(p["work"], "flux_state")
-    baked = os.path.join(UE4SS, "MJOLNIRMaps", code, "flux_state")
+    work = os.path.join(p["work"], "flux_state", *([domain_id] if domain_id else []))
+    baked = os.path.join(UE4SS, "MJOLNIRMaps", code, "flux_state", *([domain_id] if domain_id else []))
+    if flux.get("provenance"):
+        from flux_heightfield import state_matches, verify_state_files
+        candidates=sorted((Path(root)/"state.json" for root in (work,baked)
+                           if (Path(root)/"state.json").is_file()), key=lambda path:path.stat().st_mtime, reverse=True)
+        for path in candidates:
+            state=json.loads(path.read_text(encoding="utf-8"))
+            if not state_matches(state,flux): continue
+            root=path.parents[2] if domain_id else path.parents[1]
+            verify_state_files(root,state)
+            if path.parent.resolve()!=Path(work).resolve(): shutil.copytree(path.parent,work,dirs_exist_ok=True)
+            Path(work,"state.json").write_text(json.dumps(state,indent=2)+"\n",encoding="utf-8")
+            return state
+        return None
     if os.path.exists(os.path.join(baked, "state.json")) and (
             not os.path.exists(os.path.join(work, "state.json"))
             or os.path.getmtime(os.path.join(baked, "state.json")) > os.path.getmtime(os.path.join(work, "state.json"))):
@@ -1461,6 +1736,48 @@ def flux_state(code, p, flux):
         print(f"  {code}: the baked flux state is for another domain; rebake it (mjolnir_flux_bake)")
         return None
     return state
+
+
+def terrain_flux_spec(code, m, p, level):
+    """Explicit, hash-bound domains; existing maps keep the legacy Flux path."""
+    import re
+    from flux_heightfield import provenance
+    fx=m["flux"]
+    if not fx.get("water_geometry"):
+        raise ValueError("Terrain-backed Flux requires water_geometry provenance")
+    manifest=os.path.join(REPO,fx["heightfield"])
+    water=os.path.join(REPO,fx["water_geometry"])
+    bed=os.path.join(p["work"],"flux_bed.json")
+    if fx.get("domains"):
+        entries=json.loads(json.dumps(fx["domains"]))
+    else:
+        river=json.load(open(os.path.join(p["work"],"river_mesh.json"),encoding="utf-8"))
+        entries=[flux_spec(code,fx,river,level)]
+    if not 1<=len(entries)<=8: raise ValueError("Flux needs 1..8 domains")
+    ids=set()
+    for entry in entries:
+        identifier=entry.setdefault("id","main")
+        if not re.fullmatch("[a-z][a-z0-9_]*",identifier) or identifier in ids:
+            raise ValueError("Invalid or duplicate Flux domain id")
+        ids.add(identifier)
+        entry.setdefault("playback",fx.get("playback","baked"))
+        if entry["playback"] not in ("baked","simulate"): raise ValueError("Flux playback must be baked or simulate")
+        entry.setdefault("sources",[])
+        entry["origin"]=(level.get("canvas") or {}).get("origin") or [0,0,0]
+        entry["ground"]=[f"{code.lower()}_flux_bed"]
+        entry["provenance"]=provenance(manifest,water,bed,entry["domain"],entry["sources"],entry.get("simulation"))
+        for key in ("color_preset","surface_vectors","surface_scalars","surface","prime_ms","ocean_wave"):
+            if key in fx: entry.setdefault(key,fx[key])
+        state=flux_state(code,p,entry,identifier)
+        if state: entry["state"]=state
+        elif entry["playback"]=="baked":
+            raise ValueError(f"{code}/{identifier}: matching Flux bake missing; use simulate only for authoring, then bake")
+    if any(entry["playback"]=="simulate" for entry in entries):
+        level.setdefault("decor",[]).append({"id":f"{code.lower()}_flux_bed",
+            "mesh":generated_mesh(code,m,"FluxBed"),"pos":[0,0,0],
+            "materials":[BED_MATERIAL],"capture_only":True,"cast_shadow":False})
+    return {"schema":"mjolnir-flux-v2","domains":entries,
+            "delay_ms":fx.get("delay_ms",4000),"hide":fx.get("hide",[])}
 
 
 def stage_assemble(code, m, p):
@@ -1654,7 +1971,10 @@ def stage_assemble(code, m, p):
                 tex = json.dumps((entry or {}).get("textures", {}) if isinstance(entry, dict) else {}).lower()
                 if any(t in tex for t in tokens):
                     mats[i] = HIDDEN
-    if m.get("flux") and os.path.exists(river):
+    if (m.get("flux") or {}).get("heightfield"):
+        level["flux"] = terrain_flux_spec(code,m,p,level)
+        print(f"  {code}: {len(level['flux']['domains'])} terrain-backed Flux domain(s)")
+    elif m.get("flux") and os.path.exists(river):
         level["flux"] = flux_spec(code, m["flux"], json.load(open(river, encoding="utf-8")), level)
         state = flux_state(code, p, level["flux"])
         if state:
@@ -1752,9 +2072,10 @@ def stage_assemble(code, m, p):
         if m.get("rock_roughness") is not None or m.get("rock_palette"):
             if not m.get("bake_foliage"):
                 sys.exit(f"{code}: rock overrides require bake_foliage")
+        if m.get("bake_foliage"):
             from foliage_bake import runtime_decor
             swapped_decor = runtime_decor(swapped_decor, m.get("rock_roughness"), m.get("rock_palette"))
-            print(f"  {code}: {len(swap['decor']) - len(swapped_decor)} rock MIC(s) kept entirely in the baked world")
+            print(f"  {code}: {len(swap['decor']) - len(swapped_decor)} rock MIC/pine instance(s) kept entirely in the baked world")
         level["decor"] = (level.get("decor") or []) + swapped_decor
         if swap.get("effects"):
             # Over any the level has already (a river's spray).
@@ -1844,6 +2165,9 @@ def stage_assemble(code, m, p):
     # human installation: Zanzibar's hazard stripes, whose name holds
     # "strip", drew as iridescent metal).
     structures = mark_structures(level) if m.get("structure_metal", True) else 0
+    authored_materials = apply_authored_material_overrides(level, m)
+    if authored_materials:
+        print(f"  {code}: {authored_materials} authored material override(s)")
     # The redrawn textures (stage_editor): every Base, Map0 and Bump that names
     # one, at its copy beside the bakes.
     manifest = os.path.join(p["work"], "redrawn", "manifest.json")
@@ -1927,6 +2251,9 @@ def stage_assemble(code, m, p):
     if baked and level.get("foliage"):
         mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
         print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
+    runtime_decor = append_runtime_decor(level, m)
+    if runtime_decor:
+        print(f"  {code}: {runtime_decor} render-only runtime decor actor(s)")
     keep_translucent_first_slots(code, level)
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
@@ -2410,6 +2737,115 @@ def bake_pulses(level):
     return n
 
 
+def apply_authored_material_overrides(level, config):
+    """Replace named authored surfaces with complete shipped material instances.
+
+    Match the original base texture and decor ID, rather than a mesh slot
+    number that can change when the source is converted again. Validate all
+    matches before changing the level; unrelated CE maps remain untouched.
+    Optional scalar and RGB/RGBA vector parameters create a loader MID spec
+    whose parent is the shipped instance, preserving its static switches.
+    This only affects the assembled rendering metadata, never collision.
+    """
+    source = config.get("authored_material_overrides")
+    if not source:
+        return 0
+    if not isinstance(source, str):
+        raise ValueError("authored_material_overrides must name a JSON file")
+    path = source if os.path.isabs(source) else os.path.join(REPO, source)
+    with open(path, encoding="utf-8") as stream:
+        document = json.load(stream)
+    if not isinstance(document, dict) or document.get("schema") != "mjolnir-authored-material-overrides-v1":
+        raise ValueError("unsupported authored material override schema")
+    replacements = []
+    claimed = set()
+    rules = document.get("overrides")
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("authored material overrides must contain rules")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise ValueError("authored material override rules must be objects")
+        decor_id, base, material = (rule.get(key) for key in ("decor_id", "source_base", "material"))
+        if not isinstance(decor_id, str) or not decor_id:
+            raise ValueError("authored material override needs a decor_id")
+        if not all(isinstance(value, str) and value.startswith("/") and "." in value.rsplit("/", 1)[-1]
+                   for value in (base, material)):
+            raise ValueError("authored material overrides need complete source and material object paths")
+        parameters = {}
+        for kind in ("scalars", "vectors"):
+            values = rule.get(kind, {})
+            if not isinstance(values, dict):
+                raise ValueError(f"authored material {kind} must be an object")
+            for name, value in values.items():
+                if not isinstance(name, str) or not name.strip() or "\0" in name:
+                    raise ValueError(f"authored material {kind} needs nonempty parameter names")
+                if kind == "vectors":
+                    if not isinstance(value, list) or len(value) not in (3, 4):
+                        raise ValueError(f"authored material vector {name} needs 3 or 4 components")
+                    components = value
+                else:
+                    components = [value]
+                # UE material parameters are float32. Reject JSON booleans,
+                # NaN/Infinity and values that would overflow at the loader.
+                if any(isinstance(component, bool) or not isinstance(component, (int, float))
+                       or abs(component) > 3.4028234663852886e38 or not math.isfinite(component)
+                       for component in components):
+                    raise ValueError(f"authored material {kind} {name} must contain finite float32 numbers")
+            if values:
+                parameters[kind] = json.loads(json.dumps(values))
+        replacement = {"parent": material, **parameters} if parameters else material
+        matches = []
+        for item in level.get("decor") or []:
+            if not isinstance(item, dict) or item.get("id") != decor_id:
+                continue
+            for index, entry in enumerate(item.get("materials") or []):
+                if isinstance(entry, dict) and (entry.get("textures") or {}).get("Base") == base:
+                    matches.append((item, index))
+        if len(matches) != 1:
+            raise ValueError(f"authored material {decor_id}/{base}: expected one source slot, found {len(matches)}")
+        item, index = matches[0]
+        key = (id(item), index)
+        if key in claimed:
+            raise ValueError(f"authored material slot {decor_id}/{index} is claimed twice")
+        claimed.add(key)
+        replacements.append((item, index, replacement))
+    for item, index, material in replacements:
+        # Keep the shipped layered/static permutation. Only explicitly authored
+        # parameters are copied; old CE texture/scalar parameters do not apply.
+        item["materials"][index] = material
+    return len(replacements)
+
+
+def append_runtime_decor(level, config):
+    """Map-owned distant scenery, outside the baked playable world."""
+    source = config.get("runtime_decor")
+    if not source:
+        return 0
+    with open(os.path.join(REPO, source), encoding="utf-8") as stream:
+        document = json.load(stream)
+    if document.get("schema") != "mjolnir-runtime-decor-v1" or document.get("render_only") is not True:
+        raise ValueError("Runtime decor must explicitly declare render-only scenery")
+    additions = document.get("decor")
+    if not isinstance(additions, list):
+        raise ValueError("Runtime decor requires a decor list")
+    identifiers = {item.get("id") for item in level.get("decor", [])}
+    for item in additions:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"] or item["id"] in identifiers:
+            raise ValueError("Runtime decor has a missing or duplicate id")
+        identifiers.add(item["id"])
+        if not isinstance(item.get("mesh"), str) or not item["mesh"].startswith("/Game/"):
+            raise ValueError("Runtime decor requires a map-owned Game mesh")
+        for key, default in (("pos", [0, 0, 0]), ("rot", [0, 0, 0]), ("scale", [1, 1, 1])):
+            value = item.get(key, default)
+            if not isinstance(value, list) or len(value) != 3 or any(
+                isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                or (key == "scale" and v <= 0) for v in value
+            ):
+                raise ValueError(f"Runtime decor has an invalid {key}")
+    level.setdefault("decor", []).extend(additions)
+    return len(additions)
+
+
 def mark_structures(level):
     """Point the structure slots at the trial master with SURFACE on."""
     n = 0
@@ -2445,7 +2881,7 @@ def require_game_closed():
         sys.exit("close the game before installing")
 
 
-def local_install_plan(code, m, p, *, shared=True):
+def local_install_plan(code, m, p, *, shared=True, runtime_aliases=None):
     """Validate a fresh local install before any files in the game change.
 
     Use the map-pack data layout so `level register` merges this map with
@@ -2484,8 +2920,20 @@ def local_install_plan(code, m, p, *, shared=True):
         stems += [f"pakchunk990-MJOLNIR{s}_P" for s in ("HPACK", "HPSPOT", "HPMESH", "MOTL")]
     if level.get("flux"):
         stems.append("pakchunk990-MJOLNIRFLUX_P")
+    # A local runtime replacement can retain its package ownership under an
+    # explicit different stem. The caller must verify its asset inventory;
+    # aliases satisfy prerequisites only and are never copied by this plan.
+    aliases = runtime_aliases or {}
+    if not isinstance(aliases, dict) or any(stem not in stems for stem in aliases):
+        raise ValueError("Runtime aliases must name required runtime stems")
+    for stem, alias in aliases.items():
+        if (not isinstance(alias, str) or not alias.startswith("pakchunk")
+                or not alias.endswith("_P") or os.path.basename(alias) != alias):
+            raise ValueError("Runtime alias must be a container stem inside the installed Paks directory")
     for stem in stems:
         candidates = [os.path.join(PAKS, stem)]
+        if stem in aliases:
+            candidates.append(os.path.join(PAKS, aliases[stem]))
         if stem in runtime.get("containers", []):
             index = runtime["containers"].index(stem)
             candidates += dev_paks.hub_containers(PAKS, "mjolnir-ce-runtime", index)
@@ -2507,15 +2955,34 @@ def local_install_plan(code, m, p, *, shared=True):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
         containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
+    # `extra_containers`: further map-owned containers (stems under the
+    # repo), each a local build named for itself like the rest.
+    extra_containers = m.get("extra_containers", [])
+    if not isinstance(extra_containers, list):
+        raise ValueError("extra_containers must be a list of map-owned container stems")
+    used_names = {name for _, name in containers}
+    for stem in extra_containers:
+        if not isinstance(stem, str):
+            raise ValueError("Invalid extra container stem")
+        stem = os.path.abspath(os.path.join(REPO, stem))
+        base_name = os.path.basename(stem)
+        name = re.sub(r"^pakchunk\d+-", "", base_name)[:-2]
+        if not base_name.startswith("pakchunk") or not base_name.endswith("_P") or code not in name or name in used_names:
+            raise ValueError("Extra container must have a unique map-owned package name")
+        used_names.add(name)
+        containers.append((stem, name))
     required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
     for f in glob.glob(os.path.join(p["work"], "decals", "*")):
         if os.path.isfile(f):
             files.append((f, os.path.join(data, "decals", os.path.basename(f))))
-    if (level.get("flux") or {}).get("state"):
+    flux=level.get("flux") or {}
+    states=[entry for entry in flux.get("domains",[]) if entry.get("state")]
+    if flux.get("state") or states:
         state_dir = os.path.join(p["work"], "flux_state")
-        required.append(os.path.join(state_dir, "state.json"))
+        required += ([os.path.join(state_dir,entry["id"],"state.json") for entry in states]
+                     if states else [os.path.join(state_dir,"state.json")])
         for root, _, names in os.walk(state_dir):
             for name in names:
                 src = os.path.join(root, name)
@@ -2583,7 +3050,7 @@ def stage_install(code, m, p):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
-    if os.path.exists(os.path.join(p["work"], "flux_state", "state.json")):
+    if glob.glob(os.path.join(p["work"], "flux_state", "**", "state.json"),recursive=True):
         shutil.copytree(os.path.join(p["work"], "flux_state"), os.path.join(data, "flux_state"), dirs_exist_ok=True)
     decals = os.path.join(p["work"], "decals")
     if os.path.isdir(decals) and os.listdir(decals):
@@ -2607,6 +3074,8 @@ def install_shared():
                                                   "MJOLNIRWATER")).strip())
     shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"),
                     os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
+    shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "flux_runtime.lua"),
+                    os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "flux_runtime.lua"))
     print("  trial masters and the loader installed")
 
 
@@ -2668,7 +3137,7 @@ def main():
             continue
         print(f"== {stage}", flush=True)
         if stage == "editor" and not a.no_masters:
-            build_masters()
+            build_masters(maps)
             build_water()
             build_cliffs(maps, ps)
         if stage == "cook":

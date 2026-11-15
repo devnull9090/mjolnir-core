@@ -1,0 +1,52 @@
+{
+  "schema": "pwr-heightfield-v1",
+  "coordinates": "authoring_metres_z_up",
+  "source_tool": "Gaea 2.3.1.0 Community",
+  "source_build_report": "build-report.json",
+  "source_graph": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\levels\\warfare\\pwr\\terrain\\pwr_apron_native_v4.terrain",
+  "source_graph_sha256": "e47889c117e1370a95facdf669d8265c05eb97215f06cd49b3bf327f1d6715fd",
+  "source_r32_sha256": "9537f734711e6c51b650914d5adc7f282e0f76ee11f24c473adefa8f2ff56841",
+  "normalization": "Native north-first R32 flipped to +Y rows; explicit datum plus graph height",
+  "calibration": {
+    "datum_m": 60.0,
+    "height_range_m": 1100.0
+  },
+  "status": "Independent native eroded backdrop; render only, outside frozen playable terrain",
+  "origin_m": [
+    -4000.0,
+    -4000.0
+  ],
+  "spacing_m": [
+    7.820136852394917,
+    7.820136852394917
+  ],
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "row_order": "+y",
+  "height": {
+    "path": "source.heights.npy",
+    "encoding": "float32_npy",
+    "sha256": "c37414201306fac1bcfbbe37c811b5fcf52bf26ba52c533842d8f269ea224b92",
+    "offset_m": 0,
+    "scale_m": 1
+  },
+  "masks": {
+    "flow": {
+      "path": "flow.npy",
+      "encoding": "float32_npy",
+      "sha256": "2928df97f80d7bdab92e1f086afcc8e74e69912078ad8a677a0151d9ca459fc1"
+    },
+    "wear": {
+      "path": "wear.npy",
+      "encoding": "float32_npy",
+      "sha256": "7e845c855e6f4a279b69212bad40ca353c688307d9c07b1547a6fc6aebc65584"
+    },
+    "deposits": {
+      "path": "deposits.npy",
+      "encoding": "float32_npy",
+      "sha256": "e9cf52bcd237278316cdd077896fd1c687f7763cf72fdba2b8b29f9dd2127eb8"
+    }
+  }
+}

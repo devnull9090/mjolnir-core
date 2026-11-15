@@ -5,14 +5,21 @@
 #
 # The editor resets its own affinity once it is up; run a watcher that
 # re-pins UnrealEditor-Cmd and ShaderCompileWorker alongside (see cook.ps1).
-param([Parameter(Mandatory = $true)][string]$Script, [int64]$Mask = 0)
+param([Parameter(Mandatory = $true)][string]$Script, [int64]$Mask = 0,
+      [switch]$AllowRendering, [switch]$StockRenderer)
+if ($StockRenderer -and -not $AllowRendering) { throw '-StockRenderer requires -AllowRendering' }
 # MJ_CPU_MASK (hex) limits a whole batch, e.g. 0x0F for four cores; 0 or unset is every core.
 if ($env:MJ_CPU_MASK) { $Mask = [Convert]::ToInt64($env:MJ_CPU_MASK, 16) }
 $project = Join-Path $PSScriptRoot "..\..\unreal\MJOLNIRMaterials" | Resolve-Path
 $Script = Join-Path $project $Script
 $log = Join-Path $project ("Saved_" + [IO.Path]::GetFileNameWithoutExtension($Script) + ".log")
 $exe = "C:\Program Files\Epic Games\UE_5.5\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-$cmd = "/c `"`"$exe`" `"$project\Meteorite.uproject`" -run=pythonscript -script=`"$Script`" -unattended -nop4 -nosplash -stdout -FullStdOutLogOutput > `"$log`" 2>&1`""
+# Grass-map baking requires a real RHI. Ordinary authoring remains headless.
+$renderArgs = if ($AllowRendering) { " -AllowCommandletRendering" } else { "" }
+# The stock renderer cannot execute Halo's fork buffer layouts. GPU-only bake
+# passes opt out; ordinary authoring and all shipping cook invocations keep them.
+if ($StockRenderer) { $renderArgs += " -DisablePlugins=MjolnirForkLayouts" }
+$cmd = "/c `"`"$exe`" `"$project\Meteorite.uproject`" -run=pythonscript -script=`"$Script`"$renderArgs -unattended -nop4 -nosplash -stdout -FullStdOutLogOutput > `"$log`" 2>&1`""
 # One Unreal process on the project at a time: conversions may run side by
 # side (their staging, collision, lightmaps and bakes are their own), but the
 # editor imports and the cook share unreal/MJOLNIRMaterials and its staging
@@ -34,4 +41,5 @@ try {
     $p.WaitForExit()
     "editor exit $($p.ExitCode), log $log"
     Select-String -Path $log -Pattern "fork shaders:|fork layouts:|MJOLNIR|Error:|LogPython: Error" | Select-Object -First 30 | ForEach-Object { $_.Line }
+    if ($p.ExitCode -ne 0) { throw "Editor commandlet failed ($($p.ExitCode)); see $log" }
 } finally { $lock.ReleaseMutex() }

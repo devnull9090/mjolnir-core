@@ -1,0 +1,616 @@
+{
+  "schema": "pwr-terrain-finalization-v1",
+  "master_sha256": "dbf21bef91497c28405c5f7c0826d0f0ac1a06c64472176ae693e9a9b2f93d1e",
+  "height_sha256": "57901a25a6df231e9e729b4c25f0ad34bf7bfe169069ba508cc4b29d1002f508",
+  "roads": [
+    {
+      "id": "red_apron",
+      "length_m": 186.01773428220577,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.06,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.445022201712436e-14,
+      "max_terrain_alignment_error_m": 1.52703869105153e-06,
+      "structure": null
+    },
+    {
+      "id": "red_upper_approach",
+      "length_m": 267.844310194745,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.051247346498521223,
+      "terrain_max_grade": 0.0515317836058952,
+      "max_terrain_alignment_error_m": 0.0022152192456559305,
+      "structure": null
+    },
+    {
+      "id": "west_bank_upper",
+      "length_m": 251.84846398811146,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.051252948297335184,
+      "terrain_max_grade": 0.05123027833641664,
+      "max_terrain_alignment_error_m": 0.001300455412533097,
+      "structure": null
+    },
+    {
+      "id": "west_upper_switchback",
+      "length_m": 549.9227975611775,
+      "min_radius_m": 25.759325330456193,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0037605672219686863,
+      "terrain_max_grade": 0.003812691528823615,
+      "max_terrain_alignment_error_m": 0.00011471956777597825,
+      "structure": null
+    },
+    {
+      "id": "upper_w_approach",
+      "length_m": 150.65225828264278,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05100213947506977,
+      "terrain_max_grade": 0.05080372999834877,
+      "max_terrain_alignment_error_m": 0.0031986035856306216,
+      "structure": null
+    },
+    {
+      "id": "bridge_upper",
+      "length_m": 98.00000000000006,
+      "min_radius_m": 1000000000000.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 2.296741650845164,
+      "max_terrain_alignment_error_m": 23.50850778945238,
+      "structure": "bridge"
+    },
+    {
+      "id": "upper_e_approach",
+      "length_m": 234.18578260641544,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05125287862831261,
+      "terrain_max_grade": 0.05124270266054403,
+      "max_terrain_alignment_error_m": 0.001233958366029242,
+      "structure": null
+    },
+    {
+      "id": "citadel_climb",
+      "length_m": 575.0986303865355,
+      "min_radius_m": 25.57162526383159,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.04139655095396497,
+      "terrain_max_grade": 0.04171487695127085,
+      "max_terrain_alignment_error_m": 0.0009442149462444149,
+      "structure": null
+    },
+    {
+      "id": "citadel_apron",
+      "length_m": 197.8133882438779,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.06,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.4735374583802772e-14,
+      "max_terrain_alignment_error_m": 7.312068191822618e-06,
+      "structure": null
+    },
+    {
+      "id": "northeast_flank",
+      "length_m": 265.01193426860493,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.04749735133684594,
+      "terrain_max_grade": 0.047481208079985085,
+      "max_terrain_alignment_error_m": 0.0011364769594592872,
+      "structure": null
+    },
+    {
+      "id": "east_high_loop",
+      "length_m": 668.1836239329834,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.02085963022703192,
+      "terrain_max_grade": 0.021037728414269465,
+      "max_terrain_alignment_error_m": 0.000543915419839891,
+      "structure": null
+    },
+    {
+      "id": "east_bank_upper",
+      "length_m": 216.5603581284489,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05124712797563019,
+      "terrain_max_grade": 0.051221598234551365,
+      "max_terrain_alignment_error_m": 0.0014341807084434777,
+      "structure": null
+    },
+    {
+      "id": "middle_w_approach",
+      "length_m": 216.16169430292263,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.029558208942088333,
+      "terrain_max_grade": 0.029542897164248173,
+      "max_terrain_alignment_error_m": 0.0007463165666052873,
+      "structure": null
+    },
+    {
+      "id": "bridge_middle",
+      "length_m": 122.00000000000003,
+      "min_radius_m": 1000000000000.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 2.1946427986775836,
+      "max_terrain_alignment_error_m": 23.514454795808945,
+      "structure": "bridge"
+    },
+    {
+      "id": "middle_e_approach",
+      "length_m": 123.99491626017604,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.050925547465390804,
+      "terrain_max_grade": 0.05008828132642021,
+      "max_terrain_alignment_error_m": 0.0029153554946361737,
+      "structure": null
+    },
+    {
+      "id": "east_bank_middle",
+      "length_m": 230.2127340890858,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05124705348227177,
+      "terrain_max_grade": 0.05122674238548136,
+      "max_terrain_alignment_error_m": 0.0012548426885530262,
+      "structure": null
+    },
+    {
+      "id": "blue_upper_approach",
+      "length_m": 376.7292168629064,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.046763334747085716,
+      "terrain_max_grade": 0.04675477788984182,
+      "max_terrain_alignment_error_m": 0.0011083078166223004,
+      "structure": null
+    },
+    {
+      "id": "blue_apron",
+      "length_m": 240.9268433084468,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.06,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.8128691553210192e-14,
+      "max_terrain_alignment_error_m": 1.6818722201605851e-06,
+      "structure": null
+    },
+    {
+      "id": "blue_lower_approach",
+      "length_m": 402.3839036570538,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0505737142852325,
+      "terrain_max_grade": 0.04974436167517423,
+      "max_terrain_alignment_error_m": 0.006922473947795993,
+      "structure": null
+    },
+    {
+      "id": "east_lakeside_approach",
+      "length_m": 101.82101633985702,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 2.895001519357467e-14,
+      "max_terrain_alignment_error_m": 1.6818722201605851e-06,
+      "structure": null
+    },
+    {
+      "id": "lower_e_approach",
+      "length_m": 257.93006090138846,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05124995287484356,
+      "terrain_max_grade": 0.05124008187090604,
+      "max_terrain_alignment_error_m": 0.001254382200087889,
+      "structure": null
+    },
+    {
+      "id": "bridge_lower",
+      "length_m": 142.0,
+      "min_radius_m": 1000000000000.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.8562539527344892,
+      "max_terrain_alignment_error_m": 24.24235075981629,
+      "structure": "bridge"
+    },
+    {
+      "id": "lower_w_approach",
+      "length_m": 247.73313683510068,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05124481052549795,
+      "terrain_max_grade": 0.05122911700359487,
+      "max_terrain_alignment_error_m": 0.0011730829815519428,
+      "structure": null
+    },
+    {
+      "id": "braid_culvert",
+      "length_m": 78.0,
+      "min_radius_m": 1000000000000.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.93620807617193,
+      "max_terrain_alignment_error_m": 18.026356517947733,
+      "structure": "culvert"
+    },
+    {
+      "id": "west_inner_lakeside",
+      "length_m": 193.80710084820444,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.0072199960943595395,
+      "terrain_max_grade": 0.007215290283405766,
+      "max_terrain_alignment_error_m": 0.0004591270714371376,
+      "structure": null
+    },
+    {
+      "id": "red_inner_loop",
+      "length_m": 301.57454925678985,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05125228878431243,
+      "terrain_max_grade": 0.05124565389890454,
+      "max_terrain_alignment_error_m": 0.0008998655734586691,
+      "structure": null
+    },
+    {
+      "id": "red_outer_loop",
+      "length_m": 220.39075668330184,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05122541379667584,
+      "terrain_max_grade": 0.05112327655636987,
+      "max_terrain_alignment_error_m": 0.002436933142490716,
+      "structure": null
+    },
+    {
+      "id": "west_crosslink",
+      "length_m": 291.61679325381624,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.03786201768049167,
+      "terrain_max_grade": 0.03814553501101457,
+      "max_terrain_alignment_error_m": 0.0007777502758585797,
+      "structure": null
+    },
+    {
+      "id": "southwest_sweep",
+      "length_m": 351.6305697499588,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05125550171238601,
+      "terrain_max_grade": 0.05125194584768686,
+      "max_terrain_alignment_error_m": 0.0007974282091680607,
+      "structure": null
+    },
+    {
+      "id": "southwest_return",
+      "length_m": 345.7406238249301,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.03177831753614432,
+      "terrain_max_grade": 0.031771567037366215,
+      "max_terrain_alignment_error_m": 0.000638997415819631,
+      "structure": null
+    },
+    {
+      "id": "south_lake_overlook",
+      "length_m": 414.1383598213771,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.051256227045810336,
+      "terrain_max_grade": 0.051253296069231756,
+      "max_terrain_alignment_error_m": 0.0007817310832365365,
+      "structure": null
+    },
+    {
+      "id": "east_lake_overlook",
+      "length_m": 279.4799941500142,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.1,
+      "design_max_grade": 0.05125159013979823,
+      "terrain_max_grade": 0.05124867182682723,
+      "max_terrain_alignment_error_m": 0.0009640738758918133,
+      "structure": null
+    },
+    {
+      "id": "capture_a_access",
+      "length_m": 139.5099353862573,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.08,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.4856246984022294e-14,
+      "max_terrain_alignment_error_m": 7.37438824671699e-07,
+      "structure": null
+    },
+    {
+      "id": "capture_c_access",
+      "length_m": 140.32101690687907,
+      "min_radius_m": 35.0,
+      "grade_limit": 0.08,
+      "design_max_grade": 0.0,
+      "terrain_max_grade": 1.451669877792148e-14,
+      "max_terrain_alignment_error_m": 2.7470611598801042e-06,
+      "structure": null
+    }
+  ],
+  "terrain_range_m": [
+    48.0,
+    399.56085205078125
+  ],
+  "modified_fraction_over_1m": 0.7227401733398438,
+  "water_downhill": true,
+  "validation": {
+    "roads": [
+      {
+        "id": "red_apron",
+        "lane_max_grade": 1.445022201712469e-14,
+        "alignment_max_error_m": 1.52703869105153e-06
+      },
+      {
+        "id": "red_upper_approach",
+        "lane_max_grade": 0.07226128147133505,
+        "alignment_max_error_m": 0.0022152192456559305
+      },
+      {
+        "id": "west_bank_upper",
+        "lane_max_grade": 0.058899525618558705,
+        "alignment_max_error_m": 0.001300455412533097
+      },
+      {
+        "id": "west_upper_switchback",
+        "lane_max_grade": 0.007604439497211131,
+        "alignment_max_error_m": 0.00011471956777597825
+      },
+      {
+        "id": "upper_w_approach",
+        "lane_max_grade": 0.051323791759022123,
+        "alignment_max_error_m": 0.0031986035856306216
+      },
+      {
+        "id": "bridge_upper",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "upper_e_approach",
+        "lane_max_grade": 0.0671033947785316,
+        "alignment_max_error_m": 0.001233958366029242
+      },
+      {
+        "id": "citadel_climb",
+        "lane_max_grade": 0.07054753001762476,
+        "alignment_max_error_m": 0.0009442149462444149
+      },
+      {
+        "id": "citadel_apron",
+        "lane_max_grade": 2.924214474344464e-14,
+        "alignment_max_error_m": 7.312068191822618e-06
+      },
+      {
+        "id": "northeast_flank",
+        "lane_max_grade": 0.052821909095295515,
+        "alignment_max_error_m": 0.0011364769594592872
+      },
+      {
+        "id": "east_high_loop",
+        "lane_max_grade": 0.03480687979610737,
+        "alignment_max_error_m": 0.000543915419839891
+      },
+      {
+        "id": "east_bank_upper",
+        "lane_max_grade": 0.051221598234551385,
+        "alignment_max_error_m": 0.0014341807084434777
+      },
+      {
+        "id": "middle_w_approach",
+        "lane_max_grade": 0.037555431551714064,
+        "alignment_max_error_m": 0.0007463165666052873
+      },
+      {
+        "id": "bridge_middle",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "middle_e_approach",
+        "lane_max_grade": 0.0696788849252604,
+        "alignment_max_error_m": 0.0029153554946361737
+      },
+      {
+        "id": "east_bank_middle",
+        "lane_max_grade": 0.06167797507314677,
+        "alignment_max_error_m": 0.0012548426885530262
+      },
+      {
+        "id": "blue_upper_approach",
+        "lane_max_grade": 0.06385629894538089,
+        "alignment_max_error_m": 0.0011083078166223004
+      },
+      {
+        "id": "blue_apron",
+        "lane_max_grade": 2.846831060456741e-14,
+        "alignment_max_error_m": 1.6818722201605851e-06
+      },
+      {
+        "id": "blue_lower_approach",
+        "lane_max_grade": 0.050252560303394096,
+        "alignment_max_error_m": 0.006922473947795993
+      },
+      {
+        "id": "east_lakeside_approach",
+        "lane_max_grade": 2.895001519357466e-14,
+        "alignment_max_error_m": 1.6818722201605851e-06
+      },
+      {
+        "id": "lower_e_approach",
+        "lane_max_grade": 0.06820322227322342,
+        "alignment_max_error_m": 0.001254382200087889
+      },
+      {
+        "id": "bridge_lower",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "lower_w_approach",
+        "lane_max_grade": 0.06744374056838287,
+        "alignment_max_error_m": 0.0011730829815519428
+      },
+      {
+        "id": "braid_culvert",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "west_inner_lakeside",
+        "lane_max_grade": 0.010714674929518626,
+        "alignment_max_error_m": 0.0004591270714371376
+      },
+      {
+        "id": "red_inner_loop",
+        "lane_max_grade": 0.05124565389890469,
+        "alignment_max_error_m": 0.0008998655734586691
+      },
+      {
+        "id": "red_outer_loop",
+        "lane_max_grade": 0.05113590514580335,
+        "alignment_max_error_m": 0.002436933142490716
+      },
+      {
+        "id": "west_crosslink",
+        "lane_max_grade": 0.06433717197271818,
+        "alignment_max_error_m": 0.0007777502758585797
+      },
+      {
+        "id": "southwest_sweep",
+        "lane_max_grade": 0.08262563773898908,
+        "alignment_max_error_m": 0.0007974282091680607
+      },
+      {
+        "id": "southwest_return",
+        "lane_max_grade": 0.04859929100982051,
+        "alignment_max_error_m": 0.000638997415819631
+      },
+      {
+        "id": "south_lake_overlook",
+        "lane_max_grade": 0.07919118927454787,
+        "alignment_max_error_m": 0.0007817310832365365
+      },
+      {
+        "id": "east_lake_overlook",
+        "lane_max_grade": 0.0792091289316135,
+        "alignment_max_error_m": 0.0009640738758918133
+      },
+      {
+        "id": "capture_a_access",
+        "lane_max_grade": 2.001803436656714e-14,
+        "alignment_max_error_m": 7.37438824671699e-07
+      },
+      {
+        "id": "capture_c_access",
+        "lane_max_grade": 1.4516698777921464e-14,
+        "alignment_max_error_m": 2.7470611598801042e-06
+      }
+    ],
+    "watercourses": [
+      {
+        "id": "central_river",
+        "min_depth_m": 3.315559203031519,
+        "max_depth_m": 9.331363145025492,
+        "source_z_m": 150.0,
+        "outlet_z_m": 55.0,
+        "parent_junction_error_m": 0.0
+      },
+      {
+        "id": "western_braid",
+        "min_depth_m": 1.998071880739758,
+        "max_depth_m": 5.912298391367003,
+        "source_z_m": 90.31903868514901,
+        "outlet_z_m": 55.0,
+        "parent_junction_error_m": 0.0
+      }
+    ],
+    "crossings": [
+      {
+        "id": "bridge_upper",
+        "water_z_m": 95.28372943011706,
+        "freeboard_m": 20.0
+      },
+      {
+        "id": "bridge_middle",
+        "water_z_m": 91.65403724936118,
+        "freeboard_m": 20.0
+      },
+      {
+        "id": "bridge_lower",
+        "water_z_m": 86.4055507750433,
+        "freeboard_m": 20.0
+      },
+      {
+        "id": "braid_culvert",
+        "water_z_m": 85.55340068312412,
+        "freeboard_m": 16.0
+      }
+    ],
+    "foundations": [
+      {
+        "id": "red_home",
+        "height_m": 107.5997634899293,
+        "centre_error_m": 1.5270386768406752e-06
+      },
+      {
+        "id": "blue_home",
+        "height_m": 111.59544540745813,
+        "centre_error_m": 1.6818721917388757e-06
+      },
+      {
+        "id": "citadel_plateau",
+        "height_m": 129.22743956304473,
+        "centre_error_m": 7.312068163400909e-06
+      },
+      {
+        "id": "capture_a",
+        "height_m": 109.83434221910416,
+        "centre_error_m": 7.374388104608443e-07
+      },
+      {
+        "id": "capture_b",
+        "height_m": 129.22743956304473,
+        "centre_error_m": 7.312068163400909e-06
+      },
+      {
+        "id": "capture_c",
+        "height_m": 112.26462066698302,
+        "centre_error_m": 2.7470611456692495e-06
+      },
+      {
+        "id": "warmup",
+        "height_m": 107.5997634899293,
+        "centre_error_m": 1.5270386768406752e-06
+      }
+    ],
+    "max_lane_grade": 0.08262563773898908,
+    "max_road_alignment_error_m": 0.006922473947795993
+  },
+  "earthworks": {
+    "lake_level_m": 55,
+    "lake_floor_m": 48,
+    "lake_shore_blend_m": 180,
+    "nearshore_target_grade": 0.06,
+    "lowland_floor_grade_north_south": 0.047,
+    "mountain_preservation": "Gaea slopes above285m remain outside lowland compression"
+  },
+  "maximum_adjacent_height_jump_m": 47.33207702636719,
+  "native_collision_parity": "pending adaptive collision report and live checks"
+}

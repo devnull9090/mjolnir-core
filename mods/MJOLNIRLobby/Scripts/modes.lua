@@ -103,6 +103,17 @@ function Modes.byId(id)
     return nil
 end
 
+--- Register one bundled descriptor. Legacy static rows remain unchanged;
+--- map-scoped modes are offered only for the maps named by the descriptor.
+function Modes.register(mode)
+    assert(type(mode) == "table" and type(mode.id) == "string" and mode.id:match("^[a-z_]+$"))
+    assert(type(mode.slot) == "number" and mode.slot >= 0 and mode.slot <= 7)
+    assert(mode.engine and mode.name and mode.description)
+    if Modes.byId(mode.id) then return false end
+    Modes[#Modes + 1] = mode
+    return true
+end
+
 --- The insertion point for `id`, or nil for a game type this Lobby lacks.
 function Modes.slot(id)
     local mode = Modes.byId(id)

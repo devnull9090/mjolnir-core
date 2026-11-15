@@ -1,0 +1,3535 @@
+{
+  "PWR": {
+    "conversion": "C:\\haloce\\ce_conversions\\warfare\\PWR\\expansion\\world-bases-v1\\converted",
+    "level": "pwr.level.json",
+    "sbsp": "pwr.sbsp",
+    "surface_policy": "C:\\haloce\\ce_conversions\\warfare\\PWR\\expansion\\world-bases-v1\\source-build\\pwr.surfaces.json",
+    "heightfield": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.json",
+    "surface_detail": "levels/warfare/pwr/terrain/final-v5/terrain.geometry.json",
+    "authored_decor": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\pipeline\\authored-decor.json",
+    "authored_material_overrides": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v7\\paving\\material-overrides.json",
+    "authored_collision": "C:\\haloce\\ce_conversions\\warfare\\PWR\\expansion\\world-bases-v1\\source-build\\terrain-collision-extra.json",
+    "shaders": [
+      "levels_b30_shaders_beach",
+      "blood_ground"
+    ],
+    "cliff_shaders": [],
+    "landscape": "LPW",
+    "chunk": 965,
+    "components": 16,
+    "map_mesh_chunk": true,
+    "bake_foliage": true,
+    "pcg_foliage": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v7\\landscape-grass-pilot-v7land\\filtered-foliage\\foliage.json",
+    "pcg_foliage_only": true,
+    "native_rock_materials": false,
+    "tree_variant": "Tree_Pine",
+    "pcg_tree_palette": {
+      "recipes": [
+        {
+          "recipe": "PWR_MaturePine_A",
+          "weight": 0.9
+        },
+        {
+          "recipe": "Pine_Sapling_A",
+          "weight": 0.1
+        }
+      ]
+    },
+    "pcg_trees": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v6\\scenery\\trees\\trees.selected.json",
+    "pcg_tree_limit": 5000,
+    "pine_cull_cm": [
+      400000,
+      550000
+    ],
+    "rocks": "beach",
+    "rock_roughness": 0.7,
+    "rock_palette": "coastal",
+    "tess": false,
+    "sky_mesh": false,
+    "haze": {
+      "color": [
+        0.28,
+        0.37,
+        0.48
+      ],
+      "density": 0.00035,
+      "falloff": 0.025,
+      "start": 60000,
+      "cutoff": 0,
+      "max_opacity": 0.22
+    },
+    "environment": {
+      "light_scale": 8192,
+      "sun": {
+        "intensity": 4,
+        "pitch": -42,
+        "yaw": -35,
+        "source_angle": 1,
+        "atmosphere_sun": true,
+        "color": [
+          1,
+          0.98,
+          0.94
+        ]
+      },
+      "skylight": {
+        "intensity": 2,
+        "physical": true,
+        "recapture_after_load": true,
+        "color": [
+          0.98,
+          0.99,
+          1
+        ],
+        "lower": [
+          0.3,
+          0.31,
+          0.28
+        ]
+      },
+      "post": {
+        "exposure_bias": 0.6,
+        "tone_curve": 1
+      },
+      "clouds": false
+    },
+    "waterfalls": {
+      "falls": [
+        {
+          "pos": [
+            -22075.01923635996,
+            -49320.4218092674,
+            11844.188946639508
+          ],
+          "yaw": 48.091372034881886,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -18385.663085286153,
+                -44211.37114654232,
+                10430.00803346225
+              ],
+              "rot": [
+                0,
+                48.091372034881886,
+                0
+              ],
+              "scale": 3.2
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/NS_PNW_WaterfallSplash_01.NS_PNW_WaterfallSplash_01",
+              "pos": [
+                -17983.78916078808,
+                -44572.06124733318,
+                10453.491810319503
+              ],
+              "rot": [
+                0,
+                48.091372034881886,
+                0
+              ],
+              "scale": 5.0
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -17581.915236290006,
+                -44932.75134812403,
+                10468.058375960782
+              ],
+              "rot": [
+                0,
+                48.091372034881886,
+                0
+              ],
+              "scale": 3.2
+            }
+          ]
+        },
+        {
+          "pos": [
+            -4471.345653241595,
+            -4001.578532410166,
+            9316.314356117275
+          ],
+          "yaw": 79.53710169618222,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -4443.834924320483,
+                -1582.5225253333897,
+                9235.5
+              ],
+              "rot": [
+                0,
+                79.53710169618222,
+                0
+              ],
+              "scale": 2.4
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -3912.813662307469,
+                -1680.5858685871588,
+                9235.5
+              ],
+              "rot": [
+                0,
+                79.53710169618222,
+                0
+              ],
+              "scale": 2.4
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -3381.792400294455,
+                -1778.6492118409278,
+                9235.5
+              ],
+              "rot": [
+                0,
+                79.53710169618222,
+                0
+              ],
+              "scale": 2.4
+            }
+          ]
+        },
+        {
+          "pos": [
+            5082.047650763953,
+            35531.87839996386,
+            8858.0571094946
+          ],
+          "yaw": 28.89875123882589,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                8289.821453271905,
+                37954.733128997796,
+                8591.999999999998
+              ],
+              "rot": [
+                0,
+                28.89875123882589,
+                0
+              ],
+              "scale": 2.4
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                8550.783636565773,
+                37481.97659663626,
+                8592.000000000002
+              ],
+              "rot": [
+                0,
+                28.89875123882589,
+                0
+              ],
+              "scale": 2.4
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                8811.745819859643,
+                37009.220064274734,
+                8591.999999999998
+              ],
+              "rot": [
+                0,
+                28.89875123882589,
+                0
+              ],
+              "scale": 2.4
+            }
+          ]
+        },
+        {
+          "pos": [
+            22599.775596225063,
+            55365.72405144652,
+            6776.0687133584825
+          ],
+          "yaw": 72.77009363183716,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                22449.36031502595,
+                56676.80536583896,
+                5530.0
+              ],
+              "rot": [
+                0,
+                72.77009363183716,
+                0
+              ],
+              "scale": 3.2
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/NS_PNW_WaterfallSplash_01.NS_PNW_WaterfallSplash_01",
+              "pos": [
+                22965.127211773786,
+                56516.85378498053,
+                5530.0
+              ],
+              "rot": [
+                0,
+                72.77009363183716,
+                0
+              ],
+              "scale": 5.0
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                23480.894108521617,
+                56356.902204122096,
+                5530.0
+              ],
+              "rot": [
+                0,
+                72.77009363183716,
+                0
+              ],
+              "scale": 3.2
+            }
+          ]
+        }
+      ]
+    },
+    "runtime_decor": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\pipeline\\runtime-decor.json",
+    "extra_containers": [
+      "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v7\\apron-cliffs\\apron\\pakchunk963-MJOLNIRPWRVISTA_P",
+      "out/pwr/visual-v5/base-paving-v3/native/pakchunk961-MJOLNIRPWRPAVING_P",
+      "out/pwr/visual-v5/outcrops-v4/trees/native/pakchunk959-MJOLNIRPWRMATUREPINE_P",
+      "out/pwr/visual-v8/native-grass-material/pakchunk966-MJOLNIRGRASS-PWR_P",
+      "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+    ],
+    "flux": {
+      "heightfield": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.json",
+      "water_geometry": "levels/warfare/pwr/terrain/final-v5/terrain.geometry.json",
+      "playback": "baked",
+      "hide": [
+        "pwr_terrain_3"
+      ],
+      "domains": [
+        {
+          "color_preset": "/Game/FluidFlux/Surface/Templates/Color/CP_OceanBlue_01.CP_OceanBlue_01",
+          "surface_vectors": {
+            "SurfaceScattering0": [
+              0.035,
+              0.38,
+              0.45,
+              0.0038
+            ],
+            "SurfaceAbsorption0": [
+              180,
+              950,
+              1250,
+              0.65
+            ],
+            "SurfaceScattering1": [
+              0.018,
+              0.18,
+              0.29,
+              0.0012
+            ],
+            "SurfaceAbsorption1": [
+              140,
+              650,
+              950,
+              0.8
+            ],
+            "ColorBehind0": [
+              0.8,
+              1,
+              1,
+              1
+            ],
+            "ColorBehind1": [
+              0.7,
+              0.95,
+              1,
+              1
+            ],
+            "FoamColorBase": [
+              0.85,
+              0.94,
+              1,
+              0.65
+            ]
+          },
+          "surface_scalars": {
+            "FoamSoftIntensity": 3,
+            "FoamColorAlpha": 1,
+            "StateFoamSlope": 3,
+            "StateFoamDivergence": 2,
+            "DetailWaveHeight": 24,
+            "DetailWaveLength": 500,
+            "WaterRoughnessMin": 0.07,
+            "FoamSoftBase": 0.05,
+            "FoamSoftMax": 0.8
+          },
+          "simulation": {
+            "FoamFadeSpeed": 0.35,
+            "FoamShallowGenerate": 0.08,
+            "FoamShallowDepth": 25,
+            "FoamWaveGenerate": 1.2
+          },
+          "id": "upper_river",
+          "playback": "baked",
+          "domain": {
+            "centre": [
+              -23200,
+              -50000,
+              29500
+            ],
+            "res": [
+              1024,
+              1024
+            ],
+            "cell": 97.65625,
+            "height": 28200
+          },
+          "sources": [
+            {
+              "pos": [
+                -38800.0,
+                -96400.0,
+                15000.0
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -38482.0076,
+                -94425.4633,
+                14914.8791
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -38102.4921,
+                -92461.9983,
+                14829.7582
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -37592.3254,
+                -90528.817,
+                14744.6373
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -36872.3552,
+                -88664.5441,
+                14659.5163
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -35861.1097,
+                -86942.5017,
+                14574.3954
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -34530.7366,
+                -85453.0787,
+                14489.2745
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -33012.8815,
+                -84151.6273,
+                14404.1536
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -31447.0119,
+                -82907.4416,
+                14319.0327
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -29943.5091,
+                -81589.6497,
+                14233.9118
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -28636.2582,
+                -80079.6042,
+                14148.7908
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -27610.5742,
+                -78365.1736,
+                14063.6699
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -26835.7281,
+                -76522.7452,
+                13978.549
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -26258.0166,
+                -74608.6918,
+                13893.4281
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -25824.2383,
+                -72656.6167,
+                13808.3072
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -25486.0172,
+                -70685.5432,
+                13723.1863
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -25212.1632,
+                -68704.4547,
+                13638.0653
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -24990.8342,
+                -66716.7862,
+                13552.9444
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -24809.5687,
+                -64725.0413,
+                13467.8235
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -24654.4763,
+                -62731.0716,
+                13382.7026
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -24511.1664,
+                -60736.2132,
+                13297.5817
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -24365.5273,
+                -58741.525,
+                13212.4608
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -24190.144,
+                -56749.2981,
+                13127.3398
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -23928.6476,
+                -54766.7619,
+                13042.2189
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -23516.5381,
+                -52810.4411,
+                12880.7764
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -22883.6326,
+                -50914.8384,
+                12410.4199
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -21963.0693,
+                -49142.237,
+                11774.982
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -20755.2977,
+                -47550.1715,
+                11156.8328
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -19400.7833,
+                -46078.991,
+                10738.47
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -18029.7991,
+                -44622.942,
+                10616.424
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -16768.1825,
+                -43072.5967,
+                10531.303
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -15787.1216,
+                -41334.4204,
+                10446.1821
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -15184.0126,
+                -39429.9445,
+                10361.0612
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -14798.6582,
+                -37467.7644,
+                10275.9403
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -14447.1028,
+                -35498.9746,
+                10190.8194
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13958.1604,
+                -33560.8078,
+                10105.6985
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13173.4429,
+                -31724.4883,
+                10020.5775
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -12103.0443,
+                -30036.6005,
+                9935.4566
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -10888.4467,
+                -28447.9557,
+                9850.3357
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -9642.1588,
+                -26883.767,
+                9765.2148
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -8472.9159,
+                -25261.9432,
+                9680.0939
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7531.7521,
+                -23500.5662,
+                9594.973
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7045.6155,
+                -21568.3323,
+                9524.9582
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7086.3607,
+                -19572.1866,
+                9509.2643
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7382.0943,
+                -17594.5282,
+                9493.5704
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7695.2887,
+                -15619.3805,
+                9477.8765
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7810.3733,
+                -13624.8269,
+                9462.1826
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7519.4504,
+                -11650.0261,
+                9446.4887
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -6889.971,
+                -9753.2068,
+                9430.7948
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -6091.1205,
+                -7919.9241,
+                9415.1009
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -5264.7983,
+                -6098.656,
+                9399.407
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -4545.0517,
+                -4233.4814,
+                9331.0014
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -4035.267,
+                -2300.5361,
+                9241.1317
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -3693.8376,
+                -330.2622,
+                9225.2861
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -38800.0,
+                -96400.0,
+                15000.0
+              ],
+              "scale": 2.5,
+              "prime": false,
+              "mode": 0,
+              "volume": 2,
+              "role": "inlet_flow"
+            },
+            {
+              "pos": [
+                -3647.7222,
+                0.0,
+                9222.6694
+              ],
+              "scale": 4,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "shared_seam_head"
+            }
+          ],
+          "prime_ms": 60000,
+          "hide": [
+            "pwr_terrain_3"
+          ]
+        },
+        {
+          "color_preset": "/Game/FluidFlux/Surface/Templates/Color/CP_OceanBlue_01.CP_OceanBlue_01",
+          "surface_vectors": {
+            "SurfaceScattering0": [
+              0.035,
+              0.38,
+              0.45,
+              0.0038
+            ],
+            "SurfaceAbsorption0": [
+              180,
+              950,
+              1250,
+              0.65
+            ],
+            "SurfaceScattering1": [
+              0.018,
+              0.18,
+              0.29,
+              0.0012
+            ],
+            "SurfaceAbsorption1": [
+              140,
+              650,
+              950,
+              0.8
+            ],
+            "ColorBehind0": [
+              0.8,
+              1,
+              1,
+              1
+            ],
+            "ColorBehind1": [
+              0.7,
+              0.95,
+              1,
+              1
+            ],
+            "FoamColorBase": [
+              0.85,
+              0.94,
+              1,
+              0.65
+            ]
+          },
+          "surface_scalars": {
+            "FoamSoftIntensity": 3,
+            "FoamColorAlpha": 1,
+            "StateFoamSlope": 3,
+            "StateFoamDivergence": 2,
+            "DetailWaveHeight": 24,
+            "DetailWaveLength": 500,
+            "WaterRoughnessMin": 0.07,
+            "FoamSoftBase": 0.05,
+            "FoamSoftMax": 0.8
+          },
+          "simulation": {
+            "FoamFadeSpeed": 0.35,
+            "FoamShallowGenerate": 0.08,
+            "FoamShallowDepth": 25,
+            "FoamWaveGenerate": 1.2
+          },
+          "id": "lower_lake",
+          "playback": "baked",
+          "domain": {
+            "centre": [
+              26800,
+              50000,
+              13000
+            ],
+            "res": [
+              1024,
+              1024
+            ],
+            "cell": 97.65625,
+            "height": 11600
+          },
+          "sources": [
+            {
+              "pos": [
+                -3440.177,
+                1653.5376,
+                9209.5922
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -3192.4591,
+                3638.1095,
+                9193.8983
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -2870.58,
+                5611.7543,
+                9178.2044
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -2398.4165,
+                7554.4316,
+                9162.9471
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1763.4656,
+                9450.6348,
+                9149.6213
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1076.337,
+                11328.8848,
+                9136.2955
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -460.7739,
+                13231.3348,
+                9122.9696
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -60.6936,
+                15188.9265,
+                9109.6438
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -43.7771,
+                17184.3988,
+                9096.318
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -423.7995,
+                19145.9966,
+                9082.9922
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -992.9186,
+                21063.0974,
+                9069.6664
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1568.7778,
+                22978.2415,
+                9056.3406
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1968.9636,
+                24936.0095,
+                9043.0148
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1958.5564,
+                26929.7831,
+                9029.689
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1394.4136,
+                28842.5645,
+                9016.3632
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -418.1495,
+                30584.6079,
+                9003.0374
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                832.0405,
+                32143.4813,
+                8989.7116
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                2273.7733,
+                33527.9106,
+                8976.3858
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                3861.601,
+                34742.4837,
+                8928.7611
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                5550.7528,
+                35812.5496,
+                8830.3225
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                7293.292,
+                36793.9824,
+                8755.5904
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                9045.8661,
+                37757.5336,
+                8739.3855
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                10765.5799,
+                38778.1158,
+                8726.0597
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                12411.0563,
+                39914.1219,
+                8712.7339
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                13966.0422,
+                41171.1496,
+                8699.4081
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                15420.5973,
+                42543.1125,
+                8686.0823
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                16763.0189,
+                44024.9224,
+                8672.7565
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                17983.7375,
+                45608.5254,
+                8659.4307
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                19080.194,
+                47280.6202,
+                8646.1049
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                20051.6661,
+                49028.3465,
+                8455.0999
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                20906.15,
+                50836.2827,
+                8137.2825
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                21660.93,
+                52688.1771,
+                7819.465
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                22335.8328,
+                54570.7411,
+                7501.5882
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                22951.6406,
+                56473.5182,
+                6084.6359
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                23529.2946,
+                58388.2621,
+                5766.8184
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                24000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -3440.177,
+                1653.5376,
+                9209.5922
+              ],
+              "scale": 2.5,
+              "prime": false,
+              "mode": 0,
+              "volume": 2,
+              "role": "inlet_flow"
+            },
+            {
+              "pos": [
+                -2000.0,
+                26600.0,
+                9031.9039
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -3039.2028,
+                28308.8133,
+                9006.4912
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -4100.2406,
+                30004.1219,
+                8981.0786
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -5205.2822,
+                31671.0078,
+                8955.666
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -6376.9838,
+                33291.6022,
+                8930.2534
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7637.9004,
+                34843.5965,
+                8904.8408
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -8996.0065,
+                36311.4251,
+                8879.4281
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -10408.9225,
+                37726.884,
+                8854.0155
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -11826.7048,
+                39137.4981,
+                8828.6029
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13205.9509,
+                40585.6484,
+                8803.1903
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -14508.5462,
+                42102.8345,
+                8777.7776
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -15681.2375,
+                43721.8654,
+                8752.365
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -16631.8023,
+                45478.9424,
+                8726.9524
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -17188.4808,
+                47393.5867,
+                8701.5398
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -17089.1015,
+                49378.4832,
+                8676.1271
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -16357.3228,
+                51234.8419,
+                8650.7145
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -15361.4825,
+                52968.7689,
+                8625.3019
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -14346.2212,
+                54691.6682,
+                8599.8893
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13541.9219,
+                56519.1526,
+                8574.4766
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13327.7676,
+                58492.9065,
+                8506.4912
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13866.9136,
+                60411.5717,
+                8308.6951
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -14762.5463,
+                62198.7356,
+                8110.8989
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -15742.5828,
+                63942.134,
+                7913.1028
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -16602.0024,
+                65746.3264,
+                7715.3067
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -17002.0469,
+                67694.1015,
+                7517.5105
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -16499.0501,
+                69611.3374,
+                7319.7144
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -15351.8949,
+                71242.7571,
+                7121.9182
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -13903.745,
+                72619.5415,
+                6924.1221
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -12301.1481,
+                73814.8041,
+                6726.3259
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -10606.8035,
+                74876.6757,
+                6528.5298
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -8845.0833,
+                75822.674,
+                6330.7337
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -7028.0174,
+                76657.6114,
+                6132.9375
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -5169.0659,
+                77394.8738,
+                5935.1414
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -3282.2788,
+                78057.9684,
+                5737.3452
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1380.858,
+                78678.0773,
+                5539.5491
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -1000.0,
+                78800.0,
+                5500.0
+              ],
+              "scale": 2.5,
+              "prime": true,
+              "mode": 2,
+              "volume": 1,
+              "role": "profile_primer"
+            },
+            {
+              "pos": [
+                -3647.7222,
+                0.0,
+                9222.6694
+              ],
+              "scale": 4,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "shared_seam_head"
+            },
+            {
+              "pos": [
+                42000.0,
+                96000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                18000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                36000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                42000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                48000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                54000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                60000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                90000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                12000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                18000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                36000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                42000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                72000.0,
+                84000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                36000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                72000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                6000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                12000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                18000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                36000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                42000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                48000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                54000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                60000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                72000.0,
+                72000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                12000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                36000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                42000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                48000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                54000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                60000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                72000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                36000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                42000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                48000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                54000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                60000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                42000.0,
+                54000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                48000.0,
+                54000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                54000.0,
+                54000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                60000.0,
+                54000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                66000.0,
+                54000.0,
+                5500.0
+              ],
+              "scale": 10,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_level_hold"
+            },
+            {
+              "pos": [
+                8000.0,
+                82000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                2000.0,
+                80000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                4000.0,
+                80000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                0.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                2000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                4000.0,
+                78000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                2000.0,
+                76000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                4000.0,
+                76000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                6000.0,
+                74000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                22000.0,
+                70000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                70000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                70000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                18000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                20000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                22000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                28000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                68000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                16000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                18000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                20000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                22000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                28000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                32000.0,
+                66000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                18000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                20000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                22000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                28000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                32000.0,
+                64000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                20000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                22000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                28000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                32000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                34000.0,
+                62000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                22000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                28000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                32000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                34000.0,
+                60000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                24000.0,
+                58000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                26000.0,
+                58000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                28000.0,
+                58000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                58000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                32000.0,
+                58000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                34000.0,
+                58000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                30000.0,
+                56000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                32000.0,
+                56000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            },
+            {
+              "pos": [
+                34000.0,
+                56000.0,
+                5500.0
+              ],
+              "scale": 2,
+              "prime": false,
+              "mode": 2,
+              "volume": 1,
+              "role": "lake_inlet_level_hold"
+            }
+          ],
+          "prime_ms": 60000,
+          "hide": [
+            "pwr_terrain_3"
+          ],
+          "surface": "/Game/FluidFlux/Surface/Templates/Coastline/BP_FluxSurface_Coastline.BP_FluxSurface_Coastline_C",
+          "ocean_wave": {
+            "height_cm": 18,
+            "length_cm": 1800,
+            "choppiness": 0,
+            "offset_cm": 0,
+            "water_height_cm": 5500
+          }
+        }
+      ]
+    },
+    "collision_hulls": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v6\\scenery\\hulls",
+    "geology": "out/pwr/visual-v5/geology/geology.json",
+    "tree_recipes": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v6\\scenery\\trees\\recipes.json",
+    "ecology": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v6\\surface\\ecology\\ecology.json",
+    "required_external_assets": [
+      {
+        "asset": "/Game/MJOLNIR/Scenery/PWR/SM_PWR_MaturePine_A",
+        "container": "out/pwr/visual-v5/outcrops-v4/trees/native/pakchunk959-MJOLNIRPWRMATUREPINE_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/GrassMaterials/PWRV8/MI_PWR_Canyon_Offset10",
+        "container": "out/pwr/visual-v8/native-grass-material/pakchunk966-MJOLNIRGRASS-PWR_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_red_architecture",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_red_emission",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_red_detail",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_red_native_panels",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_red_court",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_blue_architecture",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_blue_emission",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_blue_detail",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_blue_native_panels",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_blue_court",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_green_architecture",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_green_emission",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_green_detail",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_green_native_panels",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_green_court",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_bridge_upper_deck",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_bridge_middle_deck",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_bridge_lower_deck",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      },
+      {
+        "asset": "/Game/MJOLNIR/Bases/PWRV1/Meshes/SM_PWR_braid_culvert_deck",
+        "container": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\cooked\\pakchunk955-MJOLNIRPWRBASES_P"
+      }
+    ],
+    "apron_geology": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v6\\surface\\apron\\geology.json",
+    "landscape_lod_policy": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\visual6\\landscape-lod.policy.json",
+    "paving_graphic": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\paving\\graphic.json",
+    "native_grass_pilot": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\landscape-grass-pilot\\pilot.json",
+    "render_only_hism": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v8\\foothills\\clustered-final\\render-only-hism.json",
+    "retarget_cli": "out/pwr/toolchain-grass-v7/r2/mjolnir.exe",
+    "retarget_snapshot": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\base-runtime\\stock-cook-snapshot",
+    "render_only_pines": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v8\\foothills\\clustered-final\\render-only-pines.json"
+  }
+}

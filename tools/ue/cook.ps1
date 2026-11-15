@@ -25,6 +25,9 @@
 # editor target (our plugins and a receipt) is compiled before the cook, so
 # there is no -nocompileeditor.
 param([int64]$Mask = 0, [string]$Map = "", [switch]$TaggedProperties, [string]$Classes = "Material,MaterialInstanceConstant")
+# Nested uv/PowerShell sessions can inherit another edition's PSModulePath.
+# Load the host's utilities explicitly before a cook needs hashes/JSON.
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 # MJ_CPU_MASK (hex) limits a whole batch, e.g. 0x0F for four cores; 0 or unset is every core.
 if ($env:MJ_CPU_MASK) { $Mask = [Convert]::ToInt64($env:MJ_CPU_MASK, 16) }
 $project = Join-Path $PSScriptRoot "..\..\unreal\MJOLNIRMaterials" | Resolve-Path
@@ -41,12 +44,13 @@ $args = "/c `"`"$uat`" BuildCookRun -project=`"$project\Meteorite.uproject`" -no
 $lock = New-Object System.Threading.Mutex($false, "MjolnirMeteoriteProject")
 try { [void]$lock.WaitOne() } catch [System.Threading.AbandonedMutexException] { }
 try {
-    $p = Start-Process -FilePath cmd.exe -ArgumentList $args -PassThru -WindowStyle Hidden
+    $p = Start-Process -FilePath cmd.exe -ArgumentList $args -PassThru -WindowStyle Hidden -ErrorAction Stop
     if ($Mask -ne 0) { $p.ProcessorAffinity = [IntPtr]$Mask }
     $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
     $p.WaitForExit()
     "cook exit $($p.ExitCode)"
     Select-String -Path $log -Pattern "fork layouts:|Shader compiler errors|BUILD SUCCESSFUL|BUILD FAILED" | ForEach-Object { $_.Line.Substring(0, [Math]::Min(200, $_.Line.Length)) }
+    if ($p.ExitCode -ne 0) { throw "Cook failed ($($p.ExitCode)); see $log" }
     # The stock editor writes property blocks in stock 5.5's layout and 343's
     # engine reads them in its own, so every cooked material was misread from
     # the first shifted slot on (bUsedWithNanite arrived as bUsesDistortion:
@@ -55,13 +59,43 @@ try {
     # layout, shader library and all, before anything copies it out.
     if ($p.ExitCode -eq 0 -and -not $TaggedProperties) {
         $repo = Join-Path $PSScriptRoot "..\.." | Resolve-Path
-        $mjolnir = $env:MJOLNIR
+        if ($env:MJOLNIR_RETARGET_SNAPSHOT) {
+            # Preserve an actual stock-layout input before any in-place rewrite.
+            $snapshotRoot = [IO.Path]::GetFullPath($env:MJOLNIR_RETARGET_SNAPSHOT)
+            if (Test-Path -LiteralPath $snapshotRoot) { throw "Retarget snapshot already exists: $snapshotRoot" }
+            $snapshotChunks = @($env:MJOLNIR_RETARGET_SNAPSHOT_CHUNKS -split ',' | Sort-Object -Unique)
+            if (-not $snapshotChunks.Count -or @($snapshotChunks | Where-Object { $_ -notmatch '^[1-9][0-9]*$' }).Count) {
+                throw 'Retarget snapshot requires explicit numeric chunk IDs'
+            }
+            New-Item -ItemType Directory -Path $snapshotRoot -ErrorAction Stop | Out-Null
+            $snapshotStaged = Join-Path $project 'Saved\StagedBuilds\Windows\Meteorite\Content\Paks'
+            $snapshotFiles = @()
+            foreach ($snapshotStem in (@('global') + @($snapshotChunks | ForEach-Object { 'pakchunk'+$_+'-Windows' }))) {
+                foreach ($snapshotExt in @('utoc','ucas')) {
+                    $snapshotName = $snapshotStem+'.'+$snapshotExt
+                    $snapshotSource = Join-Path $snapshotStaged $snapshotName
+                    $snapshotTarget = Join-Path $snapshotRoot $snapshotName
+                    Copy-Item -LiteralPath $snapshotSource -Destination $snapshotTarget -ErrorAction Stop
+                    $sourceHash = (Get-FileHash -LiteralPath $snapshotSource -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                    if ((Get-FileHash -LiteralPath $snapshotTarget -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -ne $sourceHash) {
+                        throw 'Retarget snapshot copy differs from stock source'
+                    }
+                    $snapshotFiles += [pscustomobject]@{name=$snapshotName;sha256=$sourceHash;bytes=(Get-Item -LiteralPath $snapshotTarget).Length}
+                }
+            }
+            [pscustomobject]@{schema='mjolnir-stock-retarget-snapshot-v1';before_any_retarget=$true;files=$snapshotFiles} |
+                ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $snapshotRoot 'receipt.json') -Encoding UTF8 -ErrorAction Stop
+        }
+        # An isolated retarget build can add fork-layout support without changing
+        # the pinned conversion/collision CLI used by the rest of the pipeline.
+        $mjolnir = $env:MJOLNIR_RETARGET
+        if (-not $mjolnir) { $mjolnir = $env:MJOLNIR }
         if (-not $mjolnir) {
             $mjolnir = @("target\release\mjolnir.exe", "target\debug\mjolnir.exe") | ForEach-Object { Join-Path $repo $_ } |
                 Where-Object { Test-Path $_ } | Select-Object -First 1
         }
         if (-not $mjolnir) {
-            "WARNING: no mjolnir.exe (set MJOLNIR or build blam-cli): staged materials NOT re-encoded for the game's layout"
+            throw 'No mjolnir.exe (set MJOLNIR or build blam-cli); refusing assets without game property encoding'
         } else {
             $staged = Join-Path $project "Saved\StagedBuilds\Windows\Meteorite\Content\Paks"
             Get-ChildItem $staged -Filter "pakchunk*-Windows.utoc" | Where-Object { $_.BaseName -ne "pakchunk0-Windows" } | ForEach-Object {
@@ -71,10 +105,11 @@ try {
                 $before = (Get-Item $ucas).Length
                 $out = & $mjolnir ue retarget --paks $staged --container $_.BaseName --classes $Classes `
                     --rewrite --out-dir $staged --name $_.BaseName 2>&1
+                if ($LASTEXITCODE -ne 0) { throw "Retarget of $($_.BaseName) failed; refusing misencoded cooked assets: $($out | Select-Object -Last 3)" }
                 $after = (Get-Item $ucas).Length
                 "retarget $($_.BaseName): $($out | Select-Object -Last 1) [ucas $([math]::Round($before / 1MB, 1)) -> $([math]::Round($after / 1MB, 1)) MB]"
-                if ($LASTEXITCODE -ne 0) { "WARNING: retarget of $($_.BaseName) failed; its materials stay misread" }
             }
         }
     }
+    'MJOLNIR cook and retarget complete'
 } finally { $lock.ReleaseMutex() }

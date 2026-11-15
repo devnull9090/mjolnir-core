@@ -1,0 +1,23 @@
+{
+  "authoring_units": "metres; Z up; biped actor origin at zero",
+  "vertices": 480,
+  "triangles": 928,
+  "materials": [
+    "Canopy",
+    "Cords"
+  ],
+  "collision": false,
+  "original_geometry": true,
+  "bounds_m": {
+    "min": [
+      -2.0583083629608154,
+      -1.509416103363037,
+      1.2913641929626465
+    ],
+    "max": [
+      2.0583083629608154,
+      1.509416103363037,
+      4.197571277618408
+    ]
+  }
+}

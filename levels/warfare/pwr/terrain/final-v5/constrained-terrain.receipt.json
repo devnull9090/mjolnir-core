@@ -1,0 +1,501 @@
+{
+  "schema": "pwr-constrained-terrain-v1",
+  "master_manifest_sha256": "e5c743c139455d704bdce0a47b877ab378bfe313d1abe6d115a971af6bf28c0c",
+  "source_manifest_sha256": "b26005fe6a8a22a0ed6c944fb4f1684e79161b57d330ffba98de9149ad95b26c",
+  "baseline_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+  "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+  "layout_sha256": "6a48c5a9e4ebbabc6f17ada0d67007671c6c776d93b072086c721c1c38b3ea00",
+  "protected_max_abs_error_m": 0.0,
+  "full_road_water_support_max_error_m": 0.0,
+  "protection": {
+    "thresholds": {
+      "road": 0.001,
+      "bases": 0.5,
+      "flat": 0.5,
+      "water": 0.01,
+      "shore": 0.5
+    },
+    "vertices_by_mask": {
+      "road": 99915,
+      "bases": 74007,
+      "flat": 74007,
+      "water": 80031,
+      "shore": 51258
+    },
+    "collar_cells": 2,
+    "support_points": 27388,
+    "vehicle_support_discs": 16,
+    "vehicle_support_radius_m": 12,
+    "protected_vertices": 310750,
+    "protected_fraction": 0.30523111618820115,
+    "engineered_bank": {
+      "source": "immutable baseline",
+      "maximum_road_water_gap_m": 80,
+      "maximum_distance_to_each_m": 60,
+      "minimum_existing_grade": 0.35,
+      "selected_vertices": 16049,
+      "additional_vertices_before_collar": 6815
+    },
+    "compatibility_collar": {
+      "maximum_extension_m": 12.0,
+      "compatibility_target_grade": 0.75,
+      "bank_maximum_extension_m": 40.0,
+      "bank_seed_neighbourhood_m": 60,
+      "bank_added_this_attempt": 0,
+      "bank_existing_grade_threshold": 0.35,
+      "original_vertices": 307956,
+      "added_vertices": 2794,
+      "actual_max_extension_m": 39.92978531249624,
+      "original_mask_sha256": "509bf394f87c58916de54346c94132f49d4bbaedd1b9d311e5c6dd9608568620",
+      "final_mask_sha256": "7d0e9fb01139ad73779eafd86c9cdf201b4fbda5b171cd7b3475ebe9403de060",
+      "regions": [
+        {
+          "vertices": 554,
+          "bounds_m": [
+            [
+              -273.80952380952374,
+              -728.1746031746031
+            ],
+            [
+              -196.42857142857144,
+              -672.6190476190476
+            ]
+          ]
+        },
+        {
+          "vertices": 1511,
+          "bounds_m": [
+            [
+              13.888888888888914,
+              -625.0
+            ],
+            [
+              188.4920634920636,
+              -515.8730158730159
+            ]
+          ]
+        },
+        {
+          "vertices": 631,
+          "bounds_m": [
+            [
+              742.063492063492,
+              -597.2222222222222
+            ],
+            [
+              785.7142857142858,
+              -490.07936507936506
+            ]
+          ]
+        },
+        {
+          "vertices": 46,
+          "bounds_m": [
+            [
+              595.2380952380952,
+              -500.0
+            ],
+            [
+              607.1428571428571,
+              -478.17460317460313
+            ]
+          ]
+        },
+        {
+          "vertices": 14,
+          "bounds_m": [
+            [
+              601.1904761904761,
+              -444.44444444444446
+            ],
+            [
+              615.0793650793651,
+              -436.5079365079365
+            ]
+          ]
+        },
+        {
+          "vertices": 38,
+          "bounds_m": [
+            [
+              515.8730158730159,
+              428.57142857142867
+            ],
+            [
+              539.6825396825398,
+              440.4761904761906
+            ]
+          ]
+        }
+      ]
+    },
+    "fit_attempts": [
+      {
+        "attempt": 1,
+        "max_correction_grade": 1.108205252939958,
+        "additional_vertices": 1647,
+        "worst_grid_xy": [
+          809,
+          263
+        ]
+      },
+      {
+        "attempt": 2,
+        "max_correction_grade": 0.8196733726947062,
+        "additional_vertices": 702,
+        "worst_grid_xy": [
+          385,
+          150
+        ]
+      },
+      {
+        "attempt": 3,
+        "max_correction_grade": 0.88174867557641,
+        "additional_vertices": 445,
+        "worst_grid_xy": [
+          539,
+          208
+        ]
+      },
+      {
+        "attempt": 4,
+        "max_correction_grade": 0.8422529617192266,
+        "additional_vertices": 0,
+        "worst_grid_xy": [
+          556,
+          217
+        ]
+      }
+    ]
+  },
+  "preservation": {
+    "baseline_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+    "baseline_height_sha256": "aae13c42fffcbbd2f248e057a8792fc966aaf48971c407b7a2bc2a0173ce1ad7",
+    "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+    "layout_sha256": "6a48c5a9e4ebbabc6f17ada0d67007671c6c776d93b072086c721c1c38b3ea00",
+    "protected_vertices": 310750,
+    "protected_max_abs_error_m": 0.0,
+    "protected_mask_sha256": "583511d0e18cbeed47fdf08f005d62ffbcf00d0befa978b6a3a5886cf4abac68",
+    "protected_runtime_heights_exact": true
+  },
+  "blend": {
+    "method": "biharmonic minimum-curvature displacement with fixed boundary rows",
+    "blend_m": 180.0,
+    "solver_unknowns": 439360,
+    "solver_iterations": 406,
+    "solver_max_residual": 3.1289248170196515e-07,
+    "solver_amg_levels": 4,
+    "max_correction_grade": 0.745494579800485,
+    "correction_grade_limit": 0.75,
+    "max_earthwork_m": 65.08410163152786,
+    "far_field_vertices": 267971,
+    "far_field_max_error_m": 0.0,
+    "protected_max_abs_error_m": 0.0,
+    "worst_grid_xy": [
+      556,
+      217
+    ],
+    "worst_position_m": [
+      103.17460317460313,
+      -569.4444444444445
+    ],
+    "local_derivative_projection": {
+      "iterations": 521,
+      "changed_vertices": 90,
+      "max_height_adjustment_m": 0.5671615307367546,
+      "maximum_locality_m": 12,
+      "internal_grade_target": 0.74,
+      "max_correction_grade": 0.745494579800485,
+      "protected_and_far_samples_unchanged": true
+    },
+    "resumed_fit_sha256": "76f78176e4a8632a8f15779251c41c186c8f6dd447e38cfcdcf92365737d247a",
+    "resumed_receipt_sha256": "648c492cbbe0bc5366f2d57c6325901c3d9ffdda252fb2ef494b0c9e6a9bd5a0",
+    "quantized_max_correction_grade": 0.7452124345400207,
+    "quantized_far_field_max_error_m": 0.003921404987750066
+  },
+  "encoding": {
+    "height_range_m": [
+      48.0,
+      383.460693359375
+    ],
+    "height_step_cm": 0.78125,
+    "max_vertex_quantization_error_cm": 0.390625,
+    "clipped_samples": 0,
+    "mode": "fixed",
+    "centre_cm": 22400.0,
+    "z_scale": 100.0
+  },
+  "boundary_derivatives": {
+    "sampled_boundary_edges": 14940,
+    "max_normal_grade_change": 0.33075,
+    "p95_normal_grade_change": 0.063,
+    "baseline_max_normal_grade_change": 0.2795625,
+    "baseline_p95_normal_grade_change": 0.039375,
+    "scope": "Adjacent finite-difference normal grades after R16 quantization; not a literal C1 claim for triangle terrain"
+  },
+  "validation": {
+    "roads": [
+      {
+        "id": "red_apron",
+        "lane_max_grade": 1.445022201712469e-14,
+        "alignment_max_error_m": 0.0017990100706981593
+      },
+      {
+        "id": "red_upper_approach",
+        "lane_max_grade": 0.07226128147133505,
+        "alignment_max_error_m": 0.004396294634133824
+      },
+      {
+        "id": "west_bank_upper",
+        "lane_max_grade": 0.058899525618558705,
+        "alignment_max_error_m": 0.004173768685006962
+      },
+      {
+        "id": "west_upper_switchback",
+        "lane_max_grade": 0.007604439497211131,
+        "alignment_max_error_m": 0.003482301169810853
+      },
+      {
+        "id": "upper_w_approach",
+        "lane_max_grade": 0.051323791759022123,
+        "alignment_max_error_m": 0.004662224734005349
+      },
+      {
+        "id": "bridge_upper",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "upper_e_approach",
+        "lane_max_grade": 0.0671033947785316,
+        "alignment_max_error_m": 0.004527179758980537
+      },
+      {
+        "id": "citadel_climb",
+        "lane_max_grade": 0.07054753001762476,
+        "alignment_max_error_m": 0.003846007358447423
+      },
+      {
+        "id": "citadel_apron",
+        "lane_max_grade": 2.924214474344464e-14,
+        "alignment_max_error_m": 0.0008770630447259009
+      },
+      {
+        "id": "northeast_flank",
+        "lane_max_grade": 0.052821909095295515,
+        "alignment_max_error_m": 0.00428023397832078
+      },
+      {
+        "id": "east_high_loop",
+        "lane_max_grade": 0.03480687979610737,
+        "alignment_max_error_m": 0.0036934491934914604
+      },
+      {
+        "id": "east_bank_upper",
+        "lane_max_grade": 0.051221598234551385,
+        "alignment_max_error_m": 0.0039010573186288866
+      },
+      {
+        "id": "middle_w_approach",
+        "lane_max_grade": 0.037555431551714064,
+        "alignment_max_error_m": 0.0038732073561362768
+      },
+      {
+        "id": "bridge_middle",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "middle_e_approach",
+        "lane_max_grade": 0.0696788849252604,
+        "alignment_max_error_m": 0.00815982856447306
+      },
+      {
+        "id": "east_bank_middle",
+        "lane_max_grade": 0.06167797507314677,
+        "alignment_max_error_m": 0.003652680981460321
+      },
+      {
+        "id": "blue_upper_approach",
+        "lane_max_grade": 0.06385629894538089,
+        "alignment_max_error_m": 0.004175346493141774
+      },
+      {
+        "id": "blue_apron",
+        "lane_max_grade": 2.846831060456741e-14,
+        "alignment_max_error_m": 0.0016954074581292389
+      },
+      {
+        "id": "blue_lower_approach",
+        "lane_max_grade": 0.050252560303394096,
+        "alignment_max_error_m": 0.009030923131149393
+      },
+      {
+        "id": "east_lakeside_approach",
+        "lane_max_grade": 2.895001519357466e-14,
+        "alignment_max_error_m": 0.0016954074581292389
+      },
+      {
+        "id": "lower_e_approach",
+        "lane_max_grade": 0.06820322227322342,
+        "alignment_max_error_m": 0.004298277646796578
+      },
+      {
+        "id": "bridge_lower",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "lower_w_approach",
+        "lane_max_grade": 0.06744374056838287,
+        "alignment_max_error_m": 0.004303367684087789
+      },
+      {
+        "id": "braid_culvert",
+        "lane_max_grade": 0.0,
+        "alignment_max_error_m": 0.0
+      },
+      {
+        "id": "west_inner_lakeside",
+        "lane_max_grade": 0.010714674929518626,
+        "alignment_max_error_m": 0.003317779027497636
+      },
+      {
+        "id": "red_inner_loop",
+        "lane_max_grade": 0.05124565389890469,
+        "alignment_max_error_m": 0.004164404326729709
+      },
+      {
+        "id": "red_outer_loop",
+        "lane_max_grade": 0.05113590514580335,
+        "alignment_max_error_m": 0.005901966456306695
+      },
+      {
+        "id": "west_crosslink",
+        "lane_max_grade": 0.06433717197271818,
+        "alignment_max_error_m": 0.003647666955771456
+      },
+      {
+        "id": "southwest_sweep",
+        "lane_max_grade": 0.08262563773898908,
+        "alignment_max_error_m": 0.0035674691880558385
+      },
+      {
+        "id": "southwest_return",
+        "lane_max_grade": 0.04859929100982051,
+        "alignment_max_error_m": 0.003352411531821531
+      },
+      {
+        "id": "south_lake_overlook",
+        "lane_max_grade": 0.07919118927454787,
+        "alignment_max_error_m": 0.0038470415017712867
+      },
+      {
+        "id": "east_lake_overlook",
+        "lane_max_grade": 0.0792091289316135,
+        "alignment_max_error_m": 0.004521287147539965
+      },
+      {
+        "id": "capture_a_access",
+        "lane_max_grade": 2.001803436656714e-14,
+        "alignment_max_error_m": 0.0015952808958417108
+      },
+      {
+        "id": "capture_c_access",
+        "lane_max_grade": 1.4516698777921464e-14,
+        "alignment_max_error_m": 0.0010043330169793308
+      }
+    ],
+    "watercourses": [
+      {
+        "id": "central_river",
+        "min_depth_m": 3.290122021992701,
+        "max_depth_m": 9.319817368856846,
+        "source_z_m": 150.0,
+        "outlet_z_m": 55.0,
+        "parent_junction_error_m": 0.0
+      },
+      {
+        "id": "western_braid",
+        "min_depth_m": 1.9962910997641785,
+        "max_depth_m": 5.864607725298676,
+        "source_z_m": 90.31903868514901,
+        "outlet_z_m": 55.0,
+        "parent_junction_error_m": 0.0
+      }
+    ],
+    "crossings": [
+      {
+        "id": "bridge_upper",
+        "water_z_m": 95.28372943011706,
+        "freeboard_m": 20.0
+      },
+      {
+        "id": "bridge_middle",
+        "water_z_m": 91.65403724936118,
+        "freeboard_m": 20.0
+      },
+      {
+        "id": "bridge_lower",
+        "water_z_m": 86.4055507750433,
+        "freeboard_m": 20.0
+      },
+      {
+        "id": "braid_culvert",
+        "water_z_m": 85.55340068312412,
+        "freeboard_m": 16.0
+      }
+    ],
+    "foundations": [
+      {
+        "id": "red_home",
+        "height_m": 107.5997634899293,
+        "centre_error_m": 0.0017990100706981593
+      },
+      {
+        "id": "blue_home",
+        "height_m": 111.59544540745813,
+        "centre_error_m": 0.0016954074581292389
+      },
+      {
+        "id": "citadel_plateau",
+        "height_m": 129.22743956304473,
+        "centre_error_m": 0.0008770630447259009
+      },
+      {
+        "id": "capture_a",
+        "height_m": 109.83434221910416,
+        "centre_error_m": 0.0015952808958417108
+      },
+      {
+        "id": "capture_b",
+        "height_m": 129.22743956304473,
+        "centre_error_m": 0.0008770630447259009
+      },
+      {
+        "id": "capture_c",
+        "height_m": 112.26462066698302,
+        "centre_error_m": 0.0010043330169793308
+      },
+      {
+        "id": "warmup",
+        "height_m": 107.5997634899293,
+        "centre_error_m": 0.0017990100706981593
+      }
+    ],
+    "max_lane_grade": 0.08262563773898908,
+    "max_road_alignment_error_m": 0.009030923131149393
+  },
+  "terrain_range_m": [
+    48.0,
+    383.4609375
+  ],
+  "maximum_adjacent_height_jump_m": 11.1875,
+  "slope_percentiles": {
+    "p50": 0.14011360137068243,
+    "p95": 0.7869313181047394,
+    "p99": 1.0504070011971847,
+    "max": 5.44837076789145
+  },
+  "status": "candidate; native collision, PCG reprojection and live acceptance required"
+}

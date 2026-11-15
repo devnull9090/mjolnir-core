@@ -82,6 +82,13 @@ def stage(code, m, work, out):
     shutil.copyfile(os.path.join(cache, "map", "registration.json"), os.path.join(dst, f"{code}.registration.json"))
 
     level = json.load(open(os.path.join(w, "level.json"), encoding="utf-8"))
+    flux=level.get("flux") or {}
+    for entry in flux.get("domains",[]):
+        if entry.get("playback")!="baked" or not entry.get("state"):
+            raise ValueError("Release map requires baked states for every terrain-backed Flux domain")
+        from flux_heightfield import state_matches, verify_state_files
+        if not state_matches(entry["state"],entry):raise ValueError("Stale terrain-backed Flux state")
+        verify_state_files(w,entry["state"])
     shutil.copyfile(os.path.join(w, "level.json"), os.path.join(dst, f"{code.lower()}.level.json"))
     foliage = (level.get("foliage") or {}).get("file")
     if foliage:
@@ -90,7 +97,7 @@ def stage(code, m, work, out):
     if os.path.isdir(decals) and os.listdir(decals):
         shutil.copytree(decals, os.path.join(dst, "decals"))
     # A river's baked water (level.flux.state), beside the level file.
-    if (level.get("flux") or {}).get("state"):
+    if (level.get("flux") or {}).get("state") or any(x.get("state") for x in (level.get("flux") or {}).get("domains",[])):
         shutil.copytree(os.path.join(w, "flux_state"), os.path.join(dst, "flux_state"))
     return inst, dst
 

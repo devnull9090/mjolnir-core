@@ -1,0 +1,47 @@
+{
+  "$id": "1",
+  "Resolution": 1024,
+  "NodeCount": 6,
+  "Result": "Success",
+  "StartTime": "2026-11-09T03:38:07.7531467-07:00",
+  "EndTime": "2026-11-09T03:38:08.759058-07:00",
+  "Duration": "00:00:01.0059113",
+  "SecondsTaken": {
+    "$id": "2",
+    "$values": [
+      {
+        "$id": "3",
+        "Item1": "Approved World Height Seed",
+        "Item2": "00:00:00.8250000"
+      },
+      {
+        "$id": "4",
+        "Item1": "Restrained Watershed Refinement",
+        "Item2": "00:00:00.0380000"
+      },
+      {
+        "$id": "5",
+        "Item1": "pwr_height"
+      },
+      {
+        "$id": "6",
+        "Item1": "pwr_flow"
+      },
+      {
+        "$id": "7",
+        "Item1": "pwr_wear"
+      },
+      {
+        "$id": "8",
+        "Item1": "pwr_deposits",
+        "Item2": "00:00:00.0010000"
+      }
+    ]
+  },
+  "FastestNode": {
+    "$ref": "5"
+  },
+  "SlowestNode": {
+    "$ref": "3"
+  }
+}

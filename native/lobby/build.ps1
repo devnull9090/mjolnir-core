@@ -28,6 +28,8 @@ param(
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Resolve-Path (Join-Path $here "..\..")
+& python (Join-Path $here "generate_warfare_layout.py")
+if ($LASTEXITCODE -ne 0) { throw "Warfare layout generation failed" }
 $outDir = Join-Path $repo "mods\MJOLNIRLobby\native"
 $objDir = Join-Path $here "obj"
 New-Item -ItemType Directory -Force $outDir | Out-Null

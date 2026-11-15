@@ -1,0 +1,178 @@
+"""Add Warfare markers, named transports and explicit flight bounds after CE conversion.
+
+Run before the final scenario bake/visual upgrade. Does not install or cook.
+"""
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import math
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from runtime_layout import load_layout
+layout=load_layout()
+
+PELICAN_TAG = r"objects\mjolnir\warfare\pelican\pwr_pelican"
+
+
+def apply(source):
+    level = copy.deepcopy(source)
+    level["title"] = layout.TITLE
+    level["description"] = "A 2 km alpine vehicle battlefield with Forerunner bases, river crossings and Pelican insertion. Terrains powered by QuadSpinner Gaea."
+    level["warfare"] = {"protocol": layout.PROTOCOL, "layout_revision": layout.REVISION}
+    level["variant"] = "warfare"
+    level["modes"] = ["koth"]
+    # Presentation reads the established Hill metadata, never Blam tag memory.
+    level["koth_hills"] = [layout.ue(pos)+[layout.CAPTURE_RADIUS*100] for pos in layout.CAPTURES]
+    blam = level["blam"]
+    origin = level["canvas"].get("origin", [0,0,0])
+    if any(abs(float(v)) > .01 for v in origin):
+        raise ValueError("PWR requires zero canvas origin so native routes and collision agree")
+    # This is a membership/authoring volume, not proof of global Havok support.
+    bounds = layout.document()["scenario_bounds_m"]
+    bsp_index = blam.get("single_bsp", 8)
+    blam["world_bounds"] = [{"bsp":bsp_index,
+                             "min":[v/layout.METRES_PER_WU for v in bounds["min"]],
+                             "max":[v/layout.METRES_PER_WU for v in bounds["max"]]}]
+    objects = blam.setdefault("objects", [])
+    objects[:] = [obj for obj in objects if obj.get("set",{}).get("multiplayer data.megalo label") != "koth_hill"]
+    # CE's team starts convert into CTF-controlled hidden, neutral markers plus
+    # Slayer-only duplicate markers. Warfare owns permanent home spawns directly:
+    # no CTF trigger or late label filter is required to assign their teams.
+    permanent = []
+    canonical_spawns=layout.document().get("spawns_m")
+    spawn_counts={"red":0,"blue":0}
+    for obj in objects:
+        fields = obj.get("set", {})
+        label = fields.get("multiplayer data.megalo label", "")
+        if obj.get("tag") == r"objects\multi\spawning\player_spawn":
+            team = {"ctf_spawn_red": "defender", "ctf_spawn_blue": "attacker"}.get(label)
+            if team is None:
+                continue
+            fields["multiplayer data.owner team"] = team
+            fields["multiplayer data.spawn flags"] = "0x0"
+            if canonical_spawns:
+                side="red" if team=="defender" else "blue"
+                index=spawn_counts[side]
+                if index>=len(canonical_spawns[side]):
+                    raise ValueError("Converted home spawn count exceeds the canonical layout")
+                obj["pos"]=layout.ue(canonical_spawns[side][index])
+                spawn_counts[side]+=1
+        elif label == "ctf_flag_return":
+            continue
+        permanent.append(obj)
+    objects[:] = permanent
+    level.pop("spawn_sets", None)
+    # The source CE scenario lists Slayer and CTF. The custom descriptor runs
+    # the King engine, so its native vehicle-set selection also needs bit 2.
+    for vehicle_set in level.get("vehicle_sets", []):
+        for key in ("default", "allowed"):
+            vehicle_set[key] = int(vehicle_set.get(key, 0)) | 4
+    for index, pos in enumerate(layout.CAPTURES):
+        objects.append({"tag":r"objects\multi\ctf\flag_stand","group":"scenery","pos":layout.ue(pos),"rot":[0,0,0],
+                        "set":{"multiplayer data.megalo label":"koth_hill",
+                               "multiplayer data.owner team":"eighth party",
+                               "multiplayer data.spawn order":str(index),
+                               "multiplayer data.boundary shape":"cylinder",
+                               "multiplayer data.boundary width or radius":str(layout.CAPTURE_RADIUS/layout.METRES_PER_WU),
+                               "multiplayer data.boundary positive height":str(4/layout.METRES_PER_WU),
+                               "multiplayer data.boundary negative height":str(1/layout.METRES_PER_WU)}})
+    names = blam.setdefault("object_names", [])
+    names[:] = [name for name in names if not name.startswith("pwr_")]
+    names += ["pwr_pelican_red", "pwr_pelican_blue"]
+    vehicles = blam.setdefault("vehicles", [])
+    vehicles[:] = [vehicle for vehicle in vehicles if not vehicle.get("name", "").startswith("pwr_pelican_")]
+    vehicle_counts={}
+    probes=blam.setdefault("trigger_volumes",[])
+    probes[:]=[v for v in probes if not v.get("name","").startswith("pwr_probe_")]
+    for vehicle in vehicles:
+        kind={"warthog":"hog","scorpion":"tank","banshee":"banshee"}.get(vehicle.get("type"))
+        if kind is None:
+            continue
+        owner=vehicle.get("set",{}).get("multiplayer data.owner team")
+        team={"defender":"red","attacker":"blue"}.get(owner,"red" if vehicle["pos"][0]<0 else "blue")
+        index=vehicle_counts.get((team,kind),0); vehicle_counts[team,kind]=index+1
+        vehicle["name"]=f"pwr_{kind}_{team}_{index}"
+        names.append(vehicle["name"])
+        if index==0:
+            # Corner is Unreal cm; forward/left/up extents are Blam WU.
+            # Tight enough to avoid adjacent fleet slots; vehicles remain placed.
+            x,y,z=vehicle["pos"]
+            half=650 if kind=="banshee" else 500
+            probes.append({"name":f"pwr_probe_{kind}_{team}","pos":[x-half,y+half,z-300],
+                           "forward":[1,0,0],"up":[0,0,1],
+                           "extents":[half*2/304.8,half*2/304.8,900/304.8]})
+    for team, flight in layout.FLIGHTS.items():
+        # The compiler keeps custom script-only tags out of the multiplayer
+        # palette while retaining these named scenario placements. Multiplayer
+        # hide flags cannot be used here: they suppress named HS creation too.
+        vehicles.append({"type":"pelican","tag":PELICAN_TAG,"name":"pwr_pelican_"+team,
+                         "pos":layout.ue(flight["start"]),"yaw":flight["yaw"],"placed":False})
+
+    flags = blam.setdefault("cutscene_flags", [])
+    flags[:] = [flag for flag in flags if not flag.get("name", "").startswith("pwr_")]
+    def flag(name, pos, yaw=0):
+        flags.append({"name":"pwr_"+name,"pos":layout.ue(pos),"yaw":yaw})
+    flag("warmup", [layout.WARMUP[0],layout.WARMUP[1],layout.WARMUP[2]+.8], 90)
+    flag("red_home", [*layout.HOMES["red"][:2],layout.HOMES["red"][2]+1.2], 0)
+    flag("blue_home", [*layout.HOMES["blue"][:2],layout.HOMES["blue"][2]+1.2], 180)
+    flag("red_drop", layout.FLIGHTS["red"]["start"], 0)
+    flag("blue_drop", layout.FLIGHTS["blue"]["start"], 180)
+    # Stable, named floor-level destinations make local capture smoke tests
+    # reproducible without changing the production spawn or objective rules.
+    for label, pos in zip("abc", layout.CAPTURES):
+        flag("capture_"+label, [pos[0], pos[1], pos[2]+1.2])
+    for team, flight in layout.FLIGHTS.items():
+        flag(team+"_flight_start", flight["start"], flight["yaw"])
+        flag(team+"_flight_end", flight["end"], flight["yaw"])
+    # All starts and mode state are native/simulation-owned. These lists are data.
+    return level
+
+
+def validate(level):
+    blam=level["blam"]
+    assert level["warfare"] == {"protocol":layout.PROTOCOL,"layout_revision":layout.REVISION}
+    flags={f["name"]:f for f in blam["cutscene_flags"] if f.get("name","").startswith("pwr_")}
+    assert len(flags)==12, "Expected warmup, homes, drops, three captures and four flight endpoint flags"
+    transports=[v for v in blam["vehicles"] if v.get("tag")==PELICAN_TAG]
+    assert len(transports)==2
+    assert all(v["placed"] is False and not v.get("set") for v in transports)
+    markers=[o for o in blam["objects"] if o.get("set",{}).get("multiplayer data.megalo label")=="koth_hill"]
+    assert len(markers)==3
+    assert [m["set"]["multiplayer data.spawn order"] for m in markers]==["0","1","2"]
+    assert all(m["set"]["multiplayer data.owner team"]=="eighth party" for m in markers)
+    assert level["koth_hills"]==[layout.ue(pos)+[layout.CAPTURE_RADIUS*100] for pos in layout.CAPTURES]
+    spawns=[o for o in blam["objects"] if o.get("tag")==r"objects\multi\spawning\player_spawn"]
+    assert len(spawns)==16, "Expected eight permanent home spawns per team"
+    for team in ("defender", "attacker"):
+        assert len([o for o in spawns if o["set"]["multiplayer data.owner team"]==team])==8
+    assert all(o["set"]["multiplayer data.spawn flags"]=="0x0" for o in spawns)
+    assert "spawn_sets" not in level
+    assert all(v["default"] & 4 and v["allowed"] & 4 for v in level.get("vehicle_sets", []))
+    assert apply(level)==level, "Runtime map patch must be idempotent"
+    for collection in (flags.values(), markers):
+        for item in collection:
+            assert all(math.isfinite(v) for v in item["pos"])
+
+
+def main():
+    global layout
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--level", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--layout",type=Path,default=ROOT/"layout.json")
+    args=parser.parse_args()
+    layout=load_layout(args.layout)
+    level=apply(json.loads(args.level.read_text(encoding="utf-8-sig")))
+    validate(level)
+    output=args.out or args.level
+    output.write_text(json.dumps(level,indent=2)+"\n")
+    print("PWR prepared:",output)
+
+
+if __name__=="__main__":
+    main()

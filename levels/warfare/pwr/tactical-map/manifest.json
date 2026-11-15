@@ -1,0 +1,231 @@
+{
+  "schema": "pwr-tactical-map-art-v1",
+  "bounds_authoring_m": [
+    [
+      -1000,
+      -1000
+    ],
+    [
+      1000,
+      1000
+    ]
+  ],
+  "size": [
+    2048,
+    2048
+  ],
+  "north": "authoring +Y (UE -Y), image top",
+  "east": "authoring +X (UE +X), image right",
+  "uv_from_authoring_metres": [
+    "(x+1000)/2000",
+    "(1000-y)/2000"
+  ],
+  "uv_from_unreal_cm": [
+    "(X+100000)/200000",
+    "(Y+100000)/200000"
+  ],
+  "uv_from_native_ce": [
+    "(3.048*x+1000)/2000",
+    "(1000-3.048*y)/2000"
+  ],
+  "pixel_mapping": "pixel-center coordinate = uv*2048 - 0.5; UI marker position within map = uv*display_size",
+  "icon_heading": "Every directional silhouette points north/up; white RGBA masks for runtime tint; geometric symbols, not miniature renders.",
+  "overview": "Shaded actual terrain, subtle 20m contours, actual water mask with cartographic shore-distance tint, actual 24m graded roads, existing paving/closed macro-body footprints and measured tree density. No labels, grid, teammates, objectives or proposed V9 geometry baked in.",
+  "water_color_limit": "The shore-distance colour ramp is a cartographic cue, not a bathymetric depth measurement.",
+  "geography_counts": {
+    "roads": 34,
+    "watercourses": 2,
+    "lakes": 1,
+    "tree_centres": 4702
+  },
+  "alignment_checks": [
+    {
+      "id": "red_home",
+      "authoring_m": [
+        -590.0,
+        -130.0,
+        107.9497634899293
+      ],
+      "uv": [
+        0.205,
+        0.565
+      ],
+      "pixel_center_xy": [
+        419.34,
+        1156.62
+      ]
+    },
+    {
+      "id": "blue_home",
+      "authoring_m": [
+        600.0,
+        -130.0,
+        111.94544540745812
+      ],
+      "uv": [
+        0.8,
+        0.565
+      ],
+      "pixel_center_xy": [
+        1637.9,
+        1156.62
+      ]
+    },
+    {
+      "id": "capture_0",
+      "authoring_m": [
+        -232.0,
+        -156.0,
+        109.83434221910416
+      ],
+      "uv": [
+        0.384,
+        0.578
+      ],
+      "pixel_center_xy": [
+        785.932,
+        1183.244
+      ]
+    },
+    {
+      "id": "capture_1",
+      "authoring_m": [
+        0.0,
+        510.0,
+        129.22743956304473
+      ],
+      "uv": [
+        0.5,
+        0.245
+      ],
+      "pixel_center_xy": [
+        1023.5,
+        501.26
+      ]
+    },
+    {
+      "id": "capture_2",
+      "authoring_m": [
+        240.0,
+        -170.0,
+        112.26462066698302
+      ],
+      "uv": [
+        0.62,
+        0.585
+      ],
+      "pixel_center_xy": [
+        1269.26,
+        1197.58
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "levels/warfare/pwr/tactical-map/overview.png",
+      "sha256": "c0d6a4998d5a2baf07fbd9c32366ffa5d3719474de1a7822c3df4ebcfbcbccec",
+      "bytes": 1922328
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/player.png",
+      "sha256": "cfa7350dd1b5ccfd9e34d2eb024cc782673b37e6cef93322a9852911dda5fea4",
+      "bytes": 2667
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/hog.png",
+      "sha256": "28e4531adf561804b05dcbc033b5469392aea86a87e5667eaac6006cf2e65300",
+      "bytes": 2141
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/tank.png",
+      "sha256": "81b62553717625b8316df88c7cb05597828391804a2018df78748bc20b29fa5c",
+      "bytes": 2960
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/banshee.png",
+      "sha256": "19e206380e05bced2022ca8404e3b490e5e5a54ae0199e1f62551691a1d8ad01",
+      "bytes": 4259
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/pelican.png",
+      "sha256": "6553f14bad5f353bdc0e2babe7992c9e22150b76c04f9e5e5d78d69b142cf15d",
+      "bytes": 3554
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/base.png",
+      "sha256": "69419583140c59ea072bbca74b28ce74eae9ecf53c9e8555990bfdb356e1b9b9",
+      "bytes": 2526
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/capture.png",
+      "sha256": "276b952edf60c349786b335f234b31f7eb409a9e203ccab00e310884d9abb2af",
+      "bytes": 1265
+    }
+  ],
+  "inputs": [
+    {
+      "path": "levels/warfare/pwr/tactical-map/build.py",
+      "sha256": "f0d983887436d58d3938d2f0f3640d791b6db405e51899c55af9c0027f8aba19"
+    },
+    {
+      "path": "levels/warfare/pwr/tactical-map/geography.json",
+      "sha256": "8846755cb4b1becd4349c940a66fad879bf4b14e7639292ccd22fdf5ab960917"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.json",
+      "sha256": "cfa587ac8c9bc565270c035ee3a281b8611c8197fb7c6c0833990b1b6c4ee45f"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/final-v5/terrain.geometry.json",
+      "sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4"
+    },
+    {
+      "path": "levels/warfare/pwr/layout.json",
+      "sha256": "6a48c5a9e4ebbabc6f17ada0d67007671c6c776d93b072086c721c1c38b3ea00"
+    },
+    {
+      "path": "tools/level/heightfield.py",
+      "sha256": "ca59fd66d67f486b91e0d312167be90b409692741760fccf427cfcd95a9520b7"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.heights.npy",
+      "sha256": "7bd3b58ca4f7c73b63326f19f32bfedcfad36d8feb1be7032392b884438896f0"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.road.npy",
+      "sha256": "463a4d28135d5cbe40cb4f055696ff276046a95f4e429eeeb8663cc74ce1585b"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.water.npy",
+      "sha256": "d1776d5c35b6d2e095d6552e32fee033b7ee28c560a232ede11916071944b0d5"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.shore.npy",
+      "sha256": "b0ddb3fcb4f391af9b7bd88c8138bf39223b25571c05dc6a310731cd42ebce60"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.bases.npy",
+      "sha256": "e22d8421d65796175ff7c13b6f4458a83f40d4e8e3ed6e5308380d35156486b0"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.flat.npy",
+      "sha256": "e22d8421d65796175ff7c13b6f4458a83f40d4e8e3ed6e5308380d35156486b0"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.protected.npy",
+      "sha256": "583511d0e18cbeed47fdf08f005d62ffbcf00d0befa978b6a3a5886cf4abac68"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.protected_core.npy",
+      "sha256": "6caabf9593d9a5c86280dbace8fa9a51b6f9fbf75491e8c89172126cf00aa586"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.walkable.npy",
+      "sha256": "0c341c95efd4e21be4d08ee7e10809be676b50bc1fd02556da9b5ba3dfd0b0ea"
+    },
+    {
+      "path": "levels/warfare/pwr/terrain/runtime-v5/runtime-master.forest.npy",
+      "sha256": "84a4369c31380f59b456a68ef8654d3d95a6f43782a4069e9a4dbebcf9234749"
+    }
+  ]
+}

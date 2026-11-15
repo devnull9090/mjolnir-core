@@ -46,6 +46,9 @@ pub enum MegaloCommand {
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum Mode {
+    /// Pelican Warfare: red/blue deployment, persistent three-site control,
+    /// respawns at permanent homes; native transport consumes replicated phases.
+    Warfare,
     /// No rules: players spawn, nothing scores.
     Empty,
     /// Free-for-all Slayer: a kill scores 1, a suicide costs 1; the round
@@ -106,6 +109,21 @@ pub struct WriteArgs {
     /// players' sum.
     #[arg(long)]
     pub score: Option<u16>,
+    /// Warfare: connected players required to start the warmup countdown.
+    #[arg(long, default_value_t = 2)]
+    pub minimum_players: u8,
+    /// Warfare: seconds of warmup once the minimum player count is met.
+    #[arg(long, default_value_t = 30)]
+    pub warmup_seconds: u16,
+    /// Warfare: length of the initial transport/drop phase.
+    #[arg(long, default_value_t = 60)]
+    pub insertion_seconds: u16,
+    /// Warfare: seconds to capture a neutral site (twice this to take an enemy site).
+    #[arg(long, default_value_t = 8)]
+    pub capture_seconds: u16,
+    /// Warfare: minutes of combat after deployment (independent of the base round timer).
+    #[arg(long, default_value_t = 20)]
+    pub warfare_minutes: u8,
     /// Rounds in a game (1..=31). An end of round before the last resets
     /// the round in place; the last ends the game, and the game's own return
     /// to the menu then drops every fireteam client. MJOLNIR's matches are
@@ -320,6 +338,16 @@ pub fn run(a: MegaloArgs) -> Result<()> {
             };
             let tick_rate = w.tick_rate as i16;
             let v = match w.mode {
+                Mode::Warfare => Variant::warfare(blam_megalo::warfare::Warfare {
+                    score_to_win: w.score.unwrap_or(500),
+                    tick_rate: w.tick_rate,
+                    minimum_players: w.minimum_players,
+                    warmup_seconds: w.warmup_seconds,
+                    insertion_seconds: w.insertion_seconds,
+                    capture_seconds: w.capture_seconds,
+                    match_minutes: w.warfare_minutes,
+                })
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),
                 Mode::Slayer => Variant::slayer(w.score.unwrap_or(25)),
                 Mode::TeamSlayer => Variant::team_slayer(w.score.unwrap_or(50)),
@@ -372,7 +400,10 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                 rounds: w.rounds,
                 ..v
             };
-            if !matches!(w.mode, Mode::Empty | Mode::Tick | Mode::TraitTest) {
+            if !matches!(
+                w.mode,
+                Mode::Empty | Mode::Tick | Mode::TraitTest | Mode::Warfare
+            ) {
                 v = v.with_time_limit();
             }
             w.base.apply(&mut v.base)?;
@@ -381,8 +412,10 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     .with_context(|| format!("{what} times --tick-rate is past 32767 ticks"))
             };
             let v = if w.no_health_packs
-                || matches!(w.mode, Mode::Empty | Mode::Tick | Mode::TraitTest)
-            {
+                || matches!(
+                    w.mode,
+                    Mode::Empty | Mode::Tick | Mode::TraitTest | Mode::Warfare
+                ) {
                 v
             } else {
                 v.with_health_packs(blam_megalo::powerups::HealthPacks {

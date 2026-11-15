@@ -3,6 +3,13 @@
 
     build_landscape.py <scene.gltf> <materials.spec.json> <out dir> --shader deathbeach,underwater
         [--quad 100] [--components N] [--texture 1024] [--lift 8] [--offset x,y,z]
+        [--heightfield master.heightfield.json]
+
+With --heightfield, verified master samples supply geometry and physical bounds;
+the CE mesh supplies material UVs only. No cliff holes or settling to that coarse
+mesh are applied. Lift defaults to zero, and quad spacing fits the master extent.
+heightfield.receipt.json records source hashes, quantization, source-grid error
+and a diagnostic mesh comparison; native collision parity is not implied.
 
 Campaign Evolved draws B30's beach as a Landscape (footprints, grass, real
 terrain detail); a converted map draws its ground as part of one static
@@ -46,6 +53,7 @@ Unreal cm: the glTF is CE in metres, y up (Unreal x = x, y = z, z = y), plus
 the terrain mesh's `--offset`.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -68,6 +76,139 @@ BAKED = ("Base", "Lightmap", "Bake", "SunShare")
 FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 
 
+def heightfield_geometry(field, components=None, quad=None, offset=(0, 0, 0), lift=0.0):
+    """Sample the immutable master directly; CE triangles never set its heights.
+
+    The existing world builder uses square component grids. Keep the entire
+    physical square, deriving spacing rather than stretching or cropping it.
+    Authoring +Y becomes Unreal -Y, so Unreal row zero is the master's last row.
+    """
+    lo, hi = (np.asarray(v, dtype=float) for v in field.bounds_m)
+    span = (hi - lo) * 100.0
+    if not np.isclose(span[0], span[1], rtol=0, atol=1e-5):
+        raise ValueError("Direct heightfield Landscape requires square physical bounds")
+    comps = components if components is not None else max(1, round((max(field.dimensions) - 1) / QUADS))
+    if isinstance(comps, bool) or int(comps) != comps or not 1 <= comps <= 64:
+        raise ValueError("Landscape components must be an integer from 1 to 64")
+    comps = int(comps)
+    exact_quad = span[0] / (comps * QUADS)
+    if quad is not None and (not math.isfinite(quad) or
+                            not np.isclose(quad, exact_quad, rtol=1e-9, atol=1e-5)):
+        raise ValueError(f"Landscape quad spacing {quad} conflicts with heightfield extent; "
+                         f"use {exact_quad:.12g} cm or omit --quad")
+    off = np.asarray(offset, dtype=float)
+    if off.shape != (3,) or not np.isfinite(off).all() or not math.isfinite(lift):
+        raise ValueError("Landscape offset and lift must be finite")
+    size = comps * QUADS + 1
+    heights = field.resample_grid((size, size))[::-1].copy() * 100.0 + off[2] + lift
+    origin = np.array([lo[0] * 100.0, -hi[1] * 100.0]) + off[:2]
+    policy = field.metadata.get("landscape_encoding_policy")
+    if policy is not None:
+        # A preserved gameplay surface must not silently move, change grid, or
+        # acquire lift when it is sent through the ordinary Landscape builder.
+        validate_fixed_encoding(policy)
+        if (policy.get("components", comps) != comps or policy.get("size", size) != size
+                or not np.isclose(policy.get("quad_cm", exact_quad), exact_quad, rtol=0, atol=1e-8)
+                or not np.allclose(policy.get("origin_cm", origin), origin, rtol=0, atol=1e-8)
+                or off[2] != 0 or lift != 0):
+            raise ValueError("Fixed Landscape encoding conflicts with grid, transform or lift")
+    report = {
+        "schema": "pwr-landscape-heightfield-v1", "manifest": str(field.path),
+        "manifest_sha256": field.manifest_sha256,
+        "height_sha256": field.metadata["height"]["sha256"],
+        "source_dimensions": list(field.dimensions), "output_dimensions": [size, size],
+        "source_bounds_m": [lo.tolist(), hi.tolist()],
+        "source_row_order": field.metadata["row_order"],
+        "authoring_to_unreal": "[100*x, -100*y, 100*z] + offset_cm",
+        "offset_cm": off.tolist(), "lift_cm": float(lift),
+        "sampling": field.metadata.get("surface_interpolation", "bilinear") + "; Unreal rows run toward authoring -Y",
+        "native_collision_parity": "unmeasured; coarse mesh comparison is diagnostic only",
+    }
+    return {"origin": origin, "side": float(span[0]), "quad": float(exact_quad),
+            "components": comps, "size": size, "heights_cm": heights, "report": report}
+
+
+def validate_fixed_encoding(policy):
+    if not isinstance(policy, dict) or policy.get("mode") != "fixed":
+        raise ValueError("Landscape encoding policy must explicitly specify mode=fixed")
+    for key in ("centre_cm", "z_scale"):
+        value = policy.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError("Fixed Landscape encoding requires finite " + key)
+    if policy["z_scale"] <= 0:
+        raise ValueError("Fixed Landscape encoding requires positive z_scale")
+    return float(policy["centre_cm"]), float(policy["z_scale"])
+
+
+def encode_master_heights(heights_cm, fixed=None):
+    """Encode UE's signed 16-bit height domain without silently clipping relief."""
+    heights = np.asarray(heights_cm, dtype=float)
+    if not heights.size or not np.isfinite(heights).all():
+        raise ValueError("Landscape heights must be finite and nonempty")
+    if fixed is None:
+        centre = float(np.round((heights.min() + heights.max()) / 200.0) * 100.0)
+        extent = float(np.max(np.abs(heights - centre)))
+        scale = max(100.0, extent * 128.0 / 32767.0)
+    else:
+        centre, scale = validate_fixed_encoding(fixed)
+    raw = np.rint(32768.0 + (heights - centre) * 128.0 / scale)
+    if raw.min() < 0 or raw.max() > 65535:
+        raise ValueError("Landscape height encoding would clip")
+    encoded = raw.astype("<u2")
+    decoded = centre + (encoded.astype(float) - 32768.0) * scale / 128.0
+    return encoded, centre, scale, {
+        "height_range_m": [float(heights.min() / 100), float(heights.max() / 100)],
+        "height_step_cm": scale / 128.0,
+        "max_vertex_quantization_error_cm": float(np.max(np.abs(decoded - heights))),
+        "clipped_samples": 0,
+        "mode": "fixed" if fixed is not None else "automatic",
+        "centre_cm": centre, "z_scale": scale,
+    }
+
+
+def coarse_mesh_comparison(master_cm, mesh_cm):
+    """Measure sampled vertical disagreement; this is not a collision proof."""
+    known = np.isfinite(mesh_cm)
+    report = {"sample_count": int(known.sum()), "total_count": int(known.size),
+              "method": "vertical difference at Landscape vertices against lowest CE ground triangle"}
+    if known.any():
+        error = (master_cm[known] - mesh_cm[known]) / 100.0
+        report.update(max_abs_m=float(np.max(np.abs(error))),
+                      p95_abs_m=float(np.percentile(np.abs(error), 95)),
+                      rms_m=float(np.sqrt(np.mean(error ** 2))),
+                      signed_range_m=[float(error.min()), float(error.max())])
+    return report
+
+
+def master_sampling_report(field, encoded, centre, z_scale, offset_z=0.0, lift=0.0):
+    """Measure detail lost by resampling at every original master vertex.
+
+    Both possible cell diagonals are measured because this offline check does
+    not inspect the cooked Landscape. It is not a continuous surface bound.
+    """
+    terrain = ((encoded.astype(float) - 32768.0) * z_scale / 128.0
+               + centre - offset_z - lift)[::-1] / 100.0
+    width, height = field.dimensions
+    ny, nx = terrain.shape
+    x, y = np.linspace(0, nx - 1, width), np.linspace(0, ny - 1, height)
+    ix, iy = np.minimum(x.astype(int), nx - 2), np.minimum(y.astype(int), ny - 2)
+    tx, ty = (x - ix)[None, :], (y - iy)[:, None]
+    a, b = terrain[iy[:, None], ix], terrain[iy[:, None], ix + 1]
+    c, d = terrain[iy[:, None] + 1, ix], terrain[iy[:, None] + 1, ix + 1]
+    bilinear = a * (1 - tx) * (1 - ty) + b * tx * (1 - ty) + c * (1 - tx) * ty + d * tx * ty
+    main_diag = np.where(tx >= ty, a + (b - a) * tx + (d - b) * ty,
+                         a + (d - c) * tx + (c - a) * ty)
+    anti_diag = np.where(tx + ty <= 1, a + (b - a) * tx + (c - a) * ty,
+                         d + (c - d) * (1 - tx) + (b - d) * (1 - ty))
+    error = bilinear - field.heights_m
+    return {"sample_count": width * height,
+            "bilinear_max_abs_m": float(np.abs(error).max()),
+            "bilinear_rms_m": float(np.sqrt(np.mean(error ** 2))),
+            "either_triangle_diagonal_max_abs_m": float(max(np.abs(main_diag - field.heights_m).max(),
+                                                             np.abs(anti_diag - field.heights_m).max())),
+            "scope": "master vertices only; cooked triangles and native collision not inspected"}
+
+
 # Each map's look over the defaults, by --name. Blood Gulch (LBG; tuned
 # 2026-10-12): its paths are packed earth (Megascans trampled path, stones
 # on soil in patches), not beach sand, in the original's reddish brown (its
@@ -76,6 +217,47 @@ FOLDER = "/Game/MJOLNIR/Landscape/LTS"
 # (fill 0.6 on flat ground); cliffs at 0.9x CE colour (1.4x drew its red
 # cliff map orange), half of it, under a grey-brown tint.
 MAP_LOOKS = {
+    # PWR alpine watershed: meadow floors, packed routes, granite slopes,
+    # and altitude/slope controlled snow using the shipped B40 snow surfaces.
+    "LPW": {
+        "pbr": {"grass_tint": [0.40, 0.62, 0.36, 1.0],
+                "sand_tint": [0.70, 0.68, 0.61, 1.0],
+                "dirt_tint": [0.70, 0.65, 0.56, 1.0],
+                "mix": [0.2, 0.75, 0.0, 0.25],
+                "look": [1.2, 1.1, 0.1, 0.18],
+                "tiles": [220, 450, 240, 1100],
+                "slope": [0.92, 0.8, 0.0, 0.05],
+                "macro": [0.10, 6000, 24000, 11],
+                "inland": [0, 100, 0, 0.0],
+                "sea_enabled": False,
+                "light": {"sun": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]},
+                          "sky": {"scale": 1.0, "tint": [1.0, 1.0, 1.0]}},
+                "dirt": [0.65, 0.18, 2400, 0.15],
+                # Runtime-v5 is 48..383 m; the former 300..355 m snowline
+                # and .45..82 rock blend left almost the whole valley green.
+                # These remain material masks: no terrain/collision changes.
+                "alpine": [19000, 27000, 1800, 1.0],
+                "steep": [0.72, 0.94, 650, 1.0],
+                "rock_tint": [0.8, 0.83, 0.84, 1.0],
+                # The Alpine road UVs warp to suppress repeating stones;
+                # only the unwarped, world-space footprints displace depth.
+                "parallax": [0, 2, 2000, 8],
+                "surfaces": {
+                    "RockD": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
+                    "RockN": "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
+                    "RipD": "Windswept_Snow_uephfgudy/T_Windswept_Snow_NSVT_D",
+                    "RipN": "Windswept_Snow_uephfgudy/T_Windswept_Snow_NSVT_N",
+                    "RipO": "Windswept_Snow_uephfgudy/T_Windswept_Snow_uephfgudy_NSVT_ORHG",
+                    "SandD": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D",
+                    "SandN": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
+                    "SandO": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
+                    "SandBD": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_D",
+                    "SandBN": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_N"}},
+        "cliff": {"tint": [0.8, 0.83, 0.84, 1.0],
+                  "fill": [0.86, 0.93, 1.0, 0.18],
+                  "mix": [0.6, 1.2, 1.0, 1.0],
+                  "look": [1.4, 0.0, 0.15, 1.1]},
+    },
     # Pipeline test arena (LTT): daylight grass and pale earth, with neutral
     # grey rock. Its pond is only 18 cm below the surrounding floor, so the
     # beach's 12 m ripple band and 80 cm wet band would cover the whole arena.
@@ -341,7 +523,7 @@ MAP_LOOKS["LGP"] = _copy.deepcopy(MAP_LOOKS["LIF"])
 MAP_LOOKS["LGP"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
 
 
-def edge_bake(tris, centres, step, n, z_low, on, out_dir):
+def edge_bake(tris, centres, step, n, z_low, on, out_dir, z_high=None):
     """edge.png over the bakes' square, for where walls and ground meet:
     R the height of the ground at the top of a wall (its nearest lip's,
     within 4 m; 0 for none), over `range`; G the lip
@@ -351,7 +533,9 @@ def edge_bake(tris, centres, step, n, z_low, on, out_dir):
     none).
     M_CE_CliffPBR drapes turf, earth and moss down from the lip by R;
     M_CE_LandscapePBR wears the grass at a lip and roughens a foot."""
-    z_hi, _ = raster(tris, centres, step, n, [], highest=True)
+    z_hi = z_high
+    if z_hi is None:
+        z_hi, _ = raster(tris, centres, step, n, [], highest=True)
     lo_f = np.where(on, z_low, np.inf)
     hi_f = np.where(np.isfinite(z_hi), z_hi, -np.inf)
     r_edge = max(1, int(round(300.0 / step)))
@@ -492,6 +676,9 @@ def main():
                          "step showed as a crack to see through")
     ap.add_argument("--real-base", action="store_true",
                     help="bake plain ground's own CE base colour, not a neutral grey (pbr.ice reads it)")
+    ap.add_argument("--geology", help="optional hash-checked pwr-alpine-geology-v1 spec; encode Base RGB, preserve road alpha")
+    ap.add_argument("--ecology", help="optional exact-field pwr-alpine-ecology-v1 spec; separate linear RGBA material weights")
+    ap.add_argument("--surface-detail", help="LPW canonical road geometry; bake tangent/distance presentation field")
     ap.add_argument("--cliff-shaders", default="",
                     help="substrings of the cliff shaders' names, comma-separated, when their detail maps do not "
                          "say so (Sidewinder's cliffs share its ground's snow detail): cliff.slots, exact")
@@ -503,21 +690,44 @@ def main():
                     help="the seabed's depth (m) at distances (m) from the shore, as d:depth,...")
     ap.add_argument("--zone", help="a sea_zone.py output folder: the landscape covers its land and wading zone, "
                                    "and the seabed's distance to the shore is its")
-    ap.add_argument("--quad", type=float, default=100.0, help="cm a quad")
+    ap.add_argument("--heightfield", help="verified pwr-heightfield-v1 manifest; direct master heights instead of CE triangles")
+    ap.add_argument("--quad", type=float, help="cm a quad (mesh default 100; heightfield default fits its exact extent)")
     ap.add_argument("--min-z", type=float, help="cm: ground wholly under it is left out (stays CE's mesh)")
     ap.add_argument("--components", type=int, help="components a side (default: enough for the ground)")
     ap.add_argument("--texture", type=int, default=1024, help="bake texels a side")
-    ap.add_argument("--lift", type=float, default=8.0, help="cm above the ground mesh")
+    ap.add_argument("--lift", type=float, help="cm above the ground (mesh default 8; heightfield default 0)")
     ap.add_argument("--offset", default="0,0,0", help="the terrain mesh's offset (cm)")
     ap.add_argument("--name", default="LTS",
                     help="the landscape's name, one a map (build_ce_landscape.py MJ_LANDSCAPE_NAME): its bakes' folder")
     a = ap.parse_args()
     global FOLDER
     FOLDER = f"/Game/MJOLNIR/Landscape/{a.name}"
-    os.makedirs(a.out, exist_ok=True)
     off = np.array([float(v) for v in a.offset.split(",")])
+    if off.shape != (3,) or not np.isfinite(off).all():
+        ap.error("--offset must contain three finite centimetre values")
+    a.lift = a.lift if a.lift is not None else (0.0 if a.heightfield else 8.0)
+    master = None
+    if a.geology and (not a.heightfield or a.name != "LPW"):
+        ap.error("--geology is only supported by LPW with an exact --heightfield")
+    if a.ecology and (not a.heightfield or a.name != "LPW" or not a.geology):
+        ap.error("--ecology requires LPW, an exact --heightfield and Alpine2 --geology")
+    if a.surface_detail and (not a.heightfield or a.name != "LPW"):
+        ap.error("--surface-detail is only supported by LPW with an exact --heightfield")
+    if a.heightfield:
+        from heightfield import load_heightfield
+        if a.sea is not None or a.zone or a.min_z is not None:
+            ap.error("--heightfield cannot combine with --sea, --zone or --min-z; author changes in the master")
+        field = load_heightfield(a.heightfield)
+        master = heightfield_geometry(field, a.components, a.quad, off, a.lift)
+        a.quad = master["quad"]
+    else:
+        a.quad = a.quad if a.quad is not None else 100.0
+        if not math.isfinite(a.quad) or a.quad <= 0:
+            ap.error("--quad must be positive finite centimetres")
+    os.makedirs(a.out, exist_ok=True)
 
-    spec = json.load(open(a.spec, encoding="utf-8"))
+    with open(a.spec, encoding="utf-8") as stream:
+        spec = json.load(stream)
     files = {t["name"]: t["file"] for t in spec["textures"]}
     shaders = [x for x in a.shader.split(",") if x]
     grass_primary = [x.lower() for x in a.grass_primary.split(",") if x]
@@ -526,8 +736,10 @@ def main():
     slots = {s["pattern"].rstrip("$"): s for s in spec["slots"] if any(x in s["pattern"] for x in shaders)}
     if not slots:
         sys.exit(f"no slot of a shader matching {a.shader!r}")
-    doc = json.load(open(a.gltf, encoding="utf-8"))
-    data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
+    with open(a.gltf, encoding="utf-8") as stream:
+        doc = json.load(stream)
+    with open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb") as stream:
+        data = stream.read()
 
     # Every ground triangle with its base UVs and its lightmap page's UVs.
     tris, uv0s, uv1s, pages, blended, firsts = [], [], [], [], [], []
@@ -582,56 +794,71 @@ def main():
     side = comps * QUADS * a.quad
     origin = (lo + hi) / 2 - side / 2
     size = comps * QUADS + 1
+    if master:
+        origin, side, comps, size = (master[k] for k in ("origin", "side", "components", "size"))
     print(f"{len(tris)} ground triangle(s) over {len(page_files)} lightmap page(s); "
           f"{comps} x {comps} components, {side / 100:.0f} m a side from {origin.round(1).tolist()}")
 
-    # Heights.
-    z, _ = raster(tris, origin, a.quad, size, [])
-    ground = np.isfinite(z)
-    # Off the ground the landscape is a hole: its heights matter only for the
-    # half-drawn quads along a hole's edge and for distant LODs. A vertex
-    # beside the ground takes its ground neighbours' mean, so an edge quad
-    # stays level with the ground (sunk, it opened a crack under the cliff
-    # mesh); further out, the ground's heights diffused.
-    zf = fill(np.nan_to_num(z)[..., None], ground)[..., 0]
-    zg = np.pad(np.where(ground, z, 0.0), 1)
-    ng = np.pad(ground.astype(float), 1)
-    sums = sum(zg[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
-    counts = sum(ng[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
-    ring = ~ground & (counts > 0)
-    zf = np.where(ground, z, np.where(ring, sums / np.maximum(counts, 1), zf)) + a.lift
-    if a.sea is not None:
-        apron = None
-        if zone and zone.get("apron") is not None and a.apron_shelf:
-            apron = (zone_dist(zone, origin, a.quad, size, "apron"), a.apron_shelf)
-        zf = seabed(zf, a.sea, a.quad, a.shelf, zone_dist(zone, origin, a.quad, size) if zone else None, apron)
-    lowest = np.where(ground, z, np.inf)
-    highest = np.where(ground, z, -np.inf)
-    pl, ph = np.pad(lowest, 1, constant_values=np.inf), np.pad(highest, 1, constant_values=-np.inf)
-    n_lo = np.minimum.reduce([pl[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
-                              for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx])
-    n_hi = np.maximum.reduce([ph[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
-                              for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx])
-    step = STEP * 100.0
-    cliff = ground & ((z - n_lo > step) | (n_hi - z > step))
-    # Where two layers of ground overlap (a plateau's grass over the beach
-    # below), the landscape can be only one: it is cut, and the mesh keeps
-    # both (cut there, the mesh lost the upper one and a ridge top opened).
-    ztop, _ = raster(tris, origin, a.quad, size, [], highest=True)
-    layered = ground & (ztop - z > 100.0)
-    cliff |= layered
-    # Where the ground just ends (a plateau's edge over a wall with no beach
-    # at its foot), the landscape stops a vertex short too: its last quad,
-    # half drawn level towards the hole, stuck out past the wall as a lip.
-    # The mesh draws the edge as CE has it.
-    grow = cliff | ~ground
-    pc = np.pad(grow, 1)
-    cut = ~ground | np.logical_or.reduce([pc[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
-                                         for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
-    # The actor's z: the ground's middle height, rounded to the metre. A
-    # height is 16 bits, +-256 m about it at z scale 100 (Yoyorast's ground
-    # lies at -258 m, which clipped at a fixed 0).
-    zc = float(np.round((np.nanmin(z) + np.nanmax(z)) / 2.0 / 100.0) * 100.0)
+    # Direct terrain bypasses the mesh-derived cliff cuts, settling and lift.
+    # The mesh remains a material/UV source and a measured comparison only.
+    z_scale = 100.0
+    if master:
+        zf = master["heights_cm"].copy()
+        z = zf - a.lift
+        ground = np.ones_like(z, dtype=bool)
+        cliff = np.zeros_like(ground)
+        cut = np.zeros_like(ground)
+        mesh_z, _ = raster(tris, origin, a.quad, size, [])
+        master["report"]["coarse_mesh_comparison"] = coarse_mesh_comparison(z, mesh_z)
+        zc = 0.0  # Replaced by the unclipped encoder after the material bake.
+    else:
+        # Heights.
+        z, _ = raster(tris, origin, a.quad, size, [])
+        ground = np.isfinite(z)
+        # Off the ground the landscape is a hole: its heights matter only for the
+        # half-drawn quads along a hole's edge and for distant LODs. A vertex
+        # beside the ground takes its ground neighbours' mean, so an edge quad
+        # stays level with the ground (sunk, it opened a crack under the cliff
+        # mesh); further out, the ground's heights diffused.
+        zf = fill(np.nan_to_num(z)[..., None], ground)[..., 0]
+        zg = np.pad(np.where(ground, z, 0.0), 1)
+        ng = np.pad(ground.astype(float), 1)
+        sums = sum(zg[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        counts = sum(ng[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        ring = ~ground & (counts > 0)
+        zf = np.where(ground, z, np.where(ring, sums / np.maximum(counts, 1), zf)) + a.lift
+        if a.sea is not None:
+            apron = None
+            if zone and zone.get("apron") is not None and a.apron_shelf:
+                apron = (zone_dist(zone, origin, a.quad, size, "apron"), a.apron_shelf)
+            zf = seabed(zf, a.sea, a.quad, a.shelf, zone_dist(zone, origin, a.quad, size) if zone else None, apron)
+        lowest = np.where(ground, z, np.inf)
+        highest = np.where(ground, z, -np.inf)
+        pl, ph = np.pad(lowest, 1, constant_values=np.inf), np.pad(highest, 1, constant_values=-np.inf)
+        n_lo = np.minimum.reduce([pl[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
+                                  for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx])
+        n_hi = np.maximum.reduce([ph[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
+                                  for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx])
+        step = STEP * 100.0
+        cliff = ground & ((z - n_lo > step) | (n_hi - z > step))
+        # Where two layers of ground overlap (a plateau's grass over the beach
+        # below), the landscape can be only one: it is cut, and the mesh keeps
+        # both (cut there, the mesh lost the upper one and a ridge top opened).
+        ztop, _ = raster(tris, origin, a.quad, size, [], highest=True)
+        layered = ground & (ztop - z > 100.0)
+        cliff |= layered
+        # Where the ground just ends (a plateau's edge over a wall with no beach
+        # at its foot), the landscape stops a vertex short too: its last quad,
+        # half drawn level towards the hole, stuck out past the wall as a lip.
+        # The mesh draws the edge as CE has it.
+        grow = cliff | ~ground
+        pc = np.pad(grow, 1)
+        cut = ~ground | np.logical_or.reduce([pc[1 + dy:size + 1 + dy, 1 + dx:size + 1 + dx]
+                                             for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
+        # The actor's z: the ground's middle height, rounded to the metre. A
+        # height is 16 bits, +-256 m about it at z scale 100 (Yoyorast's ground
+        # lies at -258 m, which clipped at a fixed 0).
+        zc = float(np.round((np.nanmin(z) + np.nanmax(z)) / 2.0 / 100.0) * 100.0)
 
     # Bakes, one texel's centre at a time over the same square.
     n = a.texture
@@ -653,34 +880,36 @@ def main():
         return (zf[i0][:, i0] * np.outer(1 - t, 1 - t) + zf[i0][:, i0 + 1] * np.outer(1 - t, t)
                 + zf[i0 + 1][:, i0] * np.outer(t, 1 - t) + zf[i0 + 1][:, i0 + 1] * np.outer(t, t))
 
-    # First the grid settles onto the ground: where its surface rides over
-    # the ground (a bank's toe, a dip a metre across), the vertices around
-    # come down, up to SETTLE cm. Cut there instead, the mesh drew patches
-    # whose own normals read the bank flatter, dirt notches with a hard edge
-    # in a grass bank (Blood Gulch, 2026-10-12). What a vertex cannot reach
-    # (a real ledge) is still cut, below.
-    lowered = np.zeros_like(zf)
-    keep = ground & ~cut
-    for _ in range(8):
+    over = np.zeros_like(on)
+    if not master:
+        # First the grid settles onto the ground: where its surface rides over
+        # the ground (a bank's toe, a dip a metre across), the vertices around
+        # come down, up to SETTLE cm. Cut there instead, the mesh drew patches
+        # whose own normals read the bank flatter, dirt notches with a hard edge
+        # in a grass bank (Blood Gulch, 2026-10-12). What a vertex cannot reach
+        # (a real ledge) is still cut, below.
+        lowered = np.zeros_like(zf)
+        keep = ground & ~cut
+        for _ in range(8):
+            zl = surface()
+            excess = np.where(on, zl - z2 - (a.lift + ABOVE * 0.5), 0.0)
+            oy, ox = np.nonzero(excess > 0.5)
+            if not len(oy):
+                break
+            need = np.zeros_like(zf)
+            for dy in (0, 1):
+                for dx in (0, 1):
+                    np.maximum.at(need, (i0[oy] + dy, i0[ox] + dx), excess[oy, ox] * 0.6)
+            need = np.where(keep, np.minimum(need, SETTLE - lowered), 0.0)
+            zf -= need
+            lowered += need
+        print(f"settled {int((lowered > 0.5).sum())} vertices onto the ground (up to {lowered.max():.0f} cm)")
         zl = surface()
-        excess = np.where(on, zl - z2 - (a.lift + ABOVE * 0.5), 0.0)
-        oy, ox = np.nonzero(excess > 0.5)
-        if not len(oy):
-            break
-        need = np.zeros_like(zf)
+        over = on & (zl - z2 > a.lift + ABOVE)
+        oy, ox = np.nonzero(over)
         for dy in (0, 1):
             for dx in (0, 1):
-                np.maximum.at(need, (i0[oy] + dy, i0[ox] + dx), excess[oy, ox] * 0.6)
-        need = np.where(keep, np.minimum(need, SETTLE - lowered), 0.0)
-        zf -= need
-        lowered += need
-    print(f"settled {int((lowered > 0.5).sum())} vertices onto the ground (up to {lowered.max():.0f} cm)")
-    zl = surface()
-    over = on & (zl - z2 > a.lift + ABOVE)
-    oy, ox = np.nonzero(over)
-    for dy in (0, 1):
-        for dx in (0, 1):
-            cut[i0[oy] + dy, i0[ox] + dx] = True
+                cut[i0[oy] + dy, i0[ox] + dx] = True
     holes = np.where(cut, 255, 0).astype(np.uint8)
     holes.tofile(os.path.join(a.out, "holes.r8"))
     # The lift (the landscape over the mesh where they overlap) tapers to
@@ -701,7 +930,13 @@ def main():
     share[ring[0]] = 0.0
     share[ring[1]] = 0.5
     zh = zf - a.lift * (1.0 - share)
-    h = np.clip(np.round(32768 + (zh - zc) * 128.0 / 100.0), 0, 65535).astype("<u2")
+    if master:
+        h, zc, z_scale, quantization = encode_master_heights(zh, field.metadata.get("landscape_encoding_policy"))
+        master["report"]["encoding"] = quantization
+        master["report"]["heights_r16_sha256"] = hashlib.sha256(h.tobytes()).hexdigest()
+        master["report"]["source_grid_error"] = master_sampling_report(field, h, zc, z_scale, off[2], a.lift)
+    else:
+        h = np.clip(np.round(32768 + (zh - zc) * 128.0 / 100.0), 0, 65535).astype("<u2")
     h.tofile(os.path.join(a.out, "heights.r16"))
     print(f"heights: {ground.mean() * 100:.0f}% over the ground, z {np.nanmin(z) / 100:.1f}..{np.nanmax(z) / 100:.1f} m, "
           f"lift tapered over {int(ring[0].sum() + ring[1].sum())} vertices by the holes")
@@ -710,7 +945,13 @@ def main():
     Image.fromarray(holes, "L").convert("RGBA").save(os.path.join(a.out, "landmask.png"))
     print(f"holes: {cut.mean() * 100:.0f}% of the vertices ({cliff.sum()} on cliffs or layered ground, "
           f"{over.sum()} texel(s) where the grid rode over the ground)")
-    edge_range = edge_bake(tris, centres, step, n, z2, on, a.out)
+    if master:
+        xx, yy = np.meshgrid(centres[0] + np.arange(n) * step, centres[1] + np.arange(n) * step)
+        edge_heights = field.sample((xx - off[0]) / 100.0, -(yy - off[1]) / 100.0) * 100.0 + off[2]
+        edge_range = edge_bake(tris, centres, step, n, edge_heights, np.ones_like(on), a.out,
+                               z_high=edge_heights)
+    else:
+        edge_range = edge_bake(tris, centres, step, n, z2, on, a.out)
     pg = np.round(pg[..., 0]).astype(int)
     images = {}
     written = {}
@@ -735,6 +976,14 @@ def main():
             # With --real-base CE's own colour stays (the masters' ice reads
             # it: Ice Fields' pond is painted into its ground's base map).
             out[plain] = [136.0, 136.0, 136.0, 255.0]
+        if master and name == "Base" and "road" in field.masks:
+            # The final master, rather than old CE UV paint, owns the meadow
+            # and route distribution. Coordinates match direct height import.
+            mx, my = (xx - off[0]) / 100.0, -(yy - off[1]) / 100.0
+            bare = np.maximum(field.sample_mask("road", mx, my), field.sample_mask("water", mx, my))
+            bare = np.maximum(bare, field.sample_mask("shore", mx, my) * 0.85)
+            out[..., :3] = 136.0
+            out[..., 3] = np.clip(bare, 0, 1) * 255.0
         out = fill(out, on, iterations=40)
         file = name.lower() + ".png"
         Image.fromarray(np.clip(np.round(out), 0, 255).astype(np.uint8), "RGBA").save(os.path.join(a.out, file))
@@ -757,7 +1006,7 @@ def main():
     doc_out = {
         "shader": a.shader, "slot": rep,
         "location": [float(origin[0]), float(origin[1]), zc],
-        "scale": [a.quad, a.quad, 100.0],
+        "scale": [a.quad, a.quad, z_scale],
         "components": comps, "sections": 1, "quads": QUADS,
         "heights": "heights.r16", "holes": "holes.r8", "size": size,
         "rect": [float(origin[0]), float(origin[1]), side, side],
@@ -879,6 +1128,10 @@ def main():
                 "light": {"sun": {"scale": 1.5, "tint": [1.0, 1.0, 0.92]},
                           "sky": {"scale": 1.0, "tint": [1.0, 0.95, 0.85]}}},
     }
+    if master:
+        doc_out["heightfield"] = master["report"]
+        with open(os.path.join(a.out, "heightfield.receipt.json"), "w", encoding="utf-8") as stream:
+            json.dump(master["report"], stream, indent=2, allow_nan=False)
     cliff_shaders = [x.lower() for x in a.cliff_shaders.split(",") if x]
     if cliff_shaders:
         doc_out["cliff"]["slots"] = sorted(i + 1 for i, mt in enumerate(doc["materials"])
@@ -887,7 +1140,17 @@ def main():
     # The map's own look over the defaults (tuned on Death Island's dusk).
     for section, fields in MAP_LOOKS.get(a.name, {}).items():
         doc_out[section].update(fields)
-    json.dump(doc_out, open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8"), indent=1)
+    if a.geology:
+        from alpine_geology import apply_to_bake
+        apply_to_bake(a.out, doc_out, a.geology, field.manifest_sha256)
+    if a.surface_detail:
+        from alpine_surface import apply_to_bake
+        apply_to_bake(a.out, doc_out, a.surface_detail)
+    if a.ecology:
+        from alpine_ecology import apply_to_bake
+        apply_to_bake(a.out, doc_out, a.ecology, field.manifest_sha256)
+    with open(os.path.join(a.out, "landscape.json"), "w", encoding="utf-8") as stream:
+        json.dump(doc_out, stream, indent=1, allow_nan=False)
     print(f"bakes {n} x {n} ({step:.0f} cm a texel), {on.mean() * 100:.0f}% on the ground -> {a.out}")
 
 

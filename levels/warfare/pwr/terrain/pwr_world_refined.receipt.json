@@ -1,0 +1,19 @@
+{
+  "schema": "pwr-gaea-project-v1",
+  "project": "pwr_world_refined.terrain",
+  "source_url": "https://github.com/QuadSpinner/Gaea2Houdini/blob/main/src/misc/gaea/SimpleErosion.terrain",
+  "source_sha256": "4c590e99828f7fb76da91e5a965edf587e381f641a0e53d9ab0a1c017a085697",
+  "project_sha256": "9bbd7985c47f71cedd6374700ee59e7f11af1d00985b6bd2236c866adaa8a595",
+  "source_license": "reference/LICENSE.Gaea2Houdini",
+  "required_credit": "Terrains powered by QuadSpinner Gaea.",
+  "seed": "world-height-seed-v2.png",
+  "seed_exists_at_authoring": false,
+  "width_m": 2000,
+  "height_scale_m": 400,
+  "resolution": 1024,
+  "output_directory": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\gaea-world-v2",
+  "configured_format": "GaeaRaw",
+  "requested_final_format": "float32_raw_le, selected and calibrated in Gaea UI",
+  "state": "authored; awaiting Gaea UI open/build/export validation",
+  "earlier_terrain_seed_v1": "EXPERIMENTAL, superseded by approved world reference"
+}
