@@ -252,10 +252,6 @@ pub struct LevelFile {
     /// opaque to the bake.
     #[serde(default)]
     pub vehicle_sets: Option<serde_json::Value>,
-    /// Hidden spawn labels and their game families, emitted by the CE
-    /// converter and filtered by the runtime loader; opaque to the bake.
-    #[serde(default)]
-    pub spawn_sets: Option<serde_json::Value>,
     /// King of the Hill's hills in rotation order, x, y, z and radius in
     /// Unreal cm (tools/level/ce_objectives.py), which MJOLNIRHud's hill
     /// marker reads; opaque to the bake.
