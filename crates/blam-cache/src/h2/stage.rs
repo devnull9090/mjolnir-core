@@ -489,9 +489,19 @@ fn placements<'c>(
                     "scale": scale, "phantoms": pushes,
                 }));
             }
+            // A door (machine type 1: Zanzibar's house gate, 13 parts that
+            // swing and slide open from its keypad) is drawn at rest, closed,
+            // without collision: present as Halo 2 places it, never blocking
+            // the way Halo 2 opens. Its opening is not drawn yet.
+            let mut door = false;
             let turn = match group {
                 "mach" => match crate::h2::animation::gear_turn(cache, &object) {
                     Ok(turn) => Some(turn),
+                    Err(_) if object.root.u16(0x11C) == 1 => {
+                        door = true;
+                        notes.push(format!("{} drawn closed, without collision (its opening is not drawn)", object.name()));
+                        None
+                    }
                     Err(why) => {
                         *skipped.entry(format!("{} (a machine whose motion is not drawn: {why})", object.name())).or_default() += 1;
                         continue;
@@ -506,7 +516,7 @@ fn placements<'c>(
                 s if s == 0.0 || (s - 1.0).abs() < 1e-4 => 1.0,
                 s => s,
             };
-            let collision = stage_object_collision(cache, &object, dir, &mut notes, scale)?;
+            let collision = if door { None } else { stage_object_collision(cache, &object, dir, &mut notes, scale)? };
             let mut entry = json!({
                 "kind": "scenery",
                 "asset": object.name(),
@@ -520,6 +530,44 @@ fn placements<'c>(
             if group != "mach" {
                 if let Some(cc) = change_colors(&object, &e) {
                     entry["change_colors"] = cc;
+                }
+                // What Halo 2 does with it (crate::h2::props): a prop whose
+                // physics model has a moving rigid body is a physics object
+                // (tools/level/upgrade_ce_map.py makes it one); its damage
+                // info's vitality and responses, with the sounds and decals
+                // their effects play (staged as one-shots), say how it
+                // breaks; its functions are what its shaders animate by.
+                if let Some(p) = crate::h2::props::physics(cache, &object) {
+                    entry["h2_physics"] = json!({"mass": p.mass, "motion": p.motion, "bodies": p.bodies, "constraints": p.constraints});
+                }
+                if let Some(d) = crate::h2::props::damage(cache, &object) {
+                    let responses: Vec<Value> = d
+                        .responses
+                        .iter()
+                        .map(|r| {
+                            let mut v = json!({
+                                "section": r.section, "threshold": r.threshold, "flags": r.flags, "delay": r.delay,
+                                "effect": r.effect.as_ref().map(|t| t.name()),
+                                "damage_effect": r.damage_effect.as_ref().map(|t| t.name()),
+                            });
+                            if let Some(fx) = &r.effect {
+                                let snds: Vec<String> = crate::h2::props::references(cache, fx, b"snd!")
+                                    .iter()
+                                    .filter_map(|s| sounds.sound(s, false))
+                                    .collect();
+                                let decals: Vec<&str> =
+                                    crate::h2::props::references(cache, fx, b"deca").iter().map(|t| t.name()).collect();
+                                v["sounds"] = json!(snds);
+                                v["decals"] = json!(decals);
+                            }
+                            v
+                        })
+                        .collect();
+                    entry["h2_damage"] = json!({"vitality": d.vitality, "responses": responses});
+                }
+                let functions = crate::h2::props::functions(&object);
+                if !functions.is_empty() {
+                    entry["h2_functions"] = json!(functions);
                 }
             }
             if let Some(model) = object_model(cache, &object, &mut notes) {

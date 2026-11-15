@@ -228,6 +228,8 @@ PROP_LIFT = 0.02  # world units the crate starts above the prop's origin
 
 
 PROP_LIT = "/Game/MJOLNIR/CETrial/M_CE_PropLit.M_CE_PropLit"
+PROP_OVERLAY = "/Game/MJOLNIR/CETrial/M_CE_PropOverlay.M_CE_PropOverlay"
+PROP_HIDDEN = "/Game/MJOLNIR/CETrial/M_CE_Hidden.M_CE_Hidden"
 # A moving prop's glowing parts (a fusion coil's core): brighter than CE drew
 # them, pulsing (depth, period s), so the glow reads and Lumen casts it; the
 # surface dark under the glow's lines (GlowDarken), so they show green and not
@@ -247,6 +249,21 @@ def prop_lit(mat, prop):
     textures and scalars (same names); drops the lightmap, the CE specular and
     fog, which the lit master has no use for. `prop` may carry "look":
     {scalars} over every slot (Roughness, Metallic, Specular, AlbedoGain)."""
+    # Halo 2's `overlay` (a crate's stencil): the converted level's darkening
+    # copy (`__overlay`) loses the text that brightens; the prop draws the
+    # stencil itself as a 2x multiply (M_CE_PropOverlay, its map imported
+    # by h2_physics_props.py beside the copy).
+    map0 = str((mat.get("textures") or {}).get("Map0", ""))
+    if "__overlay." in map0:
+        stem = map0.rsplit("/", 1)[-1].split(".")[0].replace("__overlay", "")
+        return {"parent": PROP_OVERLAY,
+                "textures": {"Map0": map0.rsplit("/", 1)[0] + f"/{stem}.{stem}"}, "scalars": {}, "vectors": {}}
+    # The additive bloom shell over a glowing core (the coil's
+    # `fusion_coil_bloom`): Halo 2 tints it with the core's colour functions,
+    # the CE additive master drew it white over the orange (2026-11-15). The
+    # core's emissive and the engine's bloom stand in for it.
+    if "M_CE_TransparentAdd" in str(mat.get("parent", "")) and "_bloom" in map0:
+        return PROP_HIDDEN
     if not str(mat.get("parent", "")).endswith("/M_CE_Environment.M_CE_Environment"):
         return mat
     textures = {k: v for k, v in (mat.get("textures") or {}).items() if k != "Lightmap"}
@@ -257,8 +274,37 @@ def prop_lit(mat, prop):
         scalars.update(PROP_GLOW)
         vectors["GlowPulse"] = PROP_GLOW_PULSE
         vectors["Fusion"] = PROP_FUSION
+        # Halo 2's own glow colours: the self-illumination map is a mask,
+        # each channel tinted by its colour, "on" at full health and "off"
+        # as the object's health function falls (a fusion coil's core:
+        # orange, turning red as it is shot). Read as a picture, the mask's
+        # green channel drew the coils green (2026-11-15).
+        # The coil's tex_bump_plasma_one_channel_illum: its pixel constant 3
+        # (SelfOn0, 255 136 136) is the colour shot, its colour overlay 1's
+        # orange (255 143 43) the colour whole, blended by its `health`
+        # function (the object's body vitality); M_CE_PropLit's H2Glow.
+        src = mat.get("vectors") or {}
+        if "SelfOn0" in src:
+            # Deeper than the overlay's 255 143 43, which the tonemapper
+            # washed to beige at the brightness the glow needs (in game,
+            # 2026-11-15).
+            vectors["H2Damaged"] = src["SelfOn0"]
+            vectors["H2Healthy"] = [1.0, 0.38, 0.04, 1.0]
+            vectors["HazeColor"] = [0.22, 0.09, 0.01, 1.0]
+            scalars["H2Glow"] = 1.0
+            scalars["GlowBrightness"] = 14.0
     scalars.update((prop.get("look") or {}))
     return {"parent": PROP_LIT, "textures": textures, "scalars": scalars, "vectors": vectors}
+
+
+def physics_props(m):
+    """The map's `physics_props`: a list, or the path of the
+    physics_props.json tools/level/h2_physics_props.py writes from a Halo 2
+    map's own tag data (every crate Halo 2 moves)."""
+    v = m.get("physics_props") or []
+    if isinstance(v, str):
+        return json.load(open(v, encoding="utf-8"))
+    return v
 
 
 def prop_placements(m, asset):
@@ -276,7 +322,7 @@ def physics_prop_objects(m):
     turns only the yaw (ue_yaw_to_blam), so a prop lying on its side starts
     upright."""
     out = []
-    for prop in m.get("physics_props") or []:
+    for prop in physics_props(m):
         for _n, e in prop_placements(m, prop["asset"]):
             x, y, z = e["pos"]
             yaw = (e.get("rot") or [0, 0, 0])[0]
@@ -807,7 +853,7 @@ def stage_collision(code, m, p):
         json.dump(e, open(extra, "w", encoding="utf-8"))
         made += f"; wading wall {len(w['triangles'])} triangle(s)"
     # A physics prop collides as its crate: its own collision leaves the level.
-    props = [n for prop in m.get("physics_props") or [] for n, _e in prop_placements(m, prop["asset"])]
+    props = [n for prop in physics_props(m) for n, _e in prop_placements(m, prop["asset"])]
     if props:
         e = json.load(open(extra, encoding="utf-8"))
         e["skip_entries"] = sorted(set(e.get("skip_entries") or []) | set(props))
@@ -2009,17 +2055,46 @@ def stage_assemble(code, m, p):
         mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
         print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
     keep_translucent_first_slots(code, level)
+    # A turning machine (Halo 2's gears: Zanzibar's flywheels under the grates,
+    # its big wheel) is lit by Unreal as a moving prop is: the CE master drew
+    # the light baked at its rest pose from an object page that came out
+    # black, and a black flywheel turning read as one standing still
+    # (2026-11-15).
+    # `extra_decor`: static meshes a conversion left out (a Halo 2 door drawn
+    # closed: Zanzibar's house gate), written by h2_physics_props.py, lit by
+    # Unreal (they have no lightmap page).
+    if m.get("extra_decor"):
+        extra = json.load(open(m["extra_decor"], encoding="utf-8"))
+        for item in extra:
+            item["materials"] = [prop_lit(mat, {}) if isinstance(mat, dict) else mat for mat in item.get("materials") or []]
+        level.setdefault("decor", []).extend(extra)
+        print(f"  {code}: {len(extra)} extra decor mesh(es): {', '.join(str(i.get('mesh', '')).split('.')[-1] for i in extra)}")
+    lit_machines = 0
+    for item in level.get("decor") or []:
+        if isinstance(item, dict) and item.get("motion") and isinstance(item.get("materials"), list):
+            item["materials"] = [prop_lit(mat, {}) if isinstance(mat, dict) else mat for mat in item["materials"]]
+            lit_machines += 1
+    if lit_machines:
+        print(f"  {code}: {lit_machines} turning machine mesh(es) lit by Unreal")
     # `physics_props`: the loader draws each crate as the prop (props.lua):
     # the prop's mesh with the materials and transform terrain.json gives it.
     dress = []
-    for prop in m.get("physics_props") or []:
+    for prop in physics_props(m):
         entry = next((t for t in json.load(open(prop["terrain"], encoding="utf-8"))
                       if t.get("mesh") == prop["mesh"]), None)
         if not entry:
             sys.exit(f"{code}: physics prop mesh {prop['mesh']} is not in {prop['terrain']}")
         dress.append({"actor_class": prop["actor_class"], "mesh": prop["mesh"], "pos": entry.get("pos") or [0, 0, 0],
                       "scale": entry.get("scale") or 1.0,
-                      "materials": [prop_lit(mat, prop) for mat in entry.get("materials") or []]})
+                      "materials": [prop_lit(mat, prop) for mat in entry.get("materials") or []],
+                      # Where its crates start (Unreal cm, as the bake places
+                      # them): props.lua dresses a crate as the prop placed
+                      # nearest where it first appears, so prop types can
+                      # share one crate actor class.
+                      "spawns": [o["pos"] for o in physics_prop_objects(m) if o["tag"] == prop["crate"]],
+                      # Played where the prop dies (props.lua): Niagara
+                      # systems, a decal, Halo 2's own death sounds.
+                      **({"death_fx": prop["death_fx"]} if prop.get("death_fx") else {})})
     # The redrawn textures, as the decor above: the props drew the
     # conversion's own low-resolution maps (Zanzibar's coils, 2026-11-15).
     if dress and m.get("redrawn") and os.path.exists(manifest):

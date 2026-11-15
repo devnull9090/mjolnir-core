@@ -3532,13 +3532,37 @@ PROP_GLOW_CODE = r"""
 if (HasSelfIllum < 0.5) return 0.0.xxx;
 float pulse = 1.0 - GlowPulse.x * 0.5 * (1.0 + sin(6.2831853 * Time / max(GlowPulse.y, 0.05)));
 float3 g = Glow.rgb * GlowTint.rgb;
+// H2Glow: Halo 2's plasma illumination (tex_bump_plasma_one_channel_illum,
+// a fusion coil's core): the map is a one-channel mask, lit by a colour that
+// runs from the damaged colour (H2Damaged) to the healthy one (H2Healthy)
+// with the object's health (Health 0..1, set by props.lua), flickering
+// harder as it falls. Orange whole, pink-red shot, as Halo 2 draws it.
+if (H2Glow > 0.5)
+{
+    float h = saturate(Health);
+    float m = max(Glow.r, Glow.g);
+    float hurt = 1.0 - h;
+    float jitter = 1.0 - hurt * 0.35 * (0.5 + 0.5 * sin(Time * 31.0) * sin(Time * 17.0 + 0.7));
+    g = m * lerp(H2Damaged.rgb, H2Healthy.rgb, h) * jitter * (1.0 + hurt * 0.6);
+}
 float band = 0.5 + 0.5 * sin(6.2831853 * (UV.y * Fusion.x + Time * Fusion.y));
 band = lerp(1.0, 0.35 + 1.3 * band * band, Fusion.z);
 float flicker = 0.92 + 0.08 * sin(Time * 37.0) * sin(Time * 23.0 + 1.3);
 float2 cell = floor(UV * float2(12.0, 40.0)) + floor(Time * 9.0);
 float spark = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453) > 0.96 ? 1.8 : 1.0;
 float3 haze = HazeColor.rgb * FusionHaze * (0.6 + 0.4 * band);
-return (g * band * flicker * spark + haze) * GlowBrightness * pulse;
+// Charred (a destroyed prop, props.lua): the glow is out.
+return (g * band * flicker * spark + haze) * GlowBrightness * pulse * (1.0 - saturate(Charred));
+"""
+
+# A destroyed prop, burnt (Charred 0..1, set by props.lua when the crate dies):
+# the colour sinks to soot with a little of the base's own pattern left in
+# it, so it does not read as a flat black cut-out. (Mottling from square noise
+# cells read as a checkerboard, 2026-11-15.)
+PROP_CHAR_CODE = r"""
+float l = dot(C, float3(0.3, 0.59, 0.11));
+float3 soot = float3(0.014, 0.012, 0.010) + l * float3(0.09, 0.08, 0.07);
+return lerp(C, soot, saturate(Charred));
 """
 
 
@@ -3582,6 +3606,11 @@ def build_prop_lit(defaults):
                       [("B", base, "RGBA"), ("P", primary, "RGBA"), ("HasPrimary", g.scalar("HasPrimary", 0.0), ""),
                        ("Gain", g.scalar("AlbedoGain", 1.0), ""), ("G", glow, "RGBA"), ("HasSelfIllum", has_glow, ""),
                        ("Darken", g.scalar("GlowDarken", 0.9), "")], description="prop colour")
+    charred = g.scalar("Charred", 0.0)
+    colour = g.custom(PROP_CHAR_CODE, [("C", colour, ""), ("Charred", charred, "")],
+                      description="prop char")
+    rough = g.custom("return lerp(R, 0.95, saturate(Charred));",
+                     [("R", g.scalar("Roughness", 0.55), ""), ("Charred", charred, "")], description="prop roughness")
     bump = g.texture("Bump", flat, scaled("BumpScale"))
     normal = g.custom(NORMAL_CODE, [("Bump", bump, "RGBA"), ("HasBump", g.scalar("HasBump", 0.0), ""),
                                     ("BumpIsSpecMask", g.scalar("BumpIsSpecMask", 0.0), "")], description="prop normal")
@@ -3590,14 +3619,49 @@ def build_prop_lit(defaults):
         ("GlowTint", g.vector("GlowTint", (1.0, 1.0, 1.0, 1.0)), ""), ("GlowBrightness", g.scalar("GlowBrightness", 8.0), ""),
         ("GlowPulse", g.vector("GlowPulse", (0.0, 1.0, 0.0, 0.0)), ""),
         ("Fusion", g.vector("Fusion", (3.0, 0.5, 0.0, 0.0)), ""), ("FusionHaze", g.scalar("FusionHaze", 0.0), ""),
-        ("HazeColor", g.vector("HazeColor", (0.08, 0.39, 0.0, 1.0)), ""),
+        ("HazeColor", g.vector("HazeColor", (0.08, 0.39, 0.0, 1.0)), ""), ("Charred", charred, ""),
+        ("H2Glow", g.scalar("H2Glow", 0.0), ""), ("Health", g.scalar("Health", 1.0), ""),
+        ("H2Healthy", g.vector("H2Healthy", (1.0, 0.56, 0.17, 1.0)), ""),
+        ("H2Damaged", g.vector("H2Damaged", (1.0, 0.53, 0.53, 1.0)), ""),
         ("Time", g.node(unreal.MaterialExpressionTime, x=-2000), "")], description="prop glow")
     mel.connect_material_property(colour, "", unreal.MaterialProperty.MP_BASE_COLOR)
     mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
     mel.connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    mel.connect_material_property(g.scalar("Roughness", 0.55), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.connect_material_property(g.scalar("Metallic", 0.0), "", unreal.MaterialProperty.MP_METALLIC)
     mel.connect_material_property(g.scalar("Specular", 0.4), "", unreal.MaterialProperty.MP_SPECULAR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
+def build_prop_overlay(defaults):
+    """M_CE_PropOverlay: a moving prop's Halo 2 `overlay` pass (the military
+    crates' stencils: MKT1 EMERGENCY FOOD on a packing crate), 2 x base
+    multiplied over what lies under it. The converted level bakes the
+    multiply into a darkening alpha copy (`__overlay`), which drops every
+    texel that brightens: a stencil whose text is brighter than neutral grey
+    drew nothing on the crates (Zanzibar, 2026-11-15). Modulate blend, so it
+    brightens as well as darkens; the factor is made linear (CE's maps are
+    read as gamma values); drawn before depth of field (the after-DOF
+    translucency pass drew Zanzibar's multiplies as nothing)."""
+    # A modulate blend drew nothing on Zanzibar in either translucency pass
+    # (OverlayStrength 0.2 left the crate unchanged, 2026-11-15): the stencil
+    # is paint, so it is drawn as a masked, lit surface, its colour where it
+    # brightens past neutral grey (the text and markings; 2x of a 0.5..1 map
+    # over the crate's own colour) and cut away elsewhere.
+    m = fresh(ROOT, "M_CE_PropOverlay", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    m.set_editor_property("two_sided", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    base = g.texture("Map0", defaults["T_CE_Grey"], g.uv(0))
+    paint = g.custom("return pow(saturate(B.rgb * Strength), 2.2);",
+                     [("B", base, "RGBA"), ("Strength", g.scalar("OverlayStrength", 1.0), "")], description="paint")
+    mask = g.custom("float lift = max(B.r, max(B.g, B.b)) * 2.0 - 1.0;\nreturn saturate((lift - Cut) * 8.0);",
+                    [("B", base, "RGBA"), ("Cut", g.scalar("OverlayCut", 0.12), "")], description="paint mask")
+    mel.connect_material_property(paint, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(mask, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    mel.connect_material_property(g.scalar("OverlayRoughness", 0.7), "", unreal.MaterialProperty.MP_ROUGHNESS)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -3636,6 +3700,7 @@ elif TRIAL_ROOT:
     build_plasma(defaults)
     # Converted props that move (physics_props): lit by Unreal.
     build_prop_lit(defaults)
+    build_prop_overlay(defaults)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")

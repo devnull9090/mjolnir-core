@@ -74,6 +74,13 @@ pub struct NewTagArgs {
     /// copies can be edited. Repeatable.
     #[arg(long = "resize")]
     resizes: Vec<String>,
+    /// Keep only the listed elements of a block at any depth, as
+    /// `PATH=i,j,...` (in that order; nothing after `=` empties the block),
+    /// e.g. `damage info.damage sections[0].instant responses=2`. Runs after
+    /// `--graft` and before `--resize`, so a grafted block can be trimmed to
+    /// the elements wanted. Repeatable; each runs on the previous one's result.
+    #[arg(long = "keep")]
+    keeps: Vec<String>,
     /// Replace the donor's body wholesale with this file (a complete tag
     /// payload written by another tool, e.g. an animation graph with a
     /// resource of its own), before any `--graft` or `--set`.
@@ -149,6 +156,19 @@ pub fn run(a: NewTagArgs) -> Result<()> {
             "  graft  {target} <- {count} element(s) of {} {path}",
             from.path
         );
+    }
+    for spec in &a.keeps {
+        let (block, list) = spec
+            .rsplit_once('=')
+            .with_context(|| format!("--keep takes PATH=i,j,..., got {spec:?}"))?;
+        let indices = list
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse::<usize>().with_context(|| format!("--keep index {s:?} in {spec:?}")))
+            .collect::<Result<Vec<_>>>()?;
+        grafted = blam_tag::blockedit::select(&grafted, &[(block.to_string(), indices.clone())])?;
+        println!("  keep   {block}: {indices:?}");
     }
     for spec in &a.resizes {
         let (block, n) = spec

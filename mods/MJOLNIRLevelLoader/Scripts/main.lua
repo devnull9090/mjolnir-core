@@ -6363,11 +6363,15 @@ local function watch()
         if not Current.props then
             Current.props = dofile(MOD_DIR .. "\\Scripts\\props.lua").new({
                 Log = Log, resolveMesh = resolveMesh, findObject = findObject, applyMaterials = applyMaterials,
-                hideAllBut = hideAllBut, getWorld = getWorld, Current = Current,
+                hideAllBut = hideAllBut, getWorld = getWorld, Current = Current, gameVolume = gameVolume,
                 MOBILITY_MOVABLE = MOBILITY_MOVABLE, COLLISION_NONE = COLLISION_NONE,
             })
         end
         Current.props.tick()
+    end)
+    -- A destroyed prop turns charred as it dies, not up to 1.5 s later.
+    every(250, "prop deaths", function()
+        if Current.props then Current.props.deaths() end
     end)
 end
 

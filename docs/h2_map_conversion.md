@@ -397,6 +397,34 @@ units and axes, so every later step reads them unchanged:
   turn's phase (the simulation starts its gears about 25 s off the world
   clock) for the sounds. Checked on Ascension: a player dropped on an arm
   stands on it and is carried round as it turns.
+- **Props that move and break.** A crate (`bloc`) whose physics model has
+  a rigid body that is neither keyframed nor fixed moves in Halo 2; one
+  with constraints (Zanzibar's hanging lights, crane, awnings) is held and
+  stays still. `crate::h2::props` reads it from the tags and the stage
+  writes it onto the placement: `h2_physics` (mass, motion type, bodies,
+  constraints), `h2_damage` (the model's damage info, 0x60: vitality and
+  every instant response with its effect, damage effect, and the sounds
+  and decals the effect references, the sounds staged as one-shots) and
+  `h2_functions`. `tools/level/h2_physics_props.py` turns every movable
+  type into crate tags (a physics shape of the model's box, mass from
+  Halo 2's, and a death response when Halo 2's kills it: the fusion coil's
+  15 vitality), takes the props out of the merged meshes and builds their
+  meshes; the level loader (props.lua) dresses each crate as the prop placed
+  nearest where it first appears, so every type shares one crate actor
+  class. Zanzibar: 11 types over 55 placements. A dying prop plays our
+  fuel-rod explosion and fire, a plasma scorch and Halo 2's own death sound
+  (`sound\visual_effects\fusion_coil_destroyed`, 13 variants; this game's
+  Wwise events cannot be posted from a mod), and stays, burnt. A coil's
+  core (`tex_bump_plasma_one_channel_illum`) is a one-channel mask lit by a
+  colour running from its damaged pink-red (pixel constant 3) to its
+  healthy orange with the object's `health` function; read as a picture
+  its green channel drew the coils green. A prop's `overlay` stencil (the
+  crates' MKT1 EMERGENCY FOOD) is drawn as masked paint on the prop: the
+  level's darkening copy loses text that brightens. A door (machine type 1:
+  Zanzibar's house gate, 13 parts that swing and slide open from a keypad)
+  is drawn closed, without collision, as static decor; its opening is not
+  drawn yet. Turning machines are lit by Unreal (their object page drew
+  black, and a black flywheel turning read as one standing still).
 - **Teleporters.** Halo 2's teleporter scenery (Ascension's
   `2way_teleporter` bases) is placed like any other prop: the generator's
   working pads on the teleporter flags draw nothing. Its beam is a
