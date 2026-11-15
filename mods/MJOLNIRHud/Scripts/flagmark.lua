@@ -86,11 +86,24 @@ local function watch()
     end
 end
 
+--- The mesh synchronization class, found once and kept: StaticFindObject
+--- costs about 1 ms, and this was one a flag (or the ball) every 0.2 s. When no
+--- path resolves, it waits before trying the paths again.
+local SYNC_RETRY_SECONDS = 5
+local meshSync, syncRetryAt = nil, nil
 local function syncClass()
+    if meshSync and meshSync:IsValid() then return meshSync end
+    meshSync = nil
+    local t = os.clock()
+    if syncRetryAt and t < syncRetryAt then return nil end
     for _, path in ipairs(MESH_SYNC) do
         local class = StaticFindObject(path)
-        if class and class:IsValid() then return class end
+        if class and class:IsValid() then
+            meshSync, syncRetryAt = class, nil
+            return class
+        end
     end
+    syncRetryAt = t + SYNC_RETRY_SECONDS
     return nil
 end
 

@@ -71,8 +71,8 @@ The AssetRegistry's `GetFirstPackageByName` is slot 30 on both builds.
 `native/lobby` finds everything by code pattern. On the Xbox app every
 pattern matches once, as on Steam, except two. One is the Steam join hook,
 replaced as described below. The other is the presence session's 4-player
-literal, which does not exist on the Xbox app. The fireteam still shows
-16 slots there.
+literal, which does not exist on the Xbox app, so the lobby DLL searches for
+it only on Steam. The fireteam still shows 16 slots there.
 
 ## Joins by connection string
 

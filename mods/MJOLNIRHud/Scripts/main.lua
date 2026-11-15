@@ -49,6 +49,9 @@ local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
 local TacticalMap = dofile(MOD_DIR .. "\\Scripts\\tactical_map.lua")
 local Tactical
 local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
+local Bipeds = dofile(MOD_DIR .. "\\Scripts\\bipeds.lua")
+local Roster = dofile(MOD_DIR .. "\\Scripts\\roster.lua")
+local Medals = dofile(MOD_DIR .. "\\Scripts\\medals.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
 do
@@ -62,7 +65,19 @@ end
 local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
     "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat", "WBP_MJOLNIRTacticalMap",
 }, Log)
-Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log)
+-- Every biped actor from here on, before any map makes its pools: the bots and
+-- findBipeds read them without walking the object array (Scripts/bipeds.lua).
+Bipeds.arm(Log)
+Bots.init(MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR, Log, Bipeds)
+-- Every player's place from the simulation, through MJOLNIRLobby's DLL
+-- (Scripts/roster.lua): the markers read it in place of actors when it is there.
+local PlayerRoster = Roster.new((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll",
+    package and package.loadlib, Log)
+-- Medals: which incidents are medals, what hides what and how each is shown
+-- are decided in the same DLL (Scripts/medals.lua, native/lobby/medals_core.h).
+local MedalBook = Medals.new((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll",
+    package and package.loadlib, Log)
+Relay.isMedal = MedalBook.known
 
 --- The match log must never break the HUD: a failure in it is logged, and
 --- the feed, the board and the end of the match go on.
@@ -156,6 +171,7 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     end,
     Board = Scoreboard,
     log = Log,
+    Roster = PlayerRoster,
     readLevel = function(map)
         local root = MOD_DIR:match("^(.*)\\Mods\\[^\\]*$") or MOD_DIR
         return readFile(root .. "\\MJOLNIRMaps\\" .. map .. "\\level.json")
@@ -263,8 +279,7 @@ end
 
 --- The match in progress: { code, variant, title, mode, players = { [index] =
 --- stats }, feed (Scripts/feed.lua), anim (Scripts/anim.lua), deaths =
---- { {victim, at, damage} }, medals (lines waiting for the end of a drain),
---- teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
+--- { {victim, at, damage} }, teams = { [0] = n, [1] = n }, respawnTicks, dead }, or nil.
 local Match = nil
 
 --- Each seat's team as the host told it (Relay.TEAMS), on a fireteam client;
@@ -326,34 +341,15 @@ end
 --- returns a pointer that is no object, unsafe to read (a joiner crashed
 --- while the HUD called it every second).
 ---
---- FindAllOf walks the whole object array (about 23 ms a class; one search
---- after a joiner's respawn held a frame 89 ms), so it runs once a match, the
---- first time a biped is wanted. Biped actors are pooled and made ahead, and
---- NotifyOnNewObject brings any made later, as Scripts/bots.lua does. A
---- search then only asks the known actors who controls them.
+--- The biped actors come from Scripts/bipeds.lua, which has seen every one
+--- made since the mod loaded, so a search only asks the known actors who
+--- controls them. They were found with FindAllOf (about 23 ms a class; one
+--- search after a joiner's respawn held a frame 89 ms), once a match and again
+--- every 2 s while no Spartan had been seen. That is still the way, once a
+--- match, if the watch could not be armed.
 local PLAYER_BIPEDS = { "BP_SpartansBipedActor_C", "BP_EliteBipedActor_C" }
 local BIPED_CHECK_EVERY = 0.5
 local BIPED_FIND_EVERY = 2
-local bipedPool, bipedWatched = {}, {}
-
-local function poolBiped(actor)
-    local ok, address = pcall(function() return actor:GetAddress() end)
-    if ok and address then bipedPool[address] = actor end
-end
-
---- This match's biped actors, found once; later ones arrive by themselves.
-local function fillBipedPool()
-    bipedPool = {}
-    for _, class in ipairs(PLAYER_BIPEDS) do
-        for _, actor in ipairs(FindAllOf(class) or {}) do
-            poolBiped(actor)
-            if not bipedWatched[class] then
-                local ok, path = pcall(function() return actor:GetClass():GetFullName():match("%s(/%S+)$") end)
-                if ok and path then bipedWatched[class] = pcall(NotifyOnNewObject, path, poolBiped) end
-            end
-        end
-    end
-end
 
 local function findBipeds()
     local mode = Match and Match.mode
@@ -380,20 +376,21 @@ local function findBipeds()
     end
     if not missing then return end
     Match.nextBipedFind = t + BIPED_FIND_EVERY
-    -- Once a match, and again while no Spartan has been seen to watch the
-    -- class by: a team game asks before anyone has spawned.
-    if not Match.bipedsFound or not bipedWatched[PLAYER_BIPEDS[1]] then
+    if not Bipeds.armed() and not Match.bipedsFound then
         Match.bipedsFound = true
-        fillBipedPool()
+        for _, class in ipairs(PLAYER_BIPEDS) do Bipeds.scan(class) end
     end
-    for address, actor in pairs(bipedPool) do
-        local okV, valid = pcall(function() return actor:IsValid() end)
-        if not (okV and valid) then
-            bipedPool[address] = nil
-        else
-            local index = controllerOf(actor)
-            local p = index and Match.players[index]
-            if p and not p.bot then p.biped = actor end
+    for _, class in ipairs(PLAYER_BIPEDS) do
+        local set = Bipeds.of(class)
+        for address, actor in pairs(set) do
+            local okV, valid = pcall(function() return actor:IsValid() end)
+            if not (okV and valid) then
+                set[address] = nil
+            else
+                local index = controllerOf(actor)
+                local p = index and Match.players[index]
+                if p and not p.bot then p.biped = actor end
+            end
         end
     end
 end
@@ -580,36 +577,26 @@ HANDLERS.suicide = function(inc)
     boardDirty = true
 end
 
---- Medals: everyone's go to the feed after the kill line that earned them
---- (they arrive before it in the same tick); the local player's also come
---- up in the middle of the screen. Multi-kills and sprees are relayed by the
---- host to fireteam clients (MJOLNIRLevelLoader plays their sounds).
-local MEDALS = { first_blood = { "First Blood", "FirstBlood", FEED.blood } }
-for i, title in ipairs({ "Double Kill", "Triple Kill", "Overkill", "Killtacular", "Killtrocity",
-    "Killimanjaro", "Killtastrophe", "Killpocalypse", "Killionaire" }) do
-    MEDALS["multikill_x" .. (i + 1)] = { title, "Medal", FEED.medal }
-end
-for n, title in pairs({ [5] = "Killing Spree", [10] = "Killing Frenzy", [15] = "Running Riot", [20] = "Rampage",
-    [25] = "Untouchable", [30] = "Invincible" }) do
-    MEDALS[n .. "_in_a_row"] = { title, "Spree", FEED.spree }
-end
-
-local function medal(inc)
-    local m = MEDALS[inc.name]
-    if not m or type(inc.cause) ~= "number" or inc.cause < 0 then return end
-    Match.medals[#Match.medals + 1] = { index = inc.cause, medal = m }
-end
-for name in pairs(MEDALS) do HANDLERS[name] = medal end
-
-local function announceMedals()
-    for _, waiting in ipairs(Match.medals) do
-        local m = waiting.medal
-        eventLine(waiting.index, m[2], m[3], m[1], m[3])
-        if waiting.index == LOCAL_PLAYER then
-            Anim.callout(Match.anim, { title = string.upper(m[1]), glyph = m[2], color = m[3] }, now())
+--- Medals (Scripts/medals.lua): the DLL settles them once a drain, after
+--- the kill lines that earned them (they arrive before those, in the same
+--- tick), best first. A feed medal is a line for everyone; the local
+--- player's own come up in the middle of the screen, three from one burst.
+local function announceMedals(awards)
+    local callouts = {}
+    for _, a in ipairs(awards) do
+        local colour = FEED[a.colour] or FEED.medal
+        if type(a.cause) == "number" and a.cause >= 0 then
+            -- The tally the results carry to the post-game screen.
+            local p = stats(a.cause)
+            p.medals = p.medals or {}
+            p.medals[a.name] = (p.medals[a.name] or 0) + 1
+            if a.show == Medals.FEED then eventLine(a.cause, a.glyph, colour, a.title, colour) end
+            if a.show ~= Medals.HIDDEN and a.cause == LOCAL_PLAYER and #callouts < 3 then
+                callouts[#callouts + 1] = { title = string.upper(a.title), glyph = a.glyph, color = colour }
+            end
         end
     end
-    Match.medals = {}
+    for _, c in ipairs(callouts) do Anim.callout(Match.anim, c, now()) end
 end
 
 HANDLERS.death = function(inc)
@@ -771,6 +758,7 @@ local function finishMatch(how)
     end
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
+    Scoreboard.sample(Match, now(), true)
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
     -- The match's id, which the post-game screen's reports cite: the host's
     -- own record's, or the one the host told this client.
@@ -947,8 +935,13 @@ local function drain()
         end
         if not skip and Relay.carried(inc.name) then
             skip = Relay.seen(Match.recent, inc)
-            if not skip and not inc.relayed and Match.host and not Match.over then outgoing[#outgoing + 1] = inc end
+            -- A medal crosses once settled (below); a capture as it comes.
+            if not skip and not inc.relayed and Match.host and not Match.over
+                and (Relay.raw(inc.name) or not MedalBook.known(inc.name)) then
+                outgoing[#outgoing + 1] = inc
+            end
         end
+        if not skip and not Match.over then MedalBook.add(inc) end
         -- After the end the tallies are final: the round the game resets in
         -- place behind the standings must not score.
         if not skip and not Match.over and not inc.relayed then logSafely("incident", MatchLog.incident, inc) end
@@ -971,6 +964,15 @@ local function drain()
     end
     for _, inc in ipairs(held) do Queue[#Queue + 1] = inc end
     if not Match then return end
+    local awards = MedalBook.take(now())
+    if Match.over then awards = {} end
+    if Match.host then
+        for _, a in ipairs(awards) do
+            if not Relay.raw(a.name) then
+                outgoing[#outgoing + 1] = { name = a.name, cause = a.cause, effect = a.effect, value = 0 }
+            end
+        end
+    end
     if #outgoing > 0 then
         -- A joiner has the bots' names before the first line that needs them.
         syncBotNames()
@@ -982,7 +984,7 @@ local function drain()
             Log("relay: the feed to " .. tostring(sent) .. " player(s)")
         end
     end
-    if #Match.medals > 0 then announceMedals() end
+    if #awards > 0 then announceMedals(awards) end
     if botScoreReached() then finishMatch("round over") end
     -- Deaths no kill or suicide line explained: a fall, the guardians.
     local t = now()
@@ -1055,7 +1057,7 @@ local function relayed(text)
         return
     end
     local name, cause, value, effect = text:match("^MJOLNIR|event|([%w_]+)|(-?%d+)|(-?%d+)|(-?%d+)$")
-    if not name or not MEDALS[name] or #Queue >= 64 then return end
+    if not name or not MedalBook.known(name) or #Queue >= 64 then return end
     Queue[#Queue + 1] = { name = name, cause = tonumber(cause), value = tonumber(value), effect = tonumber(effect),
         at = now(), relayed = true, source = "sound" }
 end
@@ -1524,6 +1526,8 @@ local function modeFor(variant)
 end
 
 local function startMatch(running, world)
+    -- Nothing the DLL held from the last match (it outlives a Lua reload).
+    MedalBook.reset()
     Match = {
         code = running.code,
         variant = running.variant,
@@ -1532,7 +1536,6 @@ local function startMatch(running, world)
         players = {},
         feed = Rows.new(),
         anim = Anim.new(),
-        medals = {},
         recent = {},
         deaths = {},
         teams = { [0] = 0, [1] = 0 },
@@ -1858,6 +1861,8 @@ local function tick()
     end
     if code ~= lastWorld then
         lastWorld = code
+        -- The last world's bipeds are gone; campaign missions make hundreds.
+        pcall(Bipeds.prune)
         local running = runningMatch()
         if Match then endMatch() end
         if running and code == running.code then startMatch(running, code) end
@@ -1881,12 +1886,13 @@ local function tick()
     pcall(findBipeds)
     if Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER, code) then boardDirty = true end
     -- The host finds its fireteam's controllers once, then as they come; a
-    -- few seconds in, off the tick that makes the widgets.
+    -- few seconds in, off the tick that makes the widgets. Its bots start on a
+    -- later poll than that search (a FindAllOf, about 25 ms in a match): the
+    -- two shared one poll before.
     if Match.host and not Match.relayArmed and now() - Match.startedAt > 3 then
         Match.relayArmed = true
         pcall(Relay.arm)
-    end
-    if Match.host and not Match.botsChecked and now() - Match.startedAt > 3 then
+    elseif Match.host and Match.relayArmed and not Match.botsChecked and now() - Match.startedAt > 3 then
         Match.botsChecked = true
         startBots(Bots.wanted(LOADER_DIR))
     end
@@ -1927,6 +1933,8 @@ local function tick()
             finishMatch(Match.warfareEnd.how)
         end
     end
+    -- The match over time, for the post-game charts (Scoreboard.sample).
+    if not Match.over then Scoreboard.sample(Match, now()) end
     publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
     demoTick()
     if Match.demoUntil and now() >= Match.demoUntil then
@@ -2008,7 +2016,7 @@ end)
 -- UE4SS.log: a two-PC test reads it on a client.
 pcall(RegisterConsoleCommandHandler, "mjolnir_markers", function(_, _, ar)
     ExecuteInGameThread(function()
-        local okD, said = pcall(Markers.describe, Match, playerController())
+        local okD, said = pcall(Markers.describe, Match, playerController(), LOCAL_PLAYER)
         Log(okD and ("markers: " .. tostring(said)) or ("mjolnir_markers: " .. tostring(said)))
     end)
     pcall(function() ar:Log("MJOLNIR HUD: see UE4SS.log") end)

@@ -8,6 +8,7 @@
 import { z } from "@hono/zod-openapi";
 
 import { DeclaredChangesSchema } from "./changes";
+import { parseRequires } from "./clients";
 
 // ── Common ────────────────────────────────────────────────────────────
 
@@ -249,6 +250,14 @@ export const ReleaseSchema = z
     signer_key_revoked: z.boolean().openapi({
       description: "True when the author's signing key has been revoked since publish.",
     }),
+    requires: z.array(z.string()).openapi({
+      description:
+        "Launcher features this release needs, measured from its archive at publish: " +
+        "`local-chunk-numbers` when a shader library sits under a pakchunk number launchers " +
+        "up to 0.23 cannot load, or shares its library chunk with another mod's release. " +
+        "Empty for none. Launchers send `X-MJOLNIR-Launcher` and `X-MJOLNIR-Features` " +
+        "(comma-separated); a launcher's list views leave out releases it cannot install.",
+    }),
   })
   .openapi("Release");
 
@@ -297,7 +306,14 @@ export const ReleaseStatusSchema = z
     id: z.string(),
     mod_id: z.string(),
     version: z.string(),
-    status: z.enum(["pending", "scanning", "published", "rejected", "yanked"]),
+    status: z
+      .union([z.enum(["pending", "scanning", "published", "rejected", "yanked"]), z.string()])
+      .openapi({
+        description:
+          "One of pending, scanning, published, rejected, yanked. A launcher up to 0.23 " +
+          "(no User-Agent, no `X-MJOLNIR-Launcher`) asking for a published release it " +
+          "cannot install gets a sentence telling it to update instead, which it shows.",
+      }),
     sha256: z.string().nullable(),
     signature: z.string().nullable(),
     file_size: z.number().int().nullable(),
@@ -318,6 +334,14 @@ export const ReleaseStatusSchema = z
     }),
     signer_key_revoked: z.boolean().openapi({
       description: "True when the signing key has been revoked since this release published.",
+    }),
+    requires: z.array(z.string()).openapi({
+      description:
+        "Launcher features this release needs, measured from its archive at publish: " +
+        "`local-chunk-numbers` when a shader library sits under a pakchunk number launchers " +
+        "up to 0.23 cannot load, or shares its library chunk with another mod's release. " +
+        "Empty for none. Launchers send `X-MJOLNIR-Launcher` and `X-MJOLNIR-Features` " +
+        "(comma-separated); a launcher's list views leave out releases it cannot install.",
     }),
   })
   .openapi("ReleaseStatus");
@@ -570,5 +594,6 @@ export function releaseFromRow(r: any): z.infer<typeof ReleaseSchema> {
     published_by_username: r.publisher_display_name ?? r.publisher_discord_username ?? null,
     signer_fingerprint: r.signer_fingerprint ?? null,
     signer_key_revoked: Boolean(r.signer_key_revoked_at),
+    requires: parseRequires(r.requires),
   };
 }

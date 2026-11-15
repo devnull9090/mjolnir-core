@@ -108,6 +108,10 @@ pub struct Geometry {
     /// A second uv channel per vertex (a lightmap's own layout, say). Empty
     /// writes a single channel.
     pub uvs1: Vec<f32>,
+    /// Further uv channels (2, 3, ...), each a uv per vertex: data for a
+    /// material (a Halo 2 sprite's way to its pivot). Any of them writes the
+    /// second channel too (zeros when `uvs1` is empty).
+    pub uvs_more: Vec<Vec<f32>>,
     /// xyzw per vertex: the tangent and the bitangent's sign (glTF's
     /// convention). Empty derives tangents from the first uv channel.
     pub tangents: Vec<f32>,
@@ -406,8 +410,15 @@ fn write_lod_array(geo: &Geometry, flags: DonorFlags) -> Vec<u8> {
 
     // FStaticMeshVertexBuffer: full-precision UVs (a material that tiles a
     // detail map a hundred times over the base UVs turns half-precision
-    // rounding into visible steps), one or two channels, packed tangents.
-    let channels: u32 = if geo.uvs1.is_empty() { 1 } else { 2 };
+    // rounding into visible steps), one or two channels (or more, with
+    // `uvs_more`), packed tangents.
+    let channels: u32 = if !geo.uvs_more.is_empty() {
+        2 + geo.uvs_more.len() as u32
+    } else if geo.uvs1.is_empty() {
+        1
+    } else {
+        2
+    };
     u16le(&mut out, 0);
     u32le(&mut out, channels); // NumTexCoords
     u32le(&mut out, verts as u32);
@@ -434,8 +445,13 @@ fn write_lod_array(geo: &Geometry, flags: DonorFlags) -> Vec<u8> {
         let (u, v) = uv(&geo.uvs, i);
         f32le(&mut out, u);
         f32le(&mut out, v);
-        if channels == 2 {
+        if channels >= 2 {
             let (u, v) = uv(&geo.uvs1, i);
+            f32le(&mut out, u);
+            f32le(&mut out, v);
+        }
+        for set in &geo.uvs_more {
+            let (u, v) = uv(set, i);
             f32le(&mut out, u);
             f32le(&mut out, v);
         }

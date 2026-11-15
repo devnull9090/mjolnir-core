@@ -36,7 +36,10 @@ class PreviewSwapTests(unittest.TestCase):
         self.originals = {}
         hashes = {}
         for index, stem in enumerate(swap.CONTAINERS):
-            base = self.paks / f'pakchunk{968 + index}-MJOLNIRHUB-{swap.SLUG}-{index}_P'
+            # The launcher's names: a local chunk number and a load-order
+            # suffix (container 4 keeps the older `-<index>_P` form).
+            name = f'{index}_P' if index == 4 else f'{index}_{1632 + 4 * index}_P'
+            base = self.paks / f'pakchunk{10158 + index}-MJOLNIRHUB-{swap.SLUG}-{name}'
             self.write(base.with_suffix('.pak'), f'unchanged pak stub {index}'.encode())
             for ext in ('utoc', 'ucas'):
                 dst = base.with_suffix('.' + ext)
@@ -67,6 +70,23 @@ class PreviewSwapTests(unittest.TestCase):
         self.closed = mock.patch.object(swap, 'require_game_closed')
         self.closed.start()
         self.addCleanup(self.closed.stop)
+        # `mjolnir dev`, faked: the local builds it holds, by name.
+        self.builds = {}
+        self.cli_calls = []
+
+        def run_cli(command):
+            self.cli_calls.append(command[1:3])
+            self.assertEqual(command[-2:], ['--paks', str(self.paks.resolve())])
+            if command[1:3] == ['dev', 'list']:
+                return json.dumps({'builds': [{'name': n} for n in self.builds], 'shadowed': []})
+            if command[1:3] == ['dev', 'install']:
+                self.builds[command[command.index('--name') + 1]] = Path(command[3] + '.ucas').read_bytes()
+            elif command[1:3] == ['dev', 'remove']:
+                self.builds.pop(command[3], None)
+            return 'ok'
+        cli = mock.patch.object(swap, 'run_cli', side_effect=run_cli)
+        cli.start()
+        self.addCleanup(cli.stop)
 
     @staticmethod
     def write(path, contents):
@@ -90,13 +110,20 @@ class PreviewSwapTests(unittest.TestCase):
         manifest_path = self.install()
         manifest = swap.read_json(manifest_path)
         self.assertEqual(manifest['status'], 'installed')
-        self.assertEqual(len(manifest['files']), 16)
+        self.assertEqual(len(manifest['files']), 6)
+        # The staged containers are local builds; the hub's are untouched.
+        self.assertEqual(set(self.builds), set(swap.BUILD_NAMES.values()))
+        self.assertEqual(self.builds['TST-PREVIEW-MAP'], (self.stage / (swap.CONTAINERS[4] + '.ucas')).read_bytes())
+        for path, value in self.originals.items():
+            if path.parent == self.paks.resolve():
+                self.assertEqual(path.read_bytes(), value, str(path))
         self.assertEqual((self.data / 'foliage.bin').read_bytes(), b'new foliage')
         self.assertEqual((self.data / 'flux_state/height.exr').read_bytes(), b'height')
         for entry in manifest['files']:
             self.assertEqual(swap.digest(entry['destination']), entry['staged_sha256'])
         swap.restore(self.backup, self.state, self.game)
         self.assert_originals()
+        self.assertEqual(self.builds, {})
         self.assertFalse((self.data / 'flux_state/height.exr').exists())
         self.assertEqual(swap.read_json(manifest_path)['status'], 'restored')
         self.assertEqual({p: p.read_bytes() for p in self.paks.glob('*.pak')}, original_stubs)
@@ -132,11 +159,32 @@ class PreviewSwapTests(unittest.TestCase):
             with self.assertRaisesRegex(OSError, 'synthetic copy failure'):
                 self.install()
         self.assert_originals()
+        self.assertEqual(self.builds, {})
         self.assertEqual(swap.read_json(self.backup / swap.MANIFEST)['status'], 'rolled_back')
         self.assertFalse((self.data / 'flux_state/height.exr').exists())
 
+    def test_a_failed_build_install_rolls_back_the_builds_and_the_data(self):
+        original = swap.run_cli.side_effect
+
+        def fail_third_install(command):
+            if command[1:3] == ['dev', 'install'] and len(self.builds) == 2:
+                raise RuntimeError('dev install failed')
+            return original(command)
+        swap.run_cli.side_effect = fail_third_install
+        with self.assertRaisesRegex(RuntimeError, 'dev install failed'):
+            self.install()
+        self.assert_originals()
+        self.assertEqual(self.builds, {})
+        self.assertEqual(swap.read_json(self.backup / swap.MANIFEST)['status'], 'rolled_back')
+
+    def test_an_earlier_preview_must_be_restored_first(self):
+        self.builds['TST-PREVIEW-COOK'] = b'left over'
+        with self.assertRaisesRegex(ValueError, 'restore it first'):
+            self.install()
+        self.assertFalse(self.backup.exists())
+
     def test_mismatched_installed_hub_file_is_refused_without_backup_or_changes(self):
-        target = next(iter(self.originals))
+        target = (self.data / 'level.json').resolve()
         target.write_bytes(b'not the launcher version')
         before = {p: p.read_bytes() for p in self.originals}
         with self.assertRaisesRegex(ValueError, 'differs from launcher hash'):
@@ -159,7 +207,7 @@ class PreviewSwapTests(unittest.TestCase):
         self.assert_originals()
 
     def test_same_as_hub_map_is_refused_as_stale(self):
-        base = self.paks / f'pakchunk972-MJOLNIRHUB-{swap.SLUG}-4_P.ucas'
+        base = self.paks / f'pakchunk10162-MJOLNIRHUB-{swap.SLUG}-4_P.ucas'
         self.write(self.stage / (swap.CONTAINERS[4] + '.ucas'), base.read_bytes())
         with self.assertRaisesRegex(ValueError, 'identical to the installed beta'):
             self.install()

@@ -27,6 +27,7 @@ import { registerPlayerRoutes } from "./players";
 import { registerCrashRoutes } from "./crashes";
 import { registerBenchRoutes } from "./benches";
 import { registerForgeRoutes } from "./forge";
+import { CLIENT_VARY, clientOf, compatible } from "./clients";
 import {
   ErrorSchema,
   HealthSchema,
@@ -397,6 +398,10 @@ app.openapi(
     path: "/mods/{slug}/releases",
     tags: ["mods"],
     summary: "Published releases of a mod, newest first",
+    description:
+      "A launcher (`X-MJOLNIR-Launcher`, or no User-Agent at all: launchers up to 0.23) gets " +
+      "only the releases whose `requires` its `X-MJOLNIR-Features` cover; when that is none, " +
+      "only the newest release. Everyone else gets every published release.",
     request: { params: z.object({ slug: z.string() }) },
     responses: {
       200: {
@@ -428,11 +433,18 @@ app.openapi(
        LEFT JOIN users u ON u.id = r.published_by
        LEFT JOIN user_keys k ON k.id = r.signing_key_id
        WHERE r.mod_id = ?1 AND r.status = 'published'
-       ORDER BY r.created_at DESC, r.id DESC`,
+       ORDER BY r.created_at DESC, r.rowid DESC`,
     )
       .bind(mod.id)
       .all();
-    return c.json({ releases: rows.results.map(releaseFromRow) }, 200);
+    c.header("Vary", CLIENT_VARY, { append: true });
+    const all = rows.results.map(releaseFromRow);
+    // A launcher sees the releases it can install. With none, it gets the
+    // newest anyway: a launcher up to 0.23 then asks for it and is told to
+    // update, rather than "This mod has no published releases".
+    const client = clientOf(c.req.raw.headers);
+    const usable = all.filter((r) => compatible(client, r.requires));
+    return c.json({ releases: usable.length || !all.length ? usable : all.slice(0, 1) }, 200);
   },
 );
 

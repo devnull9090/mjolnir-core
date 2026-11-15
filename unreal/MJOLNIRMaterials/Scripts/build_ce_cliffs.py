@@ -63,12 +63,23 @@ def build(code, spec_path):
         uv_channel("uv1"),
         spec["sections"],
         [f"slot_{s}" for s in spec["slots"]],
-        [unreal.LinearColor(w, w, w, 1.0) for w in spec["weight"]],
+        # `colors` (structure_chunks.py: CE's incident light, rgba) or the
+        # grey weight (the cliffs' displacement fade).
+        [unreal.LinearColor(*c) for c in spec["colors"]] if spec.get("colors")
+        else [unreal.LinearColor(w, w, w, 1.0) for w in spec["weight"]],
         [v(*n) for n in spec.get("shade", [])],
     )
     if not ok:
         unreal.log_error(f"MJOLNIR cliffs: {code}: mesh not built")
         return
+    # `lumen_cards` (structure_chunks.py): the mesh's Lumen card budget, so
+    # the surface cache covers a cell's rooms (the default is 12).
+    if spec.get("lumen_cards"):
+        # (The commandlet has no editor subsystems; the static library works.)
+        lib = unreal.EditorStaticMeshLibrary
+        settings = lib.get_lod_build_settings(mesh, 0)
+        settings.set_editor_property("max_lumen_mesh_cards", int(spec["lumen_cards"]))
+        lib.set_lod_build_settings(mesh, 0, settings)
     nanite = mesh.get_editor_property("nanite_settings")
     nanite.set_editor_property("enabled", bool(spec.get("nanite", True)))
     mesh.set_editor_property("nanite_settings", nanite)

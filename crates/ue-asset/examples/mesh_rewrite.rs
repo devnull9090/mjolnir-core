@@ -197,6 +197,7 @@ fn main() {
             normals: lod.normals.clone(),
             uvs: lod.uvs.clone(),
             uvs1: Vec::new(),
+            uvs_more: Vec::new(),
             tangents: Vec::new(),
             colors: Vec::new(),
             indices: lod.indices.clone(),
@@ -296,6 +297,17 @@ fn main() {
     let mut tangents: Vec<f32> = Vec::new();
     let mut incident: Vec<f32> = Vec::new();
     let mut slot_tris: std::collections::BTreeMap<u32, u32> = Default::default();
+    // Channels past the second (TEXCOORD_2, _3): material data some
+    // primitives carry (a Halo 2 sprite's way to its pivot); the others get
+    // zeros so the channels stay aligned.
+    let more = (2..8)
+        .take_while(|k| {
+            doc["meshes"].as_array().into_iter().flatten().any(|m| {
+                m["primitives"].as_array().into_iter().flatten().any(|p| p["attributes"].get(format!("TEXCOORD_{k}")).is_some())
+            })
+        })
+        .count();
+    geo.uvs_more = vec![Vec::new(); more];
     for mesh in doc["meshes"].as_array().unwrap_or(&vec![]) {
         for prim in mesh["primitives"].as_array().unwrap_or(&vec![]) {
             let base = geo.vertices() as u32;
@@ -334,6 +346,12 @@ fn main() {
                     geo.uvs1.extend(accessor_floats(&doc, &bin, t as usize, 2));
                 } else {
                     geo.uvs1.extend(std::iter::repeat(0.0).take(count * 2));
+                }
+            }
+            for (k, set) in geo.uvs_more.iter_mut().enumerate() {
+                match prim["attributes"][format!("TEXCOORD_{}", k + 2)].as_u64() {
+                    Some(t) => set.extend(accessor_floats(&doc, &bin, t as usize, 2)),
+                    None => set.extend(std::iter::repeat(0.0).take(count * 2)),
                 }
             }
             let first = geo.indices.len() as u32;

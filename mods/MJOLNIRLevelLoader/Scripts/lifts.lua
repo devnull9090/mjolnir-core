@@ -3,298 +3,204 @@
 -- In Halo 2 a gravity lift is a prop whose physics model carries phantoms:
 -- shapes that push what enters them along a marker. The simulation our maps
 -- run on has none, so the conversion writes each phantom into the level file
--- (`lifts`, from crate::h2::phantom via tools/level/gen_ce_level.py) and this
--- module pushes players with it, setting their velocity through Blam script
--- ((object_set_velocity (player_get N) forward left up), world units per
--- second in the unit's facing frame).
+-- (`lifts`, from crate::h2::phantom via tools/level/gen_ce_level.py), a Forge
+-- pack block can carry one (pack_lifts.lua), and MJOLNIRLobby's DLL pushes
+-- each of this game's own players through them on the simulation thread,
+-- every tick (native/lobby/lifts_runtime.h). This module only hands the DLL
+-- the running map's phantoms, in the simulation's units, when they change:
+-- a converted level's once a map, a Forge pack's when a piece moves.
 --
--- Each game pushes its own players only: a player's motion is the game
--- that controls it (two PCs, 2026-10-25: a push the host sends a joiner's
--- unit does nothing, and the joiner's own push reaches the host).
---
--- A phantom (Unreal centimetres, relative to canvas.origin): its shape
+-- A phantom here (Unreal centimetres, relative to canvas.origin): its shape
 -- ("planes", n.p + d <= 0 inside, or "pill" ends and "radius"), "bounds"
 -- (x, y, z, r), the marker it pushes from ("origin") and along ("forward"),
 -- and acceleration and top speed pairs: "direction" (along forward), "axis"
 -- (towards the line through origin along forward), "center" (towards
 -- origin). "negates_gravity" holds the player up while inside.
 --
--- Plain helpers (inside, push, toUnit) run under stock Lua in
+-- Plain helpers (toSim, serialize) run under stock Lua in
 -- tools/tests/test_lifts.lua; nothing touches UE4SS before init.
 
 local Lifts = {}
 
---- The simulation's gravity, cm/s^2 (CE's 0.0035651 world units per tick
---- squared at 30 ticks a second; a pushed biped's GetVelocity loses
---- about this much between pushes).
-Lifts.GRAVITY = 978
---- How often a player near a lift is pushed, and how near is near.
-Lifts.FAST_MS = 50
-Lifts.NEAR_CM = 300
+--- The simulation's world unit in Unreal centimetres.
+Lifts.CM_PER_WU = 304.8
+--- What the DLL reads: native/lobby/lifts_core.h has the form.
+Lifts.FILE, Lifts.EXPORT = "lifts.txt", "mjolnir_sim_lifts"
+Lifts.EMPTY = "mjolnir-lifts 1\nend\n"
+--- The DLL's limits (LIFT_MAX, LIFT_MAX_PLANES, LIFT_PLANE_POOL).
+Lifts.MAX, Lifts.MAX_PLANES, Lifts.PLANE_POOL = 128, 256, 4096
 
-local CM_PER_WU = 304.8
+local WU = Lifts.CM_PER_WU
 
-local function dot(a, b) return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] end
+local function finite(n) return type(n) == "number" and n == n and n > -math.huge and n < math.huge end
 
---- Whether point `p` ({x, y, z}) is inside a phantom's shape.
-function Lifts.inside(lift, p)
+local function vector(v, n)
+    if type(v) ~= "table" then return false end
+    for i = 1, n do if not finite(v[i]) then return false end end
+    return true
+end
+
+-- The simulation's world is Unreal's at WU centimetres a unit, its y
+-- Unreal's -Y; a level's positions are relative to its canvas origin.
+local function point(p, o)
+    return { (p[1] + o[1]) / WU, -(p[2] + o[2]) / WU, (p[3] + o[3]) / WU }
+end
+
+local function pair(v)
+    if not vector(v, 2) then return { 0, 0 } end
+    return { v[1] / WU, v[2] / WU }
+end
+
+--- A plain name for the DLL's log: the asset's last path part.
+function Lifts.name(asset)
+    local name = tostring(asset or "lift"):match("[^\\/]+$") or "lift"
+    name = name:gsub("[^%w_%.%-]", "_"):sub(1, 47)
+    return name ~= "" and name or "lift"
+end
+
+--- Phantom `lift` (Unreal cm, relative to canvas origin `origin`) in the
+--- simulation's units: world units, per second, its y flipped. Nil and why
+--- for one the DLL could not use.
+function Lifts.toSim(lift, origin)
+    local o = vector(origin, 3) and origin or { 0, 0, 0 }
+    if type(lift) ~= "table" then return nil, "not a phantom" end
+    if not (vector(lift.origin, 3) and vector(lift.forward, 3) and vector(lift.bounds, 4)) then
+        return nil, "no origin, forward or bounds"
+    end
+    local f = lift.forward
+    local length = math.sqrt(f[1] * f[1] + f[2] * f[2] + f[3] * f[3])
+    if length < 0.99 or length > 1.01 then return nil, "forward is not a unit vector" end
+    local b = point(lift.bounds, o)
+    local out = {
+        name = Lifts.name(lift.asset), negates = lift.negates_gravity and true or false,
+        origin = point(lift.origin, o), forward = { f[1] / length, -f[2] / length, f[3] / length },
+        bounds = { b[1], b[2], b[3], lift.bounds[4] / WU },
+        direction = pair(lift.direction), axis = pair(lift.axis), center = pair(lift.center),
+    }
     if type(lift.planes) == "table" then
-        for _, n in ipairs(lift.planes) do
-            if n[1] * p[1] + n[2] * p[2] + n[3] * p[3] + n[4] > 0 then return false end
+        if #lift.planes < 1 or #lift.planes > Lifts.MAX_PLANES then return nil, "too many planes" end
+        out.planes = {}
+        for i, n in ipairs(lift.planes) do
+            if not vector(n, 4) then return nil, "plane " .. i .. " is not four numbers" end
+            -- n.(p_rel) + d with p_rel = p_sim*WU (y flipped) - origin.
+            out.planes[i] = { n[1], -n[2], n[3], (n[4] - (n[1] * o[1] + n[2] * o[2] + n[3] * o[3])) / WU }
         end
-        return true
-    end
-    if type(lift.pill) == "table" then
-        local a, b = lift.pill[1], lift.pill[2]
-        local ab = { b[1] - a[1], b[2] - a[2], b[3] - a[3] }
-        local ap = { p[1] - a[1], p[2] - a[2], p[3] - a[3] }
-        local len2 = dot(ab, ab)
-        local t = len2 > 0 and math.max(0, math.min(1, dot(ap, ab) / len2)) or 0
-        local d = { ap[1] - ab[1] * t, ap[2] - ab[2] * t, ap[3] - ab[3] * t }
-        return dot(d, d) <= lift.radius * lift.radius
-    end
-    return false
-end
-
---- Whether `p` is within `margin` of a phantom's bounding sphere.
-function Lifts.near(lift, p, margin)
-    local b = lift.bounds
-    if type(b) ~= "table" then return true end
-    local d = { p[1] - b[1], p[2] - b[2], p[3] - b[3] }
-    local r = b[4] + margin
-    return dot(d, d) <= r * r
-end
-
---- Speed `v` gains towards unit direction `u`, at `acc` up to `max`, over `dt`.
-local function towards(v, u, acc, max, dt)
-    if not (acc and acc > 0 and max) then return end
-    local along = dot(v, u)
-    if along >= max then return end
-    local dv = math.min(acc * dt, max - along)
-    v[1], v[2], v[3] = v[1] + u[1] * dv, v[2] + u[2] * dv, v[3] + u[3] * dv
-end
-
---- The unit vector along `diff` and its length; nil under a centimetre.
-local function heading(diff)
-    local len = math.sqrt(dot(diff, diff))
-    if len < 1 then return nil end
-    return { diff[1] / len, diff[2] / len, diff[3] / len }, len
-end
-
---- The velocity (cm/s) a player at `p` moving at `v` has after `dt` seconds
---- in phantom `lift` (gravity aside: see Lifts.sent). Speeds towards the
---- axis or centre are capped so the player slows into it rather than
---- overshooting. `last`, the velocity this push meant one step ago (if it
---- pushed), carries the speed along the push: a biped on the ground reads
---- still after a small push (the ground holds it), so without it a lift
---- never lifts anyone standing.
-function Lifts.push(lift, p, v, dt, last)
-    v = { v[1], v[2], v[3] }
-    local o, f = lift.origin, lift.forward
-    local rel = { p[1] - o[1], p[2] - o[2], p[3] - o[3] }
-    if last then
-        local carry = dot(last, f) - (lift.negates_gravity and 0 or Lifts.GRAVITY * dt * f[3])
-        local along = dot(v, f)
-        if carry > along then
-            v[1], v[2], v[3] = v[1] + f[1] * (carry - along), v[2] + f[2] * (carry - along), v[3] + f[3] * (carry - along)
-        end
-    end
-    local d = lift.direction
-    if d then towards(v, f, d[1], d[2], dt) end
-    local a = lift.axis
-    if a and a[1] > 0 then
-        local along = dot(rel, f)
-        local u, len = heading({ -(rel[1] - f[1] * along), -(rel[2] - f[2] * along), -(rel[3] - f[3] * along) })
-        if u then towards(v, u, a[1], math.min(a[2], len / (2 * dt)), dt) end
-    end
-    local c = lift.center
-    if c and c[1] > 0 then
-        local u, len = heading({ -rel[1], -rel[2], -rel[3] })
-        if u then towards(v, u, c[1], math.min(c[2], len / (2 * dt)), dt) end
-    end
-    return v
-end
-
---- What to send for intended velocity `v`: a phantom that negates gravity
---- adds back what the simulation's gravity takes before the next push.
-function Lifts.sent(v, negates, dt)
-    return negates and { v[1], v[2], v[3] + Lifts.GRAVITY * dt } or v
-end
-
---- An Unreal velocity (cm/s) as object_set_velocity's forward, left and up
---- (world units per second) for a unit facing Unreal yaw `yaw` (degrees).
---- Unreal's Y is Halo's -y, so its left is (sin, -cos).
-function Lifts.toUnit(v, yaw)
-    local r = math.rad(yaw)
-    local c, s = math.cos(r), math.sin(r)
-    return (v[1] * c + v[2] * s) / CM_PER_WU, (v[1] * s - v[2] * c) / CM_PER_WU, v[3] / CM_PER_WU
-end
-
-local env
-local state = { world = nil, seeded = false, bipeds = {}, watched = false, scheduled = false, idle = 0, inside = {}, pushed = {}, sources = {} }
-
-local SPARTAN = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C"
-local unitClass
-
-local function remember(actor)
-    local ok, key = pcall(function() return actor:GetAddress() end)
-    if ok and key then state.bipeds[key] = actor end
-end
-
---- This game's own players' bipeds: those whose controlling player has a
---- pawn here. Each as {actor, index}.
-local function localBipeds(world)
-    -- The pack adapter freshly enumerates only the native engine's Spartan
-    -- class list. No actor wrapper survives travel or a same-world GC.
-    if env.PackLifts then return env.PackLifts:players(world) end
-    unitClass = unitClass or StaticFindObject("/Script/BlamSynchronization.BlamUnitComponent")
-    local out = {}
-    for key, actor in pairs(state.bipeds) do
-        if not (actor and actor:IsValid()) then
-            state.bipeds[key] = nil
-        else
-            pcall(function()
-                local unit = actor:GetComponentByClass(unitClass)
-                if not unit:IsControlledByAnyPlayer() then return end
-                local pawn = unit:TryAndGetControllingPlayerPawn()
-                if not (pawn and pawn:IsValid() and pawn:IsLocallyControlled()) then return end
-                local datum = unit:GetControllingPlayerDatumIndex()
-                if type(datum) == "number" and datum ~= -1 then
-                    out[#out + 1] = { actor = actor, index = math.floor(datum % 65536) }
-                end
-            end)
-        end
+    elseif type(lift.pill) == "table" and vector(lift.pill[1], 3) and vector(lift.pill[2], 3) and finite(lift.radius)
+        and lift.radius > 0 then
+        out.pill = { point(lift.pill[1], o), point(lift.pill[2], o), lift.radius / WU }
+    else
+        return nil, "no planes or pill"
     end
     return out
 end
 
-local function levelLifts(refresh)
+local function numbers(v)
+    local parts = {}
+    for i = 1, #v do parts[i] = string.format("%.6f", v[i]) end
+    return table.concat(parts, " ")
+end
+
+--- One converted phantom's lines (each ending in a newline).
+function Lifts.record(s)
+    local head = string.format("lift %s %d %s %s %s %s %s %s", s.name, s.negates and 1 or 0, numbers(s.origin),
+        numbers(s.forward), numbers(s.bounds), numbers(s.direction), numbers(s.axis), numbers(s.center))
+    if s.pill then
+        return head .. " pill " .. numbers(s.pill[1]) .. " " .. numbers(s.pill[2]) .. " " .. numbers({ s.pill[3] }) .. "\n"
+    end
+    local lines = { head .. " planes " .. #s.planes }
+    for i, n in ipairs(s.planes) do lines[i + 1] = "plane " .. numbers(n) end
+    return table.concat(lines, "\n") .. "\n"
+end
+
+--- The records for phantoms `lifts` (Unreal cm, canvas origin `origin`),
+--- within the DLL's limits counting `used` ({count, planes}, updated) records
+--- already in the file. `skipped(reason, lift)` hears of each left out.
+function Lifts.records(lifts, origin, used, skipped)
+    local records = {}
+    for _, lift in ipairs(lifts or {}) do
+        local s, why = Lifts.toSim(lift, origin)
+        if s and used.count >= Lifts.MAX then s, why = nil, "more phantoms than the DLL holds" end
+        if s and s.planes and used.planes + #s.planes > Lifts.PLANE_POOL then s, why = nil, "more planes than the DLL holds" end
+        if s then
+            used.count, used.planes = used.count + 1, used.planes + (s.planes and #s.planes or 0)
+            records[#records + 1] = Lifts.record(s)
+        elseif skipped then
+            skipped(why, lift)
+        end
+    end
+    return table.concat(records)
+end
+
+--- The DLL's whole file for `lifts`, and how many phantoms it holds.
+function Lifts.serialize(lifts, origin, skipped)
+    local used = { count = 0, planes = 0 }
+    local records = Lifts.records(lifts, origin, used, skipped)
+    return "mjolnir-lifts 1\n" .. records .. "end\n", used.count
+end
+
+local env
+local state = { world = nil, level = nil, sent = Lifts.EMPTY, count = 0, refused = false, fixed = nil }
+
+local function canvasOrigin(level)
+    local o = level and level.canvas and level.canvas.origin
+    return vector(o, 3) and o or { 0, 0, 0 }
+end
+
+local function leftOut(why, lift)
+    env.Log(string.format("lifts: %s left out: %s", Lifts.name(lift and lift.asset), why))
+end
+
+--- Hand the DLL `text` unless it already has it.
+local function ship(text, count, scenario)
+    if text == state.sent or state.refused then return end
+    if not env.Script.request(Lifts.FILE, Lifts.EXPORT, text) then
+        state.refused = true
+        env.Log("lifts: MJOLNIRLobby 0.25.0 or newer pushes players through lifts; this one cannot")
+        return
+    end
+    if count > 0 then
+        env.Log(string.format("lifts: %d phantom(s) on %s handed to the simulation", count, tostring(scenario)))
+    elseif state.count > 0 then
+        env.Log("lifts: the simulation has none now")
+    end
+    state.sent, state.count = text, count
+end
+
+--- MJOLNIRLevelLoader's half-second loop: give the DLL this map's phantoms
+--- when they change, and none once the map is gone.
+function Lifts.tick()
+    if not env then return end
     local world = env.getWorld()
     local ok, address = pcall(function() return world and world:GetAddress() end)
     local level = env.Current.level
     if not ok or not address then
-        state.world, state.bipeds, state.inside, state.pushed, state.sources = nil, {}, {}, {}, {}
-        return nil
+        state.world, state.level = nil, nil
+        ship(Lifts.EMPTY, 0, nil)
+        return
     end
+    local packs = env.PackLifts
     if address ~= state.world or level ~= state.level then
-        state.world, state.level, state.seeded = address, level, false
-        state.bipeds, state.inside, state.pushed, state.sources = {}, {}, {}, {}
-        -- Keep the one outstanding timer marked scheduled. It will consume
-        -- itself; resetting that flag here could start a second fast loop.
-    end
-    local lifts = {}
-    for _, lift in ipairs(level and level.lifts or {}) do lifts[#lifts+1] = lift end
-    if env.PackLifts then
-        if refresh then env.PackLifts:refresh() end
-        for _, lift in ipairs(env.PackLifts:collect(world, level and level.canvas and level.canvas.origin)) do lifts[#lifts+1] = lift end
-    end
-    return #lifts>0 and lifts or nil, level or {}, world
-end
-
-local function origin(level)
-    local o = (level.canvas or {}).origin or { 0, 0, 0 }
-    return o[1] or 0, o[2] or 0, o[3] or 0
-end
-
---- One fast step: push every local player inside a phantom. True while any
---- is near a lift.
-local function step(lifts, level, world, dt)
-    local ox, oy, oz = origin(level)
-    local lines, near = {}, false
-    local seen = {}
-    for _, b in ipairs(localBipeds(world)) do
-        seen[b.index] = true
-        local okL, at = pcall(function() return b.actor:K2_GetActorLocation() end)
-        if okL and at then
-            local p = { at.X - ox, at.Y - oy, at.Z - oz }
-            local v, which, negates
-            for k, lift in ipairs(lifts) do
-                if Lifts.near(lift, p, Lifts.NEAR_CM) then
-                    near = true
-                    if Lifts.inside(lift, p) then
-                        if not v then
-                            local okV, vel = pcall(function() return b.actor:GetVelocity() end)
-                            v = okV and vel and { vel.X, vel.Y, vel.Z } or { 0, 0, 0 }
-                        end
-                        local source = tostring(b.key or b.index)..":"..tostring(lift.key or k)
-                        v = Lifts.push(lift, p, v, dt, state.sources[b.index]==source and state.pushed[b.index] or nil)
-                        state.sources[b.index] = source
-                        which = which or k
-                        negates = negates or lift.negates_gravity
-                    end
-                end
-            end
-            if which ~= state.inside[b.index] then
-                env.Log(which and string.format("lifts: player %d in phantom %d (%s) at (%.0f, %.0f, %.0f)", b.index, which,
-                    tostring(lifts[which].asset):match("[^\\]+$") or "?", p[1], p[2], p[3])
-                    or string.format("lifts: player %d left the lift at (%.0f, %.0f, %.0f)", b.index, p[1], p[2], p[3]))
-                state.inside[b.index] = which
-            end
-            state.pushed[b.index] = v
-            if v then
-                local okR, rot = pcall(function() return b.actor:K2_GetActorRotation() end)
-                local f, l, u = Lifts.toUnit(Lifts.sent(v, negates, dt), okR and rot and rot.Yaw or 0)
-                lines[#lines + 1] = string.format("(object_set_velocity (player_get %d) %.3f %.3f %.3f)", b.index, f, l, u)
-            end
-        end
-    end
-    for index in pairs(state.pushed) do
-        if not seen[index] then state.pushed[index], state.inside[index], state.sources[index] = nil, nil, nil end
-    end
-    if #lines > 0 then env.Script.send(lines) end
-    return near
-end
-
-local function fast()
-    state.scheduled = false
-    local lifts, level, world = levelLifts(false)
-    if not lifts then
-        state.inside, state.pushed, state.sources = {}, {}, {}
+        -- A converted level's phantoms are fixed: write their records once.
+        state.world, state.level = address, level
+        if packs then packs:refresh() end
+        local used = { count = 0, planes = 0 }
+        local records = Lifts.records(level and level.lifts, canvasOrigin(level), used, leftOut)
+        state.fixed = { records = records, count = used.count, planes = used.planes }
+    elseif not (packs and packs:active()) then
         return
     end
-    local ok, near = pcall(step, lifts, level, world, Lifts.FAST_MS / 1000)
-    if not ok then
-        env.Log("lifts: " .. tostring(near))
-        return
+    -- A Forge pack's follow their pieces, so they are read again each time.
+    local fixed = state.fixed
+    local used = { count = fixed.count, planes = fixed.planes }
+    local moving = ""
+    if packs and packs:active() then
+        moving = Lifts.records(packs:collect(world, level and level.canvas and level.canvas.origin),
+            canvasOrigin(level), used, nil)
     end
-    state.idle = near and 0 or state.idle + 1
-    if state.idle > 20 then
-        return
-    end
-    state.scheduled = true
-    ExecuteInGameThreadWithDelay(Lifts.FAST_MS, fast)
+    ship("mjolnir-lifts 1\n" .. fixed.records .. moving .. "end\n", used.count, env.Current.scenario)
 end
 
---- MJOLNIRLevelLoader's half-second loop: watch for a local player near a
---- lift, and push at FAST_MS while one is.
-function Lifts.tick()
-    if not env then return end
-    local lifts, level, world = levelLifts(true)
-    if not lifts then return end
-    if not env.PackLifts and not state.watched then state.watched = pcall(NotifyOnNewObject, SPARTAN, remember) end
-    if not env.PackLifts and not state.seeded then
-        state.seeded = true
-        for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do remember(actor) end
-        env.Log(string.format("lifts: %d phantom(s) on %s", #lifts, tostring(env.Current.scenario)))
-    end
-    if state.scheduled then return end
-    local ox, oy, oz = origin(level)
-    for _, b in ipairs(localBipeds(world)) do
-        local okL, at = pcall(function() return b.actor:K2_GetActorLocation() end)
-        if okL and at then
-            local p = { at.X - ox, at.Y - oy, at.Z - oz }
-            for _, lift in ipairs(lifts) do
-                if Lifts.near(lift, p, Lifts.NEAR_CM * 3) then
-                    state.scheduled, state.idle = true, 0
-                    ExecuteInGameThreadWithDelay(Lifts.FAST_MS, fast)
-                    return
-                end
-            end
-        end
-    end
-end
-
---- `deps`: Log, getWorld, Current, Script (sim_script.lua).
+--- `deps`: Log, getWorld, Current, Script (sim_script.lua), PackLifts.
 function Lifts.init(deps)
     env = deps
 end

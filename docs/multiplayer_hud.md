@@ -160,16 +160,22 @@ a name, and what happened.
   the local player is gold and everyone else near white. A line that names
   the local player has a gold rim and flashes warmer as it arrives. A team
   kill says BETRAYAL.
-- **Medals:** `first_blood`, `multikill_x2` (Double Kill) to `multikill_x10`
-  (Killionaire) and the sprees (`5_in_a_row` Killing Spree ... `30_in_a_row`
-  Invincible) become feed lines after the kill that earned them (they arrive
-  before it in the same tick). The local player's own also come up in the
-  middle of the screen with their glyph; a burst queues up to three. On a
-  fireteam client they come from the host: the HUD's own relay carries the
-  multi-kills, sprees and `first_blood` (see
+- **Medals:** every multiplayer medal the game raises (100 of them, listed
+  in [re/medals.md](re/medals.md)). MJOLNIRLobby's DLL decides which
+  incidents are medals, what each is called, which one hides another (a
+  sniper headshot hides the plain headshot the game sends with it) and the
+  order one kill's medals come in (`native/lobby/medals_core.h`);
+  `Scripts/medals.lua` hands it each incident and takes the settled awards
+  once a drain, after the kill lines that earned them. Multi-kills, sprees,
+  weapon sprees, objective medals and `first_blood` are feed lines for
+  everyone. Headshots, melee kills, revenge and the other "how" medals come
+  up only in the middle of the earner's own screen, so the feed is not one
+  line per kill again. The local player's own come up with their glyph, the
+  best three of one burst. On a fireteam client they come from the host: the
+  host relays each settled medal after its drain's kill lines (see
   [On fireteam clients](#on-fireteam-clients)), and MJOLNIRLevelLoader's
-  sound relay carries the ones that have a sound, which `first_blood` has
-  not.
+  sound relay carries the ones that have a sound. Without the DLL's medal
+  exports (an older MJOLNIRLobby) there are no medals, and the log says why.
 - **Text** uses the game's own fonts, set from Lua over the cooked Roboto:
   Normative Pro for names, Oxanium (the menus' face) for numbers and
   captions.
@@ -267,8 +273,10 @@ MJOLNIR|feed|kill,2,0,0,1,SniperRifle;death,2,0,0,0,SniperRifle
              name,cause,effect,value,modifier,damage type
 ```
 
-carrying `Kill`, `suicide`, `death`, `first_blood`, the multi-kills and
-sprees, `flag_scored`, and the joins, quits and kicks. A client feeds them
+carrying `Kill`, `suicide`, `death`, `first_blood`, `flag_scored`, the
+joins, quits and kicks, and then each medal the drain settled (the DLL has
+already hidden the ones another stands for). A message carries 16 at most;
+a longer drain sends more than one. A client feeds them
 through the same handlers. It takes each incident once: one that also came
 from its own handler, or from the level loader's sound relay (which carries
 the medals), within 2.5 s and with the same name, cause and effect, is
@@ -370,8 +378,10 @@ python -c "from lupa import LuaRuntime; LuaRuntime().execute(open('tools/tests/t
   half.
 - The scoreboard's own fonts (only the feed, callouts, score bars and chat
   use the game's).
-- Medals for kinds the simulation does not raise as incidents (sniper and
-  vehicle medals arrive as `*_kill` incidents and are not shown yet).
+- Medal art: medals use the feed's existing glyphs (Medal, Spree,
+  Headshot, Melee, Splatter, Stuck ...). The game ships no medal icons.
+- Objective medals for killing a carrier (`flagcarrier_kill` and the like)
+  need MJOLNIR's variants to raise them (re/medals.md, "Gaps").
 
 ## The end of a match
 

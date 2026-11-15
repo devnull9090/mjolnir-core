@@ -20,7 +20,12 @@ end
 local world, notify = {}, nil
 _G.FindAllOf = function() return world end
 _G.NotifyOnNewObject = function(_, fn) notify = fn end
-_G.StaticFindObject = function() return { IsValid = function() return true end } end
+-- Each lookup counted: the classes are found once, never per flag or update.
+local finds = 0
+_G.StaticFindObject = function()
+    finds = finds + 1
+    return { IsValid = function() return true end }
+end
 
 local FlagMark = dofile("mods/MJOLNIRHud/Scripts/flagmark.lua")
 
@@ -243,5 +248,10 @@ eq(marks.tracked.Blue, nil, "and nothing followed")
 ball.valid = false
 tick(bm)
 eq(marks.Blue, nil, "a gone ball leaves only its first-person copy, which is no ball")
+
+-- One mesh class and one object class for every update above, for each of the
+-- two loads of the module (flags, then the ball): a lookup a flag every 0.2 s
+-- cost about 20 ms a second in a match.
+eq(finds, 4, "classes are looked up once a module")
 
 print("Flag marker: teams from the variant, Assault's reused actor, both CTF flags, carried and unused flags, freed actors, Assault's role and clock, Oddball's ball")

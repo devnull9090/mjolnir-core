@@ -621,6 +621,10 @@ bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<F
 	Source.BuildSettings.bRecomputeNormals = false;
 	Source.BuildSettings.bRecomputeTangents = true;
 	Source.BuildSettings.bGenerateLightmapUVs = false;
+	// Full-precision UVs, as ue-asset's mesh writer stores them: CE masters
+	// tile detail maps many times over the base UVs, and half floats turned
+	// that into a blocky mosaic on Coagulation's Lumen cells (2026-11-14).
+	Source.BuildSettings.bUseFullPrecisionUVs = true;
 	Source.BuildSettings.bRemoveDegenerates = true;
 	Mesh->CreateMeshDescription(0, MoveTemp(Desc));
 	Mesh->CommitMeshDescription(0);

@@ -33,6 +33,7 @@ const columns: { title: string; links: { href: string; label: string; external?:
       { href: "https://discord.gg/9gxYZsByW9", label: "Discord", external: true },
       { href: "/multiplayer#faq", label: "Multiplayer FAQ" },
       { href: "/blog", label: "Blog" },
+      { href: "/credits", label: "Credits" },
       {
         href: "https://github.com/devnull9090/mjolnir-core/issues",
         label: "Issues",

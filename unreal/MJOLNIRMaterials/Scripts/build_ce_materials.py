@@ -391,6 +391,15 @@ if (HasSelfIllum > 0.5)
     float q = pr * pr >= 0.5 ? (2.0 * pr * pr - 1.0) * (2.0 * pr * pr - 1.0) : 0.0;
     S = SelfIllum.r * primary + SelfIllum.g * secondary + SelfIllum.b * (q * SelfOn2 + SelfOff2);
 }
+// Halo 2's self-illumination pass: the glow map's colour times channel 0,
+// added over the lit, fogged surface rather than lit with it (its light
+// fixtures are black where they glow).
+float3 G = 0.0.xxx;
+if (HasSelfIllum > 0.5 && SelfIllumAdd > 0.5)
+{
+    G = saturate(SelfIllum.rgb * lerp(SelfOff0, SelfOn0, CE_WAVE(SelfAnim0.x, CE_PHASE(SelfAnim0, Time))));
+    S = 0.0.xxx;
+}
 if (model && HasModelSelfIllum > 0.5)
     S = MP.g * lerp(SelfOff1, SelfOn1, CE_WAVE(SelfAnim1.x, CE_PHASE(SelfAnim1, Time)))
         * (HasSICC > 0.5 ? SICC.rgb : 1.0.xxx);
@@ -457,6 +466,7 @@ if (FogDensity > 0.0)
     float f = FogDensity * saturate((Depth - FogStart) / max(FogOpaque - FogStart, 1.0));
     frame = lerp(frame, FogColor, f);
 }
+frame = saturate(frame + G);
 """ + SRGB_TO_LINEAR + WAVE_END
 
 # A transparent map's texture coordinates (chicago and generic maps, and the
@@ -1470,8 +1480,11 @@ return o;
 """
 
 
-def build_environment(name, masked, defaults, two_sided=False, land=False):
-    """`land`: the landscape master (tools/level/build_landscape.py). A
+def build_environment(name, masked, defaults, two_sided=False, land=False, offset=None):
+    """`offset(g, m)`, when given, wires a World Position Offset into the
+    graph before it compiles (build_flag_cloth.py).
+
+    `land`: the landscape master (tools/level/build_landscape.py). A
     landscape has no CE texture coordinates, so its base and lightmap UVs
     both come from world XY over the landscape's rectangle (LandRect: x, y,
     width, height in cm), and its Base, Lightmap, Bake and SunShare are the
@@ -1711,7 +1724,7 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
                            ("ReflPerp", 0.0), ("ReflPara", 0.0), ("HasMulti", 0.0), ("ModelShader", 0.0),
                            ("DetailMask", 0.0), ("DetailAfter", 0.0), ("ModelCC", 0.0),
                            ("HasModelSelfIllum", 0.0), ("ObjectPage", 0.0), ("ReflFalloff", 0.0),
-                           ("ReflCutoff", 0.0)):
+                           ("ReflCutoff", 0.0), ("SelfIllumAdd", 0.0)):
         inputs.append((pname, g.scalar(pname, default), ""))
     for pname, default in (("MaterialColor", (1, 1, 1, 1)), ("SpecParallel", (1, 1, 1, 1)),
                            ("SpecPerpendicular", (1, 1, 1, 1)),
@@ -1786,6 +1799,10 @@ def build_environment(name, masked, defaults, two_sided=False, land=False):
         m.set_editor_property("opacity_mask_clip_value", 0.5)
         holes = g.node(unreal.MaterialExpressionLandscapeVisibilityMask, x=-300)
         mel.connect_material_property(holes, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    if offset:
+        # A World Position Offset of the caller's (build_flag_cloth.py: the
+        # CTF flag's cloth), wired before the material compiles.
+        offset(g, m)
     mel.recompile_material(m)
     eal.save_loaded_asset(m)
 
@@ -3838,6 +3855,22 @@ if (EdgeRange.y > EdgeRange.x)
     // Only up to 60 cm above the lip: a wall rising from a plateau (a tower
     // over its lip) took turf as green slabs metres up.
     float lipOn = smoothstep(-60.0, -15.0, below) * step(0.004, e.r);
+    // Only where the lip map is flat: where it ramps from a plateau's texel
+    // to a low one, "just under the lip" is a contour running straight down
+    // a tall face, and the soil, turf and stains drew it as a hairline the
+    // height of the wall (Zanzibar's boulders, 2026-11-14).
+    {
+        float ew, eh;
+        Edge.GetDimensions(ew, eh);
+        float2 euv = (W.xy - EdgeRect.xy) / EdgeRect.zw;
+        float ex = Texture2DSampleLevel(Edge, EdgeSampler, euv + float2(1.0 / ew, 0.0), 0).r;
+        float ey = Texture2DSampleLevel(Edge, EdgeSampler, euv + float2(0.0, 1.0 / eh), 0).r;
+        float ex2 = Texture2DSampleLevel(Edge, EdgeSampler, euv - float2(1.0 / ew, 0.0), 0).r;
+        float ey2 = Texture2DSampleLevel(Edge, EdgeSampler, euv - float2(0.0, 1.0 / eh), 0).r;
+        float lipStep = max(max(abs(ex - e.r), abs(ey - e.r)), max(abs(ex2 - e.r), abs(ey2 - e.r)))
+                        * (EdgeRange.y - EdgeRange.x);
+        lipOn *= 1.0 - smoothstep(60.0, 150.0, lipStep);
+    }
     float t = Drape.x * (0.3 + 1.4 * rag);
     // Only on a wall (steep) right under an edge (the lip mask): a sloping
     // rock face crossing the lip's height drew the rim as a green hairline.
@@ -3861,7 +3894,8 @@ if (EdgeRange.y > EdgeRange.x)
 // Grass on ledges that look up (a boulder's top is all grass; a ledge
 // part-way, its edge ragged), by the surface's own normal, not the rock's
 // bumps (with them, every up-facing seam of the rock drew a green hairline).
-turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2));
+// (Ledge.x 0: a structure's wall, whose floors are not ledges of turf.)
+turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2) * Ledge.x);
 // Rock, not turf, where CE's light is all but gone (its lightmap's
 // luminance, gamma 0.12 to 0.3, linear about 0.01 to 0.07): a tunnel's
 // floor, where the scatter grows no grass under the roof (scatter_foliage
@@ -3919,6 +3953,7 @@ float3 ceLight = 1.0.xxx;
 bool cladLM = CladLight.a > 1.5;
 if (LMLevels.y > LMLevels.x)
 {
+    if (BakeAO.x > 0.0) ao *= pow(saturate(Texture2DSample(Bake, BakeSampler, TC1).r), BakeAO.x);
     float3 lmc = cladLM ? CladLM : Texture2DSample(LM, LMSampler, TC1).rgb;
     float lm = dot(lmc, float3(0.2126, 0.7152, 0.0722));
     occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
@@ -3958,6 +3993,16 @@ if (Sea.w > 0.5)
 // wall, 2026-10-13).
 float facing = max(FillDir.x + FillDir.y * Nr.z, 0.0);
 Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 0.5 * occ, Look.z);
+// The fill is emissive, so nothing occludes it: no screen-space or Lumen
+// occlusion darkens a corner it lights (Zanzibar's walls, 2026-11-12).
+// FillDir.z: how far it follows the map's own baked shade (the lightmap's
+// corners and overhangs), FillDir.w that shade's power (0: 1).
+Emissive *= lerp(1.0, pow(occ, FillDir.w > 0.0 ? FillDir.w : 1.0), FillDir.z);
+// BakeAO.y: the fill only where the sky does not reach, from the bake's B
+// (sky visibility, 1 open): with a real sky light (the sun lighting the
+// atmosphere), Lumen lights the open walls and the fill keeps the rooms
+// it cannot (Zanzibar, 2026-11-13). 0: the fill everywhere.
+if (BakeAO.y > 0.0) Emissive *= saturate(1.0 - Texture2DSample(Bake, BakeSampler, TC1).b * BakeAO.y);
 // Indoors (Indoor.x: the loader's cliff.indoor gain times the scene's light
 // scale): CE's lightmap is the light, as CE drew it (lightmap times colour,
 // linear). A tunnel has no sun, and lit by Unreal alone (a few placed
@@ -4097,6 +4142,8 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         ("EdgeRange", g.vector4("EdgeRange", (0.0, 0.0, 0.0, 0.0)), ""),
         # Drape: turf and earth depth under the lip, stain length (cm), strength.
         ("Drape", g.vector4("CliffDrape", (30.0, 70.0, 700.0, 1.0)), ""),
+        # Ledge: turf on every surface that looks up (1: a cliff's ledges).
+        ("Ledge", g.vector4("CliffLedge", (1.0, 0.0, 0.0, 0.0)), ""),
         # Foot: sand bank height, contact shade height (cm), shade, strength.
         ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
         # The foot's sand: the beach's albedo, tinted.
@@ -4117,6 +4164,11 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         # contrast.
         ("Look", g.vector4("CliffLook", (1.0, 0.7, 0.6, 1.0)), ""),
         tex("LM", white, linear),
+        # The conversion's baked corners (lightmap_bake: red, on the
+        # lightmap's UVs) and their power (BakeAO.x; 0 off): a structure's
+        # steps and inside corners, which its lightmap is too coarse to hold.
+        tex("Bake", white, linear),
+        ("BakeAO", g.vector4("CliffBakeAO", (0.0, 0.0, 0.0, 0.0)), ""),
         ("LMLevels", g.vector4("LandLMLevels", (0.0, 0.0, 0.0, 0.0)), ""),
         ("Sea", g.vector4("LandSea", (0.0, 150.0, 40.0, 0.0)), ""),
         # Rough: the range the surfaces' roughness maps to.

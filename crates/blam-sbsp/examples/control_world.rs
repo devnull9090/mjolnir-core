@@ -120,6 +120,7 @@ fn main() {
         shell: None,
         bsp_index: 8,
         keep_materials: false,
+        breakable: false,
     };
     let (out, r) = convert::convert(&file, c, &opts).expect("convert");
     println!("  parked {} instance(s)", r.parked.len());

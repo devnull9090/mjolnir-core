@@ -24,7 +24,11 @@
 #                                    and their shader library
 #                                    (Scripts/build_koth_materials.py, same
 #                                    cook, chunk 966; docs/koth_visuals.md).
-#                                    MJOLNIRHud draws the plasma hill without it
+#                                    MJOLNIRHud draws the plasma hill without it.
+#                                    Also the CTF flag's cloth master, waved on
+#                                    the GPU (Scripts/build_flag_cloth.py,
+#                                    /Game/MJOLNIR/Cloth): MJOLNIRLevelLoader
+#                                    moves the cloth's strips from Lua without it
 #   pakchunk990-MJOLNIRCTFMESH_P     the CE flag mesh (/Game/MJOLNIR/CTF)
 #   pakchunk990-MJOLNIRFLAG_P, -FLAGB_P, -STAND_P, -MOTL_P
 #                                    the red and blue CTF flags, their stand,
@@ -100,6 +104,7 @@ MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/events")
 run Scripts/build_mjolnir_ui.py
 run Scripts/build_h2_materials.py
 run Scripts/build_koth_materials.py
+run Scripts/build_flag_cloth.py
 powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")"
 staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
 for e in utoc ucas; do

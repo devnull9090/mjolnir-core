@@ -1,79 +1,96 @@
 -- Run from the repository root with Lua 5.4, or Python + lupa:
 -- python -c "from lupa import LuaRuntime; LuaRuntime(encoding=None).execute(open('tools/tests/test_lifts.lua','rb').read())"
 --
--- MJOLNIRLevelLoader's lifts.lua (#235): what is inside a Halo 2 phantom, how
--- it pushes, and the push in a unit's facing frame. Loading the module must
--- not need UE4SS.
+-- MJOLNIRLevelLoader's lifts.lua (#235): a Halo 2 phantom in the
+-- simulation's units, and the file MJOLNIRLobby's DLL reads. The push itself
+-- is the DLL's (native/lobby/test_lifts.c). Loading the module must not need
+-- UE4SS.
 local Lifts = dofile("mods/MJOLNIRLevelLoader/Scripts/lifts.lua")
 
 local function near(actual, expected, label, tolerance)
-    assert(math.abs(actual - expected) <= (tolerance or 1e-3),
+    assert(math.abs(actual - expected) <= (tolerance or 1e-4),
         (label or "value") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual))
 end
+
+local WU = 304.8
 
 -- Lockout's lower lift, as tools/level/gen_ce_level.py writes it (planes,
 -- marker, pushes in cm): a tube 3.7 m across, 13.7 m tall, tilted 7 degrees.
 local tube = {
+    asset = "scenarios\\objects\\multi\\lockout\\lockout_lift_tube\\lockout_lift_tube",
     planes = { { 0.0, -0.1217, -0.9926, -4155.7 }, { -1.0, 0.0, 0.0, -640.6 }, { 0.0, 0.9926, -0.1217, 3153.0 },
                { 0.0, -0.9926, 0.1217, -3521.9 }, { 1.0, 0.0, 0.0, 271.8 }, { 0.0, 0.1217, 0.9926, 2784.0 } },
     bounds = { -456.2, -3732.0, -3036.0, 750.0 },
     origin = { -456.2, -3815.3, -3718.9 }, forward = { 0.0, 0.1217, 0.9926 },
     center = { 0, 0 }, axis = { 3048.0, 3048.0 }, direction = { 3048.0, 1219.2 }, negates_gravity = true,
 }
-local o = tube.origin
-assert(Lifts.inside(tube, { o[1], o[2], o[3] + 100 }), "a metre up the tube is inside")
-assert(not Lifts.inside(tube, { o[1], o[2], o[3] - 50 }), "under the tube is not")
-assert(not Lifts.inside(tube, { o[1] + 300, o[2], o[3] + 100 }), "beside the tube is not")
-assert(Lifts.near(tube, { o[1], o[2], o[3] }, 0), "its foot is near")
-assert(not Lifts.near(tube, { o[1] + 2000, o[2], o[3] }, 300), "20 m away is not")
+-- Midship's power lift: a pill.
+local pill = {
+    asset = "scenarios\\objects\\multi\\midship\\cov_power_lift\\cov_power_lift",
+    pill = { { -3573.1, -519.9, -208.1 }, { -3569.0, -508.1, 1011.1 } }, radius = 152.4,
+    bounds = { -3571.1, -514.0, 401.5, 762.0 }, origin = { -3590.3, -495.6, -83.7 },
+    forward = { 0.0027, 0.0091, 1.0 }, center = { 0.0, 0.0 }, axis = { 0.0, 0.0 },
+    direction = { 5486.4, 1158.2 }, negates_gravity = false,
+}
 
--- Standing still on the axis (a metre along the tilted tube): the push goes
--- up the tube, and gravity is held off.
-local f0 = tube.forward
-local up1 = { o[1] + 100 * f0[1], o[2] + 100 * f0[2], o[3] + 100 * f0[3] }
-local v = Lifts.push(tube, up1, { 0, 0, 0 }, 0.05)
-near(v[3], 3048.0 * 0.05 * 0.9926, "up", 0.5)
-near(v[1], 0, "no sideways push on the axis")
-near(Lifts.sent(v, true, 0.05)[3], v[3] + Lifts.GRAVITY * 0.05, "sent with gravity held off", 0.01)
-near(Lifts.sent(v, false, 0.05)[3], v[3], "sent as it is", 0.01)
--- Standing on the floor the biped reads still after a push; the speed the
--- last step gave carries on, so the lift gains 152 cm/s a step and leaves
--- the ground.
-local first = Lifts.push(tube, up1, { 0, 0, 0 }, 0.05)
-local second = Lifts.push(tube, up1, { 0, 0, 0 }, 0.05, first)
-near(second[3], first[3] + 3048.0 * 0.05 * 0.9926, "carried", 0.5)
--- And it stops at the top speed: twenty steps from still reach 1219 cm/s
--- along the tube and no more.
-local w = { 0, 0, 0 }
-for _ = 1, 20 do w = Lifts.push(tube, up1, { 0, 0, 0 }, 0.05, w) end
-near(w[2] * tube.forward[2] + w[3] * tube.forward[3], 1219.2, "top speed", 1)
--- At the top speed along the tube nothing more is added.
-local top = { 0, 1219.2 * 0.1217, 1219.2 * 0.9926 }
-v = Lifts.push(tube, up1, top, 0.05)
-near(v[3], top[3], "held at top speed", 0.5)
--- Off the axis, the pull is towards it and slows into it: a metre off
--- after 50 ms it may not pass 1000 cm/s.
-v = Lifts.push(tube, { up1[1] + 100, up1[2], up1[3] }, { 0, 0, 0 }, 0.05)
-assert(v[1] < 0 and v[1] >= -1000, "pulled back towards the axis: " .. v[1])
+-- Unreal cm to the simulation: wu = cm / 304.8, and the sim's y is -Y.
+local s = assert(Lifts.toSim(tube, { 0, 0, 0 }))
+near(s.origin[1], -456.2 / WU, "origin x") near(s.origin[2], 3815.3 / WU, "origin y flips")
+near(s.origin[3], -3718.9 / WU, "origin z")
+near(s.forward[2], -0.1217 / math.sqrt(0.1217 ^ 2 + 0.9926 ^ 2), "forward y flips")
+near(s.bounds[4], 750.0 / WU, "bounding radius")
+near(s.direction[1], 10, "3048 cm/s^2 is 10 wu/s^2") near(s.direction[2], 4, "1219.2 cm/s is 4 wu/s")
+near(s.axis[1], 10, "axis acceleration") near(s.center[1], 0, "no centre pull")
+assert(s.negates and s.name == "lockout_lift_tube" and #s.planes == 6)
 
--- A pill (Midship's power lift, say): inside within its radius of the
--- segment, ends rounded.
-local pill = { pill = { { 0, 0, 0 }, { 0, 0, 1000 } }, radius = 150 }
-assert(Lifts.inside(pill, { 100, 0, 500 }), "inside the pill")
-assert(Lifts.inside(pill, { 0, 0, 1100 }), "inside the top cap")
-assert(not Lifts.inside(pill, { 200, 0, 500 }), "outside the pill")
-assert(not Lifts.inside(pill, { 0, 0, -200 }), "under the bottom cap")
+-- Each plane keeps its side: n.p + d, in cm, is the sim plane's value at the
+-- same point times 304.8. Checked on points in, under and beside the tube.
+local o, f = tube.origin, tube.forward
+local points = { { o[1], o[2] + 100 * f[2], o[3] + 100 * f[3] }, { o[1], o[2], o[3] - 50 }, { o[1] + 300, o[2], o[3] + 100 } }
+for _, origin in ipairs({ { 0, 0, 0 }, { 1000, -2000, 50 } }) do
+    local moved = assert(Lifts.toSim(tube, origin))
+    for _, p in ipairs(points) do
+        -- The phantom is relative to the canvas origin; the sim is not.
+        local q = { (p[1] + origin[1]) / WU, -(p[2] + origin[2]) / WU, (p[3] + origin[3]) / WU }
+        for i, n in ipairs(tube.planes) do
+            local m = moved.planes[i]
+            near(m[1] * q[1] + m[2] * q[2] + m[3] * q[3] + m[4], (n[1] * p[1] + n[2] * p[2] + n[3] * p[3] + n[4]) / WU,
+                "plane " .. i, 1e-6)
+        end
+    end
+end
 
--- object_set_velocity's frame: forward along the unit's yaw, left to its
--- left (Unreal's -Y at yaw 0), up; world units per second.
-local f, l, u = Lifts.toUnit({ 304.8, 0, 0 }, 0)
-near(f, 1, "forward at yaw 0") near(l, 0, "no left") near(u, 0, "no up")
-f, l = Lifts.toUnit({ 0, -304.8, 0 }, 0)
-near(f, 0, "-Y is not forward") near(l, 1, "-Y is left at yaw 0")
--- PC 2's push "4 0 0" at yaw 110.8 moved it along (-0.35, 0.94).
-f, l = Lifts.toUnit({ -0.355 * 1219.2, 0.935 * 1219.2, 0 }, 110.8)
-near(f, 4, "forward at yaw 110.8", 0.02) near(l, 0, "and no left", 0.02)
-_, _, u = Lifts.toUnit({ 0, 0, 609.6 }, 45)
-near(u, 2, "up")
+local sp = assert(Lifts.toSim(pill))
+near(sp.pill[1][2], 519.9 / WU, "pill end y flips") near(sp.pill[3], 152.4 / WU, "pill radius")
+assert(not sp.negates and not sp.planes)
+
+-- What the DLL can't use is left out, with the reason.
+assert(not Lifts.toSim({ origin = { 0, 0, 0 }, forward = { 0, 0, 2 }, bounds = { 0, 0, 0, 1 }, pill = pill.pill, radius = 1 }))
+assert(not Lifts.toSim({ origin = { 0, 0, 0 }, forward = { 0, 0, 1 }, bounds = { 0, 0, 0, 1 } }), "no shape")
+assert(not Lifts.toSim({ origin = { 0, 0, 0 }, forward = { 0, 0, 1 }, bounds = { 0, 0, 0 / 0, 1 }, pill = pill.pill, radius = 1 }))
+local many = { origin = { 0, 0, 0 }, forward = { 0, 0, 1 }, bounds = { 0, 0, 0, 1 }, planes = {} }
+for i = 1, Lifts.MAX_PLANES + 1 do many.planes[i] = { 0, 0, 1, -i } end
+assert(not Lifts.toSim(many), "more planes than one phantom holds")
+local skipped = {}
+local _, kept = Lifts.serialize({ tube, many, pill }, nil, function(why) skipped[#skipped + 1] = why end)
+assert(kept == 2 and #skipped == 1 and skipped[1] == "too many planes")
+local full = {}
+for i = 1, Lifts.MAX + 2 do full[i] = pill end
+_, kept = Lifts.serialize(full)
+assert(kept == Lifts.MAX, "no more phantoms than the DLL holds")
+
+-- Names are plain for the DLL's log.
+assert(Lifts.name("a\\b c:d/e f") == "e_f" and Lifts.name(nil) == "lift" and #Lifts.name(string.rep("x", 90)) == 47)
+
+-- The file: the DLL's test reads the same fixture (native/lobby/test_lifts.c).
+local text, count = Lifts.serialize({ tube, pill })
+assert(count == 2)
+assert(text:match("^mjolnir%-lifts 1\nlift lockout_lift_tube 1 %-1%.496719 12%.517388 %-12%.201115 "))
+assert(select(2, text:gsub("\nplane ", "")) == 6 and text:match("\nend\n$"))
+local fixture = assert(io.open("tools/tests/fixtures/lifts_lockout_midship.txt", "rb"))
+local expected = fixture:read("a")
+fixture:close()
+assert(text == expected:gsub("\r\n", "\n"), "the fixture is what serialize writes:\n" .. text)
+assert(Lifts.serialize({}) == Lifts.EMPTY)
 
 print("test_lifts: ok")

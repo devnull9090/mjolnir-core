@@ -21,13 +21,14 @@ import {
   winnerText,
 } from "../_components/format";
 import { LocalTime } from "../_components/LocalTime";
+import { matchMedals, medalCount, type SeatMedal } from "../_components/medals";
 import { MatchReplay } from "../_components/MatchReplay";
 import { Podium } from "../_components/Podium";
 import { positionMarks } from "../_components/positions";
 import mapPreviews from "../_components/map-previews.json";
 
 /**
- * One match: the final scoreboard, the timeline of what happened, where
+ * One match: the final scoreboard, who earned which medals, the timeline of what happened, where
  * the kills and deaths were, and what the players said. Seats link to their player's history: the hub
  * account's when the seat is linked, the in-game name's otherwise.
  */
@@ -98,7 +99,71 @@ function Chat({ match }: { match: MatchDetail }) {
   );
 }
 
-function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null }) {
+const TIER_TEXT = { bronze: "text-bronze", silver: "text-silver", gold: "text-gold" } as const;
+
+/** One medal a seat earned: its mark or icon in its tier's colour, and how many. */
+function MedalChip({ item }: { item: SeatMedal }) {
+  const Icon = item.medal.icon;
+  return (
+    <li
+      title={`${item.medal.name}: ${item.medal.what}`}
+      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-2.5 py-1 text-xs"
+    >
+      <span aria-hidden className={`inline-flex h-4 min-w-4 items-center justify-center font-black ${TIER_TEXT[item.medal.tier]}`}>
+        {item.medal.mark ?? (Icon && <Icon className="h-3.5 w-3.5" strokeWidth={2} />)}
+      </span>
+      <span className="text-foreground">{item.medal.name}</span>
+      {item.count > 1 && <span className="tabular-nums text-text-muted">×{item.count}</span>}
+    </li>
+  );
+}
+
+/**
+ * Who earned which medals, in scoreboard order. Only the seats that earned
+ * one; nothing at all for a match with none (or one recorded before the
+ * medals were).
+ */
+function Medals({ match, medals }: { match: MatchDetail; medals: Map<number, SeatMedal[]> }) {
+  const seats = match.players.filter((p) => medals.has(p.index));
+  if (!seats.length) return null;
+  return (
+    <section aria-labelledby="medals" className="my-12">
+      <SectionHeading id="medals">Medals</SectionHeading>
+      <ul className="divide-y divide-border rounded-xl border border-border bg-surface">
+        {seats.map((p) => {
+          const list = medals.get(p.index)!;
+          return (
+            <li key={p.index} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+              <Link
+                href={playerHref(p)}
+                className="inline-flex w-52 shrink-0 items-center gap-2 font-semibold text-foreground hover:text-gold"
+              >
+                <PlayerAvatar name={p.name} user={p.user} size="sm" />
+                <span className="min-w-0 truncate">{p.name}</span>
+                <span className="ml-auto tabular-nums text-text-muted">{medalCount(list)}</span>
+              </Link>
+              <ul className="flex flex-wrap gap-1.5" aria-label={`${p.name}'s medals`}>
+                {list.map((item) => (
+                  <MedalChip key={item.medal.type} item={item} />
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function Scoreboard({
+  match,
+  focus,
+  medals,
+}: {
+  match: MatchDetail;
+  focus: number | null;
+  medals: Map<number, SeatMedal[]>;
+}) {
   const groups: { label: string | null; team: string | null; players: MatchPlayer[]; total: number | null }[] =
     match.team_game
       ? (["red", "blue"] as const).map((team) => ({
@@ -127,6 +192,7 @@ function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null
             <th scope="col" className="text-right px-4 py-3">Deaths</th>
             <th scope="col" className="hidden sm:table-cell text-right px-4 py-3">Suicides</th>
             <th scope="col" className="text-right px-4 py-3">K/D</th>
+            <th scope="col" className="hidden md:table-cell text-right px-4 py-3">Medals</th>
             <th scope="col" className="text-right px-4 py-3">
               <span className="sr-only">On the map</span>
             </th>
@@ -138,7 +204,7 @@ function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null
               <tr className="border-t border-border bg-surface-raised/60">
                 <th
                   scope="colgroup"
-                  colSpan={7}
+                  colSpan={8}
                   className={`px-4 py-2 text-left text-xs font-bold uppercase tracking-wide border-l-4 ${TEAM_BORDER[g.team ?? ""] ?? "border-l-transparent"} ${TEAM_TEXT[g.team ?? ""] ?? "text-foreground"}`}
                 >
                   {g.label}
@@ -187,6 +253,9 @@ function Scoreboard({ match, focus }: { match: MatchDetail; focus: number | null
                 <td className="px-4 py-3 text-right tabular-nums text-text-muted">{p.deaths}</td>
                 <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums text-text-muted">{p.suicides}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-text-muted">{kd(p.kills, p.deaths)}</td>
+                <td className="hidden md:table-cell px-4 py-3 text-right tabular-nums text-text-muted">
+                  {medalCount(medals.get(p.index)) || "–"}
+                </td>
                 <td className="px-4 py-3 text-right">
                   <Link
                     href={focus === p.index ? `/matches/${match.id}#map` : `/matches/${match.id}?p=${p.index}#map`}
@@ -272,6 +341,7 @@ export default async function MatchPage({
   const focus =
     p !== undefined && /^\d{1,2}$/.test(p) && match.players.some((x) => x.index === Number(p)) ? Number(p) : null;
   const nameOf = namer(match.players);
+  const medals = matchMedals(match.events);
   const explained = explainedDeaths(match.events);
   const lines = match.events
     .map((e) => ({ e, text: isExplainedDeath(e, explained) ? null : eventLine(e, nameOf) }))
@@ -357,8 +427,10 @@ export default async function MatchPage({
 
       <section aria-labelledby="scoreboard" className="my-12">
         <SectionHeading id="scoreboard">Scoreboard</SectionHeading>
-        <Scoreboard match={match} focus={focus} />
+        <Scoreboard match={match} focus={focus} medals={medals} />
       </section>
+
+      <Medals match={match} medals={medals} />
 
       <MatchReplay
         code={match.map_code in mapPreviews ? match.map_code : null}

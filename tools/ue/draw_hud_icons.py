@@ -229,6 +229,40 @@ def forge_mark(d):
 # Forge's own glyphs: written to Art/ForgeIcons and imported as T_MJForge_<Name>
 # into /Game/MJOLNIR/ForgeUI/Icons, cooked with WBP_MJOLNIRForge (chunk 980).
 FORGE_GLYPHS = {"Reticle": forge_reticle, "Mark": forge_mark}
+def revenge(d):
+    """Two arrows passing each other: paid back."""
+    line(d, (0.14, 0.34), (0.74, 0.34), 0.10)
+    poly(d, [(0.66, 0.14), (0.94, 0.34), (0.66, 0.54)])
+    line(d, (0.86, 0.68), (0.26, 0.68), 0.10)
+    poly(d, [(0.34, 0.48), (0.06, 0.68), (0.34, 0.88)])
+
+
+def assist(d):
+    """Two figures side by side: a kill shared."""
+    for cx in (0.32, 0.68):
+        circle(d, cx, 0.26, 0.15)
+        rrect(d, cx - 0.19, 0.46, cx + 0.19, 0.92, 0.12)
+
+
+def star(d):
+    """A five-pointed star: something out of the ordinary."""
+    burst(d, 0.5, 0.52, 0.48, 0.20, 5, -math.pi / 2)
+
+
+def medal_disc(d):
+    """A medal's body: a full disc. Lua tints it with the medal's colour."""
+    circle(d, 0.5, 0.5, 0.40)
+
+
+def medal_ring(d):
+    """A medal's rim: a ring cut into twelve notched segments."""
+    ring(d, 0.5, 0.5, 0.48, 0.055)
+    for k in range(12):
+        a = 2 * math.pi * k / 12
+        line(d, (0.5 + 0.40 * math.cos(a), 0.5 + 0.40 * math.sin(a)),
+             (0.5 + 0.50 * math.cos(a), 0.5 + 0.50 * math.sin(a)), 0.035, fill=0)
+
+
 FORGE_OUT = os.path.join(os.path.dirname(OUT), "ForgeIcons")
 
 GLYPHS = {
@@ -236,6 +270,9 @@ GLYPHS = {
     "Splatter": splatter, "Stuck": stuck, "Fall": fall, "Guardians": guardians, "Skull": skull,
     "Joined": joined, "Left": left, "Kicked": kicked, "Flag": flag, "Medal": medal, "Spree": spree,
     "FirstBlood": firstblood, "Telefrag": telefrag,
+    "Revenge": revenge, "Assist": assist, "Star": star,
+    # A medal on the post-game screen: disc, rim, then one of the glyphs above.
+    "MedalDisc": medal_disc, "MedalRing": medal_ring,
 }
 
 

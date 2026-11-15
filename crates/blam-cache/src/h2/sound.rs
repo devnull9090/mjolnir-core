@@ -27,6 +27,15 @@
 //!   (`sound\sound_classes`, 0x78 each, internal flag bit 7 at 0x08),
 //!   `sounds_neutral.dat` otherwise. The rule held for every chunk of
 //!   shared, Ascension and Lockout.
+//! - Loudness (halo2.dll 0x6e5bd0): a sound plays at its playback gain plus
+//!   a class gain, in dB. The class gain runs from the class's lower bound
+//!   (f32 0x20) plus the sound's scale lower bound to the class's upper
+//!   bound (0x24) plus the scale's upper, by the scale the sound is played
+//!   at (0x76ec60, mode 1); a loop nothing drives plays at scale 1, the
+//!   upper end. The scale is the gestalt's block 0x10 (0x14 each: gain
+//!   modifier bounds dB 0x00 and 0x04) at the `snd!`'s i8 0x0B. The class
+//!   also caps how many of one sound play at once (i16 0x00, "max sounds
+//!   per tag"; 4 for the ambient and device classes).
 //! - Opus (48 kHz): a chunk is `[i16 length][packet]` repeated, the last
 //!   length stored negative. A permutation's chunks are one stream. The
 //!   packets go into an Ogg Opus file as they are (RFC 7845), which the
@@ -254,6 +263,10 @@ pub struct Sounds<'c> {
     dats: PathBuf,
     out: PathBuf,
     multilingual: BTreeSet<usize>,
+    /// Each sound class: (max sounds per tag, gain dB at scale 1).
+    classes: Vec<(i16, f32)>,
+    /// The BSP clusters' bounds and the background loop each plays.
+    zones: Vec<Value>,
     open: BTreeMap<PathBuf, Option<File>>,
     sounds: BTreeMap<String, Value>,
     loops: BTreeMap<String, Value>,
@@ -267,6 +280,7 @@ impl<'c> Sounds<'c> {
     pub fn new(cache: &'c Cache, out: &Path) -> Sounds<'c> {
         let dats = cache.map.path.parent().map(Path::to_path_buf).unwrap_or_default();
         let mut multilingual = BTreeSet::new();
+        let mut class_table = Vec::new();
         let classes = cache
             .shared
             .as_ref()
@@ -277,6 +291,7 @@ impl<'c> Sounds<'c> {
                 if c.u16(0x08) & 0x80 != 0 {
                     multilingual.insert(i);
                 }
+                class_table.push((c.i16(0x00), c.f32(0x24)));
             }
         }
         if multilingual.is_empty() {
@@ -287,6 +302,8 @@ impl<'c> Sounds<'c> {
             dats,
             out: out.to_path_buf(),
             multilingual,
+            classes: class_table,
+            zones: Vec::new(),
             open: BTreeMap::new(),
             sounds: BTreeMap::new(),
             loops: BTreeMap::new(),
@@ -344,6 +361,10 @@ impl<'c> Sounds<'c> {
             (min, max, gain_db) = (p.f32(0x00), p.f32(0x04), p.f32(0x10));
             cents = (p.i16(0x18) as f32 + p.i16(0x1A) as f32) / 2.0;
         }
+        // The class's gain and the sound's own scale bound, at scale 1.
+        let (max_instances, class_db) = self.classes.get(class).copied().unwrap_or((0, 0.0));
+        let scale_db = usize::try_from(root.u8(0x0B) as i8).ok().and_then(|i| g.block(0x10, 0x14).get(i)).map_or(0.0, |s| s.f32(0x04));
+        let class_gain_db = class_db + scale_db;
         let dat = self.dats.join(if flags & REMASTERED_ONLY != 0 {
             "sounds_remastered.dat"
         } else if self.multilingual.contains(&class) {
@@ -426,7 +447,8 @@ impl<'c> Sounds<'c> {
                 "rate": if compression == 5 { 48000 } else { rate }, "channels": channels,
                 "compression": compression, "class": class,
                 "min_distance": min, "max_distance": max,
-                "gain": linear(gain_db), "pitch": 2f32.powf(cents / 1200.0),
+                "gain": linear(gain_db + class_gain_db), "pitch": 2f32.powf(cents / 1200.0),
+                "class_gain_db": class_gain_db, "max_instances": max_instances,
                 "files": [],
             })
         });
@@ -553,6 +575,12 @@ impl<'c> Sounds<'c> {
                 continue;
             };
             let path = self.looping(&t);
+            // The cluster's bounds (x, y and z ranges at 0x54): the loader
+            // plays the loop of the cluster the camera is in.
+            let b: Vec<f32> = (0..6).map(|k| c.f32(0x54 + 4 * k)).collect();
+            if b.iter().all(|v| v.is_finite() && v.abs() < 1.0e6) {
+                self.zones.push(json!({"min": [b[0], b[2], b[4]], "max": [b[1], b[3], b[5]], "sound": path}));
+            }
             if !self.background.contains(&path) {
                 self.background.push(path);
             }
@@ -567,6 +595,7 @@ impl<'c> Sounds<'c> {
         let manifest = json!({
             "source": "halo2_mcc",
             "emitters": self.emitters, "background": self.background,
+            "background_zones": self.zones,
             "loops": self.loops, "sounds": self.sounds,
         });
         let path = self.out.join("sounds.json");

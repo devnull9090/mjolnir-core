@@ -196,6 +196,7 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 | `pakchunk990-MJOLNIRFLUX_P` | Fluid Flux's infinite sea (`NS_InfiniteSurfaceMesh`) with fixed bounds 10 km tall: the shipped ones are 50 m round Z 0, and a sea far below it (Yoyorast's, -256 m) was culled whole when the top of the view was level. Byte offsets, so it is rebuilt for every game update |
 | `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
 | `pakchunk981-MJOLNIRH2-Windows` | the Halo 2 masters (`/Game/MJOLNIR/H2`, `Scripts/build_h2_materials.py`): `M_H2_PlasmaAlpha`, which converted Halo 2 maps' plasma draws with ([h2_map_conversion.md](h2_map_conversion.md)) |
+| `pakchunk966-MJOLNIRKOTH-Windows` | King's hill materials ([koth_visuals.md](koth_visuals.md)) and the CTF flag's cloth master (`/Game/MJOLNIR/Cloth/M_CE_FlagCloth`, `Scripts/build_flag_cloth.py`), with their shader library: the GPU waves the cloth from the material's Time, so the loader moves nothing per frame. Without it, the loader moves the cloth's strips from Lua |
 | `pakchunk985-MJOLNIRMENU_P` | the main menu with its own MULTIPLAYER button ([multiplayer_menu.md](multiplayer_menu.md)). It replaces the shipped menu, so it is rebuilt for every game update |
 | `pakchunk983-MJOLNIRCETRIAL-Windows` | the trial masters the remastered maps draw with (`/Game/MJOLNIR/CETrial`, `Scripts/build_ce_materials.py`) and their tessellated cliffs (`Scripts/build_ce_cliffs.py`). `tools/level/upgrade_ce_map.py` cooks it, not `build_ce_runtime.sh`, and looks it up among the installed runtime's containers |
 
@@ -303,6 +304,14 @@ launcher 0.14.1 a map whose cache lacks a file its level names (its foliage
 file, `decals/`) is fetched again rather than skipped.
 
 ## Publishing
+
+A map whose shader library is cooked under a number outside 900 to 999, or
+under a number another mod's library already uses, needs a launcher with
+local chunk numbers. The hub works this out when it scans the release
+(`requires: ["local-chunk-numbers"]`) and keeps the release from older
+launchers. The launcher ships, then the hub change deploys, and only then
+is such a map published. The order and what each launcher does are in
+[chunk_numbering.md](chunk_numbering.md#the-launcher-gate-and-release-order).
 
 ### Our maps
 

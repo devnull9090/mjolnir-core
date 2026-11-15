@@ -477,6 +477,90 @@ pub fn build_indexed(
     }
 }
 
+/// Give chunks new IDs without touching the `.ucas`.
+///
+/// A chunk's place in the TOC's per-chunk arrays is its perfect-hash slot, so
+/// a new ID moves it: the seed table is rebuilt and the ID, offset and
+/// metadata arrays reordered to match. The directory index names files by
+/// that slot, so its file entries are remapped too. Blocks address the data
+/// stream, not the chunk arrays, and stay as they are.
+///
+/// `changes` pairs each old ID with its new one. Fails, leaving `toc`
+/// untouched, when an old ID is absent, a new one is already present, or the
+/// directory index does not parse.
+pub fn rekey(toc: &mut Toc, changes: &[(ChunkId, ChunkId)]) -> Result<(), String> {
+    let mut ids = toc.chunk_ids.clone();
+    for (old, new) in changes {
+        if ids.contains(new) {
+            return Err(format!("chunk {:016x} is already in the container", new.id));
+        }
+        let at = ids
+            .iter()
+            .position(|c| c == old)
+            .ok_or_else(|| format!("chunk {:016x} is not in the container", old.id))?;
+        ids[at] = *new;
+    }
+
+    let hash = PerfectHash::generate(&ids);
+    if !hash.overflow.is_empty() {
+        return Err("the new IDs do not fit a perfect hash".into());
+    }
+    let mut slot_of_old = vec![0u32; ids.len()];
+    for (slot, &e) in hash.entry_at_slot.iter().enumerate() {
+        slot_of_old[e] = slot as u32;
+    }
+    let directory_index = remap_directory_index(&toc.directory_index, &slot_of_old)?;
+
+    let meta = crate::toc::CHUNK_META;
+    toc.chunk_meta = hash
+        .entry_at_slot
+        .iter()
+        .flat_map(|&e| toc.chunk_meta[e * meta..(e + 1) * meta].to_vec())
+        .collect();
+    toc.chunk_offsets = hash.entry_at_slot.iter().map(|&e| toc.chunk_offsets[e]).collect();
+    toc.chunk_ids = hash.entry_at_slot.iter().map(|&e| ids[e]).collect();
+    toc.perfect_hash = hash.seeds.iter().flat_map(|s| s.to_le_bytes()).collect();
+    toc.perfect_hash_seed_count = hash.seeds.len() as u32;
+    toc.chunks_without_perfect_hash = 0;
+    toc.directory_index = directory_index;
+    Ok(())
+}
+
+/// A directory index with each file entry's chunk slot sent through `slot_of_old`.
+fn remap_directory_index(index: &[u8], slot_of_old: &[u32]) -> Result<Vec<u8>, String> {
+    if index.is_empty() {
+        return Ok(Vec::new());
+    }
+    let bad = || "the directory index does not parse".to_string();
+    let i32_at = |pos: usize| -> Result<i32, String> {
+        index
+            .get(pos..pos + 4)
+            .map(|b| i32::from_le_bytes(b.try_into().unwrap()))
+            .ok_or_else(bad)
+    };
+    // The mount point: an FString, UTF-16 when its length is negative.
+    let len = i32_at(0)?;
+    let mut pos = 4 + if len < 0 { 2 * len.unsigned_abs() as usize } else { len as usize };
+    let dirs = usize::try_from(i32_at(pos)?).map_err(|_| bad())?;
+    pos += 4 + 16 * dirs;
+    let files = usize::try_from(i32_at(pos)?).map_err(|_| bad())?;
+    pos += 4;
+    if index.len() < pos + 12 * files {
+        return Err(bad());
+    }
+    let mut out = index.to_vec();
+    for f in 0..files {
+        let at = pos + 12 * f + 8;
+        let old = u32::from_le_bytes(out[at..at + 4].try_into().unwrap());
+        if old == 0xFFFF_FFFF {
+            continue;
+        }
+        let new = slot_of_old.get(old as usize).ok_or_else(bad)?;
+        out[at..at + 4].copy_from_slice(&new.to_le_bytes());
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,5 +926,78 @@ mod tests {
         assert_eq!(toc.chunks_without_perfect_hash, 2);
         let slot = toc.find_chunk(&id(5)).expect("still findable");
         assert_eq!(toc.chunk_ids[slot], id(5));
+    }
+
+    /// The chunk slot each file in a directory index points at, by file name.
+    fn file_slots(index: &[u8]) -> Vec<(String, u32)> {
+        let i32_at = |p: usize| i32::from_le_bytes(index[p..p + 4].try_into().unwrap()) as usize;
+        let mut pos = 4 + i32_at(0);
+        pos += 4 + 16 * i32_at(pos);
+        let files = i32_at(pos);
+        let entries = pos + 4;
+        pos = entries + 12 * files;
+        let mut strings = Vec::new();
+        let count = i32_at(pos);
+        pos += 4;
+        for _ in 0..count {
+            let len = i32_at(pos);
+            strings.push(String::from_utf8(index[pos + 4..pos + 4 + len - 1].to_vec()).unwrap());
+            pos += 4 + len;
+        }
+        (0..files)
+            .map(|f| {
+                let at = entries + 12 * f;
+                let name = u32::from_le_bytes(index[at..at + 4].try_into().unwrap());
+                let slot = u32::from_le_bytes(index[at + 8..at + 12].try_into().unwrap());
+                (strings[name as usize].clone(), slot)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_rekeyed_chunk_keeps_its_data_and_its_file_name() {
+        let entries: Vec<Entry> = (0..40u64)
+            .map(|i| Entry {
+                id: id(i + 1),
+                data: vec![i as u8; 64 + i as usize],
+                meta: vec![0; 24],
+            })
+            .collect();
+        let names: Vec<(String, usize)> = (0..40).map(|i| (format!("f{i}.uasset"), i)).collect();
+        let built = build_indexed(&template(), 9, &entries, Some(("../../../X/", &names)));
+        let before = Toc::parse(&built.utoc).unwrap();
+        let mut toc = before.clone();
+
+        rekey(&mut toc, &[(id(7), id(7000)), (id(30), id(30000))]).unwrap();
+        let toc = Toc::parse(&toc.write()).expect("still parses");
+
+        assert_eq!(toc.blocks, before.blocks, "the data file is not touched");
+        assert!(toc.find_chunk_by_hash(&id(7)).is_none());
+        let slots = file_slots(&toc.directory_index);
+        for (i, e) in entries.iter().enumerate() {
+            let now = match i + 1 {
+                7 => id(7000),
+                30 => id(30000),
+                _ => e.id,
+            };
+            let slot = toc.find_chunk_by_hash(&now).expect("resolves by hash");
+            let was = before.find_chunk_by_hash(&e.id).unwrap();
+            assert_eq!(toc.chunk_offsets[slot], before.chunk_offsets[was]);
+            assert_eq!(toc.meta(slot), before.meta(was));
+            let (_, named) = slots.iter().find(|(n, _)| *n == format!("f{i}.uasset")).unwrap();
+            assert_eq!(*named as usize, slot, "f{i} still names its chunk");
+        }
+    }
+
+    #[test]
+    fn rekey_refuses_an_id_the_container_already_has() {
+        let entries: Vec<Entry> = (1..4u64)
+            .map(|i| Entry { id: id(i), data: vec![0; 8], meta: vec![0; 24] })
+            .collect();
+        let mut toc = Toc::parse(&build(&template(), 0, &entries).utoc).unwrap();
+        let before = toc.write();
+        assert!(rekey(&mut toc, &[(id(1), id(2))]).is_err());
+        assert!(rekey(&mut toc, &[(id(9), id(10))]).is_err());
+        assert_eq!(toc.write(), before, "a refused rekey changes nothing");
     }
 }
