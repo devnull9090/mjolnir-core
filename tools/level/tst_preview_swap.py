@@ -2,8 +2,14 @@
 
 The game must be closed.  Input is an already prepared pack_local_map staging
 directory and its conversion materials.spec.json.  This does not publish,
-change launcher state, modify shared runtime containers, or touch pak stubs.
-The backup manifest is required for a checked restore.
+change launcher state, modify shared runtime containers, or touch the hub's
+containers: the staged containers go in as local builds above them
+(`mjolnir dev install`, dev_paks.py), and restore removes those builds.  The
+map's data files are swapped and backed up; the backup manifest is required
+for a checked restore.
+
+A local build shadows the hub copy; a package the hub copy has and the build
+does not still loads from the hub.
 """
 import argparse
 import csv
@@ -14,7 +20,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dev_paks  # noqa: E402
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -28,7 +38,22 @@ CONTAINERS = (
     'pakchunk986-MJOLNIRMESH-TST_P',
     'pakchunk997-MJOLNIRMAP-TST_P',
 )
+# The local build each staged container goes in as. Names of their own, so
+# a swap never replaces (or its restore removes) a build installed otherwise.
+BUILD_NAMES = {stem: 'TST-PREVIEW-' + stem.split('-')[1].removeprefix('MJOLNIR') for stem in CONTAINERS}
 MANIFEST = 'manifest.json'
+
+
+def default_cli():
+    return os.environ.get('MJOLNIR', str(REPO / 'target/release/mjolnir.exe'))
+
+
+def run_cli(command):
+    """Run a `mjolnir` command; its output, or RuntimeError with it."""
+    result = subprocess.run(command, capture_output=True, text=True, errors='replace')
+    if result.returncode != 0:
+        raise RuntimeError(f'{" ".join(command[1:3])} failed: {result.stdout}{result.stderr}')
+    return result.stdout
 
 
 def digest(path):
@@ -112,20 +137,17 @@ def hub_install(state_path, paks):
     if not all(identity.values()):
         raise ValueError('Installed TST release identity is incomplete')
     hashes = entry.get('container_hashes') or {}
-    destinations = {}
     for index, stem in enumerate(CONTAINERS):
-        matches = list(paks.glob(f'pakchunk*-MJOLNIRHUB-{SLUG}-{index}_P.utoc'))
+        # The launcher's copy, under its local chunk number and load-order
+        # suffix (or the older `-<index>_P` name). Never changed here: the
+        # launcher rewrites its library, so it is no longer the cached bytes.
+        matches = dev_paks.hub_containers(paks, SLUG, index)
         if len(matches) != 1:
             raise ValueError(f'Expected exactly one installed container for index {index}')
-        base = matches[0].with_suffix('')
-        real_file(base.with_suffix('.pak'), paks)  # The existing stub is never changed.
         for ext in ('utoc', 'ucas'):
-            path = real_file(base.with_suffix('.' + ext), paks)
-            expected = hashes.get(stem + '.' + ext)
-            if not expected:
+            if not hashes.get(stem + '.' + ext):
                 raise ValueError(f'No hub hash for {stem}.{ext}')
-            destinations[stem + '.' + ext] = (path, expected)
-    return identity, hashes, destinations
+    return identity, hashes
 
 
 def parse_build_time(value):
@@ -171,27 +193,28 @@ def plan(game, state_path, stage, spec_path, surfaces_path, build_start):
     threshold = parse_build_time(build_start)
     if spec_path.stat().st_mtime + 2 < threshold:
         raise ValueError('Conversion materials spec predates the declared build')
-    identity, hub_hashes, container_destinations = hub_install(state_path, paks)
+    identity, hub_hashes = hub_install(state_path, paks)
     level = read_json(auxiliary(stage, 'tst.level.json'))
     registration = read_json(auxiliary(stage, 'TST.registration.json'))
     if registration.get('code') != CODE or registration.get('world') != '/Game/Levels/Halo1/Solo/TST/TST.TST':
         raise ValueError('Staged registration does not identify the TST world')
     if set(level.get('modes', [])) != {'slayer', 'ctf'}:
         raise ValueError('Staged level is not the supported-mode TST beta configuration')
-    pairs = []
-    for name, (destination, expected) in container_destinations.items():
-        source = auxiliary(stage, name)
-        if source.stat().st_mtime + 2 < threshold:
-            raise ValueError(f'Staged container predates the declared build: {name}')
-        if digest(destination) != expected:
-            raise ValueError(f'Installed hub container differs from launcher hash: {destination.name}')
-        pairs.append((source, destination, expected, name))
+    builds = []
+    for stem in CONTAINERS:
+        for ext in ('utoc', 'ucas'):
+            source = auxiliary(stage, stem + '.' + ext)
+            if source.stat().st_mtime + 2 < threshold:
+                raise ValueError(f'Staged container predates the declared build: {stem}.{ext}')
+        builds.append({'name': BUILD_NAMES[stem], 'source': str(stage / stem),
+                       'sha256': digest(stage / (stem + '.ucas'))})
     # A fresh material cook, mesh and map must all differ from the installed
-    # beta; an unchanged native-rock container can be legitimate.
+    # beta; an unchanged native-rock container can be legitimate. The data
+    # file is compared: the launcher never changes it.
     for stem in (CONTAINERS[0], CONTAINERS[3], CONTAINERS[4]):
-        source, destination, _, _ = next(pair for pair in pairs if pair[3] == stem + '.ucas')
-        if digest(source) == digest(destination):
+        if digest(stage / (stem + '.ucas')) == hub_hashes[stem + '.ucas']:
             raise ValueError(f'Staged {stem} is identical to the installed beta')
+    pairs = []
     for staged_name, installed_name in (('tst.level.json', 'level.json'),
                                         ('TST.registration.json', 'registration.json')):
         source = auxiliary(stage, staged_name)
@@ -245,7 +268,13 @@ def plan(game, state_path, stage, spec_path, surfaces_path, build_start):
     if decals.exists() and (not decals.is_dir() or not within(decals, stage) or
                             next(decals.iterdir(), None) is not None):
         raise ValueError('This TST helper does not install staged decals; review them separately')
-    return game, data, identity, pairs
+    return game, paks, data, identity, pairs, builds
+
+
+def remove_builds(cli, paks, builds):
+    for build in reversed(builds):
+        require_game_closed()
+        run_cli(dev_paks.remove_command(cli, paks, build['name']))
 
 
 def copy_entry(entry, backup, restore=False):
@@ -287,14 +316,15 @@ def restore_entries(manifest, backup, *, allow_original=False):
 
 
 def validate_manifest(manifest, backup, state_path):
-    if manifest.get('format') != 'tst-preview-swap-v1':
+    if manifest.get('format') != 'tst-preview-swap-v2':
         raise ValueError('Unrecognized backup manifest')
     game, paks, data = roots(manifest['game'])
-    identity, _, destinations = hub_install(state_path, paks)
+    identity, _ = hub_install(state_path, paks)
     if identity != manifest.get('hub_identity'):
         raise ValueError('The installed TST hub release changed since the backup')
-    fixed = {str(path) for path, _ in destinations.values()}
-    fixed.update(str(data / name) for name in ('level.json', 'registration.json', 'foliage.bin'))
+    if {b.get('name') for b in manifest.get('builds', [])} - set(BUILD_NAMES.values()):
+        raise ValueError('Unexpected local build in backup manifest')
+    fixed = {str(data / name) for name in ('level.json', 'registration.json', 'foliage.bin')}
     seen = set()
     for entry in manifest['files']:
         destination = Path(entry['destination'])
@@ -308,16 +338,20 @@ def validate_manifest(manifest, backup, state_path):
         saved = Path(backup) / entry['backup']
         if not within(saved, backup):
             raise ValueError('Backup path leaves its manifest directory')
-    required = {str(path) for path, _ in destinations.values()} | {str(data / 'level.json'), str(data / 'registration.json')}
+    required = {str(data / 'level.json'), str(data / 'registration.json')}
     if not required.issubset(seen):
         raise ValueError('Backup manifest omits required TST files')
     if Path(manifest['game']).resolve() != game:
         raise ValueError('Backup game path changed')
 
 
-def install(game, state_path, stage, spec_path, backup, build_start, surfaces_path=SURFACES):
+def install(game, state_path, stage, spec_path, backup, build_start, surfaces_path=SURFACES, cli=None):
     require_game_closed()
-    game, data, identity, pairs = plan(game, state_path, stage, spec_path, surfaces_path, build_start)
+    cli = cli or default_cli()
+    game, paks, data, identity, pairs, builds = plan(game, state_path, stage, spec_path, surfaces_path, build_start)
+    listed = json.loads(run_cli([str(cli), 'dev', 'list', '--json', '--paks', str(paks)]))
+    if any(b['name'] in BUILD_NAMES.values() for b in listed.get('builds', [])):
+        raise ValueError('A TST preview is already installed; restore it first')
     backup = Path(backup).resolve()
     if backup.exists() or within(backup, game) or within(game, backup) or within(backup, stage) or within(stage, backup):
         raise ValueError('Backup must be a new directory outside both the game and staging trees')
@@ -333,9 +367,9 @@ def install(game, state_path, stage, spec_path, backup, build_start, surfaces_pa
                 raise RuntimeError(f'Backup verification failed: {destination}')
         entries.append({'name': name, 'source': str(source), 'destination': str(destination),
                         'original_sha256': original, 'staged_sha256': digest(source), 'backup': saved_name})
-    manifest = {'format': 'tst-preview-swap-v1', 'status': 'prepared', 'game': str(game),
+    manifest = {'format': 'tst-preview-swap-v2', 'status': 'prepared', 'game': str(game),
                 'hub_identity': identity, 'build_start': build_start,
-                'conversion_spec_sha256': digest(spec_path), 'files': entries}
+                'conversion_spec_sha256': digest(spec_path), 'files': entries, 'builds': builds}
     write_manifest(backup, manifest)
     try:
         manifest['status'] = 'installing'
@@ -346,10 +380,16 @@ def install(game, state_path, stage, spec_path, backup, build_start, surfaces_pa
             if current != entry['original_sha256']:
                 raise RuntimeError(f'Installed file changed during swap: {entry["destination"]}')
             copy_entry(entry, backup)
+        for build in builds:
+            require_game_closed()
+            if digest(Path(build['source'] + '.ucas')) != build['sha256']:
+                raise RuntimeError(f'Staged container changed during swap: {build["source"]}')
+            run_cli(dev_paks.install_command(cli, paks, build['source'], build['name']))
         manifest['status'] = 'installed'
         write_manifest(backup, manifest)
     except Exception:
         try:
+            remove_builds(cli, paks, builds)
             restore_entries(manifest, backup, allow_original=True)
             manifest['status'] = 'rolled_back'
             write_manifest(backup, manifest)
@@ -362,8 +402,9 @@ def install(game, state_path, stage, spec_path, backup, build_start, surfaces_pa
     return backup / MANIFEST
 
 
-def restore(backup, state_path, game):
+def restore(backup, state_path, game, cli=None):
     require_game_closed()
+    cli = cli or default_cli()
     backup = Path(backup).resolve(strict=True)
     manifest = read_json(backup / MANIFEST)
     if manifest.get('status') not in ('installed', 'installing', 'recovery_required'):
@@ -372,6 +413,7 @@ def restore(backup, state_path, game):
         raise ValueError('Selected game does not match the backup manifest')
     validate_manifest(manifest, backup, state_path)
     restore_entries(manifest, backup, allow_original=manifest['status'] != 'installed')
+    remove_builds(cli, roots(manifest['game'])[1], manifest.get('builds', []))
     manifest['status'] = 'restored'
     write_manifest(backup, manifest)
     return backup / MANIFEST
@@ -381,6 +423,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--game', type=Path, required=True, help='Halo Campaign Evolved installation root')
     parser.add_argument('--hub-state', type=Path, required=True, help='Launcher hub_state.json (read only)')
+    parser.add_argument('--cli', default=None, help='mjolnir.exe (default: $MJOLNIR or target/release)')
     sub = parser.add_subparsers(dest='command', required=True)
     add = sub.add_parser('install')
     add.add_argument('--stage', type=Path, required=True, help='Fresh pack_local_map.prepare output')
@@ -391,9 +434,10 @@ def main():
     back.add_argument('--backup', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'install':
-        result = install(args.game, args.hub_state, args.stage, args.spec, args.backup, args.build_start)
+        result = install(args.game, args.hub_state, args.stage, args.spec, args.backup, args.build_start,
+                         cli=args.cli)
     else:
-        result = restore(args.backup, args.hub_state, args.game)
+        result = restore(args.backup, args.hub_state, args.game, cli=args.cli)
     print(f'{args.command} complete; manifest: {result}')
 
 

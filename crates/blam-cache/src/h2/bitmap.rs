@@ -189,7 +189,12 @@ fn decode_level(format: u16, w: u32, h: u32, data: &[u8]) -> Result<Vec<u8>, Err
             let (bw, bh) = (w.div_ceil(4) * 4, h.div_ceil(4) * 4);
             let mut out = vec![0u32; (bw * bh) as usize];
             let r = match format {
-                14 => texture2ddecoder::decode_bc1(data, bw as usize, bh as usize, &mut out),
+                // DXT1 with its one-bit alpha, as D3D samples it: a block
+                // in three-colour mode (c0 <= c1) makes index 3 transparent
+                // black. Read opaque (decode_bc1), the decorators' debris
+                // atlas drew each piece in a black box where Halo 2 cuts
+                // it out (Turf, 2026-11-11).
+                14 => texture2ddecoder::decode_bc1a(data, bw as usize, bh as usize, &mut out),
                 15 => texture2ddecoder::decode_bc2(data, bw as usize, bh as usize, &mut out),
                 _ => texture2ddecoder::decode_bc3(data, bw as usize, bh as usize, &mut out),
             };

@@ -333,6 +333,10 @@ MAP_LOOKS["LSW"]["pbr"]["surfaces"].update({
 # Gephyrophobia (LGP, 2026-10-16): Ice Fields' snow on its plateaus and the
 # chasm floor; no ice (its base map paints no pond). Without a look of its
 # own it took the beach's sand and grass.
+# Coagulation (LCO) is Halo 2's Blood Gulch: the same packed earth, stones
+# on soil and red cliffs, so Blood Gulch's look as it stands. The default
+# is Death Island's beach (grey sand, ripples, a wet band by a sea).
+MAP_LOOKS["LCO"] = _copy.deepcopy(MAP_LOOKS["LBG"])
 MAP_LOOKS["LGP"] = _copy.deepcopy(MAP_LOOKS["LIF"])
 MAP_LOOKS["LGP"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
 
@@ -476,6 +480,16 @@ def main():
     ap.add_argument("--also", default="",
                     help="substrings of shaders drawn in the ground's look on the mesh but not part of the "
                          "landscape (Ice Fields' ice patches: its ground's base map, a shinier shader), comma-separated")
+    ap.add_argument("--grass-primary", default="",
+                    help="detail bitmap name substrings, comma-separated, that are grass: a blended ground shader "
+                         "whose PRIMARY detail is one has its base alpha flipped in the bake. The ground master "
+                         "reads alpha 1 as sand, CE's order (sand first, grass second); Halo 2's Zanzibar lists "
+                         "its weeds first, and its beach drew as a lawn")
+    ap.add_argument("--square", default="",
+                    help="shader name substrings, comma-separated, whose ground the landscape's square is drawn "
+                         "around (default: the first --shader's). Zanzibar's first is its inland dirt: the square "
+                         "stopped part way down the beach, and where the terrain mesh took over, 8 cm lower, the "
+                         "step showed as a crack to see through")
     ap.add_argument("--real-base", action="store_true",
                     help="bake plain ground's own CE base colour, not a neutral grey (pbr.ice reads it)")
     ap.add_argument("--cliff-shaders", default="",
@@ -506,6 +520,8 @@ def main():
     spec = json.load(open(a.spec, encoding="utf-8"))
     files = {t["name"]: t["file"] for t in spec["textures"]}
     shaders = [x for x in a.shader.split(",") if x]
+    grass_primary = [x.lower() for x in a.grass_primary.split(",") if x]
+    square = [x for x in a.square.split(",") if x] or shaders[:1]
     also = [x.lower() for x in a.also.split(",") if x]
     slots = {s["pattern"].rstrip("$"): s for s in spec["slots"] if any(x in s["pattern"] for x in shaders)}
     if not slots:
@@ -523,7 +539,10 @@ def main():
                 continue
             tex = slot["material"]["textures"]
             leaf = lambda k: files[tex[k].rsplit(".", 1)[-1]] if k in tex else None
-            key = tuple(leaf(k) for k in BAKED)
+            # The last element: this slot's alpha is grass where CE's is sand.
+            primary = str(tex.get("Primary", "")).lower()
+            flipped = bool(grass_primary) and any(g in primary for g in grass_primary)                 and (slot["material"].get("scalars") or {}).get("Type", 0) > 0.5
+            key = tuple(leaf(k) for k in BAKED) + (flipped,)
             if key not in page_files:
                 page_files.append(key)
             pos = read_accessor(doc, data, prim["attributes"]["POSITION"]).astype(np.float64)
@@ -538,7 +557,7 @@ def main():
             # A blended shader picks sand or grass by its base alpha; any other
             # ground (Death Island's sea floor) is plain sand.
             blended.append(np.full(len(idx), 1.0 if (slot["material"].get("scalars") or {}).get("Type", 0) > 0.5 else 0.0))
-            firsts.append(np.full(len(idx), shaders[0] in slot["pattern"]))
+            firsts.append(np.full(len(idx), any(x in slot["pattern"] for x in square)))
     tris, uv0s, uv1s, pages, blended, firsts = map(np.concatenate, (tris, uv0s, uv1s, pages, blended, firsts))
     if a.min_z is not None:
         # Ground wholly under `min_z` stays CE's: Gephyrophobia's snow shader
@@ -706,6 +725,10 @@ def main():
             sel = on & (pg == pi)
             if sel.any():
                 out[sel] = sample(images[f], (uv0g if name == "Base" else uv1g)[sel])
+                if name == "Base" and key[-1]:
+                    flip = out[sel]
+                    flip[:, 3] = 255.0 - flip[:, 3]
+                    out[sel] = flip
         if name == "Base" and not a.real_base:
             # Plain sand: alpha 1 (sand), and a grey that tints nothing
             # (M_CE_LandscapePBR's CE colour is relative to 0.25 linear).

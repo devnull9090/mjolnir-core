@@ -50,6 +50,9 @@
  *     key <vk> <1|0>          key down or up
  *     button <mask> <1|0>     mouse buttons down or up
  *     look <dx> <dy>          mouse counts, applied at the next read
+ *     glide <dx> <dy> <ms>    mouse counts spread over the next <ms>, by the
+ *                             time between reads, so the view turns smoothly;
+ *                             a new glide replaces what is left of the last
  *     wait <ms>
  *     release                 everything up
  *     off                     everything up, slot restored, worker stops
@@ -114,12 +117,69 @@ static volatile LONG reads, delivered;
 static volatile LONG running;
 static char dir[MAX_PATH];
 
+/* A glide: look counts still to spend, and the stretch of time they are
+   spread over. Written by the worker, spent on the simulation's thread. */
+static SRWLOCK glide_lock = SRWLOCK_INIT;
+static double glide_x, glide_y;
+static LONGLONG glide_from, glide_until; /* now_ticks() units */
+
+static LONGLONG system_ticks(void) {
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return t.QuadPart;
+}
+static LONGLONG ticks_per_ms(void) {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    return f.QuadPart / 1000 ? f.QuadPart / 1000 : 1;
+}
+/* The clock; the offline test sets its own. */
+static LONGLONG (*now_ticks)(void) = system_ticks;
+static LONGLONG (*ms_ticks)(void) = ticks_per_ms;
+
+static void glide_set(long dx, long dy, long ms) {
+    const LONGLONG now = now_ticks();
+    AcquireSRWLockExclusive(&glide_lock);
+    glide_x = (double)dx;
+    glide_y = (double)dy;
+    glide_from = now;
+    glide_until = now + (LONGLONG)(ms > 0 ? ms : 1) * ms_ticks();
+    ReleaseSRWLockExclusive(&glide_lock);
+}
+
+/* The share of the glide due by now, taken from what is left. */
+static int glide_take(float *dx, float *dy) {
+    *dx = *dy = 0.0f;
+    AcquireSRWLockExclusive(&glide_lock);
+    if (glide_x == 0.0 && glide_y == 0.0) {
+        ReleaseSRWLockExclusive(&glide_lock);
+        return 0;
+    }
+    const LONGLONG now = now_ticks();
+    double share = 1.0;
+    if (now < glide_until && glide_until > glide_from)
+        share = (double)(now - glide_from) / (double)(glide_until - glide_from);
+    if (share < 0.0) share = 0.0;
+    const double x = glide_x * share, y = glide_y * share;
+    glide_x -= x;
+    glide_y -= y;
+    if (share >= 1.0) glide_x = glide_y = 0.0;
+    glide_from = now;
+    ReleaseSRWLockExclusive(&glide_lock);
+    *dx = (float)x;
+    *dy = (float)y;
+    return x != 0.0 || y != 0.0;
+}
+
 static void clear_input(void) {
     for (int vk = 0; vk < 256; vk++) key_down[vk] = key_seen[vk] = 0;
     InterlockedExchange(&buttons_down, 0);
     InterlockedExchange(&buttons_seen, 0);
     InterlockedExchange(&look_x, 0);
     InterlockedExchange(&look_y, 0);
+    AcquireSRWLockExclusive(&glide_lock);
+    glide_x = glide_y = 0.0;
+    ReleaseSRWLockExclusive(&glide_lock);
 }
 
 /* Add our state to a block ReadInput has filled. Nonzero if there was any. */
@@ -141,6 +201,12 @@ static int merge(unsigned char *block) {
     if (dx || dy) {
         *(float *)(block + BLOCK_LOOK_X) += (float)dx * LOOK_PER_COUNT;
         *(float *)(block + BLOCK_LOOK_Y) += (float)dy * LOOK_PER_COUNT;
+        any = 1;
+    }
+    float gx, gy;
+    if (glide_take(&gx, &gy)) {
+        *(float *)(block + BLOCK_LOOK_X) += gx * LOOK_PER_COUNT;
+        *(float *)(block + BLOCK_LOOK_Y) += gy * LOOK_PER_COUNT;
         any = 1;
     }
     if (any) *(unsigned *)(block + BLOCK_DEVICE) = DEVICE_KEYBOARD_MOUSE;
@@ -260,8 +326,8 @@ static int run_script(char *script, char *ack, size_t ack_size) {
     int off = 0;
     for (char *line = strtok(script, "\r\n"); line && !error[0]; line = strtok(NULL, "\r\n")) {
         char word[16];
-        long a = 0, b = 0;
-        const int fields = sscanf(line, "%15s %ld %ld", word, &a, &b);
+        long a = 0, b = 0, c = 0;
+        const int fields = sscanf(line, "%15s %ld %ld %ld", word, &a, &b, &c);
         if (fields < 1) continue;
         if (strcmp(word, "id") == 0 && fields == 2) {
             id = a;
@@ -275,6 +341,8 @@ static int run_script(char *script, char *ack, size_t ack_size) {
             } else {
                 InterlockedAnd(&buttons_down, ~a);
             }
+        } else if (strcmp(word, "glide") == 0 && fields == 4 && c >= 0 && c <= 10000) {
+            glide_set(a, b, c);
         } else if (strcmp(word, "look") == 0 && fields == 3) {
             InterlockedExchangeAdd(&look_x, a);
             InterlockedExchangeAdd(&look_y, b);

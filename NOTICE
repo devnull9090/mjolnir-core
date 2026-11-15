@@ -12,5 +12,9 @@ licenses. The derived portions and their origins:
   port is a Rust rewrite of the UE 5.5 code paths; it carries no other
   copyrighted material from that project.
 
+Assets, bundled software and tools made by others are credited at
+https://mjolnircore.com/credits (hub/src/lib/credits.ts; docs/credits.md says
+how that list is kept).
+
 Everything else in this repository is covered by the LICENSE file at the
 repository root.

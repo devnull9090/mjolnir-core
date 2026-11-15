@@ -37,8 +37,17 @@ import {
   MAX_ARCHIVE_BYTES,
   MAX_MULTIPART_ARCHIVE_BYTES,
   SCANNER_VERSION,
+  SHADER_LIBRARY_CHUNK,
   scanArchiveStream,
 } from "./scan";
+import {
+  CLIENT_VARY,
+  LOCAL_CHUNK_NUMBERS,
+  UPDATE_LAUNCHER,
+  clientOf,
+  compatible,
+  parseRequires,
+} from "./clients";
 
 /** R2 multipart: every part but the last at least 5 MiB, and the same size.
  *  The cap keeps a part, held whole as it arrives, well inside the Worker's
@@ -147,7 +156,61 @@ function releaseStatusFromRow(r: Record<string, unknown>): z.infer<typeof Releas
       ((r.publisher_display_name as string) ?? (r.publisher_discord_username as string)) || null,
     signer_fingerprint: (r.signer_fingerprint as string) ?? null,
     signer_key_revoked: Boolean(r.signer_key_revoked_at),
+    requires: parseRequires(r.requires),
   };
+}
+
+/** A release whose `requires` is empty: what a launcher up to 0.23 installs. */
+const UNGATED = `(o.requires IS NULL OR o.requires = '[]')`;
+
+/**
+ * The slug of another mod whose published, ungated release carries one of
+ * these shader-library chunk IDs, or null. A launcher up to 0.23 opens only one
+ * library per chunk number, so a release sharing one must not reach it: the
+ * newcomer is gated, never the release already out. Only ungated releases
+ * count, so a gated newcomer never gates anyone after it.
+ *
+ * `libraries` is a scan's chunk IDs (only the library ones are compared), or a
+ * release whose recorded chunks to read (a held release, at approval).
+ */
+export async function sharedLibraryOwner(
+  db: ApiEnv["Bindings"]["DB"],
+  modId: string,
+  libraries: Uint8Array[] | { releaseId: string },
+): Promise<string | null> {
+  const owner = async (source: string, binds: unknown[]) => {
+    const row = await db
+      .prepare(
+        `SELECT m.slug FROM release_chunks b
+         JOIN mod_releases o ON o.id = b.release_id
+         JOIN mods m ON m.id = o.mod_id
+         WHERE b.chunk_id IN (${source}) AND o.status = 'published' AND o.mod_id <> ?1
+           AND ${UNGATED}
+         LIMIT 1`,
+      )
+      .bind(modId, ...binds)
+      .first<{ slug: string }>();
+    return row?.slug ?? null;
+  };
+  if (!Array.isArray(libraries)) {
+    const type = SHADER_LIBRARY_CHUNK.toString(16).padStart(2, "0");
+    return owner(
+      `SELECT chunk_id FROM release_chunks
+       WHERE release_id = ?2 AND substr(chunk_id, 12, 1) = x'${type}'`,
+      [libraries.releaseId],
+    );
+  }
+  const ids = libraries.filter((id) => id[11] === SHADER_LIBRARY_CHUNK);
+  const PER = 40;
+  for (let i = 0; i < ids.length; i += PER) {
+    const slice = ids.slice(i, i + PER);
+    const found = await owner(
+      slice.map((_, j) => `?${j + 2}`).join(", "),
+      slice.map((id) => id.buffer.slice(id.byteOffset, id.byteOffset + 12)),
+    );
+    if (found) return found;
+  }
+  return null;
 }
 
 /** Trust level from which a release publishes without review. */
@@ -781,6 +844,23 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       // Findings accumulated after the scan feed the verdict too.
       scan.verdict = scan.findings.some((f) => f.level === "error") ? "fail" : "pass";
 
+      const requires = new Set(scan.requires);
+      if (scan.verdict === "pass" && !requires.has(LOCAL_CHUNK_NUMBERS)) {
+        const owner = await sharedLibraryOwner(c.env.DB, release.mod_id as string, scan.chunkIds);
+        if (owner) {
+          requires.add(LOCAL_CHUNK_NUMBERS);
+          scan.findings.push({
+            level: "warning",
+            code: "needs_new_launcher",
+            message:
+              `A shader library here has the same chunk as one in ${owner}, and launchers up to ` +
+              "0.23 open only one of them: players need a launcher with local chunk numbers, " +
+              "and older launchers are told to update. Cooking under another chunk number " +
+              "avoids this.",
+          });
+        }
+      }
+
       const held =
         scan.verdict === "pass" &&
         needsReview({ map: map !== null, banks: scan.banks.length }, user);
@@ -808,7 +888,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         c.env.DB.prepare(
           `UPDATE mod_releases
            SET status = ?2, signing_key_id = ?3, changes_json = ?4, sha256 = ?5, file_size = ?6,
-               forge_pack_json = ?7, banks_json = ?8, map_json = ?9
+               forge_pack_json = ?7, banks_json = ?8, map_json = ?9, requires = ?10
            WHERE id = ?1`,
         ).bind(
           id,
@@ -820,6 +900,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           scan.verdict === "pass" && forgePack ? JSON.stringify(forgePack) : null,
           JSON.stringify(scan.banks),
           scan.verdict === "pass" && map ? JSON.stringify(map) : null,
+          requires.size ? JSON.stringify([...requires]) : null,
         ),
         c.env.DB.prepare(`DELETE FROM release_deps WHERE release_id = ?1`).bind(id),
       ];
@@ -903,6 +984,7 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           published_by_username: user.display_name ?? user.discord_username,
           signer_fingerprint: signerFingerprint,
           signer_key_revoked: false,
+          requires: [...requires],
         },
         200,
       );
@@ -931,8 +1013,17 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
       const release = await c.env.DB.prepare(`${RELEASE_STATUS_SELECT} WHERE r.id = ?1`)
         .bind(id)
         .first<Record<string, unknown>>();
+      c.header("Vary", CLIENT_VARY, { append: true });
       if (!release) return c.json({ error: "not_found" }, 404);
-      return c.json(releaseStatusFromRow(release), 200);
+      const status = releaseStatusFromRow(release);
+      // A launcher up to 0.23 stops on any status but published and prints it
+      // ("Release is <status>, not published"), so a release it cannot install
+      // says why there. Current launchers read `requires` themselves.
+      const client = clientOf(c.req.raw.headers);
+      if (client.kind === "legacy" && status.status === "published" && !compatible(client, status.requires)) {
+        status.status = UPDATE_LAUNCHER;
+      }
+      return c.json(status, 200);
     },
   );
 
@@ -1050,12 +1141,18 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         200: { description: "The .mjolnir archive (zip)." },
         302: { description: "Signed code-mod artifact; redirect to its canonical URL." },
         404: { description: "Not published.", content: { "application/json": { schema: ErrorSchema } } },
+        409: {
+          description:
+            "The release needs a newer launcher than the caller's (a launcher up to 0.23: no " +
+            "User-Agent and no `X-MJOLNIR-Launcher`); `message` says to update.",
+          content: { "application/json": { schema: ErrorSchema } },
+        },
       },
     }),
     async (c) => {
       const { id } = c.req.valid("param");
       const release = await c.env.DB.prepare(
-        `SELECT r.r2_key, r.download_url, r.mod_id, m.slug, r.version FROM mod_releases r
+        `SELECT r.r2_key, r.download_url, r.mod_id, m.slug, r.version, r.requires FROM mod_releases r
          JOIN mods m ON m.id = r.mod_id
          WHERE r.id = ?1 AND r.status = 'published' AND m.status = 'published'`,
       )
@@ -1066,9 +1163,18 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
           mod_id: string;
           slug: string;
           version: string;
+          requires: string | null;
         }>();
+      c.header("Vary", CLIENT_VARY, { append: true });
       if (!release || (!release.r2_key && !release.download_url)) {
         return c.json({ error: "not_found" }, 404);
+      }
+      // A launcher up to 0.23 would install it broken (docs/chunk_numbering.md);
+      // it shows only the code, but a person reading the response gets why.
+      // Current launchers check `requires` before they download.
+      const client = clientOf(c.req.raw.headers);
+      if (client.kind === "legacy" && !compatible(client, parseRequires(release.requires))) {
+        return c.json({ error: "needs_new_launcher", message: `This release is ${UPDATE_LAUNCHER}.` }, 409);
       }
 
       // Who is asking, if anyone. Resolved on the request path rather than

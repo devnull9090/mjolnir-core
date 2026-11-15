@@ -47,6 +47,9 @@ pub struct Packed {
     pub surfaces: Vec<u8>,
     pub edges: Vec<u8>,
     pub vertices: Vec<u8>,
+    /// Breakable surface sets the surfaces name ([`pack_breakable`]); 0 from
+    /// [`pack`].
+    pub breakable_sets: usize,
 }
 
 fn child24(ce: i32) -> u32 {
@@ -90,6 +93,153 @@ impl<F: Fn(i16) -> i16> MaterialMap for F {
 
 /// Pack every table. `materials` remaps CE surface material indices.
 pub fn pack(c: &Collision, materials: &dyn MaterialMap) -> Result<Packed, Error> {
+    pack_with(c, materials, &[])
+}
+
+/// Pack every table keeping the breakable bit: each pane of breakable
+/// surfaces ([`breakable_panes`]) names a set and its index in it, as the
+/// shipped BSPs do (A15's cryo glass: two triangles a pane, the pane's index
+/// in its set at +6, the set at +8, both triangles the same; sets of up to
+/// 256, the set block's 32-byte bitfield). The caller writes
+/// `breakable_sets` zeroed sets into the definition.
+pub fn pack_breakable(c: &Collision, materials: &dyn MaterialMap) -> Result<Packed, Error> {
+    let panes = breakable_panes(c);
+    let mut p = pack_with(c, materials, &panes)?;
+    p.breakable_sets = panes.iter().flatten().map(|&(set, _)| set as usize + 1).max().unwrap_or(0);
+    Ok(p)
+}
+
+/// Each breakable surface's (set, pane), as A15's cryo glass has them: a
+/// pane is one polygon, its front and its mirrored back (the same corners),
+/// because the simulation builds a pane's Havok shape from its seed surface
+/// alone (HaloSimulation 0x3cc6a0); a set is a connected sheet of panes
+/// (breakable surfaces on the same plane, compared by value either facing,
+/// that share a corner), which a break floods across (0x265850). Sets past
+/// 256 panes continue in the next set. `None` for the rest.
+pub fn breakable_panes(c: &Collision) -> Vec<Option<(u16, u16)>> {
+    let n = c.surfaces.len();
+    let breakable: Vec<bool> = c.surfaces.iter().map(|s| s.flags & 0x08 != 0).collect();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], mut i: usize) -> usize {
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    let key = |v: [f32; 3]| v.map(|x| (x * 1024.0).round() as i64);
+    let mut by_corner: std::collections::HashMap<([i64; 4], [i64; 3]), usize> = std::collections::HashMap::new();
+    for (i, s) in c.surfaces.iter().enumerate() {
+        if !breakable[i] {
+            continue;
+        }
+        let plane = {
+            let p = &c.planes[((s.plane as u32) & 0x7fff_ffff) as usize];
+            let sign = if p.n[0].abs() > 1e-4 { p.n[0].signum() } else if p.n[1].abs() > 1e-4 { p.n[1].signum() } else { p.n[2].signum() };
+            [p.n[0] * sign, p.n[1] * sign, p.n[2] * sign, p.d * sign].map(|x| (x * 256.0).round() as i64)
+        };
+        for v in crate::unpack16::polygon(c, i) {
+            match by_corner.entry((plane, key(v))) {
+                std::collections::hash_map::Entry::Occupied(o) => {
+                    let (a, b) = (find(&mut parent, i), find(&mut parent, *o.get()));
+                    if a != b {
+                        parent[a.max(b)] = a.min(b);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(i);
+                }
+            }
+        }
+    }
+    // Sheets in order of their first surface; panes in a sheet by their
+    // sorted corners, in order of first surface.
+    let mut sheets: Vec<usize> = Vec::new();
+    let mut sheet_of: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut panes_in: Vec<std::collections::HashMap<Vec<[i64; 3]>, usize>> = Vec::new();
+    let mut raw: Vec<Option<(usize, usize)>> = vec![None; n];
+    for i in 0..n {
+        if !breakable[i] {
+            continue;
+        }
+        let r = find(&mut parent, i);
+        let sheet = *sheet_of.entry(r).or_insert_with(|| {
+            sheets.push(r);
+            panes_in.push(std::collections::HashMap::new());
+            sheets.len() - 1
+        });
+        let mut corners: Vec<[i64; 3]> = crate::unpack16::polygon(c, i).into_iter().map(key).collect();
+        corners.sort();
+        let next = panes_in[sheet].len();
+        let pane = *panes_in[sheet].entry(corners).or_insert(next);
+        raw[i] = Some((sheet, pane));
+    }
+    // A sheet past 256 panes takes further sets.
+    let mut first_set = Vec::with_capacity(panes_in.len());
+    let mut next_set = 0usize;
+    for p in &panes_in {
+        first_set.push(next_set);
+        next_set += p.len().div_ceil(256).max(1);
+    }
+    raw.into_iter()
+        .map(|r| r.map(|(sheet, pane)| ((first_set[sheet] + pane / 256) as u16, (pane % 256) as u16)))
+        .collect()
+}
+
+/// For each open edge of a breakable surface (one side "none"): whether the
+/// surface is its left side, and the breakable surface to name on the open
+/// side ([`pack_with`]).
+fn stitch_breakable(c: &Collision, panes: &[Option<(u16, u16)>]) -> std::collections::HashMap<usize, (bool, usize)> {
+    let mut out = std::collections::HashMap::new();
+    if panes.iter().all(|p| p.is_none()) {
+        return out;
+    }
+    let key = |v: [f32; 3]| v.map(|x| (x * 1024.0).round() as i64);
+    let corner = |vi: i32| key(c.vertices[vi as usize].point);
+    let normal = |s: usize| {
+        let p = c.planes[((c.surfaces[s].plane as u32) & 0x7fff_ffff) as usize];
+        let flip = (c.surfaces[s].plane as u32) & 0x8000_0000 != 0;
+        if flip { [-p.n[0], -p.n[1], -p.n[2]] } else { p.n }
+    };
+    // Every breakable surface by the corners of each of its edges.
+    let mut by_edge: std::collections::HashMap<([i64; 3], [i64; 3]), Vec<usize>> = std::collections::HashMap::new();
+    let ends = |e: &crate::ce::Edge| {
+        let (a, b) = (corner(e.start), corner(e.end));
+        if a <= b { (a, b) } else { (b, a) }
+    };
+    for e in &c.edges {
+        for side in [e.left, e.right] {
+            if let Ok(s) = usize::try_from(side) {
+                if panes.get(s).copied().flatten().is_some() {
+                    let list = by_edge.entry(ends(e)).or_default();
+                    if !list.contains(&s) {
+                        list.push(s);
+                    }
+                }
+            }
+        }
+    }
+    for (i, e) in c.edges.iter().enumerate() {
+        let (side, open_left) = match (usize::try_from(e.left), usize::try_from(e.right)) {
+            (Ok(l), Err(_)) => (l, false),
+            (Err(_), Ok(r)) => (r, true),
+            _ => continue,
+        };
+        if panes.get(side).copied().flatten().is_none() {
+            continue;
+        }
+        let n = normal(side);
+        let others: Vec<usize> = by_edge.get(&ends(e)).map(|l| l.iter().copied().filter(|&o| o != side).collect()).unwrap_or_default();
+        let dot = |o: usize| { let m = normal(o); n[0] * m[0] + n[1] * m[1] + n[2] * m[2] };
+        let pick = others.iter().copied().find(|&o| dot(o) > 0.99).or_else(|| others.iter().copied().find(|&o| dot(o) < -0.99));
+        if let Some(o) = pick {
+            out.insert(i, (!open_left, o));
+        }
+    }
+    out
+}
+
+fn pack_with(c: &Collision, materials: &dyn MaterialMap, panes: &[Option<(u16, u16)>]) -> Result<Packed, Error> {
     c.fits_16bit()?;
     let mut p = Packed::default();
 
@@ -127,11 +277,34 @@ pub fn pack(c: &Collision, materials: &dyn MaterialMap) -> Result<Packed, Error>
         p.bsp2d_nodes
             .extend_from_slice(&child16(n.right).to_le_bytes());
     }
-    for s in &c.surfaces {
-        p.surfaces.extend_from_slice(&surface16(s, materials));
+    for (i, s) in c.surfaces.iter().enumerate() {
+        let mut b = surface16(s, materials);
+        if let Some(Some((set, pane))) = panes.get(i) {
+            b[6..8].copy_from_slice(&(*pane as i16).to_le_bytes());
+            b[8..10].copy_from_slice(&(*set as i16).to_le_bytes());
+            let flags = u16::from_le_bytes([b[10], b[11]]) | 0x08;
+            b[10..12].copy_from_slice(&flags.to_le_bytes());
+        }
+        p.surfaces.extend_from_slice(&b);
     }
-    for e in &c.edges {
-        for v in [e.start, e.end, e.forward, e.reverse, e.left, e.right] {
+    // A breakable pane is closed, as shipped glass is (A15's cryo panes: each
+    // triangle twice, front and back on the same plane negated, every edge
+    // naming a real surface): the simulation's break flood fill
+    // (HaloSimulation 0x265850) reads the surface across every edge, and
+    // across "none" (0xFFFF) it read past the table and crashed (Turf's
+    // standalone glass triangles, 2026-11-10); with a stand-in neighbour
+    // instead the pane did not stop a player. Each open edge of a breakable
+    // surface names the breakable surface across the same two corners: one
+    // facing the same way if there is one (the other half of a quad), else
+    // the mirrored face.
+    let open_partner = stitch_breakable(c, panes);
+    for (i, e) in c.edges.iter().enumerate() {
+        let (left, right) = match open_partner.get(&i) {
+            Some(&(side_left, other)) if side_left => (e.left, other as i32),
+            Some(&(_, other)) => (other as i32, e.right),
+            None => (e.left, e.right),
+        };
+        for v in [e.start, e.end, e.forward, e.reverse, left, right] {
             p.edges.extend_from_slice(&u16_of(v).to_le_bytes());
         }
     }

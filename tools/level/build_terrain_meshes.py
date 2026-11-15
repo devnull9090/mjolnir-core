@@ -160,7 +160,17 @@ def main():
             print(f"{leaf}: {os.path.basename(gltf)} is empty, skipped")
             continue
         names = [m["name"] for m in doc.get("materials", [])]
-        slots = [by_pattern[n.lower() + "$"] for n in names if n.lower() + "$" in by_pattern]
+        slot_names = [n for n in names if n.lower() + "$" in by_pattern]
+        slots = [by_pattern[n.lower() + "$"] for n in slot_names]
+        # Breakable glass sheets (split_breakable_glass.py): each sheet's
+        # slots and box, which the level loader hides when the game breaks it.
+        sheets = {}
+        for m in doc.get("materials", []):
+            b = m.get("extras", {}).get("halo", {}).get("breakable")
+            if b and m["name"] in slot_names:
+                sheet = sheets.setdefault(b["sheet"], {"sheet": b["sheet"], "instance": b["instance"], "set": b["set"],
+                                                        "min": b["min"], "max": b["max"], "slots": []})
+                sheet["slots"].append(slot_names.index(m["name"]) + (1 if k == 0 else 0))
         args = [exe("mesh_rewrite"), a.paks, donor, gltf, uasset, "--offset", a.offset, "--lightmap-uvs",
                 "--rename", package]
         materials = []
@@ -194,6 +204,8 @@ def main():
                  # optional facility detail bypassed that bake and requests
                  # the actor's real shadows; validate cost/quality in game.
                  "cast_shadow": cast_shadow_for_job(package, a.native_detail)}
+        if sheets:
+            entry["breakables"] = [sheets[s] for s in sorted(sheets)]
         motion = gltf[: -len(".gltf")] + ".motion.json"
         if os.path.isfile(motion):
             # A turning machine (merge_ce_scene.py --machines): the level

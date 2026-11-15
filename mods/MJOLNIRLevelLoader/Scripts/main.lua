@@ -372,11 +372,14 @@ local function resetState()
     Current.turning = {}
     Current.claimed = {}
     Current.volumed = {}
+    Current.soundSet = nil
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.bakedMids = {}
     Current.foliageDressed = nil
     Current.rocksHidden = nil
+    Current.broken = nil
+    Current.breakPreloaded = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
     Current.dressQueue = nil
@@ -424,12 +427,14 @@ local function clearActors()
         end
     end
     Current.actors = {}
+    Current.broken = nil
     Current.sunMids = {}
     Current.scalarMids = {}
     Current.movingSounds = {}
     Current.turning = {}
     Current.claimed = {}
     Current.volumed = {}
+    Current.soundSet = nil
     Current.spawned = 0
     Current.failed = 0
 end
@@ -923,6 +928,11 @@ local function runtimeMaterial(world, spec, name, target)
     if not parent and type(spec.parent) == "string" then
         local leaf = spec.parent:match("^/Game/MJOLNIR/CE/([%w_]+%.[%w_]+)$")
         if leaf then parent = resolveMesh(TRIAL_MASTERS .. leaf) end
+    end
+    -- Halo 2's camera-facing sprites (M_H2_Billboard, chunk 981) on a
+    -- runtime pack from before it: still cards, drawn unturned.
+    if not parent and spec.parent == "/Game/MJOLNIR/H2/M_H2_Billboard.M_H2_Billboard" then
+        parent = resolveMesh("/Game/MJOLNIR/CE/M_CE_EnvironmentMaskedTwoSided.M_CE_EnvironmentMaskedTwoSided")
     end
     local mid = target
     if not mid then
@@ -1691,6 +1701,14 @@ local function spawnEnvironment(world)
                 if type(env.weather) == "table" and type(env.weather.system) == "string" then
                     set["r.Lumen.Reflections.ScreenTraces"] = 0
                 end
+                -- `sun.shadow_normal_bias`: the sun skimming a smooth wall
+                -- drew its shadow's edge as a row of teeth, a shadow texel
+                -- each stretched down the face (Zanzibar's sea-wall slabs
+                -- once they took a PBR surface lit by the sun, 2026-11-12).
+                -- The engine's 0.5 left them; 3 cleared them.
+                if tonumber(sun.shadow_normal_bias) then
+                    set["r.Shadow.Virtual.NormalBias"] = tonumber(sun.shadow_normal_bias)
+                end
                 -- A Flux sea mirrors the CE sky mesh's horizon strip, which
                 -- Lumen finds far brighter than the sky drawn there: a hard
                 -- white line all along Death Island's horizon. Clamped, it
@@ -1812,6 +1830,16 @@ local function spawnEnvironment(world)
             c:SetStartDistance(haze.start or 2500)
             c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
+            -- `haze.sun` {r, g, b, exponent, start cm}: the haze glows
+            -- towards the sun (directional inscattering).
+            if type(haze.sun) == "table" then
+                local sc = haze.sun
+                pcall(function()
+                    c:SetDirectionalInscatteringColor({ R = (sc[1] or 1) * k, G = (sc[2] or 1) * k, B = (sc[3] or 1) * k, A = 1.0 })
+                    c:SetDirectionalInscatteringExponent(sc[4] or 8.0)
+                    c:SetDirectionalInscatteringStartDistance(sc[5] or 3000.0)
+                end)
+            end
             -- Both as soon as they can be: the capture on the first tick after
             -- the load lets go (the delay has run out by then), the haze a few
             -- frames after it. At 1 s and 2 s it came up ~2 s after the
@@ -1850,9 +1878,14 @@ local function spawnEnvironment(world)
             set("expand_gamut", "ExpandGamut", post.expand_gamut)
             set("blue_correction", "BlueCorrection", post.blue_correction)
             set("bloom", "BloomIntensity", post.bloom)
+            set("vignette", "VignetteIntensity", post.vignette)
             -- Rougher surfaces reflect from the radiance cache, not traced
             -- rays (docs/level_format.md); a level of glossy metal saves ms.
             set("max_traced_roughness", "LumenMaxRoughnessToTraceReflections", post.max_traced_roughness)
+            -- Sky light let into enclosed spaces: lit by Lumen alone
+            -- (level.lumen_cells, no fill), Zanzibar's rooms took their
+            -- light from the sunlit sand and walls outside and went yellow.
+            set("sky_leak", "LumenSkylightLeaking", post.sky_leak)
             if post.manual_exposure then
                 set("manual_exposure", "AutoExposureMethod", 2) -- AEM_Manual
                 set("manual_exposure", "AutoExposureApplyPhysicalCameraExposure", false)
@@ -1901,7 +1934,45 @@ end
 local function syncVolumes()
     if #Current.volumed == 0 then return end
     local volumes, changed = {}, {}
+    -- Halo 2's background loops belong to BSP clusters (`zones`: bounds and
+    -- the set of loops each plays): the set of the zone the camera is in,
+    -- or nearest to, is heard and the others fade out.
+    local env = Current.level and Current.level.environment
+    local zones = type(env) == "table" and type(env.sounds) == "table" and env.sounds.zones
+    local active
+    if type(zones) == "table" and #zones > 0 then
+        local ok, cam = pcall(function()
+            return getPlayerController().PlayerCameraManager:GetCameraLocation()
+        end)
+        if ok and cam then
+            local o = (Current.level.canvas or {}).origin or { 0, 0, 0 }
+            local p = { cam.X - o[1], cam.Y - o[2], cam.Z - o[3] }
+            local best, bestSize = math.huge, math.huge
+            for _, z in ipairs(zones) do
+                local d, size = 0, 1
+                for k = 1, 3 do
+                    local gap = math.max(z.min[k] - p[k], 0, p[k] - z.max[k])
+                    d = d + gap * gap
+                    size = size * math.max(z.max[k] - z.min[k], 1)
+                end
+                if d < best or (d == best and size < bestSize) then
+                    best, bestSize, active = d, size, z.set
+                end
+            end
+        end
+    end
+    if active and active ~= Current.soundSet then
+        Current.soundSet = active
+        Log("background sound: set " .. tostring(active))
+    end
     for _, v in ipairs(Current.volumed) do
+        if v.set and active and v.comp:IsValid() then
+            local heard = v.set == active
+            if heard ~= v.heard then
+                pcall(function() v.comp:AdjustVolume(1.0, heard and 1.0 or 0.0, 0) end)
+                v.heard = heard
+            end
+        end
         volumes[v.category] = volumes[v.category] or gameVolume(v.category)
         local volume = volumes[v.category]
         if volume ~= v.volume and v.comp:IsValid() then
@@ -1922,26 +1993,51 @@ end
 --- The level's ambient sound (environment.sounds, from the CE map's BSP
 --- background sound and sound scenery: tools/level/ce_sounds.py), played
 --- through Unreal's own audio engine, which the game runs beside its own.
---- Background loops are 2D and map-wide; emitters are 3D loops that fall off
+--- Background loops are 2D and map-wide (a Halo 2 map's follow the BSP
+--- cluster the camera is in, `zones`); emitters are 3D loops that fall off
 --- linearly from `inner` to `inner + falloff` centimetres, as CE's distance
---- bounds do.
+--- bounds do, at most `max` of one sound at a time.
 local function spawnSounds(world)
     local env = Current.level and Current.level.environment
     local sounds = type(env) == "table" and env.sounds
     if type(sounds) ~= "table" then return end
     local gs = findObject("/Script/Engine.Default__GameplayStatics")
     local attClass = findObject("/Script/Engine.SoundAttenuation")
+    local limitClass = findObject("/Script/Engine.SoundConcurrency")
     if not gs then return end
     local playing, failed = 0, 0
+    -- `max` (Halo 2's sound class: how many of one sound play at once): one
+    -- concurrency group a sound, which keeps the nearest playing and lets
+    -- the engine bring a stopped loop back as the listener nears it.
+    local limits, limitCount = {}, 0
+    local function limit(s)
+        if not (limitClass and type(s.max) == "number" and s.max > 0) then return nil end
+        local key = s.wave .. "#" .. s.max
+        if limits[key] == nil then
+            limits[key] = false
+            pcall(function()
+                limitCount = limitCount + 1
+                local c = StaticConstructObject(limitClass, world, FName("MJOLNIR_Limit_" .. limitCount))
+                c.Concurrency.MaxCount = math.floor(s.max)
+                c.Concurrency.ResolutionRule = 3     -- stop the farthest, then the oldest
+                limits[key] = c
+            end)
+        end
+        return limits[key] or nil
+    end
 
     -- Spawned at the sliders' volume (gameVolume), kept there by syncVolumes.
-    local function keep(key, comp, fade, gain, category, volume)
+    local function keep(key, comp, fade, gain, category, volume, set)
         if not (comp and comp:IsValid()) then
             failed = failed + 1
             return
         end
         Current.actors[key] = comp
-        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume }
+        Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume,
+                                                  set = set, heard = set and false or nil }
+        -- A zoned background starts silent; syncVolumes fades in the set
+        -- of the zone the camera is in.
+        if set then pcall(function() comp:AdjustVolume(0.0, 0.0, 0) end) end
         if fade and fade > 0 then pcall(function() comp:FadeIn(fade, 1.0, 0.0, 0) end) end
         playing = playing + 1
     end
@@ -1952,12 +2048,16 @@ local function spawnSounds(world)
             -- A CE music loop (class music) follows the music slider.
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            local set = type(sounds.zones) == "table" and s.set or nil
+            -- A loop faded to nothing has to keep playing to be faded back
+            -- (PlayWhenSilent, as the moving emitters below).
+            if set then pcall(function() wave.VirtualizationMode = 1 end) end
             -- `pitch`: Halo 2's pitched loops (the humming lights, 5
             -- semitones down).
             local ok, comp = pcall(function()
                 return gs:SpawnSound2D(world, wave, gain * volume, s.pitch or 1.0, 0.0, nil, false, false)
             end)
-            keep("__bg" .. i, ok and comp, s.fade_in, gain, category, volume)
+            keep("__bg" .. i, ok and comp, not set and s.fade_in or nil, gain, category, volume, set)
         else
             failed = failed + 1
             Log("sound not found: " .. tostring(s.wave))
@@ -1993,7 +2093,7 @@ local function spawnSounds(world)
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, nil, false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, limit(s), false)
             end)
             keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
             -- On a machine's moving part (Infinity's beams): moved with it
@@ -2435,6 +2535,155 @@ local function hookIncidents()
         end)
     end)
     if incidentHooked then Log("event sounds: incident hook armed") end
+end
+
+--------------------------------------------------------------------------------
+-- Breakable glass (converted Halo 2 maps)
+--------------------------------------------------------------------------------
+
+--- The sim breaks a sheet of glass (blam_sbsp::convert::rebuild_breakable)
+--- and lets players through, but the glass is our mesh: a decor item lists
+--- each sheet's mesh slots and its box in centimetres (`breakables`, from
+--- tools/level/split_breakable_glass.py). The game's break effect names the
+--- point it broke at; the sheet there loses its slots (M_CE_Hidden) and
+--- throws glass chips. Sheets stay broken until the world is rebuilt.
+local BREAK_EVENT = "/Game/Blueprints/FX/Breakable/Data/BP_BaseBreakableSurfaceEffect.BP_BaseBreakableSurfaceEffect_C:Spawn"
+local BREAK_FX = "/Game/FX/Library/Sandbox/Weapons/Impacts/Glass/NS_Impact_Glass_Lrg.NS_Impact_Glass_Lrg"
+local BREAK_PAD = 30.0 -- cm around a sheet's box: a melee or a body touches off its plane
+local breakHooked = false
+
+local function levelHasBreakables()
+    for _, item in ipairs(Current.level and Current.level.decor or {}) do
+        if type(item) == "table" and type(item.breakables) == "table" and #item.breakables > 0 then return true end
+    end
+    return false
+end
+
+--- The sheet whose padded box holds `p` (nearest centre wins), and its actor.
+local function sheetAt(p)
+    local best, bestActor, bestKey, bestD
+    for index, item in ipairs(Current.level and Current.level.decor or {}) do
+        if type(item) == "table" and type(item.breakables) == "table" then
+            local actor = Current.actors[item.id or ("#" .. index)]
+            for _, s in ipairs(item.breakables) do
+                local lo, hi = s.min, s.max
+                if type(lo) == "table" and type(hi) == "table"
+                    and p.X >= lo[1] - BREAK_PAD and p.X <= hi[1] + BREAK_PAD
+                    and p.Y >= lo[2] - BREAK_PAD and p.Y <= hi[2] + BREAK_PAD
+                    and p.Z >= lo[3] - BREAK_PAD and p.Z <= hi[3] + BREAK_PAD then
+                    local cx, cy, cz = (lo[1] + hi[1]) / 2 - p.X, (lo[2] + hi[2]) / 2 - p.Y, (lo[3] + hi[3]) / 2 - p.Z
+                    local d = cx * cx + cy * cy + cz * cz
+                    if not bestD or d < bestD then
+                        best, bestActor, bestKey, bestD = s, actor, tostring(item.id or index) .. "/" .. tostring(s.sheet), d
+                    end
+                end
+            end
+        end
+    end
+    return best, bestActor, bestKey
+end
+
+local function shatter(world, sheet)
+    local okF, nfl = pcall(findObject, "/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local fx = resolveMesh(BREAK_FX)
+    if not (okF and nfl and fx) then return end
+    local lo, hi = sheet.min, sheet.max
+    -- Chips over the sheet: a 3 x 3 grid across its two long axes.
+    local span = { hi[1] - lo[1], hi[2] - lo[2], hi[3] - lo[3] }
+    for a = 0, 2 do
+        for b = 0, 2 do
+            local u, v = (a + 0.5) / 3, (b + 0.5) / 3
+            local p
+            if span[1] <= span[2] and span[1] <= span[3] then
+                p = { X = (lo[1] + hi[1]) / 2, Y = lo[2] + span[2] * u, Z = lo[3] + span[3] * v }
+            elseif span[2] <= span[3] then
+                p = { X = lo[1] + span[1] * u, Y = (lo[2] + hi[2]) / 2, Z = lo[3] + span[3] * v }
+            else
+                p = { X = lo[1] + span[1] * u, Y = lo[2] + span[2] * v, Z = (lo[3] + hi[3]) / 2 }
+            end
+            -- Spawned inactive so its crack decal (Crack_Masked_Dithered) is
+            -- off before the first frame: nine cracks on a grid stayed
+            -- hanging where the glass had been, nowhere near the shots.
+            pcall(function()
+                local c = nfl:SpawnSystemAtLocation(world, fx, p, { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, false, 0, true)
+                c:SetEmitterEnable(FName("Crack_Masked_Dithered"), false)
+                c:Activate(false)
+            end)
+        end
+    end
+end
+
+--- A break, on the game thread's next pass: never in the break effect's own
+--- call. The sim waits on that call, and a blocking load inside it (the
+--- chips or the hide material, after a map reload emptied the asset cache)
+--- deadlocked the game for good (2026-11-10).
+local function breakAt(p)
+    local sheet, actor, key = sheetAt(p)
+    if not sheet or not actor or not actor:IsValid() then return end
+    Current.broken = Current.broken or {}
+    if Current.broken[key] then return end
+    Current.broken[key] = true
+    local hidden = resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    if hidden then
+        for _, slot in ipairs(sheet.slots or {}) do
+            pcall(function() actor.StaticMeshComponent:SetMaterial(slot, hidden) end)
+        end
+    end
+    shatter(Current.world or getWorld(), sheet)
+    Log(string.format("glass: sheet %s broke at (%.0f, %.0f, %.0f)", key, p.X, p.Y, p.Z))
+end
+
+local BreakQueue = {}
+local breakDrainPending = false
+
+local function drainBreaks()
+    breakDrainPending = false
+    local queued = BreakQueue
+    BreakQueue = {}
+    for _, p in ipairs(queued) do
+        local ok, err = pcall(breakAt, p)
+        if not ok then Log("glass: " .. tostring(err)) end
+    end
+end
+
+--- The hook itself only reads the point and queues it.
+local function onBreak(ev)
+    local okP, p = pcall(function()
+        local t = ev:get().Transform.Translation
+        return { X = t.X, Y = t.Y, Z = t.Z }
+    end)
+    -- The effect's first call names no point (all zero).
+    if not okP or not p or (p.X == 0 and p.Y == 0 and p.Z == 0) then return end
+    if #BreakQueue >= 32 then return end
+    BreakQueue[#BreakQueue + 1] = p
+    if not breakDrainPending then
+        breakDrainPending = true
+        ExecuteInGameThread(drainBreaks)
+    end
+end
+
+--- Each level with glass loads the chips and the hide material as it comes
+--- up (the asset cache empties with every world), and hooks the break
+--- effect once (its Blueprint is loaded by then); retried each tick until
+--- the hook holds.
+local function hookBreakables()
+    local level = Current.level
+    if not level then return end
+    if level.hasBreakables == nil then level.hasBreakables = levelHasBreakables() end
+    if not level.hasBreakables then return end
+    if not Current.breakPreloaded then
+        Current.breakPreloaded = true
+        resolveMesh(BREAK_FX)
+        resolveMesh(TRIAL_MASTERS .. "M_CE_Hidden.M_CE_Hidden")
+    end
+    if breakHooked then return end
+    breakHooked = pcall(function()
+        RegisterHook(BREAK_EVENT, function(_, ev)
+            local ok, err = pcall(onBreak, ev)
+            if not ok then Log("glass: " .. tostring(err)) end
+        end)
+    end)
+    if breakHooked then Log("glass: break hook armed") end
 end
 
 local function fadeIn()
@@ -4062,8 +4311,12 @@ Land.SURFACES = {
     GravO = "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_ORHG",
 }
 
---- The sea's height (cm), from the level's water mesh, or nil.
+--- The sea's height (cm), from the level's water mesh, or nil. Nil too for
+--- a level whose landscape says `sea = false`: its water is a pond, not a
+--- sea (Coagulation's pool sits 7 m above the valley floor, which drew as a
+--- beach under it).
 function Land.seaHeight()
+    if type(Current.level.landscape) == "table" and Current.level.landscape.sea == false then return nil end
     for _, item in ipairs(Current.level.decor or {}) do
         if type(item) == "table" and type(item.mesh) == "string" and item.mesh:find("_Water%.")
             and type(item.pos) == "table" then
@@ -4170,16 +4423,161 @@ Land.ROCK_A = {
     n = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
     o = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG",
 }
+-- Non-virtual textures only: the masters sample these as plain textures,
+-- and the damp soil set (Soil_Damp_sbykj0p0, virtual texture streaming)
+-- read as black, a black band under every cliff lip (Zanzibar, 2026-11-14).
 Land.SOIL = {
-    d = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_D",
-    n = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_N",
-    o = "Soil_Damp_sbykj0p0/T_Damp_Soil_Cliff_sbykj0p0_2K_ORHG",
+    d = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D",
+    n = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
+    o = "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
 }
 Land.ROCK_B = {
     d = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_D",
     n = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_N",
     o = "Rock_Jagged_udemcebew/T_Rock_Jagged_udemcebew_NSVT_ORHG",
 }
+
+--- Structure walls in a PBR surface (level.landscape.structures, from
+--- upgrade_ce_map.py `structure_surfaces`): a converted map's concrete and
+--- metal are one small colour map stretched over tens of metres, flat
+--- paint beside the remastered rock. Each set names its slots by base map
+--- (`bases`: substrings of the base texture's name) and two surfaces
+--- (`rock_a` the grain, `rock_b` the large shapes: { d, n, o } texture
+--- paths), and they draw with the cliffs' master: the surface projected in
+--- world space, the map's own base map as its colour (so its stains, seams
+--- and painted lines stay where they were) and its lightmap as its light.
+--- No turf at a lip and no sand at a foot unless a set asks (`drape`,
+--- `foot`: the cliffs' parameters): a wall is not a cliff, but stains run
+--- down it from its top and it stands in shade where it meets the ground.
+--- By the sea it is wet as the rock is (`wet` cm over the water).
+function Land.structures(world, spec)
+    local sets = type(spec.structures) == "table" and spec.structures or {}
+    if #sets == 0 then return 0 end
+    local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local parent = resolveMesh(TRIAL_MASTERS .. "M_CE_CliffPBR.M_CE_CliffPBR")
+    if not (kml and parent) then return 0 end
+    local function vec(mid, name, v)
+        if type(v) == "table" then
+            mid:SetVectorParameterValue(FName(name), { R = v[1] or 0, G = v[2] or 0, B = v[3] or 0, A = v[4] or 1 })
+        end
+    end
+    local levels = lightmapSun()
+    local cliff = type(spec.cliff) == "table" and spec.cliff or {}
+    local sea = Land.seaHeight()
+    -- The landscape's edge map: where each wall's top and foot are.
+    local edge = type(spec.pbr) == "table" and type(spec.pbr.edge) == "table" and spec.pbr.edge
+    local edgeTex = edge and type(edge.texture) == "string" and resolveMesh(edge.texture) or nil
+    Land.structureMids = {}
+    local changed = 0
+    for si, set in ipairs(sets) do
+        local textures = {}
+        for prefix, rock in pairs({ RockA = set.rock_a, RockB = set.rock_b or set.rock_a }) do
+            if type(rock) == "table" then
+                textures[prefix .. "D"] = Land.megascans(rock.d)
+                textures[prefix .. "N"] = Land.megascans(rock.n)
+                textures[prefix .. "O"] = Land.megascans(rock.o)
+            end
+        end
+        local tokens = {}
+        for _, b in ipairs(type(set.bases) == "table" and set.bases or {}) do tokens[#tokens + 1] = tostring(b):lower() end
+        if textures.RockAD and textures.RockAN and #tokens > 0 then
+            for index, item in ipairs(Current.level.decor or {}) do
+                local actor = Current.actors[(type(item) == "table" and item.id) or ("#" .. index)]
+                if type(item) == "table" and type(item.materials) == "table" and actor and actor:IsValid() then
+                    local comp = actor.StaticMeshComponent
+                    for i, entry in ipairs(item.materials) do
+                        local t = type(entry) == "table" and type(entry.textures) == "table" and entry.textures
+                        -- A file path's stem (a texture tried without a cook,
+                        -- named for the one it stands in for) matches too.
+                        local leaf = t and type(t.Base) == "string"
+                            and (t.Base:match("([%w_]+)%.png$") or t.Base:match("%.([%w_]+)$"))
+                        local hit = false
+                        if leaf then
+                            local lower = leaf:lower()
+                            for _, token in ipairs(tokens) do hit = hit or lower:find(token, 1, true) ~= nil end
+                        end
+                        if hit then
+                            local mid = kml:CreateDynamicMaterialInstance(world, parent,
+                                FName(string.format("mjolnir_structure_%d_%d", si, i)), 0)
+                            if mid and mid:IsValid() then
+                                for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
+                                local base = isObjectPath(t.Base) and resolveMesh(t.Base) or importTexture(world, t.Base, true)
+                                if base then mid:SetTextureParameterValue(FName("Base"), base) end
+                                local lm = type(t.Lightmap) == "string" and not t.Lightmap:find("object_lighting", 1, true)
+                                    and resolveMesh(t.Lightmap)
+                                if lm and levels then
+                                    mid:SetTextureParameterValue(FName("LM"), lm)
+                                    vec(mid, "LandLMLevels", { levels[1], levels[2], 0, 0 })
+                                end
+                                -- `bake_ao`: the conversion's baked corners
+                                -- (the slot's Bake texture), as a power.
+                                -- A file path (not "/Game/..."): a bake read at
+                                -- runtime, beside the level file (trying a
+                                -- new bake without a cook).
+                                -- `fill_sky_cut`: the fill fades where the bake's sky
+                                -- visibility (B) is open, times this.
+                                local bake = (set.bake_ao or set.fill_sky_cut) and type(t.Bake) == "string"
+                                    and (isObjectPath(t.Bake) and resolveMesh(t.Bake) or importTexture(world, t.Bake, true))
+                                if bake then
+                                    mid:SetTextureParameterValue(FName("Bake"), bake)
+                                    vec(mid, "CliffBakeAO", { set.bake_ao or 0, set.fill_sky_cut or 0, 0, 0 })
+                                end
+                                vec(mid, "CliffTiles", set.tiles)
+                                vec(mid, "CliffMix", set.mix)
+                                vec(mid, "CliffLook", set.look)
+                                vec(mid, "RockTint", set.tint)
+                                vec(mid, "CliffRough", set.rough)
+                                vec(mid, "CliffFar", set.far)
+                                vec(mid, "CliffVary", set.vary)
+                                vec(mid, "CliffCETint", set.ce_tint or cliff.ce_tint)
+                                vec(mid, "CliffDrape", set.drape or { 30, 70, 700, 0 })
+                                vec(mid, "CliffFoot", set.foot or { 35, 150, 0.45, 0 })
+                                -- `drape`: earth under a wall's top, a fringe of
+                                -- moss on it and stains below, in the cliffs'
+                                -- soil and the ground's grass; no turf on the
+                                -- surfaces that look up (CliffLedge 0: floors).
+                                if set.drape then
+                                    local own = type(spec.pbr) == "table" and type(spec.pbr.surfaces) == "table"
+                                        and spec.pbr.surfaces or {}
+                                    local soil = type(cliff.soil) == "table" and cliff.soil or Land.SOIL
+                                    local dress = {
+                                        GrassD = Land.megascans(own.GrassD or Land.SURFACES.GrassD),
+                                        GrassN = Land.megascans(own.GrassN or Land.SURFACES.GrassN),
+                                        SoilD = Land.megascans(soil.d), SoilN = Land.megascans(soil.n),
+                                        SoilO = Land.megascans(soil.o),
+                                    }
+                                    for name, tex in pairs(dress) do mid:SetTextureParameterValue(FName(name), tex) end
+                                    vec(mid, "GrassTint", set.moss or (spec.pbr and spec.pbr.grass_tint))
+                                    vec(mid, "CliffLedge", { set.ledge or 0, 0, 0, 0 })
+                                end
+                                if edgeTex and (set.drape or set.foot) then
+                                    mid:SetTextureParameterValue(FName("Edge"), edgeTex)
+                                    vec(mid, "EdgeRect", edge.rect)
+                                    vec(mid, "EdgeRange", { edge.range[1], edge.range[2], 0, 0 })
+                                end
+                                if sea and set.wet then vec(mid, "LandSea", { sea, 0, set.wet, 1 }) end
+                                local f = set.fill or cliff.fill
+                                if type(f) == "table" then
+                                    vec(mid, "CliffFill", { f[1], f[2], f[3], (f[4] or 0) * lightScale() })
+                                end
+                                -- A set's `fill_occlusion` {share, power}: the
+                                -- fill follows the map's baked shade.
+                                local fd = set.fill_dir or cliff.fill_dir or { 0.75, -0.35, 0, 0 }
+                                local fo = type(set.fill_occlusion) == "table" and set.fill_occlusion or { 0, 0 }
+                                vec(mid, "CliffFillDir", { fd[1], fd[2], fo[1] or 0, fo[2] or 0 })
+                                if pcall(function() comp:SetMaterial(i - 1, mid) end) then
+                                    changed = changed + 1
+                                    Land.structureMids[#Land.structureMids + 1] = mid
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return changed
+end
 
 function Land.megascans(path)
     if type(path) ~= "string" then return nil end
@@ -4252,6 +4650,54 @@ function Land.slotMeshes(world, level)
         end
     end
     return n
+end
+
+--- Lumen cells (level.lumen_cells, tools/level/structure_chunks.py): the
+--- terrain mesh again as a grid of editor-built meshes, drawn in its place.
+--- The terrain is a rewritten engine mesh with no Lumen cards, so Lumen's
+--- surface cache had nothing for any wall and its bounce and short-range AO
+--- came back black indoors; the rooms lived on the structures' emissive fill
+--- (Zanzibar, 2026-11-14). Each cell section takes the material its terrain
+--- slot holds once the landscape's jobs are done (the structures' PBR
+--- surfaces included), then the terrain is hidden. Lumen captures emissive
+--- light and bounces it, so the structures' fill goes (even a quarter of it
+--- flooded the rooms yellow). Nothing changes unless every cell loads.
+function Land.lumenCells(world, level)
+    local spec = level.lumen_cells
+    if type(spec) ~= "table" or type(spec.cells) ~= "table" or #spec.cells == 0 then return 0 end
+    local terrain = Current.actors[spec.item]
+    if not (terrain and terrain:IsValid()) then return 0, "decor '" .. tostring(spec.item) .. "' not spawned" end
+    local meshes = {}
+    for i, cell in ipairs(spec.cells) do
+        meshes[i] = type(cell.mesh) == "string" and resolveMesh(cell.mesh)
+        if not meshes[i] then return 0, "mesh not found: " .. tostring(cell.mesh) end
+    end
+    local tc = terrain.StaticMeshComponent
+    local cls = findObject("/Script/Engine.StaticMeshActor")
+    for i, cell in ipairs(spec.cells) do
+        local key = "__lumen_cell_" .. i
+        local actor = Current.actors[key]
+        if not (actor and actor:IsValid()) then
+            actor = world:SpawnActor(cls, { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+            Current.actors[key] = actor
+        end
+        if not (actor and actor:IsValid()) then return i - 1, "spawn failed" end
+        local c = actor.StaticMeshComponent
+        c.Mobility = MOBILITY_MOVABLE
+        c:SetStaticMesh(meshes[i])
+        c:SetCollisionEnabled(COLLISION_NONE)
+        -- As the terrain: its shadows are the shadow shell's.
+        c:SetCastShadow(false)
+        for k, slot in ipairs(cell.slots or {}) do c:SetMaterial(k - 1, tc:GetMaterial(slot)) end
+    end
+    tc:SetVisibility(false, false)
+    for _, mid in ipairs(Land.structureMids or {}) do
+        pcall(function()
+            local f = mid:K2_GetVectorParameterValue(FName("CliffFill"))
+            mid:SetVectorParameterValue(FName("CliffFill"), { R = f.R, G = f.G, B = f.B, A = 0 })
+        end)
+    end
+    return #spec.cells
 end
 
 function Land.cliffs(world, spec)
@@ -4657,6 +5103,13 @@ function Land.apply(world)
                 Log("landscape: " .. (cok and string.format("%d cliff slot(s) in the game's rock", cliffs)
                     or tostring(cliffs)))
                 Current.lap("landscape cliffs")
+            end,
+            function()
+                local sok, n = pcall(Land.structures, world, spec)
+                if not sok or n > 0 then
+                    Log("landscape: " .. (sok and string.format("%d structure slot(s) in a PBR surface", n) or tostring(n)))
+                end
+                Current.lap("landscape structures")
             end,
             function()
                 pcall(function()
@@ -5429,6 +5882,14 @@ local function spawnDecor(world)
         -- What the landscape handed on: its ground, cliffs and components,
         -- then the cladding rocks' material.
         step("landscape jobs", Current.dressQueue.step)
+        -- After the landscape's jobs: the cells copy the terrain slots'
+        -- finished materials.
+        if type(level.lumen_cells) == "table" then
+            step("lumen cells", function()
+                local lok, n, err = pcall(Land.lumenCells, world, level)
+                Log("lumen cells: " .. (lok and (tostring(n) .. (err and (" (" .. err .. ")") or "")) or tostring(n)))
+            end)
+        end
         step("deformation", function() Footprints.deformStart(world) end, true)
         -- What it handed on: the vehicles and bipeds whose brushes it registers.
         step("deformation jobs", Current.dressQueue.step)
@@ -5488,6 +5949,7 @@ local function tick()
         EventQueue = {}
         NativeIncidents = {}
         Resolved, Unresolved = {}, {}
+        BreakQueue = {}
         Current.worldName = worldName
         -- The seamless-travel transition world still answers with the
         -- scenario it is leaving; dressing it spawned the old map's terrain
@@ -5532,6 +5994,7 @@ local function tick()
     if Current.level and not Current.furnished and not Current.dressing then
         spawnDecor(world)
     end
+    hookBreakables()
     Current.tryFade()
 end
 

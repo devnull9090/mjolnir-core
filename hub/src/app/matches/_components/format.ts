@@ -71,13 +71,30 @@ const MODIFIER_VERBS: Record<number, string> = {
   5: "assassinated",
 };
 
+/** Medals the timeline tells (the everyday ones are counted, not told). */
 const MEDALS: Record<string, string> = {
   first_blood: "First blood",
   multikill_x2: "Double kill",
   multikill_x3: "Triple kill",
   multikill_x4: "Overkill",
+  multikill_x5: "Killtacular",
+  multikill_x6: "Killtrocity",
+  multikill_x7: "Killimanjaro",
+  multikill_x8: "Killtastrophe",
+  multikill_x9: "Killpocalypse",
+  multikill_x10: "Killionaire",
   "5_in_a_row": "Killing spree",
   "10_in_a_row": "Killing frenzy",
+  "15_in_a_row": "Running riot",
+  "20_in_a_row": "Rampage",
+  "25_in_a_row": "Untouchable",
+  "30_in_a_row": "Invincible",
+  killjoy: "Killjoy",
+  highjack: "Hijack",
+  skyjack: "Skyjack",
+  flagcarrier_kill: "Flag carrier kill",
+  extermination: "Extermination",
+  perfection: "Perfection",
 };
 
 const FLAG_TEAMS = ["Red", "Blue"];

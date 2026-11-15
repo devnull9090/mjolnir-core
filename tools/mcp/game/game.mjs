@@ -729,7 +729,10 @@ async function enableTestInput(pid) {
     }
     await sleep(20);
   }
-  return null; // a worker from before this server started has no news
+  // A worker from before this server started has no news: it is running, so
+  // later calls need not wait for a status line again.
+  testInputPid = pid;
+  return null;
 }
 
 async function inGameInput(steps, gapMs, pid) {

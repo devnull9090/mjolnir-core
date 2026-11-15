@@ -16,28 +16,44 @@ const MAP_MARKS = 600;
 /**
  * The incidents counted as medals. Every kill also raises a run of sibling
  * incidents (`sniper_kill`, `precision_comm`, ...), so this says what counts
- * rather than what to leave out.
+ * rather than what to leave out. The whole catalogue is
+ * native/lobby/medals_core.h (docs/re/medals.md).
  */
 export const MEDAL_TYPES = [
   "first_blood",
   "multikill_x2",
   "multikill_x3",
   "multikill_x4",
+  "multikill_x5",
   "5_in_a_row",
   "10_in_a_row",
   "15_in_a_row",
+  "20_in_a_row",
   "headshot_kill",
   "sniper_headshot_kill",
   "sniper_5x",
+  "sniper_10x",
   "shotgun_5x",
+  "shotgun_10x",
+  "splatter_5x",
+  "melee_kill",
   "assassination_kill",
   "splatter_kill",
   "sticky_grenade_kill",
+  "supercombine_kill",
+  "sprinting_kill",
   "killjoy",
   "revenge_kill",
+  "opportunist_kill",
+  "avenger",
+  "lifesaver",
   "kill_from_the_grave",
   "close_call",
+  "highjack",
   "skyjack",
+  "flagcarrier_kill",
+  "extermination",
+  "perfection",
   "highjack",
 ] as const;
 
@@ -115,6 +131,28 @@ function seats(who: PlayerSeatKey) {
   };
 }
 
+/**
+ * Medals the game sends together with another that stands for them: every
+ * recorded sniper headshot also arrived as a plain headshot (172 matches,
+ * 2026-11-10). The game's own HUD shows only the one; so does the case. A
+ * medal is left out when its player earned one of these within HIDDEN_MS.
+ */
+export const MEDAL_HIDDEN_BY: Record<string, string[]> = {
+  headshot_kill: ["sniper_headshot_kill"],
+  melee_kill: ["assassination_kill", "kill_with_flag", "kill_with_oddball"],
+};
+const HIDDEN_MS = 500;
+
+function hiddenClause(): string {
+  const pairs = Object.entries(MEDAL_HIDDEN_BY)
+    .map(([type, by]) => `(e.type = '${type}' AND h.type IN (${by.map((t) => `'${t}'`).join(", ")}))`)
+    .join(" OR ");
+  return `NOT EXISTS (
+         SELECT 1 FROM match_events h
+         WHERE h.match_id = e.match_id AND h.cause = e.cause
+           AND abs(h.t_ms - e.t_ms) <= ${HIDDEN_MS} AND (${pairs}))`;
+}
+
 export async function playerRecord(db: Db, who: PlayerSeatKey): Promise<PlayerRecord> {
   const { key, cte, where } = seats(who);
   const medalList = MEDAL_TYPES.map((t) => `'${t}'`).join(", ");
@@ -139,7 +177,7 @@ export async function playerRecord(db: Db, who: PlayerSeatKey): Promise<PlayerRe
        SELECT e.type, COUNT(*) AS n
        FROM seat s
        JOIN match_events e ON e.match_id = s.match_id AND e.cause = s.player_index
-       WHERE e.type IN (${medalList}, 'assist')
+       WHERE e.type IN (${medalList}, 'assist') AND ${hiddenClause()}
        GROUP BY e.type`,
     ).bind(key),
     db.prepare(

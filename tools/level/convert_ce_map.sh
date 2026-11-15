@@ -179,6 +179,7 @@ delta_args=()
 # canvas's others away (blam.single_bsp). CANVAS_BSPS=1 keeps them all.
 bsp_args=(--bsp-index 0)
 [ "${CANVAS_BSPS:-0}" = "1" ] && bsp_args=()
+rm -f -- "$out/$name.sbsp.breakables.json"
 "$mjolnir" level collision "$collision" --out "$out/$name.sbsp" --own-bsp "${bsp_args[@]}" "${delta_args[@]}"
 
 echo "== 3/6 terrain mesh and materials"
@@ -205,6 +206,9 @@ if [ "$cook" = "1" ]; then
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
     --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf" --lights "$out/scene_lights.json" \
     --machines "$out/scene_machine"
+  # Breakable glass (Halo 2): each sheet `level collision` made breakable gets
+  # mesh slots of its own, which the level loader hides when the game breaks it.
+  [ -f "$out/$name.sbsp.breakables.json" ] && python "$here/split_breakable_glass.py" "$out/scene_translucent.gltf" "$out/$name.sbsp.breakables.json"
   machine_gltfs=()
   machine_jobs=()
   for g in "$out"/scene_machine_*.gltf; do

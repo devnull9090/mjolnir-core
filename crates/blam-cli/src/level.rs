@@ -68,6 +68,9 @@ pub enum LevelCommand {
     /// maps installed by `bake --install-test` (docs/map_distribution.md).
     /// What the launcher runs after a map install or removal.
     Register(RegisterArgs),
+    /// Write a map's walkable ground as navmesh JSON: the AI pathfinding the
+    /// bake builds, as areas and the doorways between them (tools/bot).
+    Navmesh(crate::level_navmesh::NavmeshArgs),
 }
 
 #[derive(Args)]
@@ -178,6 +181,7 @@ pub fn run(a: LevelArgs) -> Result<()> {
         LevelCommand::MachineCollision(a) => crate::level_collision::run_machine(a),
         LevelCommand::Lightmaps(a) => crate::level_lightmaps::run(a),
         LevelCommand::Register(a) => register(a),
+        LevelCommand::Navmesh(a) => crate::level_navmesh::run(a),
     }
 }
 
@@ -254,6 +258,17 @@ pub struct LevelFile {
     /// reads; opaque to the bake.
     #[serde(default)]
     pub race_flags: Option<serde_json::Value>,
+    /// Each game type's spawn filters (tools/level/gen_ce_level.py
+    /// `spawn_sets`), which the loader applies at match start; opaque to
+    /// the bake.
+    #[serde(default)]
+    pub spawn_sets: Option<serde_json::Value>,
+    /// Halo 2's lifts, jump pads and vents (tools/level/gen_ce_level.py
+    /// `h2_lifts`), which the loader's lifts.lua pushes players with;
+    /// opaque to the bake. Without it Coagulation's level file (its grav
+    /// lifts) did not bake.
+    #[serde(default)]
+    pub lifts: Option<serde_json::Value>,
     /// The game's grass, tufts and stones on the map's ground
     /// (tools/level/scatter_foliage.py), which the loader spawns; opaque to
     /// the bake.

@@ -5,7 +5,7 @@
 -- client's gets few of them (docs/match_stats.md). So after each drain the
 -- host sends what the feed and the tallies need (kills, deaths, suicides,
 -- medals, captures, joins and quits) to every remote player's controller, as
--- one ClientMessage of type "MJOLNIR" (the channel MJOLNIRLobby's messages
+-- ClientMessages of type "MJOLNIR" (the channel MJOLNIRLobby's messages
 -- and the level loader's sound relay ride):
 --
 --   MJOLNIR|feed|kill,2,0,0,1,SniperRifle;death,2,0,0,0,SniperRifle
@@ -40,10 +40,20 @@ local CARRIED = {
     player_spawn = true,
 }
 
+--- Whether incident `name` is a medal: main.lua points this at the medal
+--- catalogue (Scripts/medals.lua). The host relays a medal once it is
+--- settled, after the drain's other incidents, not as it arrives.
+Relay.isMedal = function() return false end
+
+--- Whether `name` crosses as it arrives, medal or not (a capture scores).
+function Relay.raw(name)
+    return type(name) == "string" and CARRIED[name] == true
+end
+
 --- Whether the feed or the tallies need incident `name` on a client.
 function Relay.carried(name)
     if type(name) ~= "string" then return false end
-    return CARRIED[name] or name:match("^multikill_x%d+$") ~= nil or name:match("^%d+_in_a_row$") ~= nil
+    return CARRIED[name] or Relay.isMedal(name) == true
 end
 
 --- Incidents whose value tells two apart: a score, or a rank.
@@ -55,20 +65,30 @@ local function int(v)
     return math.floor(v)
 end
 
---- One message for `incidents` (the carried ones, at most MAX); nil when
---- there is nothing to send.
-function Relay.encode(incidents)
-    local items = {}
+--- The messages for `incidents` (the carried ones, at most MAX a message),
+--- in order; empty when there is nothing to send. A multi-kill's medals and
+--- lines can pass MAX together.
+function Relay.encodeAll(incidents)
+    local messages, items = {}, {}
     for _, inc in ipairs(incidents) do
-        if Relay.carried(inc.name) and #items < Relay.MAX then
+        if Relay.carried(inc.name) then
             local damage = type(inc.damage) == "string" and inc.damage:match("([%w_]+)$") or ""
             if damage == "Invalid" or damage == "None" then damage = "" end
             items[#items + 1] = string.format("%s,%d,%d,%d,%d,%s", inc.name, int(inc.cause), int(inc.effect),
                 int(inc.value), int(inc.modifier), damage)
+            if #items == Relay.MAX then
+                messages[#messages + 1] = Relay.PREFIX .. table.concat(items, ";")
+                items = {}
+            end
         end
     end
-    if #items == 0 then return nil end
-    return Relay.PREFIX .. table.concat(items, ";")
+    if #items > 0 then messages[#messages + 1] = Relay.PREFIX .. table.concat(items, ";") end
+    return messages
+end
+
+--- The first message for `incidents`; nil when there is nothing to send.
+function Relay.encode(incidents)
+    return Relay.encodeAll(incidents)[1]
 end
 
 --- The incidents in a message (marked `relayed`, arrived at `t`), or nil
@@ -261,12 +281,16 @@ end
 
 --- Sends `incidents` to every remote player. Returns how many got it.
 function Relay.send(incidents)
-    local message = Relay.encode(incidents)
-    if not message then return 0 end
+    local messages = Relay.encodeAll(incidents)
+    if #messages == 0 then return 0 end
     local kind = FName("MJOLNIR")
     local sent = 0
     for _, pc in ipairs(Relay.controllers()) do
-        if pcall(function() pc:ClientMessage(message, kind, 0) end) then sent = sent + 1 end
+        local ok = true
+        for _, message in ipairs(messages) do
+            ok = pcall(function() pc:ClientMessage(message, kind, 0) end) and ok
+        end
+        if ok then sent = sent + 1 end
     end
     return sent
 end

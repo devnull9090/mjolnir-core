@@ -1,12 +1,22 @@
-//! Forge shader libraries are addressed by their numeric pak chunk, not
-//! their pack slug. Two different filenames do not isolate the same number.
+//! Shader libraries are addressed by their numeric pak chunk, not their
+//! pack slug. Two different filenames do not isolate the same number.
+//!
+//! The launcher gives each container it writes a local number
+//! (`chunk_numbers`) and renames its library to match, so the numbers
+//! checked here are the ones a container takes in Paks, not the ones it was
+//! cooked under.
 use std::fs;
 use std::path::Path;
 
 pub struct Planned<'a> {
     pub slug: &'a str,
+    /// The container's name in the release cache.
     pub source: &'a str,
+    /// Its name in Paks.
     pub target: &'a str,
+    /// The chunk number its shader library opens under in Paks, when it has
+    /// one.
+    pub library: Option<u32>,
 }
 
 pub fn is_surface_container(stem: &str) -> bool {
@@ -27,14 +37,17 @@ fn same_pack(stem: &str, planned: &Planned<'_>, number: u32) -> bool {
     if stem.eq_ignore_ascii_case(planned.source) || stem.eq_ignore_ascii_case(planned.target) {
         return true;
     }
-    // The launcher's previous release may have a different container index
-    // or a live-update suffix. Match the entire numeric tail, so pack "foo"
-    // never owns "foo-extra" or a merely similar hand-installed filename.
+    hub_copy_of(stem, planned.slug, number)
+}
+
+/// Whether `stem` is the launcher's copy of `slug` under chunk `number`.
+/// The launcher's previous release may have a different container index, a
+/// load-order suffix or a live-update suffix. Match the entire numeric tail,
+/// so pack "foo" never owns "foo-extra" or a merely similar hand-installed
+/// filename.
+fn hub_copy_of(stem: &str, slug: &str, number: u32) -> bool {
     let lower = stem.to_ascii_lowercase();
-    let prefix = format!(
-        "pakchunk{number}-mjolnirhub-{}-",
-        planned.slug.to_ascii_lowercase()
-    );
+    let prefix = format!("pakchunk{number}-mjolnirhub-{}-", slug.to_ascii_lowercase());
     lower
         .strip_prefix(&prefix)
         .and_then(|s| s.strip_suffix("_p"))
@@ -60,16 +73,11 @@ pub fn check(
         return Ok(()); // Ordinary packs retain their existing behavior.
     }
     for material in &protected {
-        let number = chunk(material.source)
-            .filter(|n| (900..=999).contains(n))
-            .ok_or_else(|| {
-                format!(
-                    "{} has an invalid Forge material shader chunk",
-                    material.slug
-                )
-            })?;
+        let number = material.library.ok_or_else(|| {
+            format!("{} has a Forge material container without a readable shader library; reinstall a corrected release.", material.slug)
+        })?;
         if chunk(material.target) != Some(number) {
-            return Err(format!("{} must retain shader chunk {number}. Its material container is missing a readable shader library; reinstall a corrected release.", material.slug));
+            return Err(format!("{} must mount its material container as shader chunk {number}, not as {}.", material.slug, material.target));
         }
         for other in planned {
             if other.slug != material.slug && chunk(other.target) == Some(number) {
@@ -97,7 +105,7 @@ pub fn check(
     }
     existing.sort();
     for material in protected {
-        let number = chunk(material.source).expect("validated above");
+        let number = material.library.expect("validated above");
         for (stem, name) in &existing {
             if chunk(stem) == Some(number) && !same_pack(stem, material, number) {
                 return Err(format!("{} needs shader chunk {number}, already used by {name}. Remove or disable the conflicting pack, or use a release cooked with a different shader chunk. No game files were changed.", material.slug));
@@ -105,6 +113,30 @@ pub fn check(
         }
     }
     Ok(())
+}
+
+/// Whether chunk `number` is free in Paks for `slug`'s library: no container
+/// there carries the number except the launcher's own copies of `slug`. Two
+/// libraries under one number cannot both open, so a container written while
+/// the game runs checks this first (a launch rewrites every hub container
+/// and has nothing to check).
+pub fn library_free(paks: &Path, slug: &str, number: u32) -> Result<(), String> {
+    let mut taken = Vec::new();
+    for entry in fs::read_dir(paks).map_err(|e| format!("Cannot check shader chunks: {e}"))? {
+        let name = entry.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
+        let Some((stem, ext)) = name.rsplit_once('.') else { continue };
+        if matches!(ext.to_ascii_lowercase().as_str(), "pak" | "utoc" | "ucas")
+            && chunk(stem) == Some(number)
+            && !hub_copy_of(stem, slug, number)
+        {
+            taken.push(name);
+        }
+    }
+    taken.sort();
+    match taken.first() {
+        None => Ok(()),
+        Some(name) => Err(format!("{slug} needs shader chunk {number}, already used by {name}.")),
+    }
 }
 
 #[cfg(test)]
@@ -133,25 +165,41 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    /// A Forge material container cooked under 967, mounted under the local
+    /// number the launcher gave it.
     fn material() -> Planned<'static> {
         Planned {
             slug: "foundry-wide",
             source: "pakchunk967-MJOLNIRFORGEMAT-foundry-wide_P",
-            target: "pakchunk967-MJOLNIRHUB-foundry-wide-0_P",
+            target: "pakchunk10026-MJOLNIRHUB-foundry-wide-0_1104_P",
+            library: Some(10026),
         }
     }
 
     #[test]
-    fn two_slugs_in_one_pending_install_cannot_share_the_shader_number() {
+    fn two_packs_cooked_under_one_number_install_side_by_side() {
         let f = Fixture::new();
         let other = Planned {
             slug: "other-kit",
             source: "pakchunk967-MJOLNIRFORGEMAT-other-kit_P",
-            target: "pakchunk967-MJOLNIRHUB-other-kit-0_P",
+            target: "pakchunk10140-MJOLNIRHUB-other-kit-0_1560_P",
+            library: Some(10140),
+        };
+        check(&f.0, &[material(), other], true).unwrap();
+    }
+
+    #[test]
+    fn two_slugs_in_one_pending_install_cannot_share_the_assigned_number() {
+        let f = Fixture::new();
+        let other = Planned {
+            slug: "other-kit",
+            source: "pakchunk967-MJOLNIRFORGEMAT-other-kit_P",
+            target: "pakchunk10026-MJOLNIRHUB-other-kit-0_1560_P",
+            library: Some(10026),
         };
         let error = check(&f.0, &[material(), other], true).unwrap_err();
         assert!(
-            error.contains("foundry-wide") && error.contains("other-kit") && error.contains("967")
+            error.contains("foundry-wide") && error.contains("other-kit") && error.contains("10026")
         );
         assert_eq!(fs::read_dir(&f.0).unwrap().count(), 0);
     }
@@ -160,7 +208,7 @@ mod tests {
     fn existing_unrelated_content_blocks_each_sibling_and_is_untouched() {
         for ext in ["utoc", "ucas", "pak", "UTOC"] {
             let f = Fixture::new();
-            let name = format!("pakchunk967-OtherCommunityPack_P.{ext}");
+            let name = format!("pakchunk10026-OtherCommunityPack_P.{ext}");
             f.put(&name);
             let error = check(&f.0, &[material()], true).unwrap_err();
             assert!(error.contains(&name));
@@ -169,6 +217,10 @@ mod tests {
                 b"preserve unrelated bytes"
             );
         }
+        // The number it was cooked under is no longer the one it opens under.
+        let f = Fixture::new();
+        f.put("pakchunk967-OtherCommunityPack_P.utoc");
+        check(&f.0, &[material()], true).unwrap();
     }
 
     #[test]
@@ -177,7 +229,8 @@ mod tests {
         for stem in [
             material().source,
             material().target,
-            "pakchunk967-MJOLNIRHUB-foundry-wide-99_3_P",
+            "pakchunk10026-MJOLNIRHUB-foundry-wide-0_1105_P",
+            "pakchunk10026-MJOLNIRHUB-foundry-wide-99_3_P",
         ] {
             for ext in ["utoc", "ucas", "pak"] {
                 f.put(&format!("{stem}.{ext}"));
@@ -187,7 +240,8 @@ mod tests {
         let ordinary = Planned {
             slug: "foundry-wide",
             source: "plain_visuals",
-            target: "pakchunk967-MJOLNIRHUB-foundry-wide-1_P",
+            target: "pakchunk10027-MJOLNIRHUB-foundry-wide-1_1108_P",
+            library: None,
         };
         check(&f.0, &[material(), ordinary], true).unwrap();
     }
@@ -195,7 +249,7 @@ mod tests {
     #[test]
     fn similarly_named_pack_and_live_managed_content_still_conflict() {
         let f = Fixture::new();
-        f.put("pakchunk967-MJOLNIRHUB-foundry-wide-extra-0_P.utoc");
+        f.put("pakchunk10026-MJOLNIRHUB-foundry-wide-extra-0_1200_P.utoc");
         assert!(check(&f.0, &[material()], false).is_err());
         // Offline replacement deletes old managed files, but never exempts
         // the competing pack if it is also in the new plan.
@@ -203,7 +257,8 @@ mod tests {
         let other = Planned {
             slug: "foundry-wide-extra",
             source: "ordinary",
-            target: "pakchunk967-MJOLNIRHUB-foundry-wide-extra-0_P",
+            target: "pakchunk10026-MJOLNIRHUB-foundry-wide-extra-0_1200_P",
+            library: None,
         };
         assert!(check(&f.0, &[material(), other], true).is_err());
     }
@@ -212,24 +267,26 @@ mod tests {
     fn distinct_chunks_ordinary_packs_and_noncontainer_files_remain_compatible() {
         let f = Fixture::new();
         for name in [
-            "pakchunk968-Other_P.utoc",
-            "pakchunk967-notes.txt",
-            "notpakchunk967-fake.utoc",
+            "pakchunk10027-Other_P.utoc",
+            "pakchunk10026-notes.txt",
+            "notpakchunk10026-fake.utoc",
         ] {
             f.put(name);
         }
         check(&f.0, &[material()], false).unwrap();
         let other = Planned {
             slug: "other",
-            source: "pakchunk968-MJOLNIRFORGEMAT-other_P",
-            target: "pakchunk968-MJOLNIRHUB-other-0_P",
+            source: "pakchunk967-MJOLNIRFORGEMAT-other_P",
+            target: "pakchunk10027-MJOLNIRHUB-other-0_1108_P",
+            library: Some(10027),
         };
         let clean = Fixture::new();
         check(&clean.0, &[material(), other], false).unwrap();
         let ordinary = Planned {
             slug: "legacy",
             source: "pakchunk967-legacy",
-            target: "pakchunk900-MJOLNIRHUB-legacy-0_P",
+            target: "pakchunk10000-MJOLNIRHUB-legacy-0_1000_P",
+            library: None,
         };
         check(
             Path::new("this-directory-need-not-exist"),
@@ -240,19 +297,43 @@ mod tests {
     }
 
     #[test]
-    fn material_chunk_cannot_be_renumbered_or_obscured_by_case() {
+    fn a_material_container_needs_its_library_under_its_mounted_number() {
         let f = Fixture::new();
-        let wrong = Planned {
-            target: "pakchunk900-MJOLNIRHUB-foundry-wide-0_P",
+        let bare = Planned {
+            library: None,
             ..material()
         };
-        assert!(check(&f.0, &[wrong], false)
+        assert!(check(&f.0, &[bare], false)
             .unwrap_err()
-            .contains("retain shader chunk 967"));
-        f.put("PAKCHUNK0967-UNRELATED_P.UCAS");
+            .contains("without a readable shader library"));
+        let wrong = Planned {
+            target: "pakchunk10099-MJOLNIRHUB-foundry-wide-0_1104_P",
+            ..material()
+        };
+        assert!(check(&f.0, &[wrong], false).unwrap_err().contains("10026"));
+        f.put("PAKCHUNK010026-UNRELATED_P.UCAS");
         assert!(check(&f.0, &[material()], false).is_err());
         let bare = Fixture::new();
-        bare.put("pakchunk967.utoc");
+        bare.put("pakchunk10026.utoc");
         assert!(check(&bare.0, &[material()], false).is_err());
+    }
+
+    #[test]
+    fn a_live_library_needs_its_number_free_of_other_mods() {
+        let f = Fixture::new();
+        library_free(&f.0, "tst-proving-ground", 10120).unwrap();
+        // Its own copies, under any index or suffix, are its to replace.
+        f.put("pakchunk10120-MJOLNIRHUB-tst-proving-ground-0_1480_P.ucas");
+        f.put("pakchunk10120-MJOLNIRHUB-tst-proving-ground-0_1481_P.utoc");
+        f.put("pakchunk10121-MJOLNIRHUB-ce-blood-gulch-0_1484_P.utoc");
+        f.put("pakchunk10120-notes.txt");
+        library_free(&f.0, "tst-proving-ground", 10120).unwrap();
+        // Another mod's container under the number is not.
+        f.put("pakchunk10120-MJOLNIRHUB-ce-blood-gulch-1_1488_P.utoc");
+        let error = library_free(&f.0, "tst-proving-ground", 10120).unwrap_err();
+        assert!(error.contains("ce-blood-gulch"), "{error}");
+        let g = Fixture::new();
+        g.put("pakchunk10120-MJOLNIRHUB-tst-proving-ground-extra-0_1480_P.pak");
+        assert!(library_free(&g.0, "tst-proving-ground", 10120).is_err());
     }
 }

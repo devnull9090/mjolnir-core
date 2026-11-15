@@ -78,6 +78,14 @@ const MATERIAL_ALIASES: &[(&str, &str)] = &[
     ("tough_terrain", "tough_terrain_dirt"),
     ("hard_metal", "hard_metal_thick"),
     ("brittle_glass_unbreakable", "brittle_glass_reinforced"),
+    // Turf's storefront doors (`windows_basic_glass`): glass a shot or a
+    // melee shatters in Halo 2 and a player cannot walk through. Shortened a
+    // word at a time it reached brittle_glass_for, the game's Forerunner
+    // glass, whose impacts spark like an energy shield. brittle_glass's
+    // shatter (globals\glass) breaks on any touch (collision impulse
+    // threshold 0: a player walking in shattered it); brittle_glass_reinforced's
+    // (globals\glass_walkable) takes an impulse of 500, any shot still breaks it.
+    ("brittle_glass_for_unbreakable", "brittle_glass_reinforced"),
 ];
 
 /// The game material a Halo 2 global material name becomes: itself when the
@@ -244,6 +252,9 @@ fn add_instances(sbsp: &Tag<'_>, col: &mut Collision, summary: &mut Summary) {
         let world = |v: [f32; 3]| -> [f32; 3] {
             std::array::from_fn(|k| p[k] + scale * (v[0] * f[k] + v[1] * l[k] + v[2] * u[k]))
         };
+        // Breakable panes keep both of Halo 2's faces (the quad once each way
+        // round), as shipped glass has its front and back
+        // (blam_sbsp::pack16::pack_breakable stitches them closed).
         for s in 0..def.surfaces.len() {
             let pts: Vec<[f32; 3]> = def.polygon(s).into_iter().map(world).collect();
             let (_, _, flags, _, material) = def.surfaces[s];
@@ -506,6 +517,11 @@ fn placements<'c>(
             if let Some(c) = collision {
                 entry["collision"] = json!(c);
             }
+            if group != "mach" {
+                if let Some(cc) = change_colors(&object, &e) {
+                    entry["change_colors"] = cc;
+                }
+            }
             if let Some(model) = object_model(cache, &object, &mut notes) {
                 if let Some(record) = render.model(&model, object.name(), group, scale)? {
                     entry["model"] = record["gltf"].clone();
@@ -736,6 +752,58 @@ fn quat_pose([x, y, z, w]: [f32; 4], t: [f32; 3], parent: Option<&Pose>) -> Pose
     }
 }
 
+/// A placed object's change colours A-D in halo2ue's terms
+/// (`[{permutations: [{weight, lower, upper}]}]`), each already chosen, as
+/// the engine chooses it at spawn (`object_choose_random_change_colors`,
+/// the same in Halo 1): not at random but by the object's position, a
+/// draw of fmod(|315.89313 x + 587.12946 y + 744.12415 z + 431.12894 k|, 1)
+/// against the permutations' running cut-offs, and a blend of
+/// fmod(|y| + 0.71211 k, 1) between the chosen one's lower and upper colour.
+/// The object's permutations (obje +0xAC, 0x10 each: permutations 0x00 of
+/// 0x20: weight, lower RGB 0x04, upper RGB 0x10, variant string id 0x1C)
+/// carry Halo 2's weights as shares (the panel truck: off-white 0.4, red
+/// 0.2, tan 0.2), summed into cut-offs over their total: both of Turf's
+/// trucks draw 0.96 and 0.83, tan, as MCC paints them every game. A
+/// placement that sets a colour itself (its active change colours, bits at
+/// +0x38 after the 0x34-byte header, ARGB at +0x3C) keeps it. Each slot
+/// goes out as one permutation of weight 1, so
+/// tools/level/merge_ce_scene.py's own draw takes it as it is. `None` when
+/// there is no colour.
+fn change_colors(object: &Tag<'_>, placement: &Struct<'_>) -> Option<Value> {
+    let slots = object.root.block(0xAC, 0x10);
+    let active = placement.u32(0x38);
+    let [x, y, z] = placement.vec3(0x08);
+    let fixed = |rgb: [f32; 3]| json!({"permutations": [{"weight": 1.0, "lower": rgb, "upper": rgb}]});
+    let mut out = Vec::new();
+    for k in 0..4usize {
+        if active & (1 << k) != 0 {
+            let at = 0x3C + 4 * k;
+            out.push(fixed([placement.u8(at + 2), placement.u8(at + 1), placement.u8(at)].map(|c| c as f32 / 255.0)));
+            continue;
+        }
+        let perms: Vec<Struct<'_>> = slots.get(k).map(|s| s.block(0x00, 0x20).iter().collect()).unwrap_or_default();
+        let total: f32 = perms.iter().map(|p| p.f32(0).max(0.0)).sum();
+        let draw = ((x * 315.89313 + y * 587.12946 + z * 744.12415 + k as f32 * 431.12894).abs()) % 1.0;
+        let blend = (y.abs() + k as f32 * 0.71211) % 1.0;
+        let mut running = 0.0;
+        let chosen = perms.iter().find(|p| {
+            running += if total > 0.0 { p.f32(0).max(0.0) / total } else { 1.0 / perms.len() as f32 };
+            draw <= running + 1e-6
+        });
+        match chosen {
+            Some(p) => {
+                let (lo, hi) = (p.vec3(0x04), p.vec3(0x10));
+                out.push(fixed(std::array::from_fn(|i| (lo[i] + (hi[i] - lo[i]) * blend).clamp(0.0, 1.0))));
+            }
+            None => out.push(json!({"permutations": []})),
+        }
+    }
+    while out.last().is_some_and(|s| s["permutations"].as_array().is_some_and(|a| a.is_empty())) {
+        out.pop();
+    }
+    (!out.is_empty()).then(|| json!(out))
+}
+
 /// A placed object's collision model as `collision/<name>.json`: every
 /// region's first permutation, each BSP's polygons placed by its node's rest
 /// pose (the BSP's vertices are node-local) and fan-split into a flat
@@ -748,7 +816,18 @@ fn stage_object_collision(
     scale: f32,
 ) -> Result<Option<String>, Error> {
     let Some(model) = follow(cache, object.root, 0x34, notes) else { return Ok(None) };
-    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else { return Ok(None) };
+    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else {
+        // No collision model: the physics model's solid shapes are what
+        // Halo 2 collides with (crate::h2::phantom::solid_triangles).
+        let solid = crate::h2::phantom::solid_triangles(cache, object);
+        if solid.is_empty() {
+            return Ok(None);
+        }
+        let tris: Vec<f32> = solid.iter().flat_map(|v| v.map(|x| x * scale)).collect();
+        let rel = format!("collision/{}{}.json", sanitize(object.name()), scale_suffix(scale));
+        write_json(&dir.join(&rel), &json!({"tag_path": object.name(), "units": "halo_wu", "triangles": tris, "source": "phmo"}))?;
+        return Ok(Some(rel));
+    };
     let poses = follow(cache, model.root, 0x00, notes).map(|mode| rest_pose(&mode)).unwrap_or_default();
     // The collision model's own node list matches the render model's by
     // index (158 of 159 models with both; the odd one is single-node).
@@ -824,6 +903,137 @@ fn planar_fog(cache: &Cache, scnr: &Tag<'_>, sbsp: &Tag<'_>, notes: &mut Vec<Str
     }]}))
 }
 
+/// The BSP's model decorators as scenery entries (crate::h2::decorator): each
+/// placement of a model class (`DECR` class type 0) is its set's model at
+/// the placement's position, turned by its yaw (about its up vector when
+/// the permutation aligns to the normal, as Halo 2 builds it: forward =
+/// cos(yaw) p + sin(yaw) (up x p), p perpendicular to up), its scale across
+/// the permutation's range times the class's. The entry carries its
+/// rotation as `basis` (forward, left, up in world units, Halo axes) and
+/// `scale`; tools/level/merge_ce_scene.py places it by those. The set
+/// index is the scenario's decorator palette (+0x378, tag references).
+fn decorator_entries<'c>(
+    cache: &'c Cache,
+    scnr: &Tag<'c>,
+    sbsp: &Tag<'c>,
+    render: &mut Renderer<'c>,
+    summary: &mut Summary,
+) -> Result<Vec<Value>, Error> {
+    use crate::h2::decorator;
+    let placements = decorator::placements(cache, sbsp.root)?;
+    if placements.is_empty() {
+        return Ok(Vec::new());
+    }
+    let palette: Vec<Option<Tag<'c>>> = scnr.root.block(0x378, 8).iter().map(|r| r.tagref(0).and_then(|r| cache.follow(r))).collect();
+    let mut sets: BTreeMap<usize, Option<(Tag<'c>, decorator::Set)>> = BTreeMap::new();
+    let mut entries = Vec::new();
+    let (mut models, mut other) = (0usize, 0usize);
+    for p in &placements {
+        let set = sets.entry(p.set).or_insert_with(|| {
+            let tag = palette.get(p.set).cloned().flatten()?;
+            let s = decorator::set(cache, tag.root).ok()?;
+            Some((tag, s))
+        });
+        let Some((tag, set)) = set.as_ref() else { continue };
+        let Some(class) = set.classes.get(p.class) else { continue };
+        let Some(perm) = class.permutations.get(p.permutation) else { continue };
+        if class.kind != 0 {
+            other += 1;
+            continue;
+        }
+        let shader = set.shaders.get(perm.shader).and_then(|&d| cache.tag(tag.file, d));
+        let Some(model) = render.decorator_model(tag.name(), set, perm.index, shader)? else { continue };
+        // Its colour and light as halo2.dll builds the vertex colour
+        // (0x7fa1d0), doubled as the decorator shader doubles it: the light
+        // merge_ce_scene.py gives it in place of the ground's.
+        let (colour, light) = (perm.colour(p.tint, p.tint_blend), perm.light(p.lightmap));
+        let light: [f32; 3] = [0, 1, 2].map(|k| 2.0 * colour[k] * light[k]);
+        let (s, c) = p.yaw.sin_cos();
+        let (up, p0) = if perm.flags & 1 != 0 {
+            let u = p.up;
+            // Halo 2's perpendicular (halo2.dll 0x6fcf30), which the yaw
+            // turns from: zero the smallest component and swap the other
+            // two, one negated. Any other perpendicular turns every aligned
+            // decorator by a fixed angle (a hand-picked one put Turf's cans
+            // 180 degrees round, 2026-11-11).
+            let (ax, ay, az) = (u[0].abs(), u[1].abs(), u[2].abs());
+            let mut q = if ax <= ay && ax <= az {
+                [0.0, u[2], -u[1]]
+            } else if ay <= az {
+                [-u[2], 0.0, u[0]]
+            } else {
+                [u[1], -u[0], 0.0]
+            };
+            let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt().max(1e-9);
+            q = q.map(|v| v / n);
+            (u, q)
+        } else {
+            ([0.0, 0.0, 1.0], [1.0, 0.0, 0.0])
+        };
+        let side = cross(up, p0);
+        let forward = [0, 1, 2].map(|k| c * p0[k] + s * side[k]);
+        let left = [0, 1, 2].map(|k| c * side[k] - s * p0[k]);
+        let scale = class.scale * (perm.scale[0] + (perm.scale[1] - perm.scale[0]) * p.scale);
+        entries.push(json!({
+            "kind": "scenery", "asset": format!("{}:{}", tag.name(), perm.name), "tag_class": "DECR",
+            "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
+            "pos": p.position, "rot": [p.yaw, 0.0, 0.0],
+            "basis": [forward, left, up], "scale": if scale > 0.0 { scale } else { 1.0 },
+            "decorator": true, "light": light,
+        }));
+        models += 1;
+    }
+    // The decals: the map's own quads (decorator::decals), one mesh a group
+    // and shader, placed at its quads' centre.
+    let decals = decorator::decals(cache, sbsp.root)?;
+    let mut runs: BTreeMap<(usize, usize, u32), Vec<&decorator::Decal>> = BTreeMap::new();
+    for d in &decals {
+        let Some(Some((tag, set))) = sets.get(&d.set).map(|s| s.as_ref()).or_else(|| None) else {
+            // A set no model placement opened yet.
+            continue;
+        };
+        let _ = tag;
+        let Some(perm) = set.classes.get(d.class).and_then(|c| c.permutations.get(d.permutation)) else { continue };
+        let Some(&shader) = set.shaders.get(perm.shader) else { continue };
+        runs.entry((d.group, d.set, shader)).or_default().push(d);
+    }
+    let mut placed_decals = 0usize;
+    for ((group, set_index, shader), list) in &runs {
+        let Some(Some((tag, _))) = sets.get(set_index) else { continue };
+        let n = list.iter().map(|d| d.positions.len()).sum::<usize>().max(1) as f32;
+        let mut origin = [0.0f32; 3];
+        for d in list {
+            for p in &d.positions {
+                for k in 0..3 {
+                    origin[k] += p[k] / n;
+                }
+            }
+        }
+        let shader_tag = cache.tag(tag.file, *shader);
+        let name = format!("{}__decals{group}_{shader:08x}", tag.name());
+        let Some(model) = render.decal_mesh(&name, list, origin, shader_tag)? else { continue };
+        entries.push(json!({
+            "kind": "scenery", "asset": format!("{}:decals", tag.name()), "tag_class": "DECR",
+            "model": model, "skeletal": false, "origin_offset": [0.0, 0.0, 0.0],
+            "pos": origin, "rot": [0.0, 0.0, 0.0],
+            "basis": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "scale": 1.0,
+            "decorator": true,
+        }));
+        placed_decals += list.len();
+    }
+    summary.notes.push(format!(
+        "{} decorator placement(s): {models} model(s) placed as scenery; {placed_decals} of {} decal quad(s) and sprite card(s) as meshes",
+        placements.len(),
+        decals.len(),
+    ));
+    let _ = other;
+    Ok(entries)
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+}
+
 pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
     for sub in ["bsp", "collision", "models", "textures"] {
         std::fs::create_dir_all(dir.join(sub)).map_err(|e| Error::Io(dir.join(sub), e))?;
@@ -852,7 +1062,11 @@ pub fn stage(cache: &Cache, dir: &Path) -> Result<Summary, Error> {
     let mut renderer = Renderer::new(cache, dir);
     let render = renderer.bsp(&sbsp, first)?;
     let mut sounds = Sounds::new(cache, &dir.join("sounds_out"));
-    let placement = placements(cache, &scnr, dir, &mut summary, &mut renderer, &mut sounds)?;
+    let mut placement = placements(cache, &scnr, dir, &mut summary, &mut renderer, &mut sounds)?;
+    let decorators = decorator_entries(cache, &scnr, &sbsp, &mut renderer, &mut summary)?;
+    if let Some(list) = placement["entries"].as_array_mut() {
+        list.extend(decorators);
+    }
     sounds.scenario(&scnr, &sbsp);
     let (staged, notes) = sounds.finish()?;
     summary.notes.extend(notes);
@@ -919,7 +1133,7 @@ mod tests {
         assert_eq!(game_material("hard_metal_thick_for"), ("hard_metal_thick_for".into(), true));
         assert_eq!(game_material("hard_metal_solid_for").0, "hard_metal_solid");
         assert_eq!(game_material("hard_metal_thin_hum_grating").0, "hard_metal_thin");
-        assert_eq!(game_material("brittle_glass_for_unbreakable").0, "brittle_glass_for");
+        assert_eq!(game_material("brittle_glass_for_unbreakable").0, "brittle_glass_reinforced");
         assert_eq!(game_material("hard_terrain_concrete").0, "hard_terrain_stone");
         assert_eq!(game_material("energy").0, "energy_hologram");
         assert_eq!(game_material("").0, "default_material");

@@ -152,9 +152,74 @@ end
 ---   team   <Red|Blue> <total>
 ---   player <name> <score> <kills> <deaths> <team or -> <1 if local>
 ---          <hub account id or -> <hub name or -> <reports>
+---   medals <incident>=<count> ...   the player just above's, most earned
+---          first, by the medal's incident name (MJOLNIRLobby's DLL has its
+---          title and glyph); only when they earned any
+---   series <score>,<score>,...      the player just above's score at evenly
+---          spaced moments from the start to the end (Board.POINTS at most)
+---   killsat <kills>,<kills>,...     and their kills at the same moments
+---   clock  <seconds>                how long the match ran, once, last
+--- An older MJOLNIRLobby skips the lines it does not know.
 --- Players in standing order. The name is the in-game one; the account is
 --- the hub's (docs/player_identity.md), which the post-game screen shows and
 --- reports cite, with the match id.
+--- A player's medals as { { name, count } } (the medal's incident name),
+--- most earned first, then by name.
+function Board.medals(p)
+    local out = {}
+    for name, count in pairs(p.medals or {}) do out[#out + 1] = { name = name, count = count } end
+    table.sort(out, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return a.name < b.name
+    end)
+    return out
+end
+
+--- The match over time, for the post-game charts: every STEP seconds each
+--- player's score and kills so far. POINTS of them reach the results.
+Board.STEP = 5
+Board.POINTS = 48
+Board.SAMPLES = 720 -- an hour; a longer match keeps every other sample
+
+--- Takes a sample at `t` (seconds on the HUD's clock) when one is due, or
+--- now when `force` (the end of the match).
+function Board.sample(match, t, force)
+    match.samples = match.samples or {}
+    local samples = match.samples
+    local last = samples[#samples]
+    if not force and last and t - last.t < Board.STEP then return false end
+    local score, kills = {}, {}
+    for index, p in pairs(match.players) do
+        score[index] = Board.score(p, match.mode)
+        kills[index] = p.kills or 0
+    end
+    samples[#samples + 1] = { t = t, score = score, kills = kills }
+    if #samples > Board.SAMPLES then
+        local kept = {}
+        for i = 1, #samples, 2 do kept[#kept + 1] = samples[i] end
+        match.samples = kept
+    end
+    return true
+end
+
+--- Player `index`'s `what` ("score" or "kills") at `points` evenly spaced
+--- moments from the match's start to its last sample, each the latest sample
+--- at or before that moment (0 before the first, and before they joined).
+function Board.series(match, index, what, points)
+    local samples = match.samples or {}
+    local out = {}
+    if #samples == 0 then return out end
+    local first = match.startedAt or samples[1].t
+    local span = math.max(samples[#samples].t - first, 1e-6)
+    local at = 1
+    for i = 1, points do
+        local t = first + span * i / points
+        while at < #samples and samples[at + 1].t <= t + 1e-6 do at = at + 1 end
+        out[i] = samples[at].t <= t + 1e-6 and (samples[at][what][index] or 0) or 0
+    end
+    return out
+end
+
 function Board.results(match, localPlayer, endedAt, matchId)
     local lines = { table.concat({ "match", field(match.code), field(match.variant), field(match.title),
         field(match.mode.title), field(Board.winner(match)), field(endedAt), field(matchId or "-") }, "\t") }
@@ -171,7 +236,21 @@ function Board.results(match, localPlayer, endedAt, matchId)
                 field(Board.score(p, match.mode)), field(p.kills), field(p.deaths),
                 field(Board.team(p.team) or "-"), p.index == localPlayer and "1" or "0",
                 field(p.userId or "-"), field(p.display or "-"), field(p.reports or 0) }, "\t")
+            local medals = Board.medals(p)
+            if #medals > 0 then
+                local parts = { "medals" }
+                for _, m in ipairs(medals) do parts[#parts + 1] = field(m.name) .. "=" .. tostring(m.count) end
+                lines[#lines + 1] = table.concat(parts, "\t")
+            end
+            if match.samples and #match.samples > 1 then
+                lines[#lines + 1] = "series\t" .. table.concat(Board.series(match, p.index, "score", Board.POINTS), ",")
+                lines[#lines + 1] = "killsat\t" .. table.concat(Board.series(match, p.index, "kills", Board.POINTS), ",")
+            end
         end
+    end
+    if match.samples and #match.samples > 1 then
+        local first = match.startedAt or match.samples[1].t
+        lines[#lines + 1] = "clock\t" .. tostring(math.floor(match.samples[#match.samples].t - first + 0.5))
     end
     return table.concat(lines, "\n") .. "\n"
 end

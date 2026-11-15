@@ -407,7 +407,7 @@ setup at once:
 | The hitch log's new world | 10 ms | 21 ms | each world |
 | **The whole tick** | **189 ms** | **211 ms** | |
 
-**The fix, MJOLNIRHud 0.20.1:**
+**The fix, MJOLNIRHud 0.21.1:**
 - **One piece of setup a poll** (`Setup` in `main.lua`). The world change,
   the incident hook, the feed, the scoreboard, the marker, the chat box and
   the name tags each take a poll of their own, in that order, so all of it is

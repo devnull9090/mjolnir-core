@@ -11,7 +11,21 @@ more inside it, coloured between pixel constants 1 and 0 by the second band
 plus constant 3 on the innermost, faded by the facing term constant 2's
 alpha weights and the mask's alpha, added to the frame. Zanzibar's flywheel
 lightning, the teleporters' beams, Lockout's grav lifts.
+
+M_H2_Billboard is Halo 2's axis-rotating decorator sprites (Coagulation's
+grass): M_CE_EnvironmentMaskedTwoSided (build_ce_materials.py
+build_environment) with a World Position Offset that turns each card about
+its axis to face the camera, as Halo 2's sprite vertex shader does. The
+vertex normal is the axis; TEXCOORD_2 (x, y) and TEXCOORD_3 (z) are the way
+from the vertex to its base point on the axis and TEXCOORD_3's v its offset
+across the axis, Unreal centimetres (merge_ce_scene.py). The card is moved
+to base + its height along the axis + its offset along the axis x the view
+direction, flattened onto the plane the axis is normal to.
 """
+import importlib.util
+import os
+from pathlib import Path
+
 import unreal
 
 assets = unreal.AssetToolsHelpers.get_asset_tools()
@@ -159,6 +173,41 @@ def build_plasma_alpha():
     eal.save_loaded_asset(m)
 
 
+BILLBOARD_WPO_CODE = r"""
+float3 D = float3(UV2.x, UV2.y, UV3.x);
+float across = UV3.y;
+float3 A = normalize(N);
+float3 V = Cam - (W + D);
+V -= A * dot(V, A);
+float l = length(V);
+if (l < 1.0 || dot(D, D) + across * across == 0.0) return float3(0.0, 0.0, 0.0);
+return D - A * dot(D, A) + cross(A, V / l) * across;
+"""
+
+
+def build_billboard():
+    os.environ["MJ_CE_LIBRARY"] = "1"
+    spec = importlib.util.spec_from_file_location("h2_ce_graphs", Path(__file__).with_name("build_ce_materials.py"))
+    ce = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ce)
+    ce.ROOT = ROOT
+
+    def billboard_offset(g, m):
+        wpo = g.custom(BILLBOARD_WPO_CODE, [
+            ("UV2", g.node(unreal.MaterialExpressionTextureCoordinate, coordinate_index=2), ""),
+            ("UV3", g.node(unreal.MaterialExpressionTextureCoordinate, coordinate_index=3), ""),
+            ("N", g.node(unreal.MaterialExpressionVertexNormalWS), ""),
+            ("W", g.node(unreal.MaterialExpressionWorldPosition,
+                         world_position_shader_offset=unreal.WorldPositionIncludedOffsets.WPT_EXCLUDE_ALL_SHADER_OFFSETS), ""),
+            ("Cam", g.node(unreal.MaterialExpressionCameraPositionWS), ""),
+        ], description="H2 sprite facing the camera")
+        if not unreal.MjolnirUIBuilderLibrary.connect_world_position_offset(m, wpo, ""):
+            raise RuntimeError(f"cannot connect World Position Offset on {m.get_name()}")
+
+    ce.build_environment("M_H2_Billboard", True, ce.build_defaults(), two_sided=True, offset=billboard_offset)
+
+
 build_label()
 build_plasma_alpha()
+build_billboard()
 unreal.log("MJOLNIR H2 materials built")

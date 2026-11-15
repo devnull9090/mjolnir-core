@@ -6769,6 +6769,7 @@ static void sound_trace_arm(void) {
 #include "forge_doors_runtime.h"
 #include "lifts_runtime.h"
 #include "roster_runtime.h"
+#include "medals_runtime.h"
 
 /* --- The one-time code searches' worker -------------------------------------
 

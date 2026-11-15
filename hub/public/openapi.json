@@ -460,6 +460,13 @@
           "signer_key_revoked": {
             "type": "boolean",
             "description": "True when the author's signing key has been revoked since publish."
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Launcher features this release needs, measured from its archive at publish: `local-chunk-numbers` when a shader library sits under a pakchunk number launchers up to 0.23 cannot load, or shares its library chunk with another mod's release. Empty for none. Launchers send `X-MJOLNIR-Launcher` and `X-MJOLNIR-Features` (comma-separated); a launcher's list views leave out releases it cannot install."
           }
         },
         "required": [
@@ -478,7 +485,8 @@
           "published_by",
           "published_by_username",
           "signer_fingerprint",
-          "signer_key_revoked"
+          "signer_key_revoked",
+          "requires"
         ]
       },
       "ModCreate": {
@@ -566,14 +574,22 @@
             "type": "string"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "scanning",
-              "published",
-              "rejected",
-              "yanked"
-            ]
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "scanning",
+                  "published",
+                  "rejected",
+                  "yanked"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "One of pending, scanning, published, rejected, yanked. A launcher up to 0.23 (no User-Agent, no `X-MJOLNIR-Launcher`) asking for a published release it cannot install gets a sentence telling it to update instead, which it shows."
           },
           "sha256": {
             "type": [
@@ -636,6 +652,13 @@
           "signer_key_revoked": {
             "type": "boolean",
             "description": "True when the signing key has been revoked since this release published."
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Launcher features this release needs, measured from its archive at publish: `local-chunk-numbers` when a shader library sits under a pakchunk number launchers up to 0.23 cannot load, or shares its library chunk with another mod's release. Empty for none. Launchers send `X-MJOLNIR-Launcher` and `X-MJOLNIR-Features` (comma-separated); a launcher's list views leave out releases it cannot install."
           }
         },
         "required": [
@@ -653,7 +676,8 @@
           "published_by",
           "published_by_username",
           "signer_fingerprint",
-          "signer_key_revoked"
+          "signer_key_revoked",
+          "requires"
         ]
       },
       "ScanFinding": {
@@ -2546,6 +2570,13 @@
               },
               "created_at": {
                 "type": "string"
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Launcher features the release needs (see Release.requires)."
               }
             },
             "required": [
@@ -2553,8 +2584,10 @@
               "version",
               "file_size",
               "sha256",
-              "created_at"
-            ]
+              "created_at",
+              "requires"
+            ],
+            "description": "The newest published release, the one to install. A launcher (`X-MJOLNIR-Launcher`, or no User-Agent: launchers up to 0.23) gets the newest one its `X-MJOLNIR-Features` cover, or the newest of all when none is."
           }
         },
         "required": [
@@ -6307,6 +6340,7 @@
           "mods"
         ],
         "summary": "Published releases of a mod, newest first",
+        "description": "A launcher (`X-MJOLNIR-Launcher`, or no User-Agent at all: launchers up to 0.23) gets only the releases whose `requires` its `X-MJOLNIR-Features` cover; when that is none, only the newest release. Everyone else gets every published release.",
         "parameters": [
           {
             "schema": {
@@ -7174,6 +7208,16 @@
           },
           "404": {
             "description": "Not published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The release needs a newer launcher than the caller's (a launcher up to 0.23: no User-Agent and no `X-MJOLNIR-Launcher`); `message` says to update.",
             "content": {
               "application/json": {
                 "schema": {

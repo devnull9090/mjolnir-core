@@ -41,12 +41,12 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
-      "version": "0.50.1",
-      "tag": "mods-v0.50.1",
+      "version": "0.52.1",
+      "tag": "mods-v0.52.1",
       "title": "A smoother start to each match",
-      "date": "2026-11-10",
+      "date": "2026-11-15",
       "summary": "The HUD no longer freezes the game for a fifth of a second as a match begins: its setup is spread over the first second.",
-      "body": "### Fixed\n\nIn MJOLNIRHud 0.20.1.\n\n- **No freeze as a match starts.** In the first moment of a match the HUD\n  made its kill feed, scoreboard, chat box and markers, and hooked the\n  game's events, all in one go. That held the game for 162–285 ms. Now each\n  piece gets its own tenth of a second, and everything is up by 0.8 s into\n  the match. On two copies of the game, the longest the HUD held the game in\n  a match's first 10 seconds went from 189 ms to 36 ms on the host, and from\n  211 ms to 29 ms for the player who joined.\n- **The HUD's widgets are loaded in the menus,** so the first match of a\n  session no longer loads them as it starts.\n- **Every match's start is measured.** The log says what the HUD's slowest\n  moment in a match's first 10 seconds was and what it spent it on. Any\n  moment that holds the game over 50 ms is logged with the same breakdown.",
+      "body": "### Fixed\n\nIn MJOLNIRHud 0.21.1.\n\n- **No freeze as a match starts.** In the first moment of a match the HUD\n  made its kill feed, scoreboard, chat box and markers, and hooked the\n  game's events, all in one go. That held the game for 162–285 ms. Now each\n  piece gets its own tenth of a second, and everything is up by 0.8 s into\n  the match. On two copies of the game, the longest the HUD held the game in\n  a match's first 10 seconds went from 189 ms to 36 ms on the host, and from\n  211 ms to 29 ms for the player who joined.\n- **The HUD's widgets are loaded in the menus,** so the first match of a\n  session no longer loads them as it starts.\n- **Every match's start is measured.** The log says what the HUD's slowest\n  moment in a match's first 10 seconds was and what it spent it on. Any\n  moment that holds the game over 50 ms is logged with the same breakdown.",
       "sections": [
         {
           "heading": "Fixed",
@@ -57,9 +57,138 @@
           ]
         }
       ],
-      "path": "/changelog/mods/0.50.1",
-      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.50.1.md",
-      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.50.1"
+      "path": "/changelog/mods/0.52.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.52.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.52.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.52.0",
+      "tag": "mods-v0.52.0",
+      "title": "Lit interiors and a flying camera",
+      "date": "2026-11-14",
+      "summary": "Remastered maps can now light their interiors with real bounced light, cliffs lose their black bands and hairlines, and FlyCam flies smoothly between saved camera shots.",
+      "body": "### Added\n\nIn MJOLNIRLevelLoader 0.13.15 and MJOLNIRFlyCam 1.3.0.\n\n- **Light that bounces indoors.** A remastered map can now draw its level\n  in pieces Unreal's Lumen can light. Rooms get real bounced light, shade in\n  their corners and falloff down their stairwells instead of an even glow.\n  Zanzibar and Coagulation are the first to use it.\n- **Halo 2's own lights.** A Halo 2 map's placed lights now come through as\n  real lights: Coagulation's bases are lit in their team colours again.\n- **New lighting settings for map makers.** `sky_leak` lets a little sky\n  light into enclosed spaces, and `lumen_cells` lists a map's lit pieces\n  (see the level format docs).\n- **FlyCam flies between shots.** Page Up and Page Down fly smoothly from one\n  saved shot to the next. Shots now have their own panel with undo and redo,\n  and FlyCam shows your real Spartan instead of a grey stand-in.\n\n### Fixed\n\n- **No more black band under cliff tops.** The soil drawn under a cliff's lip\n  read as solid black on every remastered map; it is packed earth now.\n- **No more hairline down tall rocks.** A thin dark line ran straight down\n  some boulders and walls where the ground above them stepped.\n- **Glass you can see.** Breakable windows that blocked you and shattered\n  but could not be seen now draw again.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Light that bounces indoors. A remastered map can now draw its level in pieces Unreal's Lumen can light. Rooms get real bounced light, shade in their corners and falloff down their stairwells instead of an even glow. Zanzibar and Coagulation are the first to use it.",
+            "Halo 2's own lights. A Halo 2 map's placed lights now come through as real lights: Coagulation's bases are lit in their team colours again.",
+            "New lighting settings for map makers. skyleak lets a little sky light into enclosed spaces, and lumencells lists a map's lit pieces (see the level format docs).",
+            "FlyCam flies between shots. Page Up and Page Down fly smoothly from one saved shot to the next. Shots now have their own panel with undo and redo, and FlyCam shows your real Spartan instead of a grey stand-in."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "No more black band under cliff tops. The soil drawn under a cliff's lip read as solid black on every remastered map; it is packed earth now.",
+            "No more hairline down tall rocks. A thin dark line ran straight down some boulders and walls where the ground above them stepped.",
+            "Glass you can see. Breakable windows that blocked you and shattered but could not be seen now draw again."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.52.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.52.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.52.0"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.24.0",
+      "tag": "launcher-v0.24.0",
+      "title": "Load order that does what the list says",
+      "date": "2026-11-12",
+      "summary": "Later mods in your list now really win, maps can bring shader libraries under any number, and the launcher refuses content that needs a newer launcher.",
+      "body": "### Changed\n\n- **Load order follows your list.** The list always said later mods win when two\n  of them change the same thing, but the launcher's file names made the first one\n  win for most mods. Each mod now loads by its place in the list, so the one lower\n  down wins, as the list says. If you ordered mods to work around the old\n  behaviour, check that order.\n- **Maps can use any shader library number.** The launcher gives each installed\n  container a number of its own and renames its shader library to match, so two\n  maps built under the same number both draw correctly. This is what Halo 2 and\n  later remasters need.\n\n### Added\n\n- **A newer launcher, when content needs one.** A map or mod that needs this\n  launcher or a later one tells you to update the launcher, instead of failing\n  quietly. Older launchers are kept on the releases they can use.\n- **Local builds, for people making maps.** Builds installed with\n  `mjolnir dev install` load above everything from the hub. They show under\n  *Local builds* on the My Mods page with a Remove button. The page also lists\n  any container in your game folder that loses to a copy from the hub, so a test\n  build that never loads is easy to spot.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "Load order follows your list. The list always said later mods win when two of them change the same thing, but the launcher's file names made the first one win for most mods. Each mod now loads by its place in the list, so the one lower down wins, as the list says. If you ordered mods to work around the old behaviour, check that order.",
+            "Maps can use any shader library number. The launcher gives each installed container a number of its own and renames its shader library to match, so two maps built under the same number both draw correctly. This is what Halo 2 and later remasters need."
+          ]
+        },
+        {
+          "heading": "Added",
+          "items": [
+            "A newer launcher, when content needs one. A map or mod that needs this launcher or a later one tells you to update the launcher, instead of failing quietly. Older launchers are kept on the releases they can use.",
+            "Local builds, for people making maps. Builds installed with mjolnir dev install load above everything from the hub. They show under Local builds on the My Mods page with a Remove button. The page also lists any container in your game folder that loses to a copy from the hub, so a test build that never loads is easy to spot."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.0"
+    },
+    {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.12.0",
+      "tag": "cli-v0.12.0",
+      "title": "A map's walkable ground",
+      "date": "2026-11-10",
+      "summary": "mjolnir level navmesh writes a map's walkable ground for bots and tests, live objects shows ammunition, and game types carry spawn set labels.",
+      "body": "### Added\n\n- **`mjolnir level navmesh`.** Writes a map's walkable ground as JSON from\n  the AI pathfinding a level bake builds: the areas, the doorways between\n  them, the walls, and every collision surface, scenery included. It is what\n  `tools/bot` walks and sees with.\n- **Ammunition and the weapon in hand in `mjolnir live objects`.** A weapon's\n  row ends with its loaded and reserve rounds (`ammo 12/120`), and a\n  player's or AI's row with the weapon it holds (`weapon 0x…`).\n- **Spawn sets in `mjolnir megalo write`.** A game type's string table gets\n  the spawn set labels (`spawn_set_0` to `spawn_set_15`), and\n  `<out>.layout.json` lists them, so MJOLNIRLevelLoader can give each game\n  type its own spawn points when a match starts.\n\n### Changed\n\n- **Halo 2 player starts name more.** `mjolnir cache stage` names Halo 2's\n  own game types on a start (Headhunter, Juggernaut, Territories) and gives\n  each start's spawn types: both, initial only or respawn only.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir level navmesh. Writes a map's walkable ground as JSON from the AI pathfinding a level bake builds: the areas, the doorways between them, the walls, and every collision surface, scenery included. It is what tools/bot walks and sees with.",
+            "Ammunition and the weapon in hand in mjolnir live objects. A weapon's row ends with its loaded and reserve rounds (ammo 12/120), and a player's or AI's row with the weapon it holds (weapon 0x…).",
+            "Spawn sets in mjolnir megalo write. A game type's string table gets the spawn set labels (spawnset0 to spawnset15), and <out>.layout.json lists them, so MJOLNIRLevelLoader can give each game type its own spawn points when a match starts."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Halo 2 player starts name more. mjolnir cache stage names Halo 2's own game types on a start (Headhunter, Juggernaut, Territories) and gives each start's spawn types: both, initial only or respawn only."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.12.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.12.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.12.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.51.0",
+      "tag": "mods-v0.51.0",
+      "title": "Every medal",
+      "date": "2026-11-10",
+      "summary": "Multiplayer now shows every medal the game awards (headshots, revenge, hijacks, weapon sprees and more), and the medal case counts them without doubles.",
+      "body": "### Added\n\nIn MJOLNIRHud 0.21.0 and MJOLNIRLobby 0.27.0.\n\n- **All 100 medals.** The game already awarded Reach's whole set of\n  medals; the HUD showed only first blood, multi-kills and killing sprees.\n  Now it shows them all: headshots and sniper headshots, Pummel, Beat Down\n  and Assassination, Revenge, Killjoy, Opportunist, Close Call, From the\n  Grave, Avenger, Lifesaver, Hijack and Skyjack, Splatter and Stuck, the\n  weapon sprees (Sniper Spree, Shotgun Spree, Splatter Spree and their\n  bigger brothers), the objective medals, and multi-kills and sprees past\n  the old cap.\n- **Big moments in the feed, the rest on your screen.** Multi-kills, sprees,\n  weapon sprees, objective medals and First Blood get a feed line for\n  everyone. Medals about how a kill was made (a headshot, a melee, a\n  revenge) come up only in the middle of the earner's own screen, so the\n  feed does not grow a second line for every kill. One kill's medals come\n  up best first, the top three of a burst.\n- **No doubles.** The game sends a plain headshot along with every sniper\n  headshot. Only the sniper headshot is shown now, and a wheelman spree no\n  longer also shows the assist spree it stands for.\n- **Fireteam players see them too.** The host sends each medal, already\n  sorted out, after the kill lines it belongs to, and a busy moment is\n  split over several messages instead of losing its last lines.\n\n- **A new post-game screen.** The left side now has three pages. Overview\n  puts the top three on a podium with their medals, shows every medal you\n  earned by name, and names the match's bests. Scoreboard is every player,\n  as before. Timeline draws the top players' scores over the match and the\n  kills of every minute. The medals have icons of their own. The new pages\n  need the CE runtime pack that carries the new screen; until then the\n  screen lists your medals as text.\n- **Medals on the hub.** A match's page has a Medals column on its\n  scoreboard and each player's medals by kind underneath.\n\n### Changed\n\n- **Medal case on the hub.** Hijacks are counted (ten were recorded and\n  never counted), a headshot that came with a sniper headshot counts once,\n  and the case has new medals: Pummel, Opportunist, Speed Kill, Avenger,\n  Lifesaver, Supercombine, Killtacular, Rampage, Sharpshooter, Open Season,\n  Splatter Spree, Flag Carrier Kill, Extermination and Perfection. Match\n  timelines name the rarer medals too.\n\n### Under the hood\n\n- Which incidents are medals, what each is called, which one hides another\n  and their order are decided in C in MJOLNIRLobby's DLL\n  (`native/lobby/medals_core.h`, tested by `test_medals.c` in CI). The HUD's\n  Lua keeps only its incident hook, the drawing and the relay message, and\n  its own medal table is gone. With an older MJOLNIRLobby there are no\n  medals, and the HUD log says why.\n- The research behind it, with every medal and what raises it:\n  `docs/re/medals.md`.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "All 100 medals. The game already awarded Reach's whole set of medals; the HUD showed only first blood, multi-kills and killing sprees. Now it shows them all: headshots and sniper headshots, Pummel, Beat Down and Assassination, Revenge, Killjoy, Opportunist, Close Call, From the Grave, Avenger, Lifesaver, Hijack and Skyjack, Splatter and Stuck, the weapon sprees (Sniper Spree, Shotgun Spree, Splatter Spree and their bigger brothers), the objective medals, and multi-kills and sprees past the old cap.",
+            "Big moments in the feed, the rest on your screen. Multi-kills, sprees, weapon sprees, objective medals and First Blood get a feed line for everyone. Medals about how a kill was made (a headshot, a melee, a revenge) come up only in the middle of the earner's own screen, so the feed does not grow a second line for every kill. One kill's medals come up best first, the top three of a burst.",
+            "No doubles. The game sends a plain headshot along with every sniper headshot. Only the sniper headshot is shown now, and a wheelman spree no longer also shows the assist spree it stands for.",
+            "Fireteam players see them too. The host sends each medal, already sorted out, after the kill lines it belongs to, and a busy moment is split over several messages instead of losing its last lines.",
+            "A new post-game screen. The left side now has three pages. Overview puts the top three on a podium with their medals, shows every medal you earned by name, and names the match's bests. Scoreboard is every player, as before. Timeline draws the top players' scores over the match and the kills of every minute. The medals have icons of their own. The new pages need the CE runtime pack that carries the new screen; until then the screen lists your medals as text.",
+            "Medals on the hub. A match's page has a Medals column on its scoreboard and each player's medals by kind underneath."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Medal case on the hub. Hijacks are counted (ten were recorded and never counted), a headshot that came with a sniper headshot counts once, and the case has new medals: Pummel, Opportunist, Speed Kill, Avenger, Lifesaver, Supercombine, Killtacular, Rampage, Sharpshooter, Open Season, Splatter Spree, Flag Carrier Kill, Extermination and Perfection. Match timelines name the rarer medals too."
+          ]
+        },
+        {
+          "heading": "Under the hood",
+          "items": [
+            "Which incidents are medals, what each is called, which one hides another and their order are decided in C in MJOLNIRLobby's DLL (native/lobby/medalscore.h, tested by testmedals.c in CI). The HUD's Lua keeps only its incident hook, the drawing and the relay message, and its own medal table is gone. With an older MJOLNIRLobby there are no medals, and the HUD log says why.",
+            "The research behind it, with every medal and what raises it: docs/re/medals.md."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.51.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.51.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.51.0"
     },
     {
       "product": "mods",
