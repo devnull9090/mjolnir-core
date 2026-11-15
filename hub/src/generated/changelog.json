@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.52.1",
+      "tag": "mods-v0.52.1",
+      "title": "Crash breadcrumbs",
+      "date": "2026-11-15",
+      "summary": "The Level Loader now writes down each step of a map load as it happens, so when the game crashes we can see exactly what it was loading.",
+      "body": "### Added\n\nIn MJOLNIRLevelLoader 0.13.16.\n\n- **Crash breadcrumbs.** Every map load writes a short file,\n  `ue4ss/Mods/MJOLNIRLevelLoader/breadcrumbs.txt`, with one line before each\n  load step and each asset it loads. The game's own log is switched off in\n  release builds, so after a crash this file is the only record of what the\n  load was doing. If you report a crash, attach it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Crash breadcrumbs. Every map load writes a short file, ue4ss/Mods/MJOLNIRLevelLoader/breadcrumbs.txt, with one line before each load step and each asset it loads. The game's own log is switched off in release builds, so after a crash this file is the only record of what the load was doing. If you report a crash, attach it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.52.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.52.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.52.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.52.0",
       "tag": "mods-v0.52.0",
       "title": "Lit interiors and a flying camera",
