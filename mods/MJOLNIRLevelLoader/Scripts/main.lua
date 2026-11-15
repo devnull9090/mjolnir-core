@@ -76,6 +76,17 @@ local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
 local Teams = dofile(MOD_DIR .. "\\Scripts\\teams.lua")
 -- A load's steps spread over frames (spawnDecor).
 local Dress = dofile(MOD_DIR .. "\\Scripts\\dress.lua")
+-- What the last map load was doing, line by line on disk, for a crash
+-- (breadcrumbs.lua, tools/crash/analyze.py).
+local Crumbs = dofile(MOD_DIR .. "\\Scripts\\breadcrumbs.lua")
+Crumbs.init(MOD_DIR)
+local LOADER_VERSION = (function()
+    local f = io.open(MOD_DIR .. "\\mod.json", "rb")
+    if not f then return "?" end
+    local text = f:read("*a")
+    f:close()
+    return text:match('"version"%s*:%s*"([^"]+)"') or "?"
+end)()
 
 --- Installed maps live beside the mods, not in this mod's own folder (the
 --- launcher digests that to spot tampering): <ue4ss>\MJOLNIRMaps\<CODE>\,
@@ -323,9 +334,11 @@ end
 function Current.lapStart()
     local now = os.clock()
     Current.laps = { at = now, started = now }
+    Crumbs.begin("world load", LOADER_VERSION)
 end
 
 function Current.lap(name)
+    Crumbs.done(name)
     local laps = Current.laps
     if not laps then return end
     local now = os.clock()
@@ -577,6 +590,7 @@ local function resolveMesh(path)
         Resolved[path] = nil
     end
     if Unresolved[path] then return nil end
+    Crumbs.asset(path)
     -- A soft-path blocking load first: it hands back an object already in
     -- memory in ~0.03 ms and loads one in ~1 ms, where StaticFindObject
     -- took ~21 ms a path, loaded or not. Death Island's terrain resolves 124
@@ -5699,6 +5713,7 @@ local function spawnDecor(world)
     -- starts, not from the frame before.
     local function step(name, fn, alone)
         steps[#steps + 1] = { name = name, alone = alone, fn = function(deadline)
+            Crumbs.step(name)
             if Current.laps then Current.laps.at = os.clock() end
             local more = fn(deadline)
             Current.lap(name)
@@ -5916,6 +5931,7 @@ local function spawnDecor(world)
             end
         end,
         onDone = function(stats)
+            Crumbs.finish("dressed")
             Current.dressing = false
             Current.furnished = true
             Current.meshScan = nil
@@ -5960,6 +5976,7 @@ local function tick()
         if string.upper(worldName):find("SEAMLESSTRAVEL", 1, true) then return end
         Current.lapStart()
         Current.scenario = scenarioOf(world)
+        Crumbs.note("world " .. tostring(worldName) .. ", scenario " .. tostring(Current.scenario))
         if not Current.scenario then return end
         -- The menu has no level. The match is over, so the file that tells
         -- other mods a match runs goes: only the next switch removed it, so
