@@ -657,6 +657,22 @@ published).
     runs it at assemble; `light_gain` 50 brings Halo 2's intensity (0.9)
     to the bases' look. The red base is warm and shaded, the blue base
     cooler; the valley matches its before shot.
+- **Coagulation's pines floated** (2026-11-14). A swapped Halo 2 instance
+  tree (instance_scenery.py) was planted at the instance's origin, which on
+  Coagulation's cedars sits 4.4 m up the trunk. scenery_swap.py now puts
+  the stand-in's lowest point (its recipe parts' bounds) 20 cm under the
+  instance's lowest point: all three pines came down 98 cm and stand in
+  the grass. Halo CE trees are unchanged: a CE tree's origin is its ground
+  point and its roots run up to 5 m below it into the terrain, so planting
+  those at their lowest point would bury them.
+- **The bases' light strips, redrawn** (2026-11-14). levels/b30/bitmaps/
+  lights_small_strips (and its mcc_ copy and Blood Gulch's red variant), the
+  additive light panels in the bases, redrawn at 4096x1024 with
+  redraw_texture.py. The model lit the black background, so its panels were
+  cut out where the original's are and the original's glow kept outside
+  them; the red one is the blue redraw recoloured by a local fit from the
+  original blue to the original red. In `<work>/redrawn/` of BCK, BGL, DTI,
+  INF, RAT and SDW (`redrawn: true`); they ship with those maps' next build.
 - **Zanzibar's glass drew nothing** (2026-11-14): the breakable windows
   blocked a player and shattered when shot, but could not be seen. This
   game's renderer decides a mesh's passes by its first slot, and
