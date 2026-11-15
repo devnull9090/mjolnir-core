@@ -383,6 +383,65 @@ then shown again.
   and footprints runs minutes into a TMB match (item 11); and a joiner's
   load.
 
+## The HUD's match start (measured and fixed)
+
+**Seen in the two-PC playtest, 2026-11-10** (mods 0.50.0, Blood Gulch). Every
+match logged one long MJOLNIRHud tick: King 162 ms on the host and 243 ms on
+the joiner as the match began, and Juggernaut 81 ms and 114 ms 34 s in, on
+both PCs at once. Two copies on PC 1 in Slayer logged 285 ms. Steady HUD cost
+was 1.9–3.6 ms/s.
+
+**What it was.** The tick now times its own steps, and a tick over 50 ms
+logs them with its "slow:" line. On two copies (Blood Gulch King, the
+session's first match), the match's first poll did all of its one-time
+setup at once:
+
+| Step | Host | Joiner | How often |
+|---|---|---|---|
+| The kill feed widget | 30 ms | 43 ms | each match; its class is loaded and pinned (`class_lifetime.lua`) on the session's first |
+| The incident hook (`RegisterHook` by path) | 20 ms | 42 ms | once a session |
+| The scoreboard widget | 30 ms | 28 ms | each match, as the feed |
+| The chat box's widget | 33 ms | 28 ms | each match, as the feed |
+| Name tags: arming the watch, one `FindAllOf` | 23 ms | 23 ms | once a session |
+| The hill (level file, panels) | 34 ms | 16 ms | each King match |
+| The hitch log's new world | 10 ms | 21 ms | each world |
+| **The whole tick** | **189 ms** | **211 ms** | |
+
+**The fix, MJOLNIRHud 0.20.1:**
+- **One piece of setup a poll** (`Setup` in `main.lua`). The world change,
+  the incident hook, the feed, the scoreboard, the marker, the chat box and
+  the name tags each take a poll of their own, in that order, so all of it is
+  up about 0.8 s into a match. The hook comes second, long before any
+  incident: the earliest seen came 2 s in.
+- **No marker incident is lost.** An incident for a marker that comes before
+  the marker's poll (`hill_moved`, `new_juggernaut`) builds the marker first.
+- **A piece that fails waits a second** (the hook, a marker that throws, as
+  the widgets already did), so it cannot take every poll from the rest.
+- **The kill feed keeps lines from before it was made.** It is made a poll or
+  two into the match. Only a feed made again mid-match starts bare.
+- **The widget classes are loaded in the menus,** one a poll. The pin's
+  `FindFirstOf("GameEngine")` walks a much smaller object array there than in
+  a map.
+- **Each match logs its worst tick of the first 10 s, with its steps,** so a
+  setup piece that grows shows below the "slow:" line's 50 ms. The "slow:"
+  line can now come every 10 s rather than every 30.
+
+| Worst HUD tick in a match's first 10 s | Host | Joiner |
+|---|---|---|
+| Before (the session's first match) | 189 ms | 211 ms |
+| One piece a poll | 62 ms (the feed: 47 ms, of it the class load) | under 50 ms |
+| And the classes loaded in the menus | 36 ms (name tags) | 29 ms (name tags) |
+| The session's second match (Juggernaut, host only) | 29 ms (the relay's controller search, 3 s in, as before) | |
+| The final build, again from a fresh start | 35 ms (the hill) | 32 ms (the hitch log's new world) |
+
+**Still open:**
+- **The name tags' one search, 29–36 ms once a session.** Arming the watch
+  earlier, in the menus, could leave it watching a class that is unloaded
+  and loaded again before the match.
+- **The Juggernaut stall 34 s into the two-PC match** (81 ms and 114 ms) did
+  not come back with two copies. If it comes back, its "slow:" line names the
+  step.
+
 ## Where native (or GPU) code pays
 
 Ranked by expected gain.

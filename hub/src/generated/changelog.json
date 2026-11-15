@@ -41,6 +41,29 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.50.1",
+      "tag": "mods-v0.50.1",
+      "title": "A smoother start to each match",
+      "date": "2026-11-10",
+      "summary": "The HUD no longer freezes the game for a fifth of a second as a match begins: its setup is spread over the first second.",
+      "body": "### Fixed\n\nIn MJOLNIRHud 0.20.1.\n\n- **No freeze as a match starts.** In the first moment of a match the HUD\n  made its kill feed, scoreboard, chat box and markers, and hooked the\n  game's events, all in one go. That held the game for 162–285 ms. Now each\n  piece gets its own tenth of a second, and everything is up by 0.8 s into\n  the match. On two copies of the game, the longest the HUD held the game in\n  a match's first 10 seconds went from 189 ms to 36 ms on the host, and from\n  211 ms to 29 ms for the player who joined.\n- **The HUD's widgets are loaded in the menus,** so the first match of a\n  session no longer loads them as it starts.\n- **Every match's start is measured.** The log says what the HUD's slowest\n  moment in a match's first 10 seconds was and what it spent it on. Any\n  moment that holds the game over 50 ms is logged with the same breakdown.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "No freeze as a match starts. In the first moment of a match the HUD made its kill feed, scoreboard, chat box and markers, and hooked the game's events, all in one go. That held the game for 162–285 ms. Now each piece gets its own tenth of a second, and everything is up by 0.8 s into the match. On two copies of the game, the longest the HUD held the game in a match's first 10 seconds went from 189 ms to 36 ms on the host, and from 211 ms to 29 ms for the player who joined.",
+            "The HUD's widgets are loaded in the menus, so the first match of a session no longer loads them as it starts.",
+            "Every match's start is measured. The log says what the HUD's slowest moment in a match's first 10 seconds was and what it spent it on. Any moment that holds the game over 50 ms is logged with the same breakdown."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.50.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.50.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.50.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.50.0",
       "tag": "mods-v0.50.0",
       "title": "Markers that read the game itself",

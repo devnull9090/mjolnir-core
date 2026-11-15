@@ -34,12 +34,15 @@ eq(#model.rows(full, model.modes.slayer), 15)
 
 -- Drive the real HUD through its scheduled poll and incident hook using a
 -- minimal reflected game. These tests assert visible results, not local helpers.
-local function runHUD(variant, client, variantFile, listing, identities, legacy)
+--- `bare`: no setup polls; the test polls (`poll`, or `step` without time passing).
+local function runHUD(variant, client, variantFile, listing, identities, legacy, bare)
     local time, scheduled, held = 5, nil, true
     local written, commands = {}, {}
     -- Hooks by function path; the match log's files in memory, by path; what
     -- this machine asked its host over ServerExecRPC.
     local hooks, files, asked = {}, {}, {}
+    -- Paths whose RegisterHook fails (a test sets them before the first poll).
+    local failing = {}
     local function memfile(path, mode)
         if mode:match("^r") then
             local data = files[path]
@@ -179,7 +182,10 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
                 GetOuter = function() return transient end,
                 GameViewport = { GameInstance = { LocalPlayers = { { PlayerController = pc } } } } }
         end,
-        RegisterHook = function(path, fn) hooks[path] = fn end,
+        RegisterHook = function(path, fn)
+            if failing[path] then error("no function " .. path) end
+            hooks[path] = fn
+        end,
         NotifyOnNewObject = function() end,
         ExecuteInGameThread = function(fn) fn() end,
         ExecuteInGameThreadWithDelay = function(_, fn) scheduled = fn end,
@@ -241,8 +247,16 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         for _, i in ipairs(list) do raise(i[1], i[2], i[3], i[4], i[5]) end
         poll()
     end
-    poll()
+    -- A match's setup is one piece a poll (main.lua's Setup): the incident
+    -- hook, the feed, the board, the hill, the chat box. The first poll as
+    -- before, then the rest at the same moment, so every time the tests
+    -- check is what it was.
+    if not bare then
+        poll()
+        for _ = 1, 9 do scheduled() end
+    end
     return { board = widgets[2], feed = widgets[1], teams = teams, incident = incident, poll = poll, burst = burst,
+        step = function() scheduled() end, failing = failing,
         -- Time passes without a poll (the per-frame animation's view).
         wait = function(seconds) time = time + seconds end,
         hold = function(v) held = v; poll() end,
@@ -270,6 +284,46 @@ for mode, event in pairs({ oddball = "ball_taken", koth = "hill_controlled", cra
     eq(timed.feed.ScoreLeftValue.text, "7", mode .. " duplicate/old snapshot")
     timed.incident(event, 1, -1, 8)
     eq(timed.feed.ScoreLeftValue.text, "8", mode .. " next second")
+end
+
+-- A match's setup is one piece a poll (main.lua's Setup): all of it in the
+-- match's first poll held the game thread 189-211 ms on two copies
+-- (2026-11-10). The incident hook comes first, long before any incident.
+do
+    local INCIDENT = "/Game/Blueprints/BPC_MeteoriteIncidentHandlerComponent.BPC_MeteoriteIncidentHandlerComponent_C:OnIncident_Event"
+    local s = runHUD("koth", nil, nil, nil, nil, nil, true)
+    s.poll()
+    eq(s.hooks[INCIDENT], nil, "nothing more on the poll the match starts")
+    eq(#s.widgets, 0, "no widget on it either")
+    s.step()
+    assert(s.hooks[INCIDENT], "the incident hook on the next poll")
+    eq(#s.widgets, 0, "and nothing else")
+    s.step()
+    eq(#s.widgets, 1, "the kill feed on the next")
+    s.step()
+    eq(#s.widgets, 2, "the scoreboard on the next")
+    s.step()
+    eq(#s.widgets, 2, "the hill has a poll of its own")
+    s.step()
+    eq(#s.widgets, 3, "the chat box on the next")
+    s.step()
+    eq(#s.widgets, 3, "and then nothing more to make")
+end
+
+-- An incident hook that cannot be armed waits a second between tries: it
+-- must not take every poll and keep the feed, the board and the chat box
+-- from being made.
+do
+    local INCIDENT = "/Game/Blueprints/BPC_MeteoriteIncidentHandlerComponent.BPC_MeteoriteIncidentHandlerComponent_C:OnIncident_Event"
+    local s = runHUD("slayer", nil, nil, nil, nil, nil, true)
+    s.failing[INCIDENT] = true
+    s.poll()
+    for _ = 1, 6 do s.step() end
+    eq(s.hooks[INCIDENT], nil, "the hook failed")
+    eq(#s.widgets, 3, "the feed, the board and the chat box were made anyway")
+    s.failing[INCIDENT] = nil
+    s.poll()
+    assert(s.hooks[INCIDENT], "the hook is tried again a second later")
 end
 
 -- A family reads only its own snapshot: a health pack's or a stray incident

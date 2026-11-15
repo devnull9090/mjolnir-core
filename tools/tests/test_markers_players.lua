@@ -106,4 +106,28 @@ eq(list[2].me, true, "local user 0 is")
 local unmarked = { seats = { [3] = { alive = true, at = { X = 0, Y = 0, Z = 0 } } } }
 eq(withRoster.fromRoster(match, unmarked, 3)[1].me, true, "the index when no seat is marked")
 
+-- The marker is built on a poll of its own (main.lua's Setup asks
+-- `pending`), and an incident for it that arrives first builds it then, so
+-- the move or the new Juggernaut is not lost.
+local movedTo, named
+local FakeHill = { new = function()
+    return { start = function() return 3 end, moved = function(v) movedTo = v end }
+end }
+local FakeJuggernaut = { new = function()
+    return { named = function(i) named = i; return true end }
+end }
+local early = dofile("mods/MJOLNIRHud/Scripts/markers.lua").new({
+    Hill = FakeHill, Juggernaut = FakeJuggernaut, log = function() end, readLevel = function() end })
+local king = { code = "BGL", mode = { family = "king" }, players = {} }
+eq(early.pending(king), true, "the hill is still to be built")
+eq(early.pending({ mode = { family = "slayer" }, players = {} }), false, "Slayer has no marker")
+early.incident(king, { name = "hill_moved", value = 2 }, 0)
+eq(early.pending(king), false, "a hill_moved that comes first builds the hill")
+eq(movedTo, 2, "and moves it")
+local jug = { code = "BGL", mode = { family = "juggernaut", holder = {} }, players = {} }
+eq(early.pending(jug), true, "the Juggernaut's marker is still to be made")
+eq(early.incident(jug, { name = "new_juggernaut", cause = 1 }, 0), true, "a new Juggernaut first makes it")
+eq(named, 1, "and names them")
+eq(early.pending(jug), false, "made")
+
 print("ok")
