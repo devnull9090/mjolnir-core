@@ -20,7 +20,9 @@ keeps its outline whatever the model drew outside it.
 
 A bump map is redrawn the same way with `--normal-map` (the model keeps
 the encoding and the way each slope faces) and then finished with
-redraw_bump.py, which makes the picture a normal map again.
+redraw_bump.py, which makes the picture a normal map again. A stencil drawn
+as a 2x multiply (a crate's label) is finished with redraw_palette.py, which
+puts it back on the source's exact grey and paint.
 
 The key is read from OPENAI_API_KEY, or from `.env.local` / `.env` at the
 repository root (both ignored by git). It is never written anywhere.
