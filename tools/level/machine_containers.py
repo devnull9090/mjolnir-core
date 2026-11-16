@@ -17,13 +17,16 @@ import os
 
 
 def gear_containers(conv):
-    """Halo 2's turning parts' machines (h2_machines.py, in the conversion's
-    `machines` folder): their tags' containers and their actors'
-    (pakchunk987-MJOLNIRGEAR)."""
+    """The machines a conversion placed (its `machines` folder): turning
+    parts' (h2_machines.py) and doors' (h2_door_machines.py), their tags'
+    containers and their actors' (pakchunk987-MJOLNIRGEAR, -MJOLNIRACT). A
+    fresh conversion's door actors are here and nowhere else: Containment's
+    remaster installed its gate tags without the actors that draw them
+    (2026-11-16)."""
     out = []
     for utoc in sorted(glob.glob(os.path.join(conv, "machines", "pakchunk98[67]-MJOLNIR*_P.utoc"))):
         stem = os.path.basename(utoc)[:-len("_P.utoc")]
-        if "-MJOLNIRMACH-" in stem or "-MJOLNIRGEAR-" in stem:
+        if any(k in stem for k in ("-MJOLNIRMACH-", "-MJOLNIRGEAR-", "-MJOLNIRACT-")):
             out.append((utoc[:-len(".utoc")], stem.split("-", 1)[1]))
     return out
 
@@ -63,8 +66,15 @@ def prop_containers(m, code):
 
 
 def map_tag_containers(code, m, conv):
-    """Every one of them, for a map (its upgrade config `m`)."""
-    return door_containers(m) + gear_containers(conv) + prop_containers(m, code)
+    """Every one of them, for a map (its upgrade config `m`), one per build
+    name: an upgrade's own doors (`doors`, Zanzibar's) win over the
+    conversion's containers of the same name."""
+    out, names = [], set()
+    for path, name in door_containers(m) + gear_containers(conv) + prop_containers(m, code):
+        if name not in names:
+            names.add(name)
+            out.append((path, name))
+    return out
 
 
 def pack_path(name):

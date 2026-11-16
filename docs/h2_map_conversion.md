@@ -964,6 +964,23 @@ and the level takes the map's name.
   the beach bushes as young palms. Its ground shaders list grass before
   sand, the reverse of CE: the bake and the mesh ground slots turn that
   over (docs/remaster_asset_inventory.md).
+- **Containment** (`CNT`, chunk 1003, landscape `LCN`, `"biome": "snow"`,
+  2026-11-16). Ice Fields' and Sidewinder's snow: B40's glacial rock on
+  the cliffs (`containment_cliff_a` and the boulders' `containment_rock_medium`),
+  Sidewinder's ground look, snowy stones and rubble scattered, the game's
+  falling snow kept out of the bases (11,755 roof cells). Its terrain
+  shader is not a blend, so it would have baked as one flat snow; with
+  `real_base` the ground keeps its base map's own colour, which paints the
+  tyre tracks and the dirt by the bases. Its bases are Forerunner, so the
+  Forerunner plate stays on their metal (no `structure_metal: false`).
+  Swap and collision are skipped: its scenery is 8 brambles and twig
+  decals (the twigs are `M_H2_Billboard`, hidden). Its gates and switches
+  come from the conversion's own machines, as a fresh conversion places
+  them; the install takes their actors (`pakchunk987-MJOLNIRACT`) from the
+  conversion's `machines` folder (tools/level/machine_containers.py). In
+  game, solo and in two networked copies: all 8 machines start shut, a
+  switch group opens its own gate in both simulations, and the 8 part
+  slots draw their cooked instances.
 - **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
   steel draw in Poly Haven PBR surfaces through the cliffs' master, each
   wall's Halo 2 base map kept as its colour and its lightmap as shade
