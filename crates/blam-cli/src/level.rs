@@ -280,6 +280,11 @@ pub struct LevelFile {
     /// machines themselves are `blam.objects`).
     #[serde(default)]
     pub doors: Option<serde_json::Value>,
+    /// Halo 2's turning parts worn by their machines' actors
+    /// (tools/level/gen_ce_level.py `add_gears`), which the loader's
+    /// gears.lua dresses and plays the sounds of; opaque to the bake.
+    #[serde(default)]
+    pub gears: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]

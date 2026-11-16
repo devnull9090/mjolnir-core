@@ -1316,6 +1316,30 @@ def ambient_sounds(sounds_dir, root, to_ue):
     return {"background": background, "emitters": emitters, **({"zones": zones} if zones else {})}
 
 
+def add_gears(level, decor, gear_actors):
+    """Halo 2's turning parts whose machines wear them (h2_machines.py
+    actors: each placement's actor draws its part on its moving bone): the
+    part meshes leave the decor for the level's `gears`, one a mesh, each
+    with its actor's class, its materials (lit by Unreal, as a moving part
+    is: prop_lit.py) and its turn (`motion`: period, keys, axis, its sounds'
+    events), for the loader to dress the actor once and play the sounds."""
+    from prop_lit import prop_lit
+    gears = []
+    for item in decor:
+        motion = item.get("motion") or {}
+        own = gear_actors.get(motion.get("entry"))
+        if not own:
+            continue
+        mats = [prop_lit(m, {}) if isinstance(m, dict) else m for m in item.get("materials") or []]
+        gears.append({"id": item.get("id"), "class": own["class"], "mesh": item.get("mesh"), "materials": mats,
+                      "motion": {k: v for k, v in motion.items() if k != "follow"}})
+    if gears:
+        worn = {g["id"] for g in gears}
+        decor[:] = [item for item in decor if item.get("id") not in worn]
+        level["gears"] = gears
+        print(f"  {len(gears)} turning part mesh(es) worn by {len(gear_actors)} machine actor(s)")
+
+
 def add_doors(level, decor, doors_json, sounds_dir, sound_root):
     """Halo 2's machines that move in parts (h2_door_machines.py doors.json):
     their machines and controls into the scenario's objects, their device
@@ -1746,16 +1770,22 @@ def main():
     # tilted). The mesh merge_ce_scene.py wrote for each part names its
     # staging entry; it rides that machine's Unreal actor.
     machines = json.load(open(a.machines, encoding="utf-8")) if a.machines else {}
-    sim_machines, follow = [], {}
+    sim_machines, follow, gear_actors = [], {}, {}
     for n, e in enumerate(placement["entries"]):
         m = machines.get(e.get("asset")) if e.get("h2_motion") else None
         if not m:
             continue
         rot = e.get("rot") or [0.0, 0.0, 0.0]
-        sim_machines.append({"tag": m["tag"], "group": "machines", "pos": to_ue(e["pos"]),
+        # A placement's own machine tag names its own actor, which wears the
+        # part (h2_machines.py actors); an older machines.json has one tag
+        # for every placement and the loader rides the mesh on its actor.
+        own = (m.get("placements") or {}).get(str(n))
+        sim_machines.append({"tag": own["tag"] if own else m["tag"], "group": "machines", "pos": to_ue(e["pos"]),
                              "rot": [0, yaw_ue(rot), 0],
                              "set": {"object data.rotation": "({}, {}, {})".format(*rot)}})
-        follow[n] = {"class": m["class"], "pos": to_ue(e["pos"])}
+        follow[n] = {"class": own["class"] if own else m["class"], "pos": to_ue(e["pos"])}
+        if own:
+            gear_actors[n] = own
 
     decor = []
     if a.terrain:
@@ -1875,6 +1905,8 @@ def main():
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)
         machine_sounds(decor, a.sounds, sound_root)
+    if gear_actors:
+        add_gears(level, decor, gear_actors)
     if a.doors:
         add_doors(level, decor, a.doors, a.sounds, sound_root if a.sounds else None)
     with open(a.out, "w") as f:

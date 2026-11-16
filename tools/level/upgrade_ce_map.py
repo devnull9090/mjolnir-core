@@ -1922,7 +1922,8 @@ def stage_assemble(code, m, p):
         names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
         root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
         swapped = 0
-        for item in level.get("decor") or []:
+        # The decor, and the turning parts their machines' actors wear.
+        for item in (level.get("decor") or []) + (level.get("gears") or []):
             for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
                 tex = entry.get("textures") if isinstance(entry, dict) else None
                 for key in ("Base", "Map0", "Bump"):
@@ -1947,7 +1948,9 @@ def stage_assemble(code, m, p):
             if rule["detail"] not in spec_tex or not any_path:
                 sys.exit(f"{code}: detail_fill names a texture the conversion does not carry: {rule['detail']}")
             path = any_path.rsplit("/", 1)[0] + f"/{rule['detail']}.{rule['detail']}"
-            for item in level.get("decor") or []:
+            # The decor and the turning parts (Zanzibar's wheel, its blades and
+            # flywheels, which the rule was written for).
+            for item in (level.get("decor") or []) + (level.get("gears") or []):
                 for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
                     tex = entry.get("textures") if isinstance(entry, dict) else None
                     sc = entry.get("scalars") if isinstance(entry, dict) else None
@@ -2692,6 +2695,7 @@ def local_install_plan(code, m, p, *, shared=True):
     if m.get("native_rock_materials"):
         containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
     containers += door_containers(m)
+    containers += gear_containers(p)
     required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
@@ -2713,6 +2717,19 @@ def local_install_plan(code, m, p, *, shared=True):
     if missing:
         sys.exit(f"{code}: local install is incomplete:\n  " + "\n  ".join(missing))
     return files, cli, containers
+
+
+def gear_containers(p):
+    """Halo 2's turning parts' machines (h2_machines.py, in the conversion's
+    `machines` folder): their tags' containers and their actors'
+    (pakchunk987-MJOLNIRGEAR); (base, build name)."""
+    folder = os.path.join(p["conv"], "machines")
+    out = []
+    for utoc in sorted(glob.glob(os.path.join(folder, "pakchunk98[67]-MJOLNIR*_P.utoc"))):
+        stem = os.path.basename(utoc)[:-len("_P.utoc")]
+        if "-MJOLNIRMACH-" in stem or "-MJOLNIRGEAR-" in stem:
+            out.append((utoc[:-len(".utoc")], stem.split("-", 1)[1]))
+    return out
 
 
 def door_containers(m):
@@ -2776,6 +2793,7 @@ def stage_install(code, m, p):
             builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
         builds.append((str(cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}"))
     builds += door_containers(m)
+    builds += gear_containers(p)
     missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
     if missing:
         sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))

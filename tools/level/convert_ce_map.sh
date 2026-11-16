@@ -306,6 +306,12 @@ if [ "$cook" = "1" ]; then
   # Each moving Halo 2 machine's actor wears its part meshes, now they are
   # placed (h2_door_machines.py actors: B40's elevator Blueprint cloned per
   # machine, pakchunk987-MJOLNIRACT-<CODE>_P beside the machine tags).
+  # Each turning part's machine actor wears its mesh the same way
+  # (h2_machines.py actors: pakchunk987-MJOLNIRGEAR-<CODE>_P).
+  if [ -f "$out/machines/machines.json" ]; then
+    python "$here/h2_machines.py" actors "$staging" "$out/machines/machines.json" "$out/terrain.json" "$code" \
+      "$out/machines" --transform "$out/$name.sbsp.transform.json" --paks "$HCE_PAKS" --examples "$examples"
+  fi
   if [ -f "$out/machines/doors.json" ]; then
     python "$here/h2_door_machines.py" actors "$out/machines/doors.json" "$out/terrain.json" "$code" "$out/machines" \
       --paks "$HCE_PAKS" --examples "$examples"
@@ -472,7 +478,7 @@ if [ "$install" = "--install" ]; then
     cp -f "$stub" "$HCE_PAKS/$c.pak"
   done
   # Halo 2's machines (h2_machines.py), each tag a container of its own.
-  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc "$out"/machines/pakchunk987-MJOLNIRACT-"${code}"_P.utoc; do
+  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc "$out"/machines/pakchunk987-MJOLNIRACT-"${code}"_P.utoc "$out"/machines/pakchunk987-MJOLNIRGEAR-"${code}"_P.utoc; do
     [ -e "$f" ] || continue
     c="$(basename "$f" .utoc)"
     cp -f "$out/machines/$c.utoc" "$out/machines/$c.ucas" "$HCE_PAKS"/

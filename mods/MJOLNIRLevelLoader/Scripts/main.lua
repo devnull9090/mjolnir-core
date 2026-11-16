@@ -6429,6 +6429,25 @@ local function watch()
         if dd then return dd.tick(os.clock()) end
         return 1500
     end, true)
+    -- Halo 2's turning parts worn by their machines' actors (gears.lua):
+    -- dressed once; the loop then wakes only for the sounds they make. A
+    -- level without `gears` (built before them) keeps the turning loop above.
+    local function gears()
+        local level = Current.furnished and Current.level
+        if not (level and type(level.gears) == "table" and #level.gears > 0) then return nil end
+        if not Current.gears then
+            Current.gears = dofile(MOD_DIR .. "\\Scripts\\gears.lua").new({
+                Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh,
+                getWorld = getWorld, gameVolume = gameVolume, applyMaterials = applyMaterials,
+            })
+        end
+        return Current.gears
+    end
+    every(250, "gears", function()
+        local gg = gears()
+        if gg then return gg.tick(os.clock()) end
+        return 1500
+    end, true)
 end
 
 --------------------------------------------------------------------------------

@@ -47,11 +47,9 @@ from ce_machines import CONTROL_DONOR
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ce_scripts"))
 import ce_scenario  # noqa: E402
-from h2_machines import DONOR, DONOR_CLASS, boxes, matrix_quat, physics_args, pose_resource  # noqa: E402
+from h2_machines import (DONOR, DONOR_CLASS, boxes, matrix_quat, mesh_list_edits, physics_args,  # noqa: E402
+                         pose_resource, write_actor_container)
 
-# The shipped Blueprint each machine's actor is cloned from (its mesh list,
-# RuntimeRegions, then names the part's meshes).
-DONOR_ACTOR = "BP_ElevatorAB40"
 # wu between a placement's machines (15 cm), on a grid about its origin.
 SPACING = 0.05
 WU_CM = 304.8
@@ -311,62 +309,33 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0
 
 def actor_edits(machine, items):
     """vehicle_actor edits that make the elevator Blueprint wear a placed
-    machine's part meshes (`items`: decor entries with mesh, pos, scale),
-    each on bone `Root` (the simulation's root node, which follows the part
-    exactly) where it stands at rest, relative to the machine's actor. A
-    machine with no mesh (a moving node with none, a second collision piece
-    of a node) wears nothing."""
-    base = "RuntimeRegions{default}.Permutations{default}"
-    edits = [f"0|{base}.StaticMeshes|@len={len(items)}"]
+    machine's part meshes (h2_machines.mesh_list_edits), its actor turned by
+    the placement's yaw."""
     psi = np.radians(machine["yaw_ue"])
-    c, s_ = np.cos(-psi), np.sin(-psi)
-    at = np.array(machine["at_cm"], dtype=float)
-    # The mesh stands world-aligned; the actor is turned by its yaw.
-    q = (0.0, 0.0, float(np.sin(-psi / 2)), float(np.cos(-psi / 2)))
-    for i, item in enumerate(items):
-        d = np.array(item["pos"], dtype=float) - at
-        local = (c * d[0] - s_ * d[1], s_ * d[0] + c * d[1], d[2])
-        sc = item.get("scale") or [1.0, 1.0, 1.0]
-        p = f"{base}.StaticMeshes[{i}]"
-        edits += [f"0|{p}.Asset|{item['mesh']}", f"0|{p}.Class|/Script/Engine.StaticMeshComponent",
-                  f"0|{p}.ParentBoneName|Root", f"0|{p}.MaterialOverrides|@len=0", f"0|{p}.ComponentTags|@len=0",
-                  f"0|{p}.Transform.Translation|{local[0]:.3f},{local[1]:.3f},{local[2]:.3f}",
-                  f"0|{p}.Transform.Rotation|{q[0]:.6f},{q[1]:.6f},{q[2]:.6f},{q[3]:.6f}",
-                  f"0|{p}.Transform.Scale3D|{sc[0]:.5f},{sc[1]:.5f},{sc[2]:.5f}"]
-    return edits
+    rot = [[np.cos(psi), -np.sin(psi), 0.0], [np.sin(psi), np.cos(psi), 0.0], [0.0, 0.0, 1.0]]
+    return mesh_list_edits(items, machine["at_cm"], rot)
 
 
 def write_actors(doors, items, code, out, paks, examples):
     """Every placed machine's actor (`build`'s `actor`): B40's elevator
-    Blueprint cloned (crates/ue-asset/examples/vehicle_actor.rs) to wear the
-    machine's part meshes, into pakchunk987-MJOLNIRACT-<CODE>_P in `out`.
-    `items`: decor entries by id (mesh, pos, scale), whose ids the doors'
-    `parts` name. Each node's meshes go on the first machine of that node."""
-    work = tempfile.mkdtemp(prefix="h2actors_")
-    env = dict(os.environ, MSYS2_ARG_CONV_EXCL="*")
-    packages = []
+    Blueprint cloned to wear the machine's part meshes, into
+    pakchunk987-MJOLNIRACT-<CODE>_P in `out` (h2_machines
+    write_actor_container). `items`: decor entries by id (mesh, pos, scale),
+    whose ids the doors' `parts` name. Each node's meshes go on the first
+    machine of that node."""
+    actors = []
     for door in doors:
         worn = set()
         for m in door["machines"]:
             mine = [] if m["node"] in worn else [items[p["id"]] for p in door.get("parts") or []
                                                 if p["node"] == m["node"] and p["id"] in items]
             worn.add(m["node"])
-            leaf = m["actor"].rsplit("/", 1)[1]
-            edits = os.path.join(work, leaf + ".edits.txt")
-            open(edits, "w", encoding="utf-8").write("\n".join(actor_edits(m, mine)) + "\n")
-            uasset = os.path.join(work, leaf + ".uasset")
-            subprocess.run([os.path.join(examples, "vehicle_actor.exe"), paks, DONOR_ACTOR, m["actor"], uasset,
-                            "@" + edits], check=True, capture_output=True, text=True, env=env)
-            packages += ["--package", f"{m['actor']}={uasset}"]
-    if not packages:
-        return None
+            actors.append((m["actor"], actor_edits(m, mine)))
     name = f"pakchunk987-MJOLNIRACT-{code}_P"
-    subprocess.run([os.path.join(examples, "package_add.exe"), paks, out, "--name", name, *packages],
-                   check=True, capture_output=True, text=True, env=env)
-    # The game mounts a .utoc/.ucas pair only beside a .pak.
-    shutil.copyfile(os.path.join(paks, "pakchunk115-Windows.pak"), os.path.join(out, name + ".pak"))
-    print(f"  {len(packages) // 2} machine actor(s) -> {os.path.join(out, name)}")
-    return name
+    count = write_actor_container(actors, name, out, paks, examples)
+    if count:
+        print(f"  {count} machine actor(s) -> {os.path.join(out, name)}")
+    return name if count else None
 
 
 def main():
