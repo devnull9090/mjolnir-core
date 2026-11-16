@@ -993,6 +993,16 @@ and the level takes the map's name.
   antennas turn in step and draw their cooked instances; a frame takes a
   median 11 ms at 4K. A ground with no grass class had crashed the scatter
   where a cliff's turf met it (scatter_foliage.py).
+- **Cladding only within reach.** Ascension first loaded in 4.2 s solo and
+  7.3 s on a client (the hub copy: 0.7 and 2.3 s). The loader dresses each
+  cladding rock, a mesh actor, with its group's material, and Ascension had
+  120,427 of them: its pillars fall 150 m under the lowest spawn, and their
+  walls took 80,000. The scatter now puts no rock more than 30 m under the
+  map's lowest player spawn (`--clad-floor`, upgrade_ce_map.py's
+  CLAD_BELOW_SPAWNS), which of all the remasters trims only Ascension and
+  Gephyrophobia's chasm (3,905). Ascension: 40,390 rocks, 2.3 s solo, 3.5 s
+  on a client. The loader's log now lists the queued jobs' time by kind
+  (`load timing: queued jobs:`).
 - **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
   steel draw in Poly Haven PBR surfaces through the cliffs' master, each
   wall's Halo 2 base map kept as its colour and its lightmap as shade

@@ -1654,7 +1654,7 @@ local function spawnDecorItem(world, origin, item)
         if actor:IsValid() then job(actor.StaticMeshComponent) end
     end
     if Current.dressQueue then
-        Current.dressQueue.add(jobs, run)
+        Current.dressQueue.add(jobs, run, "decor pieces")
     else
         for _, job in ipairs(jobs) do run(job) end
     end
@@ -4070,7 +4070,7 @@ function Foliage.dressBaked(world, foliage, quality)
         pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
     end
     if Current.dressQueue then
-        Current.dressQueue.add(work, dressMesh)
+        Current.dressQueue.add(work, dressMesh, "foliage meshes")
     else
         for _, w in ipairs(work) do dressMesh(w) end
     end
@@ -4967,7 +4967,7 @@ function Land.cliffs(world, spec)
                 end
             end
             if Current.dressQueue then
-                Current.dressQueue.add(group.actors, dressRock)
+                Current.dressQueue.add(group.actors, dressRock, "cladding rocks")
             else
                 for _, actor in ipairs(group.actors) do dressRock(actor) end
             end
@@ -5146,7 +5146,7 @@ function Land.apply(world)
         }
         local function run(job) if land:IsValid() then job() end end
         if Current.dressQueue then
-            Current.dressQueue.add(jobs, run)
+            Current.dressQueue.add(jobs, run, "landscape")
         else
             for _, job in ipairs(jobs) do run(job) end
         end
@@ -5477,8 +5477,8 @@ function Footprints.deformStart(world)
         Footprints.deformHook()
     end
     if Current.dressQueue then
-        Current.dressQueue.add(actors, register)
-        Current.dressQueue.add({ registered }, function(job) job() end)
+        Current.dressQueue.add(actors, register, "deformation")
+        Current.dressQueue.add({ registered }, function(job) job() end, "deformation")
     else
         for _, actor in ipairs(actors) do pcall(register, actor) end
         registered()
@@ -5940,6 +5940,7 @@ local function spawnDecor(world)
             Current.dressing = false
             Current.furnished = true
             Current.meshScan = nil
+            Log("load timing: queued jobs: " .. Current.dressQueue.report())
             Current.dressQueue = nil
             Current.lapDone(string.format(" over %d frame(s), %.0f ms of it ours, the longest frame's share %.0f ms (%s), "
                 .. "the shortest gap between frames %.1f ms", stats.frames, stats.busy * 1000, stats.longest * 1000,

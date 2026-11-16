@@ -692,6 +692,11 @@ def stage_land(code, m, p):
                              if l.startswith(("heights", "holes", "settled", "bakes", "seabed"))))
 
 
+# cm under a map's lowest player spawn below which its cliffs take no
+# cladding rocks (stage_foliage).
+CLAD_BELOW_SPAWNS = 3000.0
+
+
 def stage_foliage(code, m, p):
     level = json.load(open(p["level"], encoding="utf-8"))
     cmd = [sys.executable, os.path.join(HERE, "scatter_foliage.py"), os.path.join(p["scene"], "scene.gltf"),
@@ -707,6 +712,12 @@ def stage_foliage(code, m, p):
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
     cmd += ["--staging", staging(p)]
+    # Cladding only within reach: no rock more than CLAD_BELOW_SPAWNS under
+    # the map's lowest player spawn (its scenario's). Of the remasters only
+    # Ascension's pillars and Gephyrophobia's chasm reach further down.
+    starts = [s["pos"][2] for s in (level.get("blam") or {}).get("player_starts") or [] if s.get("pos")]
+    if starts:
+        cmd += ["--clad-floor", f"{min(starts) - CLAD_BELOW_SPAWNS:.0f}"]
     for name, cls in (m.get("details") or {}).items():
         cmd += ["--detail", f"{name}={cls}"]
     if m.get("foliage_ceiling") is not None:
