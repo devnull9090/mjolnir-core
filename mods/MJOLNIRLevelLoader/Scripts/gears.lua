@@ -36,8 +36,12 @@ function Gears.new(d)
         local out = {}
         for _, spec in ipairs(list) do
             local m = spec.motion or {}
-            out[#out + 1] = { spec = spec, period = tonumber(m.period) or 0, keys = m.keys or {},
-                events = m.events or {}, axis = m.axis or { 0, 0, 1 }, hist = {}, seek = -100, tries = 0 }
+            -- A gear whose mesh carries cooked materials (no `materials`)
+            -- and makes no sound needs nothing from Lua: not looked for.
+            local quiet = type(m.events) ~= "table" or #m.events == 0
+            local bare = type(spec.materials) ~= "table" or #spec.materials == 0
+            if not (quiet and bare) then out[#out + 1] = { spec = spec, period = tonumber(m.period) or 0, keys = m.keys or {},
+                events = m.events or {}, axis = m.axis or { 0, 0, 1 }, hist = {}, seek = -100, tries = 0 } end
         end
         return out
     end
@@ -208,7 +212,7 @@ function Gears.new(d)
         end
         if all > 0 and dressed ~= self.logged then
             self.logged = dressed
-            d.Log(string.format("gears: %d of %d turning part(s) dressed on their machine actors", dressed, all))
+            d.Log(string.format("gears: %d of %d turning part(s) found on their machine actors (to dress or to sound)", dressed, all))
         end
         return wait
     end

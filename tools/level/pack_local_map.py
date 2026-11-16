@@ -35,6 +35,12 @@ def prepare(code, config, work, staging):
     # cliff. Ship the verified cook made after the upgrade editor pass instead.
     cook = (verified_owned_cook(code, config, upgraded) if config.get("map_mesh_chunk")
             else cooked_map_container(conv, code))
+    # The upgrade's cook stage refreshes the map's cook when textures were
+    # imported after the conversion (upgrade_ce_map.py refresh_map_cook):
+    # that copy, beside the upgrade's work, is the one the install took.
+    fresh = upgraded / Path(cook).name
+    if not config.get("map_mesh_chunk") and Path(f"{fresh}.utoc").is_file():
+        cook = fresh
     containers = [
         (cook, None),
         (Path(config.get("mesh_container", conv / f"pakchunk986-MJOLNIRMESH-{code}_P")),

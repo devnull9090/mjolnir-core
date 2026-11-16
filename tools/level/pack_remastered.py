@@ -65,7 +65,11 @@ def stage(code, m, work, out):
     os.makedirs(dst, exist_ok=True)
     w = os.path.join(work, code)
 
-    copy_pair(os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
+    # The map's cook as the upgrade refreshed it (upgrade_ce_map.py
+    # refresh_map_cook: textures imported after the conversion, a gate's),
+    # else the hub copy's.
+    fresh = os.path.join(w, f"pakchunk985-MJOLNIRCOOK-{code}_P")
+    copy_pair(fresh if os.path.exists(fresh + ".utoc") else os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
     if m.get("mesh_container"):
         copy_pair(m["mesh_container"], dst)
     else:
