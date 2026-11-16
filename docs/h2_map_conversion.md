@@ -516,7 +516,17 @@ units and axes, so every later step reads them unchanged:
   of them and the props' tags were in the game only as local builds
   installed by hand. Zanzibar: 123 containers, every one in a test pack
   (not signed, not published), and the map played from the pipeline's
-  install alone with its 14 gate machines, 8 gears and 55 props. Dressing state belongs to the world: a
+  install alone with its 14 gate machines, 8 gears and 55 props. Two
+  copies of the game (tools/remote/instances.mjs) agreed: every slot cooked
+  and every prop present in both, and the gate opened by the host stood
+  open in the client's own simulation and its own view.
+
+  Open (2026-11-15): Containment converts fresh with its base gates and
+  switches (4 placements, 10 cooked instances, all drawn), but in the
+  simulation its gates sit at position 1.0 whatever their device group
+  says. They are door-type machines (type 0, no activation radius), which
+  Blam drives by its own door logic; Zanzibar's gate parts are platforms
+  (type 1), which follow the group. Not looked into further. Dressing state belongs to the world: a
   second match on the same map has the same world name and new actors, and
   parts kept from the first came back as bare grid (fixed 2026-11-15).
 
