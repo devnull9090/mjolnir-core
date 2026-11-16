@@ -295,6 +295,13 @@ if [ "$cook" = "1" ]; then
   leaf="${root##*/}"
   native_detail_args=()
   [ -z "${CE_NATIVE_DETAIL:-}" ] || native_detail_args+=(--native-detail "$CE_NATIVE_DETAIL=basicshapes/cylinder=$root/SM_${leaf}_FacilityDetail")
+  # The parts of moving machines wear material instances cooked with the
+  # map (tools/level/machine_instances.py), when there is a cook to make them.
+  rm -f "$out/machines/instances.json"
+  if [ "$cook" = "1" ] && [ ${#machine_jobs[@]} -gt 0 ]; then
+    mkdir -p "$out/machines"
+    native_detail_args+=(--machine-instances "$out/machines/instances.json")
+  fi
   MSYS2_ARG_CONV_EXCL="/Game" python "$here/build_terrain_meshes.py" --paks "$HCE_PAKS" \
     --spec "$out/materials.spec.json" --out "$out" --name "$name" --offset "$delta" \
     --fallback "$terrain_material" --examples "$examples" \
@@ -400,6 +407,10 @@ PY_SURFACE_CHECK
     cp -rf "$staging/sounds_out/." "$out/sounds_out/"
     MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/sounds_out")" MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Maps/$code/Sounds"       powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_sounds.py | grep -E "editor exit|MJOLNIR CE sounds"
   fi
+  if [ -f "$out/machines/instances.json" ]; then
+    MJ_CE_INSTANCES="$(cygpath -w "$out/machines/instances.json")" powershell -NoProfile -ExecutionPolicy Bypass \
+      -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script ..\\..\\tools\\level\\ce_vehicle_instances_editor.py | grep -E "editor exit|MJOLNIR vehicle instances"
+  fi
   cook_out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")")"
   printf '%s\n' "$cook_out"
   # A failed cook leaves the last good one's chunk staged, and copying it
@@ -414,6 +425,9 @@ PY_SURFACE_CHECK
   # ambient sounds) cook into a chunk of their own (ce_material_spec.py
   # cook_chunk), which its map pack ships as MJOLNIRCOOK-<CODE>
   # (docs/map_distribution.md).
+  if [ -f "$out/machines/instances.json" ]; then
+    python "$here/machine_instances.py" check "$out/machines/instances.json" "$out/materials.spec.json" --mjolnir "$mjolnir"
+  fi
   chunk="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json")"
   chunk="${chunk%%[[:space:]]}"
   staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"

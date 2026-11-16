@@ -460,12 +460,26 @@ units and axes, so every later step reads them unchanged:
   script attaching anything; the part meshes are not spawned as decor (the
   level's `doors` parts carry their mesh and materials instead). The loader
   (doors.lua) only finds each machine's actor by its class (one scan of the
-  Blam object actors) and dresses its mesh components with the parts'
-  materials once; it hides the keypad's switch panel's components (the
+  Blam object actors); it hides the keypad's switch panel's components (the
   actor's own hidden flag is reset by the game) and watches one machine at
-  4 Hz (10 Hz while moving) only for Halo 2's sounds. Cooking the parts'
-  materials as material instances, as the custom vehicles do
-  (ce_vehicle_materials.py), would drop the dressing too.
+  4 Hz (10 Hz while moving) only for Halo 2's sounds.
+
+  The parts' materials are cooked, as the custom vehicles' are
+  (machine_instances.py): when the map's cook runs, build_terrain_meshes.py
+  gives each part mesh real slots (`mesh_rewrite --asset-imports`) naming a
+  material instance per slot, `<root>/MachineMaterials/MI_<mesh>_n<slot>`,
+  of the slot's prop_lit material; ce_vehicle_instances_editor.py makes them
+  after build_ce_level.py and the cook ships them in the map's chunk, and
+  `machine_instances.py check` reads every one back (in the chunk, no static
+  permutation, its textures cooked beside it). The level's parts then carry
+  no materials, so nothing is dressed at spawn. The Blueprint's own
+  `MaterialOverrides` cannot do it: they match slots by name, and a mesh
+  rewritten from the engine's cube keeps the cube's one slot
+  (`WorldGridMaterial`) unless `--asset-imports` writes its own. Without a
+  cook (CE_COOK=0), and on a level built before this, the loader dresses the
+  parts once a world, as before. Dressing state belongs to the world: a
+  second match on the same map has the same world name and new actors, and
+  parts kept from the first came back as bare grid (fixed 2026-11-15).
 
   The keypad gets B40's switch panel; machines and switch share one device
   group (`zan_group0`, Halo 2's position group 0, baked into the

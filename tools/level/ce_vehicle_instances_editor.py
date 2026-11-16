@@ -9,8 +9,11 @@ masters, with the textures, scalars and vectors a level's loader would have
 set on a dynamic instance. A scalar or vector the master does not have is left
 out, as a dynamic instance ignores it (ce_material_spec.py gives every object
 section ObjectPage; the glass masters have none), and listed in <file>.dropped
-for the read-back. A texture the master does not have stops the run. The file's
-`overrides` go on whichever masters have them.
+for the read-back. A texture the master does not have stops the run, unless the
+file says `"drop_textures": true` (machine_instances.py: a moving part's lit
+master has no reflection cube, which the loader's dynamic instance ignored
+too); then it is dropped the same way. The file's `overrides` go on whichever
+masters have them.
 """
 import json
 import os
@@ -53,6 +56,8 @@ for entry in spec["instances"]:
     have_vector = {str(n) for n in mel.get_vector_parameter_names(parent)}
     have_texture = {str(n) for n in mel.get_texture_parameter_names(parent)}
     dropped[package] = [n for n in list(entry["scalars"]) + list(entry["vectors"]) if n not in have | have_vector]
+    if spec.get("drop_textures"):
+        dropped[package] += [n for n in entry["textures"] if n not in have_texture]
     for name, value in entry["scalars"].items():
         if name in have:
             mel.set_material_instance_scalar_parameter_value(mi, name, float(value))
@@ -64,6 +69,8 @@ for entry in spec["instances"]:
             mel.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(*value))
     for name, path in entry["textures"].items():
         if name not in have_texture:
+            if spec.get("drop_textures"):
+                continue
             raise RuntimeError(f"{leaf}: {entry['parent']} has no texture {name}")
         texture = unreal.load_asset(path)
         if texture is None:

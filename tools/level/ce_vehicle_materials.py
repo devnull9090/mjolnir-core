@@ -102,7 +102,7 @@ def read_back(mjolnir, entry, dropped, overrides):
         if abs(float(got) - float(want)) > 1e-4 * max(1.0, abs(float(want))):
             sys.exit(f"{entry['package']}: scalar {name} is {got}, wanted {want}")
     textures = values(text, "TextureParameterValues")
-    missing = set(entry["textures"]) - set(textures)
+    missing = set(entry["textures"]) - set(textures) - set(dropped)
     if missing:
         sys.exit(f"{entry['package']}: no texture {sorted(missing)}")
     vectors = values(text, "VectorParameterValues")
