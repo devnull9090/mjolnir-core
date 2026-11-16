@@ -954,6 +954,74 @@ def refresh_map_cook(code, m, p):
               f"pakchunk{chunk} -> {fresh}")
 
 
+def finish_cliff(code, m, p, cliff):
+    """The landscape's cliff look as the level file carries it: the bake's,
+    with the config's `cliff_look` and `cliff_scalars` and the tessellated
+    copy (cliff_mesh.json, made in the editor stage before the world)."""
+    if not isinstance(cliff, dict):
+        return
+    cliff["fill_dir"] = CLIFF_FILL_DIR
+    # `cliff_look`: entries over the cliffs' look ([base, CE colour, CE
+    # shade, contrast]; null keeps one). Zanzibar's contrast 1.0: at 1.5
+    # the rock's white mineral streaks stood out as hard lights.
+    for i, v in enumerate(m.get("cliff_look") or []):
+        if v is not None and isinstance(cliff.get("look"), list) and i < len(cliff["look"]):
+            cliff["look"][i] = v
+    if m.get("cliff_scalars"):
+        cliff["scalars"] = dict(m["cliff_scalars"])
+    mesh = os.path.join(p["work"], "cliff_mesh.json")
+    if (m.get("tess") is not False or m.get("cliff_uv")) and os.path.exists(mesh):
+        spec = json.load(open(mesh, encoding="utf-8"))
+        # `tess` as an object: the map's own over TESS (Rat Race's
+        # tunnels: a wall pushed 30 cm into a 3 m passage).
+        own = m["tess"] if isinstance(m.get("tess"), dict) else {}
+        cliff["tess"] = dict(TESS, **own, mesh=generated_mesh(code, m, "CliffTess"),
+                             item=spec["item"], slots=spec["slots"])
+
+
+def merge_environment(env, m):
+    """The config's `environment` merged into the level's, a key at a time
+    (skylight.lower, clouds, ...)."""
+    for key, value in (m.get("environment") or {}).items():
+        if isinstance(value, dict) and isinstance(env.get(key), dict):
+            env[key].update(value)
+        else:
+            env[key] = value
+    return env
+
+
+def clad_plan(code, m, p):
+    """The cladding rocks' cooked materials (clad_materials.py), as
+    ce_vehicle_instances_editor.py's file: from the level as assemble will
+    finish it, as far as the rocks' material reads it. Returns the file's
+    path, or None for a map whose rocks keep their own (a shipped cliff
+    material) or that bakes no foliage."""
+    if not m.get("bake_foliage") or m.get("indoor"):
+        return None
+    import clad_materials
+    level = json.load(open(p["level"], encoding="utf-8"))
+    land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
+    level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    if m.get("sea") is False:
+        level["landscape"]["sea"] = False
+    finish_cliff(code, m, p, level["landscape"].get("cliff"))
+    merge_environment(level.setdefault("environment", {}), m)
+    groups = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))["groups"]
+    entries = clad_materials.entries(level, groups, m["landscape"])
+    if not entries:
+        return None
+    plan = {"folder": f"/Game/MJOLNIR/CladMaterials/{m['landscape']}", "overrides": {}, "drop_textures": False,
+            "label": {"name": f"PAL_MJOLNIR_{m['landscape']}Clad", "chunk": int(m["chunk"])},
+            "standins": clad_materials.standins(entries), "instances": entries}
+    out = os.path.join(p["work"], "clad_instances.json")
+    # Rewritten only when it changes: the cook stage's check takes a file
+    # newer than the editor's record of building it for a run that did not.
+    text = json.dumps(plan, indent=1)
+    if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
+        open(out, "w", encoding="utf-8").write(text)
+    return out
+
+
 def stage_editor(code, m, p):
     if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
         sys.exit(f"{code}: rock overrides require bake_foliage")
@@ -981,6 +1049,14 @@ def stage_editor(code, m, p):
                          + (["--rock-roughness", str(m["rock_roughness"])] if m.get("rock_roughness") is not None else [])
                          + (["--rock-palette", m["rock_palette"]] if m.get("rock_palette") else [])).strip().splitlines()[-1][:160])
         env["MJ_FOLIAGE"] = spec
+        # The cladding rocks' cooked materials (clad_materials.py), made
+        # before the world so its bake sets them on the rocks.
+        clad = clad_plan(code, m, p)
+        if clad:
+            powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"),
+                       ["-Script", "..\\..\\tools\\level\\ce_vehicle_instances_editor.py"],
+                       env={"MJ_CE_INSTANCES": clad})
+            env["MJ_CLAD"] = clad
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env=env)
     # The editor's own log too: its console capture has stopped short of the
@@ -992,6 +1068,8 @@ def stage_editor(code, m, p):
         sys.exit(f"{code}: the landscape world was not built:\n{out[-2000:]}")
     if m.get("bake_foliage") and "landscape foliage:" not in log:
         sys.exit(f"{code}: the world was built without its foliage:\n{out[-2000:]}")
+    if env.get("MJ_CLAD") and "MJOLNIR cladding materials:" not in log:
+        sys.exit(f"{code}: the world's cladding rocks did not take their cooked materials:\n{out[-2000:]}")
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
     # The moving machine parts' material instances, cooked beside the world.
     plan = machine_parts_plan(code, m, p)
@@ -1784,25 +1862,7 @@ def stage_assemble(code, m, p):
         level.setdefault("slot_meshes", []).append({
             "mesh": generated_mesh(code, m, "River"), "item": spec["item"],
             "slots": spec["slots"]})
-    cliff = level["landscape"].get("cliff")
-    if isinstance(cliff, dict):
-        cliff["fill_dir"] = CLIFF_FILL_DIR
-        # `cliff_look`: entries over the cliffs' look ([base, CE colour, CE
-        # shade, contrast]; null keeps one). Zanzibar's contrast 1.0: at 1.5
-        # the rock's white mineral streaks stood out as hard lights.
-        for i, v in enumerate(m.get("cliff_look") or []):
-            if v is not None and isinstance(cliff.get("look"), list) and i < len(cliff["look"]):
-                cliff["look"][i] = v
-        if m.get("cliff_scalars"):
-            cliff["scalars"] = dict(m["cliff_scalars"])
-        mesh = os.path.join(p["work"], "cliff_mesh.json")
-        if (m.get("tess") is not False or m.get("cliff_uv")) and os.path.exists(mesh):
-            spec = json.load(open(mesh, encoding="utf-8"))
-            # `tess` as an object: the map's own over TESS (Rat Race's
-            # tunnels: a wall pushed 30 cm into a 3 m passage).
-            own = m["tess"] if isinstance(m.get("tess"), dict) else {}
-            cliff["tess"] = dict(TESS, **own, mesh=generated_mesh(code, m, "CliffTess"),
-                                 item=spec["item"], slots=spec["slots"])
+    finish_cliff(code, m, p, level["landscape"].get("cliff"))
     # `lumen_chunks`: the terrain's cells (structure_chunks.py), which the
     # loader draws in the terrain's place (MJOLNIRLevelLoader Land.lumenCells).
     cells_dir = os.path.join(p["work"], "lumen_chunks")
@@ -2011,12 +2071,7 @@ def stage_assemble(code, m, p):
     level["decor"] += horizon_skirt(code, m, p, level)
     # The level's sky (ce_upgrade_maps.json "environment"): merged into
     # environment, a key at a time (skylight.lower, clouds, ...).
-    env = level.setdefault("environment", {})
-    for key, value in (m.get("environment") or {}).items():
-        if isinstance(value, dict) and isinstance(env.get(key), dict):
-            env[key].update(value)
-        else:
-            env[key] = value
+    env = merge_environment(level.setdefault("environment", {}), m)
     # `weather: "snow"`: falling snow the CE map never had (Ice Fields, in
     # B40's), the game's snow as Coldsnap's is (gen_ce_level.WEATHER_SYSTEMS),
     # kept out from under the map's roofs and caves (weather_roofs).
@@ -2135,6 +2190,7 @@ def stage_assemble(code, m, p):
     if baked and level.get("foliage"):
         mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
         print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
+        clad_into_level(code, m, p, level)
     keep_translucent_first_slots(code, level)
     # A turning machine (Halo 2's gears: Zanzibar's flywheels under the grates,
     # its big wheel) is lit by Unreal as a moving prop is: the CE master drew
@@ -2688,6 +2744,33 @@ def append_foliage(path, records):
     open(path, "wb").write(bytes(raw))
 
 
+def clad_into_level(code, m, p, level):
+    """The cladding rocks' cooked materials, checked against the finished
+    level: the entries the editor baked (clad_plan, from the level as far as
+    it then stood) must be the ones the finished level gives, or the rocks
+    wear a look the level no longer says. The level file then carries, by
+    group, what the loader needs to leave the rocks as baked."""
+    import clad_materials
+    now = clad_materials.entries(level, level["foliage"]["groups"], m["landscape"])
+    if not now:
+        return
+    path = os.path.join(p["work"], "clad_instances.json")
+    if not os.path.exists(path):
+        sys.exit(f"{code}: the cladding rocks have no cooked materials ({path}): run the editor stage")
+    baked = json.load(open(path, encoding="utf-8"))["instances"]
+
+    def key(e):
+        return (e["group"], e["package"], e["parent"], json.dumps(e["textures"], sort_keys=True),
+                json.dumps(e["vectors"], sort_keys=True))
+    if [key(e) for e in now] != [key(e) for e in baked]:
+        differ = sorted({e["group"] for e in now} ^ {e["group"] for e in baked}
+                        | {a["group"] for a, b in zip(now, baked) if key(a) != key(b)})
+        sys.exit(f"{code}: the finished level gives the cladding groups {differ} another material than the "
+                 f"editor baked: run the editor stage again")
+    level["landscape"]["clad"] = clad_materials.loader_spec(now)
+    print(f"  {code}: {len(now)} cladding group(s) wear cooked materials")
+
+
 def mark_baked_foliage(foliage, path):
     """The level file's foliage, baked into the world by the editor stage
     (foliage_bake.py): `baked` tells the loader to leave every group but the
@@ -3003,6 +3086,13 @@ def main():
             for code, m in maps.items():
                 plan = os.path.join(ps[code]["work"], "machine_instances.json")
                 refresh_map_cook(code, m, ps[code])
+                clad = os.path.join(ps[code]["work"], "clad_instances.json")
+                if os.path.exists(clad) and clad_plan(code, m, ps[code]):
+                    cooked = map_cook_container(code, m, ps[code])
+                    print("  " + run([sys.executable, os.path.join(HERE, "machine_instances.py"), "check", clad,
+                                      "--chunk", str(m["chunk"]),
+                                      "--also", f"{os.path.dirname(str(cooked))}={os.path.basename(str(cooked))}"]
+                                     ).strip().splitlines()[-1])
                 if machine_parts_plan(code, m, ps[code]):
                     cooked = map_cook_container(code, m, ps[code])
                     print("  " + run([sys.executable, os.path.join(HERE, "machine_instances.py"), "check", plan,
