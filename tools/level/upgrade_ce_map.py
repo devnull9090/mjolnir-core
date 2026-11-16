@@ -37,6 +37,7 @@ Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 import argparse
 from cooked_map_container import cooked_map_container
 import dev_paks
+from machine_containers import map_tag_containers
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook
 import glob
 import json
@@ -2810,8 +2811,7 @@ def local_install_plan(code, m, p, *, shared=True):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
         containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
-    containers += door_containers(m)
-    containers += gear_containers(p)
+    containers += map_tag_containers(code, m, p["conv"])
     required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
@@ -2833,34 +2833,6 @@ def local_install_plan(code, m, p, *, shared=True):
     if missing:
         sys.exit(f"{code}: local install is incomplete:\n  " + "\n  ".join(missing))
     return files, cli, containers
-
-
-def gear_containers(p):
-    """Halo 2's turning parts' machines (h2_machines.py, in the conversion's
-    `machines` folder): their tags' containers and their actors'
-    (pakchunk987-MJOLNIRGEAR); (base, build name)."""
-    folder = os.path.join(p["conv"], "machines")
-    out = []
-    for utoc in sorted(glob.glob(os.path.join(folder, "pakchunk98[67]-MJOLNIR*_P.utoc"))):
-        stem = os.path.basename(utoc)[:-len("_P.utoc")]
-        if "-MJOLNIRMACH-" in stem or "-MJOLNIRGEAR-" in stem:
-            out.append((utoc[:-len(".utoc")], stem.split("-", 1)[1]))
-    return out
-
-
-def door_containers(m):
-    """A Halo 2 door's machines and control: tags of their own, a container
-    each (h2_door_machines), written beside doors.json; (base, build name)."""
-    out = []
-    if m.get("doors") and os.path.exists(m["doors"]):
-        for door in json.load(open(m["doors"], encoding="utf-8")):
-            for owner in (door.get("machines") or []) + [door.get("sim_control") or {}]:
-                for stem in owner.get("containers") or []:
-                    item = (os.path.join(os.path.dirname(m["doors"]), f"{stem}_P"), stem.split("-", 1)[1])
-                    # The map's machine actors share one container.
-                    if item not in out:
-                        out.append(item)
-    return out
 
 
 def install_local(code, plan):
@@ -2908,8 +2880,9 @@ def stage_install(code, m, p):
         if not m.get("mesh_container"):
             builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
         builds.append((map_cook_container(code, m, p), f"MJOLNIRCOOK-{code}"))
-    builds += door_containers(m)
-    builds += gear_containers(p)
+    # The map's own tags: its machines, their actors, its movable props
+    # (machine_containers.py: the packs carry the same list).
+    builds += map_tag_containers(code, m, p["conv"])
     missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
     if missing:
         sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))

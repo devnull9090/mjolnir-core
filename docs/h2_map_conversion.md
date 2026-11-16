@@ -503,7 +503,20 @@ units and axes, so every later step reads them unchanged:
   everything the conversion's does and more, a copy in the work folder
   becomes the map's `MJOLNIRCOOK-<CODE>`. Run the stages with `HCE_PAKS`,
   `MJOLNIR` and `EXAMPLES` set (release builds): the bake's defaults are
-  the debug examples, which may be older than the level schema. Dressing state belongs to the world: a
+  the debug examples, which may be older than the level schema.
+
+  The map's own tag containers (its machines and control, their actors,
+  the gears' and the movable props' crate tags) are one list,
+  machine_containers.py, read by the install stage and by both pack tools
+  (pack_local_map.py, pack_remastered.py), so a pack carries what the
+  tested install did. The tags go in the pack folder's `machines/`, named
+  `-MJOLNIRMACH-<CODE>-...` (a prop's `-MJOLNIRMACH-<CODE>-PROP-<leaf>-<g>`),
+  where `mjolnir map pack` takes a map's tags from; the actors' containers
+  end `-<CODE>_P` beside the map's own. Before this the packs carried none
+  of them and the props' tags were in the game only as local builds
+  installed by hand. Zanzibar: 123 containers, every one in a test pack
+  (not signed, not published), and the map played from the pipeline's
+  install alone with its 14 gate machines, 8 gears and 55 props. Dressing state belongs to the world: a
   second match on the same map has the same world name and new actors, and
   parts kept from the first came back as bare grid (fixed 2026-11-15).
 
@@ -511,7 +524,7 @@ units and axes, so every later step reads them unchanged:
   group (`zan_group0`, Halo 2's position group 0, baked into the
   scenario), so a player pressing the keypad opens the gate, collision and
   all, for everyone in the match. The install stage installs every
-  machine's containers (`door_containers`).
+  machine's containers (machine_containers.py).
   `device_group_set none zan_group0 1` opens it from the console.
 
   **Every machine that moves in parts is staged the same way**, whatever

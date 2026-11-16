@@ -5,6 +5,7 @@ The staging folder is retained beside the archive so authors can inspect it.
 """
 import argparse
 from cooked_map_container import cooked_map_container
+from machine_containers import map_tag_containers, pack_path
 from owned_map_cook import verified_owned_cook
 import json
 import os
@@ -52,6 +53,10 @@ def prepare(code, config, work, staging):
                            f"pakchunk{config['chunk']}-MJOLNIRLAND-{code}_P"))
     if config.get("native_rock_materials"):
         containers.append((bake / f"pakchunk970-MJOLNIRROCK-{code}_P", None))
+    # The map's own tags (machines, their actors, movable props), as the
+    # install stage installs them; `map pack` takes the tags from machines/.
+    for base, name in map_tag_containers(code, config, str(conv)):
+        containers.append((Path(base), pack_path(name)))
     for source, rename in containers:
         for extension in ("utoc", "ucas"):
             copies.append((Path(f"{source}.{extension}"), f"{rename or source.name}.{extension}"))
