@@ -892,7 +892,11 @@ def machine_parts_plan(code, m, p):
         fill_detail(entries, rule, f"{spec['root']}/Textures/{rule['detail']}.{rule['detail']}")
     plan["label"] = {"name": f"PAL_MJOLNIR_{m['landscape']}Parts", "chunk": int(m["chunk"])}
     out = os.path.join(p["work"], "machine_instances.json")
-    json.dump(plan, open(out, "w", encoding="utf-8"), indent=1)
+    # Rewritten only when it changes: the cook stage's check takes a file
+    # newer than the editor's record of building it for a run that did not.
+    text = json.dumps(plan, indent=1)
+    if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
+        open(out, "w", encoding="utf-8").write(text)
     return out
 
 

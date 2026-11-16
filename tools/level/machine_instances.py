@@ -88,10 +88,18 @@ def check(argv):
     p = json.load(open(a.instances, encoding="utf-8"))
     if not p["instances"]:
         return
-    log = os.path.join(REPO, "unreal", "MJOLNIRMaterials", "Saved_ce_vehicle_instances_editor.log")
-    if f"MJOLNIR vehicle instances: {len(p['instances'])} under {p['folder']}" not in open(
-            log, encoding="utf-8", errors="replace").read():
-        sys.exit(f"the machine instances did not build: see {log}")
+    # The editor writes <file>.dropped last, after every instance is saved:
+    # one older than the file, or missing an instance, is a run that did not
+    # finish. (Its log is shared by every run of the script, so a later
+    # map's run would hide this one's.)
+    done = a.instances + ".dropped"
+    if not os.path.exists(done) or os.path.getmtime(done) < os.path.getmtime(a.instances):
+        sys.exit(f"the machine instances did not build (no {done} newer than the file): "
+                 f"see {os.path.join(REPO, 'unreal', 'MJOLNIRMaterials', 'Saved_ce_vehicle_instances_editor.log')}")
+    dropped = json.load(open(done, encoding="utf-8"))
+    unbuilt = sorted(e["package"] for e in p["instances"] if e["package"] not in dropped)
+    if unbuilt:
+        sys.exit(f"the machine instances did not all build: {unbuilt}")
     # container_ls prints paths from the container's mount point, the longest
     # prefix its files share: a file is matched by the end of its path.
     files = listing(STAGED, f"pakchunk{a.chunk}-")
@@ -105,7 +113,6 @@ def check(argv):
     masters = sorted({e["parent"].rsplit(".", 1)[1] for e in p["instances"]} & leaves)
     if masters:
         sys.exit(f"pakchunk{a.chunk} took copies of the masters {masters}: the instances' label is recursive")
-    dropped = json.load(open(a.instances + ".dropped", encoding="utf-8"))
     # A texture an instance names is cooked where the game will find it: one
     # left out draws as the engine's default.
     cooked = set(leaves)
