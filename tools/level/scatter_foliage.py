@@ -1402,7 +1402,9 @@ def main():
                     if cliff and rule["on"] == "grass":
                         turf = turf_share(n[1] / (2 * area))
                         if turf > 0.0:
-                            share = np.maximum(share if share is not None else 0.0, turf)
+                            # One share a point, also where the ground has no
+                            # grass class (Ascension's slate and sandstone).
+                            share = np.maximum(share if share is not None else np.zeros(len(pts)), turf)
                     if share is None:
                         continue
                     lo, hi = rule["share"]

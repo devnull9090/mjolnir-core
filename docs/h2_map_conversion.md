@@ -981,6 +981,18 @@ and the level takes the map's name.
   game, solo and in two networked copies: all 8 machines start shut, a
   switch group opens its own gate in both simulations, and the 8 part
   slots draw their cooked instances.
+- **Ascension** (`ASC`, chunk 1004, landscape `LAS`, `"biome": "desert"`,
+  2026-11-16). Its ground is a blend of bare slate and pale sandstone
+  paths, so both detail maps are `sand` (stones and dry plants): taking
+  the slate for grass grew 2.3 million clumps on bare rock. Grass stays on
+  the cliffs' up-facing faces, where the cliff master draws its turf, which
+  greens the rock pillars' tops. Blood Gulch's look, as Coagulation's.
+  Reconverted first (`ASC_flags`) so its machines carry their own
+  placement flags. Its three antennas are the conversion's turning
+  machines, cooked. In game, solo and in two networked copies: the
+  antennas turn in step and draw their cooked instances; a frame takes a
+  median 11 ms at 4K. A ground with no grass class had crashed the scatter
+  where a cliff's turf met it (scatter_foliage.py).
 - **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
   steel draw in Poly Haven PBR surfaces through the cliffs' master, each
   wall's Halo 2 base map kept as its colour and its lightmap as shade

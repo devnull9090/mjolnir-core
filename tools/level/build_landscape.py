@@ -344,6 +344,10 @@ MAP_LOOKS["LGP"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
 # Sidewinder's ground, so Sidewinder's look (no ice: its frozen ground is no
 # pond painted into the base map).
 MAP_LOOKS["LCN"] = _copy.deepcopy(MAP_LOOKS["LSW"])
+# Ascension (LAS, Halo 2, 2026-11-16): bare slate with pale sandstone paths
+# on a mesa, dry and treeless, so Blood Gulch's packed earth and stones (as
+# Coagulation, its desert biome).
+MAP_LOOKS["LAS"] = _copy.deepcopy(MAP_LOOKS["LBG"])
 
 
 def edge_bake(tris, centres, step, n, z_low, on, out_dir):
