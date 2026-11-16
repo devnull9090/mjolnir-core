@@ -514,18 +514,17 @@ units and axes, so every later step reads them unchanged:
   427 m at up to about 107 m/s. (A reading that looked frozen was the
   train parked at the end of its run for the other two thirds of the loop.)
 
-  Open: the game hides some machines' actors (`bHidden`), and a hidden
-  actor's skeleton never renders (`bRecentlyRendered` false) and gets no
-  pose, so its part stands still while the simulation moves it. On
-  Zanzibar it is the same grid cells every load, whatever the player sees
-  (two of the gate's four top bars on the 8x8 grid; three ramps when the
-  machines stood 1.5 cm apart; none on the earlier 4x4 grid). The actors
-  are bound to the right objects (BlamObjectIndex), the simulation has
-  them open, and none of re-enabling tick, 50x bounds, un-hiding the mesh
-  or the actor brought the pose back. Every cell, working or not, sits
-  just under the BSP floor, so it is not a solid test of the origin; the
-  first 1 KB of the object data differs only by float noise. What sets the
-  flag needs the game's code read (Ghidra).
+  The game hides the actors of machines the player cannot see
+  (`bHidden`, the skeleton not rendered) and gives them no pose until the
+  player can; then it poses them at once where the simulation has them
+  (Zanzibar, 2026-11-15: all fourteen gate machines hidden with the player
+  at spawn, the gate opened, nothing moved; the player teleported to the
+  gate, all fourteen shown and every part open). FlyCam does not count as
+  the player's view: a part that stands still in a FlyCam shot while the
+  player is elsewhere is this culling, not a fault. Judge machines from
+  the player's own view. (This explains every "stuck" ramp, bar and
+  "frozen" train reading earlier that day; un-hiding an actor by hand does
+  not pose it, the game's own visibility does.)
   Opaque shaders that scroll their base map are staged as `base_scroll`
   (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
   in u every 2 s); the `h2_staging` map setting applies it to the level's

@@ -29,13 +29,10 @@ point, apart enough that the level loader (doors.lua) tells them apart by
 where they stand. It attaches each node's meshes to its machine once, and
 Unreal carries the meshes from then on.
 
-Open (2026-11-15): on Zanzibar the game hides the actors of some machines
-(`bHidden`), the same cells every load, whatever the player sees; a hidden
-actor's skeleton never renders and gets no pose, so its part stands still
-though the simulation moved it (two of the gate's top bars on the 8x8 grid,
-three ramps when the machines stood 1.5 cm apart). Binding, the
-simulation's positions and the object data show no difference; what sets
-the flag is not yet known (docs/h2_map_conversion.md).
+The game hides a machine's actor while the player cannot see it (`bHidden`;
+FlyCam is not the player's view) and poses it again, at its present
+position, as soon as the player can: a part that seems stuck in a FlyCam
+shot is that, not a fault (docs/h2_map_conversion.md).
 """
 import json
 import os
