@@ -1,3 +1,5 @@
+import json
+import os
 import unittest
 
 import clad_materials
@@ -54,6 +56,50 @@ class Entries(unittest.TestCase):
         out = clad_materials.entries(lv, GROUPS, "LXX")
         self.assertNotIn("LandSea", out[0]["vectors"])
         self.assertTrue(out[0]["parent"].endswith("M_CE_CliffPBR.M_CE_CliffPBR"))
+
+
+class MapStandIns(unittest.TestCase):
+    """A Halo 1 map's own texture, which ships in the hub's container."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.content = self.tmp.name
+        self.base = "/Game/MJOLNIR/Maps/X/Textures/T_wall.T_wall"
+        self.entries = [{"textures": {"Base": self.base, "RockAD": clad_materials.MEGASCANS + "R/T_R_D.T_R_D"}}]
+        self.folder = os.path.join(self.content, "MJOLNIR", "Maps", "X", "Textures")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, leaf, data, record=True):
+        os.makedirs(self.folder, exist_ok=True)
+        path = os.path.join(self.folder, leaf + ".uasset")
+        open(path, "wb").write(data)
+        if record:
+            rec = clad_materials.recorded_standins(self.folder)
+            rec[leaf] = clad_materials.file_sha1(path)
+            json.dump(rec, open(os.path.join(self.folder, clad_materials.STANDINS_FILE), "w"))
+
+    def test_missing_map_texture_is_stood_in_and_never_cooked(self):
+        self.assertEqual(clad_materials.standins(self.entries, self.content),
+                         sorted([self.base, self.entries[0]["textures"]["RockAD"]]))
+        self.write("T_wall", b"grey")
+        self.assertIn(self.base, clad_materials.standins(self.entries, self.content))
+        self.assertEqual(clad_materials.never_cook_dirs(self.content), ["/Game/MJOLNIR/Maps/X/Textures"])
+
+    def test_a_real_texture_is_neither(self):
+        # Imported here (a Halo 2 map's conversion): no stand-in, and it cooks.
+        self.write("T_wall", b"real", record=False)
+        self.assertNotIn(self.base, clad_materials.standins(self.entries, self.content))
+        self.assertEqual(clad_materials.never_cook_dirs(self.content), [])
+
+    def test_a_real_texture_over_a_stand_in_stops_the_cook(self):
+        self.write("T_wall", b"grey")
+        open(os.path.join(self.folder, "T_wall.uasset"), "wb").write(b"real")
+        self.assertNotIn(self.base, clad_materials.standins(self.entries, self.content))
+        with self.assertRaises(RuntimeError):
+            clad_materials.never_cook_dirs(self.content)
 
 
 if __name__ == "__main__":

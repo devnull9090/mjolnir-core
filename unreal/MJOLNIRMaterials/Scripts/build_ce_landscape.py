@@ -228,11 +228,19 @@ if FOLIAGE:
         [unreal.Vector2D(*g["cull"]) for g in groups], [g["flags"] for g in groups])
     if placed < 0:
         raise RuntimeError(f"bake_foliage failed for {FOLIAGE}")
-    # The cladding rocks' cooked materials (MJ_CLAD: tools/level/clad_materials.py,
-    # made by ce_vehicle_instances_editor.py before this): each group's on its
-    # rocks, MJClad_<group>_<rock>, so the loader sets none at load.
+    # The cladding rocks' cooked materials (MJ_CLAD: tools/level/clad_materials.py):
+    # made here, by ce_vehicle_instances_editor.py on the plan, once this
+    # script has imported the landscape textures they name (T_LandEdge: a
+    # run before the world finds none on a worktree's first build), then
+    # each group's set on its rocks, MJClad_<group>_<rock>, so the loader
+    # sets none at load.
     CLAD = os.environ.get("MJ_CLAD")
     if CLAD:
+        import runpy
+        os.environ["MJ_CE_INSTANCES"] = CLAD
+        runpy.run_path(os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()),
+                                    "..", "..", "tools", "level", "ce_vehicle_instances_editor.py"),
+                       run_name="__main__")
         by_group = {}
         for e in json.load(open(CLAD, encoding="utf-8"))["instances"]:
             mi = unreal.load_asset(e["package"])

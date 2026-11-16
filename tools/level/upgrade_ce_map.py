@@ -1012,7 +1012,7 @@ def clad_plan(code, m, p):
         return None
     plan = {"folder": f"/Game/MJOLNIR/CladMaterials/{m['landscape']}", "overrides": {}, "drop_textures": False,
             "label": {"name": f"PAL_MJOLNIR_{m['landscape']}Clad", "chunk": int(m["chunk"])},
-            "standins": clad_materials.standins(entries), "instances": entries}
+            "standins": clad_materials.standins(entries, os.path.join(PROJECT, "Content")), "instances": entries}
     out = os.path.join(p["work"], "clad_instances.json")
     # Rewritten only when it changes: the cook stage's check takes a file
     # newer than the editor's record of building it for a run that did not.
@@ -1049,13 +1049,11 @@ def stage_editor(code, m, p):
                          + (["--rock-roughness", str(m["rock_roughness"])] if m.get("rock_roughness") is not None else [])
                          + (["--rock-palette", m["rock_palette"]] if m.get("rock_palette") else [])).strip().splitlines()[-1][:160])
         env["MJ_FOLIAGE"] = spec
-        # The cladding rocks' cooked materials (clad_materials.py), made
-        # before the world so its bake sets them on the rocks.
+        # The cladding rocks' cooked materials (clad_materials.py), made by
+        # the world's script once it has imported the landscape textures
+        # they name, and set on the rocks as it bakes them.
         clad = clad_plan(code, m, p)
         if clad:
-            powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"),
-                       ["-Script", "..\\..\\tools\\level\\ce_vehicle_instances_editor.py"],
-                       env={"MJ_CE_INSTANCES": clad})
             env["MJ_CLAD"] = clad
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env=env)
@@ -1224,13 +1222,31 @@ def build_cliffs(maps, ps):
 
 
 def stage_cook(maps):
+    import clad_materials
+    from machine_instances import listing
     worlds = "+".join(f"/Game/Levels/Halo1/Solo/{m['landscape']}/{m['landscape']}" for m in maps
                       if not m.get("indoor"))
+    # The map textures' stand-ins (clad_materials.py: a Halo 1 map's own
+    # textures ship in the hub's container) are never cooked: a grey copy in
+    # any container would draw over the real one.
+    content = os.path.join(PROJECT, "Content")
+    try:
+        never = clad_materials.never_cook_dirs(content)
+    except RuntimeError as e:
+        sys.exit(str(e))
     # StaticMesh too: chunk 983 carries the tessellated cliffs.
     out = powershell(os.path.join(REPO, "tools", "ue", "cook.ps1"),
-                     (["-Map", worlds] if worlds else []) + ["-Classes", "Material,MaterialInstanceConstant,StaticMesh"])
+                     (["-Map", worlds] if worlds else []) + ["-Classes", "Material,MaterialInstanceConstant,StaticMesh"]
+                     + (["-NeverCook", "+".join(never)] if never else []))
     if "BUILD SUCCESSFUL" not in out:
         sys.exit("cook failed:\n" + out[-3000:])
+    if never:
+        leaves = {f[:-len(".uasset")] for d in never
+                  for f in os.listdir(os.path.join(content, *d[len("/Game/"):].split("/"))) if f.endswith(".uasset")}
+        shipped = sorted(leaves & {f.rsplit("/", 1)[-1] for f in listing(STAGED, "pakchunk")})
+        if shipped:
+            sys.exit(f"the cook staged map texture stand-ins {shipped}: they would draw over the game's own")
+        print(f"  {len(leaves)} map texture stand-in(s) left out of the cook: {never}")
     log = open(os.path.join(PROJECT, "Saved_cook.log"), encoding="utf-8", errors="replace").read()
     errors = [l for l in log.splitlines() if "error X" in l or ": error" in l]
     if errors:

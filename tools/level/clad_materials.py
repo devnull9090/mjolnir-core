@@ -22,9 +22,18 @@ override): `light_scale` and `levels` go in the level file for that check.
 The game's own textures (the Megascans rock, grass, sand and soil sets) are
 named through never-cooked stand-ins at their paths (/Game/Megascans is in
 DirectoriesToNeverCook), as the baked foliage names the game's meshes.
+
+So is a map's own CE texture (a lightmapped group's `Base`) when the map was
+converted elsewhere and its textures ship in the hub's container, not in
+this project (every Halo 1 map; the Halo 2 maps convert here). Such a
+stand-in goes in a folder of stand-ins only, listed in the folder's
+STANDINS_FILE with each package file's hash, and the cook leaves the folder
+out (-NEVERCOOKDIR, `never_cook_dirs`): a 4x4 grey copy cooked into any
+container would draw over the real one on every cliff of the map.
 """
 import hashlib
 import json
+import os
 
 MEGASCANS = "/Game/Megascans/Surfaces/"
 TRIAL = "/Game/MJOLNIR/CETrial/"
@@ -167,9 +176,66 @@ def entries(level, groups, landscape_code):
     return out
 
 
-def standins(plan_entries):
-    """The game's own textures the entries name (stand-ins in the editor)."""
-    return sorted({t for e in plan_entries for t in e["textures"].values() if t.startswith(MEGASCANS)})
+MAPS = "/Game/MJOLNIR/Maps/"
+STANDINS_FILE = "MJOLNIR_STANDINS.json"
+
+
+def package_file(content, path):
+    """The .uasset of `path` (/Game/...) under the project's Content folder."""
+    return os.path.join(content, *path.split(".")[0][len("/Game/"):].split("/")) + ".uasset"
+
+
+def recorded_standins(folder):
+    """{leaf: sha1 of its .uasset} a folder's STANDINS_FILE lists."""
+    path = os.path.join(folder, STANDINS_FILE)
+    return json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+
+
+def file_sha1(path):
+    return hashlib.sha1(open(path, "rb").read()).hexdigest()
+
+
+def is_standin(content, path):
+    """Whether `path`'s package is a stand-in made for these materials:
+    listed in its folder's file with the hash it was saved with (a real
+    texture imported over it since is not)."""
+    f = package_file(content, path)
+    leaf = os.path.basename(f)[:-len(".uasset")]
+    want = recorded_standins(os.path.dirname(f)).get(leaf)
+    return bool(want) and os.path.exists(f) and file_sha1(f) == want
+
+
+def standins(plan_entries, content=None):
+    """The textures the entries name that the editor makes stand-ins for:
+    the game's own (Megascans), and with `content` (the project's Content
+    folder) a map texture the project lacks or holds only as a stand-in."""
+    out = set()
+    for t in (t for e in plan_entries for t in e["textures"].values()):
+        if t.startswith(MEGASCANS):
+            out.add(t)
+        elif content and t.startswith(MAPS) and (not os.path.exists(package_file(content, t))
+                                                 or is_standin(content, t)):
+            out.add(t)
+    return sorted(out)
+
+
+def never_cook_dirs(content):
+    """The /Game folders of map stand-ins, for the cook's -NEVERCOOKDIR: a
+    folder whose every package is a recorded stand-in with its hash. A
+    folder that also holds anything else (a real texture imported since)
+    raises: left out it loses that texture, cooked it ships the stand-ins."""
+    out = []
+    maps = os.path.join(content, "MJOLNIR", "Maps")
+    for here, _, files in (os.walk(maps) if os.path.isdir(maps) else ()):
+        if STANDINS_FILE not in files:
+            continue
+        rec = recorded_standins(here)
+        other = sorted(f for f in files if f.endswith((".uasset", ".umap"))
+                       and rec.get(f.rsplit(".", 1)[0]) != file_sha1(os.path.join(here, f)))
+        if other:
+            raise RuntimeError(f"{here} holds stand-ins and other packages {other}: neither cooks safely")
+        out.append("/Game/" + os.path.relpath(here, content).replace(os.sep, "/"))
+    return sorted(out)
 
 
 def loader_spec(plan_entries):
