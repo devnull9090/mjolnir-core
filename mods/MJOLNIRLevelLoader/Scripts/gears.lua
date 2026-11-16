@@ -20,6 +20,7 @@ Gears.SCAN_S = 2.0
 Gears.SCAN_TRIES = 30
 Gears.ACTOR_CLASS = "BlamObjectActor"
 Gears.SAMPLE_MS = 100
+Gears.UNSEEN_MS = 1000
 Gears.FIT_S = 8.0
 Gears.FIT_RANGE_DEG = 5.0
 Gears.QUIET_MS = 2000
@@ -157,15 +158,26 @@ function Gears.new(d)
                         local lo, hi = th, th
                         for _, s in ipairs(h) do lo, hi = math.min(lo, s[2]), math.max(hi, s[2]) end
                         if now - h[1][1] > Gears.FIT_S and hi - lo > Gears.FIT_RANGE_DEG then
+                            -- Coarse over the turn (half seconds), then fine
+                            -- (tenths) about each sign's best: one short frame.
+                            local function cost(sign, o)
+                                local c = 0
+                                for i = 1, #h, 3 do
+                                    local e = (sign * at(g, (h[i][1] - o) % g.period) - h[i][2] + 540) % 360 - 180
+                                    c = c + e * e
+                                end
+                                return c
+                            end
                             local best, bestCost = 0, math.huge
                             for _, sign in ipairs({ 1, -1 }) do
-                                for o = 0, g.period, 0.1 do
-                                    local cost = 0
-                                    for i = 1, #h, 3 do
-                                        local e = (sign * at(g, (h[i][1] - o) % g.period) - h[i][2] + 540) % 360 - 180
-                                        cost = cost + e * e
-                                    end
-                                    if cost < bestCost then best, bestCost = o, cost end
+                                local o0, c0 = 0, math.huge
+                                for o = 0, g.period, 0.5 do
+                                    local c = cost(sign, o)
+                                    if c < c0 then o0, c0 = o, c end
+                                end
+                                for o = o0 - 0.5, o0 + 0.5, 0.1 do
+                                    local c = cost(sign, o % g.period)
+                                    if c < bestCost then best, bestCost = o % g.period, c end
                                 end
                             end
                             g.offset, g.hist = best, nil
@@ -174,7 +186,8 @@ function Gears.new(d)
                             table.remove(h, 1)
                         end
                     end
-                    wait = math.min(wait, Gears.SAMPLE_MS)
+                    -- Unseen, look again in a second, not ten times one.
+                    wait = math.min(wait, seen and Gears.SAMPLE_MS or Gears.UNSEEN_MS)
                 else
                     -- Its sounds whose time the turn passed since the last
                     -- pass (across the wrap too); then sleep to the next.

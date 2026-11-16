@@ -393,6 +393,11 @@ local function resetState()
     Current.rocksHidden = nil
     Current.broken = nil
     Current.breakPreloaded = nil
+    -- Machines and gears are found and dressed again in every world: a
+    -- second match on the same map has the same world name and new actors,
+    -- which the old state took for dressed (bare grid material).
+    Current.doors = nil
+    Current.gears = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
     Current.dressQueue = nil
