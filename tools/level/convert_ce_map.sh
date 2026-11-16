@@ -303,6 +303,13 @@ if [ "$cook" = "1" ]; then
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky" \
     "${machine_jobs[@]//MACHINE/$root/SM_${leaf}_Machine}"
+  # Each moving Halo 2 machine's actor wears its part meshes, now they are
+  # placed (h2_door_machines.py actors: B40's elevator Blueprint cloned per
+  # machine, pakchunk987-MJOLNIRACT-<CODE>_P beside the machine tags).
+  if [ -f "$out/machines/doors.json" ]; then
+    python "$here/h2_door_machines.py" actors "$out/machines/doors.json" "$out/terrain.json" "$code" "$out/machines" \
+      --paks "$HCE_PAKS" --examples "$examples"
+  fi
   # The game's grass, tufts and shore stones on the map's ground
   # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
   # sea's height is the water mesh's, when the map has one. FOLIAGE=0 leaves
@@ -465,7 +472,7 @@ if [ "$install" = "--install" ]; then
     cp -f "$stub" "$HCE_PAKS/$c.pak"
   done
   # Halo 2's machines (h2_machines.py), each tag a container of its own.
-  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc; do
+  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc "$out"/machines/pakchunk987-MJOLNIRACT-"${code}"_P.utoc; do
     [ -e "$f" ] || continue
     c="$(basename "$f" .utoc)"
     cp -f "$out/machines/$c.utoc" "$out/machines/$c.ucas" "$HCE_PAKS"/

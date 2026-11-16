@@ -2053,8 +2053,21 @@ def stage_assemble(code, m, p):
                     if leaf in names:
                         tex[key] = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/{leaf}.{leaf}"
             item["materials"] = [prop_lit(mat, {}) if isinstance(mat, dict) else mat for mat in item.get("materials") or []]
+        # A door's parts are worn by its machines' actors
+        # (h2_door_machines.write_actors), not spawned as decor: each part
+        # carries its mesh and materials for the loader to dress them with.
+        by_id = {item.get("id"): item for item in extra}
+        worn = set()
+        for door in level.get("doors") or []:
+            for part in door.get("parts") or []:
+                item = by_id.get(part.get("id"))
+                if item:
+                    part["mesh"], part["materials"] = item.get("mesh"), item.get("materials")
+                    worn.add(part["id"])
+        extra = [item for item in extra if item.get("id") not in worn]
         level.setdefault("decor", []).extend(extra)
-        print(f"  {code}: {len(extra)} extra decor mesh(es): {', '.join(str(i.get('mesh', '')).split('.')[-1] for i in extra)}")
+        print(f"  {code}: {len(extra)} extra decor mesh(es) ({len(worn)} more worn by machine actors): "
+              f"{', '.join(str(i.get('mesh', '')).split('.')[-1] for i in extra)}")
     lit_machines = 0
     for item in level.get("decor") or []:
         if isinstance(item, dict) and item.get("motion") and isinstance(item.get("materials"), list):
@@ -2710,7 +2723,10 @@ def door_containers(m):
         for door in json.load(open(m["doors"], encoding="utf-8")):
             for owner in (door.get("machines") or []) + [door.get("sim_control") or {}]:
                 for stem in owner.get("containers") or []:
-                    out.append((os.path.join(os.path.dirname(m["doors"]), f"{stem}_P"), stem.split("-", 1)[1]))
+                    item = (os.path.join(os.path.dirname(m["doors"]), f"{stem}_P"), stem.split("-", 1)[1])
+                    # The map's machine actors share one container.
+                    if item not in out:
+                        out.append(item)
     return out
 
 

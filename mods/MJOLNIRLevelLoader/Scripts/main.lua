@@ -6410,16 +6410,16 @@ local function watch()
     every(250, "prop deaths", function()
         if Current.props then Current.props.deaths() end
     end)
-    -- Halo 2 doors (doors.lua): opened in the simulation by their controls;
-    -- their meshes ride the machines that carry their collision, attached
-    -- once. Only the door sounds poll.
+    -- Halo 2 machines that move in parts (doors.lua): moved by the
+    -- simulation, drawn by each machine's own actor; the loader only dresses
+    -- the actors' meshes once. Only the door sounds poll.
     local function doors()
         local level = Current.furnished and Current.level
         if not (level and type(level.doors) == "table" and #level.doors > 0) then return nil end
         if not Current.doors then
             Current.doors = dofile(MOD_DIR .. "\\Scripts\\doors.lua").new({
                 Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh,
-                getWorld = getWorld, gameVolume = gameVolume,
+                getWorld = getWorld, gameVolume = gameVolume, applyMaterials = applyMaterials,
             })
         end
         return Current.doors

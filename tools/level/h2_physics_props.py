@@ -450,6 +450,13 @@ def main():
             t["cast_shadow"] = True
         json.dump(extra, open(os.path.join(out, "extra_decor.json"), "w", encoding="utf-8"), indent=1)
         print(f"  extra decor: {len(extra)} item(s)")
+        # Each machine's actor wears its part meshes (h2_door_machines
+        # write_actors), now their rest positions are known.
+        doors_path = os.path.join(out, "doors.json")
+        if os.path.exists(doors_path):
+            import h2_door_machines
+            h2_door_machines.write_actors(json.load(open(doors_path, encoding="utf-8")), {t["id"]: t for t in extra},
+                                          code, out, a.paks, os.path.join(REPO, "target", "release", "examples"))
     json.dump(specs, open(os.path.join(out, "physics_props.json"), "w", encoding="utf-8"), indent=1)
     print(f"{code}: {len(specs)} physics prop type(s) over "
           f"{sum(1 for e in placement['entries'] if e.get('asset') in assets)} placement(s) -> {out}/physics_props.json")

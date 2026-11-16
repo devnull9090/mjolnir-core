@@ -436,23 +436,42 @@ units and axes, so every later step reads them unchanged:
   (staged `h2_door.collision`, one BSP a node; the gate's 14, its frame and
   four ramps among them) becomes a device machine with tags of its own
   (h2_door_machines.py: animation, collision, physics, model and machine,
-  written into the layout of B40's elevator family, whose Unreal class
-  draws it). Its root follows the node exactly, turning and sliding at
-  once (`h2_machines.pose_resource`: codec 3 with the root's rotation and
-  translation both animated, so a ramp swinging about its hinge is one
-  machine); its collision is the node's own BSP, its physics boxes cover
-  the BSP's triangles. Each machine stands on a grid about the door's
-  origin, 0.05 wu (15 cm) apart, so the loader (doors.lua) finds each
-  one's actor by where it stands and attaches the node's meshes to its moving component
-  once; Unreal carries them from then on (at rest that component sits
-  exactly on the actor: location, rotation and scale). The keypad gets
-  B40's switch panel; machines and switch share one device group
-  (`zan_group0`, Halo 2's position group 0, baked into the scenario), so a player pressing the
-  keypad opens the gate, collision and all, for everyone in the match. The
-  loader hides the elevator meshes and the switch panel's components (the
-  actor's own hidden flag is reset by the game), and watches one machine at
-  4 Hz (10 Hz while moving) only for Halo 2's sounds. The install stage
-  installs every machine's containers (`door_containers`).
+  written into the layout of B40's elevator family). Its root follows the
+  node exactly, turning and sliding at once (`h2_machines.pose_resource`:
+  codec 3 with the root's rotation and translation both animated, so a
+  ramp swinging about its hinge is one machine); its collision is the
+  node's own BSP, its physics boxes cover the BSP's triangles. Each machine
+  stands on a grid about the door's origin, 0.05 wu (15 cm) apart, every
+  machine of a map on a cell of its own.
+
+  **Each placed machine draws its own part.** Its machine tag (one a
+  placement; the animation, collision, physics and model tags are shared)
+  names an actor of its own (`--asset-reference`): B40's elevator
+  Blueprint cloned by `write_actors` (crates/ue-asset/examples/
+  vehicle_actor.rs, which renames the package, its generated class and
+  default object) into `/Game/MJOLNIR/Maps/<CODE>/Machines/
+  BP_<CODE>_Machine<n>`, all in `pakchunk987-MJOLNIRACT-<CODE>_P`. The
+  Blueprint's mesh list (BlamMeshSynchronizationComponent `RuntimeRegions
+  {default}.Permutations{default}.StaticMeshes`, which held the elevator
+  floor on bone `platform`) names the node's part meshes instead, each on
+  bone `Root` (the simulation's root node, bones `elevator_world`, `Root`,
+  `Platform`) at its rest offset from the actor, turned by the placement's
+  yaw. So Unreal draws and moves the part with no elevator to hide and no
+  script attaching anything; the part meshes are not spawned as decor (the
+  level's `doors` parts carry their mesh and materials instead). The loader
+  (doors.lua) only finds each machine's actor by its class (one scan of the
+  Blam object actors) and dresses its mesh components with the parts'
+  materials once; it hides the keypad's switch panel's components (the
+  actor's own hidden flag is reset by the game) and watches one machine at
+  4 Hz (10 Hz while moving) only for Halo 2's sounds. Cooking the parts'
+  materials as material instances, as the custom vehicles do
+  (ce_vehicle_materials.py), would drop the dressing too.
+
+  The keypad gets B40's switch panel; machines and switch share one device
+  group (`zan_group0`, Halo 2's position group 0, baked into the
+  scenario), so a player pressing the keypad opens the gate, collision and
+  all, for everyone in the match. The install stage installs every
+  machine's containers (`door_containers`).
   `device_group_set none zan_group0 1` opens it from the console.
 
   **Every machine that moves in parts is staged the same way**, whatever

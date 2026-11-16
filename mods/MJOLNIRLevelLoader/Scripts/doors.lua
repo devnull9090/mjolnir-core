@@ -1,57 +1,57 @@
---- Halo 2 doors (Zanzibar's house gate, any door a map's tags make one),
---- opened in the simulation and moved by Unreal.
+--- Halo 2 machines that move in parts (Zanzibar's house gate, Triplicate's
+--- garage gates and trains: any machine a map's tags make one).
 ---
---- A level's `doors` (tools/level/h2_physics_props.py doors.json, from the
---- map's own tags: crate::h2::door, h2_door_machines.py) name each door's
---- parts (decor actors, a mesh a node of the door) and its `machines`:
---- device machines of the simulation's own, one a node, each standing at its
---- node's own place, whose root turns and slides exactly as its node does in
---- Halo 2's opening and carries its collision. The door's control (B40's
---- switch at the keypad) shares their device group, so a player pressing it
---- opens the door in the simulation, for every player in the match.
+--- The simulation moves them and Unreal draws them; this module only dresses
+--- them. A level's `doors` (tools/level/h2_physics_props.py doors.json, or
+--- gen_ce_level.py --doors, from the map's own tags: crate::h2::door,
+--- h2_door_machines.py) name each placement's `machines`: device machines of
+--- the simulation's own, one a node, whose root turns and slides exactly as
+--- the node does and carries its collision. Each machine's actor is its own
+--- Blueprint (B40's elevator cloned, h2_door_machines.write_actors) wearing
+--- the node's part meshes on its moving bone, so Unreal moves the part with
+--- no script, for every player, a joiner included.
 ---
---- This module only sets it up: it finds each machine's Unreal actor by
---- where it stands, hides the elevator mesh the machine would draw, and
---- attaches the node's meshes to the machine's moving component once. Unreal
---- carries them from then on; nothing here poses a mesh.
----
---- What still polls: Halo 2's door sounds (as it starts, and as it finishes
---- opening). The simulation plays a device's sounds through Wwise events our
+--- What runs here: once a machine's actor exists, its mesh components get
+--- their materials (the parts' `materials`, the level's material lists); the
+--- door's control (B40's switch panel at Halo 2's keypad) has its components
+--- hidden; and Halo 2's door sounds play as a door starts and finishes
+--- opening. The simulation plays a device's sounds through Wwise events our
 --- converted sounds do not have, so one machine is watched, at 4 Hz while
 --- the door stands and 10 Hz while it moves: two bound calls a look.
 local Doors = {}
 
 Doors.SCAN_S = 2.0
 Doors.SCAN_TRIES = 30
---- Machines stand 15 cm apart (h2_door_machines.SPACING); an actor binds
---- to the machine it stands within this of.
-Doors.MATCH_CM = 5
 Doors.NEAR_CM = 40
 Doors.CONTROL_CLASS = "BP_FR_ControlPanel_C"
+Doors.ACTOR_CLASS = "BlamObjectActor"
 Doors.IDLE_MS = 250
 Doors.MOVING_MS = 100
 Doors.QUIET_MS = 2000
 
---- deps: Log, Current, findObject, resolveMesh, getWorld, gameVolume.
---- findObject is a StaticFindObject every call (~1-20 ms): each lookup
---- here is made once and kept.
+--- deps: Log, Current, findObject, resolveMesh, getWorld, gameVolume,
+--- applyMaterials. findObject is a StaticFindObject every call (~1-20 ms):
+--- each lookup here is made once and kept.
 function Doors.new(d)
-    local self = { doors = nil, world = nil, claimed = {} }
+    local self = { doors = nil, world = nil }
 
     local function build()
         local list = d.Current.level and d.Current.level.doors
         if type(list) ~= "table" then return {} end
         local out = {}
         for _, spec in ipairs(list) do
-            local door = { spec = spec, machines = {}, parts = {}, bound = 0, tries = 0, seek = -100,
+            local door = { spec = spec, machines = {}, tries = 0, seek = -100,
                 last = 0.0, target = 0.0, started = false }
+            -- A part's materials by its mesh's name (the actor's components
+            -- carry the meshes the Blueprint lists).
+            local byMesh = {}
             for _, part in ipairs(spec.parts or {}) do
-                door.parts[part.node] = door.parts[part.node] or {}
-                table.insert(door.parts[part.node], { id = part.id })
+                local leaf = tostring(part.mesh or ""):match("%.([^%.]+)$")
+                if leaf then byMesh[leaf] = part end
             end
             for _, m in ipairs(spec.machines or {}) do
                 local t = m.travel_cm or { 0, 0, 0 }
-                door.machines[#door.machines + 1] = { spec = m,
+                door.machines[#door.machines + 1] = { spec = m, byMesh = byMesh,
                     travel = math.sqrt(t[1] * t[1] + t[2] * t[2] + t[3] * t[3]) }
             end
             out[#out + 1] = door
@@ -78,21 +78,20 @@ function Doors.new(d)
     --- simulation's control a player presses); the keypad's own mesh is
     --- decor, so the panel's components (its meshes and sparks) are hidden,
     --- its device left working. The actor's own hidden flag is reset by the
-    --- game; the components' stay, and are set again at every scan.
+    --- game; the components' stay.
     local function hide_control(door, scans)
         local c = door.spec.sim_control and door.spec.sim_control.at_cm
         if not c then return end
         if not door.panel and (door.panel_tries or 0) < 15 then
             door.panel_tries = (door.panel_tries or 0) + 1
             self.sceneClass = self.sceneClass or d.findObject("/Script/Engine.SceneComponent")
-            local scene = self.sceneClass
             scans[Doors.CONTROL_CLASS] = scans[Doors.CONTROL_CLASS] or FindAllOf(Doors.CONTROL_CLASS) or {}
             for _, a in ipairs(scans[Doors.CONTROL_CLASS]) do
                 local ok, l = pcall(function() return a:K2_GetActorLocation() end)
                 if ok and l and math.abs(l.X - c[1]) + math.abs(l.Y - c[2]) + math.abs(l.Z - c[3]) < Doors.NEAR_CM then
                     door.panel = {}
                     pcall(function()
-                        for _, comp in ipairs(a:K2_GetComponentsByClass(scene)) do
+                        for _, comp in ipairs(a:K2_GetComponentsByClass(self.sceneClass)) do
                             door.panel[#door.panel + 1] = comp:get()
                         end
                     end)
@@ -104,133 +103,110 @@ function Doors.new(d)
         end
     end
 
-    --- Attach a node's meshes to its machine's moving component, keeping
-    --- each where it stands relative to the machine at rest: the root's
-    --- transform at rest is the actor's own, whatever the door's position
-    --- now (a player joining an open door).
-    local function attach(door, machine, actor, part)
-        local math_lib, base
-        for _, p in ipairs(door.parts[machine.spec.node] or {}) do
-            local mesh = not p.attached and d.Current.actors and d.Current.actors[p.id]
-            if mesh and mesh:IsValid() then
-                -- Looked up only while something is left to attach: a
-                -- lookup a scan was a 15 ms frame.
-                self.mathLib = self.mathLib or d.findObject("/Script/Engine.Default__KismetMathLibrary")
-                math_lib, base = self.mathLib, base or actor:GetTransform()
-                local ok, err = pcall(function()
-                    local rel = math_lib:MakeRelativeTransform(mesh:GetTransform(), base)
-                    mesh:K2_SetActorTransform(rel, false, d.Current.emptyHit(), false)
-                    mesh:K2_AttachToComponent(part, FName("None"), 0, 0, 0, false)
-                end)
-                p.attached = ok
-                if not ok then d.Log("door: attaching " .. tostring(p.id) .. " failed: " .. tostring(err)) end
-            end
+    --- The machine actors in play, by class name: one scan of the Blam
+    --- object actors a tick, shared by every door.
+    local function actorsByClass(scans)
+        if scans.byClass then return scans.byClass end
+        local byClass = {}
+        for _, a in ipairs(FindAllOf(Doors.ACTOR_CLASS) or {}) do
+            local ok, name = pcall(function() return a:GetClass():GetFName():ToString() end)
+            if ok and name then byClass[name] = a end
         end
+        scans.byClass = byClass
+        return byClass
     end
 
-    local function attached(door)
-        local n, all = 0, 0
-        for _, list in pairs(door.parts) do
-            for _, p in ipairs(list) do
-                all = all + 1
-                if p.attached then n = n + 1 end
+    --- Dress a machine's actor: each mesh component its part's materials.
+    --- Returns how many it dressed.
+    local function dress(m, actor)
+        self.meshClass = self.meshClass or d.findObject("/Script/Engine.StaticMeshComponent")
+        local world = d.getWorld()
+        local n = 0
+        pcall(function()
+            for _, c in ipairs(actor:K2_GetComponentsByClass(self.meshClass)) do
+                local comp = c:get()
+                local leaf = comp.StaticMesh and comp.StaticMesh:GetFName():ToString()
+                local part = leaf and m.byMesh[leaf]
+                if part and type(part.materials) == "table" then
+                    d.applyMaterials(comp, part.materials, world, part.id)
+                    n = n + 1
+                    m.part = m.part or comp
+                end
             end
-        end
-        return n, all
+        end)
+        return n
     end
 
-    --- Each machine's actor, by where it stands; its node's meshes ride it.
-    --- `scans`: one FindAllOf a class a tick, shared by every door (each is
-    --- ~20 ms; Triplicate's seven placements scanning their own were one
-    --- 147 ms frame).
-    local function bind(door, now, scans)
+    --- Find and dress each machine's actor, once.
+    local function setup(door, now, scans)
         if door.done or now - door.seek < Doors.SCAN_S then return end
         door.seek, door.tries = now, door.tries + 1
         hide_control(door, scans)
+        local byClass = actorsByClass(scans)
+        local found, meshes = 0, 0
         for _, m in ipairs(door.machines) do
-            if m.actor and m.actor:IsValid() then
-                attach(door, m, m.actor, m.part)
-            else
-                if m.actor then
-                    if m.key then self.claimed[m.key] = nil end
-                    m.actor, door.bound = nil, door.bound - 1
-                    for _, p in ipairs(door.parts[m.spec.node] or {}) do p.attached = false end
+            if not (m.actor and m.actor:IsValid()) then
+                m.actor, m.part, m.dressed = byClass[m.spec.class], nil, false
+            end
+            local a = m.actor
+            if a and a:IsValid() then
+                found = found + 1
+                if not m.dressed then
+                    m.meshes, m.dressed = dress(m, a), true
+                    m.at = a.K2_GetActorLocation
+                    m.partAt = m.part and m.part.K2_GetComponentLocation
                 end
-                self.meshClass = self.meshClass or d.findObject("/Script/Engine.StaticMeshComponent")
-                local mesh_class = self.meshClass
-                local class = tostring(m.spec.class)
-                scans[class] = scans[class] or FindAllOf(class) or {}
-                local at = m.spec.at_cm
-                -- The nearest actor no other machine has claimed: two
-                -- placements at one point (Triplicate's train and its
-                -- deathball) once bound one actor twice and left the other's
-                -- elevator mesh showing.
-                local best, best_d, best_key
-                for _, a in ipairs(scans[class]) do
-                    local ok, l = pcall(function() return a:K2_GetActorLocation() end)
-                    local dist = ok and l and math.sqrt((l.X - at[1]) ^ 2 + (l.Y - at[2]) ^ 2 + (l.Z - at[3]) ^ 2)
-                    if dist and dist < Doors.MATCH_CM and (not best_d or dist < best_d) then
-                        local okk, key = pcall(function() return a:GetFName():ToString() end)
-                        if okk and not self.claimed[key] then best, best_d, best_key = a, dist, key end
-                    end
-                end
-                if best then
-                    local part
-                    pcall(function()
-                        part = best:K2_GetComponentsByClass(mesh_class)[1]:get()
-                        part:SetVisibility(false, false)
-                    end)
-                    if part then
-                        self.claimed[best_key] = true
-                        m.actor, m.part, m.key = best, part, best_key
-                        m.at, m.partAt = best.K2_GetActorLocation, part.K2_GetComponentLocation
-                        door.bound = door.bound + 1
-                        attach(door, m, best, part)
-                    end
-                end
+                meshes = meshes + (m.meshes or 0)
             end
         end
-        local n, all = attached(door)
-        if door.bound ~= door.logged_bound or n ~= door.logged_n then
-            door.logged_bound, door.logged_n = door.bound, n
-            d.Log(string.format("door: %d of %d machine(s) bound, %d of %d mesh(es) riding them",
-                door.bound, #door.machines, n, all))
+        if found ~= door.logged_found then
+            door.logged_found = found
+            d.Log(string.format("door: %d of %d machine actor(s), %d part mesh(es) dressed", found,
+                #door.machines, meshes))
         end
-        -- Done when everything rides its machine (and the panel has been
-        -- hidden a few scans past the last bind), or on giving up.
-        if door.bound >= #door.machines and n >= all then
-            door.settled = (door.settled or 0) + 1
-        end
-        if (door.settled or 0) >= 3 or door.tries >= Doors.SCAN_TRIES then
+        -- Done once every actor is dressed and the control's panel found:
+        -- each scan of the Blam actors is ~25 ms.
+        local panel = not door.spec.sim_control or door.panel ~= nil
+        if (found >= #door.machines and panel) or door.tries >= Doors.SCAN_TRIES then
             door.done = true
-            if n < all then d.Log("door: gave up; " .. (all - n) .. " mesh(es) stand at rest") end
+            if found < #door.machines then
+                d.Log("door: gave up on " .. (#door.machines - found) .. " machine actor(s)")
+            end
         end
-        -- The machine that travels furthest tells when the door moves.
+        -- The machine that travels furthest, wearing a part, tells when the
+        -- door moves.
         for _, m in ipairs(door.machines) do
-            if m.actor and m.travel > 0 and (not door.watch or m.travel > door.watch.travel) then door.watch = m end
+            if m.partAt and m.travel > 0 and (not door.watch or m.travel > door.watch.travel) then door.watch = m end
         end
     end
 
-    --- 0 closed .. 1 open, from the watched machine.
+    --- 0 closed .. 1 open, from the watched machine: its part's offset from
+    --- where it stood when first read (at rest: a level loads closed). A
+    --- machine the player cannot see is hidden by the game and posed again
+    --- once seen, so this reads still while unseen; its sounds are unheard
+    --- then anyway.
     local function progress(door)
         local m = door.watch
-        if not m then return nil end
+        if not (m and m.actor and m.actor:IsValid()) then return nil end
         local oa, a = pcall(m.at, m.actor)
         local op, p = pcall(m.partAt, m.part)
         if not (oa and op and a and p) then return nil end
-        return math.max(0.0, math.min(1.0, math.sqrt((p.X - a.X) ^ 2 + (p.Y - a.Y) ^ 2 + (p.Z - a.Z) ^ 2) / m.travel))
+        local x, y, z = p.X - a.X, p.Y - a.Y, p.Z - a.Z
+        door.rest = door.rest or { x, y, z }
+        local r = door.rest
+        return math.max(0.0, math.min(1.0, math.sqrt((x - r[1]) ^ 2 + (y - r[2]) ^ 2 + (z - r[3]) ^ 2) / m.travel))
     end
 
-    --- Bind what is unbound and play the doors' sounds. Returns how long to
-    --- wait before the next call, in ms.
+    --- Set up what is not yet and play the doors' sounds. Returns how long
+    --- to wait before the next call, in ms.
     function self.tick(now)
         if self.world ~= d.Current.worldName then
-            self.world, self.doors, self.claimed = d.Current.worldName, build(), {}
+            self.world, self.doors = d.Current.worldName, build()
         end
         local wait = Doors.QUIET_MS
         local scans = {}
         for _, door in ipairs(self.doors or {}) do
-            bind(door, now, scans)
+            setup(door, now, scans)
             if not door.done then
                 wait = math.min(wait, Doors.SCAN_S * 1000)
             end
@@ -246,8 +222,9 @@ function Doors.new(d)
                 if door.target ~= was and door.started then
                     local ok1 = sound(snd.press, door.spec.control_cm)
                     local ok2 = sound(door.target > 0.5 and snd.open or (snd.close or snd.open), door.spec.at_cm)
-                    d.Log(string.format("door: %s (press sound %s, %s sound %s)", door.target > 0.5 and "opening" or "closing",
-                        tostring(ok1), door.target > 0.5 and "open" or "close", tostring(ok2)))
+                    d.Log(string.format("door: %s (press sound %s, %s sound %s)",
+                        door.target > 0.5 and "opening" or "closing", tostring(ok1),
+                        door.target > 0.5 and "open" or "close", tostring(ok2)))
                 end
                 if door.started and door.last < 0.98 and s >= 0.98 then
                     d.Log("door: open (opened sound " .. tostring(sound(snd.opened, door.spec.at_cm)) .. ")")

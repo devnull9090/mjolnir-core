@@ -1,7 +1,7 @@
-//! Clone a shipped synchronized vehicle or weapon actor under a new package
-//! path, so a custom object can wear its own parts while the stock one stays
-//! stock. The clone keeps the donor's Blueprint code and native Blam bindings.
-//! vehicle_actor <paks> <donor leaf> <new /Game/MJOLNIR/Vehicles/... path>
+//! Clone a shipped synchronized actor (a vehicle, a weapon, a device machine)
+//! under a new package path, so a custom object can wear its own parts while
+//! the stock one stays stock. The clone keeps the donor's Blueprint code and native Blam bindings.
+//! vehicle_actor <paks> <donor leaf> <new /Game/MJOLNIR/.../BP_* path>
 //!               <out.uasset> [<export name or index>|<field>|<value> ...]
 //! A value of `@len=N` resizes the array at `field`. A long list goes in a
 //! file, one edit a line, as `@file`.
@@ -41,8 +41,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let new_path = &a[2];
     let new_leaf = new_path.rsplit('/').next().ok_or("new actor leaf")?;
-    if !new_path.starts_with("/Game/MJOLNIR/Vehicles/") || !new_leaf.starts_with("BP_") {
-        return Err(fail("use a /Game/MJOLNIR/Vehicles/.../BP_* path"));
+    // Any actor of ours: a vehicle (/Game/MJOLNIR/Vehicles/...) or a map's
+    // machine part (/Game/MJOLNIR/Maps/<CODE>/Machines/..., the elevator
+    // Blueprint wearing a Halo 2 machine's part: tools/level/machine_actors.py).
+    if !new_path.starts_with("/Game/MJOLNIR/") || !new_leaf.starts_with("BP_") {
+        return Err(fail("use a /Game/MJOLNIR/.../BP_* path"));
     }
     let containers = ue_iostore::load_all(&a[0])?;
     let global = containers

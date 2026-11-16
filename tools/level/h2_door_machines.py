@@ -49,6 +49,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import ce_scenario  # noqa: E402
 from h2_machines import DONOR, DONOR_CLASS, boxes, matrix_quat, physics_args, pose_resource  # noqa: E402
 
+# The shipped Blueprint each machine's actor is cloned from (its mesh list,
+# RuntimeRegions, then names the part's meshes).
+DONOR_ACTOR = "BP_ElevatorAB40"
 # wu between a placement's machines (15 cm), on a grid about its origin.
 SPACING = 0.05
 WU_CM = 304.8
@@ -171,7 +174,7 @@ def build_tags(fresh_dir, entry, code, out, mjolnir, prefix, first=0):
         run("new-tag", "--group", "model_animation_graph", "--from", DONOR, "--to", tag, "--payload", base + ".jmad",
             "--set", f"definitions.animations[0].shared animation data[0].frame count={len(root)}",
             "--out-dir", out, "--name", name("J"))
-        groups, surfaces = "JHM", 0
+        groups, surfaces = "JH", 0
         tris = np.array([platform_t])
         if bsp:
             bsp_json = json.load(open(os.path.join(fresh_dir, bsp), encoding="utf-8"))
@@ -197,19 +200,19 @@ def build_tags(fresh_dir, entry, code, out, mjolnir, prefix, first=0):
             run("new-tag", "--group", "model", "--from", DONOR, "--to", tag,
                 "--set", f"animation=jmad:{tag}", "--set", f"physics_model=phmo:{tag}",
                 "--set", f"collision model=coll:{tag}", "--out-dir", out, "--name", name("H"))
-            groups = "JCPHM"
+            groups = "JCPH"
         else:
             run("new-tag", "--group", "model", "--from", DONOR, "--to", tag,
                 "--set", f"animation=jmad:{tag}", "--set", "physics_model=none",
                 "--set", "collision model=none", "--out-dir", out, "--name", name("H"))
-        # Bounds over the whole motion.
+        # Bounds over the whole motion. The machine tag itself is each
+        # placement's (`build`): it names the placement's own actor.
         reach = max(float(np.linalg.norm(quat_matrix(q) @ cn + np.array(t))) for q, t in root for cn in tris)
-        run("new-tag", "--group", "device_machine", "--from", DONOR, "--to", tag,
-            *machine_sets(kind, door["seconds"]),
-            "--set", f"device.object.bounding radius={max(reach, 1.0):.3f}",
-            "--set", f"device.object.model=hlmt:{tag}", "--out-dir", out, "--name", name("M"))
+        m_sets = [*machine_sets(kind, door["seconds"]),
+                  "--set", f"device.object.bounding radius={max(reach, 1.0):.3f}",
+                  "--set", f"device.object.model=hlmt:{tag}"]
         built.append({"tag": tag, "node": nodes[n]["name"], "origin": origin.tolist(), "root": root,
-                      "containers": [name(g) for g in groups]})
+                      "containers": [name(g) for g in groups], "m_sets": m_sets, "m_name": name("M")})
         turn = 2 * np.degrees(np.arccos(min(1.0, abs(root[-1][0][3]))))
         print(f"  machine {k}: {nodes[n]['name']} slides {[round(v, 3) for v in root[-1][1]]} wu, turns {turn:.0f} deg, "
               f"{surfaces or 'no'} collision surfaces, machine type {kind.get('type')}")
@@ -242,12 +245,30 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0
     # so it is one device group of the simulation's, named for the number.
     grp = (entry.get("h2_device") or {}).get("position_group", -1)
     group = f"{code.lower()}_group{grp}"
+    # Each placed machine's own machine tag (its shared animation, collision,
+    # physics and model under it) names an actor of its own: the elevator
+    # Blueprint wearing the placement's part (`write_actors`), so Unreal
+    # draws and moves the part, and nothing has to hide B40's elevator.
+    placed = cache.setdefault("placed", {})
+    pa = placed.get(asset, 0)
+    placed[asset] = pa + 1
     machines, objects = [], []
     for t in tags:
         at_cm = ue(pos + rz @ np.array(t["origin"]))
-        machines.append({"tag": t["tag"], "class": DONOR_CLASS, "node": t["node"], "at_cm": at_cm,
-                         "travel_cm": ue(rz @ np.array(t["root"][-1][1])), "containers": t["containers"]})
-        obj = {"tag": t["tag"], "group": "machines", "pos": at_cm, "rot": [0, round(-np.degrees(yaw), 2), 0]}
+        index = cache.setdefault("actors", 0)
+        cache["actors"] = index + 1
+        actor = f"/Game/MJOLNIR/Maps/{code}/Machines/BP_{code}_Machine{index}"
+        m_tag = t["tag"] + (f"_p{pa}" if pa else "")
+        m_name = t["m_name"] + (str(pa) if pa else "")
+        subprocess.run([mjolnir, "new-tag", "--group", "device_machine", "--from", DONOR, "--to", m_tag, *t["m_sets"],
+                        "--asset-reference", actor, "--out-dir", out, "--name", m_name],
+                       check=True, capture_output=True, text=True,
+                       env=dict(os.environ, MSYS2_ARG_CONV_EXCL="*"))
+        machines.append({"tag": m_tag, "class": actor.rsplit("/", 1)[1] + "_C", "actor": actor, "node": t["node"],
+                         "at_cm": at_cm, "yaw_ue": round(-float(np.degrees(yaw)), 4),
+                         "travel_cm": ue(rz @ np.array(t["root"][-1][1])),
+                         "containers": t["containers"] + [m_name, f"pakchunk987-MJOLNIRACT-{code}"]})
+        obj = {"tag": m_tag, "group": "machines", "pos": at_cm, "rot": [0, round(-np.degrees(yaw), 2), 0]}
         # A device group only where Halo 2 gives the machine a position group
         # (a control or a script moves it); a gear, or a door that opens by
         # itself, has none.
@@ -282,6 +303,66 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0
     return {"machines": machines, "control": control, "blam": {"objects": objects, "device_groups": groups}}
 
 
+def actor_edits(machine, items):
+    """vehicle_actor edits that make the elevator Blueprint wear a placed
+    machine's part meshes (`items`: decor entries with mesh, pos, scale),
+    each on bone `Root` (the simulation's root node, which follows the part
+    exactly) where it stands at rest, relative to the machine's actor. A
+    machine with no mesh (a moving node with none, a second collision piece
+    of a node) wears nothing."""
+    base = "RuntimeRegions{default}.Permutations{default}"
+    edits = [f"0|{base}.StaticMeshes|@len={len(items)}"]
+    psi = np.radians(machine["yaw_ue"])
+    c, s_ = np.cos(-psi), np.sin(-psi)
+    at = np.array(machine["at_cm"], dtype=float)
+    # The mesh stands world-aligned; the actor is turned by its yaw.
+    q = (0.0, 0.0, float(np.sin(-psi / 2)), float(np.cos(-psi / 2)))
+    for i, item in enumerate(items):
+        d = np.array(item["pos"], dtype=float) - at
+        local = (c * d[0] - s_ * d[1], s_ * d[0] + c * d[1], d[2])
+        sc = item.get("scale") or [1.0, 1.0, 1.0]
+        p = f"{base}.StaticMeshes[{i}]"
+        edits += [f"0|{p}.Asset|{item['mesh']}", f"0|{p}.Class|/Script/Engine.StaticMeshComponent",
+                  f"0|{p}.ParentBoneName|Root", f"0|{p}.MaterialOverrides|@len=0", f"0|{p}.ComponentTags|@len=0",
+                  f"0|{p}.Transform.Translation|{local[0]:.3f},{local[1]:.3f},{local[2]:.3f}",
+                  f"0|{p}.Transform.Rotation|{q[0]:.6f},{q[1]:.6f},{q[2]:.6f},{q[3]:.6f}",
+                  f"0|{p}.Transform.Scale3D|{sc[0]:.5f},{sc[1]:.5f},{sc[2]:.5f}"]
+    return edits
+
+
+def write_actors(doors, items, code, out, paks, examples):
+    """Every placed machine's actor (`build`'s `actor`): B40's elevator
+    Blueprint cloned (crates/ue-asset/examples/vehicle_actor.rs) to wear the
+    machine's part meshes, into pakchunk987-MJOLNIRACT-<CODE>_P in `out`.
+    `items`: decor entries by id (mesh, pos, scale), whose ids the doors'
+    `parts` name. Each node's meshes go on the first machine of that node."""
+    work = tempfile.mkdtemp(prefix="h2actors_")
+    env = dict(os.environ, MSYS2_ARG_CONV_EXCL="*")
+    packages = []
+    for door in doors:
+        worn = set()
+        for m in door["machines"]:
+            mine = [] if m["node"] in worn else [items[p["id"]] for p in door.get("parts") or []
+                                                if p["node"] == m["node"] and p["id"] in items]
+            worn.add(m["node"])
+            leaf = m["actor"].rsplit("/", 1)[1]
+            edits = os.path.join(work, leaf + ".edits.txt")
+            open(edits, "w", encoding="utf-8").write("\n".join(actor_edits(m, mine)) + "\n")
+            uasset = os.path.join(work, leaf + ".uasset")
+            subprocess.run([os.path.join(examples, "vehicle_actor.exe"), paks, DONOR_ACTOR, m["actor"], uasset,
+                            "@" + edits], check=True, capture_output=True, text=True, env=env)
+            packages += ["--package", f"{m['actor']}={uasset}"]
+    if not packages:
+        return None
+    name = f"pakchunk987-MJOLNIRACT-{code}_P"
+    subprocess.run([os.path.join(examples, "package_add.exe"), paks, out, "--name", name, *packages],
+                   check=True, capture_output=True, text=True, env=env)
+    # The game mounts a .utoc/.ucas pair only beside a .pak.
+    shutil.copyfile(os.path.join(paks, "pakchunk115-Windows.pak"), os.path.join(out, name + ".pak"))
+    print(f"  {len(packages) // 2} machine actor(s) -> {os.path.join(out, name)}")
+    return name
+
+
 def main():
     """A fresh conversion's machines (tools/level/convert_ce_map.sh):
 
@@ -293,6 +374,26 @@ def main():
     gen_ce_level.py --doors (the machines and controls it places, the device
     groups, and the level loader's `doors`)."""
     import argparse
+    if len(sys.argv) > 1 and sys.argv[1] == "actors":
+        # h2_door_machines.py actors <doors.json> <terrain.json> <CODE> <out dir> --paks P --examples E
+        # Once build_terrain_meshes.py has placed the part meshes: each
+        # machine's actor wearing its part (`write_actors`).
+        ap = argparse.ArgumentParser(prog="h2_door_machines.py actors")
+        ap.add_argument("doors")
+        ap.add_argument("terrain")
+        ap.add_argument("code")
+        ap.add_argument("out")
+        ap.add_argument("--paks", default=os.environ.get("HCE_PAKS"))
+        ap.add_argument("--examples", required=True)
+        a = ap.parse_args(sys.argv[2:])
+        doors = json.load(open(a.doors, encoding="utf-8"))
+        terrain = json.load(open(a.terrain, encoding="utf-8"))
+        terrain = terrain if isinstance(terrain, list) else [terrain]
+        for door in doors:
+            door["parts"] = [{"id": t["id"], "node": t["door_part"]["node"]} for t in terrain
+                             if (t.get("door_part") or {}).get("entry") == door["entry"]]
+        write_actors(doors, {t["id"]: t for t in terrain if t.get("id")}, a.code, a.out, a.paks, a.examples)
+        return
     ap = argparse.ArgumentParser(description=main.__doc__.strip().splitlines()[0])
     ap.add_argument("staging")
     ap.add_argument("code")

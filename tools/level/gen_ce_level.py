@@ -1350,7 +1350,11 @@ def add_doors(level, decor, doors_json, sounds_dir, sound_root):
         for g in d["blam"]["device_groups"]:
             if not any(x["name"] == g["name"] for x in groups):
                 groups.append(g)
-        parts = [{"id": item["id"], "node": item["door_part"]["node"]} for item in decor
+        # Its parts are worn by its machines' actors (h2_door_machines.py
+        # actors), not spawned as decor: each carries its mesh and materials
+        # for the loader to dress the actor's components with.
+        parts = [{"id": item["id"], "node": item["door_part"]["node"], "mesh": item.get("mesh"),
+                  "materials": item.get("materials")} for item in decor
                  if (item.get("door_part") or {}).get("entry") == d["entry"]]
         sounds = {k: w for k, w in ((k, waves(v)) for k, v in (d.get("sounds") or {}).items()) if w}
         if d.get("press_sound") and waves(d["press_sound"]):
@@ -1361,6 +1365,7 @@ def add_doors(level, decor, doors_json, sounds_dir, sound_root):
             rec["sim_control"], rec["control_cm"] = d["sim_control"], d["control_cm"]
         out.append(rec)
     if out:
+        decor[:] = [item for item in decor if not item.get("door_part")]
         level["doors"] = out
         print(f"  {len(out)} moving machine(s), {sum(len(r['machines']) for r in out)} simulation machine(s), "
               f"{sum(len(r['parts']) for r in out)} part mesh(es) ({lit} lit by Unreal), {len(groups)} device group(s)")
