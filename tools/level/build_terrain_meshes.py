@@ -114,6 +114,12 @@ def main():
     ap.add_argument("--machine-instances", metavar="FILE",
                     help="the parts of moving machines name cooked material instances (machine_instances.py), "
                          "listed in FILE for the editor; only when the map's cook runs")
+    ap.add_argument("--instance-root", metavar="/Game/FOLDER",
+                    help="the folder of those instances (default: MachineMaterials under the map's own folder); "
+                         "an upgraded map's are in a folder its landscape's cook labels (upgrade_ce_map.py)")
+    ap.add_argument("--machine-part", action="append", default=[], metavar="/Game/PACKAGE",
+                    help="a mesh that is a moving machine's part though no motion or door file lies beside its "
+                         "glTF (h2_physics_props.py's door parts)")
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.normpath(os.path.join(here, "..", ".."))
     ap.add_argument("--repo", default=repo)
@@ -154,6 +160,7 @@ def main():
                                package[: -len("_Translucent")] + "_Water"])
     jobs = append_native_detail_jobs(jobs, water_jobs, a.native_detail)
     instances = []
+    instance_folder = a.instance_root or f"{jobs[0][2].rsplit('/', 1)[0]}/{machine_instances.FOLDER}"
 
     for k, (gltf, donor, package) in enumerate(jobs):
         leaf = package.rsplit("/", 1)[-1]
@@ -182,7 +189,8 @@ def main():
         door = gltf[: -len(".gltf")] + ".door.json"
         # A moving machine's part wears cooked instances in real slots
         # (machine_instances.py): no material for the loader to set.
-        cooked = bool(a.machine_instances) and k > 0 and (os.path.isfile(motion) or os.path.isfile(door))
+        cooked = bool(a.machine_instances) and k > 0 and (
+            os.path.isfile(motion) or os.path.isfile(door) or package in a.machine_part)
         materials = []
         if k == 0:
             args += ["--material", f"Terrain={a.fallback}=*"]
@@ -191,7 +199,7 @@ def main():
             # On a later mesh the first section claims slot 0 ("*").
             pattern = s["pattern"] + ("|*" if k > 0 and j == 0 else "")
             if cooked:
-                target = machine_instances.slot(s["material"], package.rsplit("/", 1)[0], leaf, j, instances)
+                target = machine_instances.slot(s["material"], instance_folder, leaf, j, instances)
             else:
                 target = s["material"]["parent"]
                 materials.append(s["material"])
@@ -247,7 +255,7 @@ def main():
         sys.exit(f"package_add failed:\n{po.stderr[-2000:]}")
     json.dump(entries, open(os.path.join(a.out, "terrain.json"), "w", encoding="utf-8"), indent=2)
     if a.machine_instances:
-        machine_instances.plan(jobs[0][2].rsplit("/", 1)[0], instances, a.machine_instances)
+        machine_instances.plan(instance_folder, instances, a.machine_instances)
     print(f"{len(entries)} terrain mesh(es) in {a.container} -> {os.path.join(a.out, 'terrain.json')}")
 
 

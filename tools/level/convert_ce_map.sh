@@ -426,7 +426,8 @@ PY_SURFACE_CHECK
   # cook_chunk), which its map pack ships as MJOLNIRCOOK-<CODE>
   # (docs/map_distribution.md).
   if [ -f "$out/machines/instances.json" ]; then
-    python "$here/machine_instances.py" check "$out/machines/instances.json" "$out/materials.spec.json" --mjolnir "$mjolnir"
+    python "$here/machine_instances.py" check "$out/machines/instances.json" --mjolnir "$mjolnir" \
+      --chunk "$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json" | tr -d '\r')"
   fi
   chunk="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json")"
   chunk="${chunk%%[[:space:]]}"

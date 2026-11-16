@@ -831,6 +831,113 @@ def redrawn_manifest(code, p):
     return path
 
 
+def swap_redrawn(entries, names, root, keys=("Base", "Map0", "Bump", "SelfIllumMap")):
+    """Point each material entry's textures (`keys`) that name a redrawn
+    texture at its copy under `root` (the landscape's Up/ folder). Returns
+    the count."""
+    swapped = 0
+    for entry in entries:
+        tex = entry.get("textures") if isinstance(entry, dict) else None
+        for key in keys:
+            leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+            if leaf in names:
+                tex[key] = f"{root}{leaf}.{leaf}"
+                swapped += 1
+    return swapped
+
+
+def fill_detail(entries, rule, path):
+    """`detail_fill`: give each material entry drawn with a base map alone,
+    whose base map's name holds one of the rule's tokens, the detail map at
+    `path`. Returns the count."""
+    filled = 0
+    for entry in entries:
+        tex = entry.get("textures") if isinstance(entry, dict) else None
+        sc = entry.get("scalars") if isinstance(entry, dict) else None
+        leaf = str((tex or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
+        if (isinstance(sc, dict) and not sc.get("HasPrimary") and "Primary" not in tex
+                and any(tok in leaf for tok in rule["bases"])):
+            tex["Primary"] = path
+            sc["HasPrimary"], sc["PrimaryScale"] = 1.0, float(rule.get("scale", 16))
+            filled += 1
+    return filled
+
+
+def machine_parts_plan(code, m, p):
+    """The map's moving machine parts' cooked material instances
+    (machine_instances.py): the scene's list (h2_physics_props.py
+    --instance-root), each entry finished as assemble finishes a part the
+    loader dresses (the redrawn textures, `detail_fill`), under a folder and
+    a label of their own in the landscape's chunk. Returns the finished
+    file's path, or None for a map whose parts the loader dresses."""
+    src = os.path.join(p["scene"], "machine_instances.json")
+    if not os.path.exists(src):
+        return None
+    plan = json.load(open(src, encoding="utf-8"))
+    if not plan["instances"]:
+        return None
+    if m.get("indoor"):
+        sys.exit(f"{code}: cooked machine parts need the landscape's cook; build its meshes without --instance-root")
+    folder = f"/Game/MJOLNIR/MachineParts/{m['landscape']}"
+    if plan["folder"] != folder:
+        sys.exit(f"{code}: {src} names {plan['folder']}; h2_physics_props.py --instance-root {folder}")
+    entries = plan["instances"]
+    manifest = os.path.join(p["work"], "redrawn", "manifest.json")
+    if m.get("redrawn") and os.path.exists(manifest):
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
+        swap_redrawn(entries, names, f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/")
+    spec = json.load(open(os.path.join(p["conv"], "materials.spec.json"), encoding="utf-8"))
+    for rule in m.get("detail_fill") or []:
+        fill_detail(entries, rule, f"{spec['root']}/Textures/{rule['detail']}.{rule['detail']}")
+    plan["label"] = {"name": f"PAL_MJOLNIR_{m['landscape']}Parts", "chunk": int(m["chunk"])}
+    out = os.path.join(p["work"], "machine_instances.json")
+    json.dump(plan, open(out, "w", encoding="utf-8"), indent=1)
+    return out
+
+
+def map_cook_container(code, m, p):
+    """The container of the map's own cooked packages (its textures and
+    sounds, /Game/MJOLNIR/Maps/<CODE>): the conversion's, or the copy the
+    cook stage refreshed beside the upgrade's work (refresh_map_cook)."""
+    conv = cooked_map_container(p["conv"], code)
+    fresh = os.path.join(p["work"], conv.name)
+    return fresh if os.path.isfile(fresh + ".utoc") else str(conv)
+
+
+def refresh_map_cook(code, m, p):
+    """Textures imported into the map's folder after its conversion cooked
+    (h2_physics_props.py's door parts and stencils) are in this cook's chunk
+    and not in the conversion's container, which the install took: Zanzibar's
+    gate drew textured only beside a test container installed by hand
+    (2026-11-15). When the staged chunk holds everything the conversion's
+    does and more, it becomes the map's container (a copy in the work
+    folder); when it lacks something, the conversion's stays."""
+    conv = cooked_map_container(p["conv"], code)
+    spec_path = os.path.join(p["conv"], "materials.spec.json")
+    if m.get("map_mesh_chunk") or not os.path.isfile(str(conv) + ".utoc") or not os.path.isfile(spec_path):
+        return
+    chunk = json.load(open(spec_path, encoding="utf-8")).get("chunk")
+    staged = os.path.join(STAGED, f"pakchunk{chunk}-Windows")
+    if not chunk or not os.path.isfile(staged + ".utoc"):
+        return
+    import machine_instances
+    old = {f.rsplit("/", 1)[-1] for f in machine_instances.listing(p["conv"], conv.name)}
+    new = {f.rsplit("/", 1)[-1] for f in machine_instances.listing(STAGED, f"pakchunk{chunk}-")}
+    fresh = os.path.join(p["work"], conv.name)
+    if old - new:
+        print(f"  {code}: this cook's pakchunk{chunk} lacks {len(old - new)} package(s) of the conversion's "
+              f"({sorted(old - new)[:3]}...): the conversion's container stays")
+        for e in ("utoc", "ucas"):
+            if os.path.exists(f"{fresh}.{e}"):
+                os.remove(f"{fresh}.{e}")
+        return
+    if new - old:
+        for e in ("utoc", "ucas"):
+            shutil.copyfile(f"{staged}.{e}", f"{fresh}.{e}")
+        print(f"  {code}: {len(new - old)} package(s) cooked since the conversion ({sorted(new - old)[:3]}...): "
+              f"pakchunk{chunk} -> {fresh}")
+
+
 def stage_editor(code, m, p):
     if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
         sys.exit(f"{code}: rock overrides require bake_foliage")
@@ -870,6 +977,16 @@ def stage_editor(code, m, p):
     if m.get("bake_foliage") and "landscape foliage:" not in log:
         sys.exit(f"{code}: the world was built without its foliage:\n{out[-2000:]}")
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
+    # The moving machine parts' material instances, cooked beside the world.
+    plan = machine_parts_plan(code, m, p)
+    if plan:
+        powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"),
+                   ["-Script", "..\\..\\tools\\level\\ce_vehicle_instances_editor.py"], env={"MJ_CE_INSTANCES": plan})
+        n = len(json.load(open(plan, encoding="utf-8"))["instances"])
+        log = open(os.path.join(PROJECT, "Saved_ce_vehicle_instances_editor.log"), encoding="utf-8", errors="replace").read()
+        if f"MJOLNIR vehicle instances: {n} under" not in log:
+            sys.exit(f"{code}: the machine part instances did not build: Saved_ce_vehicle_instances_editor.log")
+        print(f"  {code}: {n} machine part material instance(s)")
 
 
 def build_water():
@@ -1915,22 +2032,28 @@ def stage_assemble(code, m, p):
     # human installation: Zanzibar's hazard stripes, whose name holds
     # "strip", drew as iridescent metal).
     structures = mark_structures(level) if m.get("structure_metal", True) else 0
+    # Turning parts whose meshes carry cooked material instances
+    # (machine_parts_plan): nothing for the loader to dress them with. (A
+    # door's parts come from the scene's extra decor, built without
+    # materials the same way.)
+    plan = machine_parts_plan(code, m, p)
+    if plan:
+        cooked = {e["mesh"] for e in json.load(open(plan, encoding="utf-8"))["instances"]}
+        bare = 0
+        for gear in level.get("gears") or []:
+            if str(gear.get("mesh", "")).rsplit(".", 1)[-1] in cooked:
+                gear["materials"] = []
+                bare += 1
+        print(f"  {code}: {bare} turning part(s) wear cooked material instances")
     # The redrawn textures (stage_editor): every Base, Map0 and Bump that names
     # one, at its copy beside the bakes.
     manifest = os.path.join(p["work"], "redrawn", "manifest.json")
     if m.get("redrawn") and os.path.exists(manifest):
         names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
         root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
-        swapped = 0
         # The decor, and the turning parts their machines' actors wear.
-        for item in (level.get("decor") or []) + (level.get("gears") or []):
-            for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
-                tex = entry.get("textures") if isinstance(entry, dict) else None
-                for key in ("Base", "Map0", "Bump"):
-                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
-                    if leaf in names:
-                        tex[key] = f"{root}{leaf}.{leaf}"
-                        swapped += 1
+        swapped = sum(swap_redrawn(item.get("materials") or [], names, root, ("Base", "Map0", "Bump"))
+                      for item in (level.get("decor") or []) + (level.get("gears") or []) if isinstance(item, dict))
         print(f"  {code}: {swapped} material slot(s) on {len(names)} redrawn texture(s)")
     # `detail_fill`: a detail map for slots the game drew with a base map
     # alone (Halo 2's wheel: a stretched colour map and nothing under it).
@@ -1951,15 +2074,8 @@ def stage_assemble(code, m, p):
             # The decor and the turning parts (Zanzibar's wheel, its blades and
             # flywheels, which the rule was written for).
             for item in (level.get("decor") or []) + (level.get("gears") or []):
-                for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
-                    tex = entry.get("textures") if isinstance(entry, dict) else None
-                    sc = entry.get("scalars") if isinstance(entry, dict) else None
-                    leaf = str((tex or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
-                    if (isinstance(sc, dict) and not sc.get("HasPrimary") and "Primary" not in tex
-                            and any(tok in leaf for tok in rule["bases"])):
-                        tex["Primary"] = path
-                        sc["HasPrimary"], sc["PrimaryScale"] = 1.0, float(rule.get("scale", 16))
-                        filled += 1
+                if isinstance(item, dict):
+                    filled += fill_detail(item.get("materials") or [], rule, path)
         print(f"  {code}: {filled} slot(s) given a detail map")
     pulses = bake_pulses(level)
     if pulses:
@@ -2689,7 +2805,7 @@ def local_install_plan(code, m, p, *, shared=True):
                   (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
                    f"MJOLNIRMESH-{code}"),
                   (str(verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk")
-                       else cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}")]
+                       else map_cook_container(code, m, p)), f"MJOLNIRCOOK-{code}")]
     if not m.get("indoor"):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
@@ -2791,7 +2907,7 @@ def stage_install(code, m, p):
     if m.get("conversion_containers"):
         if not m.get("mesh_container"):
             builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
-        builds.append((str(cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}"))
+        builds.append((map_cook_container(code, m, p), f"MJOLNIRCOOK-{code}"))
     builds += door_containers(m)
     builds += gear_containers(p)
     missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
@@ -2894,6 +3010,15 @@ def main():
             build_cliffs(maps, ps)
         if stage == "cook":
             stage_cook(list(maps.values()))
+            for code, m in maps.items():
+                plan = os.path.join(ps[code]["work"], "machine_instances.json")
+                refresh_map_cook(code, m, ps[code])
+                if machine_parts_plan(code, m, ps[code]):
+                    cooked = map_cook_container(code, m, ps[code])
+                    print("  " + run([sys.executable, os.path.join(HERE, "machine_instances.py"), "check", plan,
+                                      "--chunk", str(m["chunk"]),
+                                      "--also", f"{os.path.dirname(str(cooked))}={os.path.basename(str(cooked))}"]
+                                     ).strip().splitlines()[-1])
             for code, m in maps.items():
                 if m.get("map_mesh_chunk"):
                     cli = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))

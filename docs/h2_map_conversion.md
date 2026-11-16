@@ -477,7 +477,33 @@ units and axes, so every later step reads them unchanged:
   rewritten from the engine's cube keeps the cube's one slot
   (`WorldGridMaterial`) unless `--asset-imports` writes its own. Without a
   cook (CE_COOK=0), and on a level built before this, the loader dresses the
-  parts once a world, as before. Dressing state belongs to the world: a
+  parts once a world, as before.
+
+  An upgraded map (upgrade_ce_map.py) does the same from its own stages.
+  `h2_physics_props.py --instance-root /Game/MJOLNIR/MachineParts/<landscape>`
+  builds the turning parts and the door parts naming instances in that
+  folder and lists them in `<scene>/machine_instances.json`. The editor
+  stage finishes each entry as assemble finished a part the loader dressed
+  (the redrawn textures, `detail_fill`: `machine_parts_plan`, the same two
+  helpers) and makes the instances after the landscape world, under a label
+  of the folder's own (`PAL_MJOLNIR_<landscape>Parts`, the landscape's chunk,
+  not recursive: the landscape's own labels are, and would take the masters
+  into the chunk). The cook stage runs `machine_instances.py check` on the
+  chunk (the conversion's cook container named for the textures it carries),
+  and assemble leaves those gears without materials. Zanzibar: 21 slots,
+  each equal to what the loader set before, checked entry by entry; in
+  game all 21 draw `MI_ZAN_*` instances, in a second match on the map too.
+
+  The cook stage also refreshes the map's own cook container
+  (`refresh_map_cook`): textures imported into the map's folder after its
+  conversion cooked (the door parts' and the props' stencils, by
+  h2_physics_props.py) are in this cook's chunk, not in the conversion's
+  container the install took, and Zanzibar's gate had drawn textured only
+  beside a test container installed by hand. When the staged chunk holds
+  everything the conversion's does and more, a copy in the work folder
+  becomes the map's `MJOLNIRCOOK-<CODE>`. Run the stages with `HCE_PAKS`,
+  `MJOLNIR` and `EXAMPLES` set (release builds): the bake's defaults are
+  the debug examples, which may be older than the level schema. Dressing state belongs to the world: a
   second match on the same map has the same world name and new actors, and
   parts kept from the first came back as bare grid (fixed 2026-11-15).
 

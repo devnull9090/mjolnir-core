@@ -97,7 +97,8 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
     and `doors.json` gives every part's world transform at every frame of
     Halo 2's opening (crate::h2::door) for the level loader to play when a
     player presses the control of the door's position group. Returns (mesh
-    jobs, spec materials, texture imports, decor meshes)."""
+    jobs, spec materials, texture imports, decor meshes, the door parts'
+    mesh packages)."""
     sys.path.insert(0, os.path.join(REPO, "tools", "level"))
     import numpy as np
     import merge_ce_scene as mcs
@@ -105,7 +106,7 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
     shaders = json.load(open(os.path.join(fresh_dir, "materials.json"), encoding="utf-8"))
     sounds = json.load(open(os.path.join(fresh_dir, "sounds_out", "sounds.json"), encoding="utf-8")).get("sounds", {})
     have = {(e.get("asset"), tuple(round(v, 2) for v in e.get("pos") or [])) for e in conv_placement["entries"]}
-    jobs, mats, tex, ids, doors = [], [], {}, [], []
+    jobs, mats, tex, ids, doors, moving = [], [], {}, [], [], []
     machine_cache = {}  # h2_door_machines: each Halo 2 tag's machine tags, built once
     T_ = lambda f: f"/Game/MJOLNIR/Maps/{code}/Textures/T_{f[:-4]}.T_{f[:-4]}"
 
@@ -214,6 +215,7 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
         part_list = []
         for n, ps in sorted(parts.items()):
             mesh = mesh_for(ps, f"{leaf}_n{n}")
+            moving.append(f"/Game/MJOLNIR/Maps/{code}/{mesh}")
             part_list.append({"id": f"{code.lower()}_{mesh.lower()}", "node": nodes[n]["name"]})
         grp = (e.get("h2_device") or {}).get("position_group", -1)
         ctl = next((c for c in controls if grp >= 0 and (c.get("h2_device") or {}).get("position_group") == grp), None)
@@ -243,7 +245,7 @@ def static_extras(fresh_dir, conv_placement, code, out, cli=None):
     json.dump(doors, open(os.path.join(out, "doors.json"), "w", encoding="utf-8"), indent=1)
     imports = [{"file": os.path.join(fresh_dir, "textures", f), "dest": f"/Game/MJOLNIR/Maps/{code}/Textures",
                 "name": "T_" + f[:-4]} for f in sorted(tex)]
-    return jobs, mats, imports, ids
+    return jobs, mats, imports, ids, moving
 
 
 def run(*args, **kw):
@@ -263,6 +265,10 @@ def main():
     ap.add_argument("--skip", action="append", default=[], help="leave props whose asset contains this still")
     ap.add_argument("--cli", default=os.path.join(REPO, "target", "release", "mjolnir.exe"))
     ap.add_argument("--no-meshes", action="store_true", help="skip the mesh container (tags and json only)")
+    ap.add_argument("--instance-root", metavar="/Game/FOLDER",
+                    help="the moving parts (turning machines, door parts) name cooked material instances in this "
+                         "folder, listed in <out>/machine_instances.json (machine_instances.py); "
+                         "upgrade_ce_map.py makes and cooks them: /Game/MJOLNIR/MachineParts/<landscape>")
     a = ap.parse_args()
     conv, out, code = a.conversion, a.out, a.code
     staging = os.path.join(conv, "staging")
@@ -377,7 +383,15 @@ def main():
                 mesh_jobs.append(f"{conv}/{f}=basicshapes/cube={r}/SM_{code}_Machine{k}")
         mesh_jobs += jobs
         # Machines the conversion left out (a closed door), as static decor.
-        ex_jobs, ex_mats, ex_imports, ex_ids = static_extras(fresh_dir, placement, code, out, a.cli)
+        ex_jobs, ex_mats, ex_imports, ex_ids, ex_moving = static_extras(fresh_dir, placement, code, out, a.cli)
+        cooked_args = []
+        if a.instance_root:
+            cooked_args = ["--machine-instances", os.path.join(out, "machine_instances.json"),
+                           "--instance-root", a.instance_root]
+            for package in ex_moving:
+                cooked_args += ["--machine-part", package]
+        elif os.path.exists(os.path.join(out, "machine_instances.json")):
+            os.remove(os.path.join(out, "machine_instances.json"))
         spec_path = os.path.join(conv, "materials.spec.json")
         if ex_jobs:
             spec = json.load(open(spec_path, encoding="utf-8"))
@@ -405,7 +419,7 @@ def main():
                   "--offset", "0,0,0", "--fallback", "/Game/Env/Bio/Rock/Canyon/Materials/MI_Rock_Canyon_Generic",
                   "--examples", os.path.join(REPO, "target", "release", "examples"),
                   "--container", f"pakchunk986-MJOLNIRMESH-{code}_P",
-                  "--placement", os.path.join(staging, "placement.json"), *mesh_jobs,
+                  "--placement", os.path.join(staging, "placement.json"), *cooked_args, *mesh_jobs,
                   env=dict(os.environ, MSYS2_ARG_CONV_EXCL="/Game"))
         open(os.path.join(out, "build.log"), "w", encoding="utf-8").write(log)
         print(f"  meshes: {len(mesh_jobs)} into pakchunk986-MJOLNIRMESH-{code}_P")

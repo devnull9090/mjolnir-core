@@ -14,6 +14,11 @@ file says `"drop_textures": true` (machine_instances.py: a moving part's lit
 master has no reflection cube, which the loader's dynamic instance ignored
 too); then it is dropped the same way. The file's `overrides` go on whichever
 masters have them.
+
+The file's `label` ({"name", "chunk"}: machine_instances.py, an upgraded map's
+machine parts) is a label of the folder's own, made here: not recursive, so
+the chunk takes the instances and not their masters. Without it the folder is
+under a map's own label (build_ce_level.py's), which is made not recursive.
 """
 import json
 import os
@@ -34,7 +39,7 @@ if eal.does_directory_exist(folder):
         # ce_vehicle_sounds.py's waves share the folder and the chunk.
         if path.startswith(f"{folder}/Sounds/"):
             continue
-        if path.split(".")[0] not in wanted:
+        if path.split(".")[0] not in wanted and path.rsplit(".", 1)[-1] != (spec.get("label") or {}).get("name"):
             eal.delete_asset(path.split(".")[0])
 
 dropped = {}
@@ -86,9 +91,20 @@ for entry in spec["instances"]:
 # nothing. An instance's references reach its master and the master's default
 # textures, and the chunk took copies of them, shaders and all, to shadow the
 # runtime pack's. The label's folder scan already holds everything here.
-root = folder.rsplit("/", 1)[0]
-label = unreal.load_asset(f"{root}/PAL_{root.rsplit('/', 1)[1]}")
-rules = label.get_editor_property("rules")
+own = spec.get("label")
+if own:
+    label = unreal.load_asset(f"{folder}/{own['name']}")
+    if label is None:
+        label = assets.create_asset(own["name"], folder, unreal.PrimaryAssetLabel, unreal.DataAssetFactory())
+    rules = label.get_editor_property("rules")
+    rules.set_editor_property("chunk_id", int(own["chunk"]))
+    rules.set_editor_property("priority", 10)
+    rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
+    label.set_editor_property("label_assets_in_my_directory", True)
+else:
+    root = folder.rsplit("/", 1)[0]
+    label = unreal.load_asset(f"{root}/PAL_{root.rsplit('/', 1)[1]}")
+    rules = label.get_editor_property("rules")
 rules.set_editor_property("apply_recursively", False)
 label.set_editor_property("rules", rules)
 eal.save_loaded_asset(label)
