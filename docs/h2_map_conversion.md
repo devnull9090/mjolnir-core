@@ -543,7 +543,20 @@ units and axes, so every later step reads them unchanged:
   player is elsewhere is this culling, not a fault. Judge machines from
   the player's own view. (This explains every "stuck" ramp, bar and
   "frozen" train reading earlier that day; un-hiding an actor by hand does
-  not pose it, the game's own visibility does.)
+  not pose it, the game's own visibility does.) It is distance culling, as
+  for every Blam object, judged by the object's bounding radius: with the
+  player 20 wu from the gate none of its machines hid, at 35 wu 11 of 14,
+  from 45 wu all. Since the parts are the actors' own meshes now, a culled
+  part is not drawn, as a culled crate or weapon is not; Halo 2 culls the
+  gate as one object (bounding radius 2.56 wu, object +0x04, offset +0x08),
+  so every machine of a placement takes the placement's largest reach as
+  its radius and the parts go and come together. Gears (h2_machines.py)
+  were never hidden within 75 m of the player.
+
+  Two copies on PC 1 (tools/remote/instances.mjs up 2, one simulation):
+  each found and dressed all fourteen actors; the gate opened from the
+  host's console showed open on the client; each copy culls by its own
+  player, and each showed every part open once its player was at the gate.
   Opaque shaders that scroll their base map are staged as `base_scroll`
   (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
   in u every 2 s); the `h2_staging` map setting applies it to the level's

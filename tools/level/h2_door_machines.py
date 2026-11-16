@@ -208,11 +208,10 @@ def build_tags(fresh_dir, entry, code, out, mjolnir, prefix, first=0):
         # Bounds over the whole motion. The machine tag itself is each
         # placement's (`build`): it names the placement's own actor.
         reach = max(float(np.linalg.norm(quat_matrix(q) @ cn + np.array(t))) for q, t in root for cn in tris)
-        m_sets = [*machine_sets(kind, door["seconds"]),
-                  "--set", f"device.object.bounding radius={max(reach, 1.0):.3f}",
-                  "--set", f"device.object.model=hlmt:{tag}"]
+        m_sets = [*machine_sets(kind, door["seconds"]), "--set", f"device.object.model=hlmt:{tag}"]
         built.append({"tag": tag, "node": nodes[n]["name"], "origin": origin.tolist(), "root": root,
-                      "containers": [name(g) for g in groups], "m_sets": m_sets, "m_name": name("M")})
+                      "containers": [name(g) for g in groups], "m_sets": m_sets, "m_name": name("M"),
+                      "reach": max(reach, 1.0)})
         turn = 2 * np.degrees(np.arccos(min(1.0, abs(root[-1][0][3]))))
         print(f"  machine {k}: {nodes[n]['name']} slides {[round(v, 3) for v in root[-1][1]]} wu, turns {turn:.0f} deg, "
               f"{surfaces or 'no'} collision surfaces, machine type {kind.get('type')}")
@@ -260,7 +259,14 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0
         actor = f"/Game/MJOLNIR/Maps/{code}/Machines/BP_{code}_Machine{index}"
         m_tag = t["tag"] + (f"_p{pa}" if pa else "")
         m_name = t["m_name"] + (str(pa) if pa else "")
+        # One bounding radius for all of a placement's machines, the largest
+        # reach: the game culls an object it judges too small at its
+        # distance (Zanzibar's gate parts hid between 20 and 45 wu from the
+        # player, and a hidden actor draws nothing), and Halo 2 culls the
+        # machine as one object, so its parts appear and go together.
+        radius = max(x["reach"] for x in tags)
         subprocess.run([mjolnir, "new-tag", "--group", "device_machine", "--from", DONOR, "--to", m_tag, *t["m_sets"],
+                        "--set", f"device.object.bounding radius={radius:.3f}",
                         "--asset-reference", actor, "--out-dir", out, "--name", m_name],
                        check=True, capture_output=True, text=True,
                        env=dict(os.environ, MSYS2_ARG_CONV_EXCL="*"))
