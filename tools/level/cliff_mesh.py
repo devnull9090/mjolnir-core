@@ -53,10 +53,13 @@ def page_of(name):
 
 def texture_page(path):
     leaf = (path or "").split(".")[-1]
-    m = re.search(r"_n(\d+)$", leaf)
     # A protected map's page 0 is its bitmap's own number (T_protected_bitm_n2943;
-    # page 2 is T_protected_bitm_2943_n2): no map has a hundred pages.
-    return int(m.group(1)) if m and int(m.group(1)) < 100 else 0
+    # page 2 is T_protected_bitm_2943_n2). Halo 2 maps run past a hundred pages
+    # (Containment's _n100), so the number counts everywhere else.
+    if re.search(r"_bitm_n\d+$", leaf):
+        return 0
+    m = re.search(r"_n(\d+)$", leaf)
+    return int(m.group(1)) if m else 0
 
 
 def subdivide(verts, tris, uv0, uv1, section, longest, shade):
