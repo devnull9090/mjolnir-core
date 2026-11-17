@@ -182,7 +182,7 @@ def generated_mesh(code, m, suffix):
     return f"{root}/{name}.{name}"
 
 
-def moved_level(path, moves, extra=None, groups=None):
+def moved_level(path, moves, extra=None, groups=None, bots=None):
     """`vehicle_moves` ({megalo label: [x, y, z] cm, or {"pos", "yaw"}}): the base level with
     those vehicles placed again, written beside it as <stem>.moved.level.json
     (the bake reads files beside the level). Zanzibar's east Shade spawned
@@ -193,10 +193,17 @@ def moved_level(path, moves, extra=None, groups=None):
 
     Every teleporter end goes on the eighth team too (ce_objectives.park):
     conversions made before 2026-11-07 left them on none, team 0, and red
-    respawned on the pads (#346). The base level comes back as it is when
+    respawned on the pads (#346). `bots` (defs/level/bots.json, as
+    add_bots.py gives every hub map) goes in as `blam.bots` when the level
+    has none, so the bake makes the bots' squads, objective and pathfinding
+    and writes <CODE>.bots.json. The base level comes back as it is when
     nothing changes."""
     level, parked = park(json.load(open(path, encoding="utf-8")))
-    if not (moves or extra or groups or parked):
+    blam = level.setdefault("blam", {})
+    botted = bool(bots) and "bots" not in blam
+    if botted:
+        blam["bots"] = bots
+    if not (moves or extra or groups or parked or botted):
         return path
     found = set()
     for v in (level.get("blam") or {}).get("vehicles") or []:
@@ -281,6 +288,18 @@ def physics_prop_objects(m):
     return out
 
 
+BOTS = os.path.join(REPO, "defs", "level", "bots.json")
+
+
+def map_bots(m):
+    """The bots a map bakes: defs/level/bots.json's, unless its entry says
+    `"bots": false` (a map whose floors give the bots no way round)."""
+    if m.get("bots") is False:
+        return None
+    with open(BOTS, encoding="utf-8") as f:
+        return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+
+
 def paths(code, m, work):
     conv = m["conversion"]
     scene = m.get("scene", conv)
@@ -293,7 +312,7 @@ def paths(code, m, work):
             objects += (door.get("blam") or {}).get("objects") or []
             groups += (door.get("blam") or {}).get("device_groups") or []
     if m.get("vehicle_moves") or objects or os.path.isfile(level):
-        level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups)
+        level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups, map_bots(m))
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -1249,9 +1268,14 @@ def stage_cook(maps):
     if "BUILD SUCCESSFUL" not in out:
         sys.exit("cook failed:\n" + out[-3000:])
     if never:
-        leaves = {f[:-len(".uasset")] for d in never
+        # By package path: another map's real texture can share a stand-in's
+        # name (Tide's Breath cooks its own T_levels_b30_bitmaps_cliffs; Death
+        # Island's is a stand-in).
+        leaves = {f"{d[len('/Game/'):]}/{f[:-len('.uasset')]}".lower() for d in never
                   for f in os.listdir(os.path.join(content, *d[len("/Game/"):].split("/"))) if f.endswith(".uasset")}
-        shipped = sorted(leaves & {f.rsplit("/", 1)[-1] for f in listing(STAGED, "pakchunk")})
+        cooked = {f.replace("\\", "/").split("/Content/", 1)[-1].rsplit(".", 1)[0].lower()
+                  for f in listing(STAGED, "pakchunk")}
+        shipped = sorted(leaves & cooked)
         if shipped:
             sys.exit(f"the cook staged map texture stand-ins {shipped}: they would draw over the game's own")
         print(f"  {len(leaves)} map texture stand-in(s) left out of the cook: {never}")
@@ -1281,6 +1305,12 @@ def stage_bake(code, m, p):
     if not os.path.exists(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.utoc")):
         sys.exit(f"{code}: no map container baked:\n{out[-2000:]}")
     print(f"  {code}: map container baked")
+    if map_bots(m):
+        if not os.path.exists(os.path.join(p["bake"], f"{code}.bots.json")):
+            sys.exit(f"{code}: the bake made no bots ({code}.bots.json):\n{out[-2000:]}")
+        for line in out.splitlines():
+            if line.lstrip().startswith("bots"):
+                print("  " + line.strip())
     if m.get("native_rock_materials"):
         # Editor stand-ins cannot supply the native layered material's cached
         # shader data. Replace only map-owned MICs with full native clones.
@@ -2329,6 +2359,9 @@ def stage_assemble(code, m, p):
     if dress:
         level["dress"] = dress
         print(f"  {code}: {len(dress)} physics prop look(s) for the loader")
+    # `blam.bots` is the bake's input; the shipped level file carries none,
+    # as add_bots.py packs it (the bake's <CODE>.bots.json goes beside it).
+    (level.get("blam") or {}).pop("bots", None)
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
           f"{structures} structure slot(s), "
@@ -2923,6 +2956,9 @@ def local_install_plan(code, m, p, *, shared=True):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     files = [(p["out_level"], os.path.join(data, "level.json")),
              (record, os.path.join(data, "registration.json"))]
+    bots = os.path.join(source, f"{code}.bots.json")
+    if os.path.isfile(bots):
+        files.append((bots, os.path.join(data, "bots.json")))
     # Each container goes in as a local build named for the map (dev_paks),
     # so it loads above any hub copy and its shader library gets a number of
     # its own.
@@ -3019,6 +3055,11 @@ def stage_install(code, m, p):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
+    # The bots' squads as this bake placed them (MJOLNIRHud): the hub
+    # copy's would name another bake's.
+    bots = os.path.join(p["bake"], f"{code}.bots.json")
+    if os.path.isfile(bots):
+        shutil.copyfile(bots, os.path.join(data, "bots.json"))
     if os.path.exists(os.path.join(p["work"], "flux_state", "state.json")):
         shutil.copytree(os.path.join(p["work"], "flux_state"), os.path.join(data, "flux_state"), dirs_exist_ok=True)
     decals = os.path.join(p["work"], "decals")
