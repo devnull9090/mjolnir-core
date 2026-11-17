@@ -1152,9 +1152,11 @@ def stage_cook(maps):
 
 
 def stage_bake(code, m, p):
+    # This checkout's CLI and examples: a path to another worktree's build
+    # baked a Halo 2 level with a CLI too old to read its `game` field.
     tool_env = {"HCE_PAKS": PAKS,
-                "MJOLNIR": os.environ.get("MJOLNIR", "C:/haloce/.claude/worktrees/server-list-hosting-d9e78e/target/release/mjolnir.exe"),
-                "EXAMPLES": os.environ.get("EXAMPLES", "C:/haloce/target/debug/examples")}
+                "MJOLNIR": os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe")),
+                "EXAMPLES": os.environ.get("EXAMPLES", os.path.join(REPO, "target", "debug", "examples"))}
     if os.path.isdir(p["bake"]):
         for f in glob.glob(os.path.join(p["bake"], "*")):
             if os.path.isfile(f):
