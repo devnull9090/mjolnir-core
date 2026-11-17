@@ -141,7 +141,8 @@
                  "pos": [4140, -15560, -4600], "rot": [0, 90, 0]}]}]},
   "flux": {"feeds": [{"pos": [4500, -17100, -3650], "scale": 0.5, "volume": 2, "mode": 0},
                      {"pos": [1400, -9300, -6600], "scale": 0.5, "volume": 3, "mode": 0},
-                     {"pos": [850, 5517, -6640], "scale": 0.5, "volume": 3, "mode": 0}],
+                     {"pos": [850, 5517, -6640], "scale": 1.5, "volume": 0.33, "mode": 0,
+                      "_why": "the same flow as 0.5 x 3 over nine times the area: tight, it boiled the pond; at 2.5 it welled up on the bank"}],
            "outlet": [-1070, 9787, -6635]},
   "haze": "ce",
   "hub": "ce-timberland"
