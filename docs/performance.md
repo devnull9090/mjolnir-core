@@ -536,10 +536,21 @@ How it works:
 - **Cladding rocks** are mesh actors, `MJClad_<group>_<rock>`, not
   instances: our cliff materials drew black on instanced meshes in this
   game. Each carries what `Foliage.spawnCladding` gave it: the CE light under
-  it as custom primitive data 0-2, no collision, out of Lumen's bounce. Their
-  material is still built at runtime from the landscape's textures, so the
-  loader collects them with one `FindAllOf`, `Land.cliffs` gives each light
-  group its material, and then the handles are dropped.
+  it as custom primitive data 0-2, no collision, out of Lumen's bounce.
+  Since 2026-11-16 each light group's material is cooked too
+  (tools/level/clad_materials.py): one MaterialInstanceConstant a group,
+  made by the editor stage with the values `Land.cliffs` used to set, set on
+  the group's rocks when the world bakes them, and cooked into the
+  landscape's chunk; the game's Megascans textures it names are never-cooked
+  stand-ins at their paths. Assemble recomputes the values from the finished
+  level and stops the build when they differ. The loader leaves a group as
+  baked when its first rock wears the material the level's
+  `landscape.clad` names and the light scale and lightmap levels are the
+  ones it was made with; otherwise (an older world, `mjolnir_light_scale`)
+  it builds the dynamic instance as before. Ascension's 40,390 rocks took
+  0.5 s of Lua at every load before; its load went from 2.3 to 1.6 s solo
+  and 3.5 to 2.6 s on a client (the hub copy without the remaster: 0.7 and
+  2.3 s).
 - Everything baked is tagged `FluxHide`, as the loader tags its own actors,
   so Flux's ground capture does not see it.
 - **What the world carries decides, not the level file.** The launcher copies
