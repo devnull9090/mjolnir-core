@@ -521,12 +521,21 @@ units and axes, so every later step reads them unchanged:
   and every prop present in both, and the gate opened by the host stood
   open in the client's own simulation and its own view.
 
-  Open (2026-11-15): Containment converts fresh with its base gates and
-  switches (4 placements, 10 cooked instances, all drawn), but in the
-  simulation its gates sit at position 1.0 whatever their device group
-  says. They are door-type machines (type 0, no activation radius), which
-  Blam drives by its own door logic; Zanzibar's gate parts are platforms
-  (type 1), which follow the group. Not looked into further. Dressing state belongs to the world: a
+  A placement's own flags go with it (scenario machine +0x38 device flags,
+  +0x3C machine flags; the simulation's bits are Halo 2's). Containment's
+  base gates are door-type machines (type 0) with no activation radius, so
+  the simulation's door logic opens one for any unit within its bounding
+  radius and shuts it after its open time. Halo 2 places them with
+  machine flag 1, "does not operate automatically", so only their
+  switches move them. Without that flag they stood open (2026-11-15).
+  Zanzibar's gate parts are platforms (type 1), placed with no flags.
+  Before, the fields were whatever B40 placement each map cloned (the one
+  nearest its origin), and some of those are "initially open", "position
+  reversed" or "does not close automatically". Of the Halo 2 machines,
+  only Containment's carry a flag (`h2_machine_placements <map>` lists
+  them); Gemini's, Triplicate's, Colossus's and Backwash's doors carry
+  none and open for a unit nearby, as in Halo 2.
+  Dressing state belongs to the world: a
   second match on the same map has the same world name and new actors, and
   parts kept from the first came back as bare grid (fixed 2026-11-15).
 

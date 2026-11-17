@@ -112,6 +112,24 @@ def machine_sets(kind, seconds):
     return sets
 
 
+def placement_flags(entry):
+    """The placement's own device and machine flags, as Halo 2 placed it
+    (the staged `h2_device`), for every machine built from it. The
+    simulation's bits are Halo 2's: device 1 initially open, 2 initially
+    off, 8 position reversed; machine 1 does not operate automatically,
+    0x20 does not close automatically. A door with no activation radius
+    opens for any unit within its bounding radius unless bit 1 says
+    otherwise: Containment's base gates, which only their switches move,
+    stood open (2026-11-16)."""
+    dev = entry.get("h2_device") or {}
+    out = {}
+    if dev.get("device_flags") is not None:
+        out["device data.flags"] = hex(int(dev["device_flags"]))
+    if dev.get("machine_flags") is not None:
+        out["machine data.flags"] = hex(int(dev["machine_flags"]))
+    return out
+
+
 def moving_parts(door, frames):
     """(node, collision BSP or None) for each machine to build: one a
     collision BSP, and one a node that moves without collision."""
@@ -278,6 +296,7 @@ def build(fresh_dir, entry, controls, code, out, mjolnir, cache=None, delta=(0.0
         # itself, has none.
         if grp >= 0:
             obj["position_group"] = group
+        obj["set"] = placement_flags(entry)
         objects.append(obj)
     groups = []
     if machines and grp >= 0 and group not in cache.setdefault("groups", set()):
