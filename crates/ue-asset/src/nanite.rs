@@ -391,6 +391,8 @@ struct Cluster {
     material0: (u32, u32),
     material1: (u32, u32),
     material2_index: u32,
+    /// A voxel (brick) cluster: no triangles to decode. CUE4Parse skips it.
+    voxel: bool,
     // Decoded.
     material_ranges: Vec<(u32, u32, u32)>,
     triangles: Vec<[u32; 3]>,
@@ -488,6 +490,9 @@ fn read_cluster(
     c.color_mode = get_bits(decode, 1, 27);
     let material_encoding = u(row(5) + 12);
     // Row 6: extended and brick data (5.5). Row 7: vertex-reuse batch info.
+    // bVoxel = NumTris == 0 && NumCurves == 0; curves are UE 5.8+, so on 5.5
+    // NumCurves is always 0 (CUE4Parse 2cfd957a, "Skip nanite voxel clusters").
+    c.voxel = c.num_tris == 0;
     if material_encoding < 0xFE00_0000 {
         c.material0 = (
             get_bits(material_encoding, 6, 0),
@@ -814,6 +819,9 @@ fn lmh_increment(offsets: &mut [u64; 3], bytes_per_value: u32, num: u64) {
 /// UV ranges and every non-reference vertex.
 fn decode_page(d: &[u8], page: &mut Page) -> Result<(), Error> {
     for ci in 0..page.clusters.len() {
+        if page.clusters[ci].voxel {
+            continue;
+        }
         let cdh = page.cluster_disk[ci];
         let cluster = &mut page.clusters[ci];
 
@@ -1417,5 +1425,37 @@ mod tests {
         assert!(decode_uv_float(1 << 19, 14) >= 0.0);
         // Half-way encodings around zero are tiny.
         assert!(decode_uv_float((1 << 19) - 1, 14).abs() < 1e-3);
+    }
+
+    /// CUE4Parse 2cfd957a: a cluster with no triangles is a voxel cluster on
+    /// 5.5 and is not decoded, so none of its (brick) bytes are read as
+    /// vertices; a cluster with triangles still is.
+    #[test]
+    fn voxel_clusters_are_not_decoded() {
+        // One cluster, eight float4 rows; row 0 holds NumVerts and NumTris.
+        let mut d = vec![0u8; 16 * 8];
+        // NumVerts 4, NumTris 0 → voxel.
+        d[0..4].copy_from_slice(&4u32.to_le_bytes());
+        let voxel = read_cluster(&d, 0, 0, 1).unwrap();
+        assert!(voxel.voxel);
+        d[4..8].copy_from_slice(&1u32.to_le_bytes()); // NumTris 1
+        let mesh = read_cluster(&d, 0, 0, 1).unwrap();
+        assert!(!mesh.voxel);
+
+        let page = |c: Cluster| Page {
+            disk_header_offset: 0,
+            gpu_header_offset: 0,
+            disk: PageDiskHeader::default(),
+            cluster_disk: vec![ClusterDiskHeader::default()],
+            clusters: vec![c],
+        };
+        let mut p = page(voxel);
+        decode_page(&d, &mut p).unwrap();
+        assert!(p.clusters[0].vertices.is_empty());
+        assert!(p.clusters[0].triangles.is_empty());
+        let mut p = page(mesh);
+        decode_page(&d, &mut p).unwrap();
+        assert_eq!(p.clusters[0].vertices.len(), 4);
+        assert_eq!(p.clusters[0].triangles.len(), 1);
     }
 }
