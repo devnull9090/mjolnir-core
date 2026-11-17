@@ -13,7 +13,7 @@ fn main() {
         println!("{name}: {} chunk(s), {} indexed file(s)", c.chunks.len(), c.files.len());
         let mut paths: Vec<&String> = c.files.keys().collect();
         paths.sort();
-        for p in paths.iter().take(40) {
+        for p in paths {
             println!("  {p}");
         }
     }

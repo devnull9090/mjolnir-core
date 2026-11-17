@@ -945,6 +945,16 @@ def main():
             vec = entry["vectors"]
             vec["SpecPerpendicular"] = list(spec.get("perpendicular_color") or [1, 1, 1]) + [1.0]
             vec["SpecParallel"] = list(spec.get("parallel_color") or [1, 1, 1]) + [1.0]
+            # A Halo 2 opaque shader's animated base map (mjolnir cache
+            # stage: `base_scroll`, [period, repeats, phase] a slide in u and
+            # in v): Zanzibar's rotating_metal under the spindle grate scrolls
+            # once every 2 s, Halo 2's turning drum. As CE's environment
+            # scrolling: a slide (6) of `repeats` a period.
+            bs = s.get("base_scroll") or {}
+            for axis, key in (("u", "BaseUAnim"), ("v", "BaseVAnim")):
+                m = bs.get(axis)
+                if m:
+                    vec[key] = [6, float(m[0]), float(m[2]), float(m[1])]
             if maps["SelfIllumMap"]:
                 for i, ch in enumerate(si.get("channels") or [{"on": si.get("on_color", [0, 0, 0])}]):
                     vec[f"SelfOn{i}"] = list(ch.get("on", [0, 0, 0])) + [1.0]
