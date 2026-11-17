@@ -1764,8 +1764,18 @@ local function spawnEnvironment(world)
                 c:SetLightColor({ R = sun.color[1], G = sun.color[2], B = sun.color[3], A = 1.0 }, true)
             end
         end)
+    -- The atmosphere's aerial perspective stays off: it hazed the CE sky
+    -- mesh (layers 12 to 150 km out), which CE never fogged, from a froxel
+    -- volume round the view, and the sky's lower part pulsed brighter and
+    -- darker as the player looked up and down (Death Island, 2026-11-17).
+    -- The CE haze (environment.haze) fogs the ground and the sea.
+    -- `environment.aerial_perspective` sets it for a level that wants it.
     if env.atmosphere ~= false then
-        place("__atmosphere", "/Script/Engine.SkyAtmosphere", nil, nil)
+        place("__atmosphere", "/Script/Engine.SkyAtmosphere", nil, function(actor)
+            pcall(function()
+                actor.SkyAtmosphereComponent:SetAerialPespectiveViewDistanceScale(env.aerial_perspective or 0.0)
+            end)
+        end)
     end
     local skylight = env.skylight or {}
     place("__sky", "/Script/Engine.SkyLight", nil, function(actor)
