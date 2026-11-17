@@ -550,6 +550,29 @@ class TeleporterTeamTest(unittest.TestCase):
             # A level already right comes back as it is.
             self.assertEqual(upgrade.moved_level(moved, {}), moved)
 
+    def test_removed_channels_lose_both_ends_and_their_flags(self):
+        tele = r"objects\multi\teleporters\teleporter_"
+
+        def end(kind, channel):
+            return {"group": "scenery", "tag": tele + kind,
+                    "set": {"multiplayer data.teleporter channel": channel,
+                            "multiplayer data.owner team": "eighth party"}}
+
+        level = {"blam": {"objects": [end("sender", "alpha"), end("receiver", "alpha"),
+                                      end("sender", "charlie"), end("receiver", "charlie")]},
+                 "markers": [{"type": "teleport_from", "team": 0}, {"type": "teleport_to", "team": 0},
+                             {"type": "teleport_from", "team": 2}, {"type": "hill", "team": 0}]}
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "map.level.json"
+            base.write_text(json.dumps(level), encoding="utf-8")
+            moved = json.loads(Path(upgrade.moved_level(str(base), {}, gone=["alpha"])).read_text(encoding="utf-8"))
+            self.assertEqual([o["set"]["multiplayer data.teleporter channel"] for o in moved["blam"]["objects"]],
+                             ["charlie", "charlie"])
+            self.assertEqual(moved["markers"], [{"type": "teleport_from", "team": 2}, {"type": "hill", "team": 0}])
+            # A channel the map does not have stops the build.
+            with self.assertRaises(SystemExit):
+                upgrade.moved_level(str(base), {}, gone=["bravo"])
+
 
 if __name__ == "__main__":
     unittest.main()

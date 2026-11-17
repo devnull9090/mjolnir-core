@@ -541,11 +541,18 @@ def swap(a):
     leaf_meshes = set()
     hide_shaders = set()
     hide_tokens = set()
+    removed, removed_shaders, kept_shaders = [], set(), set()
+    gone = {r.lower() for r in getattr(a, "remove", None) or []}
     for n, e in enumerate(placement["entries"]):
         if e.get("kind") != "scenery" or not e.get("model"):
             continue
         asset = e["asset"].lower()
         shaders = model_shaders(os.path.join(staging, e["model"]))
+        if asset in gone:
+            removed.append(n)
+            removed_shaders.update(shaders)
+            continue
+        kept_shaders.update(shaders)
         rule = swap_rule(e, staging, snow)
         if not rule:
             continue
@@ -652,6 +659,20 @@ def swap(a):
     for slot in spec["slots"]:
         if any(slot["name"].startswith(t + "_shaders_") for t in hide_tokens)                 or any(slot["name"].startswith(sh + "__") for sh in hide_shaders):
             hide.append(slot["material"])
+    # `--remove`: placed scenery taken out with nothing in its place. CE
+    # merged it into the scene mesh, so it goes as its object-lit slots
+    # (<shader>__lmobj), the BSP's own slots of the same shader kept. A slot
+    # is shared by every placement whose model has that shader, so one kept
+    # placement keeps it, and the build stops rather than hide half of it.
+    missing = gone - {placement["entries"][n]["asset"].lower() for n in removed}
+    if missing:
+        raise SystemExit(f"--remove: no placed scenery {sorted(missing)}")
+    shared = removed_shaders & kept_shaders
+    if shared:
+        raise SystemExit(f"--remove: shaders {sorted(shared)} are drawn by kept scenery too")
+    removed_slots = [slot["material"] for slot in spec["slots"]
+                     if any(slot["name"] == sh + "__lmobj" for sh in removed_shaders)]
+    hide += removed_slots
     effects = None
     if snow:
         effects = make_snow_effects(rock_spots, trees)
@@ -683,9 +704,11 @@ def swap(a):
         leaf_group['records'].extend(background_leaves)
         scale_leaf_clusters(leaf_group['records'],authored.get('leaf_cluster_scale',1.0))
     json.dump({"decor": decor, "hide": hide, "count": sum(replaced.values()), "effects": effects,
-               "leaves": leaf_group},
+               "leaves": leaf_group, "removed": removed},
               open(a.out, "w", encoding="utf-8"), indent=1)
     print(f"{len(leaves)} leaf cluster(s) on the trees")
+    if removed:
+        print(f"{len(removed)} placed scenery object(s) removed ({len(removed_slots)} object slot(s) hidden)")
     print(f"{sum(replaced.values())} scenery object(s) in B30's assets ({len(decor)} decor entries, "
           f"{len(hide)} CE slot(s) hidden): {dict(replaced)}")
 
@@ -709,6 +732,8 @@ def main():
     s.add_argument("--biome", default="b30", choices=["b30", "snow", "desert", "coast"],
                    help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
     s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree, or comma-separated names in turn")
+    s.add_argument("--remove", action="append", default=[], metavar="TAG",
+                   help="a placed scenery tag path to take out of the map, nothing in its place; repeatable")
     s.add_argument("--authored-decor",help="Source JSON of explicitly placed native meshes in Unreal cm")
     s.add_argument("--foliage", help="the map's foliage.json (its foliage.bin beside it): place the effects")
     s.add_argument("--sea", type=float, help="the sea's height (cm)")
