@@ -35,7 +35,7 @@ then rebuilds the shared registration and menu with `mjolnir level register`.
 Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
-from ce_objectives import park
+from ce_objectives import drop_teleporters, park
 from cooked_map_container import cooked_map_container
 import dev_paks
 from machine_containers import map_tag_containers
@@ -182,7 +182,7 @@ def generated_mesh(code, m, suffix):
     return f"{root}/{name}.{name}"
 
 
-def moved_level(path, moves, extra=None, groups=None, bots=None):
+def moved_level(path, moves, extra=None, groups=None, bots=None, gone=None):
     """`vehicle_moves` ({megalo label: [x, y, z] cm, or {"pos", "yaw"}}): the base level with
     those vehicles placed again, written beside it as <stem>.moved.level.json
     (the bake reads files beside the level). Zanzibar's east Shade spawned
@@ -196,14 +196,23 @@ def moved_level(path, moves, extra=None, groups=None, bots=None):
     respawned on the pads (#346). `bots` (defs/level/bots.json, as
     add_bots.py gives every hub map) goes in as `blam.bots` when the level
     has none, so the bake makes the bots' squads, objective and pathfinding
-    and writes <CODE>.bots.json. The base level comes back as it is when
-    nothing changes."""
+    and writes <CODE>.bots.json. `gone` (`remove_teleporters`, channel
+    names) takes those teleporters out: a map's design dropped them after
+    its conversion (Proving Ground's two ground pairs, 2026-11-17); the
+    pads' scenery goes with `remove_scenery`. The base level comes back as
+    it is when nothing changes."""
     level, parked = park(json.load(open(path, encoding="utf-8")))
+    dropped = 0
+    if gone:
+        try:
+            level, dropped = drop_teleporters(level, gone)
+        except ValueError as e:
+            sys.exit(f"remove_teleporters: {e} in {path}")
     blam = level.setdefault("blam", {})
     botted = bool(bots) and "bots" not in blam
     if botted:
         blam["bots"] = bots
-    if not (moves or extra or groups or parked or botted):
+    if not (moves or extra or groups or parked or botted or dropped):
         return path
     found = set()
     for v in (level.get("blam") or {}).get("vehicles") or []:
@@ -312,7 +321,8 @@ def paths(code, m, work):
             objects += (door.get("blam") or {}).get("objects") or []
             groups += (door.get("blam") or {}).get("device_groups") or []
     if m.get("vehicle_moves") or objects or os.path.isfile(level):
-        level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups, map_bots(m))
+        level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups, map_bots(m),
+                            m.get("remove_teleporters"))
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -766,6 +776,10 @@ def stage_foliage(code, m, p):
     # `foliage_extra`: optional scatter rules (Death Island's sea rocks).
     for rule in m.get("foliage_extra", []):
         cmd += ["--extra", rule]
+    # `remove_scenery`: placed scenery (tag paths) the swap takes out of the
+    # map; the scatter leaves it no clearing.
+    for tag in m.get("remove_scenery", []):
+        cmd += ["--remove-scenery", tag]
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])
@@ -795,6 +809,7 @@ def stage_swap(code, m, p):
                "--staging", swap_staging]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
+              + [arg for tag in m.get("remove_scenery", []) for arg in ("--remove", tag)]
               + (["--authored-decor", os.path.join(REPO,m["authored_decor"])] if m.get("authored_decor") else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])

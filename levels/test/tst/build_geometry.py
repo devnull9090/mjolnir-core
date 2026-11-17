@@ -651,9 +651,9 @@ placements = {
     "vehicles": [{"tag":"vehicles\\warthog\\mp_warthog","position_m":pos(-46,-18,.3),"yaw_degrees":0,"team":0},
                  {"tag":"vehicles\\warthog\\mp_warthog","position_m":pos(38,10,.3),"yaw_degrees":180,"team":1}],
     "spawns": [], "flags": [], "pickups": [],
-    "teleporters": [
-        {"channel":0,"from_m":pos(-46,14,.05),"to_m":pos(-12,21.5,.05),"from_yaw_degrees":0,"to_yaw_degrees":0},
-        {"channel":1,"from_m":pos(46,-14,.05),"to_m":pos(12,-26,.05),"from_yaw_degrees":180,"to_yaw_degrees":180}],
+    # The ground pads (channels 0 and 1) were dropped on 2026-11-17: the
+    # balcony links below are the map's only teleporters.
+    "teleporters": [],
     "lights": [],
     # Authoring intent only. These become supported modes only when their
     # runtime variants and objective placements have passed actual matches.

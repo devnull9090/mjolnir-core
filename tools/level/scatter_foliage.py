@@ -325,7 +325,7 @@ def value_noise(x, y, cell, seed):
     return (h(ix, iy) * (1 - tx) + h(ix + 1, iy) * tx) * (1 - ty) + (h(ix, iy + 1) * (1 - tx) + h(ix + 1, iy + 1) * tx) * ty
 
 
-def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
+def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False, removed=()):
     """The map's placed scenery (halo2ue's staging/placement.json beside the
     scene) as (x, y, radius, z, reach) cm: the simulation spawns it (B30's
     boulders, trees), so the scene knows nothing of it, and grass grew up
@@ -338,7 +338,10 @@ def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
     `skip_rocks`: none for the boulders scenery_swap.py replaces; the swap
     stage clears the grass inside each B30 rock's own hull instead
     (rock_foliage.py). A circle round a long boulder left bands of bare
-    ground up to 2 m wide along its sides (Danger Canyon, 2026-10-19)."""
+    ground up to 2 m wide along its sides (Danger Canyon, 2026-10-19).
+
+    `removed`: tag paths of placed scenery the upgrade takes out
+    (`remove_scenery`), which keep no clearing."""
     from scenery_swap import swap_rule
     staging = staging or os.path.join(os.path.dirname(os.path.abspath(gltf)), "staging")
     path = os.path.join(staging, "placement.json")
@@ -355,6 +358,8 @@ def scenery_footprints(gltf, off, staging=None, skip_rocks=False, snow=False):
         # is ground cover, not an object the grass stands clear of:
         # Coagulation's 218 decal fields left its valley floor bare.
         if e.get("decorator"):
+            continue
+        if e.get("asset", "").lower() in removed:
             continue
         if skip_rocks and (swap_rule(e, staging, snow) or ("",))[0] in ("rock", "bigrock"):
             continue
@@ -1216,6 +1221,8 @@ def main():
     ap.add_argument("--biome", default="b30", choices=["b30", "snow", "desert", "coast"],
                     help="whose dressing: B30's (grass, beach) or B40's (snow: snowy stones, glacial cladding)")
     ap.add_argument("--only", help="comma-separated rule names")
+    ap.add_argument("--remove-scenery", action="append", default=[], metavar="TAG",
+                    help="a placed scenery tag path the upgrade takes out: no clearing for it; repeatable")
     ap.add_argument("--rule-scale", action="append", default=[], metavar="RULE=FACTOR",
                     help="multiply a named rule's mesh scales for this map; positive and repeatable")
     ap.add_argument("--rule-density", action="append", default=[], metavar="RULE=FACTOR",
@@ -1223,7 +1230,7 @@ def main():
     ap.add_argument("--rule-cluster", action="append", default=[], metavar="RULE=CELL,LOW,HIGH",
                     help="soft world-space density patches: cell metres and noise thresholds in 0..1")
     ap.add_argument("--extra", action="append", default=[], metavar="RULE",
-                    help="an optional rule to add (sea rocks); repeatable")
+                    help="an optional rule (sea rocks) or another biome's rule (flowers) to add; repeatable")
     ap.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
                                       "beside the scene")
     ap.add_argument("--rule-tint", action="append", default=[], metavar="RULE=R,G,B[:PARAM]",
@@ -1241,7 +1248,21 @@ def main():
     if a.biome == "snow":
         global CLADDING
         CLADDING = SNOW_CLADDING
-    rules = [dict(r) for r in ({"snow": SNOW_RULES, "desert": DESERT_RULES, "coast": COAST_RULES}.get(a.biome, RULES))
+    own = {"snow": SNOW_RULES, "desert": DESERT_RULES, "coast": COAST_RULES}.get(a.biome, RULES)
+    # `--extra` may name another biome's rule as well as an optional one:
+    # a beach map takes the desert's Namaqualand flowers in its grass
+    # (Proving Ground, 2026-11-17). The map's own rule of a name wins.
+    names = {r["name"] for r in own}
+    borrowed = []
+    for name in a.extra:
+        if name in names:
+            continue
+        found = next((r for rs in (RULES, DESERT_RULES, COAST_RULES, SNOW_RULES) for r in rs if r["name"] == name), None)
+        if found is None:
+            raise SystemExit(f"--extra {name}: no such rule")
+        borrowed.append(dict(found, optional=False))
+        names.add(name)
+    rules = [dict(r) for r in own + borrowed
              if (not a.only or r["name"] in a.only.split(","))
              and (not r.get("optional") or r["name"] in a.extra)]
     for option, pairs in (("scale", a.rule_scale), ("density", a.rule_density)):
@@ -1342,7 +1363,8 @@ def main():
     data = open(os.path.join(os.path.dirname(os.path.abspath(a.gltf)), doc["buffers"][0]["uri"]), "rb").read()
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
     off = [float(v) for v in a.offset.split(",")]
-    footprints = scenery_footprints(a.gltf, off, a.staging, a.swapped_rocks, a.biome == "snow")
+    footprints = scenery_footprints(a.gltf, off, a.staging, a.swapped_rocks, a.biome == "snow",
+                                    {r.lower() for r in a.remove_scenery})
     scenery = scenery_grid(footprints)
     staging_dir = a.staging or os.path.join(os.path.dirname(os.path.abspath(a.gltf)), "staging")
     swapped = swapped_surface(staging_dir, a.biome == "snow") if a.swapped_rocks else (lambda name: False)

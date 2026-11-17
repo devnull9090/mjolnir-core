@@ -65,6 +65,35 @@ def park(level):
     return level, moved
 
 
+# CE's teleporter channels, by index: a teleport flag's team index.
+CHANNELS = ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet",
+            "kilo", "lima", "mike", "november", "oscar", "papa", "quebec", "romeo", "sierra", "tango",
+            "uniform", "victor", "whiskey", "xray", "yankee", "zulu")
+CHANNEL = "multiplayer data.teleporter channel"
+
+
+def drop_teleporters(level, channels):
+    """A copy of a level without the teleporters of these channels (names,
+    as CHANNELS): both ends' objects and their teleport flags, and how many
+    objects went. A channel the level does not have is an error."""
+    want = {c.lower() for c in channels}
+    unknown = want - set(CHANNELS)
+    if unknown:
+        raise ValueError(f"unknown teleporter channel(s) {sorted(unknown)}")
+    level = copy.deepcopy(level)
+    blam = level.get("blam") or {}
+    objects = blam.get("objects") or []
+    keep = [o for o in objects if not (is_teleporter(o) and (o.get("set") or {}).get(CHANNEL, "").lower() in want)]
+    found = {(o.get("set") or {}).get(CHANNEL, "").lower() for o in objects if o not in keep}
+    if want - found:
+        raise ValueError(f"no teleporter on channel(s) {sorted(want - found)}")
+    blam["objects"] = keep
+    teams = {CHANNELS.index(c) for c in want}
+    level["markers"] = [mk for mk in level.get("markers") or []
+                        if not (mk.get("type") in ("teleport_from", "teleport_to") and mk.get("team") in teams)]
+    return level, len(objects) - len(keep)
+
+
 CM_PER_WORLD_UNIT = 304.8
 # A polygon needs this many corners. One flag is CE's square (below); a map
 # whose only HillFlag is a stray one, as Night-Lockout's, still has no hill.

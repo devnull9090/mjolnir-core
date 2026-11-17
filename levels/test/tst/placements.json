@@ -510,36 +510,6 @@
   ],
   "teleporters": [
     {
-      "channel": 0,
-      "from_m": [
-        -46,
-        14,
-        0.0649
-      ],
-      "to_m": [
-        -12,
-        21.5,
-        0.87993
-      ],
-      "from_yaw_degrees": 0,
-      "to_yaw_degrees": 0
-    },
-    {
-      "channel": 1,
-      "from_m": [
-        46,
-        -14,
-        0.03526
-      ],
-      "to_m": [
-        12,
-        -26,
-        0.08592
-      ],
-      "from_yaw_degrees": 180,
-      "to_yaw_degrees": 180
-    },
-    {
       "channel": 2,
       "from_m": [
         -44.6,
