@@ -27,6 +27,7 @@ its `modes`, so a map gains the modes without a new conversion:
     python tools/level/ce_objectives.py path/to/map.level.json
 """
 import argparse
+import copy
 import json
 import math
 from collections import defaultdict
@@ -44,6 +45,26 @@ LABEL = "multiplayer data.megalo label"
 # 0x2f84e0). Neutral markers and health pack spots took most of Prisoner's
 # respawns. No game type plays an eighth team.
 MARKER_TEAM = "eighth party"
+TELEPORTERS = "objects\\multi\\teleporters\\"
+
+
+def is_teleporter(o):
+    return o.get("group") == "scenery" and o.get("tag", "").startswith(TELEPORTERS)
+
+
+def park(level):
+    """A copy of a level with every teleporter end (sender, receiver, two-way)
+    on the eighth team, and how many ends that moved. With no team, an end is
+    team 0's: red respawned on pads (#346)."""
+    level = copy.deepcopy(level)
+    moved = 0
+    for o in (level.get("blam") or {}).get("objects") or []:
+        if is_teleporter(o) and (o.get("set") or {}).get("multiplayer data.owner team") != MARKER_TEAM:
+            o.setdefault("set", {})["multiplayer data.owner team"] = MARKER_TEAM
+            moved += 1
+    return level, moved
+
+
 CM_PER_WORLD_UNIT = 304.8
 # A polygon needs this many corners. One flag is CE's square (below); a map
 # whose only HillFlag is a stray one, as Night-Lockout's, still has no hill.

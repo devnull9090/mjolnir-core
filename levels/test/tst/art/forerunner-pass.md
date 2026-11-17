@@ -265,8 +265,8 @@ local and reproduce them from the installation rather than committing them.
 ### Lighting and controlled material study
 
 The final `tst-facility-entry-sightline-20261031` staging output has skylight
-intensity zero and atmosphere disabled. The `--release-beta` branch in
-`upgrade_ce_map.py` substitutes a post-process ambient cubemap using classic CE
+intensity zero and atmosphere disabled. TST's entry in `ce_upgrade_maps.json`
+(formerly `upgrade_ce_map.py --release-beta`) substitutes a post-process ambient cubemap using classic CE
 b30's water-reflection cube at intensity `0.65`, tint `(1,0.9,0.7,1)`. This is a
 compatibility path, not the shipped B30 lighting setup. The runtime sun was
 measured at intensity `32768` with source angle about `0.536` degrees.

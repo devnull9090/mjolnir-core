@@ -122,17 +122,6 @@ class LocalInstallTest(unittest.TestCase):
         self.assertIn("pakchunk48621-MJOLNIRCOOK-TST_P", sources)
         self.assertNotIn("pakchunk985-MJOLNIRCOOK-TST_P", sources)
 
-    def test_beta_local_install_keeps_published_runtime_unchanged(self):
-        self.map["environment"] = {"light_scale": 8192, "sun": {"atmosphere_sun": True},
-                                   "skylight": {"physical": True}, "post": {}}
-        self.write(self.config, {"TST": self.map})
-        for ext in ("utoc", "ucas"):
-            (self.staged / f"pakchunk983-Windows.{ext}").unlink()
-        with patch.object(upgrade, "run", return_value=""), patch.object(upgrade, "install_shared") as shared:
-            self.main("--local-install", "--release-beta")
-        shared.assert_not_called()
-        self.assertTrue((self.ue4ss / "MJOLNIRMaps/TST/level.json").exists())
-
     def test_local_install_preserves_baked_water_and_rejects_missing_state(self):
         level_path = Path(self.paths["out_level"])
         level = json.loads(level_path.read_text())
@@ -228,6 +217,21 @@ class LocalInstallTest(unittest.TestCase):
         (conv / "pakchunk985-MJOLNIRCOOK-TST_P.ucas").unlink()
         with self.assertRaisesRegex(SystemExit, "install is incomplete"):
             self.hub_install(dict(self.map, conversion_containers=True))
+
+    def test_hub_install_takes_the_verified_owned_cook_and_native_rocks(self):
+        conv = Path(self.map["conversion"])
+        for stem in ("pakchunk986-MJOLNIRMESH-TST_P",):
+            for ext in ("utoc", "ucas"):
+                self.write(conv / f"{stem}.{ext}")
+        owned = Path(self.paths["work"]) / "owned-cook-x" / "pakchunk968-MJOLNIRCOOK-TST_P"
+        for base in (owned, Path(self.paths["bake"]) / "pakchunk970-MJOLNIRROCK-TST_P"):
+            for ext in ("utoc", "ucas"):
+                self.write(f"{base}.{ext}")
+        with patch.object(upgrade, "verified_owned_cook", return_value=owned) as verified:
+            names = self.hub_install(dict(self.map, map_mesh_chunk=True, native_rock_materials=True))
+        verified.assert_called_once()
+        self.assertEqual(names, ["MJOLNIRMAP-TST", "MJOLNIRLAND-TST", "MJOLNIRMESH-TST", "MJOLNIRCOOK-TST",
+                                 "MJOLNIRROCK-TST"])
 
     def test_swap_forwards_explicit_tree_variant_only_when_configured(self):
         self.write(self.paths["level"], {})
@@ -530,28 +534,21 @@ class AssembleTest(unittest.TestCase):
                 self.assertEqual(config, {"indoor": True, "grime": grime_enabled})
 
 
-class ReleaseEnvironmentTest(unittest.TestCase):
-    def test_beta_preserves_physical_sky_intensity_for_published_loader(self):
-        source = json.loads(Path(upgrade.CONFIG).read_text(encoding="utf-8"))["TST"]
-        expected = source["environment"]["skylight"]["intensity"]
-        # Exercise the real CLI/config path without invoking editor or game.
-        for scale in (8192, 4096):
-            with self.subTest(scale=scale), tempfile.TemporaryDirectory() as folder:
-                source["environment"]["light_scale"] = scale
-                config = Path(folder) / "config.json"
-                config.write_text(json.dumps({"TST": source}), encoding="utf-8")
-                with patch.object(upgrade, "CONFIG", str(config)), \
-                        patch.object(upgrade, "stage_assemble") as assemble, \
-                        patch("sys.argv", ["upgrade_ce_map.py", "TST", "--release-beta",
-                                           "--stages", "assemble", "--work", folder]):
-                    upgrade.main()
-                result = assemble.call_args.args[1]
-                env = result["environment"]
-                self.assertAlmostEqual(env["skylight"]["intensity"] * scale, expected)
-                self.assertNotIn("physical", env["skylight"])
-                self.assertFalse(env["atmosphere"])
-                self.assertEqual(env["sun"]["source_angle"], source["environment"]["sun"]["source_angle"])
-                self.assertEqual(json.loads(config.read_text()), {"TST": source})
+class TeleporterTeamTest(unittest.TestCase):
+    def test_base_level_puts_every_teleporter_end_on_the_eighth_team(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "map.level.json"
+            sender = {"group": "scenery", "tag": r"objects\multi\teleporters\teleporter_sender", "set": {}}
+            spawn = {"group": "scenery", "tag": r"objects\multi\spawning\player_spawn",
+                     "set": {"multiplayer data.owner team": "neutral"}}
+            base.write_text(json.dumps({"blam": {"objects": [sender, spawn]}}), encoding="utf-8")
+            moved = upgrade.moved_level(str(base), {})
+            self.assertNotEqual(moved, str(base))
+            objects = json.loads(Path(moved).read_text(encoding="utf-8"))["blam"]["objects"]
+            self.assertEqual(objects[0]["set"]["multiplayer data.owner team"], "eighth party")
+            self.assertEqual(objects[1], spawn)
+            # A level already right comes back as it is.
+            self.assertEqual(upgrade.moved_level(moved, {}), moved)
 
 
 if __name__ == "__main__":

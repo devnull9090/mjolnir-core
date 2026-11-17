@@ -40,8 +40,8 @@ not part of the source download. Repository code uses the repository license; st
 retain their original terms.
 
 For a release build, run `rebuild.ps1`, conversion, `prepare_runtime.py --release-beta`, and
-`upgrade_ce_map.py TST --release-beta`. The two beta switches keep the advertised modes and sky
-compatible with published player dependencies. Package the matching conversion and upgrade
+`upgrade_ce_map.py TST`, the same upgrade as every other map. The beta switch keeps the advertised
+modes; the sky and exposure are TST's entry in `tools/level/ce_upgrade_maps.json`. Package the matching conversion and upgrade
 outputs with `pack_local_map.py --sign`. Never package an older game build beside newer source
 without identifying the difference.
 
