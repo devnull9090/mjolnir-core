@@ -35,6 +35,7 @@ then rebuilds the shared registration and menu with `mjolnir level register`.
 Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
+from ce_objectives import park
 from cooked_map_container import cooked_map_container
 import dev_paks
 from machine_containers import map_tag_containers
@@ -188,8 +189,15 @@ def moved_level(path, moves, extra=None, groups=None):
     82 cm from a parapet chunk (an object baked into the terrain, 1.7 m
     tall) that stands on its platform alone: pushed out of it, the turret
     slid off the platform every spawn. It moves to the middle of the clear
-    part of the platform (2026-11-14)."""
-    level = json.load(open(path, encoding="utf-8"))
+    part of the platform (2026-11-14).
+
+    Every teleporter end goes on the eighth team too (ce_objectives.park):
+    conversions made before 2026-11-07 left them on none, team 0, and red
+    respawned on the pads (#346). The base level comes back as it is when
+    nothing changes."""
+    level, parked = park(json.load(open(path, encoding="utf-8")))
+    if not (moves or extra or groups or parked):
+        return path
     found = set()
     for v in (level.get("blam") or {}).get("vehicles") or []:
         label = (v.get("set") or {}).get("multiplayer data.megalo label")
@@ -284,7 +292,7 @@ def paths(code, m, work):
         for door in json.load(open(m["doors"], encoding="utf-8")):
             objects += (door.get("blam") or {}).get("objects") or []
             groups += (door.get("blam") or {}).get("device_groups") or []
-    if m.get("vehicle_moves") or objects:
+    if m.get("vehicle_moves") or objects or os.path.isfile(level):
         level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups)
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
@@ -2962,8 +2970,6 @@ def install_local(code, plan):
 
 
 def stage_install(code, m, p):
-    if m.get('map_mesh_chunk'):
-        sys.exit(f'{code}: direct hub install would leave a stale map cook; use the verified map package or preview swap')
     require_game_closed()
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     if m.get("indoor"):
@@ -2992,10 +2998,16 @@ def stage_install(code, m, p):
     # containers too. A map converted again since its hub copy (the Halo 2
     # maps) names textures the hub's containers lack: Zanzibar failed 516
     # lookups at load and drew most slots without their detail maps.
-    if m.get("conversion_containers"):
+    if m.get("conversion_containers") or m.get("map_mesh_chunk"):
         if not m.get("mesh_container"):
             builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
-        builds.append((map_cook_container(code, m, p), f"MJOLNIRCOOK-{code}"))
+        # `map_mesh_chunk`: the cook the cook stage verified and snapshot
+        # (owned_map_cook), never the staged one a later cook may replace.
+        cook = verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk") else map_cook_container(code, m, p)
+        builds.append((str(cook), f"MJOLNIRCOOK-{code}"))
+    # `native_rock_materials`: the bake's native clones of the rocks' MICs.
+    if m.get("native_rock_materials"):
+        builds.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
     # The map's own tags: its machines, their actors, its movable props
     # (machine_containers.py: the packs carry the same list).
     builds += map_tag_containers(code, m, p["conv"])
@@ -3046,8 +3058,6 @@ def main():
     install.add_argument("--local-install", action="store_true", help="add the install stage for a fresh local map (no hub)")
     ap.add_argument("--work", default="C:/haloce/ce_conversions/upgrade")
     ap.add_argument("--no-masters", action="store_true", help="skip rebuilding the trial masters in the editor stage")
-    ap.add_argument("--release-beta", action="store_true",
-                    help="TST: use the beta sky/exposure preset; validate required loader features before release")
     a = ap.parse_args()
     with open(CONFIG, encoding="utf-8") as f:
         config = json.load(f)
@@ -3061,28 +3071,6 @@ def main():
     if "cook" in stages and any(m.get("map_mesh_chunk") for m in maps.values()):
         if "editor" not in stages or a.no_masters:
             sys.exit("Map-owned generated meshes require editor and cook in the same run; omit --no-masters.")
-    if a.release_beta and "TST" in maps:
-        # The public 0.9.0 loader does not implement physical skylight or
-        # atmosphere_sun. Keep the authored CE sky and convert physical sky
-        # intensity to its legacy units. This preset does not certify release
-        # compatibility: recapture_after_load and authored emitter controls
-        # still require a loader that implements those optional features.
-        m = maps["TST"]
-        m["sky_mesh"] = True
-        # Keep a restrained neutral probe: the legacy water cube at 0.65 washed
-        # the halls blue and overwhelmed the practical ceiling lights.
-        m["ambient_cubemap"] = {"asset": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water",
-                                "intensity": 0.20, "tint": [1.0, 1.0, 1.0, 1.0]}
-        env = m["environment"]
-        env["atmosphere"] = False
-        env["sun"].pop("atmosphere_sun", None)
-        if env["skylight"].pop("physical", False):
-            # Preserve the authored physical intensity with the public loader's
-            # legacy scaling. TST's 4 / 8192 resolves to runtime intensity 4;
-            # passing 4 directly would wash out the cliffs and vegetation.
-            env["skylight"]["intensity"] = env["skylight"].get("intensity", 3.0) / env.get("light_scale", 8192)
-        env["skylight"]["color"] = [0.98, 0.99, 1.0]
-        env["post"]["exposure_bias"] = -0.4
     ps = {c: paths(c, m, a.work) for c, m in maps.items()}
     for p in ps.values():
         os.makedirs(p["work"], exist_ok=True)
@@ -3122,13 +3110,9 @@ def main():
                     print(f"  {code}: verified map cook snapshot {snap}")
             continue
         if stage == "install":
-            if not a.local_install and any(m.get("map_mesh_chunk") for m in maps.values()):
-                sys.exit('Map-owned generated meshes require a verified map package or preview swap; direct hub install is unsafe.')
             require_game_closed()
-            plans = {c: local_install_plan(c, m, ps[c], shared=not a.release_beta)
-                     for c, m in maps.items()} if a.local_install else {}
-            if not (a.release_beta and a.local_install):
-                install_shared()
+            plans = {c: local_install_plan(c, m, ps[c]) for c, m in maps.items()} if a.local_install else {}
+            install_shared()
             if a.local_install:
                 for c, plan in plans.items():
                     install_local(c, plan)
