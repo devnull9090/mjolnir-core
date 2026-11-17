@@ -348,6 +348,40 @@ fn machine_bsp(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &mut Vec<Stri
     Ok(Some(format!("{stem}.json")))
 }
 
+/// Every collision BSP of a door's collision model, each written as
+/// `collision/<object>.node<n>_<k>.bsp.json` (node-local, as `machine_bsp`
+/// writes a gear's), with the node it hangs on: the parts that move become
+/// machines of their own (tools/level/h2_door_machines.py).
+fn door_bsps(cache: &Cache, object: &Tag<'_>, dir: &Path, notes: &mut Vec<String>) -> Result<Vec<(i16, String)>, Error> {
+    let mut out = Vec::new();
+    let Some(model) = follow(cache, object.root, 0x34, notes) else { return Ok(out) };
+    let Some(coll) = model.root.tagref(0x08).and_then(|r| cache.follow(r)) else { return Ok(out) };
+    for region in coll.root.block(0x1C, 0x0C).iter() {
+        let Some(perm) = region.block(0x04, 0x14).get(0) else { continue };
+        for (k, b) in perm.block(0x04, 0x44).iter().enumerate() {
+            let node = b.i16(0);
+            let col = collision::read(b.at(0x04));
+            let stem = format!("collision/{}.node{}_{}.bsp", sanitize(object.name()), node, k);
+            let bin = dir.join(format!("{stem}.bin"));
+            std::fs::write(&bin, col.to_bin()).map_err(|e| Error::Io(bin.clone(), e))?;
+            let (lo, hi) = col.bounds().unwrap_or(([0.0; 3], [0.0; 3]));
+            let counts: serde_json::Map<String, Value> =
+                ARRAY_ORDER.iter().zip(col.counts()).map(|(n, c)| (n.to_string(), json!(c))).collect();
+            write_json(
+                &dir.join(format!("{stem}.json")),
+                &json!({
+                    "layout": "ce_pc_v7", "source_layout": "h2_mcc", "coordinate_space": "halo_wu_node_local",
+                    "tag_path": coll.name(), "bin": format!("{stem}.bin"), "node": node,
+                    "array_order": ARRAY_ORDER, "counts": counts,
+                    "world_bounds": {"min": lo, "max": hi},
+                }),
+            )?;
+            out.push((node, format!("{stem}.json")));
+        }
+    }
+    Ok(out)
+}
+
 fn summary_materials(meta: &Value) -> usize {
     meta["materials"].as_array().map(|a| a.len()).unwrap_or(0)
 }
@@ -456,7 +490,7 @@ fn placements<'c>(
     // left out, as before: still, with its collision, a closed gate or a
     // parked train would block a way Halo 2 opens.
     for (kind_block, palette_block, size, group) in
-        [(0x50usize, 0x58usize, 0x5Cusize, "scen"), (0x328, 0x330, 0x4C, "bloc"), (0xA8, 0xB0, 0x48, "mach")]
+        [(0x50usize, 0x58usize, 0x5Cusize, "scen"), (0x328, 0x330, 0x4C, "bloc"), (0xA8, 0xB0, 0x48, "mach"), (0xB8, 0xC0, 0x44, "ctrl")]
     {
         let palette = root.block(palette_block, 0x28);
         for e in root.block(kind_block, size).iter() {
@@ -489,13 +523,33 @@ fn placements<'c>(
                     "scale": scale, "phantoms": pushes,
                 }));
             }
+            // A machine that is not a one-node gear, of any type (a door 0,
+            // a platform 1, a gear 2 of several parts), whose
+            // `device:position` animation decodes (crate::h2::door:
+            // Zanzibar's house gate, Containment's base gates, Triplicate's
+            // garage gates and train) is staged at rest with its opening,
+            // without collision of its own: tools/level/h2_door_machines.py
+            // makes each of its parts a machine of the simulation's own,
+            // which carries the part's collision.
+            let mut door = false;
             let turn = match group {
                 "mach" => match crate::h2::animation::gear_turn(cache, &object) {
                     Ok(turn) => Some(turn),
-                    Err(why) => {
-                        *skipped.entry(format!("{} (a machine whose motion is not drawn: {why})", object.name())).or_default() += 1;
-                        continue;
-                    }
+                    Err(gear_why) => match crate::h2::door::opening(cache, &object) {
+                        Ok(_) => {
+                            door = true;
+                            None
+                        }
+                        // No motion at all (no animation graph, or none
+                        // for its position: Dune's watchtowers and lights):
+                        // it never moves, so it is scenery, collision and all.
+                        Err(why) if why == "no animation graph" || why == "no device:position animation" => None,
+                        Err(why) => {
+                            let key = format!("{} (a machine whose motion is not drawn: {gear_why}; {why})", object.name());
+                            *skipped.entry(key).or_default() += 1;
+                            continue;
+                        }
+                    },
                 },
                 _ => None,
             };
@@ -506,7 +560,7 @@ fn placements<'c>(
                 s if s == 0.0 || (s - 1.0).abs() < 1e-4 => 1.0,
                 s => s,
             };
-            let collision = stage_object_collision(cache, &object, dir, &mut notes, scale)?;
+            let collision = if door { None } else { stage_object_collision(cache, &object, dir, &mut notes, scale)? };
             let mut entry = json!({
                 "kind": "scenery",
                 "asset": object.name(),
@@ -517,9 +571,108 @@ fn placements<'c>(
             if let Some(c) = collision {
                 entry["collision"] = json!(c);
             }
+            // A device's groups (power 0x34, position 0x36): a control
+            // (Zanzibar's keypad) sets its position group, and the machine
+            // of the same position group (the house gate) opens.
+            if group == "mach" || group == "ctrl" {
+                entry["h2_device"] = json!({"power_group": e.i16(0x34), "position_group": e.i16(0x36)});
+            }
+            // A machine placement's own flags (device 0x38: initially open,
+            // initially off, position reversed...; machine 0x3C: bit 0 does
+            // not operate automatically, bit 5 does not close
+            // automatically). Containment's base gates are doors marked not
+            // to operate automatically: only their switches move them.
+            if group == "mach" {
+                entry["h2_device"]["device_flags"] = json!(e.u32(0x38));
+                entry["h2_device"]["machine_flags"] = json!(e.u32(0x3C));
+            }
+            // A control's press sound (its device "open" sound, 0xDC: the
+            // keypad's button_push).
+            if group == "ctrl" {
+                if let Some(id) = object.root.tagref(0xDC).and_then(|r| cache.follow(r)).and_then(|t| sounds.sound(&t, false)) {
+                    entry["h2_device"]["press_sound"] = json!(id);
+                }
+            }
+            if door {
+                match crate::h2::door::opening(cache, &object) {
+                    Ok(o) => {
+                        let nodes: Vec<Value> = o
+                            .nodes
+                            .iter()
+                            .map(|n| json!({"name": n.name, "parent": n.parent, "t": n.translation, "r": n.rotation}))
+                            .collect();
+                        let poses: Vec<Value> = o
+                            .poses
+                            .iter()
+                            .map(|f| json!(f.iter().map(|(t, r)| json!([t, r])).collect::<Vec<_>>()))
+                            .collect();
+                        // The machine's own behaviour (mach: type 0x11C,
+                        // flags 0x11E, door open time 0x120; device:
+                        // automatic activation radius 0x118), for its
+                        // machines' tags.
+                        let r = object.root;
+                        entry["h2_door"] = json!({
+                            "frames": o.frames, "seconds": o.seconds, "nodes": nodes, "poses": poses,
+                            "machine": {
+                                "type": r.u16(0x11C), "flags": r.u16(0x11E), "door_open_time": r.f32(0x120),
+                                "automatic_radius": r.f32(0x118),
+                            },
+                        });
+                        let bsps = door_bsps(cache, &object, dir, &mut notes)?;
+                        entry["h2_door"]["collision"] =
+                            json!(bsps.iter().map(|(n, p)| json!({"node": n, "bsp": p})).collect::<Vec<_>>());
+                        // Its sounds (mach: open 0xDC, close 0xE4, opened
+                        // 0xEC, closed 0xF4), staged as one-shots.
+                        for (key, off) in [("open", 0xDCusize), ("close", 0xE4), ("opened", 0xEC), ("closed", 0xF4)] {
+                            if let Some(id) = object.root.tagref(off).and_then(|r| cache.follow(r)).and_then(|t| sounds.sound(&t, false)) {
+                                entry["h2_door"]["sounds"][key] = json!(id);
+                            }
+                        }
+                    }
+                    Err(why) => notes.push(format!("{}: its opening not read: {why}", object.name())),
+                }
+            }
             if group != "mach" {
                 if let Some(cc) = change_colors(&object, &e) {
                     entry["change_colors"] = cc;
+                }
+                // What Halo 2 does with it (crate::h2::props): a prop whose
+                // physics model has a moving rigid body is a physics object
+                // (tools/level/upgrade_ce_map.py makes it one); its damage
+                // info's vitality and responses, with the sounds and decals
+                // their effects play (staged as one-shots), say how it
+                // breaks; its functions are what its shaders animate by.
+                if let Some(p) = crate::h2::props::physics(cache, &object) {
+                    entry["h2_physics"] = json!({"mass": p.mass, "motion": p.motion, "bodies": p.bodies, "constraints": p.constraints});
+                }
+                if let Some(d) = crate::h2::props::damage(cache, &object) {
+                    let responses: Vec<Value> = d
+                        .responses
+                        .iter()
+                        .map(|r| {
+                            let mut v = json!({
+                                "section": r.section, "threshold": r.threshold, "flags": r.flags, "delay": r.delay,
+                                "effect": r.effect.as_ref().map(|t| t.name()),
+                                "damage_effect": r.damage_effect.as_ref().map(|t| t.name()),
+                            });
+                            if let Some(fx) = &r.effect {
+                                let snds: Vec<String> = crate::h2::props::references(cache, fx, b"snd!")
+                                    .iter()
+                                    .filter_map(|s| sounds.sound(s, false))
+                                    .collect();
+                                let decals: Vec<&str> =
+                                    crate::h2::props::references(cache, fx, b"deca").iter().map(|t| t.name()).collect();
+                                v["sounds"] = json!(snds);
+                                v["decals"] = json!(decals);
+                            }
+                            v
+                        })
+                        .collect();
+                    entry["h2_damage"] = json!({"vitality": d.vitality, "responses": responses});
+                }
+                let functions = crate::h2::props::functions(&object);
+                if !functions.is_empty() {
+                    entry["h2_functions"] = json!(functions);
                 }
             }
             if let Some(model) = object_model(cache, &object, &mut notes) {
@@ -544,7 +697,7 @@ fn placements<'c>(
             }
             sounds.object(&object, e.vec3(0x08), e.vec3(0x14));
             entries.push(entry);
-            count(summary, match group { "scen" => "scenery", "bloc" => "crate", _ => "machine" });
+            count(summary, match group { "scen" => "scenery", "bloc" => "crate", "ctrl" => "control", _ => "machine" });
         }
     }
 

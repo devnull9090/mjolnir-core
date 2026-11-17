@@ -37,6 +37,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -154,6 +155,93 @@ def turn_resource(donor, axis, angles):
     return bytes(b)
 
 
+def matrix_quat(m):
+    """A rotation matrix's quaternion (x, y, z, w), the convention of qrot
+    and merge_ce_scene.quat_matrix."""
+    t = m[0][0] + m[1][1] + m[2][2]
+    if t > 0:
+        s = math.sqrt(t + 1.0) * 2
+        q = ((m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s, 0.25 * s)
+    elif m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2
+        q = (0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s, (m[2][1] - m[1][2]) / s)
+    elif m[1][1] > m[2][2]:
+        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2
+        q = ((m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s, (m[0][2] - m[2][0]) / s)
+    else:
+        s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2
+        q = ((m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s, (m[1][0] - m[0][1]) / s)
+    n = math.sqrt(sum(c * c for c in q))
+    return tuple(c / n for c in q)
+
+
+def pose_resource(donor, platform_q, platform_t, frames):
+    """The donor animation graph with its one member rewritten for any rigid
+    motion: the root turns and slides by `frames` (one (quaternion,
+    translation) a frame, wu, the root's transform in the object), and the
+    platform (node 1, which the collision hangs on) sits at `platform_q`,
+    `platform_t` under it. Both root tracks are animated (codec 3, one
+    rotating and one sliding node), so a part that swings about a pivot
+    away from the root (a door's ramp) or slides and turns at once is one
+    machine. Segments as `turn_resource` lists them."""
+    b = bytearray(donor)
+    n = len(frames)
+    j = b.find(b"lbgt", b.find(b"crgt"))
+    e = j + 20
+    old_size = struct.unpack_from("<I", b, e + 80)[0]
+    d = b.find(b"adgt", j)
+    blob_at = d + 12
+    # Keys keep one hemisphere, so no frame interpolates the long way round.
+    qs, last = [], None
+    for q, _ in frames:
+        q = tuple(float(c) for c in q)
+        if last is not None and sum(a * c for a, c in zip(q, last)) < 0:
+            q = tuple(-c for c in q)
+        qs.append(q)
+        last = q
+    ts = [tuple(float(c) for c in t) for _, t in frames]
+
+    def i16q(q):
+        norm = math.sqrt(sum(c * c for c in q))
+        return tuple(int(round(c / norm * 32767)) for c in q)
+
+    static = struct.pack("<4B2f5I", 1, 1, 1, 2, 0.0, 0.0, 0x28, 0x28 + 12, 0, 0, 0)
+    static += struct.pack("<4h", *i16q(platform_q)) + struct.pack("<3f", *platform_t) + struct.pack("<2f", 1.0, 1.0)
+    rot = b"".join(struct.pack("<4h", *i16q(q)) for q in qs)
+    tr = b"".join(struct.pack("<3f", *t) for t in ts)
+    anim = struct.pack("<4B2f5I", 3, 1, 1, 0, 0.0, 1.0, 0x20 + 8 * n, 0x20 + 20 * n, 8 * n, 12 * n, 4 * n) + rot + tr
+    unc = struct.pack("<4B2f5I", 2, 1, 1, 0, 0.0, 0.0, 0x20 + 16 * n, 0x20 + 28 * n, 16 * n, 12 * n, 4 * n)
+    unc += b"".join(struct.pack("<4f", *q) for q in qs) + tr
+    osp = struct.pack("<HH", 2, n)
+    osp += b"".join(struct.pack("<4f3ff", *q, *t, 1.0) for q, t in zip(qs, ts))
+    osp += b"".join(struct.pack("<4f3ff", *qmul(q, platform_q), *(a + c for a, c in zip(qrot(q, platform_t), t)), 1.0)
+                    for q, t in zip(qs, ts))
+    seg = {0: static, 1: anim, 2: struct.pack("<3I", 0b10, 0b10, 0b11), 3: struct.pack("<3I", 0b01, 0b01, 0),
+           5: b"\0" * (12 * n), 6: unc, 13: osp, 15: struct.pack("<I", 0b11) + b"\0" * 28}
+    sizes = [len(seg.get(i, b"")) for i in range(17)]
+    blob = b"".join(seg[i] for i in sorted(seg))
+    delta = len(blob) - old_size
+    struct.pack_into("<h", b, e + 8, n)
+    struct.pack_into("<17i", b, e + 12, *sizes)
+    struct.pack_into("<I", b, e + 80, len(blob))
+    end = blob_at + old_size
+    for magic in (b"tadb", b"lbgt", b"tsgt", b"crgt", b"adgt"):
+        p = -1
+        while True:
+            p = b.find(magic, p + 1)
+            if p < 0 or p > blob_at:
+                break
+            v, s = struct.unpack_from("<II", b, p + 4)
+            if p + 12 + s == end:
+                struct.pack_into("<I", b, p + 8, s + delta)
+                if magic == b"tsgt" and v == s:
+                    struct.pack_into("<I", b, p + 4, s + delta)
+    total = struct.unpack_from("<I", b, 0x48)[0]
+    struct.pack_into("<I", b, 0x48, total + delta)
+    b[blob_at:end] = blob
+    return bytes(b)
+
+
 def boxes(triangles, cell=0.25, limit=200):
     """Boxes over a triangle mesh (world units): the cells of a grid the
     triangles pass through, merged greedily along x, then y, then z. The
@@ -229,11 +317,105 @@ def physics_args(box_list):
     return args
 
 
+# The shipped Blueprint each machine's actor is cloned from: its mesh list
+# (BlamMeshSynchronizationComponent RuntimeRegions) then names the part.
+DONOR_ACTOR = "BP_ElevatorAB40"
+# glTF axes -> Unreal's (merge_ce_scene's glTF metres: x, y up, -CE y).
+GLTF_UE = [[1, 0, 0], [0, 0, 1], [0, 1, 0]]
+
+
+def mesh_list_edits(items, at_cm, rot):
+    """vehicle_actor edits that make the elevator Blueprint wear `items`
+    (decor entries with mesh, pos, scale: world-aligned meshes standing at
+    rest), each on bone `Root` (the simulation's root node, which carries
+    the part) at its rest offset from the actor. `rot`: the actor's rotation
+    in Unreal's axes (3x3, columns its axes), so the offsets and the mesh's
+    rotation undo it. An actor with no item wears nothing."""
+    base = "RuntimeRegions{default}.Permutations{default}"
+    edits = [f"0|{base}.StaticMeshes|@len={len(items)}"]
+    inv = [[rot[j][i] for j in range(3)] for i in range(3)]
+    q = matrix_quat(inv)
+    for i, item in enumerate(items):
+        d = [item["pos"][k] - at_cm[k] for k in range(3)]
+        local = [sum(inv[r][c] * d[c] for c in range(3)) for r in range(3)]
+        sc = item.get("scale") or [1.0, 1.0, 1.0]
+        pth = f"{base}.StaticMeshes[{i}]"
+        edits += [f"0|{pth}.Asset|{item['mesh']}", f"0|{pth}.Class|/Script/Engine.StaticMeshComponent",
+                  f"0|{pth}.ParentBoneName|Root", f"0|{pth}.MaterialOverrides|@len=0", f"0|{pth}.ComponentTags|@len=0",
+                  f"0|{pth}.Transform.Translation|{local[0]:.3f},{local[1]:.3f},{local[2]:.3f}",
+                  f"0|{pth}.Transform.Rotation|{q[0]:.6f},{q[1]:.6f},{q[2]:.6f},{q[3]:.6f}",
+                  f"0|{pth}.Transform.Scale3D|{sc[0]:.5f},{sc[1]:.5f},{sc[2]:.5f}"]
+    return edits
+
+
+def write_actor_container(actors, name, out, paks, examples):
+    """Clone B40's elevator Blueprint once per (actor path, edits) into the
+    container `name` (with the .pak stub the game mounts it beside) in
+    `out`, by crates/ue-asset/examples/vehicle_actor.rs, which renames the
+    package, its generated class and default object. Returns the count."""
+    if not actors:
+        return 0
+    work = tempfile.mkdtemp(prefix="h2actors_")
+    env = dict(os.environ, MSYS2_ARG_CONV_EXCL="*")
+    packages = []
+    for actor, edits in actors:
+        leaf_ = actor.rsplit("/", 1)[1]
+        path = os.path.join(work, leaf_ + ".edits.txt")
+        open(path, "w", encoding="utf-8").write("\n".join(edits) + "\n")
+        uasset = os.path.join(work, leaf_ + ".uasset")
+        subprocess.run([os.path.join(examples, "vehicle_actor.exe"), paks, DONOR_ACTOR, actor, uasset, "@" + path],
+                       check=True, capture_output=True, text=True, env=env)
+        packages += ["--package", f"{actor}={uasset}"]
+    subprocess.run([os.path.join(examples, "package_add.exe"), paks, out, "--name", name, *packages],
+                   check=True, capture_output=True, text=True, env=env)
+    shutil.copyfile(os.path.join(paks, "pakchunk115-Windows.pak"), os.path.join(out, name + ".pak"))
+    return len(actors)
+
+
 def leaf(path):
     return path.replace("\\", "/").rsplit("/", 1)[-1].lower().replace(" ", "_")
 
 
+def actors_main(argv):
+    """h2_machines.py actors <staging> <machines.json> <terrain.json> <CODE> <out dir>
+    --transform <sbsp.transform.json> --paks P --examples E
+
+    Each placed gear's actor (machines.json `placements`) wearing its part
+    meshes (terrain.json entries whose `motion.entry` is the placement), at
+    the placement's full rotation, into pakchunk987-MJOLNIRGEAR-<CODE>_P."""
+    import numpy as np
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from merge_ce_scene import ce_rotation
+    ap = argparse.ArgumentParser(prog="h2_machines.py actors")
+    for x in ("staging", "machines", "terrain", "code", "out"):
+        ap.add_argument(x)
+    ap.add_argument("--transform", required=True)
+    ap.add_argument("--paks", default=os.environ.get("HCE_PAKS"))
+    ap.add_argument("--examples", required=True)
+    a = ap.parse_args(argv)
+    placement = json.load(open(os.path.join(a.staging, "placement.json"), encoding="utf-8"))
+    manifest = json.load(open(a.machines, encoding="utf-8"))
+    terrain = json.load(open(a.terrain, encoding="utf-8"))
+    terrain = terrain if isinstance(terrain, list) else [terrain]
+    delta = json.load(open(a.transform, encoding="utf-8"))["delta"]
+    q = np.array(GLTF_UE, dtype=float)
+    actors = []
+    for asset, m in manifest.items():
+        for n, pl in (m.get("placements") or {}).items():
+            e = placement["entries"][int(n)]
+            p = [e["pos"][k] + delta[k] for k in range(3)]
+            at = [p[0] * 304.8, -p[1] * 304.8, p[2] * 304.8]
+            rot = (q @ ce_rotation(*(e.get("rot") or [0.0, 0.0, 0.0])) @ q.T).tolist()
+            items = [t for t in terrain if (t.get("motion") or {}).get("entry") == int(n)]
+            actors.append((pl["actor"], mesh_list_edits(items, at, rot)))
+    name = f"pakchunk987-MJOLNIRGEAR-{a.code.upper()}_P"
+    count = write_actor_container(actors, name, a.out, a.paks, a.examples)
+    print(f"  {count} gear actor(s) -> {os.path.join(a.out, name)}")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "actors":
+        return actors_main(sys.argv[2:])
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("staging")
     ap.add_argument("code")
@@ -245,10 +427,11 @@ def main():
     parts = {}
     for e in placement["entries"]:
         m = e.get("h2_motion")
-        if m and m.get("bsp") and e.get("collision") and e["asset"] not in parts:
+        if m and e["asset"] not in parts:
             parts[e["asset"]] = e
     os.makedirs(a.out, exist_ok=True)
     manifest = {}
+    actor_paths = []
     if parts:
         work = tempfile.mkdtemp(prefix="h2mach_")
         run = lambda *args: subprocess.run([a.mjolnir, *args], check=True, capture_output=True, text=True).stdout
@@ -267,26 +450,56 @@ def main():
             run("new-tag", "--group", "model_animation_graph", "--from", DONOR, "--to", tag, "--payload", payload,
                 "--set", f"definitions.animations[0].shared animation data[0].frame count={len(angles)}",
                 "--out-dir", a.out, "--name", name("J"))
-            coll = os.path.join(work, f"{k}.coll")
-            run("level", "machine-collision", os.path.join(a.staging, m["bsp"]), "--donor", DONOR, "--out", coll)
-            run("new-tag", "--group", "collision_model", "--from", DONOR, "--to", tag, "--payload", coll,
-                "--out-dir", a.out, "--name", name("C"))
-            tris = json.load(open(os.path.join(a.staging, e["collision"]), encoding="utf-8"))["triangles"]
-            pargs = physics_args(boxes(tris))
-            sets = os.path.join(work, f"{k}.sets")
-            # Hundreds of boxes outgrow a command line (Zanzibar's wheel).
-            open(sets, "w", encoding="utf-8").write("\n".join(v for f, v in zip(pargs[::2], pargs[1::2]) if f == "--set"))
-            resizes = [x for f, v in zip(pargs[::2], pargs[1::2]) if f == "--resize" for x in (f, v)]
-            run("new-tag", "--group", "physics_model", "--from", DONOR, "--to", tag, *resizes, "--set-file", sets,
-                "--out-dir", a.out, "--name", name("P"))
-            run("new-tag", "--group", "model", "--from", DONOR, "--to", tag,
-                "--set", f"animation=jmad:{tag}", "--set", f"physics_model=phmo:{tag}",
-                "--set", f"collision model=coll:{tag}", "--out-dir", a.out, "--name", name("H"))
-            run("new-tag", "--group", "device_machine", "--from", DONOR, "--to", tag,
-                "--set", "type=gear", "--set", f"device.position transition time={1.0 / m['period']:.6f}",
-                "--set", f"device.object.model=hlmt:{tag}", "--out-dir", a.out, "--name", name("M"))
-            manifest[asset] = {"tag": tag, "class": DONOR_CLASS, "frames": len(angles)}
-            print(f"  machine {k}: {asset} -> {tag} ({len(angles)} frames over {m['period']:g} s)")
+            radius = 3.0
+            groups = "JH"
+            if m.get("bsp") and e.get("collision"):
+                coll = os.path.join(work, f"{k}.coll")
+                run("level", "machine-collision", os.path.join(a.staging, m["bsp"]), "--donor", DONOR, "--out", coll)
+                run("new-tag", "--group", "collision_model", "--from", DONOR, "--to", tag, "--payload", coll,
+                    "--out-dir", a.out, "--name", name("C"))
+                tris = json.load(open(os.path.join(a.staging, e["collision"]), encoding="utf-8"))["triangles"]
+                pargs = physics_args(boxes(tris))
+                sets = os.path.join(work, f"{k}.sets")
+                # Hundreds of boxes outgrow a command line (Zanzibar's wheel).
+                open(sets, "w", encoding="utf-8").write("\n".join(v for f, v in zip(pargs[::2], pargs[1::2]) if f == "--set"))
+                resizes = [x for f, v in zip(pargs[::2], pargs[1::2]) if f == "--resize" for x in (f, v)]
+                run("new-tag", "--group", "physics_model", "--from", DONOR, "--to", tag, *resizes, "--set-file", sets,
+                    "--out-dir", a.out, "--name", name("P"))
+                run("new-tag", "--group", "model", "--from", DONOR, "--to", tag,
+                    "--set", f"animation=jmad:{tag}", "--set", f"physics_model=phmo:{tag}",
+                    "--set", f"collision model=coll:{tag}", "--out-dir", a.out, "--name", name("H"))
+                groups = "JCPH"
+                # The part's reach from its origin, for the game's distance
+                # culling: a hidden actor draws nothing.
+                radius = max(1.0, max(math.dist((0, 0, 0), tris[i:i + 3]) for i in range(0, len(tris), 3)))
+            else:
+                # A turning part with no collision of its own (none staged):
+                # a machine all the same, which carries its mesh.
+                run("new-tag", "--group", "model", "--from", DONOR, "--to", tag,
+                    "--set", f"animation=jmad:{tag}", "--set", "physics_model=none",
+                    "--set", "collision model=none", "--out-dir", a.out, "--name", name("H"))
+            # The machine tag is each placement's: it names the placement's
+            # own actor (`actors`), the elevator Blueprint wearing its part.
+            placements = {}
+            for n, pe in enumerate(placement["entries"]):
+                if pe.get("asset") != asset or not pe.get("h2_motion"):
+                    continue
+                pa = len(placements)
+                actor = f"/Game/MJOLNIR/Maps/{code}/Machines/BP_{code}_Gear{len(actor_paths)}"
+                actor_paths.append(actor)
+                m_tag = tag + (f"_p{pa}" if pa else "")
+                m_name = name("M") + (str(pa) if pa else "")
+                subprocess.run([a.mjolnir, "new-tag", "--group", "device_machine", "--from", DONOR, "--to", m_tag,
+                                "--set", "type=gear", "--set", f"device.position transition time={1.0 / m['period']:.6f}",
+                                "--set", f"device.object.bounding radius={radius:.3f}",
+                                "--set", f"device.object.model=hlmt:{tag}", "--asset-reference", actor,
+                                "--out-dir", a.out, "--name", m_name],
+                               check=True, capture_output=True, text=True, env=dict(os.environ, MSYS2_ARG_CONV_EXCL="*"))
+                placements[str(n)] = {"tag": m_tag, "actor": actor, "class": actor.rsplit("/", 1)[1] + "_C"}
+            manifest[asset] = {"tag": tag, "class": DONOR_CLASS, "frames": len(angles), "placements": placements,
+                               "collision": groups == "JCPH"}
+            print(f"  machine {k}: {asset} -> {tag} ({len(angles)} frames over {m['period']:g} s, "
+                  f"{len(placements)} placement(s), {'collision' if groups == 'JCPH' else 'no collision'})")
     json.dump(manifest, open(os.path.join(a.out, "machines.json"), "w", encoding="utf-8"), indent=1)
     print(f"{len(manifest)} machine(s) -> {os.path.join(a.out, 'machines.json')}")
 

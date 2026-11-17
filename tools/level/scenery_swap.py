@@ -75,6 +75,8 @@ SHRUBS = [PLANTS + "Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_C
           PLANTS + "Downy_Willow_wknlfiuqx/Custom_Combinations/SM_Downy_Willow_Combined_B"]
 FERNS = [PLANTS + f"Fern/SM_Fern_0{i}" for i in (1, 2, 3, 4, 5, 6)]
 BROADLEAF = [PLANTS + f"Taro/SM_Taro_{i:02d}" for i in (2, 3, 6, 7, 8, 10)]
+PALMS = [PLANTS + "AlexandraPalm/SM_AlexandraPalm_01", PLANTS + "AlexandraPalm/SM_AlexandraPalm_02",
+         PLANTS + "Cat_Palm_tjejafeia/S_Cat_Palm_tjejafeia_0_Var1_lod0"]
 
 # CE scenery (substring of the tag path) -> what stands in for it. Tree
 # variants by the CE tree's character; the rest by kind.
@@ -94,6 +96,8 @@ RULES = [
     ("shrub", ("mesh", SHRUBS)),
     ("plant fern", ("mesh", FERNS)),
     ("plant_broadleaf", ("mesh", BROADLEAF)),
+    # Halo 2's beach bushes (Zanzibar) as the game's young palms.
+    ("bush_beach", ("mesh", PALMS)),
 ]
 
 # A snow map (B40): CE's snowy pines as its dead Douglas firs (every
@@ -394,6 +398,10 @@ def swap_rule(entry, staging, snow=False):
     by its tag path, else by its shaders' names (a protected map's scenery
     is "protected\\scen\\175", its shader still the stock boulder's)."""
     if entry.get("kind") != "scenery" or not entry.get("model"):
+        return None
+    # A Halo 2 decorator (`model_rock:rock_small`, by the thousand) is not
+    # scenery to stand a boulder in for.
+    if entry.get("decorator"):
         return None
     rules = SNOW["rules"] if snow else RULES
     asset = entry["asset"].lower()
@@ -698,7 +706,7 @@ def main():
     s.add_argument("scene"); s.add_argument("spec"); s.add_argument("recipes"); s.add_argument("bounds")
     s.add_argument("out")
     s.add_argument("--rocks", default="beach", choices=sorted(ROCKS))
-    s.add_argument("--biome", default="b30", choices=["b30", "snow"],
+    s.add_argument("--biome", default="b30", choices=["b30", "snow", "desert", "coast"],
                    help="whose scenery stands in: B30's (beach, desert) or B40's (snow)")
     s.add_argument("--tree-variant", help="use this exact recipe name for every matched tree, or comma-separated names in turn")
     s.add_argument("--authored-decor",help="Source JSON of explicitly placed native meshes in Unreal cm")

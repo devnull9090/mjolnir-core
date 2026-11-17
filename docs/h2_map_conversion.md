@@ -397,6 +397,247 @@ units and axes, so every later step reads them unchanged:
   turn's phase (the simulation starts its gears about 25 s off the world
   clock) for the sounds. Checked on Ascension: a player dropped on an arm
   stands on it and is carried round as it turns.
+- **Props that move and break.** A crate (`bloc`) whose physics model has
+  a rigid body that is neither keyframed nor fixed moves in Halo 2; one
+  with constraints (Zanzibar's hanging lights, crane, awnings) is held and
+  stays still. `crate::h2::props` reads it from the tags and the stage
+  writes it onto the placement: `h2_physics` (mass, motion type, bodies,
+  constraints), `h2_damage` (the model's damage info, 0x60: vitality and
+  every instant response with its effect, damage effect, and the sounds
+  and decals the effect references, the sounds staged as one-shots) and
+  `h2_functions`. `tools/level/h2_physics_props.py` turns every movable
+  type into crate tags (a physics shape of the model's box, mass from
+  Halo 2's, and a death response when Halo 2's kills it: the fusion coil's
+  15 vitality), takes the props out of the merged meshes and builds their
+  meshes; the level loader (props.lua) dresses each crate as the prop placed
+  nearest where it first appears, so every type shares one crate actor
+  class. Zanzibar: 11 types over 55 placements. A dying prop plays our
+  fuel-rod explosion and fire, a plasma scorch and Halo 2's own death sound
+  (`sound\visual_effects\fusion_coil_destroyed`, 13 variants; this game's
+  Wwise events cannot be posted from a mod), and stays, burnt. A coil's
+  core (`tex_bump_plasma_one_channel_illum`) is a one-channel mask lit by a
+  colour running from its damaged pink-red (pixel constant 3) to its
+  healthy orange with the object's `health` function; read as a picture
+  its green channel drew the coils green. A prop's `overlay` stencil (the
+  crates' MKT1 EMERGENCY FOOD) is drawn as masked paint on the prop: the
+  level's darkening copy loses text that brightens. A door (machine type 1:
+  Zanzibar's house gate) opens from its control (the keypad, staged as a
+  `ctrl` placement; the two share position group 0). `crate::h2::door`
+  reads its render model's nodes (0x48, 0x60 each: parent 0x04, default
+  translation 0x0C, rotation 0x18) and decodes `device:position` for every
+  node: keyframe codec 6, four turning and ten sliding nodes named by the
+  three node bit fields that end the frame data, their frame info in node
+  order (read last node first the gate's doors stayed shut while its bars
+  slid across), sliding keys offsets added to the default translation.
+  A vertex's node is its rigid-boned vertex's index byte through the
+  section's node map (resource locator 0x68), staged as `_NODE`.
+  h2_physics_props.py splits the door into a mesh a node (doors.json). The
+  simulation opens it and Unreal moves it: every node with a collision BSP
+  (staged `h2_door.collision`, one BSP a node; the gate's 14, its frame and
+  four ramps among them) becomes a device machine with tags of its own
+  (h2_door_machines.py: animation, collision, physics, model and machine,
+  written into the layout of B40's elevator family). Its root follows the
+  node exactly, turning and sliding at once (`h2_machines.pose_resource`:
+  codec 3 with the root's rotation and translation both animated, so a
+  ramp swinging about its hinge is one machine); its collision is the
+  node's own BSP, its physics boxes cover the BSP's triangles. Each machine
+  stands on a grid about the door's origin, 0.05 wu (15 cm) apart, every
+  machine of a map on a cell of its own.
+
+  **Each placed machine draws its own part.** Its machine tag (one a
+  placement; the animation, collision, physics and model tags are shared)
+  names an actor of its own (`--asset-reference`): B40's elevator
+  Blueprint cloned by `write_actors` (crates/ue-asset/examples/
+  vehicle_actor.rs, which renames the package, its generated class and
+  default object) into `/Game/MJOLNIR/Maps/<CODE>/Machines/
+  BP_<CODE>_Machine<n>`, all in `pakchunk987-MJOLNIRACT-<CODE>_P`. The
+  Blueprint's mesh list (BlamMeshSynchronizationComponent `RuntimeRegions
+  {default}.Permutations{default}.StaticMeshes`, which held the elevator
+  floor on bone `platform`) names the node's part meshes instead, each on
+  bone `Root` (the simulation's root node, bones `elevator_world`, `Root`,
+  `Platform`) at its rest offset from the actor, turned by the placement's
+  yaw. So Unreal draws and moves the part with no elevator to hide and no
+  script attaching anything; the part meshes are not spawned as decor (the
+  level's `doors` parts carry their mesh and materials instead). The loader
+  (doors.lua) only finds each machine's actor by its class (one scan of the
+  Blam object actors); it hides the keypad's switch panel's components (the
+  actor's own hidden flag is reset by the game) and watches one machine at
+  4 Hz (10 Hz while moving) only for Halo 2's sounds.
+
+  The parts' materials are cooked, as the custom vehicles' are
+  (machine_instances.py): when the map's cook runs, build_terrain_meshes.py
+  gives each part mesh real slots (`mesh_rewrite --asset-imports`) naming a
+  material instance per slot, `<root>/MachineMaterials/MI_<mesh>_n<slot>`,
+  of the slot's prop_lit material; ce_vehicle_instances_editor.py makes them
+  after build_ce_level.py and the cook ships them in the map's chunk, and
+  `machine_instances.py check` reads every one back (in the chunk, no static
+  permutation, its textures cooked beside it). The level's parts then carry
+  no materials, so nothing is dressed at spawn. The Blueprint's own
+  `MaterialOverrides` cannot do it: they match slots by name, and a mesh
+  rewritten from the engine's cube keeps the cube's one slot
+  (`WorldGridMaterial`) unless `--asset-imports` writes its own. Without a
+  cook (CE_COOK=0), and on a level built before this, the loader dresses the
+  parts once a world, as before.
+
+  An upgraded map (upgrade_ce_map.py) does the same from its own stages.
+  `h2_physics_props.py --instance-root /Game/MJOLNIR/MachineParts/<landscape>`
+  builds the turning parts and the door parts naming instances in that
+  folder and lists them in `<scene>/machine_instances.json`. The editor
+  stage finishes each entry as assemble finished a part the loader dressed
+  (the redrawn textures, `detail_fill`: `machine_parts_plan`, the same two
+  helpers) and makes the instances after the landscape world, under a label
+  of the folder's own (`PAL_MJOLNIR_<landscape>Parts`, the landscape's chunk,
+  not recursive: the landscape's own labels are, and would take the masters
+  into the chunk). The cook stage runs `machine_instances.py check` on the
+  chunk (the conversion's cook container named for the textures it carries),
+  and assemble leaves those gears without materials. Zanzibar: 21 slots,
+  each equal to what the loader set before, checked entry by entry; in
+  game all 21 draw `MI_ZAN_*` instances, in a second match on the map too.
+
+  The cook stage also refreshes the map's own cook container
+  (`refresh_map_cook`): textures imported into the map's folder after its
+  conversion cooked (the door parts' and the props' stencils, by
+  h2_physics_props.py) are in this cook's chunk, not in the conversion's
+  container the install took, and Zanzibar's gate had drawn textured only
+  beside a test container installed by hand. When the staged chunk holds
+  everything the conversion's does and more, a copy in the work folder
+  becomes the map's `MJOLNIRCOOK-<CODE>`. Run the stages with `HCE_PAKS`,
+  `MJOLNIR` and `EXAMPLES` set (release builds): the bake's defaults are
+  the debug examples, which may be older than the level schema.
+
+  The map's own tag containers (its machines and control, their actors,
+  the gears' and the movable props' crate tags) are one list,
+  machine_containers.py, read by the install stage and by both pack tools
+  (pack_local_map.py, pack_remastered.py), so a pack carries what the
+  tested install did. The tags go in the pack folder's `machines/`, named
+  `-MJOLNIRMACH-<CODE>-...` (a prop's `-MJOLNIRMACH-<CODE>-PROP-<leaf>-<g>`),
+  where `mjolnir map pack` takes a map's tags from; the actors' containers
+  end `-<CODE>_P` beside the map's own. Before this the packs carried none
+  of them and the props' tags were in the game only as local builds
+  installed by hand. Zanzibar: 123 containers, every one in a test pack
+  (not signed, not published), and the map played from the pipeline's
+  install alone with its 14 gate machines, 8 gears and 55 props. Two
+  copies of the game (tools/remote/instances.mjs) agreed: every slot cooked
+  and every prop present in both, and the gate opened by the host stood
+  open in the client's own simulation and its own view.
+
+  A placement's own flags go with it (scenario machine +0x38 device flags,
+  +0x3C machine flags; the simulation's bits are Halo 2's). Containment's
+  base gates are door-type machines (type 0) with no activation radius, so
+  the simulation's door logic opens one for any unit within its bounding
+  radius and shuts it after its open time. Halo 2 places them with
+  machine flag 1, "does not operate automatically", so only their
+  switches move them. Without that flag they stood open (2026-11-15).
+  Zanzibar's gate parts are platforms (type 1), placed with no flags.
+  Before, the fields were whatever B40 placement each map cloned (the one
+  nearest its origin), and some of those are "initially open", "position
+  reversed" or "does not close automatically". Of the Halo 2 machines,
+  only Containment's carry a flag (`h2_machine_placements <map>` lists
+  them); Gemini's, Triplicate's, Colossus's and Backwash's doors carry
+  none and open for a unit nearby, as in Halo 2.
+  Dressing state belongs to the world: a
+  second match on the same map has the same world name and new actors, and
+  parts kept from the first came back as bare grid (fixed 2026-11-15).
+
+  The keypad gets B40's switch panel; machines and switch share one device
+  group (`zan_group0`, Halo 2's position group 0, baked into the
+  scenario), so a player pressing the keypad opens the gate, collision and
+  all, for everyone in the match. The install stage installs every
+  machine's containers (machine_containers.py).
+  `device_group_set none zan_group0 1` opens it from the console.
+
+  **Every machine that moves in parts is staged the same way**, whatever
+  its type. Staging tries a one-node gear first (`gear_turn`); any other
+  machine whose `device:position` decodes (keyframe codecs 4-7, and codec
+  3, which stores every frame) is staged as `h2_door` with its own
+  behaviour (`machine`: type 0x11C, flags 0x11E, door open time 0x120,
+  automatic activation radius 0x118). A machine with no animation never
+  moves and is staged as scenery with its collision (Dune's watchtowers).
+  `h2_machine_census <maps>` lists every machine and whether it decodes. In
+  MCC that is Containment's base gates, shields and switches, Gemini's High
+  Charity doors and gravity columns, Triplicate's garage gates and train,
+  Cyclotron's elevator, Waterworks' crusher, Backwash's monitor and Dune's
+  collapsing teleporters; all seven maps build their machines
+  (h2_door_machines.py). The rules, from the tags:
+  - one machine a collision BSP, and one a node that moves without
+    collision (no collision or physics model: Dune's teleporter legs);
+  - the machine tag's type is Halo 2's: a door (0) opens by itself within
+    its activation radius (proven on Zanzibar with Triplicate's garage
+    gate: a Ghost parked inside its 5 wu opened it, as Halo 2 does), a gear
+    (2) runs round by itself (Triplicate's train: all six parts' positions
+    agree, 0.732 then 0.936 three seconds later), a platform (1) goes where
+    its device group sends it;
+  - a placement's machines stand on a 15 cm grid about its origin, so a
+    door's parts measure its radius from nearly one point, every machine of
+    the map on a cell of its own (Triplicate's train and its deathball are
+    placed 3 cm apart; on shared cells the loader bound one actor twice and
+    an elevator mesh rode the train's nose). The loader claims each actor
+    once, nearest first;
+  - a machine tag is built once and placed per placement (Triplicate's
+    three garage gates);
+  - Halo 2's position group number is the device group
+    (`<code>_group<n>`), shared by every machine and control of that number
+    (Containment's gate and its switch), each control placed once.
+
+  A fresh conversion (`convert_ce_map.sh`) does the same as the upgrade
+  pipeline: after `level collision`, `h2_door_machines.py <staging> <CODE>
+  <out>/machines --transform <name>.sbsp.transform.json` builds every
+  placement's machines (positions moved with the map) and writes
+  `doors.json`; `merge_ce_scene.py --doors` takes the machines out of the
+  static scene as a mesh a node (`scene_machine_d<k>n<node>.gltf` with a
+  `.door.json` naming its staging entry and node, which
+  build_terrain_meshes.py turns into a decor id); `gen_ce_level.py --doors`
+  adds the machines, controls and device groups to the scenario and the
+  level's `doors` for the loader (`level bake` keeps `doors` as opaque, as
+  it keeps `lifts`). The machine containers sit with h2_machines.py's in
+  `<out>/machines` and install with them. Triplicate (TRI, 2026-11-15):
+  seven placements, 20 machines, 18 part meshes, all bound and attached;
+  a garage gate rolled up when the player was teleported into its 5 wu
+  radius. Halo 1 conversions (Chill Out) and Halo 2 maps without such
+  machines (Lockout) merge byte-identically. The published Containment,
+  Gemini, Waterworks, Backwash and Foundation will gain their machines the
+  next time they are converted.
+
+  A moving part is lit by Unreal (prop_lit.py's M_CE_PropLit, both
+  pipelines): lit by the light baked where it was placed, Triplicate's
+  trains, parked in a dark tunnel, drew black through the station. The
+  trains themselves run as the tag says: a 15 s loop, moving for about 5 s,
+  427 m at up to about 107 m/s. (A reading that looked frozen was the
+  train parked at the end of its run for the other two thirds of the loop.)
+
+  The game hides the actors of machines the player cannot see
+  (`bHidden`, the skeleton not rendered) and gives them no pose until the
+  player can; then it poses them at once where the simulation has them
+  (Zanzibar, 2026-11-15: all fourteen gate machines hidden with the player
+  at spawn, the gate opened, nothing moved; the player teleported to the
+  gate, all fourteen shown and every part open). FlyCam does not count as
+  the player's view: a part that stands still in a FlyCam shot while the
+  player is elsewhere is this culling, not a fault. Judge machines from
+  the player's own view. (This explains every "stuck" ramp, bar and
+  "frozen" train reading earlier that day; un-hiding an actor by hand does
+  not pose it, the game's own visibility does.) It is distance culling, as
+  for every Blam object, judged by the object's bounding radius: with the
+  player 20 wu from the gate none of its machines hid, at 35 wu 11 of 14,
+  from 45 wu all. Since the parts are the actors' own meshes now, a culled
+  part is not drawn, as a culled crate or weapon is not; Halo 2 culls the
+  gate as one object (bounding radius 2.56 wu, object +0x04, offset +0x08),
+  so every machine of a placement takes the placement's largest reach as
+  its radius and the parts go and come together. Gears (h2_machines.py)
+  were never hidden within 75 m of the player.
+
+  Two copies on PC 1 (tools/remote/instances.mjs up 2, one simulation):
+  each found and dressed all fourteen actors; the gate opened from the
+  host's console showed open on the client; each copy culls by its own
+  player, and each showed every part open once its player was at the gate.
+  Opaque shaders that scroll their base map are staged as `base_scroll`
+  (Zanzibar's rotating_metal, the drum under the spindle grates: one repeat
+  in u every 2 s); the `h2_staging` map setting applies it to the level's
+  slots as CE's environment scroll (BaseUAnim).
+  Turning machines are lit by Unreal (their object page drew black, and a
+  black flywheel turning read as one standing still); one riding a
+  simulation machine whose Unreal part stops updating (the big wheel and
+  blades: the simulation's position advances, the game stops copying its
+  pose) leaves the part after 2 s and turns by the clock.
 - **Teleporters.** Halo 2's teleporter scenery (Ascension's
   `2way_teleporter` bases) is placed like any other prop: the generator's
   working pads on the teleporter flags draw nothing. Its beam is a
@@ -657,3 +898,123 @@ hard, then breaks and lets players through, as in Halo 2.
   replaces the runtime's masters.
 - All 24 multiplayer maps stage; Lockout, Ascension and Zanzibar have been
   converted end to end and started.
+
+## Remasters
+
+A converted Halo 2 map goes through the same pipeline as the CE remasters
+(`tools/level/upgrade_ce_map.py`, configured in
+`tools/level/ce_upgrade_maps.json`). Coagulation (`COA`) is the first, built
+2026-11-12 and seen in game on PC 1 as local builds; it is not published.
+Convert from the `.map` itself, not from a staging folder elsewhere: the
+pipeline reads the staging beside the conversion (`<conversion>/staging`),
+and the level takes the map's name.
+
+- **Stages:** land, foliage, swap, editor, cook, bake, assemble, install.
+  `collision` is skipped, so the bake uses the conversion's own BSP with its
+  glass and physics-model surfaces; a swapped tree keeps Halo 2's collision.
+- **Ground and cliffs by name.** Halo 2's detail bitmaps are not named
+  `detail_grass` or `detail_cliff`, so the config names them: `shaders`,
+  `cliff_shaders` (Coagulation's boulders, `coag_rocks`, among them, which
+  draws them in the game's rock) and `details` (`ground_dirt_pebble` as
+  sand, `coag_grass` as grass: the base map's alpha then says where each
+  grows, as on a CE map).
+- **A look of its own.** A landscape with no `MAP_LOOKS` entry in
+  `build_landscape.py` gets Death Island's beach. Coagulation (`LCO`) takes
+  Blood Gulch's: packed earth, stones on soil, its cliff mix.
+- **A pond is not a sea** (`"sea": false`). The pipeline and the loader take
+  any water mesh for the sea. Coagulation's pool by the cave sits 7 m up:
+  grass grew only above it, so 1.8 of 2.2 million clumps stood on the
+  plateau and none in the valley, and the valley floor drew as a beach
+  (sand, ripples, shells).
+- **`foliage_ceiling`** (cm): nothing is scattered on ground above it.
+  Coagulation's plateau, 50 to 107 m up and out of sight, is left bare;
+  the valley keeps about 290,000 clumps, Blood Gulch's count.
+- **Light.** The conversion's sun stood at 28 degrees and the cliffs shaded
+  the valley floor; the config raises it to 55, turns the baked sun mask
+  off (`sun_mask: false`, as Blood Gulch) and sets `sun.lightmap_sun` to
+  [0.35, 0.62]: Halo 2's ground lightmap is a lavender 0.6 where CE's
+  sunlit ground is 1.0. Blood Gulch's skylight, exposure and clouds, and
+  `haze: "ce"` (a Halo 2 slot carries its fog as a CE one does).
+- **Halo 2's grass sprites are hidden** (`hide_materials:
+  ["M_H2_Billboard"]`): the scattered grass replaces them. A decorator
+  placement is ground cover, not scenery the grass keeps clear of or a
+  boulder to swap (`decorator` in `placement.json`): Coagulation's 218
+  decal fields cleared 20 m circles of grass until the scatter skipped them.
+- **Trees.** Coagulation's trees are instanced BSP geometry, which
+  `placement.json` never names. `mjolnir cache stage` writes every
+  instance's name, frame, shaders and bounds to `bsp/instances.json`, and
+  `instance_swap: {"redcedar": "tree_pine"}` has
+  `tools/level/instance_scenery.py` turn the instances with such a shader
+  into scenery entries for the swap: its three red cedars stand as A30's
+  pines, sized to each cedar's height, their Halo 2 slots hidden.
+- **Chunk 1001.** Halo 2 remasters take numbers from 1001 up
+  (docs/chunk_numbering.md). The landscape container's library holds the
+  same two shader maps as every CE remaster's, so a textured landscape on
+  a machine with a CE remaster installed does not prove library 1001
+  opened.
+- **Desert biome** (`"biome": "desert"`). Coagulation's dirt and cliff feet
+  are dressed from the game's dry-country plants and Poly Haven's
+  Namaqualand pack (flowers, succulents, granite stones) instead of the
+  beach's shells and driftwood: docs/remaster_asset_inventory.md. The pack
+  cooks into the map's landscape container, so the map needs it in the
+  editor project and a credit when published.
+- **Zanzibar** (`ZAN`, chunk 1002, `"biome": "coast"`). A Fluid Flux coast
+  at the fog plane's height, since the conversion has no water surface;
+  sea life on the bed, sea campion, small palms at the walls' feet and
+  the beach bushes as young palms. Its ground shaders list grass before
+  sand, the reverse of CE: the bake and the mesh ground slots turn that
+  over (docs/remaster_asset_inventory.md).
+- **Containment** (`CNT`, chunk 1003, landscape `LCN`, `"biome": "snow"`,
+  2026-11-16). Ice Fields' and Sidewinder's snow: B40's glacial rock on
+  the cliffs (`containment_cliff_a` and the boulders' `containment_rock_medium`),
+  Sidewinder's ground look, snowy stones and rubble scattered, the game's
+  falling snow kept out of the bases (11,755 roof cells). Its terrain
+  shader is not a blend, so it would have baked as one flat snow; with
+  `real_base` the ground keeps its base map's own colour, which paints the
+  tyre tracks and the dirt by the bases. Its bases are Forerunner, so the
+  Forerunner plate stays on their metal (no `structure_metal: false`).
+  Swap and collision are skipped: its scenery is 8 brambles and twig
+  decals (the twigs are `M_H2_Billboard`, hidden). Its gates and switches
+  come from the conversion's own machines, as a fresh conversion places
+  them; the install takes their actors (`pakchunk987-MJOLNIRACT`) from the
+  conversion's `machines` folder (tools/level/machine_containers.py). In
+  game, solo and in two networked copies: all 8 machines start shut, a
+  switch group opens its own gate in both simulations, and the 8 part
+  slots draw their cooked instances.
+- **Ascension** (`ASC`, chunk 1004, landscape `LAS`, `"biome": "desert"`,
+  2026-11-16). Its ground is a blend of bare slate and pale sandstone
+  paths, so both detail maps are `sand` (stones and dry plants): taking
+  the slate for grass grew 2.3 million clumps on bare rock. Grass stays on
+  the cliffs' up-facing faces, where the cliff master draws its turf, which
+  greens the rock pillars' tops. Blood Gulch's look, as Coagulation's.
+  Reconverted first (`ASC_flags`) so its machines carry their own
+  placement flags. Its three antennas are the conversion's turning
+  machines, cooked. In game, solo and in two networked copies: the
+  antennas turn in step and draw their cooked instances; a frame takes a
+  median 11 ms at 4K. A ground with no grass class had crashed the scatter
+  where a cliff's turf met it (scatter_foliage.py).
+- **Cladding only within reach.** Ascension first loaded in 4.2 s solo and
+  7.3 s on a client (the hub copy: 0.7 and 2.3 s). The loader dresses each
+  cladding rock, a mesh actor, with its group's material, and Ascension had
+  120,427 of them: its pillars fall 150 m under the lowest spawn, and their
+  walls took 80,000. The scatter now puts no rock more than 30 m under the
+  map's lowest player spawn (`--clad-floor`, upgrade_ce_map.py's
+  CLAD_BELOW_SPAWNS), which of all the remasters trims only Ascension and
+  Gephyrophobia's chasm (3,905). Ascension: 40,390 rocks, 2.3 s solo, 3.5 s
+  on a client. The loader's log now lists the queued jobs' time by kind
+  (`load timing: queued jobs:`).
+- **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
+  steel draw in Poly Haven PBR surfaces through the cliffs' master, each
+  wall's Halo 2 base map kept as its colour and its lightmap as shade
+  (docs/remaster_asset_inventory.md). The surfaces cook into the runtime
+  container, so they too need a runtime release.
+- **Still CE-runtime bound.** The cliffs' tessellated meshes cook into the
+  trial masters' container (983), as for the CE remasters, and Halo 2's
+  masters are in 981: publishing a Halo 2 remaster needs a runtime release
+  with both.
+- **Measured** on PC 1 at 4K, standing in the grass: 13.9 ms a frame, 2.5 ms
+  of it the foliage.
+- **Not done:** the pines against Halo 2's cedar collision is unchecked; no
+  side-by-side from fixed cameras; `instance_swap` replaces the conversion's
+  own scenery list for the swap, so a map with both kinds swaps only its
+  instances.

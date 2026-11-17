@@ -11,7 +11,9 @@ For each map in tools/level/ce_upgrade_maps.json, a staging folder
     meshes (986) unless the upgrade built its own, registration.json, and
     for an indoor map (no landscape) its map container (997);
   - from the upgrade's work folder (upgrade_ce_map.py): the map container
-    (pakchunk997-MJOLNIRMAP), the landscape world's container renamed
+    (pakchunk997-MJOLNIRMAP), the map's own tag containers
+    (machine_containers.py: machines, their actors, movable props; the tags
+    in machines/), the landscape world's container renamed
     pakchunk<N>-MJOLNIRLAND-<CODE>_P (`map pack` takes the map's own
     containers by that suffix; the launcher keeps the chunk number of a
     container with a shader library, which this one has), the level file,
@@ -31,6 +33,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from machine_containers import map_tag_containers, pack_path  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 LAUNCHER = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher")
@@ -65,7 +69,11 @@ def stage(code, m, work, out):
     os.makedirs(dst, exist_ok=True)
     w = os.path.join(work, code)
 
-    copy_pair(os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
+    # The map's cook as the upgrade refreshed it (upgrade_ce_map.py
+    # refresh_map_cook: textures imported after the conversion, a gate's),
+    # else the hub copy's.
+    fresh = os.path.join(w, f"pakchunk985-MJOLNIRCOOK-{code}_P")
+    copy_pair(fresh if os.path.exists(fresh + ".utoc") else os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
     if m.get("mesh_container"):
         copy_pair(m["mesh_container"], dst)
     else:
@@ -79,6 +87,13 @@ def stage(code, m, work, out):
         copy_pair(os.path.join(w, "bake", f"pakchunk997-MJOLNIRMAP-{code}_P"), dst)
         copy_pair(os.path.join(w, "bake", f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), dst,
                   f"pakchunk{m['chunk']}-MJOLNIRLAND-{code}_P")
+    # The map's own tags (its machines, their actors, its movable props), as
+    # the install stage installs them (machine_containers.py). `map pack`
+    # takes the tag containers from machines/.
+    for base, name in map_tag_containers(code, m, m["conversion"]):
+        rel = pack_path(name)
+        os.makedirs(os.path.join(dst, os.path.dirname(rel)), exist_ok=True)
+        copy_pair(base, os.path.join(dst, os.path.dirname(rel)), os.path.basename(rel))
     shutil.copyfile(os.path.join(cache, "map", "registration.json"), os.path.join(dst, f"{code}.registration.json"))
 
     level = json.load(open(os.path.join(w, "level.json"), encoding="utf-8"))

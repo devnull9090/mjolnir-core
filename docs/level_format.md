@@ -155,6 +155,11 @@ looks the same as tracing and took a floor-heavy 4K view on Crossline from 7.61
 to 5.86 ms of GPU time (RTX 5090, 2026-11-02). Turning Lumen reflections off
 instead leaves metal black.
 
+`post.sky_leak` (0 to about 0.3) lets that fraction of the sky light into
+enclosed spaces (Lumen's skylight leaking). Lit by Lumen alone, Zanzibar's rooms
+(`lumen_cells`) took their light from the sunlit sand and walls outside and went
+yellow; 0.2 brings back neutral concrete and keeps the stairwells' shade.
+
 Two more keys come from a CE map's sky and BSP:
 
 - `sky_fog: { color, start, density, height }`. A CE sky with no model,
@@ -423,7 +428,9 @@ and the loader's comments beside each are the reference.
   `level validate` and `level bake`: `landscape` (an Unreal Landscape for the ground), `flux`
   (Fluid Flux over rivers and the sea), `decals` (the game's decal materials), `lights` (CE's
   placed lights as shadowed point lights), `effects` (the game's Niagara ambient life),
-  `slot_meshes` (translucent terrain slots as meshes of their own), `shadow_shell` and
+  `slot_meshes` (translucent terrain slots as meshes of their own), `shadow_shell`,
+  `lumen_cells` (the terrain as a grid of editor-built meshes Lumen can light, drawn in its
+  place: `{ item, cells: [{ mesh, slots }] }`; the structures' fill goes to zero) and
   `waterfalls`.
 - Under `environment`, beside the keys above: `haze` (Unreal's height fog as distance haze),
   `clouds` (volumetric clouds), `water` (CE water drawn as rolling, reflecting water),

@@ -43,6 +43,12 @@ sys.path.insert(0, HERE)
 # MJOLNIRLevelLoader's Foliage.CULL and Foliage.GRASSY.
 CULL = [5000, 9000]
 GRASSY = {"grass", "short grass", "lip grass", "weeds", "tufts"}
+# Content packs in unreal/MJOLNIRMaterials whose meshes the game does not
+# ship (docs/remaster_asset_inventory.md): cooked into the map's own
+# landscape container by the world's reference to them. Each needs a credit
+# that claims its folder (hub/src/lib/credits.ts `contentPaths`; `pnpm test`
+# in hub/ fails without one: docs/credits.md).
+COOKED = ("/Game/Namaqualand/",)
 PAKS = "C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks"
 ROCK_MATERIALS = {
     f"/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Med_{v}/SM_Rock_Uluwatu_Med_{v}.SM_Rock_Uluwatu_Med_{v}":
@@ -261,6 +267,10 @@ def main():
     cache = json.load(open(cache_path, encoding="utf-8")) if os.path.exists(cache_path) else {}
     standins = []
     for mesh in sorted(meshes):
+        # A content pack's mesh is in the project as itself and cooks with
+        # the world that names it: no stand-in.
+        if mesh.startswith(COOKED):
+            continue
         if not mesh.startswith(("/Game/Env/", "/Game/Megascans/")):
             sys.exit(f"{mesh}: not under a never-cooked stand-in folder (/Game/Env, /Game/Megascans)")
         if mesh not in cache:

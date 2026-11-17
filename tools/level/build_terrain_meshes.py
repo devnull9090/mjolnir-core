@@ -48,6 +48,7 @@ import re
 import subprocess
 import sys
 
+import machine_instances
 from refine_water_gltf import bake_shore, playable_area, refine_file
 
 WATER_PARENT = "/Game/MJOLNIR/CE/M_CE_Water.M_CE_Water"
@@ -110,6 +111,15 @@ def main():
     ap.add_argument("--water-growth", type=float, default=0.08, help="water edge length added per metre beyond it")
     ap.add_argument("--native-detail", action="append", default=[],
                     help="extra <gltf>=<donor>=</Game/package>, appended after generated water")
+    ap.add_argument("--machine-instances", metavar="FILE",
+                    help="the parts of moving machines name cooked material instances (machine_instances.py), "
+                         "listed in FILE for the editor; only when the map's cook runs")
+    ap.add_argument("--instance-root", metavar="/Game/FOLDER",
+                    help="the folder of those instances (default: MachineMaterials under the map's own folder); "
+                         "an upgraded map's are in a folder its landscape's cook labels (upgrade_ce_map.py)")
+    ap.add_argument("--machine-part", action="append", default=[], metavar="/Game/PACKAGE",
+                    help="a mesh that is a moving machine's part though no motion or door file lies beside its "
+                         "glTF (h2_physics_props.py's door parts)")
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.normpath(os.path.join(here, "..", ".."))
     ap.add_argument("--repo", default=repo)
@@ -149,6 +159,8 @@ def main():
             water_jobs.append([base + "_water_dense.gltf", "basicshapes/cube",
                                package[: -len("_Translucent")] + "_Water"])
     jobs = append_native_detail_jobs(jobs, water_jobs, a.native_detail)
+    instances = []
+    instance_folder = a.instance_root or f"{jobs[0][2].rsplit('/', 1)[0]}/{machine_instances.FOLDER}"
 
     for k, (gltf, donor, package) in enumerate(jobs):
         leaf = package.rsplit("/", 1)[-1]
@@ -173,6 +185,12 @@ def main():
                 sheet["slots"].append(slot_names.index(m["name"]) + (1 if k == 0 else 0))
         args = [exe("mesh_rewrite"), a.paks, donor, gltf, uasset, "--offset", a.offset, "--lightmap-uvs",
                 "--rename", package]
+        motion = gltf[: -len(".gltf")] + ".motion.json"
+        door = gltf[: -len(".gltf")] + ".door.json"
+        # A moving machine's part wears cooked instances in real slots
+        # (machine_instances.py): no material for the loader to set.
+        cooked = bool(a.machine_instances) and k > 0 and (
+            os.path.isfile(motion) or os.path.isfile(door) or package in a.machine_part)
         materials = []
         if k == 0:
             args += ["--material", f"Terrain={a.fallback}=*"]
@@ -180,8 +198,14 @@ def main():
         for j, s in enumerate(slots):
             # On a later mesh the first section claims slot 0 ("*").
             pattern = s["pattern"] + ("|*" if k > 0 and j == 0 else "")
-            args += ["--material", f"s_{s['name']}={s['material']['parent']}={pattern}"]
-            materials.append(s["material"])
+            if cooked:
+                target = machine_instances.slot(s["material"], instance_folder, leaf, j, instances)
+            else:
+                target = s["material"]["parent"]
+                materials.append(s["material"])
+            args += ["--material", f"s_{s['name']}={target}={pattern}"]
+        if cooked:
+            args.append("--asset-imports")
         # The slot list goes through a response file: hundreds of slots
         # (Coldsnap) pass Windows' 32K command line.
         rsp = os.path.join(a.out, f"{leaf}.args")
@@ -206,11 +230,17 @@ def main():
                  "cast_shadow": cast_shadow_for_job(package, a.native_detail)}
         if sheets:
             entry["breakables"] = [sheets[s] for s in sorted(sheets)]
-        motion = gltf[: -len(".gltf")] + ".motion.json"
         if os.path.isfile(motion):
             # A turning machine (merge_ce_scene.py --machines): the level
             # loader turns it about its pivot by the keys.
             entry["motion"] = json.load(open(motion, encoding="utf-8"))
+        if os.path.isfile(door):
+            # A moving Halo 2 machine's part (merge_ce_scene.py --doors): an
+            # id of its own, which gen_ce_level.py --doors names in the
+            # level's `doors` for the loader to attach to its machine.
+            part = json.load(open(door, encoding="utf-8"))
+            entry["door_part"] = part
+            entry["id"] = f"{a.name}_door{part['entry']}_{leaf.lower()}"
         if leaf.endswith("_Sky"):
             # Drawn before every other translucent thing, as CE's sky is.
             entry["sort_priority"] = -100
@@ -224,6 +254,8 @@ def main():
     if po.returncode != 0:
         sys.exit(f"package_add failed:\n{po.stderr[-2000:]}")
     json.dump(entries, open(os.path.join(a.out, "terrain.json"), "w", encoding="utf-8"), indent=2)
+    if a.machine_instances:
+        machine_instances.plan(instance_folder, instances, a.machine_instances)
     print(f"{len(entries)} terrain mesh(es) in {a.container} -> {os.path.join(a.out, 'terrain.json')}")
 
 

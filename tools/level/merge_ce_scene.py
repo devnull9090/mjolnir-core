@@ -108,6 +108,9 @@ def primitives(g, buf):
                 # The node each vertex hangs on most (a skinned model's bones
                 # are its nodes, by index), for machines' moving parts.
                 "joint": accessor(g, buf, at["JOINTS_0"])[:, 0] if "JOINTS_0" in at else None,
+                # A Halo 2 model's rigid node per vertex (mjolnir cache stage:
+                # `_NODE`), for a moving machine's parts (--doors).
+                "node": accessor(g, buf, at["_NODE"])[:, 0].round().astype(int) if "_NODE" in at else None,
                 # A Halo 2 decorator's own light per vertex (mjolnir cache
                 # stage: its placement's tint times its light, doubled).
                 "light": accessor(g, buf, at["_LIGHT"]) if "_LIGHT" in at else None,
@@ -393,6 +396,12 @@ def main():
                     "turning about its vertical axis, Ascension's antennas) as a mesh of its own, "
                     "<MACHINES>_<k>.gltf, with <MACHINES>_<k>.motion.json beside it for the level loader to "
                     "turn it by; without it they join the scene, still")
+    ap.add_argument("--doors", action="store_true",
+                    help="with --machines, write each Halo 2 machine that moves in parts (`h2_door`: a door, a "
+                         "platform, a gear of several parts) as a mesh a node, <MACHINES>_d<k>n<node>.gltf, with "
+                         "<MACHINES>_d<k>n<node>.door.json naming its staging entry and node: the level loader "
+                         "attaches each to the node's machine (h2_door_machines.py); without it they join the "
+                         "scene at rest")
     ap.add_argument("--sky-radius", type=float, default=3000.0,
                     help="metres from the map centre to the sky's nearest layer (default 3000)")
     a = ap.parse_args()
@@ -487,6 +496,7 @@ def main():
     devices = 0
     # A turning machine's opaque primitives, per placement, and its turn.
     machines = []
+    doors = []  # --doors: moving Halo 2 machines, their prims by placement
     for index, e in enumerate(placement["entries"]):
         # Machines too (Infinity's beam emitters, whose model is the beam):
         # a part their device animation moves draws with a material of its
@@ -575,7 +585,8 @@ def main():
                     material = f"{material}__device{devices}"
                     halo["device"] = motion
                 prims.append({"pos": pos, "nrm": nrm, "uv0": p["uv0"], "idx": p["idx"],
-                              "tan": tangents_for(nrm), "material": material, "extras": {"halo": halo}})
+                              "tan": tangents_for(nrm), "material": material, "extras": {"halo": halo},
+                              "node": p.get("node")})
             # The texel holds the object's brightest lighting; each vertex's
             # incident direction is tilted off its normal until their dot is
             # the vertex's share of that, and at full weight the master's
@@ -585,6 +596,9 @@ def main():
             turn = e.get("h2_motion") if a.machines else None
             if turn:
                 machines.append({"prims": [], "clear": [], "pivot": t, "turn": turn, "rot": r, "entry": index})
+            door = e.get("h2_door") if a.machines and a.doors else None
+            if door:
+                doors.append({"entry": index, "nodes": [nd["name"] for nd in door["nodes"]], "prims": []})
             for q, colour in zip(prims, lit):
                 share = np.clip((colour @ LUMA) / float(peak @ LUMA), 0.0, 1.0)[:, None]
                 q["inc"] = share * q["nrm"] + np.sqrt(1.0 - share * share) * q["tan"][:, :3]
@@ -596,6 +610,8 @@ def main():
                 # stood still beside the wheels in the translucent mesh.
                 if turn:
                     machines[-1]["prims" if opaque else "clear"].append(q)
+                elif door:
+                    doors[-1]["prims"].append((q, opaque))
                 else:
                     out.append(q)
             object_texels.append([peak, lighting[2]] + change_colors(e))
@@ -700,6 +716,30 @@ def main():
         with open(base + ".motion.json", "w") as f:
             json.dump(motion, f)
         print(f"  turning machine {os.path.basename(base)}: {len(prims)} primitive(s), {m['turn']['period']:g} s -> {base}.gltf")
+
+    # Moving Halo 2 machines (--doors): a mesh a node at rest, in the world,
+    # each triangle on its first corner's node, the transparent ones a mesh of
+    # their own as a turning machine's are.
+    for d, rec in enumerate(doors):
+        parts = {}
+        for q, opaque in rec["prims"]:
+            nv = q.get("node")
+            tris = q["idx"].reshape(-1, 3)
+            per = nv[tris[:, 0]] if nv is not None else np.zeros(len(tris), dtype=int)
+            for n in sorted(set(per.tolist())):
+                keep = tris[per == n]
+                used, inv = np.unique(keep.reshape(-1), return_inverse=True)
+                sub = {k: (v[used] if isinstance(v, np.ndarray) and len(v) == len(q["pos"]) else v)
+                       for k, v in q.items() if k != "node"}
+                sub["idx"] = inv.astype(np.uint32)
+                parts.setdefault((n, opaque), []).append(sub)
+        for (n, opaque), prims in sorted(parts.items()):
+            base = f"{a.machines}_d{d}n{n}" + ("" if opaque else "t")
+            write_gltf(prims if opaque else with_passes(prims, shaders), base + ".gltf")
+            node = rec["nodes"][n] if n < len(rec["nodes"]) else str(n)
+            with open(base + ".door.json", "w") as f:
+                json.dump({"entry": rec["entry"], "node": node}, f)
+        print(f"  moving machine {d} (entry {rec['entry']}): {len(parts)} part mesh(es) -> {a.machines}_d{d}n*.gltf")
 
     if a.translucent:
         # A mesh enters Unreal's translucency pass only if its own material

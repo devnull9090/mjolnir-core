@@ -174,6 +174,24 @@ def triangles(bsp):
     return out
 
 
+# Element sizes of a ce_pc_v7 collision BSP's arrays, in write_bsp's order.
+BSP_ARRAYS = (("bsp3d_nodes", 12), ("planes", 16), ("leaves", 8), ("bsp2d_references", 8),
+              ("bsp2d_nodes", 20), ("surfaces", 12), ("edges", 24), ("vertices", 16))
+
+
+def read_bsp(json_path):
+    """A staged `<base>.bsp.json` and its `.bin` (ce_pc_v7) as write_bsp
+    takes it: {"arrays": [(count, raw), ...]}."""
+    meta = json.load(open(json_path, encoding="utf-8"))
+    blob = open(os.path.join(os.path.dirname(json_path), os.path.basename(meta["bin"])), "rb").read()
+    arrays, at = [], 0
+    for _, size in BSP_ARRAYS:
+        count = struct.unpack_from("<I", blob, at)[0]
+        arrays.append((count, blob[at + 4:at + 4 + count * size]))
+        at += 4 + count * size
+    return {"arrays": arrays}
+
+
 def write_bsp(bsp, base):
     """A BSP as the staging's `<base>.bsp.json` and `.bin` (ce_pc_v7)."""
     blob = b"".join(struct.pack("<I", count) + raw for count, raw in bsp["arrays"])

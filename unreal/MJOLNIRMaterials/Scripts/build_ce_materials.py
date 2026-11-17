@@ -3044,6 +3044,22 @@ if (EdgeRange.y > EdgeRange.x)
     // Only up to 60 cm above the lip: a wall rising from a plateau (a tower
     // over its lip) took turf as green slabs metres up.
     float lipOn = smoothstep(-60.0, -15.0, below) * step(0.004, e.r);
+    // Only where the lip map is flat: where it ramps from a plateau's texel
+    // to a low one, "just under the lip" is a contour running straight down
+    // a tall face, and the soil, turf and stains drew it as a hairline the
+    // height of the wall (Zanzibar's boulders, 2026-11-14).
+    {
+        float ew, eh;
+        Edge.GetDimensions(ew, eh);
+        float2 euv = (W.xy - EdgeRect.xy) / EdgeRect.zw;
+        float ex = Texture2DSampleLevel(Edge, EdgeSampler, euv + float2(1.0 / ew, 0.0), 0).r;
+        float ey = Texture2DSampleLevel(Edge, EdgeSampler, euv + float2(0.0, 1.0 / eh), 0).r;
+        float ex2 = Texture2DSampleLevel(Edge, EdgeSampler, euv - float2(1.0 / ew, 0.0), 0).r;
+        float ey2 = Texture2DSampleLevel(Edge, EdgeSampler, euv - float2(0.0, 1.0 / eh), 0).r;
+        float lipStep = max(max(abs(ex - e.r), abs(ey - e.r)), max(abs(ex2 - e.r), abs(ey2 - e.r)))
+                        * (EdgeRange.y - EdgeRange.x);
+        lipOn *= 1.0 - smoothstep(60.0, 150.0, lipStep);
+    }
     float t = Drape.x * (0.3 + 1.4 * rag);
     // Only on a wall (steep) right under an edge (the lip mask): a sloping
     // rock face crossing the lip's height drew the rim as a green hairline.
@@ -3067,7 +3083,8 @@ if (EdgeRange.y > EdgeRange.x)
 // Grass on ledges that look up (a boulder's top is all grass; a ledge
 // part-way, its edge ragged), by the surface's own normal, not the rock's
 // bumps (with them, every up-facing seam of the rock drew a green hairline).
-turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2));
+// (Ledge.x 0: a structure's wall, whose floors are not ledges of turf.)
+turf = max(turf, smoothstep(0.7, 0.88, n.z + (rag - 0.5) * 0.2) * Ledge.x);
 // Rock, not turf, where CE's light is all but gone (its lightmap's
 // luminance, gamma 0.12 to 0.3, linear about 0.01 to 0.07): a tunnel's
 // floor, where the scatter grows no grass under the roof (scatter_foliage
@@ -3125,6 +3142,7 @@ float3 ceLight = 1.0.xxx;
 bool cladLM = CladLight.a > 1.5;
 if (LMLevels.y > LMLevels.x)
 {
+    if (BakeAO.x > 0.0) ao *= pow(saturate(Texture2DSample(Bake, BakeSampler, TC1).r), BakeAO.x);
     float3 lmc = cladLM ? CladLM : Texture2DSample(LM, LMSampler, TC1).rgb;
     float lm = dot(lmc, float3(0.2126, 0.7152, 0.0722));
     occ = saturate((lm - LMLevels.x * 0.5) / max(LMLevels.y - LMLevels.x * 0.5, 1e-3));
@@ -3164,6 +3182,16 @@ if (Sea.w > 0.5)
 // wall, 2026-10-13).
 float facing = max(FillDir.x + FillDir.y * Nr.z, 0.0);
 Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * facing * ao * lerp(1.0, 0.5 + 0.5 * occ, Look.z);
+// The fill is emissive, so nothing occludes it: no screen-space or Lumen
+// occlusion darkens a corner it lights (Zanzibar's walls, 2026-11-12).
+// FillDir.z: how far it follows the map's own baked shade (the lightmap's
+// corners and overhangs), FillDir.w that shade's power (0: 1).
+Emissive *= lerp(1.0, pow(occ, FillDir.w > 0.0 ? FillDir.w : 1.0), FillDir.z);
+// BakeAO.y: the fill only where the sky does not reach, from the bake's B
+// (sky visibility, 1 open): with a real sky light (the sun lighting the
+// atmosphere), Lumen lights the open walls and the fill keeps the rooms
+// it cannot (Zanzibar, 2026-11-13). 0: the fill everywhere.
+if (BakeAO.y > 0.0) Emissive *= saturate(1.0 - Texture2DSample(Bake, BakeSampler, TC1).b * BakeAO.y);
 // Indoors (Indoor.x: the loader's cliff.indoor gain times the scene's light
 // scale): CE's lightmap is the light, as CE drew it (lightmap times colour,
 // linear). A tunnel has no sun, and lit by Unreal alone (a few placed
@@ -3303,6 +3331,8 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         ("EdgeRange", g.vector4("EdgeRange", (0.0, 0.0, 0.0, 0.0)), ""),
         # Drape: turf and earth depth under the lip, stain length (cm), strength.
         ("Drape", g.vector4("CliffDrape", (30.0, 70.0, 700.0, 1.0)), ""),
+        # Ledge: turf on every surface that looks up (1: a cliff's ledges).
+        ("Ledge", g.vector4("CliffLedge", (1.0, 0.0, 0.0, 0.0)), ""),
         # Foot: sand bank height, contact shade height (cm), shade, strength.
         ("Foot", g.vector4("CliffFoot", (45.0, 150.0, 0.45, 1.0)), ""),
         # The foot's sand: the beach's albedo, tinted.
@@ -3323,6 +3353,11 @@ def build_cliff_pbr(defaults, name="M_CE_CliffPBR", tessellate=False, shade_uv=F
         # contrast.
         ("Look", g.vector4("CliffLook", (1.0, 0.7, 0.6, 1.0)), ""),
         tex("LM", white, linear),
+        # The conversion's baked corners (lightmap_bake: red, on the
+        # lightmap's UVs) and their power (BakeAO.x; 0 off): a structure's
+        # steps and inside corners, which its lightmap is too coarse to hold.
+        tex("Bake", white, linear),
+        ("BakeAO", g.vector4("CliffBakeAO", (0.0, 0.0, 0.0, 0.0)), ""),
         ("LMLevels", g.vector4("LandLMLevels", (0.0, 0.0, 0.0, 0.0)), ""),
         ("Sea", g.vector4("LandSea", (0.0, 150.0, 40.0, 0.0)), ""),
         # Rough: the range the surfaces' roughness maps to.
@@ -3487,6 +3522,150 @@ def build_plasma(defaults):
     eal.save_loaded_asset(m)
 
 
+PROP_GLOW_CODE = r"""
+// A prop's glow: its self-illumination map, brighter than CE drew it, with
+// an optional pulse (GlowPulse: depth 0..1, period seconds) and a fusion
+// look (Fusion: band count, band speed /s, band depth 0..1; FusionHaze). Energy
+// bands run up the map's V (a fusion coil's core stands on it), the lines
+// flicker and spark a little, and a haze of the glow's own colour fills the
+// dark between them, as if the whole core held light behind its glass.
+if (HasSelfIllum < 0.5) return 0.0.xxx;
+float pulse = 1.0 - GlowPulse.x * 0.5 * (1.0 + sin(6.2831853 * Time / max(GlowPulse.y, 0.05)));
+float3 g = Glow.rgb * GlowTint.rgb;
+// H2Glow: Halo 2's plasma illumination (tex_bump_plasma_one_channel_illum,
+// a fusion coil's core): the map is a one-channel mask, lit by a colour that
+// runs from the damaged colour (H2Damaged) to the healthy one (H2Healthy)
+// with the object's health (Health 0..1, set by props.lua), flickering
+// harder as it falls. Orange whole, pink-red shot, as Halo 2 draws it.
+if (H2Glow > 0.5)
+{
+    float h = saturate(Health);
+    float m = max(Glow.r, Glow.g);
+    float hurt = 1.0 - h;
+    float jitter = 1.0 - hurt * 0.35 * (0.5 + 0.5 * sin(Time * 31.0) * sin(Time * 17.0 + 0.7));
+    g = m * lerp(H2Damaged.rgb, H2Healthy.rgb, h) * jitter * (1.0 + hurt * 0.6);
+}
+float band = 0.5 + 0.5 * sin(6.2831853 * (UV.y * Fusion.x + Time * Fusion.y));
+band = lerp(1.0, 0.35 + 1.3 * band * band, Fusion.z);
+float flicker = 0.92 + 0.08 * sin(Time * 37.0) * sin(Time * 23.0 + 1.3);
+float2 cell = floor(UV * float2(12.0, 40.0)) + floor(Time * 9.0);
+float spark = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453) > 0.96 ? 1.8 : 1.0;
+float3 haze = HazeColor.rgb * FusionHaze * (0.6 + 0.4 * band);
+// Charred (a destroyed prop, props.lua): the glow is out.
+return (g * band * flicker * spark + haze) * GlowBrightness * pulse * (1.0 - saturate(Charred));
+"""
+
+# A destroyed prop, burnt (Charred 0..1, set by props.lua when the crate dies):
+# the colour sinks to soot with a little of the base's own pattern left in
+# it, so it does not read as a flat black cut-out. (Mottling from square noise
+# cells read as a checkerboard, 2026-11-15.)
+PROP_CHAR_CODE = r"""
+float l = dot(C, float3(0.3, 0.59, 0.11));
+float3 soot = float3(0.014, 0.012, 0.010) + l * float3(0.09, 0.08, 0.07);
+return lerp(C, soot, saturate(Charred));
+"""
+
+
+def build_prop_lit(defaults):
+    """M_CE_PropLit: a converted prop that moves (MJOLNIRLevelLoader props.lua,
+    upgrade_ce_map.py `physics_props`), lit by Unreal: the sun, Lumen's sky and
+    bounce, and shadows as it tumbles. M_CE_Environment draws a placed
+    object's light as emissive, sampled where it was placed (ObjectPage): a
+    knocked-over drum stayed evenly bright wherever it went and cast that
+    light round it through Lumen as a halo (Zanzibar, 2026-11-15). The base
+    map times CE's detail map (twice, as CE blends it), the bump map as the
+    normal, and the self-illumination map as the only emissive (GlowBrightness,
+    GlowTint, GlowPulse): a fusion coil's core glows and lights its
+    surroundings. The colour is made linear (pow 2.2) after CE's blend: CE
+    bitmaps and their redrawn copies are imported without sRGB, and read as
+    linear the props drew pale and washed out. Takes M_CE_Environment's parameter names, so a slot's
+    material spec moves over by its parent alone."""
+    m = fresh(ROOT, "M_CE_PropLit", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    white, grey, flat = defaults["T_CE_White"], defaults["T_CE_Grey"], defaults["T_CE_Flat"]
+    uv0 = g.uv(0)
+
+    def scaled(name):
+        mul = g.node(unreal.MaterialExpressionMultiply, x=-1700)
+        link(uv0, "", mul, "A")
+        link(g.scalar(name, 1.0), "", mul, "B")
+        return mul
+
+    base = g.texture("Base", white, uv0)
+    primary = g.texture("Primary", grey, scaled("PrimaryScale"))
+    glow = g.texture("SelfIllumMap", white, scaled("SelfIllumScale"))
+    has_glow = g.scalar("HasSelfIllum", 0.0)
+    # CE bitmaps are read as gamma values (no sRGB decode): blended as CE did,
+    # then made linear for Unreal's lighting, or the colour washes out pale.
+    # Under the glow's lines the surface goes dark (GlowDarken), so the
+    # emissive's colour shows and not the base map's white (the coil core).
+    colour = g.custom("float3 d = HasPrimary > 0.5 ? P.rgb * 2.0 : 1.0.xxx;\n"
+                      "float m = HasSelfIllum > 0.5 ? saturate(max(G.r, max(G.g, G.b)) * 2.0) : 0.0;\n"
+                      "return pow(saturate(B.rgb * d * Gain), 2.2) * lerp(1.0, 1.0 - Darken, m);",
+                      [("B", base, "RGBA"), ("P", primary, "RGBA"), ("HasPrimary", g.scalar("HasPrimary", 0.0), ""),
+                       ("Gain", g.scalar("AlbedoGain", 1.0), ""), ("G", glow, "RGBA"), ("HasSelfIllum", has_glow, ""),
+                       ("Darken", g.scalar("GlowDarken", 0.9), "")], description="prop colour")
+    charred = g.scalar("Charred", 0.0)
+    colour = g.custom(PROP_CHAR_CODE, [("C", colour, ""), ("Charred", charred, "")],
+                      description="prop char")
+    rough = g.custom("return lerp(R, 0.95, saturate(Charred));",
+                     [("R", g.scalar("Roughness", 0.55), ""), ("Charred", charred, "")], description="prop roughness")
+    bump = g.texture("Bump", flat, scaled("BumpScale"))
+    normal = g.custom(NORMAL_CODE, [("Bump", bump, "RGBA"), ("HasBump", g.scalar("HasBump", 0.0), ""),
+                                    ("BumpIsSpecMask", g.scalar("BumpIsSpecMask", 0.0), "")], description="prop normal")
+    emissive = g.custom(PROP_GLOW_CODE, [
+        ("Glow", glow, "RGBA"), ("HasSelfIllum", has_glow, ""), ("UV", uv0, ""),
+        ("GlowTint", g.vector("GlowTint", (1.0, 1.0, 1.0, 1.0)), ""), ("GlowBrightness", g.scalar("GlowBrightness", 8.0), ""),
+        ("GlowPulse", g.vector("GlowPulse", (0.0, 1.0, 0.0, 0.0)), ""),
+        ("Fusion", g.vector("Fusion", (3.0, 0.5, 0.0, 0.0)), ""), ("FusionHaze", g.scalar("FusionHaze", 0.0), ""),
+        ("HazeColor", g.vector("HazeColor", (0.08, 0.39, 0.0, 1.0)), ""), ("Charred", charred, ""),
+        ("H2Glow", g.scalar("H2Glow", 0.0), ""), ("Health", g.scalar("Health", 1.0), ""),
+        ("H2Healthy", g.vector("H2Healthy", (1.0, 0.56, 0.17, 1.0)), ""),
+        ("H2Damaged", g.vector("H2Damaged", (1.0, 0.53, 0.53, 1.0)), ""),
+        ("Time", g.node(unreal.MaterialExpressionTime, x=-2000), "")], description="prop glow")
+    mel.connect_material_property(colour, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(normal, "", unreal.MaterialProperty.MP_NORMAL)
+    mel.connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.connect_material_property(g.scalar("Metallic", 0.0), "", unreal.MaterialProperty.MP_METALLIC)
+    mel.connect_material_property(g.scalar("Specular", 0.4), "", unreal.MaterialProperty.MP_SPECULAR)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
+def build_prop_overlay(defaults):
+    """M_CE_PropOverlay: a moving prop's Halo 2 `overlay` pass (the military
+    crates' stencils: MKT1 EMERGENCY FOOD on a packing crate), 2 x base
+    multiplied over what lies under it. The converted level bakes the
+    multiply into a darkening alpha copy (`__overlay`), which drops every
+    texel that brightens: a stencil whose text is brighter than neutral grey
+    drew nothing on the crates (Zanzibar, 2026-11-15). Modulate blend, so it
+    brightens as well as darkens; the factor is made linear (CE's maps are
+    read as gamma values); drawn before depth of field (the after-DOF
+    translucency pass drew Zanzibar's multiplies as nothing)."""
+    # A modulate blend drew nothing on Zanzibar in either translucency pass
+    # (OverlayStrength 0.2 left the crate unchanged, 2026-11-15): the stencil
+    # is paint, so it is drawn as a masked, lit surface, its colour where it
+    # brightens past neutral grey (the text and markings; 2x of a 0.5..1 map
+    # over the crate's own colour) and cut away elsewhere.
+    m = fresh(ROOT, "M_CE_PropOverlay", unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    m.set_editor_property("two_sided", True)
+    m.set_editor_property("used_with_static_lighting", False)
+    g = Graph(m)
+    base = g.texture("Map0", defaults["T_CE_Grey"], g.uv(0))
+    paint = g.custom("return pow(saturate(B.rgb * Strength), 2.2);",
+                     [("B", base, "RGBA"), ("Strength", g.scalar("OverlayStrength", 1.0), "")], description="paint")
+    mask = g.custom("float lift = max(B.r, max(B.g, B.b)) * 2.0 - 1.0;\nreturn saturate((lift - Cut) * 8.0);",
+                    [("B", base, "RGBA"), ("Cut", g.scalar("OverlayCut", 0.12), "")], description="paint mask")
+    mel.connect_material_property(paint, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel.connect_material_property(mask, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    mel.connect_material_property(g.scalar("OverlayRoughness", 0.7), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.recompile_material(m)
+    eal.save_loaded_asset(m)
+
+
 def build_hidden():
     """M_CE_Hidden: draws nothing, casts nothing. A terrain slot whose CE
     scenery B30's own assets replace (tools/level/scenery_swap.py) points
@@ -3519,6 +3698,9 @@ elif TRIAL_ROOT:
     build_cliff_pbr(defaults, "M_CE_CladTess", tessellate=True)
     # Until the runtime pack carries it (MJOLNIRLevelLoader falls back here).
     build_plasma(defaults)
+    # Converted props that move (physics_props): lit by Unreal.
+    build_prop_lit(defaults)
+    build_prop_overlay(defaults)
     # MJOLNIRLevelLoader takes only the environment masters from a trial
     # build (TRIAL_MASTERS); the rest stay the runtime pack's.
     unreal.log("MJOLNIR CE trial materials built")
