@@ -4470,6 +4470,10 @@ Land.ROCK_B = {
 --- down it from its top and it stands in shade where it meets the ground.
 --- By the sea it is wet as the rock is (`wet` cm over the water).
 function Land.structures(world, spec)
+    -- Before any return: Land.lumenCells writes to these, and a map with no
+    -- structures after one with them (Zanzibar, then Ascension) kept the
+    -- freed instances, which crashed the game (no pcall catches that).
+    Land.structureMids = {}
     local sets = type(spec.structures) == "table" and spec.structures or {}
     if #sets == 0 then return 0 end
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
@@ -4486,7 +4490,6 @@ function Land.structures(world, spec)
     -- The landscape's edge map: where each wall's top and foot are.
     local edge = type(spec.pbr) == "table" and type(spec.pbr.edge) == "table" and spec.pbr.edge
     local edgeTex = edge and type(edge.texture) == "string" and resolveMesh(edge.texture) or nil
-    Land.structureMids = {}
     local changed = 0
     for si, set in ipairs(sets) do
         local textures = {}
@@ -5105,6 +5108,8 @@ function Land.ground(world, spec)
 end
 
 function Land.apply(world)
+    -- Every load starts with none (Land.structures fills it, maybe not at all).
+    Land.structureMids = {}
     local spec = Current.level and Current.level.landscape
     if type(spec) ~= "table" then return end
     -- An indoor map (upgrade_ce_map.py `indoor`: Rat Race's tunnels): no
