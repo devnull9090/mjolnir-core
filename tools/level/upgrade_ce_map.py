@@ -1189,6 +1189,11 @@ def build_cliffs(maps, ps):
         p = ps[code]
         out = os.path.join(p["work"], "cliff_mesh.json")
         extra = ["--flat", "--conformal", str(uv)] if uv else []
+        # `cliff_smooth` (degrees): the flat copy's normals blended across
+        # folds gentler than that, so a coarse rock's faces stop drawing as
+        # flat triangles of snow and shade (cliff_mesh.smooth_normals).
+        if uv and m.get("cliff_smooth"):
+            extra += ["--smooth", str(m["cliff_smooth"])]
         print("  " + run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
                           os.path.join(p["scene"], "scene.gltf"), out, "--landscape",
                           os.path.join(p["land"], "landscape.json"), "--swap",

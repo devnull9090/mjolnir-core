@@ -51,6 +51,42 @@ def page_of(name):
     return int(m.group(1)) if m else None
 
 
+def smooth_normals(corners, crease_deg, ref=None):
+    """Normals for triangle corners (n*3, 3 cm) that blend across gentle
+    folds: each corner takes the area-weighted mean of the faces meeting at
+    its position whose own normal is within `crease_deg` of its face's, so
+    a crease steeper than that stays sharp. Flat-faced Halo 2 rock drew each
+    triangle in one tone, the glacial material's snow and light set by the
+    face's tilt alone (Containment's snow caps, 2026-11-17); smoothing across
+    every edge smeared the rock over creases (Yoyorast, 2026-10-13). `ref`:
+    the corners' own normals, which each face is turned to agree with (the
+    axis swap mirrors the winding)."""
+    tri = corners.reshape(-1, 3, 3)
+    cross = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    area = np.linalg.norm(cross, axis=1, keepdims=True)
+    face = cross / np.maximum(area, 1e-9)
+    if ref is not None:
+        flip = (face * ref.reshape(-1, 3, 3).sum(1)).sum(1) < 0
+        face[flip] *= -1
+    weighted = face * area
+    groups = {}
+    for i, p in enumerate(corners.round(1)):
+        groups.setdefault(tuple(p), []).append(i)
+    cos = np.cos(np.radians(crease_deg))
+    out = np.repeat(face, 3, axis=0)
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        faces = np.array(members) // 3
+        for i, f in zip(members, faces):
+            near = faces[(face[faces] @ face[f]) >= cos]
+            n = weighted[near].sum(0)
+            length = np.linalg.norm(n)
+            if length > 1e-9:
+                out[i] = n / length
+    return out
+
+
 def texture_page(path):
     leaf = (path or "").split(".")[-1]
     # A protected map's page 0 is its bitmap's own number (T_protected_bitm_n2943;
@@ -311,6 +347,8 @@ def main():
     ap.add_argument("--flat", action="store_true",
                     help="the cliff triangles as CE has them (its own normals, no welding or subdivision): "
                          "a copy only to carry --conformal UVs, with no displacement")
+    ap.add_argument("--smooth", type=float, default=0.0, metavar="DEG",
+                    help="with --flat: normals blended across folds under DEG degrees (smooth_normals)")
     ap.add_argument("--conformal", type=float, default=0.0, metavar="CM",
                     help="new UVs, evenly scaled, CM cm a UV unit (conformal_uv)")
     ap.add_argument("--swap", help="scenery_swap.py's swap.json: its hidden slots are not cliffs (CE boulders "
@@ -381,6 +419,9 @@ def main():
     if a.conformal > 0:
         uv0, nc = conformal_uv(corners, uv0, np.asarray(section), a.conformal)
         print(f"conformal UVs on {nc} chart(s), {a.conformal:g} cm a unit")
+    if a.flat and a.smooth > 0:
+        shade = smooth_normals(corners, a.smooth, shade)
+        print(f"normals smoothed across folds under {a.smooth:g} degrees")
     if a.flat:
         # Corners that agree in everything share a vertex, and the copy is a
         # classic mesh: as Nanite, loose triangles simplified apart and a

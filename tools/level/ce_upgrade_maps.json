@@ -183,6 +183,7 @@
   "light_gain": 50,
   "_lumen": "no lumen_chunks: with the cells, far surfaces faded between lit and black as the view moved (2026-11-17)",
   "cliff_uv": 7000,
+  "cliff_smooth": 45,
   "environment": {"skylight": {"lower": [0.55, 0.58, 0.62]}},
   "cliff_look": [null, null, null, 1.0]},
  "ASC": {"conversion": "C:/haloce/ce_conversions/h2/ASC_flags", "level": "ascension.level.json", "sbsp": "ascension.sbsp",
