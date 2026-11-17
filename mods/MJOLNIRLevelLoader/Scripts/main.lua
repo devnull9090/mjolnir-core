@@ -4809,6 +4809,19 @@ function Land.cliffs(world, spec)
             Log("landscape: " .. (ok and string.format("cliffs subdivided (%d section(s)) in the shipped rock", #mids)
                 or tostring(err)))
         end
+        -- The cladding rocks keep their meshes' own material, which has no
+        -- CE fill to bounce (spawnCladding left them out of Lumen for
+        -- M_CE_CliffPBR's): back in, or a canyon's shaded rock drew black,
+        -- every ray off it lost (Containment, 2026-11-17).
+        local lit = 0
+        for _, group in ipairs(Foliage.cliffGroups or {}) do
+            for _, actor in ipairs(group.actors or {}) do
+                if actor:IsValid() and pcall(function() actor.StaticMeshComponent:SetAffectDynamicIndirectLighting(true) end) then
+                    lit = lit + 1
+                end
+            end
+        end
+        if lit > 0 then Log(string.format("landscape: %d cladding rock(s) in Lumen's scene (shipped rock)", lit)) end
         return n
     end
     local kml = findObject("/Script/Engine.Default__KismetMaterialLibrary")
