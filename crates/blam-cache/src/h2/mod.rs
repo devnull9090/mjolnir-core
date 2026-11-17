@@ -9,10 +9,12 @@
 pub mod cache;
 pub mod collision;
 pub mod decorator;
+pub mod door;
 pub mod animation;
 pub mod bitmap;
 pub mod geometry;
 pub mod phantom;
+pub mod props;
 pub mod render;
 pub mod sound;
 pub mod stage;

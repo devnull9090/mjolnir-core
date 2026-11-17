@@ -75,6 +75,43 @@ class LocalPackTests(unittest.TestCase):
         stage = self.stage()
         self.assertEqual((stage / "pakchunk970-MJOLNIRROCK-TST_P.ucas").read_bytes(), b"native layers")
 
+    def test_machines_actors_and_props_are_packed_as_installed(self):
+        # A door's machines and control (doors.json), the turning parts'
+        # machines and actors (the conversion's machines/), the movable
+        # props' crate tags (physics_props.json): the install's list.
+        scene = self.root / "scene"
+        (scene / "tags").mkdir(parents=True)
+        (self.conv / "machines").mkdir()
+        doors = [{"machines": [{"containers": ["pakchunk986-MJOLNIRMACH-TST-G0J", "pakchunk987-MJOLNIRACT-TST"]}],
+                  "sim_control": {"containers": ["pakchunk986-MJOLNIRMACH-TST-GK"]}}]
+        (scene / "doors.json").write_text(json.dumps(doors))
+        props = [{"tags": ["pakchunk996-MJOLNIRPROP-drum_55gal-P_P"]}]
+        (scene / "physics_props.json").write_text(json.dumps(props))
+        self.config.update(doors=str(scene / "doors.json"), physics_props=str(scene / "physics_props.json"))
+        for folder, stem in [(scene, "pakchunk986-MJOLNIRMACH-TST-G0J_P"), (scene, "pakchunk987-MJOLNIRACT-TST_P"),
+                             (scene, "pakchunk986-MJOLNIRMACH-TST-GK_P"),
+                             (scene / "tags", "pakchunk996-MJOLNIRPROP-drum_55gal-P_P"),
+                             (self.conv / "machines", "pakchunk986-MJOLNIRMACH-TST-0J_P"),
+                             (self.conv / "machines", "pakchunk987-MJOLNIRGEAR-TST_P")]:
+            for ext in ("utoc", "ucas"):
+                (folder / f"{stem}.{ext}").write_bytes(stem.encode())
+        stage = self.stage()
+        # Tags where `map pack` takes a map's tags from, named for the map;
+        # the actors' containers beside the map's own.
+        for rel in ("machines/pakchunk986-MJOLNIRMACH-TST-G0J_P", "machines/pakchunk986-MJOLNIRMACH-TST-GK_P",
+                    "machines/pakchunk986-MJOLNIRMACH-TST-0J_P",
+                    "machines/pakchunk986-MJOLNIRMACH-TST-PROP-drum-55gal-P_P",
+                    "pakchunk987-MJOLNIRACT-TST_P", "pakchunk987-MJOLNIRGEAR-TST_P"):
+            for ext in ("utoc", "ucas"):
+                self.assertTrue((stage / f"{rel}.{ext}").is_file(), rel)
+        self.assertEqual((stage / "machines/pakchunk986-MJOLNIRMACH-TST-PROP-drum-55gal-P_P.ucas").read_bytes(),
+                         b"pakchunk996-MJOLNIRPROP-drum_55gal-P_P")
+        # One missing half stops the pack before anything is staged.
+        (scene / "pakchunk987-MJOLNIRACT-TST_P.ucas").unlink()
+        with self.assertRaises(FileNotFoundError):
+            prepare("TST", self.config, self.work, self.root / "staging2")
+        self.assertFalse((self.root / "staging2").exists())
+
     def test_auxiliary_path_cannot_escape_map(self):
         self.level["foliage"]["file"] = "../../outside.bin"
         with self.assertRaises(ValueError):

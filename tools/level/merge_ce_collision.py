@@ -212,11 +212,12 @@ def main():
     # --sim-machines <machines.json>: Halo 2's turning parts made machines of
     # the simulation's own (tools/level/h2_machines.py), whose collision
     # turns with them; at rest in the BSP it would stand where the part only
-    # sometimes is.
+    # sometimes is. A part whose machine has no collision of its own keeps
+    # the BSP's.
     if "--sim-machines" in sys.argv:
         machines = json.load(open(sys.argv[sys.argv.index("--sim-machines") + 1], encoding="utf-8"))
         placement = json.load(open(os.path.join(staging, "placement.json"), encoding="utf-8"))
-        skip |= {n for n, e in enumerate(placement["entries"]) if e.get("h2_motion") and e.get("asset") in machines}
+        skip |= {n for n, e in enumerate(placement["entries"]) if e.get("h2_motion") and machines.get(e.get("asset"), {}).get("collision")}
     src_json = os.path.join(staging, "bsp", "collision_0.json")
     meta = json.load(open(src_json, encoding="utf-8"))
     order = meta.get("array_order") or ORDER_DEFAULT

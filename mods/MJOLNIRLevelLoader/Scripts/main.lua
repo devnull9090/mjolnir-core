@@ -393,6 +393,11 @@ local function resetState()
     Current.rocksHidden = nil
     Current.broken = nil
     Current.breakPreloaded = nil
+    -- Machines and gears are found and dressed again in every world: a
+    -- second match on the same map has the same world name and new actors,
+    -- which the old state took for dressed (bare grid material).
+    Current.doors = nil
+    Current.gears = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
     Current.dressQueue = nil
@@ -6167,6 +6172,18 @@ local function watch()
     -- clock from the level's load, as the game runs a gear's position from
     -- it: the yaw between the keys at t mod period, the actor swung about
     -- its pivot to it. Its tables are its own, refilled: nothing per run.
+    -- The angle of a ridden part about its machine's axis (below). Out of
+    -- the loop: a closure a machine a run was garbage at 30 Hz.
+    local function partAngle(m)
+        local k = m.axis or { X = 0, Y = 0, Z = 1 }
+        local a, b = m.base:GetActorForwardVector(), m.part:GetForwardVector()
+        if math.abs(a.X * k.X + a.Y * k.Y + a.Z * k.Z) > 0.9 then
+            a, b = m.base:GetActorUpVector(), m.part:GetUpVector()
+        end
+        local ak, bk = a.X * k.X + a.Y * k.Y + a.Z * k.Z, b.X * k.X + b.Y * k.Y + b.Z * k.Z
+        local cross = k.X * (a.Y * b.Z - a.Z * b.Y) + k.Y * (a.Z * b.X - a.X * b.Z) + k.Z * (a.X * b.Y - a.Y * b.X)
+        return math.deg(math.atan(cross, a.X * b.X + a.Y * b.Y + a.Z * b.Z - ak * bk))
+    end
     every(33, "turning machines", function()
         -- Once the world is dressed: its machines are spawned over frames.
         if #Current.turning == 0 or not Current.furnished then return end
@@ -6185,16 +6202,6 @@ local function watch()
             -- the part's; the turn's phase, for the sounds, is fitted to
             -- what the part does, as the simulation runs its gears from its
             -- own clock.
-            local function partAngle()
-                local k = m.axis or { X = 0, Y = 0, Z = 1 }
-                local a, b = m.base:GetActorForwardVector(), m.part:GetForwardVector()
-                if math.abs(a.X * k.X + a.Y * k.Y + a.Z * k.Z) > 0.9 then
-                    a, b = m.base:GetActorUpVector(), m.part:GetUpVector()
-                end
-                local ak, bk = a.X * k.X + a.Y * k.Y + a.Z * k.Z, b.X * k.X + b.Y * k.Y + b.Z * k.Z
-                local cross = k.X * (a.Y * b.Z - a.Z * b.Y) + k.Y * (a.Z * b.X - a.X * b.Z) + k.Z * (a.X * b.Y - a.Y * b.X)
-                return math.deg(math.atan(cross, a.X * b.X + a.Y * b.Y + a.Z * b.Z - ak * bk))
-            end
             if m.actor:IsValid() and m.follow and not m.attached then
                 if not m.seek or now - m.seek > 2 then
                     m.seek = now
@@ -6216,7 +6223,7 @@ local function watch()
                                 Current.claimed[key] = m.entry or true
                                 m.base = a
                                 m.part = a:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.StaticMeshComponent"))[1]:get()
-                                m.pose = partAngle()
+                                m.pose = partAngle(m)
                                 break
                             end
                         end
@@ -6224,7 +6231,7 @@ local function watch()
                 end
             elseif m.actor:IsValid() and m.attached and not m.offset and m.part:IsValid() then
                 local h = m.hist
-                local rel = partAngle()
+                local rel = partAngle(m)
                 h[#h + 1] = { now, rel }
                 local lo, hi = rel, rel
                 for _, sm in ipairs(h) do lo, hi = math.min(lo, sm[2]), math.max(hi, sm[2]) end
@@ -6252,6 +6259,41 @@ local function watch()
                     Log(string.format("turning machine phase: %.1f s from the world clock", best))
                 elseif #h > 600 then
                     table.remove(h, 1)
+                end
+            end
+            -- A ridden part that stops while the clock says it turns: the
+            -- simulation keeps turning the machine (its device position
+            -- advances) but the game stops copying its pose to the Unreal
+            -- part (Zanzibar's big wheel and blades under the generator
+            -- grate froze for minutes, 2026-11-15). The mesh then leaves the
+            -- part and turns by the clock from the angle it was left at.
+            -- Looked at twice a second: four vectors a look are garbage too.
+            if m.attached and m.part and now - (m.stallLook or -1) > 0.5 and m.part:IsValid() and m.period < 120 then
+                m.stallLook = now
+                local ok, a = pcall(partAngle, m)
+                if ok then
+                    if not m.still or math.abs(((a - m.still.a) + 540) % 360 - 180) > 0.5 then
+                        m.still = { a = a, t = now }
+                    elseif now - m.still.t > 2.0 then
+                        local function at(t)
+                            local keys = m.keys
+                            for k = 2, #keys do
+                                if t <= keys[k][1] then
+                                    local p, q = keys[k - 1], keys[k]
+                                    return q[1] > p[1] and (p[2] + (q[2] - p[2]) * (t - p[1]) / (q[1] - p[1])) or q[2]
+                                end
+                            end
+                            return keys[#keys][2]
+                        end
+                        local best, bestE = 0, math.huge
+                        for o = 0, m.period, 0.05 do
+                            local e = math.abs(((at((now - o) % m.period) - a) + 540) % 360 - 180)
+                            if e < bestE then best, bestE = o, e end
+                        end
+                        pcall(function() m.actor:K2_DetachFromActor(1, 1, 1) end)
+                        m.attached, m.follow, m.offset, m.yaw, m.still = false, nil, best, nil, nil
+                        Log(string.format("turning machine: its simulation part stopped updating; turned by the clock (%.1f s)", best))
+                    end
                 end
             end
             if m.actor:IsValid() then
@@ -6353,6 +6395,64 @@ local function watch()
             pcall(dressHealthPack, world, actor, hp)
         end
     end)
+    -- Physics props (props.lua): crates the simulation moves, drawn as the
+    -- level's props (Zanzibar's fusion coils). Loaded with the first level
+    -- that has any; kept on Current, as the main chunk is near Lua's 200
+    -- locals.
+    every(1500, "physics props", function()
+        local level = Current.furnished and Current.level
+        if not (level and type(level.dress) == "table" and #level.dress > 0) then return end
+        if not Current.props then
+            Current.props = dofile(MOD_DIR .. "\\Scripts\\props.lua").new({
+                Log = Log, resolveMesh = resolveMesh, findObject = findObject, applyMaterials = applyMaterials,
+                hideAllBut = hideAllBut, getWorld = getWorld, Current = Current, gameVolume = gameVolume,
+                MOBILITY_MOVABLE = MOBILITY_MOVABLE, COLLISION_NONE = COLLISION_NONE,
+            })
+        end
+        Current.props.tick()
+    end)
+    -- A destroyed prop turns charred as it dies, not up to 1.5 s later.
+    every(250, "prop deaths", function()
+        if Current.props then Current.props.deaths() end
+    end)
+    -- Halo 2 machines that move in parts (doors.lua): moved by the
+    -- simulation, drawn by each machine's own actor; the loader only dresses
+    -- the actors' meshes once. Only the door sounds poll.
+    local function doors()
+        local level = Current.furnished and Current.level
+        if not (level and type(level.doors) == "table" and #level.doors > 0) then return nil end
+        if not Current.doors then
+            Current.doors = dofile(MOD_DIR .. "\\Scripts\\doors.lua").new({
+                Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh,
+                getWorld = getWorld, gameVolume = gameVolume, applyMaterials = applyMaterials,
+            })
+        end
+        return Current.doors
+    end
+    every(250, "doors", function()
+        local dd = doors()
+        if dd then return dd.tick(os.clock()) end
+        return 1500
+    end, true)
+    -- Halo 2's turning parts worn by their machines' actors (gears.lua):
+    -- dressed once; the loop then wakes only for the sounds they make. A
+    -- level without `gears` (built before them) keeps the turning loop above.
+    local function gears()
+        local level = Current.furnished and Current.level
+        if not (level and type(level.gears) == "table" and #level.gears > 0) then return nil end
+        if not Current.gears then
+            Current.gears = dofile(MOD_DIR .. "\\Scripts\\gears.lua").new({
+                Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh,
+                getWorld = getWorld, gameVolume = gameVolume, applyMaterials = applyMaterials,
+            })
+        end
+        return Current.gears
+    end
+    every(250, "gears", function()
+        local gg = gears()
+        if gg then return gg.tick(os.clock()) end
+        return 1500
+    end, true)
 end
 
 --------------------------------------------------------------------------------
