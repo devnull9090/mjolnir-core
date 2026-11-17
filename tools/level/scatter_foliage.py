@@ -1043,7 +1043,7 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
         img = np.asarray(Image.open(os.path.join(os.path.dirname(os.path.abspath(a.edge)), "edge.png"))
                          .convert("RGBA"), dtype=np.float32) / 255.0
         edge = (img, e["rect"], e["range"])
-    dropped = 0
+    dropped = below = 0
     weights = [m[4] for m in CLADDING["meshes"]]
     for mesh in doc["meshes"]:
         for prim in mesh["primitives"]:
@@ -1079,6 +1079,13 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     if a.surface_policy and not a.surface_policy.allows(x-off[0], y-off[1], z-off[2], "cliff"):
                         continue
                     if a.sea is not None and (z - a.sea) / 100.0 < CLADDING["above"]:
+                        continue
+                    # Out of every player's reach (--clad-floor): Ascension's
+                    # pillars fall 150 m under its lowest spawn, and their
+                    # walls took 80,000 of its 120,000 rocks, a load of
+                    # actors each dressed at load (2026-11-16).
+                    if a.clad_floor is not None and z < a.clad_floor:
+                        below += 1
                         continue
                     path, smin, smax, depth, _ = rng.choices(CLADDING["meshes"], weights)[0]
                     scale = rng.uniform(smin, smax)
@@ -1125,7 +1132,8 @@ def clad(doc, data, spec, off, a, groups, bases, lights, rng):
                     rocks.append((path, [cx, cy, cz, rng.uniform(0, 360), scale, tilt, col,
                                          tuple(float(c) for c in np.clip(rgb, 0.0, 1.0))], base_path))
                     total += 1
-    print(f"cladding: {total} rocks, {dropped} left out (near built surfaces or over a lip), "
+    print(f"cladding: {total} rocks, {below} left out under --clad-floor, "
+          f"{dropped} left out (near built surfaces or over a lip), "
           f"{flush} pressed flush beside walkable ground, {walked} left out of the space over it "
           f"({len(walk.cells)} walkable cells)")
     # A group a mesh and a light (the loader gives each group one material,
@@ -1186,6 +1194,9 @@ def main():
                          "Without it a rock set into CE's ground lay buried under the landscape")
     ap.add_argument("--edge", help="a landscape.json (build_landscape.py) whose edge map places the lip rules")
     ap.add_argument("--no-cladding", action="store_true", help="leave the cliffs' cladding rocks out")
+    ap.add_argument("--clad-floor", type=float,
+                    help="cm: no cladding rock on wall lower than this (out of every player's reach: "
+                         "upgrade_ce_map.py passes 30 m under the map's lowest player spawn)")
     ap.add_argument("--surface-policy", help="Blender .surfaces.json permissions; preserves normal biome/slope/clearance rules")
     ap.add_argument("--detail", action="append", default=[], metavar="NAME=CLASS",
                     help="a detail bitmap (substring of its name) and its class, sand or grass; repeatable")
@@ -1402,7 +1413,9 @@ def main():
                     if cliff and rule["on"] == "grass":
                         turf = turf_share(n[1] / (2 * area))
                         if turf > 0.0:
-                            share = np.maximum(share if share is not None else 0.0, turf)
+                            # One share a point, also where the ground has no
+                            # grass class (Ascension's slate and sandstone).
+                            share = np.maximum(share if share is not None else np.zeros(len(pts)), turf)
                     if share is None:
                         continue
                     lo, hi = rule["share"]

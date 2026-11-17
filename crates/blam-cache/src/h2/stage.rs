@@ -577,6 +577,15 @@ fn placements<'c>(
             if group == "mach" || group == "ctrl" {
                 entry["h2_device"] = json!({"power_group": e.i16(0x34), "position_group": e.i16(0x36)});
             }
+            // A machine placement's own flags (device 0x38: initially open,
+            // initially off, position reversed...; machine 0x3C: bit 0 does
+            // not operate automatically, bit 5 does not close
+            // automatically). Containment's base gates are doors marked not
+            // to operate automatically: only their switches move them.
+            if group == "mach" {
+                entry["h2_device"]["device_flags"] = json!(e.u32(0x38));
+                entry["h2_device"]["machine_flags"] = json!(e.u32(0x3C));
+            }
             // A control's press sound (its device "open" sound, 0xDC: the
             // keypad's button_push).
             if group == "ctrl" {

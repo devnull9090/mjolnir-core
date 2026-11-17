@@ -521,12 +521,21 @@ units and axes, so every later step reads them unchanged:
   and every prop present in both, and the gate opened by the host stood
   open in the client's own simulation and its own view.
 
-  Open (2026-11-15): Containment converts fresh with its base gates and
-  switches (4 placements, 10 cooked instances, all drawn), but in the
-  simulation its gates sit at position 1.0 whatever their device group
-  says. They are door-type machines (type 0, no activation radius), which
-  Blam drives by its own door logic; Zanzibar's gate parts are platforms
-  (type 1), which follow the group. Not looked into further. Dressing state belongs to the world: a
+  A placement's own flags go with it (scenario machine +0x38 device flags,
+  +0x3C machine flags; the simulation's bits are Halo 2's). Containment's
+  base gates are door-type machines (type 0) with no activation radius, so
+  the simulation's door logic opens one for any unit within its bounding
+  radius and shuts it after its open time. Halo 2 places them with
+  machine flag 1, "does not operate automatically", so only their
+  switches move them. Without that flag they stood open (2026-11-15).
+  Zanzibar's gate parts are platforms (type 1), placed with no flags.
+  Before, the fields were whatever B40 placement each map cloned (the one
+  nearest its origin), and some of those are "initially open", "position
+  reversed" or "does not close automatically". Of the Halo 2 machines,
+  only Containment's carry a flag (`h2_machine_placements <map>` lists
+  them); Gemini's, Triplicate's, Colossus's and Backwash's doors carry
+  none and open for a unit nearby, as in Halo 2.
+  Dressing state belongs to the world: a
   second match on the same map has the same world name and new actors, and
   parts kept from the first came back as bare grid (fixed 2026-11-15).
 
@@ -955,6 +964,45 @@ and the level takes the map's name.
   the beach bushes as young palms. Its ground shaders list grass before
   sand, the reverse of CE: the bake and the mesh ground slots turn that
   over (docs/remaster_asset_inventory.md).
+- **Containment** (`CNT`, chunk 1003, landscape `LCN`, `"biome": "snow"`,
+  2026-11-16). Ice Fields' and Sidewinder's snow: B40's glacial rock on
+  the cliffs (`containment_cliff_a` and the boulders' `containment_rock_medium`),
+  Sidewinder's ground look, snowy stones and rubble scattered, the game's
+  falling snow kept out of the bases (11,755 roof cells). Its terrain
+  shader is not a blend, so it would have baked as one flat snow; with
+  `real_base` the ground keeps its base map's own colour, which paints the
+  tyre tracks and the dirt by the bases. Its bases are Forerunner, so the
+  Forerunner plate stays on their metal (no `structure_metal: false`).
+  Swap and collision are skipped: its scenery is 8 brambles and twig
+  decals (the twigs are `M_H2_Billboard`, hidden). Its gates and switches
+  come from the conversion's own machines, as a fresh conversion places
+  them; the install takes their actors (`pakchunk987-MJOLNIRACT`) from the
+  conversion's `machines` folder (tools/level/machine_containers.py). In
+  game, solo and in two networked copies: all 8 machines start shut, a
+  switch group opens its own gate in both simulations, and the 8 part
+  slots draw their cooked instances.
+- **Ascension** (`ASC`, chunk 1004, landscape `LAS`, `"biome": "desert"`,
+  2026-11-16). Its ground is a blend of bare slate and pale sandstone
+  paths, so both detail maps are `sand` (stones and dry plants): taking
+  the slate for grass grew 2.3 million clumps on bare rock. Grass stays on
+  the cliffs' up-facing faces, where the cliff master draws its turf, which
+  greens the rock pillars' tops. Blood Gulch's look, as Coagulation's.
+  Reconverted first (`ASC_flags`) so its machines carry their own
+  placement flags. Its three antennas are the conversion's turning
+  machines, cooked. In game, solo and in two networked copies: the
+  antennas turn in step and draw their cooked instances; a frame takes a
+  median 11 ms at 4K. A ground with no grass class had crashed the scatter
+  where a cliff's turf met it (scatter_foliage.py).
+- **Cladding only within reach.** Ascension first loaded in 4.2 s solo and
+  7.3 s on a client (the hub copy: 0.7 and 2.3 s). The loader dresses each
+  cladding rock, a mesh actor, with its group's material, and Ascension had
+  120,427 of them: its pillars fall 150 m under the lowest spawn, and their
+  walls took 80,000. The scatter now puts no rock more than 30 m under the
+  map's lowest player spawn (`--clad-floor`, upgrade_ce_map.py's
+  CLAD_BELOW_SPAWNS), which of all the remasters trims only Ascension and
+  Gephyrophobia's chasm (3,905). Ascension: 40,390 rocks, 2.3 s solo, 3.5 s
+  on a client. The loader's log now lists the queued jobs' time by kind
+  (`load timing: queued jobs:`).
 - **Structure surfaces** (`structure_surfaces`). Zanzibar's concrete and
   steel draw in Poly Haven PBR surfaces through the cliffs' master, each
   wall's Halo 2 base map kept as its colour and its lightmap as shade

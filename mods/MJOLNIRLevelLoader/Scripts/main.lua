@@ -1654,7 +1654,7 @@ local function spawnDecorItem(world, origin, item)
         if actor:IsValid() then job(actor.StaticMeshComponent) end
     end
     if Current.dressQueue then
-        Current.dressQueue.add(jobs, run)
+        Current.dressQueue.add(jobs, run, "decor pieces")
     else
         for _, job in ipairs(jobs) do run(job) end
     end
@@ -3140,7 +3140,7 @@ function Foliage.spawnCladding(world, g, group, mesh, raw, pos, size)
         end
     end
     Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = actors, base = group.base, light = group.light,
-        lm = group.lm }
+        lm = group.lm, index = g }
     return pos
 end
 
@@ -4070,7 +4070,7 @@ function Foliage.dressBaked(world, foliage, quality)
         pcall(function() comp:SetEvaluateWorldPositionOffset(sway) end)
     end
     if Current.dressQueue then
-        Current.dressQueue.add(work, dressMesh)
+        Current.dressQueue.add(work, dressMesh, "foliage meshes")
     else
         for _, w in ipairs(work) do dressMesh(w) end
     end
@@ -4216,7 +4216,7 @@ function Foliage.spawn(world)
         if group.cliff == true and coloured and rocks[g] then
             pos = pos + size * 19
             Foliage.cliffGroups[#Foliage.cliffGroups + 1] = { actors = rocks[g], base = group.base,
-                light = group.light, lm = group.lm, baked = true }
+                light = group.light, lm = group.lm, baked = true, index = g }
             goto continue
         end
         local mesh = type(group.mesh) == "string" and resolveMesh(group.mesh)
@@ -4719,6 +4719,25 @@ function Land.lumenCells(world, level)
     return #spec.cells
 end
 
+--- Whether a cladding group's rocks wear their cooked material as baked
+--- (`clad`: the level's landscape.clad, by foliage group, from
+--- tools/level/clad_materials.py): the world's first rock of the group wears
+--- the material named, and the light scale and lightmap levels are the ones
+--- it was made with. Otherwise (an older world, `mjolnir_light_scale`, the
+--- terrain shadows' lightmap) the group takes a dynamic instance as before.
+function Land.cladBaked(group, clad)
+    local entry = type(clad) == "table" and group.index and clad[tostring(group.index)]
+    if type(entry) ~= "table" or type(entry.object) ~= "string" then return false end
+    if math.abs((tonumber(entry.light_scale) or 1) - lightScale()) > 1e-6 then return false end
+    local lv, want = lightmapSun(), entry.levels
+    if (lv == nil) ~= (type(want) ~= "table") then return false end
+    if lv and (math.abs(lv[1] - want[1]) > 1e-6 or math.abs(lv[2] - want[2]) > 1e-6) then return false end
+    local actor = group.actors and group.actors[1]
+    if not (actor and actor:IsValid()) then return false end
+    local ok, name = pcall(function() return actor.StaticMeshComponent:GetMaterial(0):GetFName():ToString() end)
+    return ok and name == entry.object:match("%.([%w_]+)$")
+end
+
 function Land.cliffs(world, spec)
     local cliff = spec.cliff
     if type(cliff) ~= "table" then return 0 end
@@ -4920,8 +4939,18 @@ function Land.cliffs(world, spec)
     -- the cliff mesh carries in UV2/UV3, which a rock's mesh has not.)
     local cladTess = tess and tess.cladding and resolveMesh(TRIAL_MASTERS .. "M_CE_CladTess.M_CE_CladTess")
     local cladParent = cladTess or parent
+    local cladBaked = 0
     for gi, group in ipairs(Foliage.cliffGroups or {}) do
-        local mid = kml:CreateDynamicMaterialInstance(world, cladParent, FName(string.format("mjolnir_clad_%d", gi)), 0)
+        local mid = nil
+        if Land.cladBaked(group, spec.clad) then
+            -- The world's rocks wear the group's cooked material already
+            -- (tools/level/clad_materials.py): nothing to set, a rock at a
+            -- time, at load (Ascension's 40,390 took 0.5 s).
+            cladBaked = cladBaked + 1
+            if group.baked then group.actors = {} end
+        else
+            mid = kml:CreateDynamicMaterialInstance(world, cladParent, FName(string.format("mjolnir_clad_%d", gi)), 0)
+        end
         if mid and mid:IsValid() then
             for name, tex in pairs(textures) do mid:SetTextureParameterValue(FName(name), tex) end
             local base = type(group.base) == "string" and resolveMesh(group.base)
@@ -4967,7 +4996,7 @@ function Land.cliffs(world, spec)
                 end
             end
             if Current.dressQueue then
-                Current.dressQueue.add(group.actors, dressRock)
+                Current.dressQueue.add(group.actors, dressRock, "cladding rocks")
             else
                 for _, actor in ipairs(group.actors) do dressRock(actor) end
             end
@@ -4976,6 +5005,9 @@ function Land.cliffs(world, spec)
             changed = changed + 1
             Land.cliffMids[#Land.cliffMids + 1] = mid
         end
+    end
+    if cladBaked > 0 then
+        Log(string.format("landscape: %d cladding group(s) as baked", cladBaked))
     end
     return changed
 end
@@ -5146,7 +5178,7 @@ function Land.apply(world)
         }
         local function run(job) if land:IsValid() then job() end end
         if Current.dressQueue then
-            Current.dressQueue.add(jobs, run)
+            Current.dressQueue.add(jobs, run, "landscape")
         else
             for _, job in ipairs(jobs) do run(job) end
         end
@@ -5477,8 +5509,8 @@ function Footprints.deformStart(world)
         Footprints.deformHook()
     end
     if Current.dressQueue then
-        Current.dressQueue.add(actors, register)
-        Current.dressQueue.add({ registered }, function(job) job() end)
+        Current.dressQueue.add(actors, register, "deformation")
+        Current.dressQueue.add({ registered }, function(job) job() end, "deformation")
     else
         for _, actor in ipairs(actors) do pcall(register, actor) end
         registered()
@@ -5940,6 +5972,7 @@ local function spawnDecor(world)
             Current.dressing = false
             Current.furnished = true
             Current.meshScan = nil
+            Log("load timing: queued jobs: " .. Current.dressQueue.report())
             Current.dressQueue = nil
             Current.lapDone(string.format(" over %d frame(s), %.0f ms of it ours, the longest frame's share %.0f ms (%s), "
                 .. "the shortest gap between frames %.1f ms", stats.frames, stats.busy * 1000, stats.longest * 1000,

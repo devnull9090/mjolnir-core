@@ -118,21 +118,43 @@ end
 --- `onError(err)` and the next item runs.
 function Dress.queue(onError, clock)
     clock = clock or os.clock
-    local q = { lists = {}, at = 1, index = 1, count = 0 }
-    function q.add(list, each)
-        q.lists[#q.lists + 1] = { list = list, each = each }
+    local q = { lists = {}, at = 1, index = 1, count = 0, spent = {}, order = {} }
+    --- `name` (optional) files the list's time under it for q.report.
+    function q.add(list, each, name)
+        name = name or "jobs"
+        q.lists[#q.lists + 1] = { list = list, each = each, name = name }
         q.count = q.count + #list
+        if not q.spent[name] then
+            q.spent[name] = { s = 0, n = 0 }
+            q.order[#q.order + 1] = name
+        end
+        q.spent[name].n = q.spent[name].n + #list
+    end
+    --- "name ms over n item(s)" for every name, in the order first added.
+    function q.report()
+        local parts = {}
+        for _, name in ipairs(q.order) do
+            local t = q.spent[name]
+            parts[#parts + 1] = string.format("%s %.0f ms over %d", name, t.s * 1000, t.n)
+        end
+        return table.concat(parts, ", ")
     end
     function q.step(deadline)
         while q.at <= #q.lists do
             local entry = q.lists[q.at]
+            local spent = q.spent[entry.name]
+            local t0 = clock()
             while q.index <= #entry.list do
                 local item = entry.list[q.index]
                 q.index = q.index + 1
                 local ok, err = pcall(entry.each, item)
                 if not ok and onError then pcall(onError, err) end
-                if clock() >= deadline and (q.index <= #entry.list or q.at < #q.lists) then return true end
+                if clock() >= deadline and (q.index <= #entry.list or q.at < #q.lists) then
+                    spent.s = spent.s + clock() - t0
+                    return true
+                end
             end
+            spent.s = spent.s + clock() - t0
             -- A list done is let go: its handles and closures are garbage
             -- for the collections that end the load, not one frame after.
             entry.list, entry.each = {}, nil
