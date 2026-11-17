@@ -1230,7 +1230,7 @@ def main():
     ap.add_argument("--rule-cluster", action="append", default=[], metavar="RULE=CELL,LOW,HIGH",
                     help="soft world-space density patches: cell metres and noise thresholds in 0..1")
     ap.add_argument("--extra", action="append", default=[], metavar="RULE",
-                    help="an optional rule to add (sea rocks); repeatable")
+                    help="an optional rule (sea rocks) or another biome's rule (flowers) to add; repeatable")
     ap.add_argument("--staging", help="the conversion's staging folder (placement.json, models/) when it is not "
                                       "beside the scene")
     ap.add_argument("--rule-tint", action="append", default=[], metavar="RULE=R,G,B[:PARAM]",
@@ -1248,7 +1248,21 @@ def main():
     if a.biome == "snow":
         global CLADDING
         CLADDING = SNOW_CLADDING
-    rules = [dict(r) for r in ({"snow": SNOW_RULES, "desert": DESERT_RULES, "coast": COAST_RULES}.get(a.biome, RULES))
+    own = {"snow": SNOW_RULES, "desert": DESERT_RULES, "coast": COAST_RULES}.get(a.biome, RULES)
+    # `--extra` may name another biome's rule as well as an optional one:
+    # a beach map takes the desert's Namaqualand flowers in its grass
+    # (Proving Ground, 2026-11-17). The map's own rule of a name wins.
+    names = {r["name"] for r in own}
+    borrowed = []
+    for name in a.extra:
+        if name in names:
+            continue
+        found = next((r for rs in (RULES, DESERT_RULES, COAST_RULES, SNOW_RULES) for r in rs if r["name"] == name), None)
+        if found is None:
+            raise SystemExit(f"--extra {name}: no such rule")
+        borrowed.append(dict(found, optional=False))
+        names.add(name)
+    rules = [dict(r) for r in own + borrowed
              if (not a.only or r["name"] in a.only.split(","))
              and (not r.get("optional") or r["name"] in a.extra)]
     for option, pairs in (("scale", a.rule_scale), ("density", a.rule_density)):
