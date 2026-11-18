@@ -35,6 +35,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from machine_containers import map_tag_containers, pack_path  # noqa: E402
+from owned_map_cook import verified_owned_cook  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 LAUNCHER = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher")
@@ -72,8 +73,17 @@ def stage(code, m, work, out):
     # The map's cook as the upgrade refreshed it (upgrade_ce_map.py
     # refresh_map_cook: textures imported after the conversion, a gate's),
     # else the hub copy's.
-    fresh = os.path.join(w, f"pakchunk985-MJOLNIRCOOK-{code}_P")
-    copy_pair(fresh if os.path.exists(fresh + ".utoc") else os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
+    # A map with its own cook (`map_mesh_chunk`: Tide's Breath) ships the
+    # verified owned cook, as the install stage installs it.
+    if m.get("map_mesh_chunk"):
+        copy_pair(str(verified_owned_cook(code, m, w)), dst)
+    else:
+        fresh = os.path.join(w, f"pakchunk985-MJOLNIRCOOK-{code}_P")
+        copy_pair(fresh if os.path.exists(fresh + ".utoc") else os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"),
+                  dst)
+    # The bake's native clones of the rocks' materials (`native_rock_materials`).
+    if m.get("native_rock_materials"):
+        copy_pair(os.path.join(w, "bake", f"pakchunk970-MJOLNIRROCK-{code}_P"), dst)
     if m.get("mesh_container"):
         copy_pair(m["mesh_container"], dst)
     else:
@@ -95,6 +105,16 @@ def stage(code, m, work, out):
         os.makedirs(os.path.join(dst, os.path.dirname(rel)), exist_ok=True)
         copy_pair(base, os.path.join(dst, os.path.dirname(rel)), os.path.basename(rel))
     shutil.copyfile(os.path.join(cache, "map", "registration.json"), os.path.join(dst, f"{code}.registration.json"))
+    # The bots' squads as this bake placed them (`map pack` takes
+    # <CODE>.bots.json); a map with no bake of its own (indoor) keeps the hub
+    # copy's. Without it the map would ship with no bots.
+    bots = os.path.join(w, "bake", f"{code}.bots.json")
+    if not os.path.isfile(bots):
+        bots = os.path.join(cache, "map", "bots.json")
+    if os.path.isfile(bots):
+        shutil.copyfile(bots, os.path.join(dst, f"{code}.bots.json"))
+    elif m.get("bots", True):
+        sys.exit(f"{code}: no bots.json in the bake or the hub copy")
 
     level = json.load(open(os.path.join(w, "level.json"), encoding="utf-8"))
     shutil.copyfile(os.path.join(w, "level.json"), os.path.join(dst, f"{code.lower()}.level.json"))
