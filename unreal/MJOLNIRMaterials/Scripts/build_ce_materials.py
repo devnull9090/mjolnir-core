@@ -2591,18 +2591,22 @@ Emissive = 0.0;
 // starts, tile cm, strength): a beach shader CE ran up a wall (Death
 // Island's) drew sand on it, black in the shade. The cliffs' rock
 // (M_CE_CliffPBR's grain), from three sides, with their fill light.
-// By the face's own slope where it is steeper than the vertex normal: a
-// mesh's ground carries normals smoothed with the floor below, and a bank
-// near upright read as a gentle slope, its snow drawn from above in long
-// streaks (Containment, 2026-11-17).
+// A face near upright is rock whatever its vertex normal says: a mesh's
+// ground carries normals smoothed with the floor below, and such a bank
+// read as a gentle slope, its snow drawn from above in long streaks
+// (Containment, 2026-11-17). Only near upright: the face's slope is one
+// value a triangle, and on every slope it turned each triangle of a coarse
+// snowfield to rock or snow on its own, a field of facets.
 float3 nv = normalize(Nw);
 float3 nf = normalize(cross(ddy(W), ddx(W)));
 nf = dot(nf, nv) < 0.0 ? -nf : nf;
-float3 nw = normalize(lerp(nv, nf, saturate((nv.z - nf.z) * 4.0)));
-if (Steep.w > 0.0 && nw.z < Steep.y)
+float upright = smoothstep(0.5, 0.25, nf.z);
+// Projected by the face where it is steeper (the rock's three sides).
+float3 nw = normalize(lerp(nv, nf, saturate((nv.z - nf.z) * 4.0) * upright));
+if (Steep.w > 0.0 && (nv.z < Steep.y || upright > 0.0))
 {
     float rag = LP_NOISE(float2(W.x + W.y, W.z) / 90.0);
-    float st = smoothstep(Steep.y, Steep.x, nw.z + (rag - 0.5) * 0.25) * Steep.w;
+    float st = max(smoothstep(Steep.y, Steep.x, nv.z + (rag - 0.5) * 0.25), upright) * Steep.w;
     float3 sg = float3(nw.x < 0 ? -1.0 : 1.0, nw.y < 0 ? -1.0 : 1.0, nw.z < 0 ? -1.0 : 1.0);
     float3 bw = pow(abs(nw), 4.0);
     bw /= max(bw.x + bw.y + bw.z, 1e-4);
@@ -2636,8 +2640,8 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
 // Flat ground takes a share of it too (Slope.w): a cliff's shadow on the
 // sand was lit by the sky alone, CE's deep blue, and drew a navy band.
 {
-    float lean = Steep.w > 0.0 ? max(saturate((0.95 - nw.z) * 2.0), 0.0) : 0.0;
-    float share = max(lean * (0.75 - 0.35 * nw.z), Slope.w);
+    float lean = Steep.w > 0.0 ? max(saturate((0.95 - nv.z) * 2.0), 0.0) : 0.0;
+    float share = max(lean * (0.75 - 0.35 * nv.z), Slope.w);
     Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * saturate(ao) * share;
 }
 
