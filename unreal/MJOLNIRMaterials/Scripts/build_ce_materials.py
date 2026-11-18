@@ -2591,11 +2591,22 @@ Emissive = 0.0;
 // starts, tile cm, strength): a beach shader CE ran up a wall (Death
 // Island's) drew sand on it, black in the shade. The cliffs' rock
 // (M_CE_CliffPBR's grain), from three sides, with their fill light.
-float3 nw = normalize(Nw);
-if (Steep.w > 0.0 && nw.z < Steep.y)
+// A face near upright is rock whatever its vertex normal says: a mesh's
+// ground carries normals smoothed with the floor below, and such a bank
+// read as a gentle slope, its snow drawn from above in long streaks
+// (Containment, 2026-11-17). Only near upright: the face's slope is one
+// value a triangle, and on every slope it turned each triangle of a coarse
+// snowfield to rock or snow on its own, a field of facets.
+float3 nv = normalize(Nw);
+float3 nf = normalize(cross(ddy(W), ddx(W)));
+nf = dot(nf, nv) < 0.0 ? -nf : nf;
+float upright = smoothstep(0.5, 0.25, nf.z);
+// Projected by the face where it is steeper (the rock's three sides).
+float3 nw = normalize(lerp(nv, nf, saturate((nv.z - nf.z) * 4.0) * upright));
+if (Steep.w > 0.0 && (nv.z < Steep.y || upright > 0.0))
 {
     float rag = LP_NOISE(float2(W.x + W.y, W.z) / 90.0);
-    float st = smoothstep(Steep.y, Steep.x, nw.z + (rag - 0.5) * 0.25) * Steep.w;
+    float st = max(smoothstep(Steep.y, Steep.x, nv.z + (rag - 0.5) * 0.25), upright) * Steep.w;
     float3 sg = float3(nw.x < 0 ? -1.0 : 1.0, nw.y < 0 ? -1.0 : 1.0, nw.z < 0 ? -1.0 : 1.0);
     float3 bw = pow(abs(nw), 4.0);
     bw /= max(bw.x + bw.y + bw.z, 1e-4);
@@ -2605,9 +2616,11 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
     float3 tx = float3(Texture2DSample(RockN, RockNSampler, ux).rg * 2.0 - 1.0, 1.0);
     float3 ty = float3(Texture2DSample(RockN, RockNSampler, uy).rg * 2.0 - 1.0, 1.0);
     float3 tz = float3(Texture2DSample(RockN, RockNSampler, uz).rg * 2.0 - 1.0, 1.0);
-    tx = float3(tx.xy + nw.zy, abs(nw.x) * tx.z);
-    ty = float3(ty.xy + nw.xz, abs(nw.y) * ty.z);
-    tz = float3(tz.xy + nw.xy, abs(nw.z) * tz.z);
+    // Shaded about the smooth normal: the face's own (nf) drew each
+    // triangle of a bank as its own flat facet.
+    tx = float3(tx.xy + nv.zy, abs(nv.x) * tx.z);
+    ty = float3(ty.xy + nv.xz, abs(nv.y) * ty.z);
+    tz = float3(tz.xy + nv.xy, abs(nv.z) * tz.z);
     tx.z *= sg.x; ty.z *= sg.y; tz.z *= sg.z;
     float3 rN = normalize(tx.zyx * bw.x + ty.xzy * bw.y + tz.xyz * bw.z);
     // World to the surface's tangent space (TangentToWorld is orthonormal).
@@ -2627,8 +2640,8 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
 // Flat ground takes a share of it too (Slope.w): a cliff's shadow on the
 // sand was lit by the sky alone, CE's deep blue, and drew a navy band.
 {
-    float lean = Steep.w > 0.0 ? max(saturate((0.95 - nw.z) * 2.0), 0.0) : 0.0;
-    float share = max(lean * (0.75 - 0.35 * nw.z), Slope.w);
+    float lean = Steep.w > 0.0 ? max(saturate((0.95 - nv.z) * 2.0), 0.0) : 0.0;
+    float share = max(lean * (0.75 - 0.35 * nv.z), Slope.w);
     Emissive = max(albedo, 0.0) * Fill.rgb * Fill.a * saturate(ao) * share;
 }
 

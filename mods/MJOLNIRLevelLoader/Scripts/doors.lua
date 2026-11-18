@@ -129,6 +129,19 @@ function Doors.new(d)
                 local part = leaf and m.byMesh[leaf]
                 if part and type(part.materials) == "table" then
                     d.applyMaterials(comp, part.materials, world, part.id)
+                    -- Its own bounds, not the skeleton's: the elevator
+                    -- Blueprint the machines are cloned from culls its mesh
+                    -- by its parent's, and a Halo 2 part stands far from its
+                    -- machine's origin (Containment's gate door 28 m), so the
+                    -- door blinked out whenever that distant box left the
+                    -- view or went behind a wall (2026-11-17). The cooked
+                    -- clones of every map would need rewriting to fix it at
+                    -- the source; this runs once a part. The visibility
+                    -- round trip makes the renderer take the new bounds.
+                    comp.bUseAttachParentBound = false
+                    local shown = comp:IsVisible()
+                    comp:SetVisibility(not shown, false)
+                    comp:SetVisibility(shown, false)
                     n = n + 1
                     m.part = m.part or comp
                 end

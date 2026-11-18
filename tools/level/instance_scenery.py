@@ -28,11 +28,22 @@ import math
 import os
 import sys
 
+from scenery_swap import RULES
+
 WU_M = 3.048
 # An instance whose origin is further up its bounds than this share of its
 # height does not stand on it (Coagulation's cedars: 0.1; Zanzibar's cliff
 # trees: 0.5).
 ROOTED = 0.25
+# Kinds the swap seats by the model's bounds (scenery_swap.swap: a rock's
+# base and centre from its box), so any origin will do: Containment's
+# boulders have theirs at their middle.
+SEATED_BY_BOUNDS = ("rock", "bigrock")
+
+
+def seated_by_bounds(rule):
+    kind = next((k for token, (k, _) in RULES if token in rule.lower()), None)
+    return kind in SEATED_BY_BOUNDS
 
 
 def main():
@@ -62,14 +73,14 @@ def main():
         rule = next((r for token, r in rules if any(token.lower() in s for s in shaders)), None)
         if not rule:
             continue
-        # Only what stands on its origin: the swap plants its stand-in
+        # A tree or plant only where it stands on its origin: the swap plants its stand-in
         # upright there. Zanzibar's cliff trees lean 35 degrees out of the
         # rock face, their origin half way up their bounds in the air beside
         # it, and a 13 m tree planted there hung in the sky (2026-11-12).
         # By the bounds, not the frame: Coagulation's cedars are modelled
         # along their `left` axis, so a frame's `up` says nothing.
         height = inst["max"][2] - inst["min"][2]
-        if height > 0 and (inst["pos"][2] - inst["min"][2]) / height > ROOTED:
+        if not seated_by_bounds(rule) and height > 0 and (inst["pos"][2] - inst["min"][2]) / height > ROOTED:
             leaning += 1
             continue
         pos, lo, hi = inst["pos"], inst["min"], inst["max"]
