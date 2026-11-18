@@ -259,9 +259,14 @@ function Mixer.new(d)
         return false
     end
 
+    local input -- below: UI input while the panel is open
+
     --- Called as the level changes: the new level's sounds and levels.
     function self.reset(map)
-        if self.open then self.close() end
+        -- The old world's panel is gone with it: a handle kept across the
+        -- travel may point at freed memory, so it is dropped unread.
+        if self.open then input(false) end
+        self.open, self.w, self.rows = false, nil, {}
         save()
         self.map, self.items, self.page, self.factors = map, {}, 1, {}
         load(map)
@@ -319,8 +324,10 @@ function Mixer.new(d)
         self.w = w
         self.rows = {}
         for i = 0, Mixer.ROWS - 1 do
+            local slider = w["Row" .. i .. "Slider"]
             self.rows[i + 1] = { box = w["Row" .. i], name = w["Row" .. i .. "Name"], kind = w["Row" .. i .. "Kind"],
-                slider = w["Row" .. i .. "Slider"], value = w["Row" .. i .. "Value"], dot = w["Row" .. i .. "Heard"] }
+                slider = slider, getValue = slider.GetValue, value = w["Row" .. i .. "Value"],
+                dot = w["Row" .. i .. "Heard"] }
         end
         return w
     end
@@ -363,7 +370,7 @@ function Mixer.new(d)
         self.heardAt = -100
     end
 
-    local function input(on)
+    input = function(on)
         local pc = d.getPlayerController()
         if not pc then return end
         pcall(function()
@@ -430,7 +437,7 @@ function Mixer.new(d)
         for _, row in ipairs(self.rows) do
             local it = row.item
             if it then
-                local ok, v = pcall(row.slider.GetValue, row.slider)
+                local ok, v = pcall(row.getValue, row.slider)
                 if ok and type(v) == "number" and math.abs(v - row.v) > 0.004 then
                     row.v = v
                     local db = fromSlider(v)

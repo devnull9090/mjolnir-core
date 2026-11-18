@@ -4,7 +4,7 @@
 -- memory (2026-11-01: the second match crashed reading Feed.Watermark).
 -- A rooted, uninitialized widget retains its class without a world, player,
 -- Slate tree or viewport. Never root the displayed widget or its controller.
--- This self-contained module is also shipped in MJOLNIRLobby, MJOLNIRForge and MJOLNIRLevelLoader.
+-- This self-contained module is also shipped in MJOLNIRLobby/MJOLNIRForge.
 local Lifetime = {}
 
 function Lifetime.new(names, log)

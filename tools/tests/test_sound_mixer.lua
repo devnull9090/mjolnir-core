@@ -27,7 +27,7 @@ eq(Mixer.nameOf("sound\\ambience\\sound_scenery\\zanzibar_distant_battle\\detail
 eq(Mixer.nameOf("/Game/MJOLNIR/Maps/ZAN/Sounds/sound_gate.sound_gate"), "GATE")
 
 -- A level's rows and factors, with no game: one row a tag, ALL SOUNDS first.
-local Current = { worldName = "/Game/Levels/Halo1/Solo/TST/TST", level = {
+local Current = { worldName = "/Game/Tests/MJOLNIR_MIXER_TEST/MJOLNIR_MIXER_TEST", level = {
     canvas = { origin = { 0, 0, 0 } },
     environment = { sounds = {
         background = { { wave = "/w/a.a", source = "s\\bed\\bed", set = 0 } },
