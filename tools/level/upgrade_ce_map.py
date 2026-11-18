@@ -299,6 +299,16 @@ def physics_prop_objects(m):
 
 # cm: a Flux coast's haze reaches past its far ocean (stage_assemble).
 COAST_HAZE_CUTOFF = 6000000
+# A Halo 2 planar fog's fill over a remaster (stage_assemble): from the eye,
+# opaque, thin at the plane and thickening fast under it, so the rocks'
+# lower ends fade out over tens of metres as Halo 2's do (Ascension, tuned
+# live 2026-11-17).
+# Cut off where the CE haze is (the map's reach), short of the sky mesh.
+H2_FILL_UNDER_PBR = {"density": 0.01, "falloff": 4.0, "start": 0.0, "max_opacity": 1.0}
+# cm the fill sits under the plane: at the plane it hid the rocks up to
+# their tops; 30 m down they stand out of the cloud sheet and still end in
+# it (Ascension, 2026-11-17).
+H2_FILL_BELOW = 3000.0
 
 BOTS = os.path.join(REPO, "defs", "level", "bots.json")
 
@@ -2137,6 +2147,17 @@ def stage_assemble(code, m, p):
         # glow towards the sun: MJOLNIRLevelLoader environment.haze).
         if haze and m.get("haze_look"):
             haze.update(m["haze_look"])
+        # A Halo 2 planar fog's fill (gen_ce_level.h2_fog_fill: a height
+        # fog at the plane, `height`) stays the fog, with the CE haze as its
+        # second layer: Unreal draws one height fog, and the haze had taken
+        # the fill's place, so Ascension's rocks showed their undersides
+        # below the cloud plane (2026-11-17). From the eye, not 1.5 km out:
+        # the remaster's rock wears Unreal's materials, which have no planar
+        # fog of their own as the CE masters do.
+        fill = (level.get("environment") or {}).get("haze")
+        if haze and isinstance(fill, dict) and "height" in fill:
+            haze = dict(fill, **H2_FILL_UNDER_PBR, cutoff=haze["cutoff"], height=fill["height"] - H2_FILL_BELOW,
+                        second={"density": haze["density"], "falloff": haze["falloff"], "height": 0.0})
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
     # `haze` as an object: the height fog itself (MJOLNIRLevelLoader

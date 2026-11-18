@@ -1859,6 +1859,17 @@ local function spawnEnvironment(world)
             c:SetStartDistance(haze.start or 2500)
             c:SetFogMaxOpacity(0.0)
             c:SetFogInscatteringColor({ R = haze.color[1] * k, G = haze.color[2] * k, B = haze.color[3] * k, A = 1.0 })
+            -- `haze.second` {density, falloff, height cm}: the fog's second
+            -- layer (Unreal draws one height fog): a Halo 2 planar fog's
+            -- fill keeps the CE haze this way (upgrade_ce_map.py).
+            if type(haze.second) == "table" then
+                local s2 = haze.second
+                pcall(function()
+                    c:SetSecondFogDensity(s2.density or 0.0)
+                    c:SetSecondFogHeightFalloff(s2.falloff or 0.02)
+                    c:SetSecondFogHeightOffset((s2.height or 0.0) - (haze.height or 0.0))
+                end)
+            end
             -- `haze.sun` {r, g, b, exponent, start cm}: the haze glows
             -- towards the sun (directional inscattering).
             if type(haze.sun) == "table" then
