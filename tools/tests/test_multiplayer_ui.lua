@@ -1054,7 +1054,7 @@ local function labels(list)
     for _, i in ipairs(list) do out[#out + 1] = i.label end
     return table.concat(out, ",")
 end
-eq(labels(Commands.suggest("/", false)), "/help,/players,/bench,/suicide")
+eq(labels(Commands.suggest("/", false)), "/help,/players,/bench,/sounds,/suicide")
 eq(labels(Commands.suggest("/k", true)), "/kick <player>")
 eq(Commands.suggest("/k", true)[1].complete, "/kick ")
 eq(labels(Commands.suggest("/k", false)), "") -- host commands are not offered to clients

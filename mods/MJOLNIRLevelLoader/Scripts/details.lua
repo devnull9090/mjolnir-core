@@ -38,7 +38,7 @@ function Details.new(d)
             end
             if #variants > 0 then
                 waves = waves + #variants
-                local e = { waves = variants, gain = tonumber(s.gain) or 1.0, set = s.set,
+                local e = { waves = variants, gain = tonumber(s.gain) or 1.0, set = s.set, key = s.source or variants[1],
                     lo = (s.period and tonumber(s.period[1])) or 10.0, hi = (s.period and tonumber(s.period[2])) or 30.0 }
                 if type(s.pos) == "table" then
                     e.at = { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] }
@@ -69,6 +69,7 @@ function Details.new(d)
             return
         end
         local volume = e.gain * (d.gameVolume and d.gameVolume("ambient") or 1.0)
+            * (d.Current.mix and d.Current.mix.factor(e.key) or 1.0)
         if volume <= 0 then return end
         pcall(function()
             if e.at then

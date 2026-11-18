@@ -252,7 +252,9 @@ local Current = {
     -- one mesh each.
     claimed = {},
     -- Level sounds that follow the game's volume sliders (spawnSounds):
-    -- { comp, gain, category, volume }, kept in step by syncVolumes.
+    -- { comp, gain, category, volume, key, mix }, kept in step by
+    -- syncVolumes; `key` is the sound's tag, its level in the player's own
+    -- mix (mixer.lua).
     volumed = {},
     -- CE material instances told the sun's illuminance (runtimeMaterial),
     -- for `mjolnir_light_scale`.
@@ -2016,10 +2018,11 @@ local function syncVolumes()
         end
         volumes[v.category] = volumes[v.category] or gameVolume(v.category)
         local volume = volumes[v.category]
-        if volume ~= v.volume and v.comp:IsValid() then
-            v.comp:SetVolumeMultiplier(v.gain * volume)
-            v.volume = volume
-            changed[v.category] = (changed[v.category] or 0) + 1
+        local mix = Current.mix and Current.mix.factor(v.key) or 1.0
+        if (volume ~= v.volume or mix ~= v.mix) and v.comp:IsValid() then
+            v.comp:SetVolumeMultiplier(v.gain * volume * mix)
+            if volume ~= v.volume then changed[v.category] = (changed[v.category] or 0) + 1 end
+            v.volume, v.mix = volume, mix
         end
     end
     for category, n in pairs(changed) do
@@ -2068,14 +2071,14 @@ local function spawnSounds(world)
     end
 
     -- Spawned at the sliders' volume (gameVolume), kept there by syncVolumes.
-    local function keep(key, comp, fade, gain, category, volume, set)
+    local function keep(key, comp, fade, gain, category, volume, set, tag)
         if not (comp and comp:IsValid()) then
             failed = failed + 1
             return
         end
         Current.actors[key] = comp
         Current.volumed[#Current.volumed + 1] = { comp = comp, gain = gain, category = category, volume = volume,
-                                                  set = set, heard = set and false or nil }
+                                                  set = set, heard = set and false or nil, key = tag, mix = 1.0 }
         -- A zoned background starts silent; syncVolumes fades in the set
         -- of the zone the camera is in.
         if set then pcall(function() comp:AdjustVolume(0.0, 0.0, 0) end) end
@@ -2089,6 +2092,8 @@ local function spawnSounds(world)
             -- A CE music loop (class music) follows the music slider.
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            local tag = s.source or s.wave
+            local mix = Current.mix and Current.mix.factor(tag) or 1.0
             local set = type(sounds.zones) == "table" and s.set or nil
             -- A loop faded to nothing has to keep playing to be faded back
             -- (PlayWhenSilent, as the moving emitters below).
@@ -2096,9 +2101,9 @@ local function spawnSounds(world)
             -- `pitch`: Halo 2's pitched loops (the humming lights, 5
             -- semitones down).
             local ok, comp = pcall(function()
-                return gs:SpawnSound2D(world, wave, gain * volume, s.pitch or 1.0, 0.0, nil, false, false)
+                return gs:SpawnSound2D(world, wave, gain * volume * mix, s.pitch or 1.0, 0.0, nil, false, false)
             end)
-            keep("__bg" .. i, ok and comp, not set and s.fade_in or nil, gain, category, volume, set)
+            keep("__bg" .. i, ok and comp, not set and s.fade_in or nil, gain, category, volume, set, tag)
         else
             failed = failed + 1
             Log("sound not found: " .. tostring(s.wave))
@@ -2131,12 +2136,14 @@ local function spawnSounds(world)
             end
             local gain, category = s.gain or 1.0, s.category or "ambient"
             local volume = gameVolume(category)
+            local tag = s.source or s.wave
+            local mix = Current.mix and Current.mix.factor(tag) or 1.0
             local ok, comp = pcall(function()
                 return gs:SpawnSoundAtLocation(world, wave,
                     { X = origin[1] + s.pos[1], Y = origin[2] + s.pos[2], Z = origin[3] + s.pos[3] },
-                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume, s.pitch or 1.0, 0.0, att, limit(s), false)
+                    { Pitch = 0, Yaw = 0, Roll = 0 }, gain * volume * mix, s.pitch or 1.0, 0.0, att, limit(s), false)
             end)
-            keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume)
+            keep("__snd" .. i, ok and comp, s.fade_in, gain, category, volume, nil, tag)
             -- On a machine's moving part (Infinity's beams): moved with it
             -- by moveSounds, as the part's material moves it.
             local m = s.motion
@@ -6177,6 +6184,17 @@ local function updatePulses()
 end
 
 local function watch()
+    -- The player's own level for each of the level's sounds (mixer.lua):
+    -- spawnSounds, syncVolumes and the one-shot modules multiply by it.
+    Current.mix = dofile(MOD_DIR .. "\\Scripts\\mixer.lua").new({
+        Log = Log, Current = Current, Json = Json, getWorld = getWorld, getPlayerController = getPlayerController,
+        getCamera = function()
+            local ok, cam = pcall(function() return getPlayerController().PlayerCameraManager:GetCameraLocation() end)
+            return ok and cam or nil
+        end,
+        applyMix = syncVolumes,
+        retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({ "WBP_MJOLNIRSoundMixer" }, Log),
+    })
     every(1500, "tick", tick)
     -- A 1 s cosine needs ~25 updates a second to read as smooth.
     every(40, "pulses", updatePulses)
@@ -6552,6 +6570,9 @@ local function watch()
         if dd then return dd.tick(os.clock()) end
         return 2000
     end, true)
+    -- The player's own sound levels (mixer.lua): reads its sliders only
+    -- while its panel is open.
+    every(1000, "sound mix", function() return Current.mix.tick(os.clock()) end, true)
 end
 
 --------------------------------------------------------------------------------
@@ -7238,6 +7259,12 @@ local function initialize()
     hookRelay()
     RegisterConsoleCommandHandler("mjolnir_level_status", function()
         status()
+        return true
+    end)
+    -- `/sounds` in chat (MJOLNIRHud) runs this: the sound mixer, opened a
+    -- moment later so the chat box has closed and handed input back first.
+    RegisterConsoleCommandHandler("mjolnir_sounds", function()
+        ExecuteInGameThreadWithDelay(200, function() pcall(Current.mix.toggle) end)
         return true
     end)
     RegisterConsoleCommandHandler("mjolnir_level_reload", function()

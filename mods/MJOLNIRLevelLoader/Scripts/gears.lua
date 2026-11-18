@@ -95,7 +95,8 @@ function Gears.new(d)
             a.AttenuationShapeExtents = { X = e.inner, Y = 0, Z = 0 }
             a.FalloffDistance = e.falloff
             self.statics:SpawnSoundAtLocation(world, wave, g.loc, { Pitch = 0, Yaw = 0, Roll = 0 },
-                (e.gain or 1.0) * (d.gameVolume and d.gameVolume("ambient") or 1.0), 1.0, 0.0, att, nil, true)
+                (e.gain or 1.0) * (d.gameVolume and d.gameVolume("ambient") or 1.0)
+                * (d.Current.mix and d.Current.mix.factor(e.source or e.wave) or 1.0), 1.0, 0.0, att, nil, true)
         end)
     end
 

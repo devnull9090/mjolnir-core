@@ -1386,7 +1386,7 @@ def add_doors(level, decor, doors_json, sounds_dir, sound_root):
         if not snd.get("files"):
             return None
         return {"paths": [f"{sound_root}/{os.path.splitext(f)[0]}.{os.path.splitext(f)[0]}" for f in snd["files"]],
-                "gain": round(snd.get("gain", 1.0), 3)}
+                "gain": round(snd.get("gain", 1.0), 3), "source": sid}
 
     from prop_lit import prop_lit
     # A part that moves is lit by Unreal where it is, not by the light baked
@@ -1444,7 +1444,7 @@ def machine_sounds(decor, sounds_dir, root):
                 continue
             stem = os.path.splitext(snd["files"][0])[0]
             near, far = snd["min_distance"], snd["max_distance"]
-            out.append({"t": t, "wave": f"{root}/{stem}.{stem}", "gain": round(snd.get("gain", 1.0), 3),
+            out.append({"t": t, "wave": f"{root}/{stem}.{stem}", "gain": round(snd.get("gain", 1.0), 3), "source": path,
                         "inner": round(near * WU_CM, 1), "falloff": round(max(far - near, 0.1) * WU_CM, 1)})
         item["motion"]["events"] = out
 
