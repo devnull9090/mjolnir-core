@@ -146,6 +146,9 @@ MAP_LOOKS = {
         # warm one (both drew the snow tan, 2026-10-13).
         "cliff": {"material": "/Game/Env/Bio/Rock/Glacial/Materials/MIP_Rock_Glacial_Inst.MIP_Rock_Glacial_Inst",
                   "fill": [0.85, 0.92, 1.0, 1.0],
+                  # The snowy stones as they are: the beach rock's warm tint
+                  # drew a steep snow bank tan (Containment, 2026-11-17).
+                  "tint": [1.0, 1.0, 1.0, 1.0],
                   "rock_a": {"d": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
                              "n": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
                              "o": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"},

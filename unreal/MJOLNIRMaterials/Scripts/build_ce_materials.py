@@ -2591,7 +2591,14 @@ Emissive = 0.0;
 // starts, tile cm, strength): a beach shader CE ran up a wall (Death
 // Island's) drew sand on it, black in the shade. The cliffs' rock
 // (M_CE_CliffPBR's grain), from three sides, with their fill light.
-float3 nw = normalize(Nw);
+// By the face's own slope where it is steeper than the vertex normal: a
+// mesh's ground carries normals smoothed with the floor below, and a bank
+// near upright read as a gentle slope, its snow drawn from above in long
+// streaks (Containment, 2026-11-17).
+float3 nv = normalize(Nw);
+float3 nf = normalize(cross(ddy(W), ddx(W)));
+nf = dot(nf, nv) < 0.0 ? -nf : nf;
+float3 nw = normalize(lerp(nv, nf, saturate((nv.z - nf.z) * 4.0)));
 if (Steep.w > 0.0 && nw.z < Steep.y)
 {
     float rag = LP_NOISE(float2(W.x + W.y, W.z) / 90.0);
@@ -2605,9 +2612,11 @@ if (Steep.w > 0.0 && nw.z < Steep.y)
     float3 tx = float3(Texture2DSample(RockN, RockNSampler, ux).rg * 2.0 - 1.0, 1.0);
     float3 ty = float3(Texture2DSample(RockN, RockNSampler, uy).rg * 2.0 - 1.0, 1.0);
     float3 tz = float3(Texture2DSample(RockN, RockNSampler, uz).rg * 2.0 - 1.0, 1.0);
-    tx = float3(tx.xy + nw.zy, abs(nw.x) * tx.z);
-    ty = float3(ty.xy + nw.xz, abs(nw.y) * ty.z);
-    tz = float3(tz.xy + nw.xy, abs(nw.z) * tz.z);
+    // Shaded about the smooth normal: the face's own (nf) drew each
+    // triangle of a bank as its own flat facet.
+    tx = float3(tx.xy + nv.zy, abs(nv.x) * tx.z);
+    ty = float3(ty.xy + nv.xz, abs(nv.y) * ty.z);
+    tz = float3(tz.xy + nv.xy, abs(nv.z) * tz.z);
     tx.z *= sg.x; ty.z *= sg.y; tz.z *= sg.z;
     float3 rN = normalize(tx.zyx * bw.x + ty.xzy * bw.y + tz.xyz * bw.z);
     // World to the surface's tangent space (TangentToWorld is orthonormal).
