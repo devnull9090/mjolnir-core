@@ -21,6 +21,18 @@
 --- shot). When it dies it stays where it fell, burnt (`Charred`), and its
 --- `death_fx` plays: Niagara systems, a scorch decal and Halo 2's own death
 --- sounds (Zanzibar, 2026-11-15).
+--- Whether `actor` belongs to the world named `worldName` (a world's
+--- GetFullName, "World /Game/.../CNT/CNT.CNT"). Right after a map change
+--- FindAllOf still returns the last map's actors, being destroyed but not
+--- yet freed; reading one (its location, its components) crashed the game
+--- in UE4SS going from Zanzibar to Containment (2026-11-18).
+local function inWorld(actor, worldName)
+    local path = type(worldName) == "string" and worldName:match("^%S+%s+(.+)$")
+    if not path then return false end
+    local ok, name = pcall(function() return actor:GetFullName() end)
+    return ok and type(name) == "string" and name:find(path .. ":", 1, true) ~= nil
+end
+
 local Props = {}
 
 --- deps: Log, resolveMesh, findObject, applyMaterials, hideAllBut, getWorld,
@@ -111,7 +123,7 @@ function Props.new(d)
 
     --- Dress a crate once it stands where a prop starts; until then it waits.
     local function tryDress(world, actor)
-        if not actor:IsValid() then return false end
+        if not actor:IsValid() or not inWorld(actor, d.Current.worldName) then return false end
         local key = actor:GetFullName()
         local hidden = false
         pcall(function() hidden = actor.bHidden end)

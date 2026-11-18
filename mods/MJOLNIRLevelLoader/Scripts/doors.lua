@@ -18,6 +18,19 @@
 --- opening. The simulation plays a device's sounds through Wwise events our
 --- converted sounds do not have, so one machine is watched, at 4 Hz while
 --- the door stands and 10 Hz while it moves: two bound calls a look.
+--- Whether `actor` belongs to the world named `worldName` (a world's
+--- GetFullName, "World /Game/.../CNT/CNT.CNT"). Right after a map change
+--- FindAllOf still returns the last map's actors, being destroyed but not
+--- yet freed; reading one (its location, its components) crashed the game
+--- in UE4SS going from Zanzibar to Containment (2026-11-18), whose gate
+--- panels are found the moment the map is dressed.
+local function inWorld(actor, worldName)
+    local path = type(worldName) == "string" and worldName:match("^%S+%s+(.+)$")
+    if not path then return false end
+    local ok, name = pcall(function() return actor:GetFullName() end)
+    return ok and type(name) == "string" and name:find(path .. ":", 1, true) ~= nil
+end
+
 local Doors = {}
 
 Doors.SCAN_S = 2.0
@@ -88,7 +101,10 @@ function Doors.new(d)
             self.sceneClass = self.sceneClass or d.findObject("/Script/Engine.SceneComponent")
             scans[Doors.CONTROL_CLASS] = scans[Doors.CONTROL_CLASS] or FindAllOf(Doors.CONTROL_CLASS) or {}
             for _, a in ipairs(scans[Doors.CONTROL_CLASS]) do
-                local ok, l = pcall(function() return a:K2_GetActorLocation() end)
+                local ok, l = false, nil
+                if inWorld(a, d.Current.worldName) then
+                    ok, l = pcall(function() return a:K2_GetActorLocation() end)
+                end
                 if ok and l and math.abs(l.X - c[1]) + math.abs(l.Y - c[2]) + math.abs(l.Z - c[3]) < Doors.NEAR_CM then
                     door.panel = {}
                     pcall(function()
@@ -110,23 +126,33 @@ function Doors.new(d)
         if scans.byClass then return scans.byClass end
         local byClass = {}
         for _, a in ipairs(FindAllOf(Doors.ACTOR_CLASS) or {}) do
-            local ok, name = pcall(function() return a:GetClass():GetFName():ToString() end)
-            if ok and name then byClass[name] = a end
+            if inWorld(a, d.Current.worldName) then
+                local ok, name = pcall(function() return a:GetClass():GetFName():ToString() end)
+                if ok and name then byClass[name] = a end
+            end
         end
         scans.byClass = byClass
         return byClass
     end
 
     --- Dress a machine's actor: each mesh component its part's materials.
-    --- Returns how many it dressed.
+    --- Returns how many it dressed, and whether a component's mesh had not
+    --- streamed in yet (the machine is then looked at again).
     local function dress(m, actor)
         self.meshClass = self.meshClass or d.findObject("/Script/Engine.StaticMeshComponent")
         local world = d.getWorld()
-        local n = 0
+        local n, waiting = 0, false
         pcall(function()
             for _, c in ipairs(actor:K2_GetComponentsByClass(self.meshClass)) do
                 local comp = c:get()
-                local leaf = comp.StaticMesh and comp.StaticMesh:GetFName():ToString()
+                -- Right after a map change a part's mesh may not have
+                -- streamed in: StaticMesh is then a null object, and reading
+                -- its name crashed the game (Zanzibar, then Containment,
+                -- 2026-11-18).
+                local mesh = comp.StaticMesh
+                local ready = mesh and mesh:IsValid()
+                if not ready then waiting = true end
+                local leaf = ready and mesh:GetFName():ToString()
                 local part = leaf and m.byMesh[leaf]
                 if part and type(part.materials) == "table" then
                     d.applyMaterials(comp, part.materials, world, part.id)
@@ -148,7 +174,7 @@ function Doors.new(d)
                 end
             end
         end)
-        return n
+        return n, waiting
     end
 
     --- Find and dress each machine's actor, once.
@@ -157,7 +183,7 @@ function Doors.new(d)
         door.seek, door.tries = now, door.tries + 1
         hide_control(door, scans)
         local byClass = actorsByClass(scans)
-        local found, meshes = 0, 0
+        local found, meshes, dressed = 0, 0, 0
         for _, m in ipairs(door.machines) do
             if not (m.actor and m.actor:IsValid()) then
                 m.actor, m.part, m.dressed = byClass[m.spec.class], nil, false
@@ -166,22 +192,25 @@ function Doors.new(d)
             if a and a:IsValid() then
                 found = found + 1
                 if not m.dressed then
-                    m.meshes, m.dressed = dress(m, a), true
+                    local waiting
+                    m.meshes, waiting = dress(m, a)
+                    m.dressed = not waiting
                     m.at = a.K2_GetActorLocation
                     m.partAt = m.part and m.part.K2_GetComponentLocation
                 end
                 meshes = meshes + (m.meshes or 0)
+                if m.dressed then dressed = dressed + 1 end
             end
         end
-        if found ~= door.logged_found then
-            door.logged_found = found
+        if found ~= door.logged_found or meshes ~= door.logged_meshes then
+            door.logged_found, door.logged_meshes = found, meshes
             d.Log(string.format("door: %d of %d machine actor(s), %d part mesh(es) dressed", found,
                 #door.machines, meshes))
         end
         -- Done once every actor is dressed and the control's panel found:
         -- each scan of the Blam actors is ~25 ms.
         local panel = not door.spec.sim_control or door.panel ~= nil
-        if (found >= #door.machines and panel) or door.tries >= Doors.SCAN_TRIES then
+        if (dressed >= #door.machines and panel) or door.tries >= Doors.SCAN_TRIES then
             door.done = true
             if found < #door.machines then
                 d.Log("door: gave up on " .. (#door.machines - found) .. " machine actor(s)")

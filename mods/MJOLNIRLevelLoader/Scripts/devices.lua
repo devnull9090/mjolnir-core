@@ -20,6 +20,18 @@
 -- Plain helpers (shifted, near, shows) run under stock Lua in
 -- tools/tests/test_devices.lua; nothing touches UE4SS before init.
 
+--- Whether `actor` belongs to the world named `worldName` (a world's
+--- GetFullName, "World /Game/.../CNT/CNT.CNT"). Right after a map change
+--- FindAllOf still returns the last map's actors, being destroyed but not
+--- yet freed; reading one (its location, its components) crashed the game
+--- in UE4SS going from Zanzibar to Containment (2026-11-18).
+local function inWorld(actor, worldName)
+    local path = type(worldName) == "string" and worldName:match("^%S+%s+(.+)$")
+    if not path then return false end
+    local ok, name = pcall(function() return actor:GetFullName() end)
+    return ok and type(name) == "string" and name:find(path .. ":", 1, true) ~= nil
+end
+
 local Devices = {}
 
 --- How far an actor can stand from its placement and still be that device.
@@ -137,7 +149,10 @@ function Devices.tick()
             -- not yet taken is this device's.
             local best, distance
             for _, actor in ipairs(scans[device.class]) do
-                local ok, at = pcall(function() return actor:K2_GetActorLocation() end)
+                local ok, at = false, nil
+                if inWorld(actor, env.Current.worldName) then
+                    ok, at = pcall(function() return actor:K2_GetActorLocation() end)
+                end
                 if ok and not taken[actor:GetAddress()] and Devices.near(at, want) then
                     local d = Devices.distance(at, want)
                     if not best or d < distance then best, distance = actor, d end
