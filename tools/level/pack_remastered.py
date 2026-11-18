@@ -125,8 +125,18 @@ def stage(code, m, work, out):
     if os.path.isdir(decals) and os.listdir(decals):
         shutil.copytree(decals, os.path.join(dst, "decals"))
     # A river's baked water (level.flux.state), beside the level file.
-    if (level.get("flux") or {}).get("state"):
-        shutil.copytree(os.path.join(w, "flux_state"), os.path.join(dst, "flux_state"))
+    # Only the files the level names, and state.json: a work folder keeps
+    # other water bakes beside them (Battle Creek's height_wet and
+    # velocity_depth_foam), which the hub refuses in a content release.
+    state = (level.get("flux") or {}).get("state")
+    if state:
+        os.makedirs(os.path.join(dst, "flux_state"), exist_ok=True)
+        wanted = {v for v in state.values() if isinstance(v, str) and v.startswith("flux_state/")}
+        for rel in sorted(wanted | {"flux_state/state.json"}):
+            src = os.path.join(w, rel)
+            if not os.path.isfile(src):
+                sys.exit(f"{code}: the level names {rel}, which the work folder lacks")
+            shutil.copyfile(src, os.path.join(dst, rel))
     return inst, dst
 
 
