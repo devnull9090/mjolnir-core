@@ -67,6 +67,7 @@ function Doors.new(d)
         local statics = self.statics
         local wave = d.resolveMesh(group.paths[math.random(#group.paths)])
         local volume = (tonumber(group.gain) or 1.0) * (d.gameVolume and d.gameVolume("ambient") or 1.0)
+            * (d.Current.mix and d.Current.mix.factor(group.source or group.paths[1]) or 1.0)
         if not (world and statics and wave) or volume <= 0 then return false end
         return (pcall(function()
             statics:SpawnSoundAtLocation(world, wave, { X = at[1], Y = at[2], Z = at[3] },

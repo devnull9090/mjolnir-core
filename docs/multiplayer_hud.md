@@ -37,6 +37,7 @@ again for the next match.
 | `/help` | everyone | the list, here |
 | `/players` | everyone | who is in the match |
 | `/bench` | everyone | time this map with and without its foliage (about a minute, camera held) and send it to the hub for the MJOLNIR team ([performance.md](performance.md)); needs the launcher signed in; runs on the player's own machine |
+| `/sounds` (`/mixer`) | everyone | open the sound mixer over the match: a slider for each of the map's sounds, kept for that map on the player's own PC ([sound_mixer.md](sound_mixer.md)); runs on the player's own machine |
 | `/suicide` (`/respawn`) | everyone | kill your player, to respawn when stuck |
 | `/kick <player>` | host | MJOLNIRLobby's kick |
 | `/ban <player>` | host | kick, and keep them out (`bans.json`) |
