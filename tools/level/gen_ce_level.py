@@ -1224,6 +1224,13 @@ def landing_nudge(tris, pos, facing):
 CE_MUSIC_CLASSES = (32, 38)
 
 
+# Halo 2's ambience over Unreal's audio: the game mixes its own sound far
+# louder than its tags' gains (Zanzibar's ocean bed is -19 dB, 0.112), and
+# at those gains through Unreal's audio, outside that mix, nothing was heard
+# (2026-11-18). One lift for every Halo 2 ambient sound keeps their balance.
+H2_AMBIENT_LIFT_DB = 10.0
+
+
 def ambient_sounds(sounds_dir, root, to_ue):
     """The level's ambient sound, for MJOLNIRLevelLoader: the BSP's background
     loops (2D, map-wide) and the sound scenery (3D loops at their CE
@@ -1244,6 +1251,23 @@ def ambient_sounds(sounds_dir, root, to_ue):
         return out
 
     halo2 = manifest.get("source") == "halo2_mcc"
+    lift = 10 ** (H2_AMBIENT_LIFT_DB / 20) if halo2 else 1.0
+
+    def detail_sounds(lsnd, **where):
+        """A looping sound's detail sounds (Halo 2's lsnd: one-shots at
+        random times, each a random one of its sound's variants), for the
+        loader to play: at `pos`, falling off as its emitter does, or with
+        none, around the listener, in its background set."""
+        out = []
+        for d in manifest["loops"].get(lsnd, {}).get("details", []):
+            snd = manifest["sounds"].get(d.get("sound") or "")
+            if not snd or not snd.get("files"):
+                continue
+            out.append({"waves": [wave(f) for f in snd["files"]],
+                        "gain": round(snd.get("gain", 1.0) * lift, 3),
+                        "period": [round(d["period"][0], 2), round(max(d["period"]), 2)],
+                        "source": d["sound"], **where})
+        return out
 
     def category(snd):
         """The loader scales a sound by the game's Master slider and one more:
@@ -1256,7 +1280,7 @@ def ambient_sounds(sounds_dir, root, to_ue):
         and its sound class's, crate::h2::sound; CE's sounds carry none),
         and its pitch when it is not 1 (Halo 2's
         random pitch bounds, as a multiplier)."""
-        out = {"gain": round(track["gain"] * snd.get("gain", 1.0), 3)}
+        out = {"gain": round(track["gain"] * snd.get("gain", 1.0) * lift, 3)}
         if abs(snd.get("pitch", 1.0) - 1.0) > 1e-3:
             out["pitch"] = round(snd["pitch"], 3)
         return out
@@ -1265,8 +1289,9 @@ def ambient_sounds(sounds_dir, root, to_ue):
     # of its loops carries the set it belongs to, and `zones` are the
     # clusters' bounds with their set (the loader fades between sets).
     zoned = manifest.get("background_zones") or []
-    background, emitters = [], []
+    background, emitters, details = [], [], []
     for k, lsnd in enumerate(manifest["background"]):
+        details += detail_sounds(lsnd, **({"set": k} if zoned else {}))
         for track, snd in loops(lsnd):
             background.append({"wave": wave(snd["loop"]), **tuned(track, snd),
                                "fade_in": round(track["fade_in"], 2), "source": lsnd,
@@ -1292,6 +1317,11 @@ def ambient_sounds(sounds_dir, root, to_ue):
         lsnd = manifest["loops"].get(e["sound"], {})
         lo, hi = e.get("distance") or ((lsnd["min_distance"], lsnd["max_distance"]) if "min_distance" in lsnd else
                                        (None, None))
+        # Its details (Zanzibar's shore waves are nothing else), at the
+        # emitter, over its own distance bounds.
+        if lo is not None:
+            details += detail_sounds(e["sound"], pos=to_ue(e["pos"]), inner=round(lo * WU_CM, 1),
+                                     falloff=round(max(hi - lo, 0.1) * WU_CM, 1))
         for track, snd in loops(e["sound"]):
             near = snd["min_distance"] if lo is None else lo
             far = snd["max_distance"] if hi is None else hi
@@ -1313,7 +1343,8 @@ def ambient_sounds(sounds_dir, root, to_ue):
                                      "s0": m["s0"], "s1": m["s1"], "period": m["period"],
                                      "position": m["position"]}
             emitters.append(emitter)
-    return {"background": background, "emitters": emitters, **({"zones": zones} if zones else {})}
+    return {"background": background, "emitters": emitters, **({"details": details} if details else {}),
+            **({"zones": zones} if zones else {})}
 
 
 def add_gears(level, decor, gear_actors):
