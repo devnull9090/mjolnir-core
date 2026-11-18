@@ -36,12 +36,10 @@ function Gears.new(d)
         local out = {}
         for _, spec in ipairs(list) do
             local m = spec.motion or {}
-            -- A gear whose mesh carries cooked materials (no `materials`)
-            -- and makes no sound needs nothing from Lua: not looked for.
-            local quiet = type(m.events) ~= "table" or #m.events == 0
-            local bare = type(spec.materials) ~= "table" or #spec.materials == 0
-            if not (quiet and bare) then out[#out + 1] = { spec = spec, period = tonumber(m.period) or 0, keys = m.keys or {},
-                events = m.events or {}, axis = m.axis or { 0, 0, 1 }, hist = {}, seek = -100, tries = 0 } end
+            -- Every gear is looked for once, a quiet one in cooked materials
+            -- too: its part must cull by its own bounds (setup).
+            out[#out + 1] = { spec = spec, period = tonumber(m.period) or 0, keys = m.keys or {},
+                events = m.events or {}, axis = m.axis or { 0, 0, 1 }, hist = {}, seek = -100, tries = 0 }
         end
         return out
     end
@@ -123,7 +121,22 @@ function Gears.new(d)
                         for _, c in ipairs(a:K2_GetComponentsByClass(self.meshClass)) do
                             local comp = c:get()
                             if comp.StaticMesh and comp.StaticMesh:GetFName():ToString() == leaf then
-                                d.applyMaterials(comp, g.spec.materials, d.getWorld(), g.spec.id)
+                                if type(g.spec.materials) == "table" and #g.spec.materials > 0 then
+                                    d.applyMaterials(comp, g.spec.materials, d.getWorld(), g.spec.id)
+                                end
+                                -- Its own bounds, not the skeleton's: the
+                                -- game's mesh sync spawns the part culled by
+                                -- its parent's, which stand far from a
+                                -- Halo 2 part (Zanzibar's big wheel blinked
+                                -- out as the view turned, 2026-11-18). No
+                                -- cooked field says otherwise (the
+                                -- Blueprint's mesh list has none), so it is
+                                -- set here, once a part; the visibility round
+                                -- trip makes the renderer take the bounds.
+                                comp.bUseAttachParentBound = false
+                                local shown = comp:IsVisible()
+                                comp:SetVisibility(not shown, false)
+                                comp:SetVisibility(shown, false)
                                 g.comp = comp
                             end
                         end

@@ -398,6 +398,7 @@ local function resetState()
     -- which the old state took for dressed (bare grid material).
     Current.doors = nil
     Current.gears = nil
+    Current.details = nil
     Current.dressGen = Current.dressGen + 1
     Current.dressing = false
     Current.dressQueue = nil
@@ -6526,6 +6527,30 @@ local function watch()
         local gg = gears()
         if gg then return gg.tick(os.clock()) end
         return 1500
+    end, true)
+    -- Halo 2's detail sounds (details.lua): one-shots at random times, the
+    -- loop asleep until the next is due.
+    local function details()
+        local env = Current.furnished and Current.level and Current.level.environment
+        if not (type(env) == "table" and type(env.sounds) == "table" and type(env.sounds.details) == "table") then
+            return nil
+        end
+        if not Current.details then
+            Current.details = dofile(MOD_DIR .. "\\Scripts\\details.lua").new({
+                Log = Log, Current = Current, findObject = findObject, resolveMesh = resolveMesh,
+                getWorld = getWorld, gameVolume = gameVolume,
+                getCamera = function()
+                    local ok, cam = pcall(function() return getPlayerController().PlayerCameraManager:GetCameraLocation() end)
+                    return ok and cam or nil
+                end,
+            })
+        end
+        return Current.details
+    end
+    every(500, "detail sounds", function()
+        local dd = details()
+        if dd then return dd.tick(os.clock()) end
+        return 2000
     end, true)
 end
 
