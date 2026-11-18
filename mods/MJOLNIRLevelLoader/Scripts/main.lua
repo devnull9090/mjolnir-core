@@ -4620,10 +4620,12 @@ end
 
 --- Spawn the tessellated cliffs (Land.cliffs, cliff.tess): the mesh at the
 --- origin, its sections in `mids`, then the terrain's own cliff slots
---- hidden. Out of Lumen's bounce and casting no shadow, as the terrain
---- mesh (its shadow proxy still casts the cliffs' shadows): the copy's
---- Lumen cards bounced its fill over the whole scene (2026-10-13).
-function Land.tessCliffs(world, tess, mids, terrain, hidden)
+--- hidden. Casting no shadow, as the terrain mesh (its shadow proxy still
+--- casts the cliffs' shadows). Out of Lumen's bounce unless `lit`: in
+--- M_CE_CliffPBR the copy's Lumen cards bounced its fill over the whole
+--- scene (2026-10-13); in the shipped rock there is no fill, and out of
+--- Lumen a canyon's shaded walls drew black (Containment, 2026-11-17).
+function Land.tessCliffs(world, tess, mids, terrain, hidden, lit)
     local mesh = resolveMesh(tess.mesh)
     if not mesh then error("tessellated cliff mesh not found: " .. tostring(tess.mesh)) end
     local key = "__cliff_tess"
@@ -4639,7 +4641,7 @@ function Land.tessCliffs(world, tess, mids, terrain, hidden)
     c:SetStaticMesh(mesh)
     c:SetCollisionEnabled(COLLISION_NONE)
     c:SetCastShadow(false)
-    c:SetAffectDynamicIndirectLighting(false)
+    c:SetAffectDynamicIndirectLighting(lit == true)
     for k, m in ipairs(mids) do c:SetMaterial(k - 1, m) end
     for _, slot in ipairs(tess.slots) do terrain:SetMaterial(slot, hidden) end
 end
@@ -4805,8 +4807,8 @@ function Land.cliffs(world, spec)
         if item and item:IsValid() then
             local mids = {}
             for k = 1, #(tess.slots or {}) do mids[k] = shipped end
-            local ok, err = pcall(Land.tessCliffs, world, tess, mids, item.StaticMeshComponent, hidden)
-            Log("landscape: " .. (ok and string.format("cliffs subdivided (%d section(s)) in the shipped rock", #mids)
+            local ok, err = pcall(Land.tessCliffs, world, tess, mids, item.StaticMeshComponent, hidden, true)
+            Log("landscape: " .. (ok and string.format("cliffs subdivided (%d section(s)) in the shipped rock, in Lumen's scene", #mids)
                 or tostring(err)))
         end
         -- The cladding rocks keep their meshes' own material, which has no
