@@ -412,6 +412,11 @@ def swap_rule(entry, staging, snow=False):
     return next((r for k, r in rules if any(k.replace(" ", "_") in sh for sh in shaders)), None)
 
 
+# cm a Halo 2 instance tree's stand-in sinks below the instance's lowest
+# point, so its root flare meets the ground.
+INSTANCE_SINK = 20.0
+
+
 def model_box(path, cache={}):
     """A CE model's bounds (glTF metres, y up) as UE cm: (x, y, z extents),
     (x, y, z centre)."""
@@ -562,12 +567,25 @@ def swap(a):
         yaw = -math.degrees(e["rot"][0])
         key = f"{asset}|{n}"
         width = max(ext[0], ext[1])
+        instance_tree = kind == "tree" and e.get("instance") is not None
         if kind == "tree":
             variant = pinned[len(trees) % len(pinned)] if pinned else pick(
                 [v for v in options or [] if v in recipes] or list(recipes), key)
             r = recipes[variant]
             leaf_meshes.add(r.get("leaf_mesh", LEAVES))
             s = ext[2] / max(r["height"], 1.0)
+            if instance_tree:
+                # A Halo 2 instance (instance_scenery.py) stands on its
+                # lowest point, not its origin: Coagulation's cedars have
+                # their origin 4.4 m up the trunk, and a pine planted there
+                # hung in the air (2026-11-14). The stand-in's own lowest
+                # point (its parts' bounds, roots and all) goes there, a
+                # little under. A CE tree's origin is its ground point (its
+                # roots run up to 5 m below it, into the terrain): it stays.
+                lows = [(p["off"][2] + bounds[k]["min"][2]) * s for p in r["parts"]
+                        for k in (p["mesh"], p["mesh"].split(".")[0]) if k in bounds][:len(r["parts"])]
+                low = min(lows) if lows else 0.0
+                z = z + base - low - INSTANCE_SINK
             trees.append((x, y, z, ext[2]))
             if pinned:
                 print(f"  tree {len(trees)} at ({x / 100:.1f}, {y / 100:.1f}) m: {variant}")
