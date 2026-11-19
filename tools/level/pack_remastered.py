@@ -36,6 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from machine_containers import map_tag_containers, pack_path  # noqa: E402
 from owned_map_cook import verified_owned_cook  # noqa: E402
+from cooked_map_container import cooked_map_container  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 LAUNCHER = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher")
@@ -79,13 +80,24 @@ def stage(code, m, work, out):
         copy_pair(str(verified_owned_cook(code, m, w)), dst)
     else:
         fresh = os.path.join(w, f"pakchunk985-MJOLNIRCOOK-{code}_P")
-        copy_pair(fresh if os.path.exists(fresh + ".utoc") else os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"),
-                  dst)
+        if os.path.exists(fresh + ".utoc"):
+            copy_pair(fresh, dst)
+        elif m.get("conversion_containers"):
+            copy_pair(str(cooked_map_container(m["conversion"], code)), dst)
+        else:
+            copy_pair(os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
     # The bake's native clones of the rocks' materials (`native_rock_materials`).
     if m.get("native_rock_materials"):
         copy_pair(os.path.join(w, "bake", f"pakchunk970-MJOLNIRROCK-{code}_P"), dst)
+    # The meshes the install stage installs: the config's, else with
+    # `conversion_containers` or an owned cook the conversion's own (a map
+    # converted again since its hub copy names meshes that copy lacks:
+    # Containment 2.0.0 shipped the classic copy's container, without its
+    # gate parts, 2026-11-18), else the hub copy's.
     if m.get("mesh_container"):
         copy_pair(m["mesh_container"], dst)
+    elif m.get("conversion_containers") or m.get("map_mesh_chunk"):
+        copy_pair(os.path.join(m["conversion"], f"pakchunk986-MJOLNIRMESH-{code}_P"), dst)
     else:
         copy_pair(os.path.join(cache, f"pakchunk986-MJOLNIRMESH-{code}_P"), dst)
     if m.get("indoor"):
