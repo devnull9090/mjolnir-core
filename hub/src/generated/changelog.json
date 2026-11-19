@@ -43,15 +43,15 @@
       "productName": "MJOLNIR Code Mods",
       "version": "0.53.1",
       "tag": "mods-v0.53.1",
-      "title": "Containment crash fix",
+      "title": "A missing map part can't crash the game",
       "date": "2026-11-18",
-      "summary": "Fixes a crash loading Containment, most often after playing Zanzibar.",
-      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.20.1.\n\n- **No crash on Containment.** The game could crash a couple of seconds\n  after Containment loaded, right after Zanzibar or whenever its gates had\n  not finished loading. The loader now waits for a moving part to load\n  before it dresses it. Containment 2.0.1 and Ascension 2.0.1, out now,\n  also bring back Containment's gates and panels.",
+      "summary": "The loader no longer crashes when a map's moving part has no mesh, as happened on Containment 2.0.0.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.20.1.\n\n- **No crash from a missing part.** Containment 2.0.0 shipped without its\n  gates' meshes, and the game crashed a couple of seconds after the map\n  loaded. Containment 2.0.1 puts the gates back; this loader also waits for\n  a moving part's mesh instead of crashing when it is missing or still\n  loading.",
       "sections": [
         {
           "heading": "Fixed",
           "items": [
-            "No crash on Containment. The game could crash a couple of seconds after Containment loaded, right after Zanzibar or whenever its gates had not finished loading. The loader now waits for a moving part to load before it dresses it. Containment 2.0.1 and Ascension 2.0.1, out now, also bring back Containment's gates and panels."
+            "No crash from a missing part. Containment 2.0.0 shipped without its gates' meshes, and the game crashed a couple of seconds after the map loaded. Containment 2.0.1 puts the gates back; this loader also waits for a moving part's mesh instead of crashing when it is missing or still loading."
           ]
         }
       ],
