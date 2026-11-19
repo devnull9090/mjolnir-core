@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.53.1",
+      "tag": "mods-v0.53.1",
+      "title": "Containment crash fix",
+      "date": "2026-11-18",
+      "summary": "Fixes a crash loading Containment, most often after playing Zanzibar.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.20.1.\n\n- **No crash on Containment.** The game could crash a couple of seconds\n  after Containment loaded, right after Zanzibar or whenever its gates had\n  not finished loading. The loader now waits for a moving part to load\n  before it dresses it. Containment 2.0.1 and Ascension 2.0.1, out now,\n  also bring back Containment's gates and panels.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "No crash on Containment. The game could crash a couple of seconds after Containment loaded, right after Zanzibar or whenever its gates had not finished loading. The loader now waits for a moving part to load before it dresses it. Containment 2.0.1 and Ascension 2.0.1, out now, also bring back Containment's gates and panels."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.53.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.53.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.53.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.53.0",
       "tag": "mods-v0.53.0",
       "title": "Your own sound mix, and maps that sound like Halo 2",
