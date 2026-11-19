@@ -14,6 +14,19 @@
 --- is fitted once to what the part does (its angle about the axis, sampled
 --- while the player can see it: the game poses no part it hides), then the
 --- events play on the clock, the loop sleeping until the next is due.
+--- Whether `actor` belongs to the world named `worldName` (a world's
+--- GetFullName, "World /Game/.../CNT/CNT.CNT"). Right after a map change
+--- FindAllOf still returns the last map's actors, being destroyed but not
+--- yet freed; reading one (its location, its components) crashed the game
+--- in UE4SS going from Zanzibar to Containment (2026-11-18), whose gate
+--- panels are found the moment the map is dressed.
+local function inWorld(actor, worldName)
+    local path = type(worldName) == "string" and worldName:match("^%S+%s+(.+)$")
+    if not path then return false end
+    local ok, name = pcall(function() return actor:GetFullName() end)
+    return ok and type(name) == "string" and name:find(path .. ":", 1, true) ~= nil
+end
+
 local Gears = {}
 
 Gears.SCAN_S = 2.0
@@ -110,8 +123,10 @@ function Gears.new(d)
                 if not byClass then
                     byClass = {}
                     for _, a in ipairs(FindAllOf(Gears.ACTOR_CLASS) or {}) do
-                        local ok, name = pcall(function() return a:GetClass():GetFName():ToString() end)
-                        if ok and name then byClass[name] = a end
+                        if inWorld(a, d.Current.worldName) then
+                            local ok, name = pcall(function() return a:GetClass():GetFName():ToString() end)
+                            if ok and name then byClass[name] = a end
+                        end
                     end
                 end
                 local a = byClass[g.spec.class]
@@ -121,7 +136,12 @@ function Gears.new(d)
                     pcall(function()
                         for _, c in ipairs(a:K2_GetComponentsByClass(self.meshClass)) do
                             local comp = c:get()
-                            if comp.StaticMesh and comp.StaticMesh:GetFName():ToString() == leaf then
+                            -- A part whose mesh has not streamed in yet
+                            -- reads as a null object, and its name read
+                            -- crashes (doors.lua dress): skipped, looked at
+                            -- again next pass.
+                            local mesh = comp.StaticMesh
+                            if mesh and mesh:IsValid() and mesh:GetFName():ToString() == leaf then
                                 if type(g.spec.materials) == "table" and #g.spec.materials > 0 then
                                     d.applyMaterials(comp, g.spec.materials, d.getWorld(), g.spec.id)
                                 end

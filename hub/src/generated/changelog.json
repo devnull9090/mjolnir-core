@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.53.1",
+      "tag": "mods-v0.53.1",
+      "title": "A missing map part can't crash the game",
+      "date": "2026-11-18",
+      "summary": "The loader no longer crashes when a map's moving part has no mesh, as happened on Containment 2.0.0.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.20.1.\n\n- **No crash from a missing part.** Containment 2.0.0 shipped without its\n  gates' meshes, and the game crashed a couple of seconds after the map\n  loaded. Containment 2.0.1 puts the gates back; this loader also waits for\n  a moving part's mesh instead of crashing when it is missing or still\n  loading.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "No crash from a missing part. Containment 2.0.0 shipped without its gates' meshes, and the game crashed a couple of seconds after the map loaded. Containment 2.0.1 puts the gates back; this loader also waits for a moving part's mesh instead of crashing when it is missing or still loading."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.53.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.53.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.53.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.53.0",
       "tag": "mods-v0.53.0",
       "title": "Your own sound mix, and maps that sound like Halo 2",
