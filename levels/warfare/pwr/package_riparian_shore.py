@@ -1,5 +1,6 @@
 """Cooked-package and release checks for the outlet planting, cutbank and spring."""
 import argparse
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -8,7 +9,10 @@ from types import SimpleNamespace
 import package_pwr_headwater as p
 from bases_v1.stage_base_polish import seal_release, unpack_map
 from stage_apron_finish import asset_layout
-from stage_world_playtest import jsonfile
+from stage_world_playtest import jsonfile, stage_name
+import sys
+sys.path.insert(0, str(p.ROOT / "tools/level"))
+from flux_wrap_safe import make_level_safe
 
 WORK = p.ROOT / "out/pwr/river-riparian"
 BASIN = WORK.parent / "river-basin"
@@ -32,12 +36,16 @@ def prepare(version):
     p.out, p.n, p.maps, p.old = WORK, WORK/"packaging", WORK/"map-input", PRIOR
     p.apron = p.basin = False
     p.n.mkdir(exist_ok=True)
-    p.prepare(allowed_additions=additions, require_material_change=False)
+    # A round may also change named existing map assets, listed one by one in
+    # PWR_ALLOW_LAND_CHANGES (comma-separated container paths, e.g. the meadow pass's
+    # MJOLNIR/GrassPilot/Playable/GT_PWRPilot.uasset). Nothing else may change.
+    edits = {k.strip() for k in os.environ.get("PWR_ALLOW_LAND_CHANGES", "").split(",") if k.strip()}
+    p.prepare(allowed_additions=additions | edits, require_material_change=False)
     toc = p.LAND + ".utoc"
     changes = jsonfile(p.n/"land-diff.json")
     if not required <= {k for k,v in changes.items() if v[0] is None}:
         raise ValueError("Missing native lake packages")
-    if any(k not in additions and not k.endswith(("/LPE/LPE.umap","/LPE/LPE.ubulk",".ushaderbytecode")) for k in changes):
+    if any(k not in additions and k not in edits and not k.endswith(("/LPE/LPE.umap","/LPE/LPE.ubulk",".ushaderbytecode")) for k in changes):
         raise ValueError("Unrelated native art change: "+str(list(changes)))
     mount, container_id, before = asset_layout(p.LAND, PRIOR/toc)
     new_mount, new_id, after = asset_layout(p.LAND, p.maps/toc)
@@ -88,9 +96,15 @@ def stage(art, version):
             if p.sha(inputs/name)!=expected:
                 raise ValueError("Staged native package differs: "+name)
             hashes["content/"+name]=expected
+        # Baked Flux borders: wrap-safe, so the river tile's south edge does not blend with its
+        # high north edge into a curtain at the seam (tools/level/flux_wrap_safe.py).
+        changed, flux_report = make_level_safe(inputs/"pwr.level.json", inputs)
+        for rel in changed+["level.json"]:
+            member = "map/"+rel
+            hashes[member] = p.sha(inputs/stage_name(member))
         seal_release(args,folder,inputs,parent,hashes,manifest,dict(
             modified_members=sorted(k for k in hashes if hashes[k]!=original[k]),
-            riparian_shore=art,compiled_bsp_sha256=art["compiled_bsp_sha256"]))
+            riparian_shore=art,compiled_bsp_sha256=art["compiled_bsp_sha256"],flux_wrap_safe=flux_report))
         folder.rename(output)
     print(output)
 

@@ -1718,6 +1718,11 @@ def flux_state(code, p, flux, domain_id=None):
             verify_state_files(root,state)
             if path.parent.resolve()!=Path(work).resolve(): shutil.copytree(path.parent,work,dirs_exist_ok=True)
             Path(work,"state.json").write_text(json.dumps(state,indent=2)+"\n",encoding="utf-8")
+            # Imported state textures sample with wrap addressing: keep every border's blend
+            # with the opposite edge under the ground (flux_wrap_safe.py).
+            from flux_wrap_safe import make_state_safe
+            make_state_safe(p["work"],state)
+            Path(work,"state.json").write_text(json.dumps(state,indent=2)+"\n",encoding="utf-8")
             return state
         return None
     if os.path.exists(os.path.join(baked, "state.json")) and (
