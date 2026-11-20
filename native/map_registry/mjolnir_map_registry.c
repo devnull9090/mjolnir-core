@@ -1280,6 +1280,17 @@ static const code_patch_t MEGALO[] = {
      {0x48, 0x8d, 0x95, 0x08, 0x50, 0x00, 0x00, 0x48, 0x8b, 0xcb, 0xe8, 0x74, 0x69, 0x35, 0x00},
      {0xc7, 0x85, 0x08, 0x50, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0xb0, 0x01, 0x0f, 0x1f, 0x00},
      "variant file reader: size from the buffer, not the closed handle"},
+    // Game start 0x209a70: a distributed client (simulation type 4) jumped
+    // from 0x209b5e past both the host-only setup and the round reset
+    // 0x2ad560, where the loader decodes `mjolnir.mglo`. Reach's clients
+    // reset when the replicated engine state changes (0x2b1aa0), which never
+    // happens here, so every joiner played the default variant with no
+    // variables declared and decoded none of the host's replicated Megalo
+    // globals (a Pelican Warfare joiner read all zeros, 2026-11-19).
+    // Retarget the `je` to the `call 0x2ad560`: a client still skips the
+    // host-only calls, then runs the round reset, whose host-only parts carry
+    // their own type-4 gates.
+    {0x209b5e, 2, {0x74, 0x33}, {0x74, 0x2e}, "game start: a client runs the round reset (variant decode)"},
     // Shell event drain 0xe670, event 0/7 (the exit the Unreal host posts from
     // its shutdown, exe 0x7b24160, then waits on): with a game in progress it
     // sets the main loop's exit flag (0x1357023) only when the game options'
@@ -1295,7 +1306,7 @@ static const code_patch_t MEGALO[] = {
 };
 
 // Sites from this index on stay patched when the switch goes off.
-#define MEGALO_KEEP 6
+#define MEGALO_KEEP 7
 
 // MEGALO[0] is `mov r8d, <engine>`; its immediate is byte 2 of the site.
 #define ENGINE_IMMEDIATE 2
